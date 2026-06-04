@@ -3,14 +3,15 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from domain.base import DomainModel
 from domain.enums import Grade, Kind, State, Verdict
 from domain.signal import Provenance
 from domain.thesis import Catalyst
 
 
-class KeyState(BaseModel):
+class KeyState(DomainModel):
     """One of the two keys (Conviction / Confirmation) rendered on the call card."""
 
     turned: bool
@@ -18,14 +19,14 @@ class KeyState(BaseModel):
     detail: str | None = None
 
 
-class TriggerRef(BaseModel):
+class TriggerRef(DomainModel):
     label: str
     kind: Kind
     grade: Grade | None = None
     sources: list[Provenance] = Field(default_factory=list)
 
 
-class CallCard(BaseModel):
+class CallCard(DomainModel):
     """The opinionated, auditable call — a pure function of (thesis, events, asof), recomputed on read.
 
     This is the domain shape. The API response contract (CallCardResponse, M3) is kept separate so the

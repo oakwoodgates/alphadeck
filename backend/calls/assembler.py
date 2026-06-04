@@ -32,6 +32,9 @@ def assemble_call(
     active_risk = [e for e in events if e.role == Role.RISK_SIGNAL and e.fired]
 
     # Two keys (CALL_LOGIC §2): a conviction trigger only warms; arming needs confirmation.
+    # NOTE: keys are evaluated at the THESIS level across the whole basket (matches the mockup's
+    # "group breakout"). Whether a conviction and its confirmation must co-locate on the same
+    # security_id is a deliberate M3 design decision, surfaced in review — not settled here.
     conviction_on = any(e.kind in cfg.conviction_kinds for e in fired_entry)
     confirmation_on = any(e.kind in cfg.confirmation_kinds for e in fired_entry)
 
@@ -42,6 +45,9 @@ def assemble_call(
 
     both_keys = conviction_on and confirmation_on
     can_arm = (both_keys if cfg.arming_requires_confirmation else True) and grade is not None
+    risk_blocked = can_arm and bool(
+        blocking_risks
+    )  # armable, but a severe risk withholds it on timing
 
     state = _state(thesis, fired_entry, can_arm, bool(blocking_risks), cfg)
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
@@ -58,7 +64,7 @@ def assemble_call(
         state=state,
         verdict=_verdict(state, grade),
         grade=grade,
-        expression=_expression(state, grade),
+        expression=_expression(state, grade, risk_blocked),
         exit_by=exit_by,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
         confidence=confidence(fired_entry, active_risk, cfg),
@@ -142,17 +148,25 @@ def _missing(
     return missing
 
 
-def _expression(state: State, grade: Grade | None) -> str:
+def _expression(state: State, grade: Grade | None, risk_blocked: bool) -> str:
     if state == State.MANAGING:
         return "Position open — manage to the exit-by / half-life; trail the stop or take the gain."
-    if state == State.ARMED and grade == Grade.CORE:
-        return (
-            "CORE: spot + options dated past exit-by; build into the leaders/shovels of the basket."
-        )
-    if grade == Grade.FLIP:
+    if state == State.ARMED:
+        if grade == Grade.CORE:
+            return (
+                "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
+            )
         return (
             "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
         )
+    if risk_blocked:
+        # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
+        return (
+            "Entry withheld on risk/timing — the keys are in, but a severe risk signal must clear "
+            "before arming (see the counter-case)."
+        )
     if state == State.WARMING:
-        return "Not yet — hold for confirmation before any core entry; a flip is the only near-term play."
+        if grade == Grade.FLIP:
+            return "FLIP only (small, short-dated); the structural core entry isn't confirmed yet."
+        return "Not yet — hold for a volume-confirmed breakout before any core entry."
     return "Watching — banked idea, nothing to act on. No nag while incubating."

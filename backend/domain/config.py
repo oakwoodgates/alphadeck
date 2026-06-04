@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
-
+from domain.base import DomainModel
 from domain.enums import Kind
 
 
-class CallConfig(BaseModel):
+class CallConfig(DomainModel):
     """Every ``TODO(operator)`` threshold lives here — never hardcoded in the assembler.
 
     Start conservative. These are starting defaults to calibrate against real calls
@@ -15,9 +14,7 @@ class CallConfig(BaseModel):
 
     # --- state transitions (§2) ---
     warming_min_entry_triggers: int = 1
-    arming_requires_confirmation: bool = (
-        True  # the two-key gate: conviction warms, confirmation arms
-    )
+    arming_requires_confirmation: bool = True  # two-key gate: conviction warms, confirmation arms
     conviction_kinds: frozenset[Kind] = frozenset({Kind.INSIDER})
     confirmation_kinds: frozenset[Kind] = frozenset({Kind.TECHNICAL_BREAKOUT, Kind.LAGGARD})
 
@@ -28,9 +25,7 @@ class CallConfig(BaseModel):
 
     # --- confidence (§7) ---
     single_detector_cap: float = 0.80  # a one-detector call never reads "high"
-    risk_penalty_per_signal: float = (
-        0.10  # confidence reduction per active risk signal (scaled by score)
-    )
+    risk_penalty_per_signal: float = 0.10  # confidence cut per active risk signal (scaled by score)
 
     # --- dilution severity (used by the dilution detector in M4a) ---
     dilution_block_runway_months: float = 6.0
