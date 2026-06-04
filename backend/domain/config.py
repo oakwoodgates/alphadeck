@@ -30,5 +30,22 @@ class CallConfig(DomainModel):
     # --- dilution severity (used by the dilution detector in M4a) ---
     dilution_block_runway_months: float = 6.0
 
+    # --- insider_conviction (Key 1) — grade rule (§3); starting placeholders, calibrate later ---
+    insider_lookback_days: int = 90
+    insider_min_usd: float = 10_000.0  # below this open-market total, no signal
+    insider_core_min_distinct: int = 2
+    insider_core_min_usd: float = 100_000.0
+    insider_senior_role_keywords: frozenset[str] = frozenset(
+        {"chief executive", "ceo", "chief financial", "cfo"}
+    )
+    insider_alpha_half_life_days: int = 18
+
+    # --- volume_breakout (Key 2) — deliberately minimal; placeholders, calibrate later ---
+    breakout_lookback_days: int = 90
+    breakout_base_window: int = 20  # bars forming the base (excluding the asof bar)
+    breakout_min_base_bars: int = 5
+    breakout_volume_mult: float = 1.5  # asof volume >= mult x base average volume
+    breakout_alpha_half_life_days: int = 10
+
 
 DEFAULT_CONFIG = CallConfig()
