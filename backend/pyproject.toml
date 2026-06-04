@@ -1,0 +1,38 @@
+[project]
+name = "alphadeck-backend"
+version = "0.0.0"
+description = "Alpha Deck backend — the thesis spine, signal detectors, and the call-assembler."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "black>=24.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]  # long evidence/label strings; black handles real wrapping
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "domain", "calls", "app", "db", "ingest", "securities",
+    "signals", "repositories", "pipeline", "replay", "llm", "tests",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"  # the sandboxed working dir denies .pytest_cache writes

@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from datetime import date
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+from domain.enums import Grade, Kind, State, Verdict
+from domain.signal import Provenance
+from domain.thesis import Catalyst
+
+
+class KeyState(BaseModel):
+    """One of the two keys (Conviction / Confirmation) rendered on the call card."""
+
+    turned: bool
+    label: str
+    detail: str | None = None
+
+
+class TriggerRef(BaseModel):
+    label: str
+    kind: Kind
+    grade: Grade | None = None
+    sources: list[Provenance] = Field(default_factory=list)
+
+
+class CallCard(BaseModel):
+    """The opinionated, auditable call — a pure function of (thesis, events, asof), recomputed on read.
+
+    This is the domain shape. The API response contract (CallCardResponse, M3) is kept separate so the
+    wire shape can resolve provenance to URLs without coupling the frontend to the domain schema.
+    """
+
+    thesis_id: UUID
+    asof: date
+    state: State
+    verdict: Verdict
+    grade: Grade | None = None
+    expression: str
+    exit_by: date | None = None
+    catalyst_surface: list[Catalyst] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+    key_conviction: KeyState
+    key_confirmation: KeyState
+    triggers_fired: list[TriggerRef] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    counter_case: str = ""
+    safe_sleeve: str | None = None
