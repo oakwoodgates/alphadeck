@@ -11,7 +11,7 @@ from db.session import DEFAULT_TENANT_ID, connect
 
 @pytest.fixture(scope="session")
 def _migrated():
-    """Apply migrations once; skip every DB test if Postgres isn't reachable."""
+    """Apply migrations once; skip every DB-backed test if Postgres isn't reachable."""
     try:
         conn = connect()
     except psycopg.OperationalError as exc:

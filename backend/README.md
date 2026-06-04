@@ -5,7 +5,8 @@ Python project root. Packages land per the build plan:
 - `domain/` — the spine: `Thesis`, `SignalEvent`, `CallCard`, `CallConfig` (Pydantic).
 - `calls/` — the **call-assembler**: pure, deterministic, golden-tested `assemble_call(...)`.
 - `db/` — bitemporal Postgres store: schema + migrations, `as_of(asof, known_at)` reads, append-only facts.
-- (M1b+) `securities/`, `ingest/`, `signals/`, `repositories/`, `pipeline/`, `app/`, `llm/`, `replay/`.
+- `securities/` — canonical security master + entity resolution (OpenFIGI + SEC CIK, cache-first).
+- (M2+) `ingest/`, `signals/`, `repositories/`, `pipeline/`, `app/`, `llm/`, `replay/`.
 
 ## Dev setup
 

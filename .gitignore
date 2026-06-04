@@ -219,3 +219,6 @@ __marimo__/
 
 # Claude
 .claude/
+
+# Alpha Deck runtime data — on-disk caches (EDGAR/OpenFIGI/SEC), Parquet snapshots, DuckDB. Not committed.
+data/
