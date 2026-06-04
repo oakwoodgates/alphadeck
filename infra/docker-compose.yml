@@ -1,0 +1,21 @@
+name: alphadeck
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: alphadeck
+      POSTGRES_PASSWORD: alphadeck
+      POSTGRES_DB: alphadeck
+    ports:
+      - "5544:5432" # non-default host port to avoid clashing with a local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alphadeck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

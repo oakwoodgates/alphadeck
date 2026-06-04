@@ -5,6 +5,7 @@ description = "Alpha Deck backend — the thesis spine, signal detectors, and th
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.6",
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
