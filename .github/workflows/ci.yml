@@ -17,6 +17,22 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alphadeck
+          POSTGRES_PASSWORD: alphadeck
+          POSTGRES_DB: alphadeck
+        ports:
+          - 5544:5432
+        options: >-
+          --health-cmd "pg_isready -U alphadeck"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://alphadeck:alphadeck@localhost:5544/alphadeck
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,7 +40,7 @@ jobs:
           python-version: "3.13"
       # No lockfile yet; pin the linters/formatter so CI matches local, keep libs loose.
       - name: Install dev dependencies
-        run: pip install "pydantic>=2.6" "pytest>=8" "ruff==0.15.15" "black==26.5.1"
+        run: pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "pytest>=8" "ruff==0.15.15" "black==26.5.1"
       - name: Ruff (lint)
         run: ruff check .
       - name: Black (format check)
