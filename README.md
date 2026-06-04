@@ -1,10 +1,10 @@
-# alphadeck
+# Alpha Deck
 
 **A research cockpit for hunting, validating, timing, and managing equity theses.**
 A "DD engine" that helps a discretionary trader turn early narrative convictions into *well-timed* trades — decision-support, not execution.
 
 > Working codename: **Alpha Deck**. US equities first; commodities / crypto / prediction markets later.
-> Full design rationale lives in [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements in [`CLAUDE.md`](CLAUDE.md).
+> Design rationale: [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements: [`CLAUDE.md`](CLAUDE.md). The decision logic: [`docs/CALL_LOGIC.md`](docs/CALL_LOGIC.md). Data sourcing: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md). UI mockups in [`docs/mockups/`](docs/mockups/).
 
 ---
 
@@ -32,6 +32,7 @@ Maps the operator's six hunts onto capabilities:
 | SEC filing / insider alpha | EDGAR firehose, insider-conviction scoring, dilution clock |
 | Short squeezes | Squeeze radar (SI / DTC / borrow / gamma, gated on a catalyst) |
 | Sector tracking | Sector dashboard with "section headline" lenses |
+| Low-risk thematic exposure | **ETF radar** — availability + coming launches (SEC N-1A/485) + holdings/flows; the safe-exposure expression of a thesis |
 
 ## How it works — two halves on one spine
 
@@ -43,11 +44,11 @@ Maps the operator's six hunts onto capabilities:
 **Trigger grading:** every fire is graded *flip* vs *core/structural* and typed (regulatory, promoter/attention, technical breakout, clinical readout, squeeze, personnel). Expression follows grade.
 **The call layer is opinionated and auditable:** the platform *makes the call and shows its work* — verdict + expression + exit-by, the triggers that fired (with source links), what's missing, the counter-case, a calibrated confidence, and `act / override / snooze`. An override is a logged bet against documented evidence, then scored.
 
-See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lenses, and analytic components (momentum-health classifier, personality-backed attention proxy, dilution clock, laggard scanner, insider-conviction scoring) in full.
+See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lenses, and analytic components (momentum-health classifier, personality-backed attention proxy, dilution clock, laggard scanner, insider-conviction scoring, ETF radar) in full.
 
 ## Surfaces (UI)
 
-Four surfaces; a clickable mockup of the first two exists (`mockup_board_cockpit.html`).
+Four surfaces; three clickable mockups exist in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, and a segment cockpit).
 
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), basket with archetype tags, evidence, catalyst calendar, and the live **call card**.
@@ -79,7 +80,7 @@ Three load-bearing decisions drive the shape:
 ## Repo layout (proposed)
 
 ```
-alphadeck/
+alpha-deck/
 ├── README.md
 ├── CLAUDE.md
 ├── docs/PROJECT_OVERVIEW.md

@@ -109,6 +109,7 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
   - *SEC / filing intelligence* (insider cluster buys, material 8-Ks, dilution clock).
   - *Personality-backed attention magnets* (see §10).
   - *Catalyst calendar + attention velocity* (forward dates + mention rate-of-change).
+- **ETF radar** — which ETFs express the theme now, which are filed/coming, and what they hold and are accumulating. The low-torque, long-duration *expression* of the thesis (see §10).
 
 ## 10. Key analytic components
 
@@ -119,12 +120,13 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 - **Emergence detector** — composite of regulatory/personnel milestones + attention rate-of-change + institutional first-footprint (first 13F, first initiation, first thematic ETF) + capital-markets activity (IPO/SPAC pipeline, uplistings).
 - **Insider-conviction scoring** — open-market buys only, weighted by opportunistic-vs-routine trader, clustering, role (CEO/CFO), size, and proximity to earnings.
 - **Squeeze radar** — SI % / days-to-cover / borrow fee + utilization / gamma overlay, gated on a catalyst and an attention spike.
+- **ETF radar** — three faces on free/EDGAR data: (1) *availability* — the thematic ETFs expressing a theme today; (2) *coming* — new ETF registrations (SEC N-1A / 485 filings), where a fresh thematic launch is itself an emergence marker (early signal, sometimes a top); (3) *holdings & flows* — ETF holdings seed the decomposition universe for free, and holdings changes + AUM flows are a positioning signal. Always surfaces fund internals (holdings, weights, expense ratio, AUM, liquidity/spread) so a mislabeled or thin/expensive fund is visible, not assumed. **Role:** the *safe-exposure sleeve* — the durable, low-torque expression of a thesis (give up the leader/lotto upside for duration and diversification), distinct from the single-name alpha sleeve.
 
 ## 11. Constraints & key decisions
 
 - **Horizon:** swing trades; see §6.
 - **v1 scope:** human-in-the-loop; **explainability over execution**. No trade execution — advisory only; operator logs fills so the thesis stays tied to the live position.
-- **Data posture:** bootstrap on free sources (EDGAR, FINRA short interest, free price/fundamentals, on-chain/crypto data for crypto-adjacent themes). Pay case-by-case for the right thing (borrow data, options/gamma, premium fundamentals).
+- **Data posture:** bootstrap on free sources (EDGAR incl. N-1A/485 for ETF launches, FINRA short interest, free price/fundamentals, public ETF holdings, on-chain/crypto data for crypto-adjacent themes). Pay case-by-case for the right thing (borrow data, options/gamma, premium fundamentals, ETF flows). See `docs/DATA_SOURCES.md`.
 - **LLM-in-the-loop:** filing classification & summarization, DD drafting, and the reasoning behind each "call" (with citations to source).
 - **Trajectory:** personal project first; possible SaaS later. Keep multi-tenant seams in the schema, but don't pay the multi-tenant tax yet.
 
@@ -143,10 +145,12 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 4. **Laggard scanner + theme taxonomy** — over EOD price.
 5. **Squeeze radar / options-gamma** — phase in when paying for borrow + options data.
 
+*ETF radar phases across the above: holdings-as-universe-seed lands early (it feeds the decomposition in step 3); the new-launch detector rides the EDGAR brick (step 2); flows/positioning come later alongside the signal engine.*
+
 ## Status of earlier open questions
 
 Resolved since this doc was drafted (now captured in `README.md` / `CLAUDE.md`):
-- **UI design** — four surfaces (Board / Cockpit / Workbench / Scoreboard) with the inverse-loudness principle; clickable Board + Cockpit mockup built.
+- **UI design** — four surfaces (Board / Cockpit / Workbench / Scoreboard) with the inverse-loudness principle; three mockups built (Board+Cockpit, 2025 umbrella board, segment cockpit) in `docs/mockups/`.
 - **Codename** — Alpha Deck.
 - **Tech stack** — Postgres + DuckDB/Parquet, Python/FastAPI/Polars/Pydantic, React/Vite/Tailwind/TanStack Query, Anthropic API behind a model-agnostic interface.
 

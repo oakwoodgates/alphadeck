@@ -21,17 +21,14 @@ The assembler is **pure and deterministic**: same thesis + same signal events + 
 
 ## 1. Inputs
 
-Per fired `SignalEvent` (see `domain/signal.py`): `detector, security_id, grade, type, score, fired, label, alpha_half_life_days, provenance, asof`.
+Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, type, grade, score, fired, label, alpha_half_life_days, provenance, asof`.
 
-Two classes of signal, treated differently:
-- **Entry triggers** — push a thesis toward Armed (e.g. `insider_conviction`, future `technical_breakout`, `laggard`, `squeeze`).
-- **Risk signals** — never push toward entry; feed `counter_case` / `kill_criteria` (e.g. `dilution_clock`). A risk signal firing should *lower* confidence or *block* an Armed call, never raise it.
+**Signal taxonomy `[SPECIFIED]` (confirmed).** Three orthogonal fields:
+- **`role`** — `entry_trigger` vs `risk_signal`. Only entry triggers can turn the two keys; risk signals feed `counter_case` / `kill_criteria` / confidence and never raise readiness.
+- **`kind`** — what produced the signal: `insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …` (extensible).
+- **`type`** — the catalyst nature where one applies: `regulatory | promoter_attention | clinical_readout | personnel | …`. Optional; many signals (e.g. a breakout) have a `kind` but no catalyst `type`.
 
-> **Open modeling question (surface, don't silently resolve):** the current `TriggerType` enum
-> `{regulatory, promoter_attention, technical_breakout, clinical_readout, squeeze, personnel}` has no
-> value for insider-buying or for risk signals like dilution. Decide whether to (a) add an `insider`
-> type + an `is_risk` flag, or (b) split `SignalEvent` into entry-trigger vs risk-signal subtypes.
-> `TODO(operator)` to confirm direction before M3 schemas freeze.
+So `insider_conviction` is `role=entry_trigger, kind=insider`; `dilution_clock` is `role=risk_signal, kind=dilution_risk`; a new ETF launch is `role=entry_trigger (low-grade), kind=etf_launch, type=…`; ETF flows are `kind=etf_flow`.
 
 ## 2. State-transition rules  `TODO(operator)`
 
@@ -47,8 +44,10 @@ Fill the thresholds — these are the heart of the opinionated call:
 | any → **Managing** | Operator has logged a fill (position exists). |
 | Armed/Warming → **Incubating** | `TODO(operator)`: e.g. "all fired triggers aged past their half-life with no entry," or a flip resolved. |
 
-> Guard: a **risk signal must be able to hold a thesis out of Armed** even if an entry trigger fired
-> (e.g. critically short runway). `TODO(operator)`: define the veto/penalty rule.
+> **Risk-veto rule `[SPECIFIED]` (confirmed).** A risk signal *penalizes confidence* and, when severe
+> (e.g. critically short runway / imminent dilution), *blocks the Armed call* even if an entry trigger
+> fired — a soft veto on **timing**. It never vetoes the **thesis** itself (that stays the operator's call).
+> Severity threshold is `TODO(operator)` / calibrated; the block-vs-penalize behavior is fixed.
 
 ## 3. Grade decision  `TODO(operator)`
 
@@ -79,6 +78,7 @@ Verdict follows deterministically from state + grade (confirm the table):
 Suggested expression follows the grade (confirm/refine):
 - **flip** → small size, short-dated options, explicit "do not hold"; exit-by at/just past the catalyst.
 - **core** → spot + options dated *past* exit-by; build into the leaders/shovels of the basket.
+- **ETF / safe sleeve** → for durable, long-duration exposure to the *whole* theme (usually offered at the umbrella/thesis level, not per Armed segment): a thematic ETF from the ETF radar. Lower torque — gives up the leader/lotto upside for duration and diversification. Always presented with fund internals (holdings, weights, expense ratio, AUM, liquidity) so the operator sees whether the ETF actually expresses the thesis. This is the floor, not the alpha; it can run *alongside* the single-name expressions, not instead of the call.
 
 ## 6. Exit-by & catalyst surface  `[SPECIFIED]`
 
@@ -116,8 +116,8 @@ cached cluster of Form 4 open-market buys. The pipeline runs detectors as-of and
 
 - `insider_conviction` → `fired=true, grade=core, score=0.82,`
   `label="3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",`
-  `alpha_half_life_days=18, provenance→[form4:DEVCO:...]`  *(an **entry** trigger)*
-- `dilution_clock` → `fired=true (risk), label="runway 14 mo, no recent shelf/ATM"`  *(a **risk** signal — feeds counter-case, not triggers_fired)*
+  `alpha_half_life_days=18, provenance→[form4:DEVCO:...]`  *(`role=entry_trigger, kind=insider`)*
+- `dilution_clock` → `fired=true, label="runway 14 mo, no recent shelf/ATM"`  *(`role=risk_signal, kind=dilution_risk` — feeds counter-case + confidence, not triggers_fired)*
 
 **Assembly.**
 - **State:** one `core` entry trigger fired + [confirmation rule §2] satisfied → **Armed**.

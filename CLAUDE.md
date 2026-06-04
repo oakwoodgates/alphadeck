@@ -48,13 +48,14 @@ Use these terms precisely; they are the ubiquitous language of the codebase.
 
 - **Thesis** — first-class object: `narrative`, `basket`, `evidence[]`, `catalysts[]`, `signals[]`, `kill_criteria[]`, `expression`/`position`.
 - **Lifecycle states** (a loop, not a one-way ratchet): `Incubating → Warming → Armed → Managing`.
-- **Trigger grade**: `flip` (fast, sentiment-driven; small size, short-dated, do not hold) vs `core` (structural; build the position).
-- **Trigger type**: `regulatory | promoter_attention | technical_breakout | clinical_readout | squeeze | personnel`.
+- **Signal taxonomy** (three orthogonal fields): **`role`** = `entry_trigger | risk_signal` (only entry triggers turn the keys; risk signals feed counter-case/confidence and can soft-veto *timing*); **`kind`** = what produced it (`insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …`); **`type`** = catalyst nature where one applies (`regulatory | promoter_attention | clinical_readout | personnel | …`, optional).
+- **Trigger grade**: `flip` (fast, sentiment-driven; small size, short-dated, do not hold) vs `core` (structural; build the position). Applies to entry triggers.
 - **Archetype** (basket member role): `leader | high_beta | lotto | shovel`.
 - **Alpha half-life** — how long a signal's edge persists; sets the **exit-by** date.
 - **Catalyst surface** — the binary events crossed between entry and exit-by.
 - **Call card** — `{ verdict, grade, expression, exit_by, triggers_fired[] (with sources), missing[], counter_case, confidence, actions }`.
 - **The gate** — advisory friction: withhold the go-signal + readiness scorecard + logged override.
+- **ETF radar** — per-theme ETF intelligence: *availability* (which ETFs express the theme), *coming launches* (SEC N-1A/485 — a new thematic launch is an emergence-kind signal), and *holdings/flows* (free universe seed + positioning signal). An ETF is also a low-torque **expression** of a thesis (the safe-exposure sleeve), always surfaced with fund internals (holdings, weights, expense ratio, AUM, liquidity).
 
 ## Architecture & stack
 
@@ -85,8 +86,9 @@ Reject or defer (flag, don't silently build): trade execution / brokerage integr
 
 ## Data sources
 
-- **Free (v1 baseline):** SEC EDGAR (filings, full-text search, XBRL), FINRA short interest, OpenFIGI, free EOD price/fundamentals, on-chain/crypto data for crypto-adjacent themes only.
-- **Paid, case-by-case (later):** borrow fee/utilization, options/gamma, premium fundamentals.
+Full detail in `docs/DATA_SOURCES.md`. Summary:
+- **Free (v1 baseline):** SEC EDGAR (filings, full-text search, XBRL, and N-1A/485 for new ETF registrations), FINRA short interest, OpenFIGI, free EOD price/fundamentals, public ETF holdings, on-chain/crypto data for crypto-adjacent themes only.
+- **Paid, case-by-case (later):** borrow fee/utilization, options/gamma, premium fundamentals, ETF flow data (or derive from shares-outstanding × NAV).
 - **EDGAR etiquette:** declared User-Agent, respect the documented rate limit, cache aggressively. Ingestion politeness is a correctness requirement, not a nicety.
 
 ## Commands
