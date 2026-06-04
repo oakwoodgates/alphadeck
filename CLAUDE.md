@@ -9,6 +9,27 @@ This file is about **how to build Alpha Deck correctly**; the *what* and *why* l
 
 Alpha Deck helps a discretionary trader turn early narrative convictions into well-timed trades. It is **decision-support, not execution**. Its job is to *preserve the operator's edge* (early narrative-spotting) and *patch the flaw* (timing, name selection). Be **opinionated about timing, deferential about thesis**.
 
+## Project stage
+
+Solo, greenfield, validating whether the core loop is useful for one trader. Right-size everything to that:
+- Prefer the **simplest thing that proves the loop** over the most complete or scalable thing.
+- The invariants below are non-negotiable; **process ceremony is not.** Defer parallel worktrees, heavy CI, full bitemporal-correction semantics, orchestration, and similar unless they earn their keep *this pass*.
+- Fewer milestones with a faster path to a runnable core loop beats a comprehensive milestone tree.
+
+## North star — what "done" means
+
+Success for a build pass is a **working product loop, not completed milestones.** A pass is done when a *single real thesis* flows end-to-end and produces a real, opinionated, evidence-linked **Armed call** the operator would act on: computed signals → state/verdict/grade/exit-by → the Armed CallCard with provenance links, visible in Board + Cockpit, on **real (not static) data**.
+
+Plumbing that never reaches a computed Armed call is not the goal. Build the foundation *in service of reaching that loop*, not as a destination. A plan that defers the computed call to "later" has the priorities backwards.
+
+## The call logic is the product
+
+How `SignalEvent`s compose into lifecycle state, verdict, grade, expression, and exit-by is the platform's brain — the "make the call and show its work" promise. It is **not** an emergent recompute. Make it a named, first-class, golden-tested component, and keep its rules in `docs/CALL_LOGIC.md`. Where those rules aren't specified yet, **propose them for the operator's sign-off before building** — this is where the operator's edge lives, not yours.
+
+## Propose, don't assume
+
+When planning or designing, separate **what these docs specify** from **what you are proposing**. Surface assumptions and unresolved choices as open questions for the operator to confirm — do not label your own choices as decisions already made or "locked with the user." A plan built on unconfirmed guesses, however polished, is worse than a shorter one that names what it still needs to know.
+
 ## Non-negotiable invariants
 
 Do not violate these. If a request seems to require violating one, stop and flag it.
