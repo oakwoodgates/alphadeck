@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from calls.confidence import confidence
 from calls.counter_case import deterministic_counter_case
-from calls.grading import call_grade
+from calls.grading import call_grade, weaker_grade
 from domain.call import CallCard, KeyState, TriggerRef
 from domain.config import CallConfig
 from domain.enums import Grade, Role, State, Verdict
@@ -38,25 +38,34 @@ def assemble_call(
     conviction_on = any(e.kind in cfg.conviction_kinds for e in fired_entry)
     confirmation_on = any(e.kind in cfg.confirmation_kinds for e in fired_entry)
 
-    grade = call_grade(fired_entry)
+    # Two grades, kept distinct (CALL_LOGIC §4): the CONVICTION grade is the thesis quality (the
+    # conviction key); the ENTRY grade is the weaker of the two keys and is what drives the verdict
+    # the operator acts on — so a core thesis whose volume hasn't confirmed reads as a STARTER entry,
+    # never a bare "core entry" (which invites over-committing). Conviction is shown separately so the
+    # thesis's core quality isn't lost; starter is the upgrade path to a full core entry.
+    conviction_events = [e for e in fired_entry if e.kind in cfg.conviction_kinds]
+    confirmation_events = [e for e in fired_entry if e.kind in cfg.confirmation_kinds]
+    conviction_grade = call_grade(conviction_events)
+    confirmation_grade = call_grade(confirmation_events)
+    entry_grade = weaker_grade(conviction_grade, confirmation_grade)
 
     # Risk-veto (§2): a severe risk signal withholds the Armed call on TIMING, never the thesis.
     blocking_risks = [r for r in active_risk if r.score >= cfg.risk_block_severity]
 
     both_keys = conviction_on and confirmation_on
-    can_arm = (both_keys if cfg.arming_requires_confirmation else True) and grade is not None
+    can_arm = (both_keys if cfg.arming_requires_confirmation else True) and entry_grade is not None
     risk_blocked = can_arm and bool(
         blocking_risks
     )  # armable, but a severe risk withholds it on timing
 
     state = _state(thesis, fired_entry, can_arm, bool(blocking_risks), cfg)
 
-    # Graded confirmation (CALL_LOGIC §3): a volume-backed breakout is CORE-quality; a momentum thrust
-    # on weak volume still arms but is flip-grade — surfaced as reduced confidence, a volume-gap
-    # counter-case, and a cautious expression. Volume stays central to what "confirmation" means.
-    confirmation_events = [e for e in fired_entry if e.kind in cfg.confirmation_kinds]
-    volume_confirmed = any(e.grade == Grade.CORE for e in confirmation_events)
-    momentum_only = bool(confirmation_events) and not volume_confirmed and state == State.ARMED
+    # Graded confirmation (§3): a volume-backed breakout is CORE-quality; a momentum thrust on weak
+    # volume still arms but as a flip-grade (STARTER) entry — surfaced as the starter verdict, reduced
+    # confidence, a volume-gap counter-case, and a cautious expression. Volume stays central.
+    momentum_only = (
+        bool(confirmation_events) and confirmation_grade != Grade.CORE and state == State.ARMED
+    )
 
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
     exit_by = _exit_by(fired_entry, asof)
@@ -78,9 +87,10 @@ def assemble_call(
         thesis_id=thesis.id,
         asof=asof,
         state=state,
-        verdict=_verdict(state, grade),
-        grade=grade,
-        expression=_expression(state, grade, risk_blocked, momentum_only),
+        verdict=_verdict(state, conviction_grade, entry_grade),
+        conviction_grade=conviction_grade,
+        entry_grade=entry_grade,
+        expression=_expression(state, conviction_grade, entry_grade, risk_blocked, momentum_only),
         exit_by=exit_by,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
         confidence=confidence(fired_entry, active_risk, cfg, momentum_only=momentum_only),
@@ -128,14 +138,18 @@ def _state(
     return State.INCUBATING
 
 
-def _verdict(state: State, grade: Grade | None) -> Verdict:
+def _verdict(state: State, conviction_grade: Grade | None, entry_grade: Grade | None) -> Verdict:
     if state == State.INCUBATING:
         return Verdict.WATCHING
     if state == State.MANAGING:
         return Verdict.MANAGING
     if state == State.ARMED:
-        return Verdict.CORE_ENTRY if grade == Grade.CORE else Verdict.FLIP_ONLY
-    return Verdict.FLIP_ONLY if grade == Grade.FLIP else Verdict.NOT_YET
+        if conviction_grade == Grade.FLIP:
+            return Verdict.FLIP_ONLY  # a flip thesis: small, short-dated, do-not-hold
+        # core thesis (hold-and-build): a full core entry only when confirmation is volume-backed
+        # (entry grade core); otherwise a STARTER entry that upgrades to core when volume confirms.
+        return Verdict.CORE_ENTRY if entry_grade == Grade.CORE else Verdict.STARTER_ENTRY
+    return Verdict.FLIP_ONLY if conviction_grade == Grade.FLIP else Verdict.NOT_YET
 
 
 def _exit_by(fired_entry: list[SignalEvent], asof: date) -> date | None:
@@ -164,23 +178,24 @@ def _missing(
     return missing
 
 
-def _expression(state: State, grade: Grade | None, risk_blocked: bool, momentum_only: bool) -> str:
+def _expression(
+    state: State,
+    conviction_grade: Grade | None,
+    entry_grade: Grade | None,
+    risk_blocked: bool,
+    momentum_only: bool,
+) -> str:
     if state == State.MANAGING:
         return "Position open — manage to the exit-by / half-life; trail the stop or take the gain."
     if state == State.ARMED:
         if momentum_only:
-            lead = "CORE conviction" if grade == Grade.CORE else "FLIP"
             return (
-                f"{lead}, but the breakout is momentum-only (volume hasn't confirmed) — size "
-                "cautiously / treat as a flip-style starter until volume backs the move."
+                "Core thesis, STARTER entry — the breakout is momentum-only (volume hasn't "
+                "confirmed). Start small; build to core size only when a real volume breakout confirms."
             )
-        if grade == Grade.CORE:
-            return (
-                "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
-            )
-        return (
-            "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
-        )
+        if conviction_grade == Grade.FLIP:
+            return "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
+        return "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
     if risk_blocked:
         # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
         return (
@@ -188,7 +203,7 @@ def _expression(state: State, grade: Grade | None, risk_blocked: bool, momentum_
             "before arming (see the counter-case)."
         )
     if state == State.WARMING:
-        if grade == Grade.FLIP:
+        if conviction_grade == Grade.FLIP:
             return "FLIP only (small, short-dated); the structural core entry isn't confirmed yet."
         return "Not yet — hold for a volume-confirmed breakout before any core entry."
     return "Watching — banked idea, nothing to act on. No nag while incubating."

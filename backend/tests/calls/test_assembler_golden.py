@@ -26,7 +26,7 @@ def test_insider_only_warms_but_does_not_arm():
     card = assemble_call(make_thesis(), [insider_event()], ASOF, DEFAULT_CONFIG)
     assert card.state is State.WARMING
     assert card.verdict is Verdict.NOT_YET
-    assert card.grade is Grade.CORE
+    assert card.conviction_grade is Grade.CORE
     assert card.key_conviction.turned is True
     assert card.key_confirmation.turned is False
     assert any("breakout" in m.lower() for m in card.missing)
@@ -37,8 +37,8 @@ def test_insider_plus_breakout_arms_core_entry():
     """Both keys turned -> Armed / core_entry, with exit-by and a filtered catalyst surface."""
     card = assemble_call(make_thesis(), [insider_event(), breakout_event()], ASOF, DEFAULT_CONFIG)
     assert card.state is State.ARMED
-    assert card.verdict is Verdict.CORE_ENTRY
-    assert card.grade is Grade.CORE
+    assert card.verdict is Verdict.CORE_ENTRY  # the breakout fixture is volume-backed (core)
+    assert card.conviction_grade is Grade.CORE and card.entry_grade is Grade.CORE
     assert card.key_conviction.turned and card.key_confirmation.turned
     assert card.missing == []
     assert card.exit_by == date(2026, 6, 20)  # asof + max(18, 10)
@@ -61,13 +61,16 @@ def test_momentum_only_confirmation_arms_but_is_caveated():
         ASOF,
         DEFAULT_CONFIG,
     )
-    assert (
-        momentum.state is State.ARMED and momentum.verdict is Verdict.CORE_ENTRY
-    )  # conviction is core
+    # volume-backed -> full CORE entry; momentum-only -> STARTER entry (the weaker key drives the verdict)
+    assert backed.verdict is Verdict.CORE_ENTRY
+    assert backed.conviction_grade is Grade.CORE and backed.entry_grade is Grade.CORE
+    assert momentum.state is State.ARMED and momentum.verdict is Verdict.STARTER_ENTRY
+    assert momentum.conviction_grade is Grade.CORE  # the thesis stays core (hold-and-build)
+    assert momentum.entry_grade is Grade.FLIP  # but the action is a starter, not a core entry
     assert momentum.confidence < backed.confidence  # the volume gap reads as lower confidence
     assert momentum.confidence <= DEFAULT_CONFIG.momentum_only_confidence_cap
     assert "momentum-only" in momentum.counter_case.lower()
-    assert "volume" in momentum.expression.lower()
+    assert "starter" in momentum.expression.lower() and "volume" in momentum.expression.lower()
 
 
 def test_severe_dilution_blocks_arming_on_timing_not_thesis():

@@ -15,8 +15,11 @@ class State(StrEnum):
 class Verdict(StrEnum):
     WATCHING = "watching"
     NOT_YET = "not_yet"
-    FLIP_ONLY = "flip_only"
-    CORE_ENTRY = "core_entry"
+    FLIP_ONLY = "flip_only"  # a flip thesis: small, short-dated, do-not-hold
+    STARTER_ENTRY = (
+        "starter_entry"  # core thesis, starter-sized entry (confirmation not volume-backed)
+    )
+    CORE_ENTRY = "core_entry"  # core thesis, volume-confirmed: build to core size
     MANAGING = "managing"
 
 

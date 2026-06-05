@@ -7,7 +7,7 @@ from pathlib import Path
 
 from calls.assembler import assemble_call
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, State, Verdict
+from domain.enums import Archetype, Grade, State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
@@ -77,7 +77,11 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     card = _call_asof(db, security_id, date(2026, 6, 1))
 
     assert card.state is State.ARMED
-    assert card.verdict is Verdict.CORE_ENTRY  # conviction is core (Wells $1.17M)
+    # the headline matches the action: a core THESIS but a STARTER entry (volume hasn't confirmed) —
+    # NOT a bare core_entry the operator would over-commit to
+    assert card.verdict is Verdict.STARTER_ENTRY
+    assert card.conviction_grade is Grade.CORE
+    assert card.entry_grade is Grade.FLIP
     assert card.key_conviction.turned and card.key_confirmation.turned
 
     # honest: the confirmation is momentum-only -> reduced confidence + the volume-gap counter-case

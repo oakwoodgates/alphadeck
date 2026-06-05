@@ -60,18 +60,27 @@ Each fired entry trigger carries a `grade ∈ {flip, core}`. The **call's** grad
 `core` if (role ∈ {CEO, CFO}) **and** (≥2 distinct insiders) **and** (open-market code `P`) **and**
 (dollar size ≥ threshold); else `flip`; else not fired.
 
-## 4. Verdict mapping  `[PROPOSED]`
+## 4. Verdict mapping  `[PINNED]`
 
-Verdict follows deterministically from state + grade (confirm the table):
+Two grades are kept distinct: the **conviction grade** (the conviction key — the *thesis* quality) and
+the **entry grade** = the *weaker* of the two keys (the *action* to take). The verdict the operator acts
+on is driven by the **entry grade**, so a core thesis whose confirmation hasn't volume-confirmed reads
+as a **starter**, never a bare `core_entry` (which invites over-committing — the operator's documented
+flaw). The conviction grade is shown separately so the thesis's core quality isn't lost; a starter is
+the upgrade path to a full core entry.
 
 | State | Condition | `Verdict` |
 |---|---|---|
 | Incubating | — | `watching` |
-| Warming | no `core` fired | `not_yet` |
-| Warming | a `flip` is live | `flip_only` |
-| Armed | call grade `core` | `core_entry` |
-| Armed | call grade `flip` | `flip_only` |
+| Warming | conviction `core`, no confirmation | `not_yet` |
+| Warming | conviction `flip` live | `flip_only` |
+| Armed | conviction `flip` | `flip_only` (small, short-dated, do-not-hold) |
+| Armed | conviction `core`, entry `core` (volume-backed confirmation) | `core_entry` (build to core size) |
+| Armed | conviction `core`, entry `flip` (momentum-only confirmation) | `starter_entry` (core thesis, starter entry; upgrades to core when volume confirms) |
 | Managing | position open | `managing` |
+
+A `starter_entry` is also surfaced as reduced confidence (§7), a volume-gap counter-case (§8), and a
+cautious "start small; build to core when volume confirms" expression (§5).
 
 ## 5. Expression  `[PROPOSED]`
 
