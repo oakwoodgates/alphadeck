@@ -44,16 +44,19 @@ class CallConfig(DomainModel):
     insider_alpha_half_life_days: int = 18
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
-    # Real names (e.g. HIMS) often confirm via price momentum, not volume expansion, so the hard
-    # gates are price: a new short-term closing high + a multi-day return thrust. Volume only informs
-    # the score. Calibrated on the HIMS known-good move (fires 2026-06-01); a start, not precision.
+    # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME
+    # grades the confirmation: volume-backed (vol >= breakout_volume_mult x base avg) = full CORE-quality
+    # confirmation; a momentum thrust on weak volume still ARMS but as a lower-grade (flip) confirmation
+    # — reduced confidence + a volume-gap counter-case (see the assembler). Volume stays central.
     breakout_lookback_days: int = 120
     breakout_base_window: int = 8  # prior closes for the new-closing-high check
     breakout_min_base_bars: int = 5
     breakout_return_days: int = 10  # the momentum-thrust window
     breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
-    breakout_volume_mult: float = 1.5  # normalizes the (soft) volume leg of the score
+    breakout_volume_mult: float = 1.5  # vol >= mult x base avg => volume-backed (CORE) confirmation
     breakout_alpha_half_life_days: int = 10
+    # Confidence ceiling when the only confirmation is momentum-only (volume hasn't confirmed).
+    momentum_only_confidence_cap: float = 0.55
 
 
 DEFAULT_CONFIG = CallConfig()

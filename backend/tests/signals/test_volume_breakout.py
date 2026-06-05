@@ -33,11 +33,12 @@ def test_breakout_off_before_confirmation():
     )
 
 
-def test_breakout_fires_on_the_momentum_move():
-    # 2026-06-01: new short-term closing high + a >=8% 10-day thrust -> Key 2 arms (the real HIMS move)
+def test_breakout_fires_momentum_only_on_hims():
+    # 2026-06-01: the price breakout fires, but HIMS ran ~0.9x volume -> MOMENTUM-ONLY (flip), not volume-backed
     ev = volume_breakout.score(_through(date(2026, 6, 1)), SID, date(2026, 6, 1), DEFAULT_CONFIG)
-    assert ev is not None and ev.fired
-    assert ev.kind is Kind.TECHNICAL_BREAKOUT and ev.grade is Grade.CORE
+    assert ev is not None and ev.fired and ev.kind is Kind.TECHNICAL_BREAKOUT
+    assert ev.grade is Grade.FLIP
+    assert ev.provenance[0].detail["volume_backed"] is False
 
 
 def test_not_enough_bars():
