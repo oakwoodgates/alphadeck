@@ -37,7 +37,13 @@ def test_core_when_two_senior_insiders_buy_big():
 
 def test_flip_when_single_insider():
     ev = insider_conviction.score([_buy("Jane Doe", "Chief Executive Officer", 50_000)], SID, ASOF)
-    assert ev is not None and ev.grade is Grade.FLIP  # only one distinct insider
+    assert ev is not None and ev.grade is Grade.FLIP  # one insider, below the strong-single floor
+
+
+def test_core_on_strong_single_senior_buy():
+    # STARTING calibration (HIMS): one senior insider buying above the high floor warms as CORE
+    ev = insider_conviction.score([_buy("David Wells", "Director", 1_200_000)], SID, ASOF)
+    assert ev is not None and ev.grade is Grade.CORE
 
 
 def test_not_fired_on_sales_only():

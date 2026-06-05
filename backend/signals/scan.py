@@ -71,7 +71,7 @@ def discover(
     from ingest.edgar.client import EdgarClient
     from ingest.edgar.form4 import ingest_form4
     from ingest.edgar.submissions import fetch_submissions, form4_doc_url, form4_filings
-    from ingest.prices.eod_loader import fetch_csv, ingest_prices, parse_stooq_csv
+    from ingest.prices.eod_loader import fetch_eod, ingest_prices
     from securities import master
 
     client = EdgarClient(allow_live=True, user_agent=user_agent)
@@ -82,14 +82,11 @@ def discover(
         if sec.cik:
             for f in form4_filings(fetch_submissions(client, sec.cik)):
                 url = form4_doc_url(sec.cik, f["accession"], f["primary_doc"])
-                ingest_form4(
-                    conn,
-                    sec.id,
-                    client.get_text(url, f"forms/{f['accession']}/{f['primary_doc']}"),
-                    f["accession"],
-                )
+                doc = f["primary_doc"].rsplit("/", 1)[-1]
+                xml = client.get_text(url, f"forms/{f['accession']}/{doc}")
+                ingest_form4(conn, sec.id, xml, f["accession"])
         try:
-            ingest_prices(conn, sec.id, parse_stooq_csv(fetch_csv(ticker, allow_live=True)))
+            ingest_prices(conn, sec.id, fetch_eod(ticker, allow_live=True))
         except Exception:
             # a missing/failed price series for one name shouldn't abort the whole scan
             pass

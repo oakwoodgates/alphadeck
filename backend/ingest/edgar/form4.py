@@ -74,7 +74,7 @@ def ingest_form4(
 ) -> int:
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only). Returns count."""
     count = 0
-    for t in parse_form4(xml):
+    for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
             continue
         values = {
@@ -88,6 +88,7 @@ def ingest_form4(
             "usd": t["usd"],
             "accession": accession,
             "valid_from": t["txn_date"],
+            "txn_seq": i,  # position within the filing — distinguishes same-insider same-day txns
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

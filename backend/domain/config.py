@@ -30,21 +30,29 @@ class CallConfig(DomainModel):
     # --- dilution severity (used by the dilution detector in M4a) ---
     dilution_block_runway_months: float = 6.0
 
-    # --- insider_conviction (Key 1) — grade rule (§3); starting placeholders, calibrate later ---
+    # --- insider_conviction (Key 1) — grade rule (§3); STARTING calibration, not precision ---
     insider_lookback_days: int = 90
     insider_min_usd: float = 10_000.0  # below this open-market total, no signal
     insider_core_min_distinct: int = 2
     insider_core_min_usd: float = 100_000.0
+    # A single strong open-market buy by a senior insider also warms as CORE (e.g. HIMS: one
+    # director, ~$1.2M). This high floor is the discriminator for the single-buy path.
+    insider_strong_single_usd: float = 500_000.0
     insider_senior_role_keywords: frozenset[str] = frozenset(
-        {"chief executive", "ceo", "chief financial", "cfo"}
+        {"chief executive", "ceo", "chief financial", "cfo", "president", "director", "officer"}
     )
     insider_alpha_half_life_days: int = 18
 
-    # --- volume_breakout (Key 2) — deliberately minimal; placeholders, calibrate later ---
-    breakout_lookback_days: int = 90
-    breakout_base_window: int = 20  # bars forming the base (excluding the asof bar)
+    # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
+    # Real names (e.g. HIMS) often confirm via price momentum, not volume expansion, so the hard
+    # gates are price: a new short-term closing high + a multi-day return thrust. Volume only informs
+    # the score. Calibrated on the HIMS known-good move (fires 2026-06-01); a start, not precision.
+    breakout_lookback_days: int = 120
+    breakout_base_window: int = 8  # prior closes for the new-closing-high check
     breakout_min_base_bars: int = 5
-    breakout_volume_mult: float = 1.5  # asof volume >= mult x base average volume
+    breakout_return_days: int = 10  # the momentum-thrust window
+    breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
+    breakout_volume_mult: float = 1.5  # normalizes the (soft) volume leg of the score
     breakout_alpha_half_life_days: int = 10
 
 

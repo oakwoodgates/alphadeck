@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
-from ingest.prices.eod_loader import ingest_prices, parse_stooq_csv
+from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from signals.scan import rank_candidates
 
-_CSV = (Path(__file__).resolve().parent.parent / "fixtures" / "prices" / "DEVCO.csv").read_text(
-    encoding="utf-8"
+# Real HIMS EOD (the M3 target): security A's bars produce a real breakout at 2026-06-01.
+_HIMS = parse_yahoo_chart(
+    json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "fixtures" / "prices" / "HIMS.yahoo.json"
+        ).read_text(encoding="utf-8")
+    )
 )
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
@@ -45,11 +51,11 @@ def _add_buy(db, sid, name, role, usd, d, accession):
 
 
 def test_rank_puts_both_keys_first(db):
-    # A: both keys — a senior insider cluster + a volume breakout
+    # A: both keys — a senior insider cluster + the real HIMS price breakout
     a = _add_security(db, "AAA")
     _add_buy(db, a, "Jane Doe", "Chief Executive Officer", 150_000, date(2026, 5, 20), "acc-a1")
     _add_buy(db, a, "John Roe", "Chief Financial Officer", 120_000, date(2026, 5, 21), "acc-a2")
-    ingest_prices(db, a, parse_stooq_csv(_CSV))
+    ingest_prices(db, a, _HIMS)
 
     # B: conviction only — a single small buy, no price history (so no breakout)
     b = _add_security(db, "BBB")

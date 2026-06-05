@@ -23,6 +23,26 @@ def test_pit_insider_txns_have_no_lookahead(db, security_id):
     assert len(later) == 2
 
 
+def test_ingest_form4_allows_multiple_same_day_txns(db, security_id):
+    # one filing, same insider + same date (an exercise + a sale): both stored (txn_seq distinguishes)
+    xml = (_F / "edgar" / "form4_multi_sameday.xml").read_text(encoding="utf-8")
+    assert ingest_form4(db, security_id, xml, "acc-multi") == 2
+
+
+def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
+    # the real committed Wells Form 4: ingest -> read via PIT -> Key 1 fires CORE (single-strong calibration)
+    from domain.config import DEFAULT_CONFIG
+    from domain.enums import Grade
+    from signals import insider_conviction
+
+    xml = (_F / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
+    ingest_form4(db, security_id, xml, "0001773751-26-000086")
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    ev = insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG)
+    assert ev is not None and ev.grade is Grade.CORE
+    assert "1,172,974" in ev.label
+
+
 def test_pit_price_history_has_no_lookahead(db, security_id):
     rows = parse_stooq_csv((_F / "prices" / "DEVCO.csv").read_text(encoding="utf-8"))
     assert ingest_prices(db, security_id, rows) == 10
