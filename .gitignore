@@ -222,3 +222,6 @@ __marimo__/
 
 # Alpha Deck runtime data — on-disk caches (EDGAR/OpenFIGI/SEC), Parquet snapshots, DuckDB. Not committed.
 data/
+
+# Temporary documentation files
+docs/temp/

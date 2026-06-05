@@ -51,10 +51,10 @@ def score(
 
     distinct = {t.get("insider_name") for t in buys if t.get("insider_name")}
     senior = any(_is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in buys)
-    is_core = (
-        len(distinct) >= cfg.insider_core_min_distinct
-        and senior
-        and total_usd >= cfg.insider_core_min_usd
+    # core via a multi-insider cluster, OR a single strong senior buy above the high floor (calibration)
+    is_core = senior and (
+        (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
+        or total_usd >= cfg.insider_strong_single_usd
     )
     by_accession = {t["accession"]: t for t in buys if t.get("accession")}
     return SignalEvent(

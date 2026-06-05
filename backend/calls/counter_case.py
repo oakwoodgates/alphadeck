@@ -8,14 +8,16 @@ def deterministic_counter_case(
     thesis: Thesis,
     active_risk_signals: list[SignalEvent],
     missing: list[str],
+    caveats: list[str] | tuple[str, ...] = (),
 ) -> str:
     """Deterministic fallback counter-case (CALL_LOGIC §8).
 
-    Assembled from active risk signals, the thesis kill criteria, and the missing triggers. The LLM
-    path (M4b) replaces this via the assembler's ``counter_case_fn`` hook; this is the guaranteed
-    fallback and never alters state/verdict/grade/triggers.
+    Assembled from assembler caveats (e.g. a momentum-only confirmation), active risk signals, the
+    thesis kill criteria, and the missing triggers. The LLM path (M4b) replaces this via the
+    assembler's ``counter_case_fn`` hook; this is the guaranteed fallback and never alters
+    state/verdict/grade/triggers.
     """
-    parts: list[str] = []
+    parts: list[str] = list(caveats)
     if active_risk_signals:
         parts.append(
             "Active risk signals: " + "; ".join(r.label for r in active_risk_signals) + "."

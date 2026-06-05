@@ -11,7 +11,7 @@ from psycopg import sql
 # (so an as-of read keeps the latest *version* of each, by recorded_at). Whitelisting also keeps
 # the dynamic SQL injection-safe.
 _FACT_IDENTITY: dict[str, list[str]] = {
-    "fact_insider_txn": ["accession", "insider_name", "valid_from"],
+    "fact_insider_txn": ["accession", "insider_name", "valid_from", "txn_seq"],
     "fact_price_eod": ["security_id", "d"],
 }
 

@@ -13,7 +13,7 @@ from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
 
 # The LLM (M4b) supplies counter-case prose via this hook; it never sets state/verdict/grade/triggers.
-CounterCaseFn = Callable[[Thesis, list[SignalEvent], list[str]], str]
+CounterCaseFn = Callable[[Thesis, list[SignalEvent], list[str], list[str]], str]
 
 
 def assemble_call(
@@ -50,13 +50,29 @@ def assemble_call(
     )  # armable, but a severe risk withholds it on timing
 
     state = _state(thesis, fired_entry, can_arm, bool(blocking_risks), cfg)
+
+    # Graded confirmation (CALL_LOGIC §3): a volume-backed breakout is CORE-quality; a momentum thrust
+    # on weak volume still arms but is flip-grade — surfaced as reduced confidence, a volume-gap
+    # counter-case, and a cautious expression. Volume stays central to what "confirmation" means.
+    confirmation_events = [e for e in fired_entry if e.kind in cfg.confirmation_kinds]
+    volume_confirmed = any(e.grade == Grade.CORE for e in confirmation_events)
+    momentum_only = bool(confirmation_events) and not volume_confirmed and state == State.ARMED
+
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
     exit_by = _exit_by(fired_entry, asof)
 
+    caveats = (
+        [
+            "Confirmation is momentum-only, not volume-backed — the market hasn't put real "
+            "participation behind this yet."
+        ]
+        if momentum_only
+        else []
+    )
     if counter_case_fn is not None:
-        counter_case = counter_case_fn(thesis, active_risk, missing)
+        counter_case = counter_case_fn(thesis, active_risk, missing, caveats)
     else:
-        counter_case = deterministic_counter_case(thesis, active_risk, missing)
+        counter_case = deterministic_counter_case(thesis, active_risk, missing, caveats)
 
     return CallCard(
         thesis_id=thesis.id,
@@ -64,10 +80,10 @@ def assemble_call(
         state=state,
         verdict=_verdict(state, grade),
         grade=grade,
-        expression=_expression(state, grade, risk_blocked),
+        expression=_expression(state, grade, risk_blocked, momentum_only),
         exit_by=exit_by,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
-        confidence=confidence(fired_entry, active_risk, cfg),
+        confidence=confidence(fired_entry, active_risk, cfg, momentum_only=momentum_only),
         key_conviction=KeyState(
             turned=conviction_on,
             label="Conviction",
@@ -148,10 +164,16 @@ def _missing(
     return missing
 
 
-def _expression(state: State, grade: Grade | None, risk_blocked: bool) -> str:
+def _expression(state: State, grade: Grade | None, risk_blocked: bool, momentum_only: bool) -> str:
     if state == State.MANAGING:
         return "Position open — manage to the exit-by / half-life; trail the stop or take the gain."
     if state == State.ARMED:
+        if momentum_only:
+            lead = "CORE conviction" if grade == Grade.CORE else "FLIP"
+            return (
+                f"{lead}, but the breakout is momentum-only (volume hasn't confirmed) — size "
+                "cautiously / treat as a flip-style starter until volume backs the move."
+            )
         if grade == Grade.CORE:
             return (
                 "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."

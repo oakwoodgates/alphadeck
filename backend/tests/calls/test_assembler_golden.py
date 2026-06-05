@@ -48,6 +48,28 @@ def test_insider_plus_breakout_arms_core_entry():
     assert card.triggers_fired[0].sources[0].ref  # provenance link is present
 
 
+def test_momentum_only_confirmation_arms_but_is_caveated():
+    """Graded confirmation: a momentum-only (flip-grade) breakout still arms a core conviction, but
+    honestly — reduced confidence, a volume-gap counter-case, and a cautious expression."""
+    thesis = make_thesis()
+    backed = assemble_call(
+        thesis, [insider_event(), breakout_event(grade=Grade.CORE, score=0.8)], ASOF, DEFAULT_CONFIG
+    )
+    momentum = assemble_call(
+        thesis,
+        [insider_event(), breakout_event(grade=Grade.FLIP, score=0.45)],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert (
+        momentum.state is State.ARMED and momentum.verdict is Verdict.CORE_ENTRY
+    )  # conviction is core
+    assert momentum.confidence < backed.confidence  # the volume gap reads as lower confidence
+    assert momentum.confidence <= DEFAULT_CONFIG.momentum_only_confidence_cap
+    assert "momentum-only" in momentum.counter_case.lower()
+    assert "volume" in momentum.expression.lower()
+
+
 def test_severe_dilution_blocks_arming_on_timing_not_thesis():
     """Risk-veto: a severe risk signal withholds Armed on timing, penalizes confidence, never vetoes the thesis."""
     thesis = make_thesis()

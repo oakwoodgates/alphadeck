@@ -28,8 +28,12 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:
-    """The EDGAR Archives URL for a filing's primary document."""
+    """The EDGAR Archives URL for a filing's RAW ownership XML.
+
+    ``primary_doc`` from submissions is the XSL-rendered path (e.g. ``xslF345X06/wk-form4_*.xml``);
+    the parseable raw XML is the same filename in the accession root, so we drop the ``xsl.../`` dir.
+    """
+    doc = primary_doc.rsplit("/", 1)[-1]
     return (
-        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
-        f"{accession.replace('-', '')}/{primary_doc}"
+        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/" f"{accession.replace('-', '')}/{doc}"
     )
