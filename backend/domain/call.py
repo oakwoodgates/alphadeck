@@ -37,7 +37,8 @@ class CallCard(DomainModel):
     asof: date
     state: State
     verdict: Verdict
-    grade: Grade | None = None
+    conviction_grade: Grade | None = None  # the thesis quality (the conviction key)
+    entry_grade: Grade | None = None  # the action/size grade (the weaker key) — drives the verdict
     expression: str
     exit_by: date | None = None
     catalyst_surface: list[Catalyst] = Field(default_factory=list)
