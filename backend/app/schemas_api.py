@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from domain.call import CallCard, KeyState
 from domain.enums import Grade, Kind, State, Verdict
-from domain.thesis import Catalyst, Thesis
+from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Position, Thesis
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -118,3 +118,35 @@ class ThesisSummary(BaseModel):
     @classmethod
     def from_thesis(cls, thesis: Thesis) -> "ThesisSummary":
         return cls(id=thesis.id, name=thesis.name, ticker=thesis.ticker, narrative=thesis.narrative)
+
+
+class ThesisDetail(BaseModel):
+    """The full thesis for the Cockpit — a wire model (no tenant_id) so generated FE types never bind
+    to the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the
+    catalyst surface on CallCardResponse)."""
+
+    id: UUID
+    parent_id: UUID | None = None
+    name: str
+    narrative: str
+    ticker: str | None = None
+    basket: list[BasketMember] = []
+    evidence: list[Evidence] = []
+    catalysts: list[Catalyst] = []
+    kill_criteria: list[KillCriterion] = []
+    position: Position | None = None
+
+    @classmethod
+    def from_thesis(cls, t: Thesis) -> "ThesisDetail":
+        return cls(
+            id=t.id,
+            parent_id=t.parent_id,
+            name=t.name,
+            narrative=t.narrative,
+            ticker=t.ticker,
+            basket=list(t.basket),
+            evidence=list(t.evidence),
+            catalysts=list(t.catalysts),
+            kill_criteria=list(t.kill_criteria),
+            position=t.position,
+        )
