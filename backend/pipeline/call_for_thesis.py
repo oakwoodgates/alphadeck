@@ -28,13 +28,14 @@ def call_for_thesis(
     record: bool = True,
 ) -> CallCard:
     """Load the thesis, RE-DERIVE its dated signal stream from the bitemporal facts as-of, assemble the
-    CallCard, and (by default) append it to the write-only ``calls`` accountability log.
+    CallCard, and (when ``record``) append it to the write-only ``calls`` accountability log.
 
     There is no persisted firing layer: the stream is re-derived on every read, so a fact correction
-    propagates automatically. The card itself is a pure function of (thesis, events, asof, cfg); the
-    ``calls`` append is the only write and is never read back to serve. The caller owns the
-    transaction (commit/rollback). ``known_at`` defaults to now (live read); the replay harness (M5)
-    pins it to a past transaction time.
+    propagates automatically. The card itself is a pure function of (thesis, events, asof, cfg). The
+    API read path calls with ``record=False`` (a GET writes nothing); the batch ``pipeline.run`` is
+    the writer of the call of record (``record=True``). When it writes, that append is the only write
+    and is never read back to serve. The caller owns the transaction (commit/rollback). ``known_at``
+    defaults to now (live read); the replay harness (M5) pins it to a past transaction time.
     """
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:

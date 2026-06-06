@@ -33,12 +33,13 @@ def get_call(
     asof: date = Query(..., description="as-of date; the call uses no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> CallCardResponse:
-    """Recompute the CallCard live at ``asof`` (the read path; never reads the calls log back). The
-    signal stream is re-derived from the bitemporal facts, so this is deterministic for a given asof.
+    """Recompute the CallCard live at ``asof`` — a READ-ONLY path. The signal stream is re-derived
+    from the bitemporal facts (no persisted firing layer), so a given ``asof`` is deterministic and a
+    refetch / as-of-slider scrub / poll writes nothing. The accountability ``calls`` log is written
+    by the batch ``pipeline.run`` (the official call of record), never by this GET.
     """
     try:
-        card = call_for_thesis(conn, thesis_id, asof)
+        card = call_for_thesis(conn, thesis_id, asof, record=False)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="thesis not found") from exc
-    conn.commit()  # persist the accountability append (the only write on this read path)
     return CallCardResponse.from_card(card)

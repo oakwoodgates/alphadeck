@@ -99,6 +99,27 @@ def test_call_endpoint_is_deterministic(db, security_id):
     assert a == b
 
 
+def test_call_endpoint_does_not_write_to_the_calls_log(db, security_id):
+    """The serve path is read-only: a GET (or a refetch / slider scrub) recomputes and writes no
+    accountability row — that is the batch ``pipeline.run``'s job. Otherwise polling accretes rows.
+    """
+    tid = _seed_hims_thesis(db, security_id)
+
+    def _calls_count() -> int:
+        with db.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM calls WHERE thesis_id = %s", (tid,))
+            return cur.fetchone()["n"]
+
+    assert _calls_count() == 0
+    try:
+        client = _client(db)
+        client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+        client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})  # a refetch
+    finally:
+        app.dependency_overrides.clear()
+    assert _calls_count() == 0  # still nothing written
+
+
 def test_list_and_get_thesis(db, security_id):
     tid = _seed_hims_thesis(db, security_id)
     try:

@@ -12,7 +12,7 @@
 2. **A gitignored cache** of live API pulls (`data/`) — a local mirror so we respect rate limits and re-runs are reproducible. **Safe to delete** (it re-pulls on demand). Not the source of truth.
 3. **Build artifacts** — `app/openapi.json` (the frontend's type source), produced on demand.
 
-And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (a copy is appended to the `calls` log afterward for accountability, never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
+And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (the serve path writes nothing; the batch `pipeline.run` appends the call of record to the `calls` log for accountability, and that log is never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
 
 ## The pipeline
 
@@ -40,9 +40,9 @@ And the load-bearing choice that *makes* it auditable: **signals are never store
         Detectors  ──►  SignalEvent[]        ◄── RE-DERIVED on every read; stored NOWHERE
                        │
                        ▼
-        Call-assembler  ──►  CallCard        ◄── pure; recomputed on every read
-                       │                         (a copy is appended to `calls` for the record,
-                       │                          but that log is NEVER read back to serve)
+        Call-assembler  ──►  CallCard        ◄── pure; recomputed on every read (serve path
+                       │                         writes nothing; the batch pipeline.run appends
+                       │                         the call of record to `calls`, never read back)
                        ▼
         FastAPI   /theses/{id}/call?asof=   ──►  Board + Cockpit  (M3b)
                        │
@@ -75,7 +75,7 @@ flowchart TD
     SPINE --> ASM
     DET -->|"SignalEvent[]"| ASM["Call-assembler<br/>(recomputed on read)"]
     ASM -->|CallCard| API["FastAPI /call?asof="]
-    ASM -.->|"logged copy"| CALLS
+    ASM -.->|"batch pipeline.run logs<br/>the call of record"| CALLS
     API --> UI["Board + Cockpit (M3b)"]
     API --> OAPI
 ```
@@ -90,7 +90,7 @@ flowchart TD
 | Resolved securities | identity | **Postgres** `security_master` | on resolve / seed | n/a (DB) |
 | Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed | n/a (DB) |
 | Thesis + basket/evidence/catalyst/kill | the spine | **Postgres** | on `upsert` / seed | n/a (DB) |
-| Assembled calls | accountability **log** | **Postgres** `calls` | one row per `/call` request | n/a (DB) |
+| Assembled calls | accountability **log** | **Postgres** `calls` | one row per batch `pipeline.run` (never on a `/call` GET) | n/a (DB) |
 | `SignalEvent[]` | **recomputed** | nowhere — in memory | **every read** | n/a |
 | `CallCard` | **recomputed** | in memory (a copy → `calls`) | **every read** | n/a |
 
@@ -101,12 +101,12 @@ flowchart TD
 - **Are files written each time?**
   - *Seeding / tests:* **no** — they read the committed fixtures and write to the **database**.
   - *Live pulls* (when you fetch a name from EDGAR/Yahoo): **yes, but only the `data/` cache** — one file per unique upstream request, cache-first, gitignored, deletable. It's a politeness/repro mirror, never the source of truth.
-  - *Serving a call* (`/call?asof=`): **zero files**; it reads the DB and appends **one row** to the `calls` log.
+  - *Serving a call* (`/call?asof=`): **zero files and zero writes** — it reads the DB and recomputes; the `calls` log is written only by the batch `pipeline.run`.
 
 ## Read path vs. write path
 
 - **Write (ingest):** sources → (cache) → `fact_*` tables. Append-only: a correction is a *new row* with a later `recorded_at`, never an overwrite. The thesis spine is upserted; evidence is append-only.
-- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard`. It appends a copy to `calls` for the record but **never reads `calls` back to serve** — the served answer is always freshly computed. (The log *is* readable for accountability — `calls_repo.list_for_thesis`, and the future Scoreboard.)
+- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard` — and **writes nothing** (a GET is safe/idempotent; a refetch or as-of scrub accretes no rows). The call of record is logged separately by the batch `pipeline.run`, and `calls` is **never read back to serve**. (The log *is* readable for accountability — `calls_repo.list_for_thesis` / `latest_for_thesis`, and the future Scoreboard.)
 
 ## Why this isn't a black box
 
