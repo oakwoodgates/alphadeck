@@ -5,7 +5,8 @@ from pathlib import Path
 
 from app.main import app
 
-DEFAULT_PATH = Path(__file__).resolve().parent / "openapi.json"
+# Written to backend/openapi.json (the repo's API contract); the frontend's `gen:api` reads it.
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "openapi.json"
 
 
 def export(path: Path | None = None) -> Path:
