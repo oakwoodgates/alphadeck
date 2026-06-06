@@ -39,8 +39,10 @@ class CallCard(DomainModel):
     verdict: Verdict
     conviction_grade: Grade | None = None  # the thesis quality (the conviction key)
     entry_grade: Grade | None = None  # the action/size grade (the weaker key) — drives the verdict
+    armed_security_id: UUID | None = None  # the co-located security that armed (None unless Armed)
     expression: str
-    exit_by: date | None = None
+    exit_by: date | None = None  # the HOLD horizon (conviction key); drives the catalyst surface
+    arm_until: date | None = None  # the ENTRY window (confirmation key); the arm lapses past this
     catalyst_surface: list[Catalyst] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     key_conviction: KeyState

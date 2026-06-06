@@ -91,4 +91,6 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     # the real Form 4 accession rides the conviction trigger's provenance (the working source link)
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs
-    assert card.exit_by is not None
+    assert card.exit_by is not None  # the hold horizon (conviction half-life)
+    assert card.arm_until is not None  # the entry window (confirmation half-life)
+    assert card.armed_security_id == security_id  # conviction + confirmation co-located on HIMS
