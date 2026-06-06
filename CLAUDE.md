@@ -93,12 +93,15 @@ Full detail in `docs/DATA_SOURCES.md`. Summary:
 
 ## Commands
 
-Backend uses a stdlib venv + pip (no `uv`); run from `backend/` with the venv active (or set
-`$env:PYTHONPATH="backend"` and call `backend\.venv\Scripts\python` from the repo root). Postgres is
-Docker Compose on host port 5544.
+The whole app runs from one command via Docker (below). For backend development, use a stdlib venv +
+pip (no `uv`); run from `backend/` with the venv active (or set `$env:PYTHONPATH="backend"` and call
+`backend\.venv\Scripts\python` from the repo root). Postgres is Docker Compose on host port 5544.
 
 ```powershell
-# infra
+# full stack — one command: Postgres + API (migrates + seeds HIMS on start) + the SPA behind nginx
+docker compose up --build                                # app: localhost:8080 · API/docs: localhost:8000/docs
+
+# infra only — Postgres for the local backend dev loop
 docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
 
 # backend setup (once)
@@ -116,7 +119,7 @@ ruff check . ; black --check .                          # lint + format
 # Checkpoint A, served:
 curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
 
-# frontend (M3b — not scaffolded yet): pnpm install · pnpm dev
+# frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /theses -> :8000
 ```
 
 Keep this section current as the source of truth for build/run/test.

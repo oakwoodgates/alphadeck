@@ -1,0 +1,8 @@
+# Docker/build files must stay LF. With core.autocrlf=true a re-checkout would otherwise flip these
+# to CRLF, which (a) breaks .dockerignore pattern matching — the build then copies the host
+# node_modules/.venv and the frontend build fails on the wrong-platform binaries — and (b) breaks the
+# shell CMD line. Scoped to the build files; the rest of the repo keeps its current behavior.
+Dockerfile         text eol=lf
+.dockerignore      text eol=lf
+docker-compose.yml text eol=lf
+*.conf             text eol=lf
