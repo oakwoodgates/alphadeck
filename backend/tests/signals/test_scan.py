@@ -11,12 +11,9 @@ from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from signals.scan import rank_candidates
 
 # Real HIMS EOD (the M3 target): security A's bars produce a real breakout at 2026-06-01.
+_SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _HIMS = parse_yahoo_chart(
-    json.loads(
-        (
-            Path(__file__).resolve().parent.parent / "fixtures" / "prices" / "HIMS.yahoo.json"
-        ).read_text(encoding="utf-8")
-    )
+    json.loads((_SEED / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
 )
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 

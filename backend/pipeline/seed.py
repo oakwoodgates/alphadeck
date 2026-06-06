@@ -32,7 +32,7 @@ HIMS_SECURITY_ID = UUID("11150000-0000-0000-0000-000000000001")
 HIMS_THESIS_ID = UUID("11150000-0000-0000-0000-000000000002")
 _HIMS_CIK = "0001773751"
 _WELLS_ACCESSION = "0001773751-26-000086"
-_FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
+_SEED_DATA = Path(__file__).resolve().parent.parent / "seed_data"
 
 
 def _ensure_hims_security(conn: psycopg.Connection) -> UUID:
@@ -104,14 +104,14 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
     ingest_form4(
         conn,
         security_id,
-        (_FIXTURES / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
+        (_SEED_DATA / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
         _WELLS_ACCESSION,
     )
     ingest_prices(
         conn,
         security_id,
         parse_yahoo_chart(
-            json.loads((_FIXTURES / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
+            json.loads((_SEED_DATA / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
         ),
     )
     thesis = _hims_thesis(security_id)
