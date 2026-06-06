@@ -13,8 +13,14 @@ from __future__ import annotations
 import html as _html
 import re
 from datetime import date, datetime
+from uuid import UUID
 
+import psycopg
+from psycopg.types.json import Json
 from pydantic import BaseModel
+
+from db.bitemporal import append_fact
+from db.session import DEFAULT_TENANT_ID
 
 
 class ConvertTerms(BaseModel):
@@ -111,3 +117,36 @@ def parse_convert_terms(issuance_text: str, pricing_text: str = "") -> ConvertTe
         conversion_premium_pct=float(s) if (s := _opt(p, _RE_CONV_PREMIUM)) else None,
         reference_price_usd=float(s) if (s := _opt(p, _RE_REF_PRICE)) else None,
     )
+
+
+def ingest_convert_terms(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    terms: ConvertTerms,
+    accession: str,
+    *,
+    shares_outstanding: float | None = None,
+    shares_outstanding_ref: str | None = None,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    recorded_at=None,
+) -> UUID:
+    """Append parsed convert terms to fact_dilution (append-only; the caller owns the transaction).
+
+    ``shares_outstanding`` (with its ``_ref`` provenance) is the seeded basis for the % overhang.
+    """
+    if terms.issued_date is None:
+        raise ValueError("convert ingest: terms.issued_date (the fact's valid_from) is required")
+    values: dict = {
+        "tenant_id": tenant_id,
+        "security_id": security_id,
+        "instrument_kind": "convertible_notes",
+        "accession": accession,
+        "principal_total_usd": terms.principal_total_usd,
+        "shares_outstanding": shares_outstanding,
+        "shares_outstanding_ref": shares_outstanding_ref,
+        "terms": Json(terms.model_dump(mode="json")),
+        "valid_from": terms.issued_date,
+    }
+    if recorded_at is not None:
+        values["recorded_at"] = recorded_at
+    return append_fact(conn, "fact_dilution", values)

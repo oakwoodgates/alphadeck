@@ -13,6 +13,7 @@ from psycopg import sql
 _FACT_IDENTITY: dict[str, list[str]] = {
     "fact_insider_txn": ["accession", "insider_name", "valid_from", "txn_seq"],
     "fact_price_eod": ["security_id", "d"],
+    "fact_dilution": ["accession"],  # one convert offering per accession
 }
 
 
