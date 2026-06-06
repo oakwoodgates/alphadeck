@@ -57,6 +57,9 @@ def score(
         or total_usd >= cfg.insider_strong_single_usd
     )
     by_accession = {t["accession"]: t for t in buys if t.get("accession")}
+    # Stamp the cluster's FIRE date = the most recent open-market buy (the event date), not the query
+    # asof — so exit_by/liveness anchor to when conviction actually formed (re-derived from facts).
+    event_date = max(t["valid_from"] for t in buys)
     return SignalEvent(
         detector="insider_conviction",
         security_id=security_id,
@@ -72,7 +75,7 @@ def score(
         ),
         alpha_half_life_days=cfg.insider_alpha_half_life_days,
         provenance=[Provenance(source="form4", ref=acc) for acc in by_accession],
-        asof=asof,
+        asof=event_date,
     )
 
 

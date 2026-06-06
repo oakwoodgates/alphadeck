@@ -57,3 +57,14 @@ def test_not_fired_below_min_usd():
 def test_ignores_buys_outside_lookback():
     old = [_buy("Jane Doe", "CEO", 200_000, d=date(2026, 1, 1))]  # > 90d before asof
     assert insider_conviction.score(old, SID, ASOF) is None
+
+
+def test_event_dated_at_latest_buy_not_query_asof():
+    # the cluster's fire date is the most recent buy, not the query asof (ASOF = 2026-06-04)
+    txns = [
+        _buy("Jane Doe", "Chief Executive Officer", 120_000, d=date(2026, 5, 18)),
+        _buy("John Roe", "Chief Financial Officer", 120_000, d=date(2026, 5, 22)),
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
+    assert ev is not None
+    assert ev.asof == date(2026, 5, 22)

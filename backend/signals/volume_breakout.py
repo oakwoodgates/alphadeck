@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from statistics import fmean
 from typing import Any
 from uuid import UUID
@@ -33,31 +33,47 @@ def score(
 ) -> SignalEvent | None:
     """Pure Key-2 breakout over ascending EOD bars (last bar = the asof bar). Deliberately minimal.
 
-    Fires on a price breakout — the asof close makes a new ``breakout_base_window``-day CLOSING high
-    AND is up at least ``breakout_min_return`` over ``breakout_return_days`` sessions (a momentum
-    thrust). **Volume grades the confirmation:** volume-backed (vol >= ``breakout_volume_mult`` x base
-    average) is CORE-quality; a momentum thrust on weak volume still arms but is FLIP-grade (the
-    assembler reads that as reduced confidence + a volume-gap counter-case). A clearly-minimal
-    placeholder for richer breakout logic, kept labeled as such.
+    Reports the MOST-RECENT breakout bar still inside its alpha half-life — a bar whose close makes a
+    new ``breakout_base_window``-day CLOSING high AND is up at least ``breakout_min_return`` over
+    ``breakout_return_days`` sessions — stamped with **that bar's own date**, not the query ``asof``.
+    So the firing is sticky across a consolidation (it keeps reporting the breakout until it decays)
+    and re-anchors when a fresher breakout prints; the assembler decides whether it is still live.
+    The freshness floor mirrors the assembler's liveness, so a reported breakout is always live and a
+    long-decayed one is never resurrected. **Volume grades the confirmation:** volume-backed
+    (vol >= ``breakout_volume_mult`` x base average) is CORE-quality; a momentum thrust on weak volume
+    still arms but is FLIP-grade. A clearly-minimal placeholder for richer breakout logic.
     """
     bars = [b for b in bars if b.get("close") is not None]
     need = max(cfg.breakout_base_window, cfg.breakout_return_days, cfg.breakout_min_base_bars) + 1
     if len(bars) < need:
         return None
     closes = [float(b["close"]) for b in bars]
-    last_close = closes[-1]
-    base_closes = closes[-(cfg.breakout_base_window + 1) : -1]
-    base_high = max(base_closes)
-    ret = last_close / closes[-(cfg.breakout_return_days + 1)] - 1.0
-    if not (last_close > base_high and ret >= cfg.breakout_min_return):
+    earliest = max(cfg.breakout_base_window, cfg.breakout_return_days)
+    fresh_floor = asof - timedelta(days=cfg.breakout_alpha_half_life_days)
+
+    idx = None
+    for i in range(len(bars) - 1, earliest - 1, -1):
+        if bars[i]["d"] < fresh_floor:
+            break  # bars are ascending; everything earlier is past the freshness window too
+        base_high = max(closes[i - cfg.breakout_base_window : i])
+        ret = closes[i] / closes[i - cfg.breakout_return_days] - 1.0
+        if closes[i] > base_high and ret >= cfg.breakout_min_return:
+            idx = i
+            break
+    if idx is None:
         return None
 
+    bar = bars[idx]
+    event_date = bar["d"]
+    last_close = closes[idx]
+    base_high = max(closes[idx - cfg.breakout_base_window : idx])
+    ret = last_close / closes[idx - cfg.breakout_return_days] - 1.0
     vols = [
-        float(b["volume"]) for b in bars[-(cfg.breakout_base_window + 1) : -1] if b.get("volume")
+        float(b["volume"]) for b in bars[idx - cfg.breakout_base_window : idx] if b.get("volume")
     ]
     base_vol_avg = fmean(vols) if vols else 0.0
-    last_vol = bars[-1].get("volume")
-    vol_ratio = (float(last_vol) / base_vol_avg) if (last_vol and base_vol_avg) else 0.0
+    bar_vol = bar.get("volume")
+    vol_ratio = (float(bar_vol) / base_vol_avg) if (bar_vol and base_vol_avg) else 0.0
     volume_backed = vol_ratio >= cfg.breakout_volume_mult
     quality = "Volume-backed" if volume_backed else "Momentum-only"
     return SignalEvent(
@@ -77,7 +93,7 @@ def score(
         provenance=[
             Provenance(
                 source="price",
-                ref=f"price:{security_id}:{asof.isoformat()}",
+                ref=f"price:{security_id}:{event_date.isoformat()}",
                 detail={
                     "close": last_close,
                     "base_high": base_high,
@@ -87,7 +103,7 @@ def score(
                 },
             )
         ],
-        asof=asof,
+        asof=event_date,
     )
 
 
