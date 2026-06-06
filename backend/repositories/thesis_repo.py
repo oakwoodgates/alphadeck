@@ -30,6 +30,15 @@ def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
     return row_to_thesis(t, basket, evidence, catalysts, kills)
 
 
+def list_all(conn: psycopg.Connection) -> list[Thesis]:
+    """Every thesis, each fully loaded, ordered by name. The API projects these to lightweight
+    summaries; at this scale a full load per thesis is fine (optimize if the universe grows)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM thesis ORDER BY name")
+        ids = [r["id"] for r in cur.fetchall()]
+    return [thesis for thesis in (get(conn, i) for i in ids) if thesis is not None]
+
+
 def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
     """Insert or update a thesis. Definitional children (basket / catalysts / kill-criteria) are
     replaced; evidence is APPEND-ONLY (new rows added, existing ones never modified or removed).
