@@ -125,6 +125,25 @@ def test_cross_name_does_not_arm_without_co_location():
     assert card.armed_security_id is None
 
 
+def test_confidence_is_scoped_to_the_armed_security():
+    """P1.2: confidence is scored on the ARMED name's live triggers, not the whole basket — a live
+    trigger on another name must not inflate the armed name's confidence."""
+    thesis = make_thesis()
+    base = assemble_call(thesis, [insider_event(), breakout_event()], ASOF, DEFAULT_CONFIG)
+    assert base.state is State.ARMED and base.armed_security_id == SID
+
+    # a live conviction trigger on a DIFFERENT name (it neither arms that name nor changes which name
+    # is armed); confidence must be unchanged because it's scoped to the armed name's triggers.
+    off_name = insider_event().model_copy(
+        update={"security_id": uuid.UUID(int=0x9999), "score": 0.95}
+    )
+    widened = assemble_call(
+        thesis, [insider_event(), breakout_event(), off_name], ASOF, DEFAULT_CONFIG
+    )
+    assert widened.state is State.ARMED and widened.armed_security_id == SID
+    assert widened.confidence == base.confidence  # the off-name trigger was excluded
+
+
 def test_arm_lapses_per_key_then_thesis_ages_out():
     """Per-key lapse: the arm holds on the confirmation's clock, then warms, then ages out entirely."""
     thesis = make_thesis()

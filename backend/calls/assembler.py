@@ -90,6 +90,15 @@ def assemble_call(
 
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
 
+    # Confidence is scored on the ARMED security's live triggers (grading is already scoped to it),
+    # else across the live basket — so an unrelated live trigger on another name can't inflate the
+    # armed name's confidence (a no-op for a single-name basket like HIMS).
+    confidence_entries = (
+        [e for e in live_entry if e.security_id == armed_sec]
+        if state == State.ARMED and armed_sec is not None
+        else live_entry
+    )
+
     # Two fire-date-anchored clocks (§6). exit_by = the HOLD horizon (the conviction key) and drives
     # the catalyst surface; arm_until = the ENTRY window (the confirmation key) — the arm lapses once
     # asof passes it. Both anchored to each trigger's fire date, so they don't slide as asof advances.
@@ -121,7 +130,7 @@ def assemble_call(
         exit_by=exit_by,
         arm_until=arm_until,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
-        confidence=confidence(live_entry, active_risk, cfg, momentum_only=momentum_only),
+        confidence=confidence(confidence_entries, active_risk, cfg, momentum_only=momentum_only),
         key_conviction=KeyState(
             turned=conviction_on,
             label="Conviction",
