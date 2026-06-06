@@ -13,9 +13,10 @@ interface Props {
   thesisId: string;
   asof: string;
   onAsofChange: (asof: string) => void;
+  onBack?: () => void;
 }
 
-export function Cockpit({ thesisId, asof, onAsofChange }: Props) {
+export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
   const thesis = thesisQ.data;
@@ -32,6 +33,11 @@ export function Cockpit({ thesisId, asof, onAsofChange }: Props) {
   return (
     <div className="cp-shell">
       <header className="cp-top">
+        {onBack && (
+          <button type="button" className="back" onClick={onBack}>
+            ← Board
+          </button>
+        )}
         <div className="brand">
           <span className="dot" />
           ALPHA&nbsp;DECK <small>// research cockpit</small>

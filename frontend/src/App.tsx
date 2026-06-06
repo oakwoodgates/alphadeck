@@ -1,12 +1,14 @@
 import { useState } from "react";
 
 import { useTheses } from "./api/hooks";
+import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
 
 export function App() {
-  const { data: theses, isLoading, error } = useTheses();
-  // Default to the canonical armed date for HIMS; the as-of control scrubs (warming -> armed -> lapse).
+  const { isLoading, error, data: theses } = useTheses();
+  // Shared across Board + Cockpit; default to the canonical armed date for HIMS (scrub to see the loop).
   const [asof, setAsof] = useState("2026-06-01");
+  const [selected, setSelected] = useState<string | null>(null);
 
   if (isLoading) return <div className="center-note">Loading…</div>;
   if (error || !theses?.length) {
@@ -18,6 +20,15 @@ export function App() {
     );
   }
 
-  // HIMS-only for now: the first (and only) thesis. The Board (PR-3) adds the pipeline + navigation.
-  return <Cockpit thesisId={theses[0].id} asof={asof} onAsofChange={setAsof} />;
+  if (selected) {
+    return (
+      <Cockpit
+        thesisId={selected}
+        asof={asof}
+        onAsofChange={setAsof}
+        onBack={() => setSelected(null)}
+      />
+    );
+  }
+  return <Board asof={asof} onAsofChange={setAsof} onSelect={setSelected} />;
 }

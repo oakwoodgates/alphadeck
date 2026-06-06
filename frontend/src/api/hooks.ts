@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { api } from "./client";
 import type { components } from "./types.gen";
@@ -33,10 +33,10 @@ export function useThesis(thesisId: string) {
   });
 }
 
-// The Cockpit's live call, recomputed at `asof` (the read path; never reads the calls log).
-export function useCall(thesisId: string, asof: string) {
-  return useQuery({
-    queryKey: ["call", thesisId, asof],
+// One thesis's call, recomputed at `asof` (the read path; never reads the calls log).
+function callQuery(thesisId: string, asof: string) {
+  return {
+    queryKey: ["call", thesisId, asof] as const,
     enabled: Boolean(thesisId) && Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}/call", {
@@ -45,5 +45,14 @@ export function useCall(thesisId: string, asof: string) {
       if (error) throw error;
       return data;
     },
-  });
+  };
+}
+
+export function useCall(thesisId: string, asof: string) {
+  return useQuery(callQuery(thesisId, asof));
+}
+
+// The Board computes a call per thesis to place each card in its lifecycle column.
+export function useCalls(thesisIds: string[], asof: string) {
+  return useQueries({ queries: thesisIds.map((id) => callQuery(id, asof)) });
 }
