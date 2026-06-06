@@ -135,7 +135,8 @@ def ingest_prices(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> int:
-    """Append EOD bars to ``fact_price_eod`` (append-only). Returns count."""
+    """Append EOD bars to ``fact_price_eod`` (append-only); the caller owns the transaction (no
+    commit here). Returns the count appended."""
     count = 0
     for r in rows:
         values = {
@@ -153,5 +154,4 @@ def ingest_prices(
             values["recorded_at"] = recorded_at
         append_fact(conn, "fact_price_eod", values)
         count += 1
-    conn.commit()
     return count

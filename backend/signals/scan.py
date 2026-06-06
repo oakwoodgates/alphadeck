@@ -90,4 +90,5 @@ def discover(
         except Exception:
             # a missing/failed price series for one name shouldn't abort the whole scan
             pass
+        conn.commit()  # persist this name's facts (ingest defers the transaction to the caller)
     return rank_candidates(conn, securities, asof, cfg=cfg)

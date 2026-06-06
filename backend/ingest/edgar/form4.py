@@ -72,7 +72,8 @@ def ingest_form4(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> int:
-    """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only). Returns count."""
+    """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
+    owns the transaction (no commit here). Returns the count appended."""
     count = 0
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
@@ -94,5 +95,4 @@ def ingest_form4(
             values["recorded_at"] = recorded_at
         append_fact(conn, "fact_insider_txn", values)
         count += 1
-    conn.commit()
     return count
