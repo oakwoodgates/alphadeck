@@ -319,6 +319,14 @@
             "title": "Triggers Fired",
             "default": []
           },
+          "risk_signals": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Risk Signals",
+            "default": []
+          },
           "missing": {
             "items": {
               "type": "string"

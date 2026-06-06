@@ -116,6 +116,23 @@ def test_clocks_are_anchored_to_fire_date_not_query_asof():
         assert card.arm_until == date(2026, 6, 12), q  # confirmation/entry clock: 06-02 + 10
 
 
+def test_risk_signals_surface_on_the_card_with_provenance():
+    """A fired risk signal (e.g. dilution) surfaces on the card with its provenance — the counter-case's
+    linkable evidence. This non-blocking one (score < block severity) rides alongside an Armed call.
+    """
+    card = assemble_call(
+        make_thesis(),
+        [insider_event(), breakout_event(), dilution_event(score=0.3)],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert card.state is State.ARMED  # 0.3 < risk_block_severity -> non-blocking
+    assert len(card.risk_signals) == 1
+    rs = card.risk_signals[0]
+    assert rs.kind is Kind.DILUTION_RISK and rs.grade is None and rs.security_id == SID
+    assert rs.sources and rs.sources[0].ref
+
+
 def test_cross_name_does_not_arm_without_co_location():
     """Co-location guard: conviction on security A + a breakout on security B does NOT arm the thesis."""
     other = uuid.UUID(int=0x9999)

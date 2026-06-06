@@ -159,6 +159,16 @@ def assemble_call(
             )
             for e in live_entry
         ],
+        risk_signals=[
+            TriggerRef(
+                label=r.label,
+                kind=r.kind,
+                grade=None,
+                security_id=r.security_id,
+                sources=list(r.provenance),
+            )
+            for r in active_risk
+        ],
         missing=missing,
         counter_case=counter_case,
         safe_sleeve=None,

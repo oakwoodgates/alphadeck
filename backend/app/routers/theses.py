@@ -43,5 +43,8 @@ def get_call(
         card = call_for_thesis(conn, thesis_id, asof, record=False)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="thesis not found") from exc
-    cik_for = master.ciks_for(conn, {t.security_id for t in card.triggers_fired})
+    sec_ids = {t.security_id for t in card.triggers_fired} | {
+        r.security_id for r in card.risk_signals
+    }
+    cik_for = master.ciks_for(conn, sec_ids)
     return CallCardResponse.from_card(card, cik_for)

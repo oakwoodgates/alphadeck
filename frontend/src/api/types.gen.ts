@@ -142,6 +142,11 @@ export interface components {
              */
             triggers_fired: components["schemas"]["TriggerRefOut"][];
             /**
+             * Risk Signals
+             * @default []
+             */
+            risk_signals: components["schemas"]["TriggerRefOut"][];
+            /**
              * Missing
              * @default []
              */

@@ -68,6 +68,7 @@ class CallCardResponse(BaseModel):
     key_conviction: KeyState
     key_confirmation: KeyState
     triggers_fired: list[TriggerRefOut] = []
+    risk_signals: list[TriggerRefOut] = []
     missing: list[str] = []
     counter_case: str = ""
     safe_sleeve: str | None = None
@@ -108,6 +109,23 @@ class CallCardResponse(BaseModel):
                     ],
                 )
                 for t in card.triggers_fired
+            ],
+            risk_signals=[
+                TriggerRefOut(
+                    label=r.label,
+                    kind=r.kind,
+                    grade=r.grade,
+                    sources=[
+                        ProvenanceOut(
+                            source=p.source,
+                            ref=p.ref,
+                            url=edgar_url(p.source, p.ref, ciks.get(r.security_id)),
+                            detail=p.detail,
+                        )
+                        for p in r.sources
+                    ],
+                )
+                for r in card.risk_signals
             ],
             missing=list(card.missing),
             counter_case=card.counter_case,

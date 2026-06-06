@@ -135,6 +135,7 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .trg-item .ic { font-size: 11px; margin-top: 1px; }
 .trg-item.hit .ic { color: var(--pos); }
 .trg-item.miss .ic { color: var(--txt-4); }
+.trg-item.warn .ic { color: var(--warm); }
 .trg-item a { color: var(--txt-3); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }
 .trg-item a:hover { color: var(--txt-2); }
 
