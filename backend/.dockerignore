@@ -1,0 +1,7 @@
+# Keep the build context lean — and never copy the host venv (Windows binaries break the Linux image).
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/

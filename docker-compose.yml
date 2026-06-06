@@ -1,0 +1,50 @@
+# Full Alpha Deck stack — one command: `docker compose up --build`.
+# Postgres + the FastAPI backend (migrates + seeds the HIMS demo on start) + the SPA behind nginx.
+#   App:  http://localhost:8080      API + Swagger docs:  http://localhost:8000/docs
+# infra/docker-compose.yml stays the DB-only slice for the local backend dev loop; both share the
+# same project name (alphadeck) and the pgdata volume, so the data is the same either way.
+name: alphadeck
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: alphadeck
+      POSTGRES_PASSWORD: alphadeck
+      POSTGRES_DB: alphadeck
+    ports:
+      - "5544:5432" # non-default host port to avoid clashing with a local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alphadeck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000" # the API direct (and Swagger docs at /docs)
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s # cover migrate + seed before failures count
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80" # the app
+
+volumes:
+  pgdata:
