@@ -10,6 +10,7 @@ from app.deps import get_conn
 from app.schemas_api import CallCardResponse, ThesisDetail, ThesisSummary
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import thesis_repo
+from securities import master
 
 router = APIRouter(prefix="/theses", tags=["theses"])
 
@@ -42,4 +43,5 @@ def get_call(
         card = call_for_thesis(conn, thesis_id, asof, record=False)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="thesis not found") from exc
-    return CallCardResponse.from_card(card)
+    cik_for = master.ciks_for(conn, {t.security_id for t in card.triggers_fired})
+    return CallCardResponse.from_card(card, cik_for)
