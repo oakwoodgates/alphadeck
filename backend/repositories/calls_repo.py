@@ -25,9 +25,23 @@ def append(conn: psycopg.Connection, card: CallCard) -> UUID:
 
 
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
-    """Every logged card for a thesis, oldest first — accountability inspection / a future scoreboard,
-    never the serve path (the API recomputes from facts).
+    """Every logged card for a thesis, oldest first — the full append-only history (accountability
+    inspection), never the serve path (the API recomputes from facts).
     """
     with conn.cursor() as cur:
         cur.execute("SELECT card FROM calls WHERE thesis_id = %s ORDER BY seq", (thesis_id,))
+        return [row_to_call(r) for r in cur.fetchall()]
+
+
+def latest_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
+    """The call of record at each ``asof`` — one row per as-of, the latest append wins (a re-run after
+    a fact correction supersedes the earlier row), newest as-of first. This is the deduped read a
+    scoreboard wants; ``list_for_thesis`` keeps the full history. Never the serve path.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s "
+            "ORDER BY asof DESC, seq DESC",
+            (thesis_id,),
+        )
         return [row_to_call(r) for r in cur.fetchall()]
