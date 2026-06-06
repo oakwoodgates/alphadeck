@@ -23,6 +23,7 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Archetype
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
+from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from repositories import thesis_repo
@@ -116,6 +117,24 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
     )
     thesis = _hims_thesis(security_id)
     thesis_repo.upsert(conn, thesis)
+
+    # the real ~$402.5M convertible-notes overhang, parsed deterministically from the committed 8-Ks
+    terms = parse_convert_terms(
+        clean_filing_text(
+            (_SEED_DATA / "edgar" / "hims_converts_8k.htm").read_text(encoding="utf-8")
+        ),
+        clean_filing_text(
+            (_SEED_DATA / "edgar" / "hims_converts_pricing.htm").read_text(encoding="utf-8")
+        ),
+    )
+    ingest_convert_terms(
+        conn,
+        security_id,
+        terms,
+        accession="0001193125-26-234847",
+        shares_outstanding=228_357_303,  # HIMS Q1-26 10-Q
+        shares_outstanding_ref="0001773751-26-000076",
+    )
     return thesis.id
 
 

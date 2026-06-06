@@ -10,6 +10,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype, State, Verdict
 from domain.thesis import BasketMember, Thesis
+from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from pipeline.call_for_thesis import call_for_thesis
@@ -52,6 +53,20 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
         ],
     )
     thesis_repo.upsert(db, thesis)
+    terms = parse_convert_terms(
+        clean_filing_text((_SEED / "edgar" / "hims_converts_8k.htm").read_text(encoding="utf-8")),
+        clean_filing_text(
+            (_SEED / "edgar" / "hims_converts_pricing.htm").read_text(encoding="utf-8")
+        ),
+    )
+    ingest_convert_terms(
+        db,
+        security_id,
+        terms,
+        accession="0001193125-26-234847",
+        shares_outstanding=228_357_303,
+        shares_outstanding_ref="0001773751-26-000076",
+    )
     db.commit()
     return thesis.id
 
@@ -69,6 +84,9 @@ def test_call_for_thesis_warms_then_arms_and_logs(db, security_id):
     assert armed.armed_security_id == security_id
     refs = [p.ref for t in armed.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs  # the working Form 4 source link survives persistence
+    # the real ~$402.5M convertible-notes overhang rides the counter-case (non-blocking, stays Armed)
+    assert "convertible notes" in armed.counter_case.lower()
+    assert "dilution" in armed.counter_case.lower()
     db.commit()
 
     # both computations were captured in the write-only accountability log (not the serve path)

@@ -29,6 +29,9 @@ class CallConfig(DomainModel):
 
     # --- dilution severity (used by the dilution detector in M4a) ---
     dilution_block_runway_months: float = 6.0
+    # gross overhang (% of shares outstanding) that scales to the block severity; a convert's potential
+    # dilution is scored against this (STARTING calibration). HIMS's ~6% lands well below the block.
+    dilution_overhang_severe_pct: float = 25.0
 
     # --- insider_conviction (Key 1) — grade rule (§3); STARTING calibration, not precision ---
     insider_lookback_days: int = 90
