@@ -1,0 +1,846 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Alpha Deck",
+    "summary": "Decision-support call-assembler API (advisory only; the CallCard is recomputed on read).",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/theses": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "List Theses",
+        "operationId": "list_theses_theses_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ThesisSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Theses Theses Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Get Thesis",
+        "operationId": "get_thesis_theses__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/call": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Get Call",
+        "description": "Recompute the CallCard live at ``asof`` \u2014 a READ-ONLY path. The signal stream is re-derived\nfrom the bitemporal facts (no persisted firing layer), so a given ``asof`` is deterministic and a\nrefetch / as-of-slider scrub / poll writes nothing. The accountability ``calls`` log is written\nby the batch ``pipeline.run`` (the official call of record), never by this GET.",
+        "operationId": "get_call_theses__thesis_id__call_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; the call uses no data knowable after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; the call uses no data knowable after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallCardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Archetype": {
+        "type": "string",
+        "enum": [
+          "leader",
+          "high_beta",
+          "lotto",
+          "shovel"
+        ],
+        "title": "Archetype",
+        "description": "A basket member's role in expressing the thesis."
+      },
+      "BasketMember": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "archetype": {
+            "$ref": "#/components/schemas/Archetype"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ticker",
+          "role",
+          "archetype"
+        ],
+        "title": "BasketMember"
+      },
+      "CallCardResponse": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          },
+          "conviction_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "armed_security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Armed Security Id"
+          },
+          "expression": {
+            "type": "string",
+            "title": "Expression"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "catalyst_surface": {
+            "items": {
+              "$ref": "#/components/schemas/Catalyst"
+            },
+            "type": "array",
+            "title": "Catalyst Surface",
+            "default": []
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "key_conviction": {
+            "$ref": "#/components/schemas/KeyState"
+          },
+          "key_confirmation": {
+            "$ref": "#/components/schemas/KeyState"
+          },
+          "triggers_fired": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Triggers Fired",
+            "default": []
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing",
+            "default": []
+          },
+          "counter_case": {
+            "type": "string",
+            "title": "Counter Case",
+            "default": ""
+          },
+          "safe_sleeve": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Sleeve"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "asof",
+          "state",
+          "verdict",
+          "expression",
+          "confidence",
+          "key_conviction",
+          "key_confirmation"
+        ],
+        "title": "CallCardResponse",
+        "description": "The CallCard as served \u2014 the domain card plus resolved provenance URLs."
+      },
+      "Catalyst": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Date"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "Catalyst"
+      },
+      "Evidence": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "date_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "ref"
+        ],
+        "title": "Evidence",
+        "description": "Immutable reference to a filing / data point."
+      },
+      "Grade": {
+        "type": "string",
+        "enum": [
+          "flip",
+          "core"
+        ],
+        "title": "Grade"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KeyState": {
+        "properties": {
+          "turned": {
+            "type": "boolean",
+            "title": "Turned"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "turned",
+          "label"
+        ],
+        "title": "KeyState",
+        "description": "One of the two keys (Conviction / Confirmation) rendered on the call card."
+      },
+      "KillCriterion": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "KillCriterion"
+      },
+      "Kind": {
+        "type": "string",
+        "enum": [
+          "insider",
+          "technical_breakout",
+          "laggard",
+          "squeeze",
+          "etf_launch",
+          "etf_flow",
+          "dilution_risk"
+        ],
+        "title": "Kind",
+        "description": "What produced the signal (extensible)."
+      },
+      "Position": {
+        "properties": {
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "opened_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Position",
+        "description": "Populated once the operator logs a fill \u2014 its presence drives the Managing state."
+      },
+      "ProvenanceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref"
+        ],
+        "title": "ProvenanceOut"
+      },
+      "State": {
+        "type": "string",
+        "enum": [
+          "incubating",
+          "warming",
+          "armed",
+          "managing"
+        ],
+        "title": "State",
+        "description": "Thesis lifecycle (a loop, not a ratchet)."
+      },
+      "ThesisDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "narrative": {
+            "type": "string",
+            "title": "Narrative"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "basket": {
+            "items": {
+              "$ref": "#/components/schemas/BasketMember"
+            },
+            "type": "array",
+            "title": "Basket",
+            "default": []
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array",
+            "title": "Evidence",
+            "default": []
+          },
+          "catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/Catalyst"
+            },
+            "type": "array",
+            "title": "Catalysts",
+            "default": []
+          },
+          "kill_criteria": {
+            "items": {
+              "$ref": "#/components/schemas/KillCriterion"
+            },
+            "type": "array",
+            "title": "Kill Criteria",
+            "default": []
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "narrative"
+        ],
+        "title": "ThesisDetail",
+        "description": "The full thesis for the Cockpit \u2014 a wire model (no tenant_id) so generated FE types never bind\nto the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the\ncatalyst surface on CallCardResponse)."
+      },
+      "ThesisSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "narrative": {
+            "type": "string",
+            "title": "Narrative"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "narrative"
+        ],
+        "title": "ThesisSummary",
+        "description": "Lightweight list item for the Board (the full thesis comes from GET /theses/{id})."
+      },
+      "TriggerRefOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceOut"
+            },
+            "type": "array",
+            "title": "Sources",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind"
+        ],
+        "title": "TriggerRefOut"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "Verdict": {
+        "type": "string",
+        "enum": [
+          "watching",
+          "not_yet",
+          "flip_only",
+          "starter_entry",
+          "core_entry",
+          "managing"
+        ],
+        "title": "Verdict"
+      }
+    }
+  }
+}
