@@ -97,6 +97,31 @@ export function CallCard({ card }: { card: CallCardResponse }) {
           </div>
         )}
 
+        {(card.risk_signals ?? []).length > 0 && (
+          <div className="trg">
+            <div className="trg-h">Risk signals</div>
+            {(card.risk_signals ?? []).map((r, i) => {
+              const url = (r.sources ?? []).find((s) => s.url)?.url;
+              return (
+                <div className="trg-item warn" key={i}>
+                  <span className="ic">▲</span>
+                  <span>
+                    {r.label}
+                    {url && (
+                      <>
+                        {" "}
+                        <a href={url} target="_blank" rel="noreferrer">
+                          ↗ source
+                        </a>
+                      </>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {card.counter_case && (
           <div className="counter">
             <b>Counter-case</b>

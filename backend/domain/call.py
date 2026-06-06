@@ -49,6 +49,9 @@ class CallCard(DomainModel):
     key_conviction: KeyState
     key_confirmation: KeyState
     triggers_fired: list[TriggerRef] = Field(default_factory=list)
+    risk_signals: list[TriggerRef] = Field(
+        default_factory=list
+    )  # fired risk signals (with provenance)
     missing: list[str] = Field(default_factory=list)
     counter_case: str = ""
     safe_sleeve: str | None = None

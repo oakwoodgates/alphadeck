@@ -13,6 +13,7 @@ from app.schemas_api import edgar_url
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype
 from domain.thesis import BasketMember, Thesis
+from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from repositories import thesis_repo
@@ -51,6 +52,20 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
         ],
     )
     thesis_repo.upsert(db, thesis)
+    terms = parse_convert_terms(
+        clean_filing_text((_SEED / "edgar" / "hims_converts_8k.htm").read_text(encoding="utf-8")),
+        clean_filing_text(
+            (_SEED / "edgar" / "hims_converts_pricing.htm").read_text(encoding="utf-8")
+        ),
+    )
+    ingest_convert_terms(
+        db,
+        security_id,
+        terms,
+        accession="0001193125-26-234847",
+        shares_outstanding=228_357_303,
+        shares_outstanding_ref="0001773751-26-000076",
+    )
     db.commit()
     return thesis.id
 
@@ -158,3 +173,18 @@ def test_edgar_url_built_from_issuer_cik_not_accession_prefix():
     )
     assert edgar_url("price", "price:HIMS:2026-06-01", "1773751") is None  # non-filing source
     assert edgar_url("form4", "0001773751-26-000086", None) is None  # issuer CIK unknown
+
+
+def test_call_endpoint_surfaces_the_dilution_risk_with_a_resolving_link(db, security_id):
+    tid = _seed_hims_thesis(db, security_id)
+    try:
+        r = _client(db).get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    finally:
+        app.dependency_overrides.clear()
+    body = r.json()
+    assert body["state"] == "armed"  # the ~$402.5M overhang is non-blocking
+    risks = body["risk_signals"]
+    assert any("convertible notes" in rs["label"].lower() for rs in risks)
+    # the dilution 8-K link resolves from the ISSUER cik (PR-1 fix), not the DFIN accession prefix
+    urls = [p["url"] for rs in risks for p in rs["sources"] if p["url"]]
+    assert any("sec.gov/Archives/edgar/data" in u and "0001193125-26-234847" in u for u in urls)
