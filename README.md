@@ -121,4 +121,11 @@ alpha-deck/
 
 ## Status
 
-Greenfield. Setup commands land as the backend and frontend scaffold (tracked in `CLAUDE.md`).
+**M3a complete — Checkpoint A is reached and served.** A single real thesis (HIMS) flows end to end on
+real data: SEC Form 4 + EOD → the bitemporal store → pure detectors (insider conviction, volume
+breakout) → the golden-tested call-assembler → `GET /theses/{id}/call?asof=`, producing a computed,
+evidence-linked **Armed** call (currently a `starter_entry`: core conviction, momentum-only
+confirmation). Built so far: the domain spine, the bitemporal Postgres foundation, the SEC brick + the
+two detectors, thesis persistence + repositories + the assembly pipeline, and the FastAPI layer.
+**Next (M3b):** the Board + Cockpit UI rendering the call over generated TS types. Build/run/test
+commands live in `CLAUDE.md`.
