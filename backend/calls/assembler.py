@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, timedelta
+from uuid import UUID
 
 from calls.confidence import confidence
 from calls.counter_case import deterministic_counter_case
-from calls.grading import call_grade, weaker_grade
+from calls.grading import call_grade, grade_rank, weaker_grade
 from domain.call import CallCard, KeyState, TriggerRef
 from domain.config import CallConfig
 from domain.enums import Grade, Role, State, Verdict
@@ -25,26 +26,48 @@ def assemble_call(
 ) -> CallCard:
     """Pure, deterministic call-assembler: same (thesis, events, asof, cfg) -> same CallCard.
 
-    This is the read path — the API recomputes the CallCard live at the requested ``asof``; the
+    This is the read path — the API recomputes the CallCard live at the requested ``asof`` from the
+    dated signal stream (re-derived from the bitemporal facts, not a persisted firing layer); the
     ``calls`` table only stores the result as an accountability record. See docs/CALL_LOGIC.md.
     """
     fired_entry = [e for e in events if e.role == Role.ENTRY_TRIGGER and e.fired]
     active_risk = [e for e in events if e.role == Role.RISK_SIGNAL and e.fired]
 
-    # Two keys (CALL_LOGIC §2): a conviction trigger only warms; arming needs confirmation.
-    # NOTE: keys are evaluated at the THESIS level across the whole basket (matches the mockup's
-    # "group breakout"). Whether a conviction and its confirmation must co-locate on the same
-    # security_id is a deliberate M3 design decision, surfaced in review — not settled here.
-    conviction_on = any(e.kind in cfg.conviction_kinds for e in fired_entry)
-    confirmation_on = any(e.kind in cfg.confirmation_kinds for e in fired_entry)
+    # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha half-life.
+    # ``e.asof`` is the trigger's FIRE date (the event date), so an Armed call stays sticky across a
+    # consolidation (the breakout firing is still live) and lapses once that firing ages out.
+    live_entry = [e for e in fired_entry if _live(e, asof)]
 
-    # Two grades, kept distinct (CALL_LOGIC §4): the CONVICTION grade is the thesis quality (the
-    # conviction key); the ENTRY grade is the weaker of the two keys and is what drives the verdict
-    # the operator acts on — so a core thesis whose volume hasn't confirmed reads as a STARTER entry,
-    # never a bare "core entry" (which invites over-committing). Conviction is shown separately so the
-    # thesis's core quality isn't lost; starter is the upgrade path to a full core entry.
-    conviction_events = [e for e in fired_entry if e.kind in cfg.conviction_kinds]
-    confirmation_events = [e for e in fired_entry if e.kind in cfg.confirmation_kinds]
+    # Two keys + CO-LOCATION (§2): a conviction trigger only warms; arming needs a confirmation on
+    # the SAME security. Group/sector ("group breakout") confirmation across a basket is a separate,
+    # explicitly-labeled mode (M5) — not folded into this single-name arm.
+    conv_secs = {e.security_id for e in live_entry if e.kind in cfg.conviction_kinds}
+    conf_secs = {e.security_id for e in live_entry if e.kind in cfg.confirmation_kinds}
+    armed_secs = conv_secs & conf_secs
+    conviction_on = bool(conv_secs)
+    confirmation_on = bool(conf_secs)
+    both_keys = bool(armed_secs)
+
+    # The security that arms — and that we grade (not the whole basket): the co-located one with the
+    # strongest entry grade. When confirmation isn't required (config), conviction alone can arm.
+    armed_sec = _arming_security(armed_secs, live_entry, cfg)
+    if armed_sec is None and not cfg.arming_requires_confirmation:
+        armed_sec = _arming_security(conv_secs, live_entry, cfg)
+
+    # Two grades, kept distinct (§4): the CONVICTION grade is the thesis quality; the ENTRY grade is
+    # the weaker of the two keys and drives the verdict the operator acts on. Graded on the armed
+    # security when armed, else across the live basket (so a Warming card still shows core conviction).
+    scope = armed_sec
+    conviction_events = [
+        e
+        for e in live_entry
+        if e.kind in cfg.conviction_kinds and (scope is None or e.security_id == scope)
+    ]
+    confirmation_events = [
+        e
+        for e in live_entry
+        if e.kind in cfg.confirmation_kinds and (scope is None or e.security_id == scope)
+    ]
     conviction_grade = call_grade(conviction_events)
     confirmation_grade = call_grade(confirmation_events)
     entry_grade = weaker_grade(conviction_grade, confirmation_grade)
@@ -52,23 +75,26 @@ def assemble_call(
     # Risk-veto (§2): a severe risk signal withholds the Armed call on TIMING, never the thesis.
     blocking_risks = [r for r in active_risk if r.score >= cfg.risk_block_severity]
 
-    both_keys = conviction_on and confirmation_on
-    can_arm = (both_keys if cfg.arming_requires_confirmation else True) and entry_grade is not None
-    risk_blocked = can_arm and bool(
-        blocking_risks
-    )  # armable, but a severe risk withholds it on timing
+    can_arm = (
+        both_keys if cfg.arming_requires_confirmation else conviction_on
+    ) and entry_grade is not None
+    risk_blocked = can_arm and bool(blocking_risks)
 
-    state = _state(thesis, fired_entry, can_arm, bool(blocking_risks), cfg)
+    state = _state(thesis, live_entry, asof, can_arm, bool(blocking_risks), cfg)
 
-    # Graded confirmation (§3): a volume-backed breakout is CORE-quality; a momentum thrust on weak
-    # volume still arms but as a flip-grade (STARTER) entry — surfaced as the starter verdict, reduced
-    # confidence, a volume-gap counter-case, and a cautious expression. Volume stays central.
+    # Graded confirmation (§3): a momentum-only (flip-grade) breakout still arms, but as a STARTER —
+    # reduced confidence, a volume-gap counter-case, and a cautious expression. Volume stays central.
     momentum_only = (
         bool(confirmation_events) and confirmation_grade != Grade.CORE and state == State.ARMED
     )
 
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
-    exit_by = _exit_by(fired_entry, asof)
+
+    # Two fire-date-anchored clocks (§6). exit_by = the HOLD horizon (the conviction key) and drives
+    # the catalyst surface; arm_until = the ENTRY window (the confirmation key) — the arm lapses once
+    # asof passes it. Both anchored to each trigger's fire date, so they don't slide as asof advances.
+    exit_by = _clock(conviction_events)
+    arm_until = _clock(confirmation_events)
 
     caveats = (
         [
@@ -90,10 +116,12 @@ def assemble_call(
         verdict=_verdict(state, conviction_grade, entry_grade),
         conviction_grade=conviction_grade,
         entry_grade=entry_grade,
+        armed_security_id=armed_sec if state == State.ARMED else None,
         expression=_expression(state, conviction_grade, entry_grade, risk_blocked, momentum_only),
         exit_by=exit_by,
+        arm_until=arm_until,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
-        confidence=confidence(fired_entry, active_risk, cfg, momentum_only=momentum_only),
+        confidence=confidence(live_entry, active_risk, cfg, momentum_only=momentum_only),
         key_conviction=KeyState(
             turned=conviction_on,
             label="Conviction",
@@ -114,7 +142,7 @@ def assemble_call(
         ),
         triggers_fired=[
             TriggerRef(label=e.label, kind=e.kind, grade=e.grade, sources=list(e.provenance))
-            for e in fired_entry
+            for e in live_entry
         ],
         missing=missing,
         counter_case=counter_case,
@@ -122,18 +150,52 @@ def assemble_call(
     )
 
 
+def _live(e: SignalEvent, asof: date) -> bool:
+    """A fired entry trigger counts only while inside its alpha half-life (``e.asof`` = its fire date)."""
+    if e.alpha_half_life_days is None:
+        return True
+    return asof <= e.asof + timedelta(days=e.alpha_half_life_days)
+
+
+def _arming_security(
+    secs: set[UUID], live_entry: list[SignalEvent], cfg: CallConfig
+) -> UUID | None:
+    """The security that arms: the candidate with the strongest entry grade (deterministic tiebreak)."""
+    if not secs:
+        return None
+
+    def entry_grade_for(sec: UUID) -> Grade | None:
+        conv = [e for e in live_entry if e.kind in cfg.conviction_kinds and e.security_id == sec]
+        conf = [e for e in live_entry if e.kind in cfg.confirmation_kinds and e.security_id == sec]
+        return weaker_grade(call_grade(conv), call_grade(conf))
+
+    def conviction_score(sec: UUID) -> float:
+        return max(
+            (
+                e.score
+                for e in live_entry
+                if e.kind in cfg.conviction_kinds and e.security_id == sec
+            ),
+            default=0,
+        )
+
+    return max(secs, key=lambda s: (grade_rank(entry_grade_for(s)), conviction_score(s), s.int))
+
+
 def _state(
     thesis: Thesis,
-    fired_entry: list[SignalEvent],
+    live_entry: list[SignalEvent],
+    asof: date,
     can_arm: bool,
     blocked: bool,
     cfg: CallConfig,
 ) -> State:
-    if thesis.position is not None:
+    position = thesis.position
+    if position is not None and (position.opened_on is None or position.opened_on <= asof):
         return State.MANAGING
     if can_arm and not blocked:
         return State.ARMED
-    if len(fired_entry) >= cfg.warming_min_entry_triggers:
+    if len(live_entry) >= cfg.warming_min_entry_triggers:
         return State.WARMING
     return State.INCUBATING
 
@@ -152,11 +214,14 @@ def _verdict(state: State, conviction_grade: Grade | None, entry_grade: Grade | 
     return Verdict.FLIP_ONLY if conviction_grade == Grade.FLIP else Verdict.NOT_YET
 
 
-def _exit_by(fired_entry: list[SignalEvent], asof: date) -> date | None:
-    halflives = [e.alpha_half_life_days for e in fired_entry if e.alpha_half_life_days is not None]
-    if not halflives:
-        return None
-    return asof + timedelta(days=max(halflives))
+def _clock(events: list[SignalEvent]) -> date | None:
+    """The latest (fire_date + alpha half-life) over a set of triggers — None if none carry one."""
+    ends = [
+        e.asof + timedelta(days=e.alpha_half_life_days)
+        for e in events
+        if e.alpha_half_life_days is not None
+    ]
+    return max(ends) if ends else None
 
 
 def _catalyst_surface(catalysts: list[Catalyst], exit_by: date | None) -> list[Catalyst]:

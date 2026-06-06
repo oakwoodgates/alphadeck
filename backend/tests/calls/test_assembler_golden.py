@@ -14,6 +14,7 @@ from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from tests.calls.factories import (
     ASOF,
+    SID,
     breakout_event,
     dilution_event,
     insider_event,
@@ -41,8 +42,10 @@ def test_insider_plus_breakout_arms_core_entry():
     assert card.conviction_grade is Grade.CORE and card.entry_grade is Grade.CORE
     assert card.key_conviction.turned and card.key_confirmation.turned
     assert card.missing == []
-    assert card.exit_by == date(2026, 6, 20)  # asof + max(18, 10)
-    assert len(card.catalyst_surface) == 1  # only the dated event inside the half-life window
+    assert card.exit_by == date(2026, 6, 20)  # hold clock: insider fire 06-02 + 18d half-life
+    assert card.arm_until == date(2026, 6, 12)  # entry window: breakout fire 06-02 + 10d half-life
+    assert card.armed_security_id == SID  # the co-located security that armed
+    assert len(card.catalyst_surface) == 1  # only the dated event inside the hold window
     assert card.catalyst_surface[0].when_date == date(2026, 6, 11)
     assert len(card.triggers_fired) == 2
     assert card.triggers_fired[0].sources[0].ref  # provenance link is present
@@ -88,6 +91,53 @@ def test_severe_dilution_blocks_arming_on_timing_not_thesis():
     # the expression explains the real blocker (timing/risk), not a missing confirmation
     assert "withheld" in blocked.expression.lower() or "risk" in blocked.expression.lower()
     assert blocked.thesis_id == thesis.id  # the thesis itself is never vetoed
+
+
+# --- Pre-M3a fixes: date-aware sticky state, co-location guard, two fire-date-anchored clocks ---
+
+
+def test_armed_is_sticky_across_the_entry_window():
+    """A fixed dated firing stream stays Armed as the query asof advances through the entry window —
+    the assembler trusts the dated firing and never re-evaluates a detector, so there is no flicker.
+    """
+    thesis = make_thesis()
+    events = [insider_event(), breakout_event()]  # both fired on factories.ASOF (2026-06-02)
+    for q in (date(2026, 6, 2), date(2026, 6, 5), date(2026, 6, 8), date(2026, 6, 12)):
+        assert assemble_call(thesis, events, q, DEFAULT_CONFIG).state is State.ARMED, q
+
+
+def test_clocks_are_anchored_to_fire_date_not_query_asof():
+    """The two clocks anchor to each trigger's fire date, so they don't slide as the query asof moves."""
+    thesis = make_thesis()
+    events = [insider_event(), breakout_event()]  # fire date 06-02; half-lives 18 / 10
+    for q in (date(2026, 6, 3), date(2026, 6, 5), date(2026, 6, 8)):
+        card = assemble_call(thesis, events, q, DEFAULT_CONFIG)
+        assert card.exit_by == date(2026, 6, 20), q  # conviction/hold clock: 06-02 + 18
+        assert card.arm_until == date(2026, 6, 12), q  # confirmation/entry clock: 06-02 + 10
+
+
+def test_cross_name_does_not_arm_without_co_location():
+    """Co-location guard: conviction on security A + a breakout on security B does NOT arm the thesis."""
+    other = uuid.UUID(int=0x9999)
+    breakout_elsewhere = breakout_event().model_copy(update={"security_id": other})
+    card = assemble_call(make_thesis(), [insider_event(), breakout_elsewhere], ASOF, DEFAULT_CONFIG)
+    assert card.state is State.WARMING  # conviction warms; the confirmation is on a different name
+    assert card.armed_security_id is None
+
+
+def test_arm_lapses_per_key_then_thesis_ages_out():
+    """Per-key lapse: the arm holds on the confirmation's clock, then warms, then ages out entirely."""
+    thesis = make_thesis()
+    events = [insider_event(), breakout_event()]  # exit_by 06-20, arm_until 06-12
+    assert assemble_call(thesis, events, date(2026, 6, 5), DEFAULT_CONFIG).state is State.ARMED
+    # confirmation aged past arm_until (06-12) with no fill -> lapse to Warming (conviction still live)
+    warming = assemble_call(thesis, events, date(2026, 6, 13), DEFAULT_CONFIG)
+    assert warming.state is State.WARMING
+    assert warming.key_conviction.turned and not warming.key_confirmation.turned
+    # conviction aged past exit_by (06-20) -> nothing live -> Incubating
+    assert (
+        assemble_call(thesis, events, date(2026, 6, 21), DEFAULT_CONFIG).state is State.INCUBATING
+    )
 
 
 def test_no_entry_triggers_is_incubating_and_quiet():

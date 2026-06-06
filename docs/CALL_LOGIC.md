@@ -30,19 +30,20 @@ Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, 
 
 So `insider_conviction` is `role=entry_trigger, kind=insider`; `dilution_clock` is `role=risk_signal, kind=dilution_risk`; a new ETF launch is `role=entry_trigger (low-grade), kind=etf_launch, type=…`; ETF flows are `kind=etf_flow`.
 
-## 2. State-transition rules  `TODO(operator)`
+## 2. State-transition rules  `[PINNED]` (STARTING calibration)
 
-The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed → Managing`, and Armed/flip can fall back to Incubating.
+The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed → Managing`, and Armed/Warming can fall back. A fired entry trigger is **live** only while inside its alpha half-life (`asof ≤ fire_date + alpha_half_life_days`); aged-out triggers stop counting. The numbers live in `CallConfig` (STARTING calibration), not here.
 
-Fill the thresholds — these are the heart of the opinionated call:
-
-| Transition | Condition (fill in) |
+| Transition | Condition |
 |---|---|
-| → **Incubating** | Thesis parked; no entry trigger fired. *(default state)* |
-| Incubating → **Warming** | `TODO(operator)`: e.g. "≥1 entry trigger fired but none at `core` grade," and/or attention/regulatory legs present. |
-| Warming → **Armed** | `TODO(operator)`: e.g. "≥1 `core` entry trigger fired **with confirmation** (a second corroborating trigger, or a volume-confirmed breakout)." Define what 'confirmation' means. |
-| any → **Managing** | Operator has logged a fill (position exists). |
-| Armed/Warming → **Incubating** | `TODO(operator)`: e.g. "all fired triggers aged past their half-life with no entry," or a flip resolved. |
+| → **Incubating** | No *live* entry trigger. *(default state)* |
+| Incubating → **Warming** | ≥ `warming_min_entry_triggers` live entry triggers, but the two keys are **not** co-located (e.g. a conviction with no confirmation on the same security). |
+| Warming → **Armed** | A **conviction** key and a **confirmation** key are *live and co-located on the same security* (`arming_requires_confirmation`), and no severe risk signal is blocking. |
+| any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). |
+| Armed → **Warming** | The **confirmation** key ages past its half-life (the *entry window* `arm_until` lapses) with no fill — re-arming needs a fresh confirmation. A mild consolidation (a dip that doesn't age out the firing) is **not** a lapse. |
+| Armed/Warming → **Incubating** | All live entry triggers age out (past the *hold* horizon `exit_by`). |
+
+> **Two clocks (sticky-on-confirmation).** The arm is sticky on the **confirmation's** clock — the *entry window* (`arm_until`, §6); the **conviction's** clock is the *hold* horizon (`exit_by`, §6) that governs once a fill is logged. A genuine *breakdown* (close back below the breakout base) de-arms only via a `breakdown` **risk-signal** detector (M4a) — price-signal logic stays in detectors, never in the pure assembler.
 
 > **Risk-veto rule `[SPECIFIED]` (confirmed).** A risk signal *penalizes confidence* and, when severe
 > (e.g. critically short runway / imminent dilution), *blocks the Armed call* even if an entry trigger
@@ -91,12 +92,18 @@ Suggested expression follows the grade (confirm/refine):
 
 ## 6. Exit-by & catalyst surface  `[SPECIFIED]`
 
+Two clocks, each **anchored to the trigger's fire date** (`event.asof`), so they are stable under recompute — they do **not** slide as the query `asof` advances:
+
 ```
-exit_by        = asof + max(alpha_half_life_days over fired ENTRY triggers)
+exit_by   = max(fire_date + alpha_half_life_days  over LIVE conviction   triggers)   # the HOLD horizon
+arm_until = max(fire_date + alpha_half_life_days  over LIVE confirmation triggers)   # the ENTRY window
 catalyst_surface = [ c for c in thesis.catalysts if c.when_date is not None and c.when_date <= exit_by ]
 ```
-Undated/fuzzy catalysts (no `when_date`) are shown for context but excluded from the surface filter.
-The Cockpit flags any binary event in `catalyst_surface` as risk crossed before exit.
+Both are `null` when no live trigger of that kind exists. `exit_by` (the conviction / hold clock) drives the
+catalyst surface and the post-fill hold; `arm_until` (the confirmation / entry clock) is the window in which the
+Armed call is live — when `asof` passes it, the arm lapses (§2). A trigger is **live** only inside its half-life
+(`asof ≤ fire_date + alpha_half_life_days`). Undated/fuzzy catalysts (no `when_date`) are shown for context but
+excluded from the surface filter. The Cockpit flags any binary event in `catalyst_surface` as risk crossed before exit.
 
 ## 7. Confidence  `TODO(operator)`
 
