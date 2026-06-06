@@ -17,7 +17,7 @@ from signals.base import PointInTimeData
 # M3 Checkpoint A: the computed Armed call on REAL HIMS data (committed fixtures), proven in a test
 # before any UI. David Wells' $1.17M open-market buy (Key 1, CORE) + the 2026-06-01 momentum breakout
 # (Key 2, momentum-only) -> an honest Armed core_entry: reduced confidence + a volume-gap counter-case.
-_F = Path(__file__).resolve().parent.parent / "fixtures"
+_SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 _WELLS_ACCESSION = "0001773751-26-000086"
 
@@ -26,11 +26,11 @@ def _seed_hims(db, security_id):
     ingest_form4(
         db,
         security_id,
-        (_F / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
+        (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
         _WELLS_ACCESSION,
     )
     bars = parse_yahoo_chart(
-        json.loads((_F / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
+        json.loads((_SEED / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
     )
     ingest_prices(db, security_id, bars)
 

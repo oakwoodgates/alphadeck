@@ -7,7 +7,8 @@ from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_stooq_csv
 from signals.base import PointInTimeData
 
-_F = Path(__file__).resolve().parent.parent / "fixtures"
+_F = Path(__file__).resolve().parent.parent / "fixtures"  # test-only EDGAR/price samples
+_SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"  # shared HIMS demo samples
 # A far-future known_at: "we know everything recorded so far" — isolates the valid-time axis.
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
@@ -35,7 +36,7 @@ def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
     from domain.enums import Grade
     from signals import insider_conviction
 
-    xml = (_F / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
+    xml = (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
     ingest_form4(db, security_id, xml, "0001773751-26-000086")
     pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
     ev = insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG)

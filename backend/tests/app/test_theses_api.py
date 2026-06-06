@@ -16,7 +16,7 @@ from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from repositories import thesis_repo
 
-_F = Path(__file__).resolve().parent.parent / "fixtures"
+_SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _WELLS_ACCESSION = "0001773751-26-000086"
 
 
@@ -24,14 +24,14 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
     ingest_form4(
         db,
         security_id,
-        (_F / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
+        (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
         _WELLS_ACCESSION,
     )
     ingest_prices(
         db,
         security_id,
         parse_yahoo_chart(
-            json.loads((_F / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
+            json.loads((_SEED / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
         ),
     )
     thesis = Thesis(

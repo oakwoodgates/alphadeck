@@ -8,7 +8,7 @@
 
 **At runtime, Postgres (the database) is the system of record.** Files on disk are only ever one of:
 
-1. **Committed inputs** — real captured samples used by the tests and the demo seed (`backend/tests/fixtures/`). Static; never written at runtime.
+1. **Committed inputs** — real captured samples. The shared HIMS demo samples live in `backend/seed_data/` (read by `pipeline/seed.py` *and* the real-data tests); test-only samples live in `backend/tests/fixtures/`. Static; never written at runtime.
 2. **A gitignored cache** of live API pulls (`data/`) — a local mirror so we respect rate limits and re-runs are reproducible. **Safe to delete** (it re-pulls on demand). Not the source of truth.
 3. **Build artifacts** — `app/openapi.json` (the frontend's type source), produced on demand.
 
@@ -27,7 +27,7 @@ And the load-bearing choice that *makes* it auditable: **signals are never store
         └──────────────────────────────────────────────┘  A mirror, NOT the source of truth.
                        │ ingest                 ▲
                        │             committed REAL samples (INPUTS — never written at runtime)
-                       │      backend/tests/fixtures/  (hims_wells_form4.xml, HIMS.yahoo.json, …)
+                       │      backend/seed_data/ (HIMS demo) · tests/fixtures/ (test-only samples)
                        │                        │ ingest (seed + tests read these)
                        ▼                        ▼
         ╔══════════════════════════════════════════════════════════════╗
@@ -57,7 +57,7 @@ flowchart TD
       EDGAR["SEC EDGAR"]; YH["Yahoo / Stooq"]; FIGI["OpenFIGI / SEC"]
     end
     subgraph DISK["Files on disk"]
-      FIX["tests/fixtures/*<br/>committed REAL samples (inputs)"]
+      FIX["seed_data/* (demo) ·<br/>tests/fixtures/* (test-only)<br/>committed REAL samples (inputs)"]
       CACHE[("data/*  cache<br/>gitignored · cache-first")]
       OAPI["app/openapi.json<br/>build artifact"]
     end
@@ -84,7 +84,8 @@ flowchart TD
 
 | Artifact | Kind | Location | Written when | In git? |
 |---|---|---|---|---|
-| Wells Form 4, HIMS EOD, sample EDGAR/FIGI | real captured **input** | `backend/tests/fixtures/` | once, by hand (committed) | **yes** |
+| Wells Form 4 + HIMS EOD (the demo seed) | real captured **input** | `backend/seed_data/` | once, by hand (committed) | **yes** |
+| Sample EDGAR / FIGI / price fixtures (tests) | real captured **input** | `backend/tests/fixtures/` | once, by hand (committed) | **yes** |
 | EDGAR / price / FIGI raw responses | **cache** of live pulls | `data/` | on a live fetch (cache-first) | no (gitignored) |
 | `openapi.json` | build artifact | `backend/app/` | when you run `openapi_export` | no (generated) |
 | Resolved securities | identity | **Postgres** `security_master` | on resolve / seed | n/a (DB) |
@@ -96,7 +97,7 @@ flowchart TD
 
 ## Your question, directly
 
-- **The "HIMS files" are two committed real-data samples** — `tests/fixtures/edgar/hims_wells_form4.xml` (the actual Wells Form 4) and `tests/fixtures/prices/HIMS.yahoo.json` (real HIMS EOD) — plus `pipeline/seed.py` that reads them. They exist so the tests and the demo seed run **deterministically and offline**. They are *inputs*, read-only at runtime.
+- **The "HIMS files" are two committed real-data samples** — `seed_data/edgar/hims_wells_form4.xml` (the actual Wells Form 4) and `seed_data/prices/HIMS.yahoo.json` (real HIMS EOD) — read by both `pipeline/seed.py` and the real-data tests. They live outside the test tree so shipped code never depends on `tests/`, and they exist so the seed and tests run **deterministically and offline**. They are *inputs*, read-only at runtime.
 - **At runtime, HIMS data lives in Postgres** (its `security_master` row, its `fact_*` rows, its `thesis` rows) — exactly like any other name would. Add another ticker and *its* facts + thesis land in the same tables; nothing about HIMS is special in storage.
 - **Are files written each time?**
   - *Seeding / tests:* **no** — they read the committed fixtures and write to the **database**.

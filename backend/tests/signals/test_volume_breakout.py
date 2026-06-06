@@ -12,12 +12,9 @@ from signals import volume_breakout
 
 SID = uuid4()
 # Real HIMS EOD (the M3 target), pulled live and committed for a reproducible, offline real-data test.
+_SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _BARS = parse_yahoo_chart(
-    json.loads(
-        (
-            Path(__file__).resolve().parent.parent / "fixtures" / "prices" / "HIMS.yahoo.json"
-        ).read_text(encoding="utf-8")
-    )
+    json.loads((_SEED / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
 )
 
 
