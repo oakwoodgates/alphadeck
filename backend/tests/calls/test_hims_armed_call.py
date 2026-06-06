@@ -94,3 +94,15 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     assert card.exit_by is not None  # the hold horizon (conviction half-life)
     assert card.arm_until is not None  # the entry window (confirmation half-life)
     assert card.armed_security_id == security_id  # conviction + confirmation co-located on HIMS
+
+
+def test_hims_armed_stays_sticky_through_consolidation(db, security_id):
+    # The end-to-end no-flicker test (deferred from Pre-M3a until detectors re-derive from facts):
+    # on 06-02/06-03 no NEW breakout prints, but the detector reports the 06-01 breakout (still inside
+    # its half-life) stamped event_date=06-01 -> the call stays ARMED, no flicker, recomputed live.
+    _seed_hims(db, security_id)
+    for asof in (date(2026, 6, 2), date(2026, 6, 3)):
+        card = _call_asof(db, security_id, asof)
+        assert card.state is State.ARMED, asof
+        assert card.arm_until == date(2026, 6, 11)  # the 06-01 breakout + 10d half-life
+        assert card.armed_security_id == security_id
