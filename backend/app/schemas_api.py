@@ -27,7 +27,7 @@ def edgar_url(source: str, ref: str) -> str | None:
         if len(parts) == 3 and parts[0].isdigit():
             cik = int(parts[0])
             nodash = ref.replace("-", "")
-            return f"{_EDGAR_ARCHIVES}/{cik}/{nodash}/{ref}-index.html"
+            return f"{_EDGAR_ARCHIVES}/{cik}/{nodash}/{ref}-index.htm"
     return None
 
 

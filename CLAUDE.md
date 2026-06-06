@@ -93,13 +93,30 @@ Full detail in `docs/DATA_SOURCES.md`. Summary:
 
 ## Commands
 
-_Greenfield — fill in as the project scaffolds._
+Backend uses a stdlib venv + pip (no `uv`); run from `backend/` with the venv active (or set
+`$env:PYTHONPATH="backend"` and call `backend\.venv\Scripts\python` from the repo root). Postgres is
+Docker Compose on host port 5544.
 
-```
-# backend:   (TBD) uv / poetry install · uvicorn app.main:app --reload · pytest
-# frontend:  (TBD) pnpm install · pnpm dev · pnpm test
-# data:      (TBD) python -m pipeline.run --asof <date>
-# infra:     (TBD) docker compose up
+```powershell
+# infra
+docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
+
+# backend setup (once)
+python -m venv backend\.venv
+backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" pytest ruff black
+
+# backend dev loop (from backend\, venv active)
+python -m db.migrate                                    # apply migrations (idempotent)
+python -m pipeline.seed                                 # seed the HIMS demo thesis
+python -m uvicorn app.main:app --reload                 # serve the API (127.0.0.1:8000)
+python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from the CLI
+pytest                                                   # tests (DB tests skip if no Postgres)
+ruff check . ; black --check .                          # lint + format
+
+# Checkpoint A, served:
+curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
+
+# frontend (M3b — not scaffolded yet): pnpm install · pnpm dev
 ```
 
-Keep this section current as the source of truth for build/run/test once they exist.
+Keep this section current as the source of truth for build/run/test.

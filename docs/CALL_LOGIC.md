@@ -123,35 +123,52 @@ kill-criteria + missing triggers.
 
 ---
 
-## 9. Worked example — the shape of a correct Armed call
+## 9. Worked example — the shape of a correct Armed call (the real HIMS case)
 
-> Demonstrates the *flow and output shape*. Bracketed thresholds are placeholders that §2–§3/§7 will pin down.
+> Demonstrates the *flow and output shape* on the live M3 target. This is what the seeded HIMS thesis
+> actually computes (`pipeline.seed` → `GET /theses/{id}/call?asof=`), so the numbers are real, not a
+> mock. The read path re-derives the dated signal stream from the bitemporal facts at each `asof`.
 
-**Setup.** `asof = 2026-06-02`. Thesis **Psychedelic Therapy** (Warming). Basket member `DEVCO` has a
-cached cluster of Form 4 open-market buys. The pipeline runs detectors as-of and emits:
+**Setup.** Basket member `HIMS` has a real Form 4 (director David Wells, ~$1.17M open-market, code P,
+late May) and real EOD bars.
 
-- `insider_conviction` → `fired=true, grade=core, score=0.82,`
-  `label="3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",`
-  `alpha_half_life_days=18, provenance→[form4:DEVCO:...]`  *(`role=entry_trigger, kind=insider`)*
-- `dilution_clock` → `fired=true, label="runway 14 mo, no recent shelf/ATM"`  *(`role=risk_signal, kind=dilution_risk` — feeds counter-case + confidence, not triggers_fired)*
+**Before confirmation — `asof = 2026-05-28`.** Only the conviction key is live:
+- `insider_conviction` → `fired=true, grade=core` (one strong senior buy clears the high-USD floor —
+  STARTING calibration), `alpha_half_life_days=18`, `event_date=2026-05-26`, provenance → the real
+  Form 4 accession.  *(`role=entry_trigger, kind=insider`)*
+- `volume_breakout` → no breakout in its freshness window → no event.
 
-**Assembly.**
-- **State:** one `core` entry trigger fired + [confirmation rule §2] satisfied → **Armed**.
-- **Grade:** `core` (highest fired entry grade).
-- **Verdict:** `core_entry` (§4).
-- **Expression:** `[PROPOSED]` "spot + 6–8wk calls on DEVCO; size as core" (§5).
-- **exit_by:** `2026-06-02 + 18d = 2026-06-20` (§6).
-- **catalyst_surface:** earnings `2026-06-11` ≤ exit-by → **crossed** (flag it).
-- **confidence:** `0.82 → ~0.78` after the single-detector cap and a small dilution penalty (§7).
-- **triggers_fired:** `[insider_conviction → ↗ Form 4 provenance]`. **missing:** `[technical_breakout]`.
-- **counter_case:** *(LLM prose)* "Single-detector conviction; no volume-confirmed breakout yet; runway
-  is adequate but unconfirmed; an earnings print falls inside the hold window." cites the dilution + Form 4 evidence.
+→ **State: Warming** (conviction warms; arming needs a *co-located* confirmation). **Verdict: `not_yet`.**
+`exit_by` = `2026-05-26 + 18d` (the conviction / hold clock); `arm_until` = none. **missing: `[volume-confirmed breakout]`.**
 
-**Resulting CallCard** → renders **Armed / "The Call"**: verdict `core_entry`, confidence bar ~78%, the
-insider trigger with a working ↗ source link, the counter-case, and `Act / Override / Snooze`.
+**At confirmation — `asof = 2026-06-01`.** The breakout prints, but on ~0.9× volume:
+- `volume_breakout` → `fired=true, grade=flip` (momentum-only: a new closing high + thrust fired, but
+  volume did not back it), `alpha_half_life_days=10`, `event_date=2026-06-01`, provenance →
+  `price:HIMS:2026-06-01` + the computation detail.  *(`role=entry_trigger, kind=technical_breakout`)*
 
-This is the loop the north star requires a pass to demonstrate **on real data** — not a Warming readiness
-card, and not static demo data.
+**Assembly (06-01).**
+- **State:** conviction + confirmation are live and **co-located on HIMS** → **Armed**.
+- **Two grades, kept distinct (§4):** conviction `core` (the thesis quality); confirmation `flip`
+  (momentum-only); **entry grade = the weaker = `flip`**.
+- **Verdict:** `starter_entry` — a core *thesis* but a starter *entry*, because volume hasn't
+  confirmed. (A volume-backed breakout would make the entry `core` → `core_entry`.)
+- **Two clocks (§6):** `exit_by` (hold) = `2026-05-26 + 18d`; `arm_until` (entry window) =
+  `2026-06-01 + 10d = 2026-06-11` — the call stays Armed through a consolidation until 06-11, then
+  lapses to Warming unless a fresh breakout re-arms it.
+- **catalyst_surface:** any dated catalyst ≤ `exit_by` is flagged as crossed before exit.
+- **confidence:** capped at `momentum_only_confidence_cap` (≈0.55) — the volume gap reads as lower
+  confidence (§7).
+- **triggers_fired:** `[insider_conviction → ↗ Form 4, volume_breakout → price detail]`. **missing: `[]`.**
+- **counter_case:** the deterministic template leads with the volume-gap caveat ("confirmation is
+  momentum-only, not volume-backed…") plus kill-criteria; the LLM (M4b) rewrites it as prose, citing
+  existing evidence only.
+
+**Resulting CallCard** → renders **Armed / "The Call"**: verdict `starter_entry`, a ~55% confidence
+bar, both keys lit, the insider trigger with a working ↗ Form 4 link, the volume-gap counter-case, and
+`Act / Override / Snooze`.
+
+This is the loop the north star required — and as of M3a it is wired end to end **on real data**: real
+EDGAR + EOD → detectors → assembler → `GET /theses/{id}/call?asof=`.
 
 ---
 
