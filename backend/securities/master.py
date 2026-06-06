@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -83,3 +84,25 @@ def resolve(
         cik=cik,
         figi=mapping.get("figi"),
     )
+
+
+def ciks_for(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, str | None]:
+    """Map security ids -> their issuer CIK (to resolve filing provenance to an EDGAR URL).
+
+    The URL must be built from the ISSUER's CIK, not a filing accession's prefix (which is the filing
+    agent's CIK). Ids with no master row are omitted.
+    """
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, cik FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, ids),
+        )
+        return {row["id"]: row["cik"] for row in cur.fetchall()}

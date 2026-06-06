@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from app.openapi_export import export
+from app.schemas_api import edgar_url
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype
 from domain.thesis import BasketMember, Thesis
@@ -146,3 +147,14 @@ def test_openapi_export_exposes_the_call_contract(tmp_path):
     schema = json.loads(export(tmp_path / "openapi.json").read_text(encoding="utf-8"))
     assert "/theses/{thesis_id}/call" in schema["paths"]
     assert "/theses" in schema["paths"]
+
+
+def test_edgar_url_built_from_issuer_cik_not_accession_prefix():
+    # The 8-K accession prefix (1193125) is the filing AGENT (DFIN); the link must use the ISSUER CIK.
+    url = edgar_url("8-k", "0001193125-26-234847", "1773751")
+    assert url == (
+        "https://www.sec.gov/Archives/edgar/data/1773751/"
+        "000119312526234847/0001193125-26-234847-index.htm"
+    )
+    assert edgar_url("price", "price:HIMS:2026-06-01", "1773751") is None  # non-filing source
+    assert edgar_url("form4", "0001773751-26-000086", None) is None  # issuer CIK unknown

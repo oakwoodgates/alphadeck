@@ -23,6 +23,7 @@ class TriggerRef(DomainModel):
     label: str
     kind: Kind
     grade: Grade | None = None
+    security_id: UUID  # the security this trigger fired on — drives issuer-CIK URL resolution
     sources: list[Provenance] = Field(default_factory=list)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from typing import Any
 from uuid import UUID
@@ -15,19 +16,23 @@ from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Posit
 # provenance ref resolves to a clickable EDGAR URL (a presentation concern, not a domain one).
 
 _EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
+_FILING_SOURCES = frozenset({"form4", "8-k"})  # provenance sources that map to an EDGAR filing
 
 
-def edgar_url(source: str, ref: str) -> str | None:
-    """Resolve a provenance ref to a clickable URL. A Form 4 accession (CIK-YY-SEQ) -> its EDGAR
-    filing-index page (the accession's first segment is the filer CIK). Other refs (e.g. price) have
-    no canonical URL.
+def _is_accession(ref: str) -> bool:
+    parts = ref.split("-")
+    return len(parts) == 3 and all(p.isdigit() for p in parts)
+
+
+def edgar_url(source: str, ref: str, cik: str | None) -> str | None:
+    """Resolve a filing provenance ref to its EDGAR filing-index page, built from the ISSUER ``cik``
+    (off security_master) — NOT the accession's prefix, which is the filing AGENT's CIK and only
+    coincides with the issuer for some filers. Non-filing refs (e.g. price) or an unknown issuer
+    CIK -> None.
     """
-    if source == "form4":
-        parts = ref.split("-")
-        if len(parts) == 3 and parts[0].isdigit():
-            cik = int(parts[0])
-            nodash = ref.replace("-", "")
-            return f"{_EDGAR_ARCHIVES}/{cik}/{nodash}/{ref}-index.htm"
+    if source in _FILING_SOURCES and cik and _is_accession(ref):
+        nodash = ref.replace("-", "")
+        return f"{_EDGAR_ARCHIVES}/{int(cik)}/{nodash}/{ref}-index.htm"
     return None
 
 
@@ -68,7 +73,10 @@ class CallCardResponse(BaseModel):
     safe_sleeve: str | None = None
 
     @classmethod
-    def from_card(cls, card: CallCard) -> "CallCardResponse":
+    def from_card(
+        cls, card: CallCard, cik_for: Mapping[UUID, str | None] | None = None
+    ) -> "CallCardResponse":
+        ciks = cik_for or {}
         return cls(
             thesis_id=card.thesis_id,
             asof=card.asof,
@@ -93,7 +101,7 @@ class CallCardResponse(BaseModel):
                         ProvenanceOut(
                             source=p.source,
                             ref=p.ref,
-                            url=edgar_url(p.source, p.ref),
+                            url=edgar_url(p.source, p.ref, ciks.get(t.security_id)),
                             detail=p.detail,
                         )
                         for p in t.sources

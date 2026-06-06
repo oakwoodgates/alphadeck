@@ -46,9 +46,9 @@ def security_id(db) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
-            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) "
-            "VALUES (%s, %s, %s, %s)",
-            (sid, DEFAULT_TENANT_ID, "DEVCO", "2026-01-01"),
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "DEVCO", "0001234567", "2026-01-01"),
         )
     db.commit()
     return sid

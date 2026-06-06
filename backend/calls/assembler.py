@@ -150,7 +150,13 @@ def assemble_call(
             ),
         ),
         triggers_fired=[
-            TriggerRef(label=e.label, kind=e.kind, grade=e.grade, sources=list(e.provenance))
+            TriggerRef(
+                label=e.label,
+                kind=e.kind,
+                grade=e.grade,
+                security_id=e.security_id,
+                sources=list(e.provenance),
+            )
             for e in live_entry
         ],
         missing=missing,
