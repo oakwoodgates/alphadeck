@@ -126,7 +126,15 @@ def assemble_call(
         conviction_grade=conviction_grade,
         entry_grade=entry_grade,
         armed_security_id=armed_sec if state == State.ARMED else None,
-        expression=_expression(state, conviction_grade, entry_grade, risk_blocked, momentum_only),
+        expression=_expression(
+            state,
+            conviction_grade,
+            entry_grade,
+            risk_blocked,
+            momentum_only,
+            conviction_on,
+            confirmation_on,
+        ),
         exit_by=exit_by,
         arm_until=arm_until,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
@@ -274,6 +282,8 @@ def _expression(
     entry_grade: Grade | None,
     risk_blocked: bool,
     momentum_only: bool,
+    conviction_on: bool,
+    confirmation_on: bool,
 ) -> str:
     if state == State.MANAGING:
         return "Position open — manage to the exit-by / half-life; trail the stop or take the gain."
@@ -293,6 +303,12 @@ def _expression(
             "before arming (see the counter-case)."
         )
     if state == State.WARMING:
+        if confirmation_on and not conviction_on:
+            # the market moved but there's no conviction trigger — a breakout alone isn't a reason
+            return (
+                "The market's moving (confirmation in) but there's no conviction trigger yet — "
+                "watching the theme, not acting. A breakout alone isn't a reason to enter."
+            )
         if conviction_grade == Grade.FLIP:
             return "FLIP only (small, short-dated); the structural core entry isn't confirmed yet."
         return "Not yet — hold for a volume-confirmed breakout before any core entry."

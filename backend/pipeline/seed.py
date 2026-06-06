@@ -35,6 +35,20 @@ _HIMS_CIK = "0001773751"
 _WELLS_ACCESSION = "0001773751-26-000086"
 _SEED_DATA = Path(__file__).resolve().parent.parent / "seed_data"
 
+# --- Small-scale nuclear (M4a-ii): a multi-name THEME thesis (no single headline ticker) ---
+NUCLEAR_THESIS_ID = UUID("2c1ea400-0000-0000-0000-000000000001")
+SMR_ID = UUID("2c1ea400-0000-0000-0000-0000000000a1")
+OKLO_ID = UUID("2c1ea400-0000-0000-0000-0000000000a2")
+NNE_ID = UUID("2c1ea400-0000-0000-0000-0000000000a3")
+LEU_ID = UUID("2c1ea400-0000-0000-0000-0000000000a4")
+# (security_id, cik, ticker, company) — the basket members
+_NUCLEAR_SECURITIES = [
+    (SMR_ID, "0001822966", "SMR", "NuScale Power"),
+    (OKLO_ID, "0001849056", "OKLO", "Oklo Inc"),
+    (NNE_ID, "0001923891", "NNE", "Nano Nuclear Energy"),
+    (LEU_ID, "0001065059", "LEU", "Centrus Energy"),
+]
+
 
 def _ensure_hims_security(conn: psycopg.Connection) -> UUID:
     with conn.cursor() as cur:
@@ -138,13 +152,96 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
     return thesis.id
 
 
+def _ensure_security(conn: psycopg.Connection, sid: UUID, cik: str, ticker: str, name: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO security_master (id, tenant_id, cik, ticker, name, valid_from)
+               VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING""",
+            (sid, DEFAULT_TENANT_ID, cik, ticker, name, date(2026, 1, 1)),
+        )
+
+
+def _nuclear_thesis() -> Thesis:
+    return Thesis(
+        id=NUCLEAR_THESIS_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        name="Small-scale nuclear",
+        narrative=(
+            "Sentiment has flipped in younger generations who didn't live through the meltdowns; "
+            "clean power matters for the climate; the technology has improved (small-scale modular "
+            "reactors vs giant ones); and power demand is surging (AI / high-performance compute). "
+            "A multi-name bet on the SMR / advanced-nuclear build-out."
+        ),
+        ticker=None,  # a theme, not a single name
+        basket=[
+            BasketMember(
+                ticker="SMR",
+                role="Most de-risked SMR (NRC-approved design)",
+                archetype=Archetype.LEADER,
+                security_id=SMR_ID,
+                detail="the leader",
+            ),
+            BasketMember(
+                ticker="OKLO",
+                role="High-profile microreactor pure-play",
+                archetype=Archetype.HIGH_BETA,
+                security_id=OKLO_ID,
+                detail="high-beta",
+            ),
+            BasketMember(
+                ticker="NNE",
+                role="Early micro-reactor",
+                archetype=Archetype.LOTTO,
+                security_id=NNE_ID,
+                detail="speculative",
+            ),
+            BasketMember(
+                ticker="LEU",
+                role="HALEU enrichment — the fuel supplier",
+                archetype=Archetype.SHOVEL,
+                security_id=LEU_ID,
+                detail="picks-and-shovels",
+            ),
+        ],
+        kill_criteria=[
+            KillCriterion(
+                id=UUID("2c1ea400-0000-0000-0000-0000000000d1"),
+                text="A reactor incident or major regulatory setback re-freezes public sentiment",
+            ),
+            KillCriterion(
+                id=UUID("2c1ea400-0000-0000-0000-0000000000d2"),
+                text="AI / datacenter power demand stalls, removing the secular tailwind",
+            ),
+        ],
+    )
+
+
+def seed_nuclear(conn: psycopg.Connection) -> UUID:
+    """Seed the small-scale-nuclear THEME thesis (idempotent). Caller commits. Returns the id.
+
+    The basket broke out sector-wide on 2026-06-02 but has no insider-conviction signal, so this is
+    an honest WARMING thesis: the platform won't arm a sector move without a conviction key.
+    """
+    for sid, cik, ticker, name in _NUCLEAR_SECURITIES:
+        _ensure_security(conn, sid, cik, ticker, name)
+        bars = parse_yahoo_chart(
+            json.loads((_SEED_DATA / "prices" / f"{ticker}.yahoo.json").read_text(encoding="utf-8"))
+        )
+        ingest_prices(conn, sid, bars)
+    thesis = _nuclear_thesis()
+    thesis_repo.upsert(conn, thesis)
+    return thesis.id
+
+
 def main() -> None:
     conn = connect()
     try:
-        thesis_id = seed_hims(conn)
+        hims_id = seed_hims(conn)
+        nuclear_id = seed_nuclear(conn)
         conn.commit()
-        print(f"seeded HIMS thesis: {thesis_id}")
-        print(f'try: curl "http://127.0.0.1:8000/theses/{thesis_id}/call?asof=2026-06-01"')
+        print(f"seeded HIMS thesis:    {hims_id}")
+        print(f"seeded nuclear thesis: {nuclear_id}")
+        print(f'try: curl "http://127.0.0.1:8000/theses/{hims_id}/call?asof=2026-06-01"')
     finally:
         conn.close()
 
