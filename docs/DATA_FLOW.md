@@ -12,7 +12,7 @@
 2. **A gitignored cache** of live API pulls (`data/`) — a local mirror so we respect rate limits and re-runs are reproducible. **Safe to delete** (it re-pulls on demand). Not the source of truth.
 3. **Build artifacts** — `app/openapi.json` (the frontend's type source), produced on demand.
 
-And the load-bearing choice that *makes* it auditable: **signals and call cards are NOT stored — they are recomputed from the facts on every read.** There is no hidden "signals" layer that can drift. What you see is always the current facts run through the current code, with provenance attached.
+And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (a copy is appended to the `calls` log afterward for accountability, never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
 
 ## The pipeline
 
@@ -65,7 +65,7 @@ flowchart TD
       SM["security_master"]
       FACTS[("fact_insider_txn<br/>fact_price_eod<br/>append-only, bitemporal")]
       SPINE["thesis / basket / evidence /<br/>catalyst / kill_criterion"]
-      CALLS[("calls — write-only log")]
+      CALLS[("calls — append-only log")]
     end
     SRC -->|"live pull (opt-in)"| CACHE
     CACHE -->|ingest| FACTS
@@ -106,7 +106,7 @@ flowchart TD
 ## Read path vs. write path
 
 - **Write (ingest):** sources → (cache) → `fact_*` tables. Append-only: a correction is a *new row* with a later `recorded_at`, never an overwrite. The thesis spine is upserted; evidence is append-only.
-- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard`. It appends a copy to `calls` for the record but **never reads `calls` back** — the served answer is always freshly computed.
+- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard`. It appends a copy to `calls` for the record but **never reads `calls` back to serve** — the served answer is always freshly computed. (The log *is* readable for accountability — `calls_repo.list_for_thesis`, and the future Scoreboard.)
 
 ## Why this isn't a black box
 

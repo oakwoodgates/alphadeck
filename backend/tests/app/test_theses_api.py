@@ -110,6 +110,7 @@ def test_list_and_get_thesis(db, security_id):
     assert any(t["id"] == str(tid) and t["ticker"] == "HIMS" for t in listing)
     assert detail["ticker"] == "HIMS"
     assert detail["basket"][0]["ticker"] == "HIMS"
+    assert "tenant_id" not in detail  # the wire schema must not leak the domain's tenant_id
 
 
 def test_call_endpoint_unknown_thesis_404(db):
