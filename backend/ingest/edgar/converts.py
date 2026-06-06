@@ -150,3 +150,50 @@ def ingest_convert_terms(
     if recorded_at is not None:
         values["recorded_at"] = recorded_at
     return append_fact(conn, "fact_dilution", values)
+
+
+def _filing_doc_url(cik: str | int, accession: str, doc: str) -> str:
+    return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{doc}"
+
+
+def _is_convert_issuance(text: str) -> bool:
+    """A convert ISSUANCE/closing 8-K (the definitive deal) — distinct from the pricing announcement,
+    which says 'announced the pricing', not 'the Company issued'."""
+    low = text.lower()
+    return (
+        "convertible senior notes" in low
+        and "aggregate principal amount" in low
+        and "the company issued" in low
+    )
+
+
+def discover_convert_issuance(
+    client, cik: str | int, *, max_scan: int = 40
+) -> tuple[ConvertTerms, str] | None:
+    """Autonomously find a company's convertible-note ISSUANCE 8-K from just its CIK, and parse it.
+
+    Scans recent 8-Ks (newest first) via the submissions API and returns (ConvertTerms, accession) for
+    the first convert issuance found, else None. The platform finds the filing itself — no accession is
+    handed in. Live/network (cache-first). The pricing-release enrichment (conversion premium +
+    reference price) lives in a separate exhibit and is left to the seed/fixtures for now.
+    """
+    from ingest.edgar.submissions import fetch_submissions
+
+    recent = fetch_submissions(client, cik).get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accns = recent.get("accessionNumber", [])
+    docs = recent.get("primaryDocument", [])
+    scanned = 0
+    for form, accession, doc in zip(forms, accns, docs):
+        if form != "8-K" or not doc:
+            continue
+        scanned += 1
+        if scanned > max_scan:
+            break
+        try:
+            raw = client.get_text(_filing_doc_url(cik, accession, doc), f"forms/{accession}/{doc}")
+        except Exception:
+            continue  # a single unreadable filing shouldn't abort the scan
+        if _is_convert_issuance(clean_filing_text(raw)):
+            return parse_convert_terms(clean_filing_text(raw)), accession
+    return None
