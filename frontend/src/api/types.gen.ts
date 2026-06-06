@@ -47,8 +47,10 @@ export interface paths {
         };
         /**
          * Get Call
-         * @description Recompute the CallCard live at ``asof`` (the read path; never reads the calls log back). The
-         *     signal stream is re-derived from the bitemporal facts, so this is deterministic for a given asof.
+         * @description Recompute the CallCard live at ``asof`` — a READ-ONLY path. The signal stream is re-derived
+         *     from the bitemporal facts (no persisted firing layer), so a given ``asof`` is deterministic and a
+         *     refetch / as-of-slider scrub / poll writes nothing. The accountability ``calls`` log is written
+         *     by the batch ``pipeline.run`` (the official call of record), never by this GET.
          */
         get: operations["get_call_theses__thesis_id__call_get"];
         put?: never;

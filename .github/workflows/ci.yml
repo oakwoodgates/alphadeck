@@ -37,10 +37,15 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.11"  # the declared floor (requires-python >=3.11); catches 3.11-only breaks
       # Deps come from pyproject (single source); the dev extra pins the linters so CI matches local.
       - name: Install (editable + dev)
         run: pip install -e ".[dev]"
+      - name: OpenAPI contract is up to date
+        # regenerate from the live app; fails if the committed openapi.json drifted from the code
+        run: |
+          python -m app.openapi_export
+          git diff --exit-code openapi.json
       - name: Ruff (lint)
         run: ruff check .
       - name: Black (format check)
@@ -62,4 +67,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: API types are up to date
+        # regenerate from the committed openapi.json; fails if types.gen.ts drifted from the contract
+        run: |
+          npm run gen:api
+          git diff --exit-code src/api/types.gen.ts
       - run: npm run build  # tsc -b (strict typecheck) + vite build
