@@ -133,6 +133,17 @@ def test_risk_signals_surface_on_the_card_with_provenance():
     assert rs.sources and rs.sources[0].ref
 
 
+def test_warming_on_confirmation_without_conviction_is_honest():
+    """A breakout with no conviction warms but can't arm — and the expression names the right missing
+    key (conviction), not a breakout (the HIMS-shaped default would be wrong here, e.g. nuclear)."""
+    card = assemble_call(make_thesis(), [breakout_event()], ASOF, DEFAULT_CONFIG)
+    assert card.state is State.WARMING
+    assert card.key_confirmation.turned and not card.key_conviction.turned
+    assert card.armed_security_id is None
+    assert "conviction" in card.expression.lower()  # not "hold for a volume-confirmed breakout"
+    assert any("conviction" in m.lower() for m in card.missing)
+
+
 def test_cross_name_does_not_arm_without_co_location():
     """Co-location guard: conviction on security A + a breakout on security B does NOT arm the thesis."""
     other = uuid.UUID(int=0x9999)
