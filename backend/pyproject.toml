@@ -7,6 +7,8 @@ dependencies = [
     "pydantic>=2.6",
     "psycopg[binary]>=3.1",
     "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",  # to serve: python -m uvicorn app.main:app --reload
 ]
 
 [project.optional-dependencies]
