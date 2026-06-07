@@ -16,10 +16,43 @@ from tests.calls.factories import (
     ASOF,
     SID,
     breakout_event,
+    catalyst_event,
     dilution_event,
     insider_event,
     make_thesis,
 )
+
+
+def test_holdable_flip_catalyst_arms_a_starter_not_a_flip():
+    """The class fix (#10 option A): the verdict reads the conviction's HORIZON, not its kind. A flip
+    (provisional) catalyst with a long horizon + a confirmed breakout -> STARTER (enter small, build),
+    NOT flip_only / do-not-hold."""
+    card = assemble_call(
+        make_thesis(),
+        [catalyst_event(grade=Grade.FLIP, liveness=400), breakout_event()],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert card.state is State.ARMED
+    assert card.conviction_grade is Grade.FLIP  # still a provisional conviction (small size)
+    assert card.verdict is Verdict.STARTER_ENTRY  # but hold-worthy -> starter, not flip_only
+    assert "do not hold" not in card.expression.lower()
+
+
+def test_verdict_keys_on_horizon_not_kind():
+    """The mirror: same flip grade, SHORT horizon -> flip_only (do-not-hold). A flip catalyst and a fast
+    flip insider agree at the same horizon — proving the hold dimension reads horizon, not kind."""
+    short_catalyst = assemble_call(
+        make_thesis(),
+        [catalyst_event(grade=Grade.FLIP, liveness=20), breakout_event()],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    flip_insider = assemble_call(
+        make_thesis(), [insider_event(grade=Grade.FLIP), breakout_event()], ASOF, DEFAULT_CONFIG
+    )
+    assert short_catalyst.state is State.ARMED and short_catalyst.verdict is Verdict.FLIP_ONLY
+    assert flip_insider.state is State.ARMED and flip_insider.verdict is Verdict.FLIP_ONLY
 
 
 def test_insider_only_warms_but_does_not_arm():

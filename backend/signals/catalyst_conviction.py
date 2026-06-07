@@ -15,10 +15,15 @@ _CORE_SCORE = 0.9
 _FLIP_SCORE = 0.5
 
 
-def _liveness(grade: Grade, cfg: CallConfig) -> int:
-    if grade is Grade.CORE:
-        return cfg.catalyst_core_alpha_liveness_days
-    return cfg.catalyst_flip_alpha_liveness_days
+def _liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
+    """The catalyst's relevance HORIZON in days — DECOUPLED from grade (unlike insider). When the
+    structured record carries an agreement term (``horizon_end``, e.g. a DOE OTA's period of
+    performance), liveness runs to that term; otherwise the configured default. So a provisional (flip)
+    but long-horizon catalyst stays live for its term, while grade still sets entry size."""
+    horizon_end = fact.get("horizon_end")
+    if horizon_end is not None:
+        return max((horizon_end - fact["valid_from"]).days, 1)
+    return cfg.catalyst_default_horizon_days
 
 
 def score(
@@ -32,19 +37,21 @@ def score(
     A catalyst is a deterministic / operator-ratified, verifiable commitment (the theme analog of an
     insider buy). Its grade — core (binding: PPA / operating license / loan guarantee) vs flip
     (provisional: MOU / LOI / selection / attention) — is carried on the FACT, never decided here
-    (invariant #3). The fire date is the catalyst's event date; it stays live for its GRADED
-    alpha-liveness window (a hard window, like the insider clock), so a still-live conviction is
-    re-derived from the facts on every read. Arming still needs a co-located confirmation.
+    (invariant #3), and sets entry SIZE. Liveness is the catalyst's relevance HORIZON (the agreement
+    term), DECOUPLED from grade (§7 / docs/CATALYST_CONVICTION.md option A). The fire date is the
+    event date; it stays live to its horizon, re-derived from the facts on every read. Arming still
+    needs a co-located confirmation (a fresh breakout), so a still-on-the-books catalyst arms nothing
+    on its own.
     """
-    live: list[tuple[dict[str, Any], Grade]] = []
+    live: list[tuple[dict[str, Any], Grade, int]] = []
     for f in facts:
-        grade = Grade(f["grade"])
-        if f["valid_from"] >= asof - timedelta(days=_liveness(grade, cfg)):
-            live.append((f, grade))
+        lv = _liveness(f, cfg)
+        if f["valid_from"] >= asof - timedelta(days=lv):
+            live.append((f, Grade(f["grade"]), lv))
     if not live:
         return None
     # strongest conviction: prefer a binding (core) catalyst, then the most recent
-    fact, grade = max(live, key=lambda fg: (fg[1] is Grade.CORE, fg[0]["valid_from"]))
+    fact, grade, lv = max(live, key=lambda x: (x[1] is Grade.CORE, x[0]["valid_from"]))
     ctype = CatalystType(fact["catalyst_type"]) if fact.get("catalyst_type") else None
     return SignalEvent(
         detector="catalyst_conviction",
@@ -56,7 +63,7 @@ def score(
         score=_CORE_SCORE if grade is Grade.CORE else _FLIP_SCORE,
         fired=True,
         label=fact["label"],
-        alpha_liveness_days=_liveness(grade, cfg),
+        alpha_liveness_days=lv,
         provenance=[Provenance(source=fact["source"], ref=fact["source_ref"])],
         asof=fact["valid_from"],
     )

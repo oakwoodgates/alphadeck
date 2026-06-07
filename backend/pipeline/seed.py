@@ -21,8 +21,9 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID, connect
-from domain.enums import Archetype
+from domain.enums import Archetype, CatalystType, Grade
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
+from ingest.catalyst import ingest_catalyst
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
@@ -233,6 +234,30 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
     return thesis.id
 
 
+def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
+    """Operator-ratify the catalyst that arms the nuclear theme (#10 demo) — Oklo's DOE Reactor Pilot
+    Program OTA (DENE0009589), graded FLIP (a signed but $0-DOE-obligation authorization pathway: a real,
+    not-yet-binding commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness
+    horizon. Co-located with OKLO's 2026-06-02 breakout, it turns the theme from Warming to a disciplined
+    STARTER. Kept OUT of seed_nuclear so the no-catalyst Warming case still tests honestly.
+    """
+    ingest_catalyst(
+        conn,
+        OKLO_ID,
+        catalyst_type=CatalystType.GOV_FUNDING,
+        grade=Grade.FLIP,
+        label=(
+            "DOE Reactor Pilot Program OTA (DENE0009589) — authorization pathway, "
+            "$0 DOE obligation (company-funded)"
+        ),
+        source="ratified",
+        source_ref="https://www.usaspending.gov/award/ASST_NON_DENE0009589_089",
+        event_date=date(2026, 2, 9),
+        horizon_end=date(2029, 7, 1),
+        ratified_by="operator",
+    )
+
+
 # --- UNH (M4a-iii): the May-2025 CEO-led open-market insider cluster — a CORE core_entry ---
 UNH_SECURITY_ID = UUID("c0ffee00-0000-0000-0000-000000000001")
 UNH_THESIS_ID = UUID("c0ffee00-0000-0000-0000-000000000002")
@@ -324,6 +349,7 @@ def main() -> None:
     try:
         hims_id = seed_hims(conn)
         nuclear_id = seed_nuclear(conn)
+        seed_nuclear_catalyst(conn)  # the ratified DOE OTA that arms OKLO -> the theme as a starter
         unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

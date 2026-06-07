@@ -61,13 +61,24 @@ class CallConfig(DomainModel):
     insider_flip_alpha_liveness_days: int = 18
 
     # --- catalyst_conviction (Key 1 for theme/catalyst theses, #10) — STARTING calibration ---
-    # A deterministic/ratified, verifiable commitment is the theme analog of an insider buy; same graded
-    # hard-window semantics. A binding catalyst (signed PPA / NRC operating license / DOE loan guarantee)
-    # re-rates the name for YEARS -> a longer horizon than an insider cluster; a provisional one (MOU /
-    # LOI / selection / attention) is short. Deliberate defaults — on the recalibrate-against-real-calls
-    # list. Grade is set at ratification (the bridge) or by the deterministic rule (automated feeds).
-    catalyst_core_alpha_liveness_days: int = 365
-    catalyst_flip_alpha_liveness_days: int = 30
+    # Catalyst liveness is the catalyst's relevance HORIZON, NOT grade-coupled (unlike insider, where a
+    # weak buy is genuinely both low-conviction and fast-decaying). For a catalyst, grade sets entry SIZE
+    # (provisional -> flip -> starter) while liveness = how long the edge persists = the agreement's own
+    # term (period of performance), taken from the structured record where present (e.g. an OKLO DOE OTA
+    # -> 2029-07-01), else this default. A flat number misfit both ends (the OKLO OTA decayed too fast at
+    # flip-30; LEU's multi-year HALEU missed co-location by 48d at core-365). A long standing horizon
+    # slightly overstates conviction freshness — fine for now: arming still needs a co-located FRESH
+    # breakout, and the decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
+    catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
+
+    # --- verdict hold-dimension (§4) — keyed on HORIZON, not kind ---
+    # A conviction whose alpha-liveness horizon is >= this is "hold-and-build" (a small entry is a
+    # STARTER); below it, the conviction is sentiment-grade -> "do not hold" (a small entry is FLIP-only).
+    # This decouples the third job grade used to do (hold-or-not) onto the horizon, so a provisional but
+    # long-horizon catalyst holds, a fast insider flip does not, and the next kind inherits correct
+    # behavior from its own horizon. The data gap is clean (insider flip ~18d vs core/catalyst >=180d),
+    # so a threshold in the gap is safe; calibration dial — tune at recalibration.
+    conviction_hold_threshold_days: int = 90
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME

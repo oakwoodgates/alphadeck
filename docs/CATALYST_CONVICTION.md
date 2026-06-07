@@ -10,24 +10,32 @@
 
 ---
 
-## Sign-off — decided (MVP mode)
+## Sign-off — built (option A, MVP mode)
 
 Driving to an MVP demo, then recalibrating against real calls. **Structural** (locked — can't be wiped):
-- **Bridge-first.** Build the operator-ratified bridge now; defer the automated 8-K parser. The first
-  *automated* feed is chosen by the broadened spike (§9), **not** committed a priori.
+- **Bridge-first.** The operator-ratified bridge is built; the automated 8-K parser is deferred. The
+  broadened spike (§9) chose the first *automated* feed: **DOE awards via USAspending** (the 8-K
+  deal-keyword path is a polarity trap — it surfaces financings/dilution, not power deals).
 - **Signal shape** (§2): `role=entry_trigger`, **one** `kind=catalyst` + a `type` discriminator, fires
-  on the **subject security** (name-specific co-location, §5), graded liveness, real provenance.
+  on the **subject security** (name-specific co-location, §5), real provenance.
+- **Liveness ≠ grade (option A).** A catalyst's liveness is its relevance **horizon** — the agreement
+  term (period of performance) from the structured record, else a 365d default — DECOUPLED from grade.
+  Grade does one job: entry **size**. (Insider stays grade-coupled — there grade and horizon coincide.)
+- **Verdict keyed on horizon, not kind (CALL_LOGIC §4).** Hold-or-not comes from the conviction's
+  horizon: a small (flip) conviction with a *long* horizon → `starter_entry` (enter small, build); with a
+  *short* horizon → `flip_only` (do not hold). So a provisional-but-durable catalyst holds, a fast insider
+  flip doesn't, and the next kind inherits correct behaviour from its own horizon (no `if-kind` branch).
 - **Invariant #3:** firing + grade are deterministic-parse or operator-ratified — never the model.
-- **Append-only / bitemporal storage:** `fact_catalyst` (a correction is a new row, no UPDATE);
-  `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe of dev/demo data.
+- **Append-only / bitemporal storage:** `fact_catalyst` (+ `horizon_end`); a correction is a new row;
+  `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe.
 - **Co-location** name-specific now; theme/group arming stays **M5**.
 
-**Calibration defaults** (wired now, on the recalibrate-against-real-calls list — don't over-engineer):
+**Calibration defaults** (wired, on the recalibrate-against-real-calls list — don't over-engineer):
 - **Grade:** signed/binding = `core` (PPA, NRC operating license, DOE loan guarantee); provisional =
-  `flip` (MOU, LOI, DOE selection-for-negotiations, attention, ETF launch). The bridge sets grade at
-  ratification.
-- **Liveness:** `core = 365d` (a signed multi-year deal re-rates for years — longer than insider's
-  180); `flip = 30d`. Hard-window semantics; the age-decay refinement stays filed (CALL_LOGIC §7).
+  `flip` (MOU, LOI, DOE selection, an OTA / authorization pathway, attention). Set at ratification.
+- **Default horizon** `365d` (when no term is published) and the **hold threshold** `90d` (the clean gap
+  between insider-flip ~18d and core/catalyst ≥180d). The age-decay-of-confidence refinement stays filed
+  (CALL_LOGIC §7).
 
 ---
 

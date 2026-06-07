@@ -72,6 +72,16 @@ def assemble_call(
     confirmation_grade = call_grade(confirmation_events)
     entry_grade = weaker_grade(conviction_grade, confirmation_grade)
 
+    # Hold dimension (§4) — keyed on the conviction's HORIZON, not its kind: a conviction whose
+    # alpha-liveness reaches the hold threshold is hold-and-build (a small/flip-grade entry is a
+    # STARTER); a short-horizon one is sentiment -> do-not-hold (a small entry is FLIP-only). So a
+    # provisional-but-long catalyst holds while a fast insider flip doesn't, and the next signal kind
+    # inherits correct behavior from its own horizon (no per-kind branch).
+    conviction_holdable = any(
+        (e.alpha_liveness_days or 0) >= cfg.conviction_hold_threshold_days
+        for e in conviction_events
+    )
+
     # Risk-veto (§2): a severe risk signal withholds the Armed call on TIMING, never the thesis.
     blocking_risks = [r for r in active_risk if r.score >= cfg.risk_block_severity]
 
@@ -129,7 +139,7 @@ def assemble_call(
         thesis_id=thesis.id,
         asof=asof,
         state=state,
-        verdict=_verdict(state, conviction_grade, entry_grade),
+        verdict=_verdict(state, conviction_grade, entry_grade, conviction_holdable),
         conviction_grade=conviction_grade,
         entry_grade=entry_grade,
         armed_security_id=armed_sec if state == State.ARMED else None,
@@ -141,6 +151,7 @@ def assemble_call(
             momentum_only,
             conviction_on,
             confirmation_on,
+            conviction_holdable,
         ),
         exit_by=exit_by,
         arm_until=arm_until,
@@ -240,18 +251,32 @@ def _state(
     return State.INCUBATING
 
 
-def _verdict(state: State, conviction_grade: Grade | None, entry_grade: Grade | None) -> Verdict:
+def _verdict(
+    state: State,
+    conviction_grade: Grade | None,
+    entry_grade: Grade | None,
+    conviction_holdable: bool,
+) -> Verdict:
     if state == State.INCUBATING:
         return Verdict.WATCHING
     if state == State.MANAGING:
         return Verdict.MANAGING
     if state == State.ARMED:
         if conviction_grade == Grade.FLIP:
-            return Verdict.FLIP_ONLY  # a flip thesis: small, short-dated, do-not-hold
-        # core thesis (hold-and-build): a full core entry only when confirmation is volume-backed
-        # (entry grade core); otherwise a STARTER entry that upgrades to core when volume confirms.
+            # SIZE from grade (flip -> small); HOLD from horizon. A small entry on a hold-worthy
+            # conviction is a STARTER (enter small, build); on a short-horizon one it's FLIP-only
+            # (do-not-hold). Same archetype as a core-conviction + weak-confirmation starter — both
+            # mean "enter small, build" — the difference (build into confirmation firming vs more
+            # catalysts) lives in the expression/counter-case, not a separate verdict.
+            return Verdict.STARTER_ENTRY if conviction_holdable else Verdict.FLIP_ONLY
+        # core conviction (full size): a full core entry only when confirmation is volume-backed
+        # (entry grade core); otherwise a STARTER that upgrades to core when volume confirms.
         return Verdict.CORE_ENTRY if entry_grade == Grade.CORE else Verdict.STARTER_ENTRY
-    return Verdict.FLIP_ONLY if conviction_grade == Grade.FLIP else Verdict.NOT_YET
+    # Warming: a hold-worthy conviction is a real thesis waiting on confirmation (not_yet); a
+    # short-horizon flip conviction is sentiment (flip_only).
+    if conviction_grade == Grade.FLIP and not conviction_holdable:
+        return Verdict.FLIP_ONLY
+    return Verdict.NOT_YET
 
 
 def _clock(events: list[SignalEvent]) -> date | None:
@@ -291,17 +316,24 @@ def _expression(
     momentum_only: bool,
     conviction_on: bool,
     confirmation_on: bool,
+    conviction_holdable: bool,
 ) -> str:
     if state == State.MANAGING:
         return "Position open — manage to the exit-by; trail the stop or take the gain."
     if state == State.ARMED:
+        if conviction_grade == Grade.FLIP:
+            if not conviction_holdable:
+                return "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
+            return (
+                "STARTER: a provisional conviction (real but not yet binding) with the market "
+                "confirming — enter small; build as it firms (a binding deal, or more catalysts), not "
+                "max size off one early step."
+            )
         if momentum_only:
             return (
                 "Core thesis, STARTER entry — the breakout is momentum-only (volume hasn't "
                 "confirmed). Start small; build to core size only when a real volume breakout confirms."
             )
-        if conviction_grade == Grade.FLIP:
-            return "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
         return "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
     if risk_blocked:
         # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
@@ -316,7 +348,7 @@ def _expression(
                 "The market's moving (confirmation in) but there's no conviction trigger yet — "
                 "watching the theme, not acting. A breakout alone isn't a reason to enter."
             )
-        if conviction_grade == Grade.FLIP:
+        if conviction_grade == Grade.FLIP and not conviction_holdable:
             return "FLIP only (small, short-dated); the structural core entry isn't confirmed yet."
-        return "Not yet — hold for a volume-confirmed breakout before any core entry."
+        return "Not yet — hold for a volume-confirmed breakout before entering."
     return "Watching — banked idea, nothing to act on. No nag while incubating."

@@ -20,6 +20,7 @@ def ingest_catalyst(
     source: str,
     source_ref: str,
     event_date: date,
+    horizon_end: date | None = None,
     ratified_by: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
@@ -30,6 +31,8 @@ def ingest_catalyst(
     operator-ratified path now (``source='ratified'``), the deterministic feeds later
     (``'8-k'`` / ``'doe_award'`` / ``'nrc'``). NEVER a model guess — ``source`` / ``source_ref`` carry
     the real source, and ``grade`` is set by the ratifier (or the deterministic rule), not the LLM.
+    ``horizon_end`` is the agreement's relevance horizon (its period-of-performance end, where the
+    structured record carries one) — it drives liveness, decoupled from grade; ``None`` -> the default.
     Returns the new fact id.
     """
     values = {
@@ -40,6 +43,7 @@ def ingest_catalyst(
         "label": label,
         "source": source,
         "source_ref": source_ref,
+        "horizon_end": horizon_end,
         "ratified_by": ratified_by,
         "valid_from": event_date,
     }

@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, Grade, Kind, Role
+from domain.enums import Archetype, CatalystType, Grade, Kind, Role
 from domain.signal import Provenance, SignalEvent
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
 
@@ -105,6 +105,28 @@ def breakout_event(
         label="Breakout from a 9-week base on 2.4x average volume",
         alpha_liveness_days=liveness,
         provenance=[Provenance(source="price", ref="price:DEVCO:2026-06-02")],
+        asof=ASOF,
+    )
+
+
+def catalyst_event(
+    grade: Grade = Grade.FLIP, score: float = 0.5, fired: bool = True, liveness: int = 400
+) -> SignalEvent:
+    """Key 1 (Conviction) — a catalyst. Liveness is the relevance HORIZON, DECOUPLED from grade, so a
+    provisional (flip) but long-horizon catalyst is hold-worthy (a STARTER), unlike a fast insider flip.
+    """
+    return SignalEvent(
+        detector="catalyst_conviction",
+        security_id=SID,
+        role=Role.ENTRY_TRIGGER,
+        kind=Kind.CATALYST,
+        type=CatalystType.GOV_FUNDING,
+        grade=grade,
+        score=score,
+        fired=fired,
+        label="DOE Reactor Pilot Program OTA (provisional, long-horizon)",
+        alpha_liveness_days=liveness,
+        provenance=[Provenance(source="ratified", ref="https://usaspending.gov/award/DENE0009589")],
         asof=ASOF,
     )
 
