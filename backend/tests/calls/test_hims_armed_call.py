@@ -91,9 +91,13 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     # the real Form 4 accession rides the conviction trigger's provenance (the working source link)
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs
-    # hold clock: the Wells buy (05-26) is graded CORE, so it carries the multi-month conviction horizon
+    # hold clock: the Wells buy (05-26) is graded CORE, so it now carries the multi-month conviction
+    # horizon (~6mo). DECISION: HIMS is intentionally armable / re-armable on a fresh breakout through
+    # ~Nov (a core conviction supports a multi-month hold), and the longer window correctly pulls the
+    # Aug earnings into its catalyst surface — the old 18d clock wrongly excluded it. This supersedes
+    # the pre-grading 06-13 exit_by.
     hold_horizon = date(2026, 5, 26) + timedelta(
-        days=DEFAULT_CONFIG.insider_core_alpha_half_life_days
+        days=DEFAULT_CONFIG.insider_core_alpha_liveness_days
     )
     assert card.exit_by == hold_horizon
     assert card.arm_until == date(2026, 6, 11)  # entry window: 06-01 breakout + 10d
@@ -103,10 +107,10 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
 def test_hims_armed_stays_sticky_through_consolidation(db, security_id):
     # The end-to-end no-flicker test (deferred from Pre-M3a until detectors re-derive from facts):
     # on 06-02/06-03 no NEW breakout prints, but the detector reports the 06-01 breakout (still inside
-    # its half-life) stamped event_date=06-01 -> the call stays ARMED, no flicker, recomputed live.
+    # its liveness window) stamped event_date=06-01 -> the call stays ARMED, no flicker, recomputed live.
     _seed_hims(db, security_id)
     for asof in (date(2026, 6, 2), date(2026, 6, 3)):
         card = _call_asof(db, security_id, asof)
         assert card.state is State.ARMED, asof
-        assert card.arm_until == date(2026, 6, 11)  # the 06-01 breakout + 10d half-life
+        assert card.arm_until == date(2026, 6, 11)  # the 06-01 breakout + 10d liveness window
         assert card.armed_security_id == security_id

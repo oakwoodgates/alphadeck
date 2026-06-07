@@ -33,7 +33,7 @@ def score(
 ) -> SignalEvent | None:
     """Pure Key-2 breakout over ascending EOD bars (last bar = the asof bar). Deliberately minimal.
 
-    Reports the MOST-RECENT breakout bar still inside its alpha half-life — a bar whose close makes a
+    Reports the MOST-RECENT breakout bar still inside its alpha-liveness window — a bar whose close makes a
     new ``breakout_base_window``-day CLOSING high AND is up at least ``breakout_min_return`` over
     ``breakout_return_days`` sessions — stamped with **that bar's own date**, not the query ``asof``.
     So the firing is sticky across a consolidation (it keeps reporting the breakout until it decays)
@@ -49,7 +49,7 @@ def score(
         return None
     closes = [float(b["close"]) for b in bars]
     earliest = max(cfg.breakout_base_window, cfg.breakout_return_days)
-    fresh_floor = asof - timedelta(days=cfg.breakout_alpha_half_life_days)
+    fresh_floor = asof - timedelta(days=cfg.breakout_alpha_liveness_days)
 
     idx = None
     for i in range(len(bars) - 1, earliest - 1, -1):
@@ -89,7 +89,7 @@ def score(
             f"high {base_high:.2f}, +{ret * 100:.0f}% over {cfg.breakout_return_days}d on "
             f"{vol_ratio:.1f}x avg volume"
         ),
-        alpha_half_life_days=cfg.breakout_alpha_half_life_days,
+        alpha_liveness_days=cfg.breakout_alpha_liveness_days,
         provenance=[
             Provenance(
                 source="price",

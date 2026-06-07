@@ -37,9 +37,7 @@ class SignalEvent(DomainModel):
     score: float = Field(ge=0.0, le=1.0)
     fired: bool
     label: str
-    alpha_half_life_days: int | None = Field(
-        default=None, ge=1
-    )  # drives exit_by; positive when set
+    alpha_liveness_days: int | None = Field(default=None, ge=1)  # drives exit_by; positive when set
     provenance: list[Provenance] = Field(default_factory=list)
     asof: date
 

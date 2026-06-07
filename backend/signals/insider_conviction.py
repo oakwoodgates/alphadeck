@@ -64,12 +64,12 @@ def score(
         (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
         or total_usd >= cfg.insider_strong_single_usd
     )
-    half_life = (
-        cfg.insider_core_alpha_half_life_days if is_core else cfg.insider_flip_alpha_half_life_days
+    liveness = (
+        cfg.insider_core_alpha_liveness_days if is_core else cfg.insider_flip_alpha_liveness_days
     )
     # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
     # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
-    if anchor < asof - timedelta(days=half_life):
+    if anchor < asof - timedelta(days=liveness):
         return None
     by_accession = {t["accession"]: t for t in buys if t.get("accession")}
     return SignalEvent(
@@ -85,7 +85,7 @@ def score(
             f"{' incl. senior officer' if senior else ''} bought "
             f"${total_usd:,.0f} open-market (code P) across {len(buys)} txns"
         ),
-        alpha_half_life_days=half_life,
+        alpha_liveness_days=liveness,
         provenance=[Provenance(source="form4", ref=acc) for acc in by_accession],
         asof=anchor,
     )

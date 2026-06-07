@@ -7,7 +7,7 @@ class DomainModel(BaseModel):
     """Base for every domain schema.
 
     Strict by default (``extra="forbid"``): an unknown field is an error, never silently dropped —
-    a typo'd detector field (e.g. ``half_life`` for ``alpha_half_life_days``) must fail loudly, not
+    a typo'd detector field (e.g. ``liveness`` for ``alpha_liveness_days``) must fail loudly, not
     quietly null the value. The core schemas are the backend↔frontend contract (CLAUDE.md).
     """
 

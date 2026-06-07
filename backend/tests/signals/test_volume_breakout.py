@@ -44,7 +44,7 @@ def test_not_enough_bars():
 
 def test_breakout_stays_reported_through_consolidation():
     # 2026-06-03 is a consolidation bar (not a new high), but the 06-01 breakout is still inside its
-    # alpha half-life -> the detector reports it stamped with its OWN bar date (06-01), no flicker.
+    # alpha-liveness window -> the detector reports it stamped with its OWN bar date (06-01), no flicker.
     ev = volume_breakout.score(_through(date(2026, 6, 3)), SID, date(2026, 6, 3), DEFAULT_CONFIG)
     assert ev is not None and ev.fired
     assert ev.asof == date(2026, 6, 1)  # the breakout's bar date, not the query asof
@@ -52,7 +52,7 @@ def test_breakout_stays_reported_through_consolidation():
 
 
 def test_decayed_breakout_is_not_resurrected():
-    # The prior breakout was 2026-04-20; by 2026-05-15 it is well past its alpha half-life, so the
+    # The prior breakout was 2026-04-20; by 2026-05-15 it is well past its alpha-liveness window, so the
     # freshness-bounded scan does not resurrect it -> None (no stale confirmation).
     assert (
         volume_breakout.score(_through(date(2026, 5, 15)), SID, date(2026, 5, 15), DEFAULT_CONFIG)
