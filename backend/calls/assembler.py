@@ -97,6 +97,10 @@ def assemble_call(
     momentum_only = (
         bool(confirmation_events) and confirmation_grade != Grade.CORE and state == State.ARMED
     )
+    # A STARTER = any armed call whose entry grade is flip — i.e. EITHER key is weak (a momentum-only
+    # breakout OR a provisional conviction). Drives the confidence cap so an enter-small call never reads
+    # loud: the weak key has to pull confidence down even when the other key is strong (§7).
+    is_starter = state == State.ARMED and entry_grade == Grade.FLIP
 
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
 
@@ -110,7 +114,7 @@ def assemble_call(
             [e for e in live_entry if e.security_id == armed_sec],
             active_risk,
             cfg,
-            momentum_only=momentum_only,
+            is_starter=is_starter,
         )
         if state == State.ARMED and armed_sec is not None
         else None

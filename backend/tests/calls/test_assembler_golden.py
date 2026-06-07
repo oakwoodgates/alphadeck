@@ -108,9 +108,42 @@ def test_momentum_only_confirmation_arms_but_is_caveated():
     assert momentum.conviction_grade is Grade.CORE  # the thesis stays core (hold-and-build)
     assert momentum.entry_grade is Grade.FLIP  # but the action is a starter, not a core entry
     assert momentum.confidence < backed.confidence  # the volume gap reads as lower confidence
-    assert momentum.confidence <= DEFAULT_CONFIG.momentum_only_confidence_cap
+    assert momentum.confidence <= DEFAULT_CONFIG.starter_confidence_cap
     assert "momentum-only" in momentum.counter_case.lower()
     assert "starter" in momentum.expression.lower() and "volume" in momentum.expression.lower()
+
+
+def test_provisional_conviction_starter_confidence_is_capped():
+    """The confidence fix: a STARTER off a *provisional conviction* (a flip catalyst) + a STRONG
+    (volume-backed) breakout must NOT read loud — the weak key has to pull confidence down even though
+    the breakout is strong (else an enter-small call out-ranks steadier calls / inverts loudness).
+    """
+    card = assemble_call(
+        make_thesis(),
+        [
+            catalyst_event(grade=Grade.FLIP, liveness=400),
+            breakout_event(grade=Grade.CORE, score=0.9),
+        ],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert card.state is State.ARMED and card.verdict is Verdict.STARTER_ENTRY
+    assert card.confidence is not None
+    assert (
+        card.confidence <= DEFAULT_CONFIG.starter_confidence_cap
+    )  # capped despite the strong breakout
+    # a full CORE entry (both keys strong) is NOT capped — the cap is a starter-only ceiling
+    core = assemble_call(
+        make_thesis(),
+        [
+            catalyst_event(grade=Grade.CORE, liveness=400),
+            breakout_event(grade=Grade.CORE, score=0.9),
+        ],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert core.verdict is Verdict.CORE_ENTRY
+    assert core.confidence > DEFAULT_CONFIG.starter_confidence_cap
 
 
 def test_severe_dilution_blocks_arming_on_timing_not_thesis():
