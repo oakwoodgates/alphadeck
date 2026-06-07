@@ -15,7 +15,7 @@ class CallConfig(DomainModel):
     # --- state transitions (§2) ---
     warming_min_entry_triggers: int = 1
     arming_requires_confirmation: bool = True  # two-key gate: conviction warms, confirmation arms
-    conviction_kinds: frozenset[Kind] = frozenset({Kind.INSIDER})
+    conviction_kinds: frozenset[Kind] = frozenset({Kind.INSIDER, Kind.CATALYST})
     confirmation_kinds: frozenset[Kind] = frozenset({Kind.TECHNICAL_BREAKOUT, Kind.LAGGARD})
 
     # --- risk-veto (§2) ---
@@ -59,6 +59,15 @@ class CallConfig(DomainModel):
     # stays short. STARTING calibration — set on the alpha horizon, not to fit any one name.
     insider_core_alpha_liveness_days: int = 180
     insider_flip_alpha_liveness_days: int = 18
+
+    # --- catalyst_conviction (Key 1 for theme/catalyst theses, #10) — STARTING calibration ---
+    # A deterministic/ratified, verifiable commitment is the theme analog of an insider buy; same graded
+    # hard-window semantics. A binding catalyst (signed PPA / NRC operating license / DOE loan guarantee)
+    # re-rates the name for YEARS -> a longer horizon than an insider cluster; a provisional one (MOU /
+    # LOI / selection / attention) is short. Deliberate defaults — on the recalibrate-against-real-calls
+    # list. Grade is set at ratification (the bridge) or by the deterministic rule (automated feeds).
+    catalyst_core_alpha_liveness_days: int = 365
+    catalyst_flip_alpha_liveness_days: int = 30
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME

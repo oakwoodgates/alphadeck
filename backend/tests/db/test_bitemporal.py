@@ -138,3 +138,75 @@ def test_fact_tables_are_append_only(db, security_id):
         with db.cursor() as cur:
             cur.execute("UPDATE fact_insider_txn SET usd = 1 WHERE id = %s", (fid,))
     db.rollback()
+
+
+def _catalyst(security_id, *, source_ref, grade, valid_from, recorded_at):
+    return {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": security_id,
+        "catalyst_type": "contract",
+        "grade": grade,
+        "label": "power-offtake agreement",
+        "source": "ratified",
+        "source_ref": source_ref,
+        "ratified_by": "operator",
+        "valid_from": valid_from,
+        "recorded_at": recorded_at,
+    }
+
+
+def test_fact_catalyst_is_append_only(db, security_id):
+    """The catalyst conviction fact is append-only too — an UPDATE raises (a re-grade is a new row)."""
+    t = datetime(2026, 6, 3, tzinfo=timezone.utc)
+    fid = append_fact(
+        db,
+        "fact_catalyst",
+        _catalyst(
+            security_id,
+            source_ref="cat-1",
+            grade="flip",
+            valid_from=date(2026, 5, 1),
+            recorded_at=t,
+        ),
+    )
+    db.commit()
+    with pytest.raises(psycopg.errors.RaiseException):
+        with db.cursor() as cur:
+            cur.execute("UPDATE fact_catalyst SET grade = 'core' WHERE id = %s", (fid,))
+    db.rollback()
+
+
+def test_fact_catalyst_correction_is_bitemporal(db, security_id):
+    """A re-grade (provisional -> binding once the deal is signed) is a NEW row; the as-of read returns
+    the version known at each transaction time — no lookahead on the correction."""
+    t1 = datetime(2026, 6, 3, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_catalyst",
+        _catalyst(
+            security_id,
+            source_ref="cat-X",
+            grade="flip",
+            valid_from=date(2026, 5, 1),
+            recorded_at=t1,
+        ),
+    )
+    append_fact(
+        db,
+        "fact_catalyst",
+        _catalyst(
+            security_id,
+            source_ref="cat-X",
+            grade="core",
+            valid_from=date(2026, 5, 1),
+            recorded_at=t2,
+        ),
+    )
+    db.commit()
+    asof = date(2026, 6, 30)
+    common = dict(security_id=security_id, asof=asof, tenant_id=DEFAULT_TENANT_ID)
+    at_t1 = as_of(db, "fact_catalyst", known_at=t1, **common)
+    at_t2 = as_of(db, "fact_catalyst", known_at=t2, **common)
+    assert len(at_t1) == 1 and at_t1[0]["grade"] == "flip"  # the upgrade isn't known yet at t1
+    assert len(at_t2) == 1 and at_t2[0]["grade"] == "core"  # by t2 it's binding

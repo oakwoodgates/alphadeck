@@ -10,6 +10,27 @@
 
 ---
 
+## Sign-off — decided (MVP mode)
+
+Driving to an MVP demo, then recalibrating against real calls. **Structural** (locked — can't be wiped):
+- **Bridge-first.** Build the operator-ratified bridge now; defer the automated 8-K parser. The first
+  *automated* feed is chosen by the broadened spike (§9), **not** committed a priori.
+- **Signal shape** (§2): `role=entry_trigger`, **one** `kind=catalyst` + a `type` discriminator, fires
+  on the **subject security** (name-specific co-location, §5), graded liveness, real provenance.
+- **Invariant #3:** firing + grade are deterministic-parse or operator-ratified — never the model.
+- **Append-only / bitemporal storage:** `fact_catalyst` (a correction is a new row, no UPDATE);
+  `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe of dev/demo data.
+- **Co-location** name-specific now; theme/group arming stays **M5**.
+
+**Calibration defaults** (wired now, on the recalibrate-against-real-calls list — don't over-engineer):
+- **Grade:** signed/binding = `core` (PPA, NRC operating license, DOE loan guarantee); provisional =
+  `flip` (MOU, LOI, DOE selection-for-negotiations, attention, ETF launch). The bridge sets grade at
+  ratification.
+- **Liveness:** `core = 365d` (a signed multi-year deal re-rates for years — longer than insider's
+  180); `flip = 30d`. Hard-window semantics; the age-decay refinement stays filed (CALL_LOGIC §7).
+
+---
+
 ## 0. The problem it solves
 
 Today the only conviction trigger (Key 1) is `insider_conviction` (Form 4 open-market buys). That fits

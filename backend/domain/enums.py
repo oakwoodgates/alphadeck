@@ -39,6 +39,9 @@ class Kind(StrEnum):
     """What produced the signal (extensible)."""
 
     INSIDER = "insider"
+    CATALYST = (
+        "catalyst"  # Key-1 conviction for theme theses (deterministic/ratified commitment, #10)
+    )
     TECHNICAL_BREAKOUT = "technical_breakout"
     LAGGARD = "laggard"
     SQUEEZE = "squeeze"
@@ -50,12 +53,13 @@ class Kind(StrEnum):
 class CatalystType(StrEnum):
     """The catalyst nature, where one applies (optional on a signal; extensible)."""
 
-    REGULATORY = "regulatory"
+    REGULATORY = "regulatory"  # e.g. an NRC license action
     PROMOTER_ATTENTION = "promoter_attention"
     CLINICAL_READOUT = "clinical_readout"
     PERSONNEL = "personnel"
     EARNINGS = "earnings"
-    CONTRACT = "contract"
+    CONTRACT = "contract"  # e.g. a power-purchase / offtake agreement
+    GOV_FUNDING = "gov_funding"  # e.g. a DOE loan guarantee / grant award
 
 
 class Archetype(StrEnum):
