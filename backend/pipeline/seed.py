@@ -233,14 +233,102 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
     return thesis.id
 
 
+# --- UNH (M4a-iii): the May-2025 CEO-led open-market insider cluster — a CORE core_entry ---
+UNH_SECURITY_ID = UUID("c0ffee00-0000-0000-0000-000000000001")
+UNH_THESIS_ID = UUID("c0ffee00-0000-0000-0000-000000000002")
+_UNH_CIK = "0000731766"
+# the five real open-market BUY Form 4s (mid-May 2025, ~$31.6M total) — the parse oracle
+_UNH_FORM4S = [
+    ("0000731766-25-000145", "unh_hemsley_form4.xml"),  # CEO Stephen Hemsley ~$25.0M
+    ("0000731766-25-000146", "unh_rex_form4.xml"),  # President/CFO John Rex ~$5.0M
+    ("0000731766-25-000142", "unh_flynn_form4.xml"),  # director Timothy Flynn
+    ("0000731766-25-000141", "unh_gil_form4.xml"),  # director Kristen Gil
+    ("0000731766-25-000140", "unh_noseworthy_form4.xml"),  # director John Noseworthy
+]
+
+
+def _unh_thesis() -> Thesis:
+    return Thesis(
+        id=UNH_THESIS_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        name="UNH — insider cluster",
+        narrative=(
+            "After the selloff cut UnitedHealth ~46%, the board brought Stephen Hemsley back as CEO — "
+            "and in a single week (mid-May 2025) he, the CFO, and three directors bought ~$31.6M of "
+            "stock open-market. The strongest insider tell: senior management buying its own "
+            "beaten-down stock in size. Conviction the franchise is mispriced — wait for the market to "
+            "confirm the bottom before sizing up."
+        ),
+        ticker="UNH",
+        basket=[
+            BasketMember(
+                ticker="UNH",
+                role="the name",
+                archetype=Archetype.LEADER,
+                security_id=UNH_SECURITY_ID,
+                detail="mega-cap insider-cluster conviction play",
+            )
+        ],
+        evidence=[
+            Evidence(
+                id=UUID("c0ffee00-0000-0000-0000-0000000000e1"),
+                kind="FORM 4",
+                label="CEO Hemsley + CFO Rex + 3 directors bought $31.6M open-market (code P)",
+                ref="0000731766-25-000145",
+                date_label="mid-May 2025",
+            )
+        ],
+        kill_criteria=[
+            KillCriterion(
+                id=UUID("c0ffee00-0000-0000-0000-0000000000d1"),
+                text="The regulatory / DOJ overhang that drove the selloff materially worsens",
+            ),
+            KillCriterion(
+                id=UUID("c0ffee00-0000-0000-0000-0000000000d2"),
+                text="The insiders begin selling back the cluster",
+            ),
+        ],
+    )
+
+
+def seed_unh(conn: psycopg.Connection) -> UUID:
+    """Seed the UNH insider-cluster thesis (idempotent). Caller commits. Returns the id.
+
+    A 2025 case: the CEO-led CORE cluster (mid-May) WARMS, then ARMS at the August volume-backed
+    breakout (a real core_entry) — the graded core-conviction horizon spans the ~3-month gap that the
+    old flat 18-day clock dropped. At today's board date it has aged out to Incubating; scrub the
+    as-of back to 2025 to see the warm -> arm arc.
+    """
+    _ensure_security(conn, UNH_SECURITY_ID, _UNH_CIK, "UNH", "UnitedHealth Group")
+    for accession, fname in _UNH_FORM4S:
+        ingest_form4(
+            conn,
+            UNH_SECURITY_ID,
+            (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
+            accession,
+        )
+    ingest_prices(
+        conn,
+        UNH_SECURITY_ID,
+        parse_yahoo_chart(
+            json.loads((_SEED_DATA / "prices" / "UNH.yahoo.json").read_text(encoding="utf-8"))
+        ),
+    )
+    thesis = _unh_thesis()
+    thesis_repo.upsert(conn, thesis)
+    return thesis.id
+
+
 def main() -> None:
     conn = connect()
     try:
         hims_id = seed_hims(conn)
         nuclear_id = seed_nuclear(conn)
+        unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")
         print(f"seeded nuclear thesis: {nuclear_id}")
+        print(f"seeded UNH thesis:     {unh_id}")
         print(f'try: curl "http://127.0.0.1:8000/theses/{hims_id}/call?asof=2026-06-01"')
     finally:
         conn.close()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+from domain.config import DEFAULT_CONFIG
 from domain.enums import Archetype, Grade, Kind, Role
 from domain.signal import Provenance, SignalEvent
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
@@ -64,9 +65,16 @@ def make_thesis(**overrides) -> Thesis:
 
 
 def insider_event(
-    grade: Grade = Grade.CORE, score: float = 0.82, fired: bool = True, half_life: int = 18
+    grade: Grade = Grade.CORE, score: float = 0.82, fired: bool = True, half_life: int | None = None
 ) -> SignalEvent:
-    """Key 1 (Conviction) — warms but does not arm on its own."""
+    """Key 1 (Conviction) — warms but does not arm on its own. The half-life is GRADED to match the
+    detector (core = the multi-month hold horizon, flip = short); pass ``half_life`` to override."""
+    if half_life is None:
+        half_life = (
+            DEFAULT_CONFIG.insider_core_alpha_half_life_days
+            if grade is Grade.CORE
+            else DEFAULT_CONFIG.insider_flip_alpha_half_life_days
+        )
     return SignalEvent(
         detector="insider_conviction",
         security_id=SID,

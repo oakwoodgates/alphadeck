@@ -34,19 +34,27 @@ def score(
 ) -> SignalEvent | None:
     """Pure: score an open-market insider cluster into a Key-1 SignalEvent (or None).
 
-    Reads only open-market purchases (code 'P') inside the lookback window — never fires on sales.
+    Reads only open-market purchases (code 'P'); never fires on sales. The cluster is anchored on the
+    most-recent buy (its FIRE date) and gathers the buys within the cohesion window before it — one
+    episode of buying. It stays in the re-derived stream until its GRADED alpha horizon decays (a flip
+    in weeks, a CORE cluster over months), so the lookback never drops a still-live conviction.
     Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
     """
-    cutoff = asof - timedelta(days=cfg.insider_lookback_days)
-    buys = [
+    p_buys = [
         t
         for t in txns
-        if t.get("txn_code") == "P"
-        and t.get("valid_from") is not None
-        and t["valid_from"] >= cutoff
+        if t.get("txn_code") == "P" and t.get("valid_from") is not None and t["valid_from"] <= asof
     ]
+    if not p_buys:
+        return None
+    # FIRE date = the most-recent open-market buy; the cluster = the buys within the cohesion window
+    # before it (so unrelated buys months apart aren't fused into one cluster). Stamping the event at
+    # the anchor (not the query asof) anchors exit_by/liveness to when conviction actually formed.
+    anchor = max(t["valid_from"] for t in p_buys)
+    floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
+    buys = [t for t in p_buys if t["valid_from"] >= floor]
     total_usd = float(sum(float(t.get("usd") or 0) for t in buys))
-    if not buys or total_usd < cfg.insider_min_usd:
+    if total_usd < cfg.insider_min_usd:
         return None
 
     distinct = {t.get("insider_name") for t in buys if t.get("insider_name")}
@@ -56,10 +64,14 @@ def score(
         (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
         or total_usd >= cfg.insider_strong_single_usd
     )
+    half_life = (
+        cfg.insider_core_alpha_half_life_days if is_core else cfg.insider_flip_alpha_half_life_days
+    )
+    # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
+    # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
+    if anchor < asof - timedelta(days=half_life):
+        return None
     by_accession = {t["accession"]: t for t in buys if t.get("accession")}
-    # Stamp the cluster's FIRE date = the most recent open-market buy (the event date), not the query
-    # asof — so exit_by/liveness anchor to when conviction actually formed (re-derived from facts).
-    event_date = max(t["valid_from"] for t in buys)
     return SignalEvent(
         detector="insider_conviction",
         security_id=security_id,
@@ -73,9 +85,9 @@ def score(
             f"{' incl. senior officer' if senior else ''} bought "
             f"${total_usd:,.0f} open-market (code P) across {len(buys)} txns"
         ),
-        alpha_half_life_days=cfg.insider_alpha_half_life_days,
+        alpha_half_life_days=half_life,
         provenance=[Provenance(source="form4", ref=acc) for acc in by_accession],
-        asof=event_date,
+        asof=anchor,
     )
 
 
