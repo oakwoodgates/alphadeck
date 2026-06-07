@@ -92,8 +92,12 @@ class CallConfig(DomainModel):
     breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
     breakout_volume_mult: float = 1.5  # vol >= mult x base avg => volume-backed (CORE) confirmation
     breakout_alpha_liveness_days: int = 10
-    # Confidence ceiling when the only confirmation is momentum-only (volume hasn't confirmed).
-    momentum_only_confidence_cap: float = 0.55
+    # Confidence ceiling for a STARTER — a call whose entry grade is flip because EITHER key is weak
+    # (an unconfirmed/momentum-only breakout, OR a provisional conviction). An "enter small" call must
+    # never read loud: it would invert inverse-loudness and out-rank steadier calls in the Decision
+    # Queue. Capped here regardless of how strong the OTHER key is (the noisy-OR of the strong key alone
+    # would otherwise float it high). Calibration dial.
+    starter_confidence_cap: float = 0.55
 
 
 DEFAULT_CONFIG = CallConfig()

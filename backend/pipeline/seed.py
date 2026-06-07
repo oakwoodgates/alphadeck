@@ -235,11 +235,11 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
 
 
 def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
-    """Operator-ratify the catalyst that arms the nuclear theme (#10 demo) — Oklo's DOE Reactor Pilot
-    Program OTA (DENE0009589), graded FLIP (a signed but $0-DOE-obligation authorization pathway: a real,
-    not-yet-binding commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness
-    horizon. Co-located with OKLO's 2026-06-02 breakout, it turns the theme from Warming to a disciplined
-    STARTER. Kept OUT of seed_nuclear so the no-catalyst Warming case still tests honestly.
+    """Operator-ratify OKLO's catalyst (#10 demo, the PROVISIONAL one) — the DOE Reactor Pilot Program OTA
+    (DENE0009589), graded FLIP (a signed but $0-DOE-obligation authorization pathway: a real, not-yet-binding
+    commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness horizon. Co-located
+    with OKLO's 2026-06-02 breakout it arms OKLO as a disciplined STARTER. Paired with seed_leu_catalyst (the
+    BINDING one); kept OUT of seed_nuclear, and separate from LEU, so each path tests in isolation.
     """
     ingest_catalyst(
         conn,
@@ -254,6 +254,39 @@ def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
         source_ref="https://www.usaspending.gov/award/ASST_NON_DENE0009589_089",
         event_date=date(2026, 2, 9),
         horizon_end=date(2029, 7, 1),
+        ratified_by="operator",
+    )
+
+
+def seed_leu_catalyst(conn: psycopg.Connection) -> None:
+    """Operator-ratify LEU's catalyst (the BINDING one) — Centrus's DOE HALEU production contract
+    (89243223CNE000030), graded CORE (a binding, multi-year federal production contract: ~$317M obligated
+    AND exercised on USAspending = real contracted revenue -> build the position). Liveness = the contract's
+    own BASE term (-> 2026-06-30); the ~$1.1B all-options ceiling to 2028 is DOE-discretion and is NOT folded
+    in (option A: liveness = the binding horizon, not the optimistic one). Co-located with LEU's 2026-06-02
+    core breakout it arms LEU as a real core_entry.
+
+    Entity resolution: the USAspending recipient AMERICAN CENTRIFUGE OPERATING, LLC -> Centrus Energy (parent)
+    -> LEU. This hand mapping is the FIRST ROW of the curated awardee->ticker table the automated
+    DOE/USAspending feed will reuse (invariant #3: deterministic, never model-sourced).
+
+    Near-the-edge by design: the base term ends 2026-06-30 — ~3wk past the demo asof — so the card's hold
+    clock (exit_by) lands on 2026-06-30, surfacing a renewal/option cliff rather than an open-ended core hold.
+    Kept OUT of seed_nuclear, and separate from OKLO, so each path tests in isolation.
+    """
+    ingest_catalyst(
+        conn,
+        LEU_ID,
+        catalyst_type=CatalystType.GOV_FUNDING,
+        grade=Grade.CORE,
+        label=(
+            "DOE HALEU production contract (89243223CNE000030) — ~$317M obligated, "
+            "base term through 2026-06-30 (options to 2028 at DOE discretion, excluded)"
+        ),
+        source="ratified",
+        source_ref="https://www.usaspending.gov/award/CONT_AWD_89243223CNE000030_8900_-NONE-_-NONE-",
+        event_date=date(2022, 11, 30),
+        horizon_end=date(2026, 6, 30),
         ratified_by="operator",
     )
 
@@ -349,7 +382,8 @@ def main() -> None:
     try:
         hims_id = seed_hims(conn)
         nuclear_id = seed_nuclear(conn)
-        seed_nuclear_catalyst(conn)  # the ratified DOE OTA that arms OKLO -> the theme as a starter
+        seed_nuclear_catalyst(conn)  # OKLO's provisional DOE OTA  -> would arm a STARTER
+        seed_leu_catalyst(conn)  # LEU's binding DOE contract  -> arms a CORE_ENTRY (the headline)
         unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

@@ -124,9 +124,18 @@ excluded from the surface filter. The Cockpit flags any binary event in `catalys
 `confidence ∈ [0,1]`, rendered as the Armed card's bar. Must be **calibrated**, not loud — a marginal
 2-of-N setup reads low. Risk signals reduce it.
 
-`TODO(operator)`: define the function. *Strawman (replace):* a saturating function of
+`TODO(operator)`: define the function. *Strawman (replace):* a saturating (noisy-OR) function of
 `(count of fired entry triggers, their scores, cross-detector agreement)` minus a penalty per active
-risk signal, capped so a single-detector call never reads "high."
+risk signal, with two ceilings:
+- **single-detector cap** — a one-detector call never reads "high."
+- **starter cap** (`starter_confidence_cap`, ≈0.55) — **any** `starter` (entry grade = `flip`, i.e.
+  *either* key is weak: an unconfirmed/momentum-only breakout **or** a provisional conviction) is capped,
+  no matter how strong the *other* key is. Without this, noisy-OR lets the one strong key float an
+  enter-small call to a loud number — the inverse-loudness trap (an "enter small" card out-shouting a
+  steadier one in the Decision Queue). The cap is keyed on the **entry grade**, so it fires for a weak
+  breakout *and* a provisional-but-durable catalyst alike — the same generalization as the verdict (§4):
+  one rule on the weaker key, not an `if-kind` branch. (Superseded the narrower `momentum_only` cap, which
+  only caught the weak-confirmation half.)
 
 **Roadmap (filed, not built):** *decay the conviction's confidence contribution across its
 alpha-liveness window.* Liveness is a binary gate (full weight until it expires), so today a 5-month-old
@@ -176,8 +185,8 @@ late May) and real EOD bars.
   `arm_until` (entry window) = `2026-06-01 + 10d = 2026-06-11` — the call stays Armed through a
   consolidation until 06-11, then lapses to Warming unless a fresh breakout re-arms it.
 - **catalyst_surface:** any dated catalyst ≤ `exit_by` is flagged as crossed before exit.
-- **confidence:** capped at `momentum_only_confidence_cap` (≈0.55) — the volume gap reads as lower
-  confidence (§7).
+- **confidence:** capped at `starter_confidence_cap` (≈0.55) — HIMS is a `starter` (entry `flip`), so the
+  weak-confirmation key holds it down even though the conviction is strong (§7).
 - **triggers_fired:** `[insider_conviction → ↗ Form 4, volume_breakout → price detail]`. **missing: `[]`.**
 - **counter_case:** the deterministic template leads with the volume-gap caveat ("confirmation is
   momentum-only, not volume-backed…") plus kill-criteria; the LLM (M4b) rewrites it as prose, citing

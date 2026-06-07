@@ -37,6 +37,24 @@ Driving to an MVP demo, then recalibrating against real calls. **Structural** (l
   between insider-flip ~18d and core/catalyst ≥180d). The age-decay-of-confidence refinement stays filed
   (CALL_LOGIC §7).
 
+**Seeded demo state — two real DOE catalysts, on opposite ends of the grade.** Both ratified via the
+bridge from USAspending records, both co-located with a live 2026-06-02 breakout:
+- **OKLO** — DOE Reactor Pilot Program **OTA** (`DENE0009589`), **flip** (authorization pathway, $0 DOE
+  obligation), horizon → 2029. Alone, it arms OKLO as a disciplined **starter**.
+- **LEU** (Centrus) — DOE **HALEU production contract** (`89243223CNE000030`), **core** (~$317M obligated
+  *and exercised* = binding contracted revenue), horizon = the contract's **base term → 2026-06-30** (the
+  ~$1.1B all-options ceiling to 2028 is DOE-discretion, **not** folded in). It arms LEU as a real
+  **core_entry**, with the hold clock landing on 2026-06-30 — a near-the-edge renewal cliff, not an
+  open-ended core. Entity: `AMERICAN CENTRIFUGE OPERATING, LLC → Centrus → LEU` is the **first row** of the
+  curated awardee→ticker table the automated feed will reuse.
+
+With both seeded, the theme **headlines the binding name** (LEU `core_entry`), because the assembler arms a
+thesis on its **strongest** member — a binding revenue contract correctly out-ranks a provisional
+authorization. OKLO's starter is still computed beneath; true per-member side-by-side is the **M5** group
+view. The **confidence cap** generalized with this work: it now caps **any** starter (the weaker *entry
+grade*), so OKLO's provisional starter no longer reads loud just because its breakout is strong — same
+"key on the weaker key, not the kind" generalization as the verdict (CALL_LOGIC §7).
+
 ---
 
 ## 0. The problem it solves
