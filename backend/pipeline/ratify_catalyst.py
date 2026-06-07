@@ -47,6 +47,11 @@ def main(argv: list[str] | None = None) -> None:
         "--source-url", required=True, help="the real source (provenance) — never a guess"
     )
     p.add_argument("--date", required=True, help="the catalyst event date (YYYY-MM-DD)")
+    p.add_argument(
+        "--horizon-end",
+        default=None,
+        help="the agreement term / relevance-horizon end (YYYY-MM-DD); drives liveness, else the default",
+    )
     p.add_argument("--by", default="operator", help="who ratified")
     a = p.parse_args(argv)
 
@@ -62,6 +67,7 @@ def main(argv: list[str] | None = None) -> None:
             source="ratified",
             source_ref=a.source_url,
             event_date=date.fromisoformat(a.date),
+            horizon_end=date.fromisoformat(a.horizon_end) if a.horizon_end else None,
             ratified_by=a.by,
         )
         conn.commit()
