@@ -32,7 +32,7 @@ def test_insider_only_warms_but_does_not_arm():
     assert card.key_confirmation.turned is False
     assert any("breakout" in m.lower() for m in card.missing)
     # the hold clock = fire date + the CORE conviction horizon (graded, multi-month)
-    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
+    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_liveness_days)
 
 
 def test_insider_plus_breakout_arms_core_entry():
@@ -44,8 +44,10 @@ def test_insider_plus_breakout_arms_core_entry():
     assert card.key_conviction.turned and card.key_confirmation.turned
     assert card.missing == []
     # hold clock = insider fire 06-02 + the CORE conviction horizon; entry window = breakout + 10d
-    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
-    assert card.arm_until == date(2026, 6, 12)  # entry window: breakout fire 06-02 + 10d half-life
+    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_liveness_days)
+    assert card.arm_until == date(
+        2026, 6, 12
+    )  # entry window: breakout fire 06-02 + 10d liveness window
     assert card.armed_security_id == SID  # the co-located security that armed
     # the longer (multi-month) core hold window now surfaces both dated catalysts (06-11 + 09-01)
     assert [c.when_date for c in card.catalyst_surface] == [date(2026, 6, 11), date(2026, 9, 1)]
@@ -114,7 +116,7 @@ def test_clocks_are_anchored_to_fire_date_not_query_asof():
     """The two clocks anchor to each trigger's fire date, so they don't slide as the query asof moves."""
     thesis = make_thesis()
     events = [insider_event(), breakout_event()]  # fire date 06-02; half-lives 18 / 10
-    hold = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
+    hold = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_liveness_days)
     for q in (date(2026, 6, 3), date(2026, 6, 5), date(2026, 6, 8)):
         card = assemble_call(thesis, events, q, DEFAULT_CONFIG)
         assert card.exit_by == hold, q  # conviction/hold clock: 06-02 + core horizon
@@ -207,7 +209,7 @@ def test_arm_lapses_per_key_then_thesis_ages_out():
     assert warming.state is State.WARMING
     assert warming.key_conviction.turned and not warming.key_confirmation.turned
     # conviction aged past its (core) hold horizon -> nothing live -> Incubating
-    aged_out = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days + 1)
+    aged_out = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_liveness_days + 1)
     assert assemble_call(thesis, events, aged_out, DEFAULT_CONFIG).state is State.INCUBATING
 
 
@@ -243,7 +245,7 @@ def test_thresholds_are_config_driven_not_hardcoded():
 
 
 def test_strict_schema_rejects_unknown_signal_field():
-    """extra='forbid': a typo'd detector field must error, not silently null the half-life."""
+    """extra='forbid': a typo'd detector field must error, not silently null the liveness window."""
     with pytest.raises(ValidationError):
         SignalEvent(
             detector="insider_conviction",
@@ -254,7 +256,7 @@ def test_strict_schema_rejects_unknown_signal_field():
             score=0.8,
             fired=True,
             label="x",
-            half_life=18,  # typo for alpha_half_life_days -> must raise
+            liveness=18,  # typo for alpha_liveness_days -> must raise
             asof=ASOF,
         )
 
@@ -275,10 +277,10 @@ def test_risk_signal_must_not_carry_grade():
         )
 
 
-def test_nonpositive_half_life_rejected():
-    """A 0/negative half-life would push exit_by <= asof and collapse the catalyst surface."""
+def test_nonpositive_liveness_rejected():
+    """A 0/negative liveness window would push exit_by <= asof and collapse the catalyst surface."""
     with pytest.raises(ValidationError):
-        insider_event(half_life=0)
+        insider_event(liveness=0)
 
 
 def test_assembler_has_no_magic_number_thresholds():

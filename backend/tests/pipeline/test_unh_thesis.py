@@ -33,7 +33,7 @@ def test_unh_warms_in_may_then_arms_core_entry_at_the_august_breakout(db):
     """The flagship 'right but early -> armed at confirmation' arc on REAL data. The CEO-led CORE
     cluster (mid-May 2025) warms; the platform withholds the go-signal through the summer slide; then
     the August volume-backed breakout confirms what the insiders saw ~3 months early and the call ARMS
-    as a CORE entry. Only possible because the conviction half-life is graded (core ~ multi-month);
+    as a CORE entry. Only possible because the conviction liveness window is graded (core ~ multi-month);
     the old flat 18-day clock would have forgotten the cluster long before the breakout.
     """
     seed_unh(db)

@@ -65,15 +65,15 @@ def make_thesis(**overrides) -> Thesis:
 
 
 def insider_event(
-    grade: Grade = Grade.CORE, score: float = 0.82, fired: bool = True, half_life: int | None = None
+    grade: Grade = Grade.CORE, score: float = 0.82, fired: bool = True, liveness: int | None = None
 ) -> SignalEvent:
-    """Key 1 (Conviction) — warms but does not arm on its own. The half-life is GRADED to match the
-    detector (core = the multi-month hold horizon, flip = short); pass ``half_life`` to override."""
-    if half_life is None:
-        half_life = (
-            DEFAULT_CONFIG.insider_core_alpha_half_life_days
+    """Key 1 (Conviction) — warms but does not arm on its own. The liveness window is GRADED to match the
+    detector (core = the multi-month hold horizon, flip = short); pass ``liveness`` to override."""
+    if liveness is None:
+        liveness = (
+            DEFAULT_CONFIG.insider_core_alpha_liveness_days
             if grade is Grade.CORE
-            else DEFAULT_CONFIG.insider_flip_alpha_half_life_days
+            else DEFAULT_CONFIG.insider_flip_alpha_liveness_days
         )
     return SignalEvent(
         detector="insider_conviction",
@@ -84,14 +84,14 @@ def insider_event(
         score=score,
         fired=fired,
         label="3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
-        alpha_half_life_days=half_life,
+        alpha_liveness_days=liveness,
         provenance=[Provenance(source="form4", ref="0001234567-26-000123")],
         asof=ASOF,
     )
 
 
 def breakout_event(
-    grade: Grade = Grade.CORE, score: float = 0.70, fired: bool = True, half_life: int = 10
+    grade: Grade = Grade.CORE, score: float = 0.70, fired: bool = True, liveness: int = 10
 ) -> SignalEvent:
     """Key 2 (Confirmation) — the deliberately-minimal volume-breakout detector."""
     return SignalEvent(
@@ -103,7 +103,7 @@ def breakout_event(
         score=score,
         fired=fired,
         label="Breakout from a 9-week base on 2.4x average volume",
-        alpha_half_life_days=half_life,
+        alpha_liveness_days=liveness,
         provenance=[Provenance(source="price", ref="price:DEVCO:2026-06-02")],
         asof=ASOF,
     )
@@ -120,7 +120,7 @@ def dilution_event(score: float = 0.80, fired: bool = True) -> SignalEvent:
         score=score,
         fired=fired,
         label="Runway ~4 months at current burn; recent ATM shelf on file",
-        alpha_half_life_days=None,
+        alpha_liveness_days=None,
         provenance=[Provenance(source="xbrl", ref="cash:DEVCO:2026Q1")],
         asof=ASOF,
     )
