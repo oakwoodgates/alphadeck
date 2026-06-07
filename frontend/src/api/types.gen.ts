@@ -231,7 +231,7 @@ export interface components {
          * @description What produced the signal (extensible).
          * @enum {string}
          */
-        Kind: "insider" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
+        Kind: "insider" | "catalyst" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
         /**
          * Position
          * @description Populated once the operator logs a fill — its presence drives the Managing state.

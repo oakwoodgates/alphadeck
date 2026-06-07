@@ -544,6 +544,7 @@
         "type": "string",
         "enum": [
           "insider",
+          "catalyst",
           "technical_breakout",
           "laggard",
           "squeeze",

@@ -10,12 +10,18 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
 from repositories import calls_repo, thesis_repo
-from signals import dilution_clock, insider_conviction, volume_breakout
+from signals import catalyst_conviction, dilution_clock, insider_conviction, volume_breakout
 from signals.base import PointInTimeData
 
-# The per-security detectors the pipeline runs over each basket member: two entry triggers (insider
-# conviction, volume breakout) + the dilution risk signal. (The breakdown risk signal joins in M4a-ii.)
-_DETECTORS = (insider_conviction.detect, volume_breakout.detect, dilution_clock.detect)
+# The per-security detectors the pipeline runs over each basket member: the Key-1 conviction triggers
+# (insider buys + catalysts, for single-name and theme theses respectively), the Key-2 volume breakout,
+# and the dilution risk signal. (The breakdown risk signal joins in M4a-ii.)
+_DETECTORS = (
+    insider_conviction.detect,
+    catalyst_conviction.detect,
+    volume_breakout.detect,
+    dilution_clock.detect,
+)
 
 
 def call_for_thesis(

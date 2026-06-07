@@ -70,6 +70,16 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        return as_of(
+            self.conn,
+            "fact_catalyst",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
 
 # A detector is pure: f(point_in_time_data, security_id, asof) -> SignalEvent | None (CLAUDE.md / CALL_LOGIC §1).
 Detector = Callable[[PointInTimeData, UUID, date], SignalEvent | None]
