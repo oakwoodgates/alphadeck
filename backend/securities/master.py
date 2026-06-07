@@ -106,3 +106,25 @@ def ciks_for(
             (tenant_id, ids),
         )
         return {row["id"]: row["cik"] for row in cur.fetchall()}
+
+
+def tickers_for(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, str | None]:
+    """Map security ids -> their ticker (to attribute each fired trigger to its name on the card).
+
+    A multi-name basket fires triggers on several securities; the card lists them by ticker so the
+    operator sees which name moved. Ids with no master row are omitted.
+    """
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, ticker FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, ids),
+        )
+        return {row["id"]: row["ticker"] for row in cur.fetchall()}

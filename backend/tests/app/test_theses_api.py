@@ -89,6 +89,10 @@ def test_call_endpoint_serves_armed_card_on_real_data(db, security_id):
     assert body["verdict"] == "starter_entry"
     assert body["arm_until"] == "2026-06-11"
     assert body["armed_security_id"] == str(security_id)
+    assert body["confidence"] is not None  # an armed card carries the confidence bar
+    # each fired trigger is attributed to its name, resolved from the security master (this fixture's
+    # security is "DEVCO"); a multi-name basket would show each breakout's own ticker
+    assert body["triggers_fired"] and all(t["ticker"] == "DEVCO" for t in body["triggers_fired"])
     # the conviction trigger's provenance resolves to a clickable EDGAR filing URL
     urls = [p["url"] for t in body["triggers_fired"] for p in t["sources"] if p["url"]]
     assert any("sec.gov/Archives/edgar/data" in u and _WELLS_ACCESSION in u for u in urls)
@@ -101,7 +105,9 @@ def test_call_endpoint_warming_before_breakout(db, security_id):
     finally:
         app.dependency_overrides.clear()
     assert r.status_code == 200
-    assert r.json()["state"] == "warming"
+    body = r.json()
+    assert body["state"] == "warming"
+    assert body["confidence"] is None  # a not-yet card shows no confidence bar (§7)
 
 
 def test_call_endpoint_is_deterministic(db, security_id):
@@ -144,7 +150,8 @@ def test_list_and_get_thesis(db, security_id):
         detail = client.get(f"/theses/{tid}").json()
     finally:
         app.dependency_overrides.clear()
-    assert any(t["id"] == str(tid) and t["ticker"] == "HIMS" for t in listing)
+    summary = next(t for t in listing if t["id"] == str(tid))
+    assert summary["ticker"] == "HIMS" and summary["basket_size"] == 1
     assert detail["ticker"] == "HIMS"
     assert detail["basket"][0]["ticker"] == "HIMS"
     assert "tenant_id" not in detail  # the wire schema must not leak the domain's tenant_id

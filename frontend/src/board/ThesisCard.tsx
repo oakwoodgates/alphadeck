@@ -1,5 +1,5 @@
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
-import { gradeClass, verdictLabel } from "../util/format";
+import { gradeClass, tickerLabel, verdictLabel } from "../util/format";
 
 // A board card. Its loudness comes from the enclosing column's state class (.col.armed .card, …).
 export function ThesisCard({
@@ -23,16 +23,23 @@ export function ThesisCard({
           CALL READY
         </span>
       )}
-      <div className="tk">{thesis.ticker ?? "—"}</div>
+      <div className="tk">{tickerLabel(thesis.ticker, thesis.basket_size)}</div>
       <div className="nm">{thesis.name}</div>
       <div className="desc">{thesis.narrative}</div>
       <div className="foot">
-        {armed && call.conviction_grade && (
-          <span className={`grade ${gradeClass(call.conviction_grade)}`}>
-            {call.conviction_grade.toUpperCase()}
-          </span>
-        )}
-        {managing ? (
+        {armed ? (
+          // Lead with the entry verdict (what to DO — e.g. STARTER), colored by the entry grade;
+          // the conviction grade is secondary context ("core thesis"), not the headline. A bare
+          // "CORE" badge here reads as "go big" — the over-commit misread this split exists to stop.
+          <>
+            <span className={`grade ${gradeClass(call.entry_grade)}`}>
+              {verdictLabel(call.verdict).toUpperCase()}
+            </span>
+            {call.conviction_grade && (
+              <span className="conv">{call.conviction_grade} thesis</span>
+            )}
+          </>
+        ) : managing ? (
           <span className="countchip">{verdictLabel(call.verdict)}</span>
         ) : (
           <Readiness on={keysOn} total={2} />

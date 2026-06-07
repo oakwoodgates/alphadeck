@@ -22,6 +22,9 @@ def test_nuclear_is_an_honest_warming_thesis(db):
     assert card.state is State.WARMING
     assert card.verdict is Verdict.NOT_YET
     assert card.armed_security_id is None
+    # a not-yet theme card carries NO confidence bar — four breakouts across four names must not
+    # noisy-OR into a false "high" (the 100%-on-the-Warming-card render bug this basket exposed)
+    assert card.confidence is None
     assert card.key_confirmation.turned  # the sector breakout is in (confirmation key)
     assert not card.key_conviction.turned  # but there's no insider-conviction key
     assert any("conviction" in m.lower() for m in card.missing)

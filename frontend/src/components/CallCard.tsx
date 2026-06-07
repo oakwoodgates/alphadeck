@@ -13,7 +13,11 @@ import {
 export function CallCard({ card }: { card: CallCardResponse }) {
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
-  const conf = Math.round(card.confidence * 100);
+  const armed = card.state === "armed";
+  const managing = card.state === "managing";
+  // Confidence is an Armed-state metric (§7): the backend nulls it for a not-yet card, so the bar
+  // only renders when armed — a Warming card never wears the Armed card's confidence bar.
+  const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
   const triggers = card.triggers_fired ?? [];
   const missing = card.missing ?? [];
   const armDays = daysFrom(card.asof, card.arm_until);
@@ -44,15 +48,20 @@ export function CallCard({ card }: { card: CallCardResponse }) {
           />
         </div>
 
-        <div className="conf">
-          <div className="conf-row">
-            <span>Confidence</span>
-            <span style={{ color: `var(${accent})` }}>{conf}%</span>
+        {conf !== null && (
+          <div className="conf">
+            <div className="conf-row">
+              <span>Confidence</span>
+              <span style={{ color: `var(${accent})` }}>{conf}%</span>
+            </div>
+            <div className="conf-bar">
+              <div
+                className="conf-fill"
+                style={{ width: `${conf}%`, background: `var(${accent})` }}
+              />
+            </div>
           </div>
-          <div className="conf-bar">
-            <div className="conf-fill" style={{ width: `${conf}%`, background: `var(${accent})` }} />
-          </div>
-        </div>
+        )}
 
         {triggers.length > 0 && (
           <div className="trg">
@@ -63,6 +72,7 @@ export function CallCard({ card }: { card: CallCardResponse }) {
                 <div className="trg-item hit" key={i}>
                   <span className="ic">◉</span>
                   <span>
+                    {t.ticker && <span className="trg-tk">{t.ticker}</span>}
                     {t.label}
                     {t.grade && (
                       <>
@@ -106,6 +116,7 @@ export function CallCard({ card }: { card: CallCardResponse }) {
                 <div className="trg-item warn" key={i}>
                   <span className="ic">▲</span>
                   <span>
+                    {r.ticker && <span className="trg-tk">{r.ticker}</span>}
                     {r.label}
                     {url && (
                       <>
@@ -132,11 +143,18 @@ export function CallCard({ card }: { card: CallCardResponse }) {
         {(card.arm_until || card.exit_by) && (
           <div className="clocks">
             {card.arm_until && (
-              <div className="clock-row entry">
+              // Armed: the entry window is an act-by deadline. Not-yet: there's no entry to act on,
+              // so it's informational — the confirmation (market move) is just aging, not a go-cue.
+              <div className={`clock-row entry${armed ? "" : " quiet"}`}>
                 <span className="cd">{fmtDate(card.arm_until)}</span>
                 <span className="x">
-                  Entry window · confirmation clock
-                  {armDays !== null && (armDays >= 0 ? ` · act within ${armDays}d` : " · lapsed")}
+                  {armed ? "Entry window · confirmation clock" : "Confirmation clock"}
+                  {armDays !== null &&
+                    (armDays < 0
+                      ? " · lapsed"
+                      : armed
+                        ? ` · act within ${armDays}d`
+                        : ` · decays in ${armDays}d`)}
                 </span>
               </div>
             )}
@@ -152,18 +170,44 @@ export function CallCard({ card }: { card: CallCardResponse }) {
           </div>
         )}
 
-        <div className="actions">
-          <button className="btn primary" type="button">
-            Act
-          </button>
-          <button className="btn" type="button">
-            Override
-          </button>
-          <button className="btn" type="button">
-            Snooze
-          </button>
+        {/* the rail is state-appropriate (inverse loudness): only Armed shows the loud primary Act.
+            A not-yet card shows the gate — the platform withholding its go-signal — and a logged
+            early-entry override, not an act button. */}
+        {armed ? (
+          <div className="actions">
+            <button className="btn primary" type="button">
+              Act
+            </button>
+            <button className="btn" type="button">
+              Override
+            </button>
+            <button className="btn" type="button">
+              Snooze
+            </button>
+          </div>
+        ) : managing ? (
+          <div className="actions two">
+            <button className="btn" type="button">
+              Log exit
+            </button>
+            <button className="btn" type="button">
+              Trail stop
+            </button>
+          </div>
+        ) : (
+          <div className="gate">
+            <div className="gate-note">
+              The gate is withholding the go-signal — friction, not a block. Enter early if you
+              disagree; the override is logged.
+            </div>
+            <button className="btn wide" type="button">
+              Override — enter early (logged)
+            </button>
+          </div>
+        )}
+        <div className="advisory">
+          Advisory only — order routing never; the override log lands with the Scoreboard.
         </div>
-        <div className="advisory">Advisory only — order routing never; the override log lands with the Scoreboard.</div>
       </div>
     </div>
   );

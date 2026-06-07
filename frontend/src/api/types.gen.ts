@@ -133,7 +133,7 @@ export interface components {
              */
             catalyst_surface: components["schemas"]["Catalyst"][];
             /** Confidence */
-            confidence: number;
+            confidence?: number | null;
             key_conviction: components["schemas"]["KeyState"];
             key_confirmation: components["schemas"]["KeyState"];
             /**
@@ -322,6 +322,11 @@ export interface components {
             name: string;
             /** Ticker */
             ticker?: string | null;
+            /**
+             * Basket Size
+             * @default 0
+             */
+            basket_size: number;
             /** Narrative */
             narrative: string;
         };
@@ -331,6 +336,8 @@ export interface components {
             label: string;
             kind: components["schemas"]["Kind"];
             grade?: components["schemas"]["Grade"] | null;
+            /** Ticker */
+            ticker?: string | null;
             /**
              * Sources
              * @default []

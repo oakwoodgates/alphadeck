@@ -90,13 +90,20 @@ def assemble_call(
 
     missing = _missing(conviction_on, confirmation_on, blocking_risks)
 
-    # Confidence is scored on the ARMED security's live triggers (grading is already scoped to it),
-    # else across the live basket — so an unrelated live trigger on another name can't inflate the
-    # armed name's confidence (a no-op for a single-name basket like HIMS).
-    confidence_entries = (
-        [e for e in live_entry if e.security_id == armed_sec]
+    # Confidence is an ARMED-state metric (§7): the Armed card's bar. For a not-yet card
+    # (Incubating/Warming) there is no entry to size, so it's None — never computed across the live
+    # basket, which would noisy-OR unrelated breakouts (e.g. four separate names) into a false "high".
+    # When armed it's scoped to the armed security's live triggers (grading is already scoped there),
+    # so an unrelated live trigger on another name can't inflate it (a no-op for single-name HIMS).
+    confidence_value = (
+        confidence(
+            [e for e in live_entry if e.security_id == armed_sec],
+            active_risk,
+            cfg,
+            momentum_only=momentum_only,
+        )
         if state == State.ARMED and armed_sec is not None
-        else live_entry
+        else None
     )
 
     # Two fire-date-anchored clocks (§6). exit_by = the HOLD horizon (the conviction key) and drives
@@ -138,7 +145,7 @@ def assemble_call(
         exit_by=exit_by,
         arm_until=arm_until,
         catalyst_surface=_catalyst_surface(thesis.catalysts, exit_by),
-        confidence=confidence(confidence_entries, active_risk, cfg, momentum_only=momentum_only),
+        confidence=confidence_value,
         key_conviction=KeyState(
             turned=conviction_on,
             label="Conviction",
@@ -152,7 +159,7 @@ def assemble_call(
             turned=confirmation_on,
             label="Confirmation",
             detail=(
-                "The market is confirming (volume-backed breakout / relative strength)."
+                "The market is confirming (a volume-backed breakout)."
                 if confirmation_on
                 else "Awaiting market confirmation."
             ),

@@ -38,6 +38,14 @@ export function gradeClass(g: string | null | undefined): string {
   return g === "core" ? "core" : g === "flip" ? "flip" : "";
 }
 
+/** A single-name thesis shows its ticker; a multi-name theme shows a basket marker (never a bare "—",
+ *  which reads as missing data). */
+export function tickerLabel(ticker: string | null | undefined, basketSize?: number | null): string {
+  if (ticker) return ticker;
+  if (basketSize && basketSize > 1) return `◇ ${basketSize}`;
+  return "◇";
+}
+
 /** Accent CSS variable for a lifecycle state (the confidence bar, the ticker, etc.). */
 export function accentVar(stateClass: string): string {
   return stateClass === "incub" ? "--txt-3" : `--${stateClass}`;
