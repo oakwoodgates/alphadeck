@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -31,7 +31,8 @@ def test_insider_only_warms_but_does_not_arm():
     assert card.key_conviction.turned is True
     assert card.key_confirmation.turned is False
     assert any("breakout" in m.lower() for m in card.missing)
-    assert card.exit_by == date(2026, 6, 20)  # asof + 18d insider half-life
+    # the hold clock = fire date + the CORE conviction horizon (graded, multi-month)
+    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
 
 
 def test_insider_plus_breakout_arms_core_entry():
@@ -42,11 +43,12 @@ def test_insider_plus_breakout_arms_core_entry():
     assert card.conviction_grade is Grade.CORE and card.entry_grade is Grade.CORE
     assert card.key_conviction.turned and card.key_confirmation.turned
     assert card.missing == []
-    assert card.exit_by == date(2026, 6, 20)  # hold clock: insider fire 06-02 + 18d half-life
+    # hold clock = insider fire 06-02 + the CORE conviction horizon; entry window = breakout + 10d
+    assert card.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
     assert card.arm_until == date(2026, 6, 12)  # entry window: breakout fire 06-02 + 10d half-life
     assert card.armed_security_id == SID  # the co-located security that armed
-    assert len(card.catalyst_surface) == 1  # only the dated event inside the hold window
-    assert card.catalyst_surface[0].when_date == date(2026, 6, 11)
+    # the longer (multi-month) core hold window now surfaces both dated catalysts (06-11 + 09-01)
+    assert [c.when_date for c in card.catalyst_surface] == [date(2026, 6, 11), date(2026, 9, 1)]
     assert len(card.triggers_fired) == 2
     assert card.triggers_fired[0].sources[0].ref  # provenance link is present
 
@@ -112,9 +114,10 @@ def test_clocks_are_anchored_to_fire_date_not_query_asof():
     """The two clocks anchor to each trigger's fire date, so they don't slide as the query asof moves."""
     thesis = make_thesis()
     events = [insider_event(), breakout_event()]  # fire date 06-02; half-lives 18 / 10
+    hold = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days)
     for q in (date(2026, 6, 3), date(2026, 6, 5), date(2026, 6, 8)):
         card = assemble_call(thesis, events, q, DEFAULT_CONFIG)
-        assert card.exit_by == date(2026, 6, 20), q  # conviction/hold clock: 06-02 + 18
+        assert card.exit_by == hold, q  # conviction/hold clock: 06-02 + core horizon
         assert card.arm_until == date(2026, 6, 12), q  # confirmation/entry clock: 06-02 + 10
 
 
@@ -196,16 +199,16 @@ def test_confidence_is_none_unless_armed():
 def test_arm_lapses_per_key_then_thesis_ages_out():
     """Per-key lapse: the arm holds on the confirmation's clock, then warms, then ages out entirely."""
     thesis = make_thesis()
-    events = [insider_event(), breakout_event()]  # exit_by 06-20, arm_until 06-12
+    events = [insider_event(), breakout_event()]  # arm_until 06-12; exit_by = 06-02 + core horizon
     assert assemble_call(thesis, events, date(2026, 6, 5), DEFAULT_CONFIG).state is State.ARMED
-    # confirmation aged past arm_until (06-12) with no fill -> lapse to Warming (conviction still live)
+    # confirmation aged past arm_until (06-12) with no fill -> lapse to Warming (conviction still live
+    # on its multi-month core clock)
     warming = assemble_call(thesis, events, date(2026, 6, 13), DEFAULT_CONFIG)
     assert warming.state is State.WARMING
     assert warming.key_conviction.turned and not warming.key_confirmation.turned
-    # conviction aged past exit_by (06-20) -> nothing live -> Incubating
-    assert (
-        assemble_call(thesis, events, date(2026, 6, 21), DEFAULT_CONFIG).state is State.INCUBATING
-    )
+    # conviction aged past its (core) hold horizon -> nothing live -> Incubating
+    aged_out = ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_half_life_days + 1)
+    assert assemble_call(thesis, events, aged_out, DEFAULT_CONFIG).state is State.INCUBATING
 
 
 def test_no_entry_triggers_is_incubating_and_quiet():

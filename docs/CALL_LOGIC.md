@@ -57,6 +57,8 @@ Each fired entry trigger carries a `grade ∈ {flip, core}`. The **call's** grad
 - `flip` = fast, sentiment/attention-driven; mean-reverts; trade small and short-dated; do not hold.
 - `core` = structural; build the position.
 
+The grade also sets the conviction **alpha half-life** (§6, STARTING calibration): a `core` insider cluster carries a multi-month hold horizon (the insider open-market-purchase literature measures abnormal returns over ~6 months, with multi-insider *cluster* buys the most persistent — so core ≈ 180d, the conservative low end), while a `flip` lasts only weeks. This is the fix for the *"right but early"* case: a core conviction stays live long enough to arm when confirmation finally prints (e.g. the UNH CEO-led cluster — conviction in May, the volume-backed breakout confirms in August, ~3 months later). The half-life is the *liveness window* (a hard cutoff), not an exponential 50%-decay point, so it is set to the full edge-persistence horizon — and it doubles as the cap, so a conviction can't arm on an unrelated breakout half a year later.
+
 `TODO(operator)`: define per-detector grade rules. *Example strawman (replace):* `insider_conviction` →
 `core` if (role ∈ {CEO, CFO}) **and** (≥2 distinct insiders) **and** (open-market code `P`) **and**
 (dollar size ≥ threshold); else `flip`; else not fired.
@@ -102,7 +104,9 @@ catalyst_surface = [ c for c in thesis.catalysts if c.when_date is not None and 
 Both are `null` when no live trigger of that kind exists. `exit_by` (the conviction / hold clock) drives the
 catalyst surface and the post-fill hold; `arm_until` (the confirmation / entry clock) is the window in which the
 Armed call is live — when `asof` passes it, the arm lapses (§2). A trigger is **live** only inside its half-life
-(`asof ≤ fire_date + alpha_half_life_days`). Undated/fuzzy catalysts (no `when_date`) are shown for context but
+(`asof ≤ fire_date + alpha_half_life_days`). The conviction (insider) half-life is **graded** (§3) — a `core` cluster's
+horizon is multi-month, a `flip`'s is short — so the hold clock scales with the strength of the conviction (and the
+detector's lookback reaches at least as far, or a still-live cluster would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_date`) are shown for context but
 excluded from the surface filter. The Cockpit flags any binary event in `catalyst_surface` as risk crossed before exit.
 
 ## 7. Confidence  `TODO(operator)`
@@ -134,12 +138,12 @@ late May) and real EOD bars.
 
 **Before confirmation — `asof = 2026-05-28`.** Only the conviction key is live:
 - `insider_conviction` → `fired=true, grade=core` (one strong senior buy clears the high-USD floor —
-  STARTING calibration), `alpha_half_life_days=18`, `event_date=2026-05-26`, provenance → the real
-  Form 4 accession.  *(`role=entry_trigger, kind=insider`)*
+  STARTING calibration), `alpha_half_life_days=180` (graded: the multi-month core-conviction horizon),
+  `event_date=2026-05-26`, provenance → the real Form 4 accession.  *(`role=entry_trigger, kind=insider`)*
 - `volume_breakout` → no breakout in its freshness window → no event.
 
 → **State: Warming** (conviction warms; arming needs a *co-located* confirmation). **Verdict: `not_yet`.**
-`exit_by` = `2026-05-26 + 18d` (the conviction / hold clock); `arm_until` = none. **missing: `[volume-confirmed breakout]`.**
+`exit_by` = `2026-05-26 + 180d` (the conviction / hold clock — graded core horizon); `arm_until` = none. **missing: `[volume-confirmed breakout]`.**
 
 **At confirmation — `asof = 2026-06-01`.** The breakout prints, but on ~0.9× volume:
 - `volume_breakout` → `fired=true, grade=flip` (momentum-only: a new closing high + thrust fired, but
@@ -152,9 +156,9 @@ late May) and real EOD bars.
   (momentum-only); **entry grade = the weaker = `flip`**.
 - **Verdict:** `starter_entry` — a core *thesis* but a starter *entry*, because volume hasn't
   confirmed. (A volume-backed breakout would make the entry `core` → `core_entry`.)
-- **Two clocks (§6):** `exit_by` (hold) = `2026-05-26 + 18d`; `arm_until` (entry window) =
-  `2026-06-01 + 10d = 2026-06-11` — the call stays Armed through a consolidation until 06-11, then
-  lapses to Warming unless a fresh breakout re-arms it.
+- **Two clocks (§6):** `exit_by` (hold) = `2026-05-26 + 180d` (graded core-conviction horizon);
+  `arm_until` (entry window) = `2026-06-01 + 10d = 2026-06-11` — the call stays Armed through a
+  consolidation until 06-11, then lapses to Warming unless a fresh breakout re-arms it.
 - **catalyst_surface:** any dated catalyst ≤ `exit_by` is flagged as crossed before exit.
 - **confidence:** capped at `momentum_only_confidence_cap` (≈0.55) — the volume gap reads as lower
   confidence (§7).

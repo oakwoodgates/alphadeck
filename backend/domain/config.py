@@ -34,7 +34,10 @@ class CallConfig(DomainModel):
     dilution_overhang_severe_pct: float = 25.0
 
     # --- insider_conviction (Key 1) — grade rule (§3); STARTING calibration, not precision ---
-    insider_lookback_days: int = 90
+    # cohesion window: open-market buys within this many days of the most-recent buy form one cluster
+    # (so unrelated buys months apart aren't fused). How long a fired cluster stays LIVE is the graded
+    # alpha half-life below, not this window.
+    insider_cluster_window_days: int = 90
     insider_min_usd: float = 10_000.0  # below this open-market total, no signal
     insider_core_min_distinct: int = 2
     insider_core_min_usd: float = 100_000.0
@@ -44,7 +47,16 @@ class CallConfig(DomainModel):
     insider_senior_role_keywords: frozenset[str] = frozenset(
         {"chief executive", "ceo", "chief financial", "cfo", "president", "director", "officer"}
     )
-    insider_alpha_half_life_days: int = 18
+    # Conviction (insider) alpha half-life is GRADED by grade — the window over which the edge stays
+    # live (a hard liveness window here, NOT an exponential 50%-decay point, so it is the FULL
+    # edge-persistence horizon). The insider open-market-purchase literature (Lakonishok-Lee 2001;
+    # Cohen-Malloy-Pomorski 2012, "Decoding Inside Information") measures abnormal returns over a
+    # ~6-month horizon, with multi-insider "cluster" buys the most persistent (evidence to ~12mo). So a
+    # CORE cluster ~= 180d (the conservative low end of 6-12mo; it doubles as the cap so a conviction
+    # can't arm on a breakout >6mo later). A FLIP buy is fast / sentiment-driven / mean-reverting and
+    # stays short. STARTING calibration — set on the alpha horizon, not to fit any one name.
+    insider_core_alpha_half_life_days: int = 180
+    insider_flip_alpha_half_life_days: int = 18
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME

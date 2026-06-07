@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from calls.assembler import assemble_call
@@ -91,7 +91,11 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     # the real Form 4 accession rides the conviction trigger's provenance (the working source link)
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs
-    assert card.exit_by == date(2026, 6, 13)  # hold clock: Wells buy 05-26 + 18d (§9)
+    # hold clock: the Wells buy (05-26) is graded CORE, so it carries the multi-month conviction horizon
+    hold_horizon = date(2026, 5, 26) + timedelta(
+        days=DEFAULT_CONFIG.insider_core_alpha_half_life_days
+    )
+    assert card.exit_by == hold_horizon
     assert card.arm_until == date(2026, 6, 11)  # entry window: 06-01 breakout + 10d
     assert card.armed_security_id == security_id  # conviction + confirmation co-located on HIMS
 
