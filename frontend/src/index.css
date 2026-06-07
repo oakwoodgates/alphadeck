@@ -138,6 +138,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .trg-item.warn .ic { color: var(--warm); }
 .trg-item a { color: var(--txt-3); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }
 .trg-item a:hover { color: var(--txt-2); }
+/* per-trigger ticker tag: which name in the basket fired this trigger */
+.trg-tk { font-family: var(--mono); font-weight: 700; font-size: 10px; color: var(--txt); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; margin-right: 6px; }
 
 .counter { font-size: 11.5px; line-height: 1.5; color: var(--txt-2); background: rgba(255, 90, 106, 0.05); border: 1px solid rgba(255, 90, 106, 0.2); border-radius: 8px; padding: 10px 12px; margin-bottom: 15px; }
 .counter b { color: var(--neg); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 5px; }
@@ -149,6 +151,9 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .clock-row .x { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); line-height: 1.35; }
 .clock-row.entry { border-color: rgba(255, 87, 51, 0.3); background: rgba(255, 87, 51, 0.05); }
 .clock-row.entry .cd { color: var(--armed); }
+/* not-yet card: the confirmation clock is informational (decaying), not a loud act-by deadline */
+.clock-row.entry.quiet { border-color: rgba(224, 162, 60, 0.25); background: rgba(224, 162, 60, 0.04); }
+.clock-row.entry.quiet .cd { color: var(--warm); }
 .clock-row.hold { border-color: rgba(52, 194, 160, 0.3); background: rgba(52, 194, 160, 0.05); }
 .clock-row.hold .cd { color: var(--manage); }
 
@@ -157,6 +162,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .btn:hover { border-color: var(--txt-3); color: var(--txt); }
 .btn.primary { background: var(--armed); border-color: var(--armed); color: #1a0a06; }
 .btn.primary:hover { box-shadow: 0 0 18px -4px var(--armed); color: #1a0a06; }
+.actions.two { grid-template-columns: 1fr 1fr; }
+.btn.wide { width: 100%; }
+/* the gate rail (not-yet states): the platform withholding its go-signal + a logged early-entry
+   override — no loud primary Act (inverse loudness) */
+.gate { display: flex; flex-direction: column; gap: 9px; }
+.gate-note { font-size: 11px; line-height: 1.5; color: var(--txt-3); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel-2); }
 .advisory { margin-top: 9px; font-size: 9.5px; letter-spacing: 0.04em; color: var(--txt-4); text-align: center; }
 
 .muted { color: var(--txt-3); }
@@ -220,6 +231,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .pip { width: 13px; height: 4px; border-radius: 2px; background: var(--line-2); }
 .pip.on { background: var(--txt-2); }
 .countchip { font-family: var(--mono); font-size: 10px; color: var(--manage); border: 1px solid rgba(52, 194, 160, 0.35); border-radius: 20px; padding: 1px 8px; margin-left: auto; }
+/* the conviction grade as secondary context next to the lead entry verdict ("core thesis") */
+.foot .conv { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
 
 .col.incub .card { background: rgba(16, 19, 24, 0.5); border-color: rgba(30, 35, 44, 0.7); }
 .col.incub .card .nm { color: var(--txt-2); font-weight: 500; }

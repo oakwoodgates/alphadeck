@@ -302,7 +302,14 @@
             "default": []
           },
           "confidence": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Confidence"
           },
           "key_conviction": {
@@ -359,7 +366,6 @@
           "state",
           "verdict",
           "expression",
-          "confidence",
           "key_conviction",
           "key_confirmation"
         ],
@@ -748,6 +754,11 @@
             ],
             "title": "Ticker"
           },
+          "basket_size": {
+            "type": "integer",
+            "title": "Basket Size",
+            "default": 0
+          },
           "narrative": {
             "type": "string",
             "title": "Narrative"
@@ -780,6 +791,17 @@
                 "type": "null"
               }
             ]
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
           },
           "sources": {
             "items": {

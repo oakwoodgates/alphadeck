@@ -47,4 +47,5 @@ def get_call(
         r.security_id for r in card.risk_signals
     }
     cik_for = master.ciks_for(conn, sec_ids)
-    return CallCardResponse.from_card(card, cik_for)
+    ticker_for = master.tickers_for(conn, sec_ids)
+    return CallCardResponse.from_card(card, cik_for, ticker_for)

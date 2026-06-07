@@ -1,6 +1,6 @@
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useTheses } from "../api/hooks";
-import { verdictLabel } from "../util/format";
+import { tickerLabel, verdictLabel } from "../util/format";
 import { ThesisCard } from "./ThesisCard";
 
 const COLUMNS = [
@@ -70,7 +70,7 @@ export function Board({ asof, onAsofChange, onSelect }: Props) {
                 key={thesis.id}
                 onClick={() => onSelect(thesis.id)}
               >
-                <b>{thesis.ticker ?? "—"}</b>
+                <b>{tickerLabel(thesis.ticker, thesis.basket_size)}</b>
                 {call.conviction_grade && (
                   <span className={`grade ${call.conviction_grade}`}>
                     {call.conviction_grade.toUpperCase()}

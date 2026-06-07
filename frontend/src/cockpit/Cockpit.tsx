@@ -1,6 +1,6 @@
 import { useCall, useThesis } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { accentVar, daysFrom, fmtDate, STATE_CLASS, STATE_LABEL } from "../util/format";
+import { accentVar, daysFrom, fmtDate, STATE_CLASS, STATE_LABEL, tickerLabel } from "../util/format";
 
 const ARCH_LABEL: Record<string, string> = {
   leader: "Leader",
@@ -44,7 +44,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
         </div>
         <div className="cp-title">
           <span className="tk" style={{ color: `var(${accentVar(sc)})` }}>
-            {thesis?.ticker ?? "—"}
+            {tickerLabel(thesis?.ticker, basket.length)}
           </span>
           <h1>{thesis?.name ?? "…"}</h1>
           {card && (

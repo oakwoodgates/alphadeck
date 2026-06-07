@@ -47,6 +47,8 @@ class TriggerRefOut(BaseModel):
     label: str
     kind: Kind
     grade: Grade | None = None
+    # the name this trigger fired on — attributes it in a multi-name basket
+    ticker: str | None = None
     sources: list[ProvenanceOut] = []
 
 
@@ -64,7 +66,7 @@ class CallCardResponse(BaseModel):
     exit_by: date | None = None
     arm_until: date | None = None
     catalyst_surface: list[Catalyst] = []
-    confidence: float
+    confidence: float | None = None  # the Armed card's bar; None for a not-yet card (§7)
     key_conviction: KeyState
     key_confirmation: KeyState
     triggers_fired: list[TriggerRefOut] = []
@@ -75,9 +77,13 @@ class CallCardResponse(BaseModel):
 
     @classmethod
     def from_card(
-        cls, card: CallCard, cik_for: Mapping[UUID, str | None] | None = None
+        cls,
+        card: CallCard,
+        cik_for: Mapping[UUID, str | None] | None = None,
+        ticker_for: Mapping[UUID, str | None] | None = None,
     ) -> "CallCardResponse":
         ciks = cik_for or {}
+        tickers = ticker_for or {}
         return cls(
             thesis_id=card.thesis_id,
             asof=card.asof,
@@ -98,6 +104,7 @@ class CallCardResponse(BaseModel):
                     label=t.label,
                     kind=t.kind,
                     grade=t.grade,
+                    ticker=tickers.get(t.security_id),
                     sources=[
                         ProvenanceOut(
                             source=p.source,
@@ -115,6 +122,7 @@ class CallCardResponse(BaseModel):
                     label=r.label,
                     kind=r.kind,
                     grade=r.grade,
+                    ticker=tickers.get(r.security_id),
                     sources=[
                         ProvenanceOut(
                             source=p.source,
@@ -138,12 +146,19 @@ class ThesisSummary(BaseModel):
 
     id: UUID
     name: str
-    ticker: str | None = None
+    ticker: str | None = None  # None for a multi-name theme thesis; the Board shows a basket marker
+    basket_size: int = 0
     narrative: str
 
     @classmethod
     def from_thesis(cls, thesis: Thesis) -> "ThesisSummary":
-        return cls(id=thesis.id, name=thesis.name, ticker=thesis.ticker, narrative=thesis.narrative)
+        return cls(
+            id=thesis.id,
+            name=thesis.name,
+            ticker=thesis.ticker,
+            basket_size=len(thesis.basket),
+            narrative=thesis.narrative,
+        )
 
 
 class ThesisDetail(BaseModel):

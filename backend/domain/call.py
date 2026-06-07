@@ -45,7 +45,9 @@ class CallCard(DomainModel):
     exit_by: date | None = None  # the HOLD horizon (conviction key); drives the catalyst surface
     arm_until: date | None = None  # the ENTRY window (confirmation key); the arm lapses past this
     catalyst_surface: list[Catalyst] = Field(default_factory=list)
-    confidence: float = Field(ge=0.0, le=1.0)
+    # Confidence is an ARMED-state metric (§7) — the Armed card's bar. None for a not-yet card
+    # (Incubating/Warming) and for Managing (which renders the position, not a confidence bar).
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     key_conviction: KeyState
     key_confirmation: KeyState
     triggers_fired: list[TriggerRef] = Field(default_factory=list)

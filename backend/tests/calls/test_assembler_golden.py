@@ -77,16 +77,18 @@ def test_momentum_only_confirmation_arms_but_is_caveated():
 
 
 def test_severe_dilution_blocks_arming_on_timing_not_thesis():
-    """Risk-veto: a severe risk signal withholds Armed on timing, penalizes confidence, never vetoes the thesis."""
+    """Risk-veto: a severe risk signal withholds Armed on timing (-> Warming), never vetoes the thesis.
+    A withheld call is not armed, so it shows no confidence bar (confidence is an Armed-state metric).
+    """
     thesis = make_thesis()
     armed = assemble_call(thesis, [insider_event(), breakout_event()], ASOF, DEFAULT_CONFIG)
     blocked = assemble_call(
         thesis, [insider_event(), breakout_event(), dilution_event()], ASOF, DEFAULT_CONFIG
     )
-    assert armed.state is State.ARMED
+    assert armed.state is State.ARMED and armed.confidence is not None
     assert blocked.state is State.WARMING  # Armed withheld
     assert blocked.key_conviction.turned and blocked.key_confirmation.turned  # keys still turned
-    assert blocked.confidence < armed.confidence  # risk penalizes confidence
+    assert blocked.confidence is None  # a withheld (not-armed) call carries no confidence bar
     assert "risk" in blocked.counter_case.lower()  # risk signal feeds the counter-case
     # the expression explains the real blocker (timing/risk), not a missing confirmation
     assert "withheld" in blocked.expression.lower() or "risk" in blocked.expression.lower()
@@ -131,6 +133,13 @@ def test_risk_signals_surface_on_the_card_with_provenance():
     rs = card.risk_signals[0]
     assert rs.kind is Kind.DILUTION_RISK and rs.grade is None and rs.security_id == SID
     assert rs.sources and rs.sources[0].ref
+    # a non-blocking risk still penalizes the Armed card's confidence (the penalty lives on the path
+    # where confidence exists — an armed call)
+    no_risk = assemble_call(
+        make_thesis(), [insider_event(), breakout_event()], ASOF, DEFAULT_CONFIG
+    )
+    assert no_risk.confidence is not None and card.confidence is not None
+    assert card.confidence < no_risk.confidence
 
 
 def test_warming_on_confirmation_without_conviction_is_honest():
@@ -170,6 +179,18 @@ def test_confidence_is_scoped_to_the_armed_security():
     )
     assert widened.state is State.ARMED and widened.armed_security_id == SID
     assert widened.confidence == base.confidence  # the off-name trigger was excluded
+
+
+def test_confidence_is_none_unless_armed():
+    """Confidence is an Armed-state metric (§7): None for Incubating/Warming, so a not-yet card never
+    shows a confidence bar — and a multi-name basket's breakouts can't noisy-OR into a false 'high'.
+    """
+    thesis = make_thesis()
+    assert assemble_call(thesis, [], ASOF, DEFAULT_CONFIG).confidence is None  # incubating
+    warming = assemble_call(thesis, [insider_event()], ASOF, DEFAULT_CONFIG)
+    assert warming.state is State.WARMING and warming.confidence is None
+    armed = assemble_call(thesis, [insider_event(), breakout_event()], ASOF, DEFAULT_CONFIG)
+    assert armed.state is State.ARMED and armed.confidence is not None
 
 
 def test_arm_lapses_per_key_then_thesis_ages_out():
