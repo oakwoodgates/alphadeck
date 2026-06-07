@@ -67,7 +67,7 @@ def score(
         score=round(min(severity, 0.95), 4),
         fired=True,
         label=label,
-        alpha_half_life_days=None,
+        alpha_liveness_days=None,
         provenance=[
             Provenance(
                 source="8-k",

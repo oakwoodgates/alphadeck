@@ -33,7 +33,7 @@ def assemble_call(
     fired_entry = [e for e in events if e.role == Role.ENTRY_TRIGGER and e.fired]
     active_risk = [e for e in events if e.role == Role.RISK_SIGNAL and e.fired]
 
-    # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha half-life.
+    # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha-liveness window.
     # ``e.asof`` is the trigger's FIRE date (the event date), so an Armed call stays sticky across a
     # consolidation (the breakout firing is still live) and lapses once that firing ages out.
     live_entry = [e for e in fired_entry if _live(e, asof)]
@@ -191,10 +191,10 @@ def assemble_call(
 
 
 def _live(e: SignalEvent, asof: date) -> bool:
-    """A fired entry trigger counts only while inside its alpha half-life (``e.asof`` = its fire date)."""
-    if e.alpha_half_life_days is None:
+    """A fired entry trigger counts only while inside its alpha-liveness window (``e.asof`` = its fire date)."""
+    if e.alpha_liveness_days is None:
         return True
-    return asof <= e.asof + timedelta(days=e.alpha_half_life_days)
+    return asof <= e.asof + timedelta(days=e.alpha_liveness_days)
 
 
 def _arming_security(
@@ -255,11 +255,11 @@ def _verdict(state: State, conviction_grade: Grade | None, entry_grade: Grade | 
 
 
 def _clock(events: list[SignalEvent]) -> date | None:
-    """The latest (fire_date + alpha half-life) over a set of triggers — None if none carry one."""
+    """The latest (fire_date + alpha-liveness window) over a set of triggers — None if none carry one."""
     ends = [
-        e.asof + timedelta(days=e.alpha_half_life_days)
+        e.asof + timedelta(days=e.alpha_liveness_days)
         for e in events
-        if e.alpha_half_life_days is not None
+        if e.alpha_liveness_days is not None
     ]
     return max(ends) if ends else None
 
@@ -293,7 +293,7 @@ def _expression(
     confirmation_on: bool,
 ) -> str:
     if state == State.MANAGING:
-        return "Position open — manage to the exit-by / half-life; trail the stop or take the gain."
+        return "Position open — manage to the exit-by; trail the stop or take the gain."
     if state == State.ARMED:
         if momentum_only:
             return (

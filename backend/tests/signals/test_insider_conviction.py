@@ -32,7 +32,7 @@ def test_core_when_two_senior_insiders_buy_big():
     assert ev.role is Role.ENTRY_TRIGGER and ev.kind is Kind.INSIDER
     assert ev.grade is Grade.CORE
     # a CORE cluster carries the multi-month conviction horizon (the hold clock), not the flip window
-    assert ev.alpha_half_life_days == DEFAULT_CONFIG.insider_core_alpha_half_life_days
+    assert ev.alpha_liveness_days == DEFAULT_CONFIG.insider_core_alpha_liveness_days
     assert len(ev.provenance) == 2  # one per accession
 
 
@@ -40,7 +40,7 @@ def test_flip_when_single_insider():
     ev = insider_conviction.score([_buy("Jane Doe", "Chief Executive Officer", 50_000)], SID, ASOF)
     assert ev is not None and ev.grade is Grade.FLIP  # one insider, below the strong-single floor
     # a flip buy is short-horizon (fast/sentiment), not the multi-month core hold window
-    assert ev.alpha_half_life_days == DEFAULT_CONFIG.insider_flip_alpha_half_life_days
+    assert ev.alpha_liveness_days == DEFAULT_CONFIG.insider_flip_alpha_liveness_days
 
 
 def test_core_on_strong_single_senior_buy():
@@ -75,7 +75,7 @@ def test_core_cluster_stays_live_for_months():
     )  # ASOF = 2026-06-04 (~100d later)
     assert ev is not None and ev.grade is Grade.CORE
     assert ev.asof == date(2026, 2, 24)  # dated at the cluster's fire, not the query asof
-    assert ev.alpha_half_life_days == DEFAULT_CONFIG.insider_core_alpha_half_life_days
+    assert ev.alpha_liveness_days == DEFAULT_CONFIG.insider_core_alpha_liveness_days
 
 
 def test_event_dated_at_latest_buy_not_query_asof():

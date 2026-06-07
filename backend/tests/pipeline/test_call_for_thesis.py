@@ -101,7 +101,7 @@ def test_call_for_thesis_is_sticky_through_consolidation(db, security_id):
     for asof in (date(2026, 6, 2), date(2026, 6, 3)):
         card = call_for_thesis(db, tid, asof, known_at=_KNOWN, record=False)
         assert card.state is State.ARMED, asof
-        assert card.arm_until == date(2026, 6, 11)  # the 06-01 breakout + 10d half-life
+        assert card.arm_until == date(2026, 6, 11)  # the 06-01 breakout + 10d liveness window
 
 
 def test_call_for_thesis_unknown_thesis_raises(db):
