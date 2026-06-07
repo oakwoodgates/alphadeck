@@ -71,6 +71,15 @@ class CallConfig(DomainModel):
     # breakout, and the decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
     catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
 
+    # --- verdict hold-dimension (§4) — keyed on HORIZON, not kind ---
+    # A conviction whose alpha-liveness horizon is >= this is "hold-and-build" (a small entry is a
+    # STARTER); below it, the conviction is sentiment-grade -> "do not hold" (a small entry is FLIP-only).
+    # This decouples the third job grade used to do (hold-or-not) onto the horizon, so a provisional but
+    # long-horizon catalyst holds, a fast insider flip does not, and the next kind inherits correct
+    # behavior from its own horizon. The data gap is clean (insider flip ~18d vs core/catalyst >=180d),
+    # so a threshold in the gap is safe; calibration dial — tune at recalibration.
+    conviction_hold_threshold_days: int = 90
+
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME
     # grades the confirmation: volume-backed (vol >= breakout_volume_mult x base avg) = full CORE-quality

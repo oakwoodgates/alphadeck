@@ -35,7 +35,9 @@ def test_core_catalyst_fires_with_the_default_horizon():
     assert ev is not None and ev.fired
     assert ev.role is Role.ENTRY_TRIGGER and ev.kind is Kind.CATALYST
     assert ev.grade is Grade.CORE and ev.type is CatalystType.CONTRACT
-    assert ev.alpha_liveness_days == DEFAULT_CONFIG.catalyst_default_horizon_days  # no term -> default
+    assert (
+        ev.alpha_liveness_days == DEFAULT_CONFIG.catalyst_default_horizon_days
+    )  # no term -> default
     assert ev.asof == date(2026, 5, 15)  # dated at the catalyst event, not the query asof
     assert ev.provenance[0].source == "ratified" and ev.provenance[0].ref == "https://x/ppa"
 
@@ -53,8 +55,12 @@ def test_grade_does_not_affect_liveness():
     # THE decoupling: a flip and a core catalyst with the SAME term carry the SAME liveness; only the
     # grade (entry size) differs. (Insider stays grade-coupled — this decoupling is catalyst-only.)
     term = date(2029, 7, 1)
-    flip = catalyst_conviction.score([_cat(grade="flip", d=date(2026, 2, 9), horizon_end=term)], SID, ASOF)
-    core = catalyst_conviction.score([_cat(grade="core", d=date(2026, 2, 9), horizon_end=term)], SID, ASOF)
+    flip = catalyst_conviction.score(
+        [_cat(grade="flip", d=date(2026, 2, 9), horizon_end=term)], SID, ASOF
+    )
+    core = catalyst_conviction.score(
+        [_cat(grade="core", d=date(2026, 2, 9), horizon_end=term)], SID, ASOF
+    )
     assert flip.alpha_liveness_days == core.alpha_liveness_days  # liveness decoupled from grade
     assert flip.grade is Grade.FLIP and core.grade is Grade.CORE  # grade still distinguishes them
 
@@ -87,7 +93,9 @@ def test_picks_binding_over_a_more_recent_provisional():
     flip = _cat(grade="flip", d=date(2026, 6, 1), ref="https://x/mou")
     core = _cat(grade="core", d=date(2026, 5, 1), ref="https://x/ppa")
     ev = catalyst_conviction.score([flip, core], SID, ASOF, DEFAULT_CONFIG)
-    assert ev.grade is Grade.CORE and ev.provenance[0].ref == "https://x/ppa"  # core beats a newer flip
+    assert (
+        ev.grade is Grade.CORE and ev.provenance[0].ref == "https://x/ppa"
+    )  # core beats a newer flip
 
 
 def test_no_catalyst_no_event():

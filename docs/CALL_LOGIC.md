@@ -65,30 +65,40 @@ The grade also sets the conviction **alpha-liveness window** (`alpha_liveness_da
 
 ## 4. Verdict mapping  `[PINNED]`
 
-Two grades are kept distinct: the **conviction grade** (the conviction key — the *thesis* quality) and
-the **entry grade** = the *weaker* of the two keys (the *action* to take). The verdict the operator acts
-on is driven by the **entry grade**, so a core thesis whose confirmation hasn't volume-confirmed reads
-as a **starter**, never a bare `core_entry` (which invites over-committing — the operator's documented
-flaw). The conviction grade is shown separately so the thesis's core quality isn't lost; a starter is
-the upgrade path to a full core entry.
+Three things are kept distinct so **grade isn't overloaded** (it used to silently carry all three, which
+mis-fit catalysts):
+- **Entry size** ← the **grade** (`flip` = small / provisional, `core` = full / binding).
+- **Hold-or-not** ← the conviction's **horizon** (its `alpha_liveness_days`): a long horizon is
+  hold-and-build, a short one is sentiment ("do not hold"). Keyed on **horizon, not kind**
+  (`conviction_hold_threshold_days`), so a provisional-but-long-horizon catalyst *holds* while a fast
+  insider flip does *not* — and the next signal kind inherits correct behaviour from its own horizon
+  rather than an `if-kind` branch.
+- **Build-to-full vs starter** ← the **entry grade** (the *weaker* key): a core thesis whose confirmation
+  isn't volume-backed reads as a **starter**, never a bare `core_entry` (which invites over-committing —
+  the operator's documented flaw).
 
 | State | Condition | `Verdict` |
 |---|---|---|
 | Incubating | — | `watching` |
-| Warming | conviction `core`, no confirmation | `not_yet` |
-| Warming | conviction `flip` live | `flip_only` |
-| Armed | conviction `flip` | `flip_only` (small, short-dated, do-not-hold) |
-| Armed | conviction `core`, entry `core` (volume-backed confirmation) | `core_entry` (build to core size) |
-| Armed | conviction `core`, entry `flip` (momentum-only confirmation) | `starter_entry` (core thesis, starter entry; upgrades to core when volume confirms) |
+| Warming | conviction live, hold-worthy (long horizon, or `core`), no confirmation | `not_yet` |
+| Warming | conviction live, short horizon (sentiment) | `flip_only` |
+| Armed | small (`flip`) conviction, **short** horizon | `flip_only` (do not hold; exit at the catalyst) |
+| Armed | small (`flip`) conviction, **long** horizon | `starter_entry` (enter small; build as it firms) |
+| Armed | `core` conviction, entry `flip` (weak/momentum confirmation) | `starter_entry` (build to core when volume confirms) |
+| Armed | `core` conviction, entry `core` (volume-backed confirmation) | `core_entry` (build to core size) |
 | Managing | position open | `managing` |
 
-A `starter_entry` is also surfaced as reduced confidence (§7), a volume-gap counter-case (§8), and a
-cautious "start small; build to core when volume confirms" expression (§5).
+The two `starter_entry` rows are the **mirror** — provisional-conviction + strong-confirmation, and
+core-conviction + weak-confirmation, both mean *"enter small, build."* The only difference is what you
+build into (more catalysts firming vs volume confirming); that lives in the expression / show-your-work
+(§5, §8) and confidence (§7), not a separate verdict. A `starter_entry` carries reduced confidence and a
+cautious expression.
 
 ## 5. Expression  `[PROPOSED]`
 
-Suggested expression follows the grade (confirm/refine):
-- **flip** → small size, short-dated options, explicit "do not hold"; exit-by at/just past the catalyst.
+Suggested expression follows size (grade) **and hold (horizon)** — confirm/refine:
+- **flip, short horizon** → small size, short-dated options, explicit "do not hold"; exit-by at/just past the catalyst.
+- **flip, long horizon** (a provisional but durable catalyst) → **STARTER**: enter small; build as the conviction firms (a binding deal / more catalysts), not max size off one early step.
 - **core** → spot + options dated *past* exit-by; build into the leaders/shovels of the basket.
 - **ETF / safe sleeve** → for durable, long-duration exposure to the *whole* theme (usually offered at the umbrella/thesis level, not per Armed segment): a thematic ETF from the ETF radar. Lower torque — gives up the leader/lotto upside for duration and diversification. Always presented with fund internals (holdings, weights, expense ratio, AUM, liquidity) so the operator sees whether the ETF actually expresses the thesis. This is the floor, not the alpha; it can run *alongside* the single-name expressions, not instead of the call.
 
