@@ -45,6 +45,7 @@ export function CallCard({ card }: { card: CallCardResponse }) {
             label="Confirmation"
             turned={card.key_confirmation.turned}
             detail={card.key_confirmation.detail}
+            weak={card.key_confirmation.turned && card.confirmation_grade === "flip"}
           />
         </div>
 
@@ -213,9 +214,21 @@ export function CallCard({ card }: { card: CallCardResponse }) {
   );
 }
 
-function Key({ label, turned, detail }: { label: string; turned: boolean; detail?: string | null }) {
+function Key({
+  label,
+  turned,
+  detail,
+  weak = false,
+}: {
+  label: string;
+  turned: boolean;
+  detail?: string | null;
+  weak?: boolean;
+}) {
+  // `weak` = turned but only momentum-only (flip confirmation): amber, not green, so the loudest
+  // element on the card doesn't overstate a starter.
   return (
-    <div className={`key ${turned ? "on" : ""}`}>
+    <div className={`key ${turned ? "on" : ""} ${weak ? "weak" : ""}`}>
       <div className="kh">
         <span className="dot" />
         {label}

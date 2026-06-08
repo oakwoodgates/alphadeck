@@ -87,6 +87,9 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     # honest: the confirmation is momentum-only -> a STARTER, so confidence is capped + a volume-gap counter-case
     assert card.confidence <= DEFAULT_CONFIG.starter_confidence_cap
     assert "momentum-only" in card.counter_case.lower() and "volume" in card.counter_case.lower()
+    # the Confirmation key agrees with the caveat (no hardcoded "volume-backed" overstating the starter)
+    assert card.confirmation_grade is Grade.FLIP
+    assert "momentum-only" in card.key_confirmation.detail.lower()
 
     # the real Form 4 accession rides the conviction trigger's provenance (the working source link)
     refs = [p.ref for t in card.triggers_fired for p in t.sources]

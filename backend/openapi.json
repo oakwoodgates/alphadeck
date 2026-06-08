@@ -243,6 +243,16 @@
               }
             ]
           },
+          "confirmation_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "entry_grade": {
             "anyOf": [
               {

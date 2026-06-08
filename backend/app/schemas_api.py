@@ -60,6 +60,7 @@ class CallCardResponse(BaseModel):
     state: State
     verdict: Verdict
     conviction_grade: Grade | None = None
+    confirmation_grade: Grade | None = None  # core = volume-backed, flip = momentum-only
     entry_grade: Grade | None = None
     armed_security_id: UUID | None = None
     expression: str
@@ -90,6 +91,7 @@ class CallCardResponse(BaseModel):
             state=card.state,
             verdict=card.verdict,
             conviction_grade=card.conviction_grade,
+            confirmation_grade=card.confirmation_grade,
             entry_grade=card.entry_grade,
             armed_security_id=card.armed_security_id,
             expression=card.expression,
