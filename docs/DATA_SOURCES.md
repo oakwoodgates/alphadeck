@@ -13,6 +13,7 @@
 | **SEC EDGAR** — submissions API, full-text search, daily index/RSS | 8-Ks, Form 4 (insider), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint |
 | **EDGAR — XBRL financial statement datasets** | structured financials (cash, burn, shares outstanding) | dilution clock, fundamentals |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (coming launches = emergence signal) |
+| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
 | **FINRA short interest** (bi-monthly) | SI %, days-to-cover | squeeze radar (context tier) |
 | **OpenFIGI** (free API) | CIK ↔ ticker ↔ CUSIP ↔ FIGI mapping | security master / entity resolution |
@@ -40,6 +41,41 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
 - Respect the documented **rate limit** (token-bucket gate in the client).
 - **Cache-first** on disk (`data/edgar_cache/`); the test transport raises on cache miss so tests never hit the network.
 - Live pulls are explicit opt-in (env flag) and write only to the cache.
+
+## USASpending (DOE awards) — the automated catalyst feed `[BUILT, #37]`
+
+The first **automated** catalyst-conviction source (`ingest/doe/`). It discovers DOE awards for a hand-curated
+set of nuclear-basket entities and emits catalyst facts deterministically (grade + horizon from the structured
+terms — invariant #3, never model-sourced). Grade rule = customer-vs-sponsor (`docs/CATALYST_CONVICTION.md`).
+
+**Entity resolution is a curated allowlist, keyed on exact `recipient_id` — never fuzzy.** This is the
+load-bearing decision; the spike found three reasons it has to be:
+
+1. **API quirk — the `recipient_id` filter is silently ignored.** Passing `recipient_id` to
+   `spending_by_award` does **not** filter; it returns *all* DOE awards by size. So we can't ask the API for
+   "this recipient's awards" directly.
+2. **Trap — fuzzy over-match.** `recipient_search_text="Centrus"` also returns **NAC INTERNATIONAL INC.**
+   (unrelated). Text search is a wide net, not a resolver.
+3. **Trap — the polluted homonym.** `recipient_search_text="Oklo"` surfaces **OKLO TECHNOLOGIES, INC.** — a
+   *different* recipient_id carrying **$48B of national-lab management contracts** (Sandia/LANL/ORNL `DEAC…`).
+   The real awardee is **OKLO INC.** Fuzzy-matching "Oklo" onto it would pin $48B of M&O contracts to a
+   pre-revenue ticker, silently.
+
+**So: fuzzy search is only a discovery NET; the ticker is assigned solely by exact membership in the curated
+table** (`ingest/doe/entities.py`), keyed on `recipient_id`. It's an **allowlist, not a denylist** — an
+unknown recipient is *dropped* (unresolved), never guessed. Subsidiary → parent → ticker is encoded by giving
+each recipient_id its own row: `AMERICAN CENTRIFUGE OPERATING, LLC` + `CENTRUS ENERGY CORP.` both → `LEU`;
+`OKLO INC.` → `OKLO`. Both traps have **rejection tests** pointed at them
+(`tests/ingest/test_doe_feed.py::test_resolver_is_exact_not_fuzzy` asserts NAC / OKLO TECHNOLOGIES / unknown
+all resolve to `None`).
+
+**Pipeline:** discover (search net, one award-type group per call — the API 422s on mixed groups) → resolve
+exactly by recipient_id → fetch award detail → derive grade + base-period-of-performance horizon → emit a
+`fact_catalyst`. Expired awards are emitted too (real, provenanced) but liveness keeps them off the card.
+
+**Etiquette** (mirrors EDGAR): cache-first on disk (`data/doe_cache/`; committed fixtures in
+`backend/seed_data/doe/`), live pulls explicit opt-in, a rate-limit gate, the test transport raises on a
+cache miss so the suite never hits the network.
 
 ## Point-in-time discipline (applies to every source)
 
