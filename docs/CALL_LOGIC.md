@@ -19,16 +19,39 @@ SignalEvent[]  ──►  call-assembler (this spec)  ──►  CallCard
 
 The assembler is **pure and deterministic**: same thesis + same signal events + same `asof` → same CallCard. The LLM stub fills only `counter_case` and explanatory prose (citing existing evidence IDs); it never sets state, verdict, grade, or triggers. The `calls` table stores assembled CallCards as the **accountability record** (what the platform asserted, when) — it is **not** the read path. The API recomputes the CallCard live at the requested `asof`.
 
+## The through-line — factor behavior on the property that drives it  `[PRINCIPLE]`
+
+> The single most load-bearing design decision in the brain. Read it before changing any rule below.
+
+The original model let **grade** do three jobs at once — entry **size**, the **hold-or-don't** decision, and
+the alpha-liveness **horizon** — and used **signal kind** as a proxy for all three. *Every* structural bug we
+fixed was a place that still bundled them: a flip catalyst was forced to "do not hold" (horizon read off
+grade); a provisional starter read loud (confidence ignored the weak key); a catalyst's liveness was mis-set
+by grade instead of its term. The fixes all had the same shape — **un-bundle, and key each behavior on the
+specific property that actually drives it:**
+
+| behavior | keyed on (the property that drives it) | NOT on |
+|---|---|---|
+| entry **size** | the **grade** (`flip` vs `core`) | — |
+| **hold or don't** (the verdict) | the conviction's **horizon** (`alpha_liveness_days` vs `conviction_hold_threshold_days`) | grade, or signal **kind** (§4) |
+| **build-to-full vs starter**, and the **confidence cap** | the **entry grade** = the **weaker key** | the *stronger* key (§4, §7) |
+| catalyst **liveness** | the agreement's **relevance horizon** (period of performance) | grade — insider *stays* grade-coupled; §3 |
+
+**Standing rule: never re-couple these.** Do not add an `if kind == …` branch where a property (the horizon,
+the weaker key, the term) already carries the signal. A new signal kind must inherit correct behavior from its
+own properties, not from a special case. If you find yourself special-casing a kind, the behavior you want is
+almost certainly a property you should be reading instead.
+
 ## 1. Inputs
 
 Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, type, grade, score, fired, label, alpha_liveness_days, provenance, asof`.
 
 **Signal taxonomy `[SPECIFIED]` (confirmed).** Three orthogonal fields:
 - **`role`** — `entry_trigger` vs `risk_signal`. Only entry triggers can turn the two keys; risk signals feed `counter_case` / `kill_criteria` / confidence and never raise readiness.
-- **`kind`** — what produced the signal: `insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …` (extensible).
-- **`type`** — the catalyst nature where one applies: `regulatory | promoter_attention | clinical_readout | personnel | …`. Optional; many signals (e.g. a breakout) have a `kind` but no catalyst `type`.
+- **`kind`** — what produced the signal: `insider | catalyst | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …` (extensible).
+- **`type`** — the catalyst nature where one applies: `gov_funding | regulatory | commercial | emergence | promoter_attention | clinical_readout | personnel | …`. Optional; many signals (e.g. a breakout) have a `kind` but no catalyst `type`.
 
-So `insider_conviction` is `role=entry_trigger, kind=insider`; `dilution_clock` is `role=risk_signal, kind=dilution_risk`; a new ETF launch is `role=entry_trigger (low-grade), kind=etf_launch, type=…`; ETF flows are `kind=etf_flow`.
+So `insider_conviction` is `role=entry_trigger, kind=insider`; a DOE award is `role=entry_trigger, kind=catalyst, type=gov_funding` (the second conviction source — §3); `dilution_clock` is `role=risk_signal, kind=dilution_risk`; a new ETF launch is `role=entry_trigger (low-grade), kind=etf_launch, type=…`; ETF flows are `kind=etf_flow`. Both `insider` and `catalyst` are **conviction** kinds (`cfg.conviction_kinds`) — either WARMS; a breakout (confirmation) ARMS.
 
 ## 2. State-transition rules  `[PINNED]` (STARTING calibration)
 
@@ -60,18 +83,35 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > fired — a soft veto on **timing**. It never vetoes the **thesis** itself (that stays the operator's call).
 > Severity threshold is `TODO(operator)` / calibrated; the block-vs-penalize behavior is fixed.
 
-## 3. Grade decision  `TODO(operator)`
+## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 
-Each fired entry trigger carries a `grade ∈ {flip, core}`. The **call's** grade = the highest-grade fired entry trigger.
+Each fired entry trigger carries a `grade ∈ {flip, core}`; the **call's** grade = the highest-grade fired entry trigger.
 
-- `flip` = fast, sentiment/attention-driven; mean-reverts; trade small and short-dated; do not hold.
+- `flip` = fast, sentiment/attention-driven; mean-reverts; trade small and short-dated.
 - `core` = structural; build the position.
 
-The grade also sets the conviction **alpha-liveness window** (`alpha_liveness_days`, §6, STARTING calibration): a `core` insider cluster carries a multi-month hold horizon (the insider open-market-purchase literature measures abnormal returns over ~6 months, with multi-insider *cluster* buys the most persistent — so core ≈ 180d, the conservative low end), while a `flip` lasts only weeks. This is the fix for the *"right but early"* case: a core conviction stays live long enough to arm when confirmation finally prints (e.g. the UNH CEO-led cluster — conviction in May, the volume-backed breakout confirms in August, ~3 months later). It is a **liveness window** — a hard cutoff (full weight until it expires), *not* an exponential 50%-decay point — so it is set to the full edge-persistence horizon, and it doubles as the cap so a conviction can't arm on an unrelated breakout half a year later.
+**Grade sets entry SIZE only** (see the through-line). Whether the position is *held* comes from the
+conviction's **horizon**, not its grade (§4) — they only *coincide* for insider buys, which is exactly why the
+two conviction sources set liveness differently:
 
-`TODO(operator)`: define per-detector grade rules. *Example strawman (replace):* `insider_conviction` →
-`core` if (role ∈ {CEO, CFO}) **and** (≥2 distinct insiders) **and** (open-market code `P`) **and**
-(dollar size ≥ threshold); else `flip`; else not fired.
+- **`insider_conviction` `[built]` — grade-COUPLED liveness.** For an open-market buy, strength and
+  edge-horizon genuinely move together, so grade sets the `alpha_liveness_days` window: a `core` cluster ≈
+  **180d** (the insider-purchase literature measures abnormal returns over ~6 months, multi-insider *cluster*
+  buys the most persistent — the conservative low end), a `flip` ≈ short weeks. It is a hard liveness window
+  (full weight until it expires, not a 50%-decay point) and doubles as the cap so a conviction can't arm on an
+  unrelated breakout half a year later — the fix for the *"right but early"* case (UNH: CEO-led cluster in May,
+  the volume-backed breakout confirms ~3 months later, still inside the core window). **Built rule:** `core` if
+  a senior cluster (≥2 distinct, code `P`, CEO/CFO/director) **or** a single high-USD senior buy clears the
+  floor; else `flip`. Calibrated in `CallConfig`.
+- **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
+  **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
+  nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan
+  guarantee** (committed financing) = `core`; a grant / cooperative agreement / OTA (DOE *funds your
+  development* = support) = `flip`. **By nature, never by size** (a $148M cooperative agreement is still `flip`;
+  its size flows through confidence within the grade). Full rule + precedent (LEU core, OKLO flip) in
+  `docs/CATALYST_CONVICTION.md`.
+
+Firing + grade are always a **deterministic parse or an operator ratification — never the LLM** (invariant #3).
 
 ## 4. Verdict mapping  `[PINNED]`
 
@@ -129,14 +169,15 @@ horizon is multi-month, a `flip`'s is short — so the hold clock scales with th
 detector's lookback reaches at least as far, or a still-live cluster would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_date`) are shown for context but
 excluded from the surface filter. The Cockpit flags any binary event in `catalyst_surface` as risk crossed before exit.
 
-## 7. Confidence  `TODO(operator)`
+## 7. Confidence  `[built]` (calibrate the values)
 
 `confidence ∈ [0,1]`, rendered as the Armed card's bar. Must be **calibrated**, not loud — a marginal
-2-of-N setup reads low. Risk signals reduce it.
+2-of-N setup reads low. Risk signals reduce it. Scoped to the **armed security** (not basket-wide).
 
-`TODO(operator)`: define the function. *Strawman (replace):* a saturating (noisy-OR) function of
-`(count of fired entry triggers, their scores, cross-detector agreement)` minus a penalty per active
-risk signal, with two ceilings:
+**Built function** (the *structure* is fixed; the values are calibration dials, see RECALIBRATION.md): a
+saturating (noisy-OR) combine of `(fired entry-trigger scores → more agreeing detectors saturates higher)`
+minus a penalty per active risk signal, with two ceilings **composed `min-of`** (a call tripping both takes
+the lower, never double-capped):
 - **single-detector cap** — a one-detector call never reads "high."
 - **starter cap** (`starter_confidence_cap`, ≈0.55) — **any** `starter` (entry grade = `flip`, i.e.
   *either* key is weak: an unconfirmed/momentum-only breakout **or** a provisional conviction) is capped,
@@ -213,6 +254,10 @@ EDGAR + EOD → detectors → assembler → `GET /theses/{id}/call?asof=`.
 
 ## What still needs you
 
-Everything marked `TODO(operator)`: the state-transition thresholds (§2), per-detector grade rules (§3),
-the confidence function (§7), and the trigger-type taxonomy decision (§1). Those encode your trading
-judgment and shouldn't be guessed. The `[PROPOSED]` and `[SPECIFIED]` parts are ready to build against.
+The *structure* of the brain is built and reconciled with the code (states §2, grade §3, verdict §4,
+clocks §6, confidence §7). What remains is **calibration, not architecture** — the threshold *values* the
+operator tunes against real outcomes once the MVP has run. Those are consolidated into one agenda in
+**`docs/RECALIBRATION.md`** (liveness windows, grade boundaries + the $10M DOE threshold, the cap values, the
+momentum-only-vs-starter split, and the filed refinements). The deferred build items (M5 group/per-member
+view, age-decay of confidence, the loans query group) live there too. Nothing here is a guessed number
+presented as decided — the dials are labelled as dials.

@@ -62,16 +62,24 @@ def _to_date(value: object) -> date | None:
 
 
 def _derive_grade(category: str, obligation: float, cfg: CallConfig) -> Grade:
-    """Deterministic grade — ``[PROPOSED]``, confirm at review (this is the operator's edge).
+    """Deterministic grade — ``[APPROVED]``, the **customer-vs-sponsor** principle (the operator's edge).
 
-    A binding **contract** of real size = ``core`` (contracted revenue is now real → build the position);
-    everything else — a grant / cooperative agreement / OTA / other financial assistance, or a
-    sub-threshold contract — = ``flip`` (provisional → small, short-dated). This reproduces the operator's
-    own precedent: LEU's $317M HALEU production CONTRACT → core; OKLO's $0 reactor-pilot OTA (assistance) →
-    flip. Known calibration edge (flagged): a large *assistance* award (e.g. a $148M cooperative agreement)
-    reads ``flip`` under the binding-ness rule despite its size — tune ``doe_core_min_obligation_usd`` /
-    add an assistance-core path if the operator wants size to count there too.
+    The line is whether DOE is your **customer** or your **sponsor**:
+    - a procurement **contract** of real size (DOE *buying your product*) = contracted revenue = ``core``.
+    - a **loan / loan guarantee** (committed financing) = ``core`` — an original core example.
+    - a grant / cooperative agreement / OTA / other assistance (DOE *funding your development* = support,
+      not revenue), or a sub-threshold contract = ``flip`` (provisional → small, short-dated).
+
+    Award type is the *proxy*; customer-vs-sponsor is the *principle*. Reproduces the operator's precedent:
+    LEU's $317M HALEU production CONTRACT → core; OKLO's $0 reactor-pilot OTA (assistance) → flip. **Grade is
+    the NATURE of the commitment, never its size:** a large *assistance* award (e.g. a $148M cooperative
+    agreement) stays ``flip`` — its size flows through CONFIDENCE within the flip grade, not a grade bump
+    (a recalibration item; see docs/RECALIBRATION.md). NB the loans award-type group isn't *queried* yet
+    (the feed iterates contracts/grants/direct-payments/other) — the rule is here so the first loan that
+    surfaces grades core, not flip; wiring the loans query is on the recalibration list.
     """
+    if category == "loan":  # direct loan / loan guarantee = committed financing → build
+        return Grade.CORE
     if category == "contract" and obligation >= cfg.doe_core_min_obligation_usd:
         return Grade.CORE
     return Grade.FLIP
