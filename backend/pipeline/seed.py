@@ -24,10 +24,14 @@ from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Archetype, CatalystType, Grade
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
 from ingest.catalyst import ingest_catalyst
+from ingest.doe import entities as doe_entities
+from ingest.doe.client import UsaSpendingClient
+from ingest.doe.feed import run_doe_feed
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from repositories import thesis_repo
+from securities import master
 
 # Fixed ids -> re-running the seed is idempotent and the curl URL is stable.
 HIMS_SECURITY_ID = UUID("11150000-0000-0000-0000-000000000001")
@@ -291,6 +295,21 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
     )
 
 
+def seed_doe_catalysts(conn: psycopg.Connection) -> list:
+    """Run the DOE/USASpending AUTOMATED feed OFFLINE (committed fixtures) to emit the nuclear catalysts.
+
+    This is the automated replacement for the hand-ratify bridge (seed_nuclear_catalyst / seed_leu_catalyst)
+    for DOE awards: the feed discovers DOE awards for the curated entities, resolves them EXACTLY by
+    recipient_id (no fuzzy matching), and derives grade + horizon from the structured terms. At the demo
+    asof only the LIVE awards arm — LEU's $317M HALEU contract (core, -> 2026-06-30) headlines a core_entry;
+    OKLO's reactor-pilot OTA (flip, -> 2029) sits beneath as a starter. Expired DOE awards are emitted too
+    (real, provenanced) but liveness keeps them off the card. Caller commits.
+    """
+    client = UsaSpendingClient(cache_dir=_SEED_DATA / "doe", allow_live=False)
+    ids = master.ids_for_tickers(conn, doe_entities.curated_tickers())
+    return run_doe_feed(conn, client, ids.get)
+
+
 # --- UNH (M4a-iii): the May-2025 CEO-led open-market insider cluster — a CORE core_entry ---
 UNH_SECURITY_ID = UUID("c0ffee00-0000-0000-0000-000000000001")
 UNH_THESIS_ID = UUID("c0ffee00-0000-0000-0000-000000000002")
@@ -382,8 +401,9 @@ def main() -> None:
     try:
         hims_id = seed_hims(conn)
         nuclear_id = seed_nuclear(conn)
-        seed_nuclear_catalyst(conn)  # OKLO's provisional DOE OTA  -> would arm a STARTER
-        seed_leu_catalyst(conn)  # LEU's binding DOE contract  -> arms a CORE_ENTRY (the headline)
+        seed_doe_catalysts(
+            conn
+        )  # the DOE/USASpending automated feed -> OKLO starter + LEU core_entry
         unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

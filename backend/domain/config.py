@@ -71,6 +71,14 @@ class CallConfig(DomainModel):
     # breakout, and the decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
     catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
 
+    # --- DOE/USASpending automated feed grade rule (#10 feed) — [PROPOSED], confirm at review ---
+    # A binding DOE CONTRACT obligating at least this much = a `core` catalyst (contracted revenue is real
+    # → build); a smaller contract, or any assistance / OTA / grant (not a contract), = `flip`
+    # (provisional → small). Reproduces the operator's precedent (LEU's $317M HALEU contract = core; OKLO's
+    # $0 pilot OTA = flip). Calibration dial — see signals/doe feed._derive_grade for the flagged
+    # large-assistance edge case.
+    doe_core_min_obligation_usd: float = 10_000_000.0
+
     # --- verdict hold-dimension (§4) — keyed on HORIZON, not kind ---
     # A conviction whose alpha-liveness horizon is >= this is "hold-and-build" (a small entry is a
     # STARTER); below it, the conviction is sentiment-grade -> "do not hold" (a small entry is FLIP-only).
