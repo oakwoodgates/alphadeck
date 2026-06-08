@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Deck — Workbench Mockup</title>
+<!--
+  WORKBENCH (front half) mockup — output of the operator-led design pass.
+  Spec of record: docs/ROADMAP.md > "Workbench (Phase-2) spec".
+  One job: narrative (operator's edge, untouched) -> scored, structured basket of names
+  (the flaw) -> promote to the Board as a thesis. Hero = the value-chain decomposition.
+  DD splits STORED COMPANY FACTS (overview/founded/HQ/website — per-security reference data)
+  from the AUTO-DRAFTED thesis-fit prose. Scores are DATA-DERIVED (no model-sourced numbers).
+  Values here are ILLUSTRATIVE placeholders. Build requirement (the seam): the chain STRUCTURE
+  persists on the thesis (segment label on basket_member + the segment list); SCORES re-derive
+  on read (Option B). Basket sits at the bottom of the main column; the rail is all DD.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090b;--bg-2:#0c0e12;--panel:#101318;--panel-2:#141821;
+    --line:#1e232c;--line-2:#2a313c;--txt:#e7eaef;--txt-2:#9aa3b0;--txt-3:#5a6470;--txt-4:#3c4450;
+    --incub:#586374;--warm:#e0a23c;--armed:#ff5733;--manage:#34c2a0;--pos:#46d07f;--neg:#ff5a6a;
+    --leader:#8ab4ff;
+    --mono:"JetBrains Mono",ui-monospace,monospace;--sans:"Archivo",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,87,51,.05), transparent 60%),
+      radial-gradient(900px 500px at -5% 110%, rgba(52,194,160,.04), transparent 60%),
+      var(--bg);
+    color:var(--txt);font-family:var(--sans);font-size:13px;-webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.012) 1px,transparent 1px);
+    background-size:42px 42px;mask-image:radial-gradient(circle at 50% 40%,#000,transparent 90%);}
+  .app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column}
+
+  .topbar{height:46px;flex:0 0 auto;display:flex;align-items:center;gap:22px;padding:0 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--bg-2),var(--bg))}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:.16em;font-size:12px}
+  .brand .dot{width:9px;height:9px;border-radius:2px;background:var(--armed);box-shadow:0 0 10px var(--armed);transform:rotate(45deg)}
+  .brand small{color:var(--txt-3);font-weight:600;letter-spacing:.18em}
+  .nav{display:flex;gap:4px;margin-left:6px}
+  .nav a{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3);padding:6px 11px;border-radius:6px;cursor:pointer}
+  .nav a.on{color:var(--txt);background:var(--panel-2)}
+  .topbar .spacer{flex:1}
+  .clock{font-family:var(--mono);font-size:11px;color:var(--txt-3);letter-spacing:.04em}
+  .demo-pill{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--warm);border:1px solid rgba(224,162,60,.35);border-radius:20px;padding:3px 9px;background:rgba(224,162,60,.06)}
+
+  .wb-top{height:54px;flex:0 0 auto;display:flex;align-items:center;gap:13px;padding:0 26px;border-bottom:1px solid var(--line);background:var(--bg-2)}
+  .wb-top h1{font-size:15px;font-weight:700;letter-spacing:.04em}
+  .wb-badge{font-size:9.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:3px 9px;border-radius:6px;color:var(--leader);background:rgba(138,180,255,.1);border:1px solid rgba(138,180,255,.28)}
+  .wb-flow{margin-left:auto;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-4);font-family:var(--mono)}
+  .wb-flow b{color:var(--txt-3);font-weight:700}
+
+  .wb-body{flex:1;display:grid;grid-template-columns:1fr 396px;overflow:hidden}
+  .wb-main{overflow-y:auto;padding:22px 26px 60px}
+  .wb-rail{border-left:1px solid var(--line);background:var(--bg-2);overflow-y:auto;padding:20px 20px 60px}
+
+  .sect{margin-bottom:24px}
+  .sect-h{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--txt-3);margin-bottom:12px;display:flex;align-items:center;gap:9px}
+  .sect-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .sect-h em{font-style:normal;color:var(--txt-4);letter-spacing:.04em;text-transform:none;font-size:10.5px}
+
+  .narrative{font-size:14px;line-height:1.6;color:var(--txt);border-left:2px solid var(--line-2);padding:2px 0 2px 15px;font-style:italic}
+  .narrative .by{display:block;font-style:normal;font-size:10.5px;letter-spacing:.08em;color:var(--txt-4);margin-top:9px;text-transform:uppercase}
+
+  .chain{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+  .seg{flex:0 0 auto;min-width:128px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:10px 12px;cursor:pointer;transition:.14s}
+  .seg:hover{border-color:var(--line-2);background:var(--panel-2)}
+  .seg.on{border-color:var(--armed);background:linear-gradient(180deg,rgba(255,87,51,.07),var(--panel));box-shadow:0 0 20px -10px rgba(255,87,51,.5)}
+  .seg .sn{font-weight:600;font-size:12.5px;color:var(--txt);margin-bottom:5px}
+  .seg .smeta{font-family:var(--mono);font-size:10px;color:var(--txt-3);display:flex;align-items:center;gap:7px}
+  .seg .smeta .ct{color:var(--txt-2)}
+  .chain-arrow{flex:0 0 auto;display:flex;align-items:center;color:var(--txt-4);font-size:13px}
+
+  .nmrow{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:11px 13px;margin-bottom:9px;cursor:pointer;transition:.14s}
+  .nmrow:hover{border-color:var(--line-2);background:var(--panel-2)}
+  .nmrow.sel{border-color:var(--leader);box-shadow:0 0 18px -10px rgba(138,180,255,.5)}
+  .nmrow .top{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .nmrow .tk{font-family:var(--mono);font-weight:700;font-size:12.5px}
+  .nmrow .co{font-size:12px;color:var(--txt-2)}
+  .nmrow .cap{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--txt-2)}
+  .nmrow .cap small{color:var(--txt-4);font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-right:5px}
+  .bt{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:5px;white-space:nowrap}
+  .bt.basket{color:var(--leader);background:rgba(138,180,255,.1);border:1px solid rgba(138,180,255,.28)}
+  .bt.watch{color:var(--txt-3);border:1px solid var(--line-2)}
+  .bt.skip{color:var(--txt-4);border:1px solid var(--line)}
+  .bt.add{color:var(--txt-2);border:1px solid var(--line-2)}
+
+  .arch{font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 7px;border-radius:5px;text-transform:uppercase;white-space:nowrap}
+  .arch.leader{color:var(--leader);background:rgba(138,180,255,.1);border:1px solid rgba(138,180,255,.25)}
+  .arch.beta{color:var(--armed);background:rgba(255,87,51,.1);border:1px solid rgba(255,87,51,.28)}
+  .arch.lotto{color:var(--warm);background:rgba(224,162,60,.1);border:1px solid rgba(224,162,60,.28)}
+  .arch.shovel{color:var(--manage);background:rgba(52,194,160,.1);border:1px solid rgba(52,194,160,.28)}
+  .arch.adjacent{color:var(--txt-3);background:rgba(90,100,116,.1);border:1px solid var(--line-2)}
+  .arch.fund{color:var(--leader);background:rgba(138,180,255,.07);border:1px dashed rgba(138,180,255,.3)}
+
+  .meters{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .meter{display:flex;align-items:center;gap:7px}
+  .meter .ml{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-4)}
+  .pips{display:flex;gap:3px}
+  .pip{width:11px;height:4px;border-radius:2px;background:var(--line-2)}
+  .pip.on{background:var(--txt-2)}
+  .fit{margin-left:auto;font-size:10px;letter-spacing:.04em;color:var(--txt-3)}
+
+  .note{font-size:10.5px;color:var(--txt-4);line-height:1.5;margin-top:6px}
+
+  /* basket — quiet, bottom of main */
+  .basket-bot{display:flex;align-items:center;gap:13px;flex-wrap:wrap;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);padding:12px 14px}
+  .bmems{display:flex;gap:9px;flex-wrap:wrap}
+  .bchip{display:flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:7px;padding:5px 9px;background:var(--panel-2)}
+  .bchip b{font-family:var(--mono);font-weight:700;font-size:11.5px}
+  .bchip small{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-4)}
+  .promote{margin-left:auto;padding:9px 16px;border-radius:8px;border:1px solid rgba(255,87,51,.45);background:rgba(255,87,51,.08);color:var(--armed);font-family:var(--sans);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:.15s;white-space:nowrap}
+  .promote:hover{background:rgba(255,87,51,.16)}
+  .toast{margin-top:9px;font-size:10.5px;color:var(--manage);letter-spacing:.04em;opacity:0;transition:.3s}
+  .toast.show{opacity:1}
+  .seam{margin-top:10px;font-size:10px;line-height:1.55;color:var(--txt-4)}
+  .seam b{color:var(--txt-3);font-weight:700}
+
+  /* rail = DD only */
+  .ddcard{border:1px solid var(--line-2);border-radius:11px;background:var(--panel);overflow:hidden}
+  .dd-head{padding:12px 14px;background:rgba(138,180,255,.08);display:flex;align-items:baseline;gap:8px}
+  .dd-head .tk{font-family:var(--mono);font-weight:700;font-size:14px;color:var(--leader)}
+  .dd-head .co{font-size:13px;color:var(--txt);font-weight:600}
+  .dd-body{padding:15px}
+  .dd-sub{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-3);margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+  .dd-sub::after{content:"";flex:1;height:1px;background:var(--line)}
+  .dd-sub em{font-style:normal;color:var(--txt-4);letter-spacing:.04em;text-transform:none;font-size:10px}
+  .dd-body > .dd-sub:first-child{margin-top:0}
+  .dd-body p{font-size:12.5px;line-height:1.6;color:var(--txt-2)}
+  .cofacts{display:flex;flex-direction:column;gap:6px;margin-top:11px}
+  .cofacts span{font-size:11.5px;color:var(--txt-2);display:flex;gap:9px}
+  .cofacts span b{color:var(--txt-4);font-weight:700;font-size:9px;letter-spacing:.07em;text-transform:uppercase;min-width:64px;padding-top:2px}
+  .cofacts a{color:var(--leader);text-decoration:none}
+  .cofacts a:hover{text-decoration:underline}
+  .prov{display:flex;flex-wrap:wrap;gap:6px}
+  .prov .chip{font-family:var(--mono);font-size:9.5px;color:var(--txt-3);background:var(--panel-2);border:1px solid var(--line-2);border-radius:5px;padding:3px 7px}
+  .prov .chip::before{content:"\25C7 ";color:var(--txt-4)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>ALPHA DECK <small>RESEARCH COCKPIT</small></div>
+    <div class="nav"><a>Board</a><a class="on">Workbench</a><a>Scoreboard</a></div>
+    <div class="spacer"></div>
+    <div class="clock">ASOF 2026-06-08</div>
+    <div class="demo-pill">DEMO DATA</div>
+  </div>
+
+  <div class="wb-top">
+    <h1>Small-scale nuclear</h1>
+    <span class="wb-badge">Workbench</span>
+    <div class="wb-flow"><b>NARRATIVE</b> &rsaquo; <b>DECOMPOSE</b> &rsaquo; <b>SCORE</b> &rsaquo; <b>PROMOTE</b></div>
+  </div>
+
+  <div class="wb-body">
+    <div class="wb-main">
+
+      <div class="sect">
+        <div class="sect-h">The narrative <em>&mdash; your words, preserved</em></div>
+        <div class="narrative">
+          Small-scale nuclear re-rates &mdash; younger generations are pro-nuclear, AI and datacenter power demand is surging, and reactor tech has matured past the giant-plant era. A multi-name bet on the advanced-nuclear build-out.
+          <span class="by">Operator &middot; the edge is yours, the chain and the names are the Workbench's job</span>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-h">The value chain <em>&mdash; where the money flows, decomposed from your narrative</em></div>
+        <div class="chain" id="chain"></div>
+        <div class="note">Click a link to see its names. The whole chain is visible so you pick from a map &mdash; not the two names that came to mind first.</div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-h"><span id="segTitle">Reactor developers</span> <em id="segSub">&mdash; 4 candidates, scored</em></div>
+        <div id="names"></div>
+        <div class="note">Scores are data-derived &mdash; purity from revenue mix &amp; ETF weights, runway from cash &amp; burn, catalyst density from the feeds, market cap from price &times; shares; company facts from reference data. Illustrative values in this mockup.</div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-h">Basket <em>&mdash; 3 names across 2 links, the cross-chain bet</em></div>
+        <div class="basket-bot">
+          <div class="bmems">
+            <span class="bchip"><b>OKLO</b><span class="arch beta">high-beta</span><small>reactors</small></span>
+            <span class="bchip"><b>SMR</b><span class="arch leader">leader</span><small>reactors</small></span>
+            <span class="bchip"><b>LEU</b><span class="arch shovel">shovel</span><small>fuel</small></span>
+          </div>
+          <button class="promote" onclick="document.getElementById('toast').classList.add('show')">Promote to thesis &rarr; Board (Incubating)</button>
+        </div>
+        <div class="toast" id="toast">&check; Sent to the Board as Incubating &mdash; the back half takes over timing.</div>
+        <div class="seam"><b>On promote</b>, the chain structure persists with the thesis &mdash; the segment each name sits in (a label on basket_member) and your edits. The scores aren't stored; they re-derive on read, so a chain reopened months later shows current numbers.</div>
+      </div>
+
+    </div>
+
+    <div class="wb-rail">
+      <div class="ddcard" id="dd"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var SEG={
+    reactor:{t:"Reactor developers",sub:"4 candidates, scored",desc:"catalyst-rich",ct:4,n:[
+      {tk:"OKLO",co:"Oklo",a:"beta",al:"high-beta",cap:"$8.0B",p:4,r:2,c:4,fit:"strong fit",st:"basket",
+       dd:"Pure-play advanced-microreactor developer. Pre-revenue, so conviction is regulatory / DOE-catalyst-driven, not insider \u2014 no open-market buying, typical for pre-rev names. Watch the dilution runway: the room-to-grow is large but so is the raise risk.",
+       prov:["rev mix: 100% nuclear","cash/burn: light","DOE Aurora OTA","fuel-line selection"]},
+      {tk:"SMR",co:"NuScale Power",a:"leader",al:"leader",cap:"$3.0B",p:3,r:3,c:3,fit:"strong fit",st:"basket",
+       dd:"The most de-risked design \u2014 the only US NRC-approved SMR. Lower beta than the pure microreactor names; the anchor of the basket. Utility-deal flow is the catalyst stream to watch.",
+       prov:["rev mix: 78% nuclear","NRC design approval","utility MOUs"]},
+      {tk:"NNE",co:"Nano Nuclear Energy",a:"lotto",al:"lotto",cap:"$0.6B",p:4,r:1,c:1,fit:"speculative",st:"watch",
+       dd:"Earliest-stage microreactor \u2014 pure exposure but a thin runway and sparse catalysts. A lotto sleeve, not a core hold; the small cap means the most headroom and the most risk. Surfaced so it's on your radar, sized accordingly.",
+       prov:["rev mix: pre-product","cash/burn: short runway"]},
+      {tk:"BWXT",co:"BWX Technologies",a:"adjacent",al:"adjacent",cap:"$11B",p:2,r:4,c:2,fit:"low purity",st:"skip",
+       dd:"Profitable and durable, but nuclear is one segment among defense and components \u2014 diluted exposure to your actual narrative. Surfaced and flagged so you can decide it's too off-thesis rather than never seeing it.",
+       prov:["rev mix: ~30% nuclear","profitable, FCF+"]}
+    ]},
+    fuel:{t:"Fuel & enrichment",sub:"2 candidates, scored",desc:"revenue-backed",ct:2,n:[
+      {tk:"LEU",co:"Centrus Energy",a:"shovel",al:"shovel",cap:"$2.5B",p:4,r:4,c:3,fit:"strong fit",st:"basket",
+       dd:"The picks-and-shovels play \u2014 the sole US HALEU producer under a real DOE production contract (revenue, not a grant). Durable, lower-torque exposure to the whole build-out; the way to be right without single-developer risk.",
+       prov:["rev mix: enrichment","$317M DOE contract","revenue-backed"]},
+      {tk:"LTBR",co:"Lightbridge",a:"lotto",al:"lotto",cap:"$0.3B",p:4,r:2,c:1,fit:"speculative",st:"watch",
+       dd:"Next-gen fuel technology \u2014 pure but early. Lotto-tier: pure exposure, thin runway, few near-term catalysts.",
+       prov:["rev mix: pre-product","cash/burn: medium"]}
+    ]},
+    uranium:{t:"Uranium supply",sub:"3 candidates, scored",desc:"commodity-levered",ct:3,n:[
+      {tk:"CCJ",co:"Cameco",a:"leader",al:"leader",cap:"$30B",p:3,r:4,c:2,fit:"strong fit",st:"add",
+       dd:"The uranium-supply anchor \u2014 large, profitable, the leader of the miners. Levered to the commodity more than the SMR build specifically, but a durable way up the chain.",
+       prov:["rev mix: U + fuel svcs","profitable"]},
+      {tk:"UEC",co:"Uranium Energy",a:"beta",al:"high-beta",cap:"$3.0B",p:4,r:3,c:2,fit:"good fit",st:"add",
+       dd:"Higher-beta domestic uranium pure-play \u2014 more torque than CCJ, less durability. A growth sleeve within the supply link.",
+       prov:["rev mix: ~100% U","US-focused"]},
+      {tk:"DNN",co:"Denison Mines",a:"lotto",al:"lotto",cap:"$2.0B",p:4,r:2,c:1,fit:"speculative",st:"add",
+       dd:"Development-stage miner \u2014 pure but speculative. Lotto-tier within the supply link.",
+       prov:["rev mix: pre-production"]}
+    ]},
+    utilities:{t:"Utilities & operators",sub:"3 candidates, scored",desc:"durable",ct:3,n:[
+      {tk:"CEG",co:"Constellation Energy",a:"adjacent",al:"adjacent",cap:"$90B",p:2,r:4,c:2,fit:"diversified",st:"add",
+       dd:"Largest US nuclear fleet \u2014 but a diversified utility, so the nuclear narrative is diluted by the rest of the book. Durable and low-torque; the slow way to be right.",
+       prov:["rev mix: mixed gen","largest nuclear fleet"]},
+      {tk:"VST",co:"Vistra",a:"adjacent",al:"adjacent",cap:"$50B",p:2,r:4,c:2,fit:"diversified",st:"add",
+       dd:"Similar profile to CEG \u2014 nuclear is part of a broader generation mix. Durable but impure exposure.",
+       prov:["rev mix: mixed gen"]},
+      {tk:"TLN",co:"Talen Energy",a:"beta",al:"high-beta",cap:"$10B",p:3,r:3,c:2,fit:"good fit",st:"add",
+       dd:"More nuclear-concentrated operator with datacenter-power optionality \u2014 purer and higher-torque than CEG/VST.",
+       prov:["rev mix: nuclear-heavy","datacenter PPAs"]}
+    ]},
+    picks:{t:"Picks & shovels",sub:"2 candidates, scored",desc:"indirect",ct:2,n:[
+      {tk:"BWXT",co:"BWX Technologies",a:"adjacent",al:"adjacent",cap:"$11B",p:2,r:4,c:2,fit:"components",st:"add",
+       dd:"Reactor components and fuel \u2014 a durable supplier across the build-out, but defense-heavy so the exposure is partial.",
+       prov:["rev mix: ~30% nuclear","profitable"]},
+      {tk:"FLR",co:"Fluor",a:"adjacent",al:"adjacent",cap:"$8B",p:1,r:4,c:1,fit:"off-thesis",st:"skip",
+       dd:"Engineering & construction with a historical NuScale stake, but tiny relative to the whole company \u2014 essentially off-thesis. Surfaced and flagged as such.",
+       prov:["rev mix: <5% nuclear"]}
+    ]},
+    etf:{t:"ETF sleeve",sub:"2 candidates, scored",desc:"safe exposure",ct:2,n:[
+      {tk:"NLR",co:"VanEck Uranium & Nuclear",a:"fund",al:"ETF sleeve",cap:"AUM $2B",p:3,r:4,c:1,fit:"safe sleeve",st:"add",
+       dd:"The safe-exposure sleeve \u2014 give up the leader/lotto torque for duration and diversification across the whole chain. Always surfaced with fund internals (holdings, expense ratio, AUM) so a thin or mislabeled fund is visible.",
+       prov:["holdings: 25 names","ER ~0.61%"]},
+      {tk:"URNM",co:"Sprott Uranium Miners",a:"fund",al:"ETF sleeve",cap:"AUM $1.5B",p:3,r:4,c:1,fit:"safe sleeve",st:"add",
+       dd:"Miner-weighted sleeve \u2014 more commodity-levered than NLR. The durable way to hold the supply link without single-name risk.",
+       prov:["holdings: miners","ER ~0.75%"]}
+    ]}
+  };
+  // Per-security reference facts (stored, sourced) — distinct from the auto-drafted thesis-fit prose above.
+  var CO={
+    OKLO:{ov:"Designs and builds small fast-fission 'Aurora' powerhouses and is developing used-fuel recycling. Sells power under long-term contracts rather than selling reactors.",est:"2013 \u00b7 public 2024",hq:"Santa Clara, CA",web:"oklo.com"},
+    SMR:{ov:"Developer of a factory-built small modular reactor whose design was the first SMR cleared by the US regulator. Targets utilities and industrial power buyers.",est:"2007 \u00b7 public 2022",hq:"Portland, OR",web:"nuscalepower.com"},
+    NNE:{ov:"Early-stage developer of portable 'microreactor' concepts plus a nuclear fuel transport and storage business. Pre-product.",est:"2022 \u00b7 IPO 2024",hq:"New York, NY",web:"nanonuclearenergy.com"},
+    BWXT:{ov:"Long-established maker of nuclear components and fuel \u2014 naval reactors for the US Navy, medical isotopes, and defense work. Diversified and profitable.",est:"2015 \u00b7 B&W lineage",hq:"Lynchburg, VA",web:"bwxt.com"},
+    LEU:{ov:"The only US-owned uranium enrichment company and the sole domestic producer of HALEU fuel under DOE contract. Formerly USEC.",est:"public 1998",hq:"Bethesda, MD",web:"centrusenergy.com"},
+    LTBR:{ov:"Develops next-generation metallic nuclear fuel intended to raise reactor power and safety. Pre-revenue technology company.",est:"1992",hq:"Reston, VA",web:"ltbridge.com"},
+    CCJ:{ov:"One of the world's largest publicly traded uranium producers, with mining and fuel-services operations. Profitable and commodity-levered.",est:"1988",hq:"Saskatoon, CA",web:"cameco.com"},
+    UEC:{ov:"US-focused uranium mining and exploration company building domestic production capacity. A higher-torque pure-play.",est:"2003",hq:"Corpus Christi, TX",web:"uraniumenergy.com"},
+    DNN:{ov:"Uranium exploration and development company centred on Canada's Athabasca Basin. Development-stage.",est:"public 1997",hq:"Toronto, CA",web:"denisonmines.com"},
+    CEG:{ov:"The largest operator of nuclear power plants in the US and a major clean-energy generator and retailer. Spun out of Exelon.",est:"2022 spin-off",hq:"Baltimore, MD",web:"constellationenergy.com"},
+    VST:{ov:"Large independent power producer across natural gas, nuclear, and renewables, with a retail electricity arm.",est:"2016",hq:"Irving, TX",web:"vistracorp.com"},
+    TLN:{ov:"Independent power producer with a sizeable nuclear plant and datacenter-power optionality.",est:"2015",hq:"Houston, TX",web:"talenenergy.com"},
+    FLR:{ov:"Global engineering, procurement and construction firm spanning energy, infrastructure and government \u2014 nuclear is a small slice.",est:"1912",hq:"Irving, TX",web:"fluor.com"},
+    NLR:{ov:"ETF holding uranium miners and nuclear-related companies \u2014 a diversified, single-ticker way to own the chain.",est:"ETF \u00b7 ~25 holdings",hq:"VanEck",web:"vaneck.com"},
+    URNM:{ov:"ETF concentrated in uranium miners and physical uranium \u2014 more commodity-levered than a broad nuclear fund.",est:"ETF \u00b7 miner-weighted",hq:"Sprott",web:"sprott.com"}
+  };
+  var ORDER=["reactor","fuel","uranium","utilities","picks","etf"];
+
+  function pips(v){var s='<span class="pips">';for(var i=0;i<4;i++){s+='<span class="pip'+(i<v?' on':'')+'"></span>';}return s+'</span>';}
+  function meter(l,v){return '<div class="meter"><span class="ml">'+l+'</span>'+pips(v)+'</div>';}
+  function bt(st){var m={basket:["basket","\u2713 in basket"],watch:["watch","\u25f7 watch"],skip:["skip","\u2715 skip"],add:["add","+ add"]};var x=m[st]||m.add;return '<span class="bt '+x[0]+'">'+x[1]+'</span>';}
+
+  function renderChain(active){
+    var c=document.getElementById("chain");c.innerHTML="";
+    ORDER.forEach(function(k,i){
+      var s=SEG[k];
+      var el=document.createElement("div");el.className="seg"+(k===active?" on":"");el.dataset.k=k;
+      el.innerHTML='<div class="sn">'+s.t+'</div><div class="smeta"><span class="ct">'+s.ct+' names</span>\u00b7 '+s.desc+'</div>';
+      el.onclick=function(){renderChain(k);renderNames(k);};
+      c.appendChild(el);
+      if(i<ORDER.length-1){var a=document.createElement("div");a.className="chain-arrow";a.textContent="\u203a";c.appendChild(a);}
+    });
+  }
+  function renderNames(k){
+    var s=SEG[k];document.getElementById("segTitle").textContent=s.t;document.getElementById("segSub").textContent="\u2014 "+s.sub;
+    var box=document.getElementById("names");box.innerHTML="";
+    s.n.forEach(function(nm,idx){
+      var el=document.createElement("div");el.className="nmrow";el.dataset.k=k;el.dataset.i=idx;
+      el.innerHTML=
+        '<div class="top"><span class="tk">'+nm.tk+'</span><span class="co">'+nm.co+'</span>'+
+        '<span class="arch '+nm.a+'">'+nm.al+'</span>'+
+        '<span class="cap"><small>mkt cap</small>'+nm.cap+'</span></div>'+
+        '<div class="meters">'+meter("purity",nm.p)+meter("runway",nm.r)+meter("catalysts",nm.c)+
+        '<span class="fit">'+nm.fit+'</span>'+bt(nm.st)+'</div>';
+      el.onclick=function(){selectName(k,idx);};
+      box.appendChild(el);
+    });
+    selectName(k,0);
+  }
+  function selectName(k,i){
+    document.querySelectorAll(".nmrow").forEach(function(e){e.classList.remove("sel");});
+    var el=document.querySelector('.nmrow[data-k="'+k+'"][data-i="'+i+'"]');if(el)el.classList.add("sel");
+    var nm=SEG[k].n[i];var co=CO[nm.tk]||{ov:"",est:"\u2014",hq:"\u2014",web:""};
+    var prov=nm.prov.map(function(p){return '<span class="chip">'+p+'</span>';}).join("");
+    document.getElementById("dd").innerHTML=
+      '<div class="dd-head"><span class="tk">'+nm.tk+'</span><span class="co">'+nm.co+'</span></div>'+
+      '<div class="dd-body">'+
+        '<div class="dd-sub">Overview <em>\u00b7 stored facts</em></div>'+
+        '<p>'+co.ov+'</p>'+
+        '<div class="cofacts">'+
+          '<span><b>Founded</b>'+co.est+'</span>'+
+          '<span><b>HQ</b>'+co.hq+'</span>'+
+          '<span><b>Web</b><a>'+co.web+'</a></span>'+
+        '</div>'+
+        '<div class="dd-sub">Thesis fit <em>\u00b7 auto-drafted</em></div>'+
+        '<p>'+nm.dd+'</p>'+
+        '<div class="dd-sub">Behind the scores</div>'+
+        '<div class="prov">'+prov+'</div>'+
+      '</div>';
+  }
+
+  renderChain("reactor");
+  renderNames("reactor");
+})();
+</script>
+</body>
+</html>
