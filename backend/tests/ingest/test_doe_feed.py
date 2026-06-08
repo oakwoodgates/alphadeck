@@ -10,7 +10,7 @@ from domain.enums import Grade, State, Verdict
 from ingest import CacheMiss
 from ingest.doe import entities
 from ingest.doe.client import UsaSpendingClient
-from ingest.doe.feed import discover, parse_award
+from ingest.doe.feed import _derive_grade, discover, parse_award
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import LEU_ID, NUCLEAR_THESIS_ID, seed_doe_catalysts, seed_nuclear
 
@@ -37,6 +37,18 @@ def test_resolver_is_exact_not_fuzzy():
     assert entities.resolve(_OKLO_TECHNOLOGIES_ID) is None  # polluted entity -> dropped
     assert entities.resolve("not-a-real-id") is None
     assert entities.resolve(None) is None
+
+
+def test_grade_rule_is_customer_vs_sponsor():
+    """The grade principle (the operator's edge): DOE-as-customer (a contract DOE buys, or committed
+    financing) = core; DOE-as-sponsor (assistance/OTA/grant) = flip — by NATURE, never by size."""
+    cfg = DEFAULT_CONFIG
+    big = cfg.doe_core_min_obligation_usd + 1
+    assert _derive_grade("contract", big, cfg) is Grade.CORE  # DOE buys product = revenue
+    assert _derive_grade("loan", 0.0, cfg) is Grade.CORE  # loan guarantee = committed financing
+    assert _derive_grade("contract", 1.0, cfg) is Grade.FLIP  # sub-threshold contract = provisional
+    assert _derive_grade("grant", 200_000_000.0, cfg) is Grade.FLIP  # big assistance is STILL flip
+    assert _derive_grade("other", 0.0, cfg) is Grade.FLIP  # an OTA = sponsor, not customer
 
 
 def test_client_raises_on_cache_miss_with_live_disabled(tmp_path):
