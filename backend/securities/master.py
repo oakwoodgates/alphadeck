@@ -108,6 +108,29 @@ def ciks_for(
         return {row["id"]: row["cik"] for row in cur.fetchall()}
 
 
+def ids_for_tickers(
+    conn: psycopg.Connection,
+    tickers: Iterable[str],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[str, UUID]:
+    """Map tickers -> their security id (the inverse of ``tickers_for``).
+
+    The DOE feed resolves an awardee's ticker (from the curated table) to the security it should fire a
+    catalyst on. Tickers with no master row are omitted — the feed skips awardees outside this universe.
+    """
+    wanted = {t.upper() for t in tickers}
+    if not wanted:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (ticker) ticker, id FROM security_master "
+            "WHERE tenant_id = %s AND ticker = ANY(%s) ORDER BY ticker, recorded_at DESC",
+            (tenant_id, list(wanted)),
+        )
+        return {row["ticker"]: row["id"] for row in cur.fetchall()}
+
+
 def tickers_for(
     conn: psycopg.Connection,
     security_ids: Iterable[UUID],

@@ -45,6 +45,16 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 
 > **Two clocks (sticky-on-confirmation).** The arm is sticky on the **confirmation's** clock — the *entry window* (`arm_until`, §6); the **conviction's** clock is the *hold* horizon (`exit_by`, §6) that governs once a fill is logged. A genuine *breakdown* (close back below the breakout base) de-arms only via a `breakdown` **risk-signal** detector (M4a) — price-signal logic stays in detectors, never in the pure assembler.
 
+> **Theme headline = strongest armed member `[SPECIFIED; refinement filed]`.** When several basket members
+> are independently armed (a theme thesis), the call headlines **one** — the co-located member with the
+> strongest **entry grade** (tiebreak: conviction score, then id). A binding `core_entry` thus out-ranks a
+> provisional `starter`: the platform's job on a theme is to pick the best **name** (the operator's flaw is
+> name-selection), not to feature the most interesting card. The other armed members are computed beneath;
+> surfacing them **all** as a ranked menu is the **M5 group/per-member view** (next big piece after the DOE
+> feed). **Filed refinement (not now):** strongest-by-grade isn't always best-to-*act-on* — a `core` arm
+> three weeks from lapsing (LEU → 2026-06-30) vs a `starter` with years of runway (OKLO → 2029). The
+> headline rule should eventually weigh **runway + freshness**, not grade alone.
+
 > **Risk-veto rule `[SPECIFIED]` (confirmed).** A risk signal *penalizes confidence* and, when severe
 > (e.g. critically short runway / imminent dilution), *blocks the Armed call* even if an entry trigger
 > fired — a soft veto on **timing**. It never vetoes the **thesis** itself (that stays the operator's call).
