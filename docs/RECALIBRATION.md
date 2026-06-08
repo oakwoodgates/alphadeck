@@ -56,12 +56,15 @@
    confidence as a one-day-old one. Keep the arm gate binary; let only **confidence** fade with conviction
    age. *(CALL_LOGIC §7 roadmap.)*
 
-## C. Deferred builds (roadmap)
+## C. Deferred builds (the sequenced plan is `docs/ROADMAP.md`)
 
-1. **M5 — group / per-member ranked view (NEXT).** A theme currently collapses to a single headline; the
-   menu — every armed name in the theme, **ranked**, with its setup — is what serves name-selection (the
-   operator's flaw). Demanded by real data (LEU core next to OKLO starter). Also: theme/group arming (a
-   theme-conviction arms any confirmed member) lives here.
+> These are the deferred *builds* tracked alongside the dials; their **sequencing across phases lives in
+> `docs/ROADMAP.md`** (the live plan). This list is the consolidated backlog, not the order.
+
+1. **M5 — group / per-member ranked view (NEXT; ROADMAP M5).** A theme currently collapses to a single
+   headline; the menu — every armed name in the theme, **ranked** (on grade AND runway, B.2), with its setup —
+   is what serves name-selection (the operator's flaw). Demanded by real data (LEU core next to OKLO starter).
+   Also: theme/group arming (a theme-conviction arms any confirmed member) — ROADMAP M5 Part B.
 2. **DOE feed — loans award-type group.** The grade rule already maps loans/loan-guarantees → core, but the
    feed doesn't *query* the loans type group yet (note: loans need a sort field other than "Award Amount" —
    that combo 400s). Wire it so the first DOE loan guarantee is discovered, not just gradeable.
@@ -69,4 +72,6 @@
    license-action feed; ETF-launch-as-conviction (with the ETF radar).
 4. **LLM counter-case** (M4b): the live Anthropic path behind the assembler's existing hook, deterministic
    template as the guaranteed fallback.
-5. **ETF radar, replay harness, umbrella/segment hierarchy** (M5+, per the build plan).
+5. **Replay / backtest harness → ROADMAP Phase 1 (trust)** — validates the edge over history and produces the
+   scored outcomes this recalibration pass runs against. **ETF radar + umbrella/segment hierarchy → ROADMAP
+   Phase 3 (breadth/depth).** *(These were one old-"M5+" bundle; they split across phases in the new plan.)*
