@@ -134,6 +134,18 @@ def assemble_call(
         if momentum_only
         else []
     )
+
+    # The Confirmation key's detail reflects the ACTUAL confirmation grade (not a hardcoded
+    # "volume-backed"), so it can't overstate a momentum-only breakout or contradict the caveat above.
+    confirmation_detail = (
+        "Awaiting market confirmation."
+        if not confirmation_on
+        else (
+            "The market is confirming (a volume-backed breakout)."
+            if confirmation_grade == Grade.CORE
+            else "Momentum-only — not yet volume-confirmed."
+        )
+    )
     if counter_case_fn is not None:
         counter_case = counter_case_fn(thesis, active_risk, missing, caveats)
     else:
@@ -145,6 +157,7 @@ def assemble_call(
         state=state,
         verdict=_verdict(state, conviction_grade, entry_grade, conviction_holdable),
         conviction_grade=conviction_grade,
+        confirmation_grade=confirmation_grade,
         entry_grade=entry_grade,
         armed_security_id=armed_sec if state == State.ARMED else None,
         expression=_expression(
@@ -173,11 +186,7 @@ def assemble_call(
         key_confirmation=KeyState(
             turned=confirmation_on,
             label="Confirmation",
-            detail=(
-                "The market is confirming (a volume-backed breakout)."
-                if confirmation_on
-                else "Awaiting market confirmation."
-            ),
+            detail=confirmation_detail,
         ),
         triggers_fired=[
             TriggerRef(

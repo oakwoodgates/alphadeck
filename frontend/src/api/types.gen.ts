@@ -118,6 +118,7 @@ export interface components {
             state: components["schemas"]["State"];
             verdict: components["schemas"]["Verdict"];
             conviction_grade?: components["schemas"]["Grade"] | null;
+            confirmation_grade?: components["schemas"]["Grade"] | null;
             entry_grade?: components["schemas"]["Grade"] | null;
             /** Armed Security Id */
             armed_security_id?: string | null;

@@ -39,6 +39,7 @@ class CallCard(DomainModel):
     state: State
     verdict: Verdict
     conviction_grade: Grade | None = None  # the thesis quality (the conviction key)
+    confirmation_grade: Grade | None = None  # core=volume-backed, flip=momentum-only
     entry_grade: Grade | None = None  # the action/size grade (the weaker key) — drives the verdict
     armed_security_id: UUID | None = None  # the co-located security that armed (None unless Armed)
     expression: str

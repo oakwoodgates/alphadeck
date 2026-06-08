@@ -118,6 +118,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .key .kh .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
 .key.on .kh { color: var(--txt-2); }
 .key.on .kh .dot { background: var(--pos); box-shadow: 0 0 8px var(--pos); }
+/* turned but momentum-only (flip confirmation): amber, not green — don't overstate a starter */
+.key.on.weak .kh .dot { background: var(--warm); box-shadow: 0 0 8px var(--warm); }
 .key .kd { font-size: 10.5px; color: var(--txt-3); line-height: 1.35; }
 
 .grade { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 5px; }
