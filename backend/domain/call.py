@@ -27,6 +27,27 @@ class TriggerRef(DomainModel):
     sources: list[Provenance] = Field(default_factory=list)
 
 
+class MemberCall(DomainModel):
+    """One basket member's own call — the unit of the per-member ranked menu (M5 Part A).
+
+    A theme thesis no longer collapses to a single headline: `armed_members` holds each co-located member's
+    own call, ranked (freshness band on liveness runway primary, grade within); `watch_members` holds the
+    confirmation-only members ("moving, no conviction yet — watch"). The thesis-level CallCard fields below
+    reflect the HEADLINE = `armed_members[0]`.
+    """
+
+    security_id: UUID  # the member; the API resolves it to a ticker (like TriggerRef)
+    verdict: Verdict | None = None  # armed: the member's verdict; watch: None (not actionable)
+    conviction_grade: Grade | None = None
+    confirmation_grade: Grade | None = None
+    entry_grade: Grade | None = None  # the weaker key — None for a watch member (no conviction)
+    confidence: float | None = None  # armed only
+    exit_by: date | None = None  # the LIVENESS horizon (hold clock) = the "runway" the ranking uses
+    arm_until: date | None = None  # the entry window (confirmation clock)
+    lapsing: bool = False  # armed + runway below the dial; ranks below fresh members
+    triggers: list[TriggerRef] = Field(default_factory=list)  # this member's own fired evidence
+
+
 class CallCard(DomainModel):
     """The opinionated, auditable call — a pure function of (thesis, events, asof), recomputed on read.
 
@@ -58,3 +79,8 @@ class CallCard(DomainModel):
     missing: list[str] = Field(default_factory=list)
     counter_case: str = ""
     safe_sleeve: str | None = None
+    # M5 Part A — the per-member ranked menu. `armed_members` is ranked (freshness band on runway primary,
+    # grade within); the headline above is `armed_members[0]`. `watch_members` = confirmation-only members
+    # ("moving, no conviction yet"). For a single-name thesis, `armed_members` is the one armed call (or empty).
+    armed_members: list[MemberCall] = Field(default_factory=list)
+    watch_members: list[MemberCall] = Field(default_factory=list)

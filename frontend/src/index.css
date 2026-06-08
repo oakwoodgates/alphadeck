@@ -122,6 +122,21 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .key.on.weak .kh .dot { background: var(--warm); box-shadow: 0 0 8px var(--warm); }
 .key .kd { font-size: 10.5px; color: var(--txt-3); line-height: 1.35; }
 
+/* M5 per-member ranked menu — calm by design (inverse loudness: loudness stays on the Decision Queue) */
+.member-menu { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.mm-h { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-bottom: 8px; }
+.mm-row { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px; font-size: 11px; }
+.mm-row.armed { background: var(--panel-2); margin-bottom: 5px; border: 1px solid var(--line); }
+.mm-row.armed.headline { border-color: var(--line-2); }
+.mm-row.armed.lapsing .mm-runway { color: var(--warm); }
+.mm-tk { font-weight: 600; color: var(--txt-2); min-width: 44px; }
+.mm-conv { color: var(--txt-4); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.mm-runway { margin-left: auto; color: var(--txt-3); font-size: 10px; }
+.mm-sub { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); margin: 10px 0 5px; }
+.mm-row.watch { opacity: 0.7; }
+.mm-row.watch .mm-note { margin-left: auto; color: var(--txt-4); font-size: 10px; }
+.dq-more { font-size: 9px; color: var(--txt-4); }
+
 .grade { font-size: 9px; font-weight: 800; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 5px; }
 .grade.flip { color: var(--warm); background: rgba(224, 162, 60, 0.12); border: 1px solid rgba(224, 162, 60, 0.4); }
 .grade.core { color: var(--armed); background: rgba(255, 87, 51, 0.12); border: 1px solid rgba(255, 87, 51, 0.45); }

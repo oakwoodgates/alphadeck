@@ -7,7 +7,7 @@ from uuid import UUID
 from calls.confidence import confidence
 from calls.counter_case import deterministic_counter_case
 from calls.grading import call_grade, grade_rank, weaker_grade
-from domain.call import CallCard, KeyState, TriggerRef
+from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.config import CallConfig
 from domain.enums import Grade, Role, State, Verdict
 from domain.signal import SignalEvent
@@ -46,13 +46,15 @@ def assemble_call(
     armed_secs = conv_secs & conf_secs
     conviction_on = bool(conv_secs)
     confirmation_on = bool(conf_secs)
-    both_keys = bool(armed_secs)
 
-    # The security that arms — and that we grade (not the whole basket): the co-located one with the
-    # strongest entry grade. When confirmation isn't required (config), conviction alone can arm.
-    armed_sec = _arming_security(armed_secs, live_entry, cfg)
-    if armed_sec is None and not cfg.arming_requires_confirmation:
-        armed_sec = _arming_security(conv_secs, live_entry, cfg)
+    # Per-member risk scoping (M5 Part A): a severe risk withholds only the NAME it's on, never the theme.
+    blocked_secs = {r.security_id for r in active_risk if r.score >= cfg.risk_block_severity}
+    # The ACTIONABLE armed members = co-located AND not risk-blocked (conviction alone can arm when the
+    # config doesn't require confirmation). Ranked for the menu + the headline; the headline is the top.
+    arming_pool = armed_secs if cfg.arming_requires_confirmation else (armed_secs or conv_secs)
+    ranked_actionable = rank_members(arming_pool - blocked_secs, live_entry, asof, cfg)
+    # The security we grade for the thesis-level headline — and that the Board/Decision Queue show.
+    armed_sec = ranked_actionable[0] if ranked_actionable else None
 
     # Two grades, kept distinct (§4): the CONVICTION grade is the thesis quality; the ENTRY grade is
     # the weaker of the two keys and drives the verdict the operator acts on. Graded on the armed
@@ -82,15 +84,17 @@ def assemble_call(
         for e in conviction_events
     )
 
-    # Risk-veto (§2): a severe risk signal withholds the Armed call on TIMING, never the thesis.
-    blocking_risks = [r for r in active_risk if r.score >= cfg.risk_block_severity]
+    # Risk-veto (§2), per-member: the thesis arms iff some member is actionable; it's WITHHELD on risk when
+    # co-located members exist but every one is risk-blocked (the veto holds timing, never the thesis).
+    blocking_risks = [
+        r
+        for r in active_risk
+        if r.score >= cfg.risk_block_severity and r.security_id in arming_pool
+    ]
+    can_arm = bool(ranked_actionable)
+    risk_blocked = bool(arming_pool) and not can_arm and bool(blocking_risks)
 
-    can_arm = (
-        both_keys if cfg.arming_requires_confirmation else conviction_on
-    ) and entry_grade is not None
-    risk_blocked = can_arm and bool(blocking_risks)
-
-    state = _state(thesis, live_entry, asof, can_arm, bool(blocking_risks), cfg)
+    state = _state(thesis, live_entry, asof, can_arm, risk_blocked, cfg)
 
     # Graded confirmation (§3): a momentum-only (flip-grade) breakout still arms, but as a STARTER —
     # reduced confidence, a volume-gap counter-case, and a cautious expression. Volume stays central.
@@ -112,7 +116,7 @@ def assemble_call(
     confidence_value = (
         confidence(
             [e for e in live_entry if e.security_id == armed_sec],
-            active_risk,
+            [r for r in active_risk if r.security_id == armed_sec],
             cfg,
             is_starter=is_starter,
         )
@@ -150,6 +154,19 @@ def assemble_call(
         counter_case = counter_case_fn(thesis, active_risk, missing, caveats)
     else:
         counter_case = deterministic_counter_case(thesis, active_risk, missing, caveats)
+
+    # M5 Part A — the per-member ranked menu (reuses the scoped helpers per member; no new arming logic):
+    # the actionable armed members, RANKED (freshness band on liveness runway, grade within), then the
+    # confirmation-only "watch" tier ("moving, no conviction yet"). The headline above is armed_members[0].
+    armed_members = [
+        _member_call(sec, live_entry, active_risk, asof, cfg) for sec in ranked_actionable
+    ]
+    watch_secs = sorted(
+        conf_secs - conv_secs,
+        key=lambda s: (grade_rank(_confirmation_grade(s, live_entry, cfg)), s.int),
+        reverse=True,
+    )
+    watch_members = [_member_call(sec, live_entry, active_risk, asof, cfg) for sec in watch_secs]
 
     return CallCard(
         thesis_id=thesis.id,
@@ -211,6 +228,8 @@ def assemble_call(
         missing=missing,
         counter_case=counter_case,
         safe_sleeve=None,
+        armed_members=armed_members,
+        watch_members=watch_members,
     )
 
 
@@ -221,29 +240,99 @@ def _live(e: SignalEvent, asof: date) -> bool:
     return asof <= e.asof + timedelta(days=e.alpha_liveness_days)
 
 
-def _arming_security(
-    secs: set[UUID], live_entry: list[SignalEvent], cfg: CallConfig
-) -> UUID | None:
-    """The security that arms: the candidate with the strongest entry grade (deterministic tiebreak)."""
-    if not secs:
-        return None
+def _member_events(sec: UUID, live_entry: list[SignalEvent], kinds) -> list[SignalEvent]:
+    return [e for e in live_entry if e.kind in kinds and e.security_id == sec]
 
-    def entry_grade_for(sec: UUID) -> Grade | None:
-        conv = [e for e in live_entry if e.kind in cfg.conviction_kinds and e.security_id == sec]
-        conf = [e for e in live_entry if e.kind in cfg.confirmation_kinds and e.security_id == sec]
-        return weaker_grade(call_grade(conv), call_grade(conf))
 
-    def conviction_score(sec: UUID) -> float:
-        return max(
-            (
-                e.score
-                for e in live_entry
-                if e.kind in cfg.conviction_kinds and e.security_id == sec
-            ),
-            default=0,
+def _confirmation_grade(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig) -> Grade | None:
+    return call_grade(_member_events(sec, live_entry, cfg.confirmation_kinds))
+
+
+def rank_members(
+    secs: set[UUID], live_entry: list[SignalEvent], asof: date, cfg: CallConfig
+) -> list[UUID]:
+    """Rank armed members for the per-member menu (M5 Part A): a freshness BAND on liveness runway PRIMARY,
+    grade WITHIN the band — separate axes as a deterministic tuple, never fused into one score (the
+    through-line). "Runway" = the member's LIVENESS horizon (``exit_by - asof``, the conviction hold clock
+    from ``_clock`` / ``alpha_liveness_days``) — NOT the dilution cash-runway. A member with fewer than
+    ``cfg.headline_lapsing_soon_days`` of runway left is "lapsing-soon" and ranks below any "fresh" member
+    *regardless of grade* (so a core arm about to lapse doesn't headline over a long-runway starter).
+    Tuple, best-first: (is_fresh, entry-grade rank, runway_days, conviction score, id).
+    """
+
+    def key(sec: UUID) -> tuple[bool, int, int, float, int]:
+        conv = _member_events(sec, live_entry, cfg.conviction_kinds)
+        conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
+        exit_by = _clock(conv)
+        # liveness runway in days; no liveness window (None) = effectively unbounded (date.max) -> "fresh"
+        runway_days = ((exit_by or date.max) - asof).days
+        is_fresh = runway_days >= cfg.headline_lapsing_soon_days
+        conviction_score = max((e.score for e in conv), default=0)
+        return (
+            is_fresh,
+            grade_rank(weaker_grade(call_grade(conv), call_grade(conf))),
+            runway_days,
+            conviction_score,
+            sec.int,
         )
 
-    return max(secs, key=lambda s: (grade_rank(entry_grade_for(s)), conviction_score(s), s.int))
+    return sorted(secs, key=key, reverse=True)
+
+
+def _member_call(
+    sec: UUID,
+    live_entry: list[SignalEvent],
+    active_risk: list[SignalEvent],
+    asof: date,
+    cfg: CallConfig,
+) -> MemberCall:
+    """One basket member's own call (M5 Part A). An ARMED member (co-located + not risk-blocked) gets a
+    verdict + confidence; a confirmation-only "watch" member gets its breakout grade + clock but no verdict.
+    Reuses the same scoped helpers as the thesis-level call — no new arming logic."""
+    conv = _member_events(sec, live_entry, cfg.conviction_kinds)
+    conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
+    conviction_grade = call_grade(conv)
+    confirmation_grade = call_grade(conf)
+    member_risk = [r for r in active_risk if r.security_id == sec]
+    blocked = any(r.score >= cfg.risk_block_severity for r in member_risk)
+    armed = bool(conv) and bool(conf) and not blocked
+
+    exit_by = _clock(conv)
+    entry_grade: Grade | None = None
+    verdict: Verdict | None = None
+    conf_value: float | None = None
+    lapsing = False
+    if armed:
+        entry_grade = weaker_grade(conviction_grade, confirmation_grade)
+        holdable = any(
+            (e.alpha_liveness_days or 0) >= cfg.conviction_hold_threshold_days for e in conv
+        )
+        verdict = _verdict(State.ARMED, conviction_grade, entry_grade, holdable)
+        conf_value = confidence(conv + conf, member_risk, cfg, is_starter=entry_grade == Grade.FLIP)
+        # lapsing = the same freshness band the ranking uses (the dial), surfaced for the UI to flag
+        lapsing = exit_by is not None and (exit_by - asof).days < cfg.headline_lapsing_soon_days
+
+    return MemberCall(
+        security_id=sec,
+        verdict=verdict,
+        conviction_grade=conviction_grade,
+        confirmation_grade=confirmation_grade,
+        entry_grade=entry_grade,
+        confidence=conf_value,
+        exit_by=exit_by,
+        arm_until=_clock(conf),
+        lapsing=lapsing,
+        triggers=[
+            TriggerRef(
+                label=e.label,
+                kind=e.kind,
+                grade=e.grade,
+                security_id=e.security_id,
+                sources=list(e.provenance),
+            )
+            for e in (conv + conf)
+        ],
+    )
 
 
 def _state(

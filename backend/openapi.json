@@ -367,6 +367,22 @@
               }
             ],
             "title": "Safe Sleeve"
+          },
+          "armed_members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberCallOut"
+            },
+            "type": "array",
+            "title": "Armed Members",
+            "default": []
+          },
+          "watch_members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberCallOut"
+            },
+            "type": "array",
+            "title": "Watch Members",
+            "default": []
           }
         },
         "type": "object",
@@ -564,6 +580,120 @@
         ],
         "title": "Kind",
         "description": "What produced the signal (extensible)."
+      },
+      "MemberCallOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conviction_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmation_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "lapsing": {
+            "type": "boolean",
+            "title": "Lapsing",
+            "default": false
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Triggers",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "MemberCallOut",
+        "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
       },
       "Position": {
         "properties": {

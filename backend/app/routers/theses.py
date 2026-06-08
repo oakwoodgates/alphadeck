@@ -43,9 +43,14 @@ def get_call(
         card = call_for_thesis(conn, thesis_id, asof, record=False)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="thesis not found") from exc
-    sec_ids = {t.security_id for t in card.triggers_fired} | {
-        r.security_id for r in card.risk_signals
-    }
+    sec_ids = (
+        {t.security_id for t in card.triggers_fired}
+        | {r.security_id for r in card.risk_signals}
+        | {
+            m.security_id for m in card.armed_members
+        }  # the per-member menu needs each member's ticker
+        | {m.security_id for m in card.watch_members}
+    )
     cik_for = master.ciks_for(conn, sec_ids)
     ticker_for = master.tickers_for(conn, sec_ids)
     return CallCardResponse.from_card(card, cik_for, ticker_for)

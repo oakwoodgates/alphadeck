@@ -1,5 +1,6 @@
 import { useCall, useThesis } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
+import { MemberMenu } from "../components/MemberMenu";
 import { accentVar, daysFrom, fmtDate, STATE_CLASS, STATE_LABEL, tickerLabel } from "../util/format";
 
 const ARCH_LABEL: Record<string, string> = {
@@ -161,6 +162,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
           {card && <CallCard card={card} />}
+          {card && <MemberMenu card={card} />}
         </aside>
       </div>
     </div>

@@ -88,6 +88,16 @@ class CallConfig(DomainModel):
     # so a threshold in the gap is safe; calibration dial — tune at recalibration.
     conviction_hold_threshold_days: int = 90
 
+    # --- M5 per-member ranking (the theme menu) — STARTING calibration ---
+    # A theme ranks its armed members on a freshness BAND (runway) primary, grade within the band — kept on
+    # separate axes, never fused into one score (the through-line). "Runway" here = the call's LIVENESS
+    # horizon (exit_by - asof = the conviction hold clock, _clock over alpha_liveness_days) — NOT the
+    # dilution cash-runway risk dial (dilution_block_runway_months). An armed member with fewer than this
+    # many days of liveness runway left is "lapsing-soon" and ranks below any "fresh" member regardless of
+    # grade (so a core arm about to lapse doesn't headline over a long-runway starter). Calibration dial —
+    # Phase-1 recalibration tunes how aggressively runway demotes grade; the default isn't load-bearing.
+    headline_lapsing_soon_days: int = 45
+
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME
     # grades the confirmation: volume-backed (vol >= breakout_volume_mult x base avg) = full CORE-quality

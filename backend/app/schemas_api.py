@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from domain.call import CallCard, KeyState
+from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Position, Thesis
 
@@ -52,6 +52,61 @@ class TriggerRefOut(BaseModel):
     sources: list[ProvenanceOut] = []
 
 
+def _trigger_out(
+    t: TriggerRef, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+) -> TriggerRefOut:
+    return TriggerRefOut(
+        label=t.label,
+        kind=t.kind,
+        grade=t.grade,
+        ticker=tickers.get(t.security_id),
+        sources=[
+            ProvenanceOut(
+                source=p.source,
+                ref=p.ref,
+                url=edgar_url(p.source, p.ref, ciks.get(t.security_id)),
+                detail=p.detail,
+            )
+            for p in t.sources
+        ],
+    )
+
+
+class MemberCallOut(BaseModel):
+    """One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
+    (the headline is [0]); `watch_members` are confirmation-only ("moving, no conviction yet")."""
+
+    security_id: UUID
+    ticker: str | None = None
+    verdict: Verdict | None = None
+    conviction_grade: Grade | None = None
+    confirmation_grade: Grade | None = None
+    entry_grade: Grade | None = None
+    confidence: float | None = None
+    exit_by: date | None = None  # the liveness/hold horizon = the "runway" the ranking uses
+    arm_until: date | None = None
+    lapsing: bool = False  # runway below the dial; the UI flags it (ranks below fresh)
+    triggers: list[TriggerRefOut] = []
+
+    @classmethod
+    def from_member(
+        cls, m: MemberCall, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+    ) -> "MemberCallOut":
+        return cls(
+            security_id=m.security_id,
+            ticker=tickers.get(m.security_id),
+            verdict=m.verdict,
+            conviction_grade=m.conviction_grade,
+            confirmation_grade=m.confirmation_grade,
+            entry_grade=m.entry_grade,
+            confidence=m.confidence,
+            exit_by=m.exit_by,
+            arm_until=m.arm_until,
+            lapsing=m.lapsing,
+            triggers=[_trigger_out(t, ciks, tickers) for t in m.triggers],
+        )
+
+
 class CallCardResponse(BaseModel):
     """The CallCard as served — the domain card plus resolved provenance URLs."""
 
@@ -75,6 +130,8 @@ class CallCardResponse(BaseModel):
     missing: list[str] = []
     counter_case: str = ""
     safe_sleeve: str | None = None
+    armed_members: list[MemberCallOut] = []  # ranked; the headline is [0]
+    watch_members: list[MemberCallOut] = []  # confirmation-only ("moving, no conviction yet")
 
     @classmethod
     def from_card(
@@ -140,6 +197,8 @@ class CallCardResponse(BaseModel):
             missing=list(card.missing),
             counter_case=card.counter_case,
             safe_sleeve=card.safe_sleeve,
+            armed_members=[MemberCallOut.from_member(m, ciks, tickers) for m in card.armed_members],
+            watch_members=[MemberCallOut.from_member(m, ciks, tickers) for m in card.watch_members],
         )
 
 
