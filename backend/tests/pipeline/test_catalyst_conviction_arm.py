@@ -7,8 +7,10 @@ from domain.enums import Grade, State, Verdict
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import (
     LEU_ID,
+    NNE_ID,
     NUCLEAR_THESIS_ID,
     OKLO_ID,
+    SMR_ID,
     seed_leu_catalyst,
     seed_nuclear,
     seed_nuclear_catalyst,
@@ -57,32 +59,40 @@ def test_a_ratified_catalyst_arms_the_theme_as_a_disciplined_starter(db):
     assert any("DENE0009589" in r for r in refs)
 
 
-def test_a_binding_contract_arms_core_and_outranks_the_provisional_starter(db):
-    """LEU's DOE HALEU production contract (CORE — a binding, multi-year federal contract) co-locates with
-    LEU's live core breakout and arms a real core_entry. With BOTH catalysts ratified, the theme headlines
-    the BINDING name (LEU core_entry), not the PROVISIONAL one (OKLO starter): the thesis surfaces its
-    strongest member, so a binding revenue contract correctly outranks an authorization pathway. (OKLO's
-    starter is still computed beneath; true per-member side-by-side is the M5 group view.) This is the
-    catalyst core_entry path — nothing else in the seed exercises it.
+def test_per_member_menu_ranks_a_fresh_starter_above_a_lapsing_core(db):
+    """M5 Part A: with BOTH catalysts ratified the theme has two armed members, and the menu RANKS them on
+    the freshness band (liveness runway) primary, grade within — so OKLO (a starter with years of runway →
+    2029) HEADLINES over LEU (a core arm about to lapse → 2026-06-30), instead of collapsing to the strongest
+    grade. LEU's binding-contract call isn't lost — it's #2, still core, with its 06-30 cliff. SMR + NNE
+    (breakout, no conviction) sit in the confirmation-only watch tier. The headline drives the Board / Queue.
     """
     seed_nuclear(db)
-    seed_nuclear_catalyst(db)  # OKLO flip -> would arm a starter
-    seed_leu_catalyst(db)  # LEU core  -> a binding contract
+    seed_nuclear_catalyst(db)  # OKLO flip OTA      -> 2029-07-01 (fresh runway)
+    seed_leu_catalyst(db)  # LEU core contract  -> 2026-06-30 (lapsing at the 06-05 asof)
     db.commit()
 
     card = call_for_thesis(db, NUCLEAR_THESIS_ID, _ASOF, known_at=_KNOWN, record=False)
     assert card.state is State.ARMED
+
+    # headline = top-ranked ACTIONABLE member = OKLO (fresh), NOT LEU (lapsing core): runway over grade
+    assert card.armed_security_id == OKLO_ID
+    assert card.verdict is Verdict.STARTER_ENTRY and card.exit_by == date(2029, 7, 1)
+
+    # the ranked armed menu: OKLO (#1 fresh starter) then LEU (#2 core, lapsing) — both visible, not collapsed
+    assert [m.security_id for m in card.armed_members] == [OKLO_ID, LEU_ID]
+    assert card.armed_members[0].entry_grade is Grade.FLIP  # OKLO: the fresh starter
+    leu = card.armed_members[1]
+    assert leu.conviction_grade is Grade.CORE and leu.verdict is Verdict.CORE_ENTRY
+    assert leu.exit_by == date(2026, 6, 30)  # LEU still core + its 06-30 cliff — demoted, not lost
     assert (
-        card.armed_security_id == LEU_ID
-    )  # the binding name wins the headline (strongest entry grade)
-    assert card.verdict is Verdict.CORE_ENTRY
-    assert card.conviction_grade is Grade.CORE and card.entry_grade is Grade.CORE
-    assert "do not hold" not in card.expression.lower()
-    # both catalysts ride as live conviction-trigger provenance (OKLO's OTA + LEU's contract)
+        leu.lapsing is True and card.armed_members[0].lapsing is False
+    )  # LEU flagged lapsing; OKLO fresh
+
+    # SMR + NNE broke out with no conviction -> the confirmation-only "watch" tier (visible, not actionable)
+    watch_ids = {m.security_id for m in card.watch_members}
+    assert {SMR_ID, NNE_ID} <= watch_ids
+    assert all(m.verdict is None and m.conviction_grade is None for m in card.watch_members)
+
+    # both catalysts still ride as provenance on the thesis card
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
-    assert any("DENE0009589" in r for r in refs)  # OKLO OTA still present
-    assert any("89243223CNE000030" in r for r in refs)  # LEU contract
-    # a CORE entry (both keys strong) is NOT a starter -> confidence is NOT capped at the starter ceiling
-    assert card.confidence is not None and card.confidence > DEFAULT_CONFIG.starter_confidence_cap
-    # the hold clock lands on the contract's base-term end (near-the-edge, not open-ended)
-    assert card.exit_by == date(2026, 6, 30)
+    assert any("DENE0009589" in r for r in refs) and any("89243223CNE000030" in r for r in refs)

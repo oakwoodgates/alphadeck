@@ -355,6 +355,60 @@ def test_nonpositive_liveness_rejected():
         insider_event(liveness=0)
 
 
+_SID2 = uuid.UUID(int=0x3333)
+
+
+def test_per_member_menu_ranks_fresh_starter_above_lapsing_core():
+    """M5 Part A — the freshness BAND: a LAPSING core ranks BELOW a FRESH starter (runway over grade, on
+    separate axes, not fused). Member A is a core arm with ~20d of liveness runway (< the lapsing threshold);
+    member B is a flip starter with ~400d. B headlines; A is preserved at #2 (still core)."""
+    events = [
+        catalyst_event(grade=Grade.CORE, liveness=20, security_id=SID),  # A: core but LAPSING
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        catalyst_event(grade=Grade.FLIP, liveness=400, security_id=_SID2),  # B: starter but FRESH
+        breakout_event(grade=Grade.FLIP, security_id=_SID2),
+    ]
+    card = assemble_call(make_thesis(), events, ASOF, DEFAULT_CONFIG)
+    assert card.state is State.ARMED
+    # the fresh starter (B) out-ranks the lapsing core (A) — runway band primary, grade within
+    assert card.armed_security_id == _SID2
+    assert [m.security_id for m in card.armed_members] == [_SID2, SID]
+    assert card.armed_members[0].entry_grade is Grade.FLIP  # B: fresh starter, #1
+    assert card.armed_members[0].lapsing is False
+    assert card.armed_members[1].conviction_grade is Grade.CORE  # A: lapsing core, preserved at #2
+    assert card.armed_members[1].verdict is Verdict.CORE_ENTRY
+    assert card.armed_members[1].lapsing is True  # flagged lapsing (ranks below the fresh starter)
+
+
+def test_single_member_thesis_yields_a_one_entry_menu():
+    """Backward-compatible: a single-name thesis is a degenerate one-member menu, no watch tier."""
+    card = assemble_call(
+        make_thesis(), [insider_event(), breakout_event(grade=Grade.CORE)], ASOF, DEFAULT_CONFIG
+    )
+    assert card.state is State.ARMED
+    assert card.armed_security_id == SID
+    assert [m.security_id for m in card.armed_members] == [SID]
+    assert card.armed_members[0].verdict is Verdict.CORE_ENTRY
+    assert card.watch_members == []
+
+
+def test_confirmation_only_member_is_a_watch_not_armed():
+    """A member with a breakout but NO conviction is surfaced in the watch tier ("moving, no conviction
+    yet") — visible, not actionable, never the headline, not in the armed/ranked set."""
+    events = [
+        insider_event(security_id=SID),  # SID: conviction + confirmation -> armed
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        breakout_event(grade=Grade.CORE, security_id=_SID2),  # SID2: confirmation only -> watch
+    ]
+    card = assemble_call(make_thesis(), events, ASOF, DEFAULT_CONFIG)
+    assert card.armed_security_id == SID
+    assert [m.security_id for m in card.armed_members] == [SID]
+    assert [m.security_id for m in card.watch_members] == [_SID2]
+    watch = card.watch_members[0]
+    assert watch.verdict is None and watch.conviction_grade is None
+    assert watch.confirmation_grade is Grade.CORE  # the breakout is real; just no conviction yet
+
+
 def test_assembler_has_no_magic_number_thresholds():
     """Lightweight lexical guard (the behavioral test above is the real one): no float literals in the assembler."""
     src = Path(assemble_call.__code__.co_filename).read_text(encoding="utf-8")

@@ -159,6 +159,16 @@ export interface components {
             counter_case: string;
             /** Safe Sleeve */
             safe_sleeve?: string | null;
+            /**
+             * Armed Members
+             * @default []
+             */
+            armed_members: components["schemas"]["MemberCallOut"][];
+            /**
+             * Watch Members
+             * @default []
+             */
+            watch_members: components["schemas"]["MemberCallOut"][];
         };
         /** Catalyst */
         Catalyst: {
@@ -233,6 +243,40 @@ export interface components {
          * @enum {string}
          */
         Kind: "insider" | "catalyst" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
+        /**
+         * MemberCallOut
+         * @description One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
+         *     (the headline is [0]); `watch_members` are confirmation-only ("moving, no conviction yet").
+         */
+        MemberCallOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            verdict?: components["schemas"]["Verdict"] | null;
+            conviction_grade?: components["schemas"]["Grade"] | null;
+            confirmation_grade?: components["schemas"]["Grade"] | null;
+            entry_grade?: components["schemas"]["Grade"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Exit By */
+            exit_by?: string | null;
+            /** Arm Until */
+            arm_until?: string | null;
+            /**
+             * Lapsing
+             * @default false
+             */
+            lapsing: boolean;
+            /**
+             * Triggers
+             * @default []
+             */
+            triggers: components["schemas"]["TriggerRefOut"][];
+        };
         /**
          * Position
          * @description Populated once the operator logs a fill — its presence drives the Managing state.

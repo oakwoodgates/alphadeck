@@ -65,7 +65,11 @@ def make_thesis(**overrides) -> Thesis:
 
 
 def insider_event(
-    grade: Grade = Grade.CORE, score: float = 0.82, fired: bool = True, liveness: int | None = None
+    grade: Grade = Grade.CORE,
+    score: float = 0.82,
+    fired: bool = True,
+    liveness: int | None = None,
+    security_id: uuid.UUID = SID,
 ) -> SignalEvent:
     """Key 1 (Conviction) — warms but does not arm on its own. The liveness window is GRADED to match the
     detector (core = the multi-month hold horizon, flip = short); pass ``liveness`` to override."""
@@ -77,7 +81,7 @@ def insider_event(
         )
     return SignalEvent(
         detector="insider_conviction",
-        security_id=SID,
+        security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.INSIDER,
         grade=grade,
@@ -91,12 +95,16 @@ def insider_event(
 
 
 def breakout_event(
-    grade: Grade = Grade.CORE, score: float = 0.70, fired: bool = True, liveness: int = 10
+    grade: Grade = Grade.CORE,
+    score: float = 0.70,
+    fired: bool = True,
+    liveness: int = 10,
+    security_id: uuid.UUID = SID,
 ) -> SignalEvent:
     """Key 2 (Confirmation) — the deliberately-minimal volume-breakout detector."""
     return SignalEvent(
         detector="volume_breakout",
-        security_id=SID,
+        security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.TECHNICAL_BREAKOUT,
         grade=grade,
@@ -110,14 +118,18 @@ def breakout_event(
 
 
 def catalyst_event(
-    grade: Grade = Grade.FLIP, score: float = 0.5, fired: bool = True, liveness: int = 400
+    grade: Grade = Grade.FLIP,
+    score: float = 0.5,
+    fired: bool = True,
+    liveness: int = 400,
+    security_id: uuid.UUID = SID,
 ) -> SignalEvent:
     """Key 1 (Conviction) — a catalyst. Liveness is the relevance HORIZON, DECOUPLED from grade, so a
     provisional (flip) but long-horizon catalyst is hold-worthy (a STARTER), unlike a fast insider flip.
     """
     return SignalEvent(
         detector="catalyst_conviction",
-        security_id=SID,
+        security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.CATALYST,
         type=CatalystType.GOV_FUNDING,

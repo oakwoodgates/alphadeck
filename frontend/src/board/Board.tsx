@@ -70,7 +70,12 @@ export function Board({ asof, onAsofChange, onSelect }: Props) {
                 key={thesis.id}
                 onClick={() => onSelect(thesis.id)}
               >
-                <b>{tickerLabel(thesis.ticker, thesis.basket_size)}</b>
+                {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
+                    "+N" hint that a ranked menu sits behind it — never every member in the queue */}
+                <b>{call.armed_members[0]?.ticker ?? tickerLabel(thesis.ticker, thesis.basket_size)}</b>
+                {call.armed_members.length > 1 && (
+                  <span className="dq-more">+{call.armed_members.length - 1}</span>
+                )}
                 {call.conviction_grade && (
                   <span className={`grade ${call.conviction_grade}`}>
                     {call.conviction_grade.toUpperCase()}

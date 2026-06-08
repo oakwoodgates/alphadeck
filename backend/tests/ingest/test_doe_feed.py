@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Grade, State, Verdict
+from domain.enums import Grade, State
 from ingest import CacheMiss
 from ingest.doe import entities
 from ingest.doe.client import UsaSpendingClient
 from ingest.doe.feed import _derive_grade, discover, parse_award
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.seed import LEU_ID, NUCLEAR_THESIS_ID, seed_doe_catalysts, seed_nuclear
+from pipeline.seed import LEU_ID, NUCLEAR_THESIS_ID, OKLO_ID, seed_doe_catalysts, seed_nuclear
 
 _FIXTURES = Path(__file__).resolve().parents[2] / "seed_data" / "doe"
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
@@ -87,28 +87,30 @@ def test_feed_derives_grade_and_horizon_from_real_fixtures():
     assert grant.grade is Grade.FLIP and grant.category != "contract" and grant.obligation > 1e8
 
 
-def test_feed_arms_nuclear_core_entry_on_leu(db):
+def test_feed_arms_the_nuclear_theme_with_a_ranked_per_member_menu(db):
     """End-to-end on real data: the AUTOMATED feed (offline fixtures) emits the nuclear catalysts and the
-    theme arms LEU as a core_entry (the binding contract headlines), with OKLO's OTA a starter beneath —
-    the same outcome the hand-ratify bridge produced, now derived deterministically from USASpending.
+    theme arms with a per-member ranked menu (M5 Part A). The feed still derives LEU core + OKLO flip from
+    the structured terms; the menu then ranks OKLO (fresh, → 2029) above LEU (core but lapsing → 06-30).
     """
     seed_nuclear(db)
     db.commit()
     emitted = seed_doe_catalysts(db)
     db.commit()
 
-    # the feed emitted both hand-seeded catalysts with the right grades, from the structured terms
+    # the feed emitted both catalysts with the right grades, from the structured terms (unchanged)
     by_ticker_grade = {(c.ticker, c.grade) for c in emitted}
     assert ("LEU", Grade.CORE) in by_ticker_grade
     assert ("OKLO", Grade.FLIP) in by_ticker_grade
 
     card = call_for_thesis(db, NUCLEAR_THESIS_ID, _ASOF, known_at=_KNOWN, record=False)
     assert card.state is State.ARMED
-    assert card.armed_security_id == LEU_ID  # binding contract out-ranks the provisional OTA
-    assert card.verdict is Verdict.CORE_ENTRY
-    assert card.conviction_grade is Grade.CORE and card.entry_grade is Grade.CORE
-    assert card.confidence is not None and card.confidence > DEFAULT_CONFIG.starter_confidence_cap
-    assert card.exit_by == date(2026, 6, 30)  # the contract's base-term cliff (near the edge)
+    # the ranked menu headlines the FRESH member (OKLO), not the lapsing core (LEU) — runway over grade
+    assert card.armed_security_id == OKLO_ID
+    assert [m.security_id for m in card.armed_members] == [OKLO_ID, LEU_ID]
+    leu = card.armed_members[1]
+    assert leu.conviction_grade is Grade.CORE and leu.exit_by == date(
+        2026, 6, 30
+    )  # core, lapsing, #2
 
     # provenance traces to the real USASpending awards (show the work), both names present
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
