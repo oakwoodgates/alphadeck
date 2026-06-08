@@ -95,9 +95,17 @@ mockup + spec land operator-side in `docs/mockups/`.
 ### What it is
 Turn a **narrative** (the operator's edge, untouched) into a **scored, structured basket of names** (the
 flaw), then hand it to the Board as a thesis. **Deferential about the narrative, opinionated about the chain
-and the names.** The **hero is the value-chain decomposition** — it makes the whole chain visible so the
-operator picks from a *map*, not from the two names that came to mind first. **Runs both directions:**
-Workbench → Board to promote; Board → Workbench to re-research a theme.
+and the names.** The **hero is the value-chain decomposition** — it makes the whole chain visible (**off-thesis
+/ impure names surfaced and _flagged_, not hidden**) so the operator picks from a *map*, not from the two names
+that came to mind first. **Runs both directions:** Workbench → Board to promote; Board → Workbench to
+re-research a theme.
+
+**Visual companion (committed):** `docs/mockups/mockup_workbench_nuclear.html` — the front half in the existing
+Board/Cockpit aesthetic, interactive (click a chain link to switch segments, a name to load its DD): narrative
+up top (preserved + attributed), the chain links as the hero, scored names per link (the three meters —
+purity / runway / catalyst density — plus market cap as a *figure* and the archetype pill), a DD rail, the
+basket, and a promote-to-Board action. **Keep this spec and that mockup in sync.** Its scores / market caps /
+company facts are **illustrative placeholders — they never enter the codebase** (all data-derived in the build).
 
 ### Decisions locked (design pass)
 - **Curation:** surface **and score every candidate**, pre-tag a *suggested* basket; the operator makes the
@@ -118,6 +126,20 @@ Workbench → Board to promote; Board → Workbench to re-research a theme.
   model that learns.** Specialization lives in the **data, with provenance** → auditable, survives model swaps.
   When the LLM finds data for a score it **proposes a source**; the pipeline ingests the real number from the
   real source; the operator ratifies. **The LLM never supplies a number.**
+- **The DD has two distinct layers** (the mockup labels them): (a) a **stored company-reference block** —
+  overview / what the company does / founded / HQ / website: per-security **reference *facts*, stored and
+  sourced like any other fact**, reused by any thesis that holds the name; the **LLM never narrates these**.
+  (b) Below it, the **auto-drafted thesis-fit prose** — why the name sits in *this* chain: **reasoning, clearly
+  labeled as drafted**. Facts and reasoning kept visibly distinct ("stored facts" vs "auto-drafted").
+- **Reference-fact freshness = re-FETCH, not re-derivation** — a *third* freshness job. Those stored facts
+  change occasionally (pivot, HQ move, rebrand), so they're **re-fetched** (re-deriving a stale HQ just returns
+  the stale HQ). Most ride the **per-company EDGAR ingest already run** (name, business/SIC, HQ); the few that
+  don't (website, richer description) ride a **low-priority weekly sweep** (filed below). **Appended, never
+  overwritten** (bitemporal → history + replay preserved). Distinct from score **re-derivation** (no fetch —
+  the seam) and from the **discovery cron** (new entities).
+- **Basket & loudness:** the basket is a **quiet output** at the bottom of the research column, *not* a loud
+  rail card — **ember loudness stays reserved for armed Board calls** (inverse loudness). The Workbench is a
+  calm research surface, not a second Decision Queue.
 - **Entry point:** narrative-only for the MVP.
 
 ### The one HARD MVP build requirement — the persistence seam *(also Locked)*
@@ -140,6 +162,9 @@ the thesis**, even though the MVP drafts fresh and doesn't yet read from saved c
 - **Weekly discovery cron** — finds new names, links, and ETFs *entering* the sector. **Discovery only** —
   scores already stay current via re-derivation on read, so the cron does **not** refresh scores. Weekly, not
   daily.
+- **Weekly reference-fact sweep** — re-fetches the stored company-reference facts *not* already covered by the
+  per-company EDGAR ingest (website, richer description). The **third** freshness job — distinct from the
+  discovery cron (new entities) and from score re-derivation (no fetch). Low-priority, weekly, append-only.
 - **ETF-holdings-as-universe-seed** — folds into the Phase-3 ETF radar.
 - **Rotation-awareness** — money rotating along the chain over the theme's life. **Not a new predictor;** it
   *emerges* from the existing two-key arming applied link by link (links light up on the Board in sequence),
