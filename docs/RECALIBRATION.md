@@ -60,9 +60,13 @@
 3. **Split the momentum-only cap back out (maybe).** The cap merge folded momentum-only into the starter cap
    (both 0.55, `min-of`). A near-conviction-less momentum call and a real provisional starter now share a
    ceiling; if we later want momentum-only to cap *harder*, re-introduce a separate (lower) momentum-only cap.
-4. **Age-decay of confidence.** Liveness is a binary gate, so a 5-month-old cluster arms at the same
-   confidence as a one-day-old one. Keep the arm gate binary; let only **confidence** fade with conviction
-   age. *(CALL_LOGIC §7 roadmap.)*
+4. **Age-decay of confidence `[Pass-001: this is the evidenced fix for the #44 exit give-back]`.** Liveness is
+   a binary gate, so a 5-month-old cluster arms at the same confidence as a one-day-old one. Keep the arm gate
+   binary; let only **confidence** fade with conviction age. *(CALL_LOGIC §7 roadmap.)* Pass 001 proved the
+   give-back **cannot** be fixed by trimming `insider_core_alpha_liveness_days` (that dial does double-duty as
+   the co-location window — shortening it to 90d kills UNH's arm), so holding ~35d past the realized peak and
+   returning ~10% is a confidence-**shape** problem, not a liveness **magnitude**. Prioritized for a future
+   shape pass (out of scope for the magnitudes-only recalibration).
 
 ## C. Deferred builds (the sequenced plan is `docs/ROADMAP.md`)
 
@@ -100,3 +104,43 @@ this is a question for Step 2 to confirm against real history, not a dial change
    miscalibration.** Candidate dials: `insider_core_alpha_liveness_days` (180), `catalyst_default_horizon_days`
    (365), `conviction_hold_threshold_days` (90) — and the age-decay-of-confidence refinement (B.4). **Do not
    tune on n=19** — Step 2 confirms on real history.
+
+   **→ RESOLVED in Pass 001 (Step 2; see `RECALIBRATION_PASS_001.md`): all three candidate dials DEFER, ZERO
+   changes.** Inspected `insider_core_alpha_liveness_days` via an old-vs-new replay (180 vs 90, UNH-core
+   disaggregated): the give-back is real (UNH peaks +21.7%/+6.3%, exits +11.5%/−2.5%, ~35d past peak) **but the
+   dial does double-duty** — it's also the co-location window, and shortening to 90d makes UNH **fail to arm**
+   (the May cluster lapses before the Aug breakout; aggregate 19→17). So it can't be the lever (literature 6mo
+   floor + actively harmful to shorten); the give-back is a **shape** problem → **B.4**. `catalyst_default_horizon_days`
+   defers (unexercised — the nuclear catalysts carry explicit `horizon_end`); `conviction_hold_threshold_days`
+   defers (mechanically not the exit lever — it sets the verdict label, not `exit_by`).
+
+## E. Pass 001 resolution (Phase 1 / Step 2 — the first recalibration pass)
+
+Full decision record + evidence in **`RECALIBRATION_PASS_001.md`**. **Outcome: ZERO dial-value changes** — the
+correct, disciplined result on a 19-episode, mostly-UNH seed (in-sample, not validation). Item-by-item:
+
+- **Inspected → DEFER:** `insider_core_alpha_liveness_days` (180) — the only seed-exercised dial; an old-vs-new
+  replay showed the give-back is real but the dial does double-duty (shortening kills UNH's arm) → it's a shape
+  problem (B.4), not a magnitude. Literature-grounded (6mo floor).
+- **Deferred — unexercised (facts carry explicit horizons):** `catalyst_default_horizon_days`,
+  `theme_conviction_default_horizon_days` (the seed's catalysts/theme conviction all ratify an explicit
+  `horizon_end`; the default fires for zero live episodes).
+- **Deferred — mechanically not the lever / wrong instrument:** `conviction_hold_threshold_days` (sets the
+  verdict label, not `exit_by`).
+- **Deferred — fires far from any boundary (no marginal case):** the insider firing thresholds
+  (`insider_cluster_window_days`, `insider_min_usd`, `insider_core_min_distinct`/`_usd`,
+  `insider_strong_single_usd`); `insider_flip_alpha_liveness_days` (no insider flip in the seed).
+- **Deferred — no live episode straddles it:** `doe_core_min_obligation_usd` (the feed emits a $500K contract +
+  a $148M grant either side of the $10M floor, but neither is live at any swept asof).
+- **Deferred — no risk reaches the threshold / truncated:** `risk_block_severity`, `dilution_block_runway_months`,
+  `dilution_overhang_severe_pct` (HIMS ~6% ≪ 25%, no near-block); `risk_penalty_per_signal` (HIMS *arms* but its
+  `exit_by` 2026-11-22 is truncated past the data end → no meaningfully-scored hold outcome; calibration
+  insufficient regardless).
+- **Deferred — overfitting risk / entry is sound:** the breakout firing params (`breakout_min_return`,
+  `breakout_volume_mult`, the windows) — the finding shows the entry is sound; tuning the arming events on n=19
+  re-litigates what works.
+- **Deferred — metric per-bucket insufficient:** `single_detector_cap`, `starter_confidence_cap` (calibration);
+  `headline_lapsing_soon_days` (name-selection n=1 + the freshness-wins shape interaction).
+- **Not relevant (shape/build, out of scope):** `arming_requires_confirmation` (bool); B.1 (a score-computation
+  change); B.3 (re-adds a dial); **B.4 (the evidenced fix for the give-back — strengthened above, executed
+  later as a shape change)**; the `is_own` placement; all of §C (builds).
