@@ -12,6 +12,19 @@ from db.session import DEFAULT_TENANT_ID
 from domain.signal import SignalEvent
 
 
+def window_prices(
+    rows: list[dict[str, Any]], asof: date, lookback_days: int | None
+) -> list[dict[str, Any]]:
+    """Sort EOD bars ascending by ``d`` and trim to the lookback window. Shared by the live PIT and the
+    replay mirror so the exact price view the breakout detector sees can't drift between Postgres and
+    DuckDB (the as-of READ differs by engine; this post-process is identical for both)."""
+    rows = sorted(rows, key=lambda r: r["d"])
+    if lookback_days is not None:
+        cutoff = asof - timedelta(days=lookback_days)
+        rows = [r for r in rows if r["d"] >= cutoff]
+    return rows
+
+
 class PointInTimeData:
     """The ONLY way a detector reads facts — a bitemporal as-of view fixed at (asof, known_at).
 
@@ -54,11 +67,7 @@ class PointInTimeData:
             known_at=self.known_at,
             tenant_id=self.tenant_id,
         )
-        rows.sort(key=lambda r: r["d"])
-        if lookback_days is not None:
-            cutoff = self.asof - timedelta(days=lookback_days)
-            rows = [r for r in rows if r["d"] >= cutoff]
-        return rows
+        return window_prices(rows, self.asof, lookback_days)
 
     def dilution_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         return as_of(

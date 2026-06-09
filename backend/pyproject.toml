@@ -24,6 +24,15 @@ dev = [
     "ruff==0.15.15",   # pinned so CI matches local (lint/format are version-sensitive)
     "black==26.5.1",
 ]
+# The replay/backtest harness (Phase 1) — OFFLINE tooling only, deliberately kept out of the lean prod
+# API image (the live app reads Postgres; replay scans the Parquet mirror via DuckDB). Install with
+# `pip install -e ".[replay]"`. pyarrow gives explicit decimal128/timestamp control so the Postgres ->
+# Parquet -> DuckDB round-trip keeps the parity gate honest.
+replay = [
+    "duckdb>=1.0",
+    "pyarrow>=15",
+    "pytz",  # DuckDB's Python client needs it to return TIMESTAMP WITH TIME ZONE values
+]
 
 # Flat layout: list the packages explicitly (no auto-discovery, so the venv/data dirs are never scanned).
 [tool.setuptools]
@@ -31,7 +40,7 @@ packages = [
     "app", "app.routers",
     "calls", "db", "domain",
     "ingest", "ingest.edgar", "ingest.prices",
-    "pipeline", "repositories", "securities", "signals",
+    "pipeline", "repositories", "securities", "signals", "replay",
 ]
 
 [tool.ruff]
