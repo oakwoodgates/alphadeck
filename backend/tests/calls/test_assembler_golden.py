@@ -20,6 +20,7 @@ from tests.calls.factories import (
     dilution_event,
     insider_event,
     make_thesis,
+    theme_conviction_event,
 )
 
 
@@ -407,6 +408,95 @@ def test_confirmation_only_member_is_a_watch_not_armed():
     watch = card.watch_members[0]
     assert watch.verdict is None and watch.conviction_grade is None
     assert watch.confirmation_grade is Grade.CORE  # the breakout is real; just no conviction yet
+
+
+def test_theme_conviction_arms_a_member_as_a_capped_starter():
+    """M5b: a theme conviction (flip — the fallback) + the member's OWN volume-backed (core) breakout arms
+    it as a disciplined STARTER, flagged ``theme_armed``; capped at the starter ceiling, with ``exit_by``
+    = the theme's horizon. (The volume-backed eligibility gate lives in the broadcast; by the time the
+    assembler sees a THEME_CONVICTION event the member is already eligible — here it behaves like any flip
+    conviction, which is the point: no assembler branch on the theme kind.)"""
+    card = assemble_call(
+        make_thesis(),
+        [theme_conviction_event(liveness=365), breakout_event(grade=Grade.CORE, score=0.9)],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert card.state is State.ARMED and card.armed_security_id == SID
+    assert (
+        card.verdict is Verdict.STARTER_ENTRY
+    )  # flip conviction + long horizon -> starter (hold-worthy)
+    assert card.conviction_grade is Grade.FLIP and card.entry_grade is Grade.FLIP
+    assert card.confidence is not None and card.confidence <= DEFAULT_CONFIG.starter_confidence_cap
+    member = card.armed_members[0]
+    assert member.security_id == SID and member.theme_armed is True
+    assert member.exit_by == ASOF + timedelta(
+        days=365
+    )  # the theme horizon drives the member's hold clock
+
+
+def test_own_conviction_outranks_theme_armed_within_a_band():
+    """M5b ranking (Q1): within the same freshness band + grade, a name armed on its OWN conviction
+    outranks one armed only on the THEME fallback. Both are FRESH flip starters with equal runway; the own
+    name carries a WEAKER conviction_score (0.3) than the theme name (0.9), proving ``is_own`` dominates
+    the conviction_score tiebreak (it sits earlier in the sort tuple) — not grade, runway, or score.
+    """
+    events = [
+        catalyst_event(
+            grade=Grade.FLIP, liveness=400, score=0.3, security_id=SID
+        ),  # OWN, weak score
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        theme_conviction_event(liveness=400, score=0.9, security_id=_SID2),  # THEME, strong score
+        breakout_event(grade=Grade.CORE, security_id=_SID2),
+    ]
+    card = assemble_call(make_thesis(), events, ASOF, DEFAULT_CONFIG)
+    assert card.state is State.ARMED
+    assert card.armed_security_id == SID  # own conviction headlines over the theme-armed name
+    assert [m.security_id for m in card.armed_members] == [SID, _SID2]
+    own, theme = card.armed_members
+    assert own.theme_armed is False and theme.theme_armed is True
+    assert own.entry_grade is Grade.FLIP and theme.entry_grade is Grade.FLIP  # same band + grade
+
+
+def test_fresh_theme_starter_outranks_a_lapsing_own_core():
+    """M5b ranking (Q1 = freshness wins): the freshness BAND stays primary, so a FRESH theme-armed starter
+    headlines over a LAPSING own-conviction core — consistent with the M5a OKLO-over-lapsing-LEU doctrine.
+    ``is_own`` is only a within-band tiebreak; it does NOT lift a lapsing own-core over a fresh theme name.
+    """
+    events = [
+        catalyst_event(
+            grade=Grade.CORE, liveness=20, security_id=SID
+        ),  # OWN core but LAPSING (~20d)
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        theme_conviction_event(liveness=400, security_id=_SID2),  # THEME starter but FRESH (~400d)
+        breakout_event(grade=Grade.CORE, security_id=_SID2),
+    ]
+    card = assemble_call(make_thesis(), events, ASOF, DEFAULT_CONFIG)
+    assert (
+        card.armed_security_id == _SID2
+    )  # the fresh theme starter headlines over the lapsing own core
+    assert [m.security_id for m in card.armed_members] == [_SID2, SID]
+    fresh_theme, lapsing_core = card.armed_members
+    assert fresh_theme.theme_armed is True and fresh_theme.lapsing is False
+    assert lapsing_core.theme_armed is False and lapsing_core.lapsing is True
+    assert lapsing_core.conviction_grade is Grade.CORE  # the lapsing own core is preserved at #2
+
+
+def test_theme_armed_member_is_withheld_on_severe_risk():
+    """The risk veto applies to a theme-armed member exactly like any other (per-member, keyed on
+    security_id — no exemption): a severe risk on the name withholds its arm. The member is neither armed
+    nor (since it now carries conviction) in the watch tier — it's risk-withheld on timing."""
+    card = assemble_call(
+        make_thesis(),
+        [theme_conviction_event(), breakout_event(grade=Grade.CORE), dilution_event()],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert card.state is State.WARMING  # the single member is risk-blocked -> nothing actionable
+    assert card.armed_members == [] and card.armed_security_id is None
+    assert (
+        card.watch_members == []
+    )  # it has conviction (the theme), so it isn't a watch member either
 
 
 def test_assembler_has_no_magic_number_thresholds():

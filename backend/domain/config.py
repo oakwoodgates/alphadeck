@@ -15,7 +15,12 @@ class CallConfig(DomainModel):
     # --- state transitions (§2) ---
     warming_min_entry_triggers: int = 1
     arming_requires_confirmation: bool = True  # two-key gate: conviction warms, confirmation arms
-    conviction_kinds: frozenset[Kind] = frozenset({Kind.INSIDER, Kind.CATALYST})
+    # THEME_CONVICTION (M5b) is a Key-1 conviction so the existing co-location arming "just works"; it is
+    # an operator-ratified, thesis-level FALLBACK (the weaker key, capped at flip). Distinguish it from
+    # name-sourced convictions via `own_conviction_kinds` (below) — never a hardcoded {INSIDER, CATALYST}.
+    conviction_kinds: frozenset[Kind] = frozenset(
+        {Kind.INSIDER, Kind.CATALYST, Kind.THEME_CONVICTION}
+    )
     confirmation_kinds: frozenset[Kind] = frozenset({Kind.TECHNICAL_BREAKOUT, Kind.LAGGARD})
 
     # --- risk-veto (§2) ---
@@ -71,6 +76,14 @@ class CallConfig(DomainModel):
     # breakout, and the decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
     catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
 
+    # --- theme_conviction (Key 1 FALLBACK for theme theses, M5b) — STARTING calibration ---
+    # An operator-ratified, thesis-level theme conviction expires on its operator-set horizon (the
+    # belief must be re-ratified to stay live — no zombie narratives). When the ratification carries no
+    # explicit horizon_end, liveness runs to this default. ~12 months: a structural sector narrative is
+    # slower than a single catalyst but should be re-ratified yearly. RECALIBRATION dial (upper bound /
+    # default / re-ratification cadence). Liveness is decoupled from grade, exactly like a catalyst.
+    theme_conviction_default_horizon_days: int = 365
+
     # --- DOE/USASpending automated feed grade rule (#10 feed) — [PROPOSED], confirm at review ---
     # A binding DOE CONTRACT obligating at least this much = a `core` catalyst (contracted revenue is real
     # → build); a smaller contract, or any assistance / OTA / grant (not a contract), = `flip`
@@ -116,6 +129,15 @@ class CallConfig(DomainModel):
     # Queue. Capped here regardless of how strong the OTHER key is (the noisy-OR of the strong key alone
     # would otherwise float it high). Calibration dial.
     starter_confidence_cap: float = 0.55
+
+    @property
+    def own_conviction_kinds(self) -> frozenset[Kind]:
+        """Name-sourced ("own") convictions — the theme conviction is a basket-level FALLBACK, not "own".
+        Used at the three M5b decision sites (broadcast eligibility / the `is_own` ranking axis / the
+        `theme_armed` flag) so a future conviction kind added to `conviction_kinds` inherits "own"
+        automatically — the through-line (factor on the property, never a hardcoded kind literal).
+        """
+        return self.conviction_kinds - {Kind.THEME_CONVICTION}
 
 
 DEFAULT_CONFIG = CallConfig()

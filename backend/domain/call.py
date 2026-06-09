@@ -45,6 +45,9 @@ class MemberCall(DomainModel):
     exit_by: date | None = None  # the LIVENESS horizon (hold clock) = the "runway" the ranking uses
     arm_until: date | None = None  # the entry window (confirmation clock)
     lapsing: bool = False  # armed + runway below the dial; ranks below fresh members
+    theme_armed: bool = (
+        False  # armed via the THEME-conviction FALLBACK (M5b), not its own conviction
+    )
     triggers: list[TriggerRef] = Field(default_factory=list)  # this member's own fired evidence
 
 
