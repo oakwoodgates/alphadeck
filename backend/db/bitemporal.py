@@ -39,6 +39,10 @@ def _as_of(
     leak into a read pinned at an earlier transaction time. ``scope_col`` is a TRUSTED literal
     ('security_id' / 'thesis_id') from the wrappers below, never caller input — kept injection-safe
     via ``sql.Identifier``.
+
+    On a ``recorded_at`` tie (two versions of one natural key recorded at the same instant), the row with
+    the greater ``id`` wins: a deterministic secondary sort so the read is reproducible and the DuckDB
+    replay mirror, which applies the identical ``recorded_at DESC, id DESC`` ordering, agrees row-for-row.
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
@@ -47,7 +51,7 @@ def _as_of(
         "SELECT DISTINCT ON ({ident}) * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
         "AND valid_from <= %(asof)s AND recorded_at <= %(known_at)s "
-        "ORDER BY {ident}, recorded_at DESC"
+        "ORDER BY {ident}, recorded_at DESC, id DESC"
     ).format(ident=ident, table=sql.Identifier(table), scope=sql.Identifier(scope_col))
     with conn.cursor() as cur:
         cur.execute(
@@ -71,8 +75,11 @@ def as_of(
     known_at: datetime,
     tenant_id: UUID,
 ) -> list[dict[str, Any]]:
-    """Bitemporal as-of read for a SECURITY-scoped fact table (signature/behavior unchanged — delegates
-    to ``_as_of``)."""
+    """Bitemporal as-of read for a SECURITY-scoped fact table. **Behavior-identical** to the original
+    single-function ``as_of`` (same inputs, same rows); it delegates to the shared ``_as_of``. The only
+    SQL difference versus that original is cosmetic: the scope column is rendered quoted via
+    ``sql.Identifier`` (``"security_id"``), semantically identical for the lowercase fact-table columns.
+    """
     return _as_of(
         conn,
         table,
