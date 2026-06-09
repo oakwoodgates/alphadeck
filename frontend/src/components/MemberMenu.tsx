@@ -34,10 +34,24 @@ export function MemberMenu({ card }: { card: CallCardResponse }) {
 
 function ArmedRow({ m, headline }: { m: Member; headline: boolean }) {
   return (
-    <div className={`mm-row armed${headline ? " headline" : ""}${m.lapsing ? " lapsing" : ""}`}>
+    <div
+      className={`mm-row armed${headline ? " headline" : ""}${m.lapsing ? " lapsing" : ""}${
+        m.theme_armed ? " theme-armed" : ""
+      }`}
+    >
       <span className="mm-tk">{m.ticker ?? "◇"}</span>
       <span className={`grade ${gradeClass(m.entry_grade)}`}>{verdictLabel(m.verdict ?? "")}</span>
-      {m.conviction_grade && <span className="mm-conv">{m.conviction_grade} thesis</span>}
+      {/* M5b: armed on the THEME conviction (a fallback, capped at a starter) vs on its own signal */}
+      {m.theme_armed ? (
+        <span
+          className="mm-theme"
+          title="Armed on the theme conviction (a fallback) — capped at a starter, not its own signal"
+        >
+          theme
+        </span>
+      ) : (
+        m.conviction_grade && <span className="mm-conv">{m.conviction_grade} thesis</span>
+      )}
       <span className="mm-runway">
         {m.lapsing ? "lapses " : "runway to "}
         {fmtDate(m.exit_by)}

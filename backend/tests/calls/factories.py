@@ -143,6 +143,31 @@ def catalyst_event(
     )
 
 
+def theme_conviction_event(
+    score: float = 0.45,
+    fired: bool = True,
+    liveness: int = 365,
+    security_id: uuid.UUID = SID,
+) -> SignalEvent:
+    """Key 1 FALLBACK (M5b) — a thesis-level theme conviction the broadcast stamps onto an eligible
+    member. ALWAYS flip (capped at starter — belief never mints a core); liveness is the theme's operator
+    horizon. Pass one directly (alongside a CORE breakout) to exercise the assembler's theme-armed path.
+    """
+    return SignalEvent(
+        detector="theme_conviction",
+        security_id=security_id,
+        role=Role.ENTRY_TRIGGER,
+        kind=Kind.THEME_CONVICTION,
+        grade=Grade.FLIP,
+        score=score,
+        fired=fired,
+        label="Small-scale-nuclear theme conviction (operator-ratified)",
+        alpha_liveness_days=liveness,
+        provenance=[Provenance(source="ratified", ref="theme:nuclear")],
+        asof=ASOF,
+    )
+
+
 def dilution_event(score: float = 0.80, fired: bool = True) -> SignalEvent:
     """A severe risk signal — should block the Armed call on timing without vetoing the thesis."""
     return SignalEvent(

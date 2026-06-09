@@ -16,7 +16,9 @@ trigger and grade comes from a **deterministic parse** of data **or** a **one-ti
 
 - *Enforced by:* the assembler signature (the LLM hook only injects `counter_case`); detectors are pure
   `f(point_in_time_data) -> SignalEvent`; the catalyst grade is `_derive_grade` (deterministic) or set at
-  ratification — see `ingest/doe/feed.py`, `ingest/catalyst.py`, `calls/assembler.py`.
+  ratification — see `ingest/doe/feed.py`, `ingest/catalyst.py`, `calls/assembler.py`. The **theme
+  conviction**'s grade + horizon are operator inputs on the ratified fact (`ingest/theme_conviction.py`),
+  never the model's.
 
 ## 2. Entity resolution is an exact-membership ALLOWLIST, never fuzzy, never a denylist
 
@@ -46,8 +48,9 @@ The store is bitemporal (`valid_from` = event time, `recorded_at` = when we lear
 Firings are **re-derived from facts on every read** (no persisted firing layer), so corrections propagate and
 replay stays honest.
 
-- *Enforced by:* `db/bitemporal.as_of`; the append-only DB trigger; the correction-axis test
-  (`tests/ingest/test_pit.py` / the bitemporal tests).
+- *Enforced by:* `db/bitemporal.as_of` (security-scoped) + `as_of_thesis` (thesis-scoped, e.g.
+  `fact_theme_conviction`), both delegating to the shared `_as_of`; the append-only DB trigger; the
+  correction-axis test (`tests/ingest/test_pit.py` / the bitemporal tests).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -72,5 +75,14 @@ cap** ← the weaker (entry) key; catalyst **liveness** ← the agreement's hori
 and never add an `if kind == …` branch where a property already carries the signal. A new signal kind
 inherits correct behavior from its own properties.
 
+**Theme conviction (M5b) is the canonical case.** It's a Key-1 *fallback* emitted at **`flip`**, so it caps
+the call through the weaker-key path exactly like any flip — there is **no** "theme is capped" branch. The
+only reads of the theme kind are: set membership in `conviction_kinds`; the **`own_conviction_kinds`**
+exclusion (`conviction_kinds − {THEME_CONVICTION}` — the seam that keeps a future conviction kind inheriting
+"own" automatically); the `theme_armed` **display flag**; and the `is_own` **ranking tiebreak**. None is a
+behavior branch.
+
 - *Enforced by:* CALL_LOGIC §3/§4/§7; the verdict keys on `conviction_hold_threshold_days`, not kind; the
-  confidence cap keys on `is_starter` (entry grade), not kind.
+  confidence cap keys on `is_starter` (entry grade), not kind; the theme conviction caps via its `flip`
+  grade (`signals/theme_conviction.broadcast` emits flip), with the `own_conviction_kinds` property in
+  `domain/config.py` — see `docs/THEME_CONVICTION.md` §5.

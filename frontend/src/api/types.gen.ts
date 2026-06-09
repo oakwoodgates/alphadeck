@@ -242,7 +242,7 @@ export interface components {
          * @description What produced the signal (extensible).
          * @enum {string}
          */
-        Kind: "insider" | "catalyst" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
+        Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
         /**
          * MemberCallOut
          * @description One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
@@ -271,6 +271,11 @@ export interface components {
              * @default false
              */
             lapsing: boolean;
+            /**
+             * Theme Armed
+             * @default false
+             */
+            theme_armed: boolean;
             /**
              * Triggers
              * @default []

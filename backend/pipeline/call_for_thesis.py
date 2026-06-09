@@ -10,7 +10,13 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
 from repositories import calls_repo, thesis_repo
-from signals import catalyst_conviction, dilution_clock, insider_conviction, volume_breakout
+from signals import (
+    catalyst_conviction,
+    dilution_clock,
+    insider_conviction,
+    theme_conviction,
+    volume_breakout,
+)
 from signals.base import PointInTimeData
 
 # The per-security detectors the pipeline runs over each basket member: the Key-1 conviction triggers
@@ -56,6 +62,13 @@ def call_for_thesis(
             event = detect(pit, member.security_id, asof, cfg)
             if event is not None:
                 events.append(event)
+
+    # M5b — an operator-ratified, thesis-level theme conviction supplies Key 1 as a FALLBACK: broadcast it
+    # onto each eligible member (a live volume-backed confirmation, no own conviction) as a flip-capped
+    # conviction event. Runs AFTER the per-member loop because eligibility reads the assembled member
+    # stream; from here the assembler treats the broadcast events as ordinary convictions (no arming change).
+    theme_fact = theme_conviction.detect_fact(pit, thesis_id, asof, cfg)
+    events += theme_conviction.broadcast(thesis, events, theme_fact, asof, cfg)
 
     card = assemble_call(thesis, events, asof, cfg)
     if record:

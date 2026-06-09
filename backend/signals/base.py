@@ -7,7 +7,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.bitemporal import as_of
+from db.bitemporal import as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
 from domain.signal import SignalEvent
 
@@ -75,6 +75,17 @@ class PointInTimeData:
             self.conn,
             "fact_catalyst",
             security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
+    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
+        """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
+        return as_of_thesis(
+            self.conn,
+            "fact_theme_conviction",
+            thesis_id=thesis_id,
             asof=self.asof,
             known_at=self.known_at,
             tenant_id=self.tenant_id,

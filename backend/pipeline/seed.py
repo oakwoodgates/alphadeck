@@ -30,6 +30,7 @@ from ingest.doe.feed import run_doe_feed
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
+from ingest.theme_conviction import ingest_theme_conviction
 from repositories import thesis_repo
 from securities import master
 
@@ -295,6 +296,35 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
     )
 
 
+def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
+    """Operator-ratify the small-scale-nuclear THEME conviction (M5b) — a thesis-level belief that supplies
+    Key 1 as a FALLBACK for a confirmed basket member with no name-specific conviction of its own. Graded
+    FLIP (capped at starter — belief never mints a core, rule 2) with a ~12-month operator horizon (re-
+    ratify to keep it live, rule 3). Co-located with SMR's 2026-06-02 VOLUME-BACKED (CORE, ~1.96x) breakout
+    it arms SMR as a disciplined theme-armed STARTER; NNE's MOMENTUM-ONLY (flip, ~1.19x) breakout is
+    correctly not enough (rule 4: volume-backed only), so NNE stays in the watch tier — one theme-armed
+    name, the volume gate working. Kept OUT of seed_nuclear and separate from the catalysts so each path
+    tests in isolation; ranks beneath OKLO (own flip) and LEU (own core) — own-above-theme + freshness.
+    """
+    ingest_theme_conviction(
+        conn,
+        NUCLEAR_THESIS_ID,
+        grade=Grade.FLIP,
+        label=(
+            "Structural small-scale-nuclear tailwind — the ADVANCE Act (2024) streamlines NRC "
+            "licensing, DOE HALEU / reactor-pilot programs fund the build-out, and AI / datacenter "
+            "power demand is surging (operator-ratified theme conviction)"
+        ),
+        source="ratified",
+        source_ref="https://www.congress.gov/bill/118th-congress/senate-bill/1111",
+        event_date=date(2026, 1, 15),
+        horizon_end=date(
+            2027, 1, 15
+        ),  # ~12-month operator horizon (live at the 2026-06-05 demo asof)
+        ratified_by="operator",
+    )
+
+
 def seed_doe_catalysts(conn: psycopg.Connection) -> list:
     """Run the DOE/USASpending AUTOMATED feed OFFLINE (committed fixtures) to emit the nuclear catalysts.
 
@@ -404,6 +434,9 @@ def main() -> None:
         seed_doe_catalysts(
             conn
         )  # the DOE/USASpending automated feed -> OKLO starter + LEU core_entry
+        seed_nuclear_theme_conviction(
+            conn
+        )  # M5b -> SMR theme-armed starter (NNE stays watch: momentum-only)
         unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

@@ -86,6 +86,9 @@ class MemberCallOut(BaseModel):
     exit_by: date | None = None  # the liveness/hold horizon = the "runway" the ranking uses
     arm_until: date | None = None
     lapsing: bool = False  # runway below the dial; the UI flags it (ranks below fresh)
+    theme_armed: bool = (
+        False  # armed via the THEME-conviction fallback (M5b), not its own conviction
+    )
     triggers: list[TriggerRefOut] = []
 
     @classmethod
@@ -103,6 +106,7 @@ class MemberCallOut(BaseModel):
             exit_by=m.exit_by,
             arm_until=m.arm_until,
             lapsing=m.lapsing,
+            theme_armed=m.theme_armed,
             triggers=[_trigger_out(t, ciks, tickers) for t in m.triggers],
         )
 

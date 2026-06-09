@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 
 import psycopg
 import pytest
 
-from db.bitemporal import append_fact, as_of
+from db.bitemporal import append_fact, as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
 
 
@@ -210,3 +211,75 @@ def test_fact_catalyst_correction_is_bitemporal(db, security_id):
     at_t2 = as_of(db, "fact_catalyst", known_at=t2, **common)
     assert len(at_t1) == 1 and at_t1[0]["grade"] == "flip"  # the upgrade isn't known yet at t1
     assert len(at_t2) == 1 and at_t2[0]["grade"] == "core"  # by t2 it's binding
+
+
+def _make_thesis_row(db) -> uuid.UUID:
+    """A bare thesis row so a thesis-scoped fact (fact_theme_conviction) has something to reference."""
+    tid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, %s, %s)",
+            (tid, DEFAULT_TENANT_ID, "Small-scale nuclear", "a theme"),
+        )
+    db.commit()
+    return tid
+
+
+def _theme(thesis_id, *, source_ref, valid_from, recorded_at, grade="flip"):
+    return {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "thesis_id": thesis_id,
+        "grade": grade,
+        "label": "small-scale-nuclear theme conviction",
+        "source": "ratified",
+        "source_ref": source_ref,
+        "ratified_by": "operator",
+        "valid_from": valid_from,
+        "recorded_at": recorded_at,
+    }
+
+
+def test_fact_theme_conviction_is_append_only(db):
+    """The theme-conviction fact is append-only too — an UPDATE raises (a re-ratification is a NEW row)."""
+    tid = _make_thesis_row(db)
+    t = datetime(2026, 1, 20, tzinfo=timezone.utc)
+    fid = append_fact(
+        db,
+        "fact_theme_conviction",
+        _theme(tid, source_ref="th-1", valid_from=date(2026, 1, 15), recorded_at=t),
+    )
+    db.commit()
+    with pytest.raises(psycopg.errors.RaiseException):
+        with db.cursor() as cur:
+            cur.execute("UPDATE fact_theme_conviction SET grade = 'core' WHERE id = %s", (fid,))
+    db.rollback()
+
+
+def test_theme_conviction_as_of_thesis_is_thesis_scoped_and_bitemporal(db):
+    """``as_of_thesis`` reads a THESIS-scoped fact (a theme conviction is basket-level, not co-located on
+    a security) and honors transaction time: a re-ratification (a NEW row) is invisible until known.
+    """
+    tid = _make_thesis_row(db)
+    t1 = datetime(2026, 1, 20, tzinfo=timezone.utc)
+    t2 = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_theme_conviction",
+        _theme(tid, source_ref="th-X", valid_from=date(2026, 1, 15), recorded_at=t1),
+    )
+    # a re-ratification (same source_ref, a fresher event date) learned at t2
+    append_fact(
+        db,
+        "fact_theme_conviction",
+        _theme(tid, source_ref="th-X", valid_from=date(2026, 2, 1), recorded_at=t2),
+    )
+    db.commit()
+    common = dict(thesis_id=tid, asof=date(2026, 6, 5), tenant_id=DEFAULT_TENANT_ID)
+    at_t1 = as_of_thesis(db, "fact_theme_conviction", known_at=t1, **common)
+    at_t2 = as_of_thesis(db, "fact_theme_conviction", known_at=t2, **common)
+    assert len(at_t1) == 1 and at_t1[0]["valid_from"] == date(
+        2026, 1, 15
+    )  # re-ratification not yet known
+    assert len(at_t2) == 1 and at_t2[0]["valid_from"] == date(
+        2026, 2, 1
+    )  # by t2 the newer one is live

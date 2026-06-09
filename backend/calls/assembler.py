@@ -9,7 +9,7 @@ from calls.counter_case import deterministic_counter_case
 from calls.grading import call_grade, grade_rank, weaker_grade
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.config import CallConfig
-from domain.enums import Grade, Role, State, Verdict
+from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
 
@@ -257,10 +257,13 @@ def rank_members(
     from ``_clock`` / ``alpha_liveness_days``) — NOT the dilution cash-runway. A member with fewer than
     ``cfg.headline_lapsing_soon_days`` of runway left is "lapsing-soon" and ranks below any "fresh" member
     *regardless of grade* (so a core arm about to lapse doesn't headline over a long-runway starter).
-    Tuple, best-first: (is_fresh, entry-grade rank, runway_days, conviction score, id).
+    Tuple, best-first: (is_fresh, entry-grade rank, is_own, runway_days, conviction score, id) — `is_own`
+    (M5b) orders a name armed on its OWN conviction above one armed only on the theme conviction (the
+    fallback), as a within-band tiebreak after grade; freshness stays primary (the within-band weighting
+    is a RECALIBRATION dial).
     """
 
-    def key(sec: UUID) -> tuple[bool, int, int, float, int]:
+    def key(sec: UUID) -> tuple[bool, int, bool, int, float, int]:
         conv = _member_events(sec, live_entry, cfg.conviction_kinds)
         conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
         exit_by = _clock(conv)
@@ -268,9 +271,13 @@ def rank_members(
         runway_days = ((exit_by or date.max) - asof).days
         is_fresh = runway_days >= cfg.headline_lapsing_soon_days
         conviction_score = max((e.score for e in conv), default=0)
+        # own-above-theme (M5b): a name with its OWN conviction outranks a theme-armed one within the
+        # same band + grade. Keyed on the conviction SOURCE (a property), not the kind (the through-line).
+        is_own = bool(_member_events(sec, live_entry, cfg.own_conviction_kinds))
         return (
             is_fresh,
             grade_rank(weaker_grade(call_grade(conv), call_grade(conf))),
+            is_own,
             runway_days,
             conviction_score,
             sec.int,
@@ -293,6 +300,11 @@ def _member_call(
     conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
     conviction_grade = call_grade(conv)
     confirmation_grade = call_grade(conf)
+    # theme-armed (M5b): this member's conviction is the theme FALLBACK, not its own — a display flag
+    # (the basis), not a behavior branch. Keyed on the conviction source, never re-coupled to behavior.
+    theme_armed = any(e.kind is Kind.THEME_CONVICTION for e in conv) and not any(
+        e.kind in cfg.own_conviction_kinds for e in conv
+    )
     member_risk = [r for r in active_risk if r.security_id == sec]
     blocked = any(r.score >= cfg.risk_block_severity for r in member_risk)
     armed = bool(conv) and bool(conf) and not blocked
@@ -322,6 +334,7 @@ def _member_call(
         exit_by=exit_by,
         arm_until=_clock(conf),
         lapsing=lapsing,
+        theme_armed=theme_armed,
         triggers=[
             TriggerRef(
                 label=e.label,

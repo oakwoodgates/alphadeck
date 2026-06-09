@@ -571,6 +571,7 @@
         "enum": [
           "insider",
           "catalyst",
+          "theme_conviction",
           "technical_breakout",
           "laggard",
           "squeeze",
@@ -677,6 +678,11 @@
           "lapsing": {
             "type": "boolean",
             "title": "Lapsing",
+            "default": false
+          },
+          "theme_armed": {
+            "type": "boolean",
+            "title": "Theme Armed",
             "default": false
           },
           "triggers": {

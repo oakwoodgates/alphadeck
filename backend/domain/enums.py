@@ -42,6 +42,9 @@ class Kind(StrEnum):
     CATALYST = (
         "catalyst"  # Key-1 conviction for theme theses (deterministic/ratified commitment, #10)
     )
+    # Key-1 FALLBACK: an operator-ratified, thesis-level theme conviction that arms an otherwise-
+    # confirmed basket member as a disciplined STARTER (M5b). The weaker key — capped at flip.
+    THEME_CONVICTION = "theme_conviction"
     TECHNICAL_BREAKOUT = "technical_breakout"
     LAGGARD = "laggard"
     SQUEEZE = "squeeze"
