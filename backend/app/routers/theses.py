@@ -39,10 +39,12 @@ def get_call(
     refetch / as-of-slider scrub / poll writes nothing. The accountability ``calls`` log is written
     by the batch ``pipeline.run`` (the official call of record), never by this GET.
     """
-    try:
-        card = call_for_thesis(conn, thesis_id, asof, record=False)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="thesis not found") from exc
+    # Load the thesis first — both for the 404 and for its tenant (auth deferred, so the tenant is
+    # intrinsic to the thesis). call_for_thesis re-loads it and threads the same tenant into every fact read.
+    thesis = thesis_repo.get(conn, thesis_id)
+    if thesis is None:
+        raise HTTPException(status_code=404, detail="thesis not found")
+    card = call_for_thesis(conn, thesis_id, asof, record=False)
     sec_ids = (
         {t.security_id for t in card.triggers_fired}
         | {r.security_id for r in card.risk_signals}
@@ -51,6 +53,8 @@ def get_call(
         }  # the per-member menu needs each member's ticker
         | {m.security_id for m in card.watch_members}
     )
-    cik_for = master.ciks_for(conn, sec_ids)
-    ticker_for = master.tickers_for(conn, sec_ids)
+    # Resolve tickers/CIKs under the THESIS's tenant — security_master is per-tenant, so a production
+    # thesis's names resolve from production's master, not the demo default.
+    cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     return CallCardResponse.from_card(card, cik_for, ticker_for)

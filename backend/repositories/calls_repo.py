@@ -5,15 +5,21 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
+from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from repositories.mappers import call_to_row, row_to_call
 
 
-def append(conn: psycopg.Connection, card: CallCard) -> UUID:
-    """Append an assembled CallCard to the write-only accountability log. NOT the read path — the API
-    recomputes the card live from facts. The caller owns the transaction (commit/rollback).
+def append(conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_TENANT_ID) -> UUID:
+    """Append an assembled CallCard to the write-only accountability log, under ``tenant_id`` (the call of
+    record lands in the thesis's tenant). NOT the read path — the API recomputes the card live from facts.
+    The caller owns the transaction (commit/rollback).
+
+    ``tenant_id`` defaults to the demo tenant (a test/seed convenience, like the ingest fns); the production
+    write path (``call_for_thesis``) always passes ``thesis.tenant_id`` explicitly, so the call of record can
+    never land in the wrong tenant on that path.
     """
-    row = call_to_row(card)
+    row = call_to_row(card, tenant_id)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card)

@@ -82,7 +82,9 @@ New arming logic, so a short design pass first (like the catalyst pass) covering
 2. **Recalibration pass** — tune the dials + filed refinements in `RECALIBRATION.md` against replay outcomes,
    **never to fit one name**.
 3. **Cut production as a fresh tenant** — `tenant_id` per row means production is a *new tenant*, never a
-   destructive wipe; dev/demo data is kept.
+   destructive wipe; dev/demo data is kept. The tenant is threaded from the thesis (auth deferred) and
+   isolation is **proven** by a poison-row test, not just asserted — design, threading map, and known
+   limitations (the Board is not yet tenant-scoped; no RLS) live in `PRODUCTION_TENANT.md`.
 
 ---
 

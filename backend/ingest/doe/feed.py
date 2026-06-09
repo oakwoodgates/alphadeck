@@ -17,6 +17,7 @@ from uuid import UUID
 
 import psycopg
 
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade
 from ingest.catalyst import ingest_catalyst
@@ -161,12 +162,15 @@ def run_doe_feed(
     *,
     cfg: CallConfig = DEFAULT_CONFIG,
     search_terms: tuple[str, ...] = entities.SEARCH_TERMS,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> list[DoeCatalyst]:
     """Run the feed end-to-end: discover → exact-resolve → detail-parse → emit catalyst facts.
 
     Deterministic; the caller owns the txn (no commit here). ``resolve_security(ticker) -> UUID | None``
     maps a curated ticker to its security id (the security master) — a ticker outside this universe is
-    skipped. Returns the emitted catalysts (for logging / assertions).
+    skipped. Catalyst facts are emitted under ``tenant_id`` (defaults to demo; pass a production tenant to
+    run the feed into production). ``resolve_security`` must resolve in the SAME tenant. Returns the emitted
+    catalysts (for logging / assertions).
     """
     emitted: list[DoeCatalyst] = []
     for gid, ticker in discover(client, search_terms=search_terms).items():
@@ -186,6 +190,7 @@ def run_doe_feed(
             source_ref=catalyst.source_ref,
             event_date=catalyst.event_date,
             horizon_end=catalyst.horizon_end,
+            tenant_id=tenant_id,
         )
         emitted.append(catalyst)
     return emitted
