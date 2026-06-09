@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
@@ -97,9 +98,9 @@ def thesis_to_row(thesis: Thesis) -> dict[str, Any]:
     }
 
 
-def call_to_row(card: CallCard) -> dict[str, Any]:
+def call_to_row(card: CallCard, tenant_id: UUID = DEFAULT_TENANT_ID) -> dict[str, Any]:
     return {
-        "tenant_id": DEFAULT_TENANT_ID,
+        "tenant_id": tenant_id,
         "thesis_id": card.thesis_id,
         "asof": card.asof,
         "state": card.state.value,

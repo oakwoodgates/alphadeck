@@ -22,12 +22,12 @@ from domain.enums import CatalystType, Grade
 from ingest.catalyst import ingest_catalyst
 
 
-def _resolve(conn: psycopg.Connection, ticker: str) -> UUID:
+def _resolve(conn: psycopg.Connection, ticker: str, tenant_id: UUID) -> UUID:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id FROM security_master WHERE tenant_id = %s AND ticker = %s "
             "ORDER BY recorded_at DESC LIMIT 1",
-            (DEFAULT_TENANT_ID, ticker.upper()),
+            (tenant_id, ticker.upper()),
         )
         row = cur.fetchone()
     if row is None:
@@ -53,11 +53,17 @@ def main(argv: list[str] | None = None) -> None:
         help="the agreement term / relevance-horizon end (YYYY-MM-DD); drives liveness, else the default",
     )
     p.add_argument("--by", default="operator", help="who ratified")
+    p.add_argument(
+        "--tenant-id",
+        default=str(DEFAULT_TENANT_ID),
+        help="tenant to ratify under (resolve + fact); defaults to the demo tenant",
+    )
     a = p.parse_args(argv)
 
+    tenant_id = UUID(a.tenant_id)
     conn = connect()
     try:
-        sid = _resolve(conn, a.ticker)
+        sid = _resolve(conn, a.ticker, tenant_id)
         fid = ingest_catalyst(
             conn,
             sid,
@@ -69,6 +75,7 @@ def main(argv: list[str] | None = None) -> None:
             event_date=date.fromisoformat(a.date),
             horizon_end=date.fromisoformat(a.horizon_end) if a.horizon_end else None,
             ratified_by=a.by,
+            tenant_id=tenant_id,
         )
         conn.commit()
         print(f"ratified catalyst {fid} on {a.ticker.upper()} ({a.grade}) — {a.label}")

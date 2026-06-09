@@ -38,8 +38,13 @@ def call_for_thesis(
     if thesis is None:
         raise LookupError(f"thesis not found: {thesis_id}")
 
-    pit = PointInTimeData(conn, asof=asof, known_at=known_at)
+    # Derive the tenant from the THESIS (auth deferred): a thesis lives in exactly one tenant, so its
+    # tenant_id scopes EVERY fact read for this call (threaded once into the pit) AND the call-of-record
+    # write — making both the API read path and the batch pipeline tenant-correct from this one place.
+    # Pass it explicitly: the column is NOT NULL, so a loaded thesis's tenant_id is non-None; never
+    # `or DEFAULT` here, so a None would surface as a bug rather than silently read demo facts.
+    pit = PointInTimeData(conn, asof=asof, known_at=known_at, tenant_id=thesis.tenant_id)
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
-        calls_repo.append(conn, card)
+        calls_repo.append(conn, card, thesis.tenant_id)
     return card
