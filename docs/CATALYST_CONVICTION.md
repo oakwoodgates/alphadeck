@@ -37,8 +37,8 @@
 - **Append-only / bitemporal storage:** `fact_catalyst` (+ `horizon_end`); a correction is a new row;
   `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe.
 
-**Deferred `[DEFERRED]`:** theme/group arming (a theme-conviction arms any confirmed member — **M5**, the next
-build); the automated material-agreement 8-K detector; NRC license-action feed; ETF-launch-as-conviction; the
+**Deferred `[DEFERRED]`:** theme/group arming (a theme-conviction arms any confirmed member) is now
+`[BUILT — M5b, see docs/THEME_CONVICTION.md]`; the automated material-agreement 8-K detector; NRC license-action feed; ETF-launch-as-conviction; the
 loans award-type group in the DOE feed (the grade rule already handles loans → core, but the query group isn't
 wired — see RECALIBRATION). The age-decay-of-confidence refinement stays filed (CALL_LOGIC §7).
 

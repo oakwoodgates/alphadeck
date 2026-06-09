@@ -38,7 +38,11 @@
 | `breakout_alpha_liveness_days` | 10 | the entry window (`arm_until`) | |
 | **Confidence (caps compose `min-of`):** | | | |
 | `single_detector_cap` | 0.80 | a one-detector call never reads "high" | |
-| `starter_confidence_cap` | 0.55 | **any** starter (weak entry key) caps here | the inverse-loudness ceiling |
+| `starter_confidence_cap` | 0.55 | **any** starter (weak entry key) caps here — incl. a theme-armed member | the inverse-loudness ceiling |
+| **Per-member ranking + theme conviction (M5):** | | | |
+| `headline_lapsing_soon_days` | 45 | freshness band: runway < this = "lapsing-soon", ranks below any fresh member | **load-bearing for belief-vs-data (M5b):** also gates how readily a *fresh theme starter* leapfrogs a *lapsing own core* — tune with that in mind |
+| `theme_conviction_default_horizon_days` | 365 | theme-conviction liveness when no `horizon_end` is ratified | ~12mo; also the upper-bound / re-ratification-cadence knob (it expires unless re-ratified) |
+| within-band tiebreak (`is_own` placement) | own-above-theme, after grade | own-vs-theme ordering within a band | own-above-theme is *shape*; its placement/weight is the dial (M5b Q1) |
 
 ## B. Filed structural refinements (small changes, deferred — not just value tweaks)
 
@@ -46,9 +50,13 @@
    firmer starter* than a $0 OTA — but as **size flowing through confidence within the flip grade**, not a
    grade bump (grade is nature, not size). Today flip catalyst score isn't scaled by obligation. *(catalyst
    `score` in `ingest/doe/feed` / the detector.)*
-2. **Headline rule weighs runway + freshness, not grade alone.** The theme headline is strongest-by-entry-
-   grade; but a `core` arm three weeks from lapsing (LEU → 2026-06-30) isn't always better to *act on* than a
-   `starter` with years of runway (OKLO → 2029). *(CALL_LOGIC §2; `calls/assembler._arming_security`.)*
+2. **Headline ranking weighs runway + freshness, not grade alone `[BUILT M5a; extended M5b]`.** Built in
+   M5a (`calls/assembler.rank_members`): a freshness BAND (runway) is primary, grade within — so a `core` arm
+   three weeks from lapsing (LEU → 2026-06-30) no longer auto-headlines over a fresh `starter` with years of
+   runway (OKLO → 2029). M5b adds the `is_own` within-band tiebreak (own-above-theme) and makes
+   `headline_lapsing_soon_days` **load-bearing for the belief-vs-data line** — it gates how readily a fresh
+   theme starter leapfrogs a lapsing own core. What remains to tune is the *weighting* (the `is_own` placement
+   + the lapsing threshold), per table A.
 3. **Split the momentum-only cap back out (maybe).** The cap merge folded momentum-only into the starter cap
    (both 0.55, `min-of`). A near-conviction-less momentum call and a real provisional starter now share a
    ceiling; if we later want momentum-only to cap *harder*, re-introduce a separate (lower) momentum-only cap.
@@ -61,10 +69,11 @@
 > These are the deferred *builds* tracked alongside the dials; their **sequencing across phases lives in
 > `docs/ROADMAP.md`** (the live plan). This list is the consolidated backlog, not the order.
 
-1. **M5 — group / per-member ranked view (NEXT; ROADMAP M5).** A theme currently collapses to a single
-   headline; the menu — every armed name in the theme, **ranked** (on grade AND runway, B.2), with its setup —
-   is what serves name-selection (the operator's flaw). Demanded by real data (LEU core next to OKLO starter).
-   Also: theme/group arming (a theme-conviction arms any confirmed member) — ROADMAP M5 Part B.
+1. **M5 — group / per-member ranked view `[BUILT]`.** M5 Part A (the per-member ranked menu — every armed
+   name in the theme, ranked on a freshness band, B.2) and M5 Part B (theme/group arming — an operator-
+   ratified theme conviction arms any confirmed member as a capped starter; `docs/THEME_CONVICTION.md`) are
+   both shipped. The remaining work here is **calibration** (table A: the lapsing threshold + the `is_own`
+   weighting), not architecture.
 2. **DOE feed — loans award-type group.** The grade rule already maps loans/loan-guarantees → core, but the
    feed doesn't *query* the loans type group yet (note: loans need a sort field other than "Award Amount" —
    that combo 400s). Wire it so the first DOE loan guarantee is discovered, not just gradeable.
