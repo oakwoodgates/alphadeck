@@ -46,8 +46,10 @@ def _seed_all(db):
 
 def test_run_is_reproducible(db, tmp_path):
     """Determinism pin (req 4): same (snapshot, pin, window, cfg) -> value-identical timeline + scores. We
-    compare the returned metrics by value (the honest, achievable form of 'byte-reproducible')."""
-    _seed_all(db)
+    compare the returned metrics by value (the honest, achievable form of 'byte-reproducible'). UNH-only
+    (its arc produces episodes) keeps the two full runs cheap — the property is per-run determinism."""
+    seed_unh(db)
+    db.commit()
     m1 = run(db, start=_START, end=_END, pin=_PIN, out_dir=tmp_path / "r1")
     m2 = run(db, start=_START, end=_END, pin=_PIN, out_dir=tmp_path / "r2")
     assert m1.model_dump() == m2.model_dump()

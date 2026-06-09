@@ -38,9 +38,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"  # the declared floor (requires-python >=3.11); catches 3.11-only breaks
-      # Deps come from pyproject (single source); the dev extra pins the linters so CI matches local.
-      - name: Install (editable + dev)
-        run: pip install -e ".[dev]"
+      # Deps come from pyproject (single source); the dev extra pins the linters so CI matches local. The
+      # replay extra (duckdb + pyarrow) so the backtest-harness tests run here against the Postgres service.
+      - name: Install (editable + dev + replay)
+        run: pip install -e ".[dev,replay]"
       - name: OpenAPI contract is up to date
         # regenerate from the live app; fails if the committed openapi.json drifted from the code
         run: |
