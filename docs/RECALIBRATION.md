@@ -81,6 +81,22 @@
    license-action feed; ETF-launch-as-conviction (with the ETF radar).
 4. **LLM counter-case** (M4b): the live Anthropic path behind the assembler's existing hook, deterministic
    template as the guaranteed fallback.
-5. **Replay / backtest harness → ROADMAP Phase 1 (trust)** — validates the edge over history and produces the
-   scored outcomes this recalibration pass runs against. **ETF radar + umbrella/segment hierarchy → ROADMAP
-   Phase 3 (breadth/depth).** *(These were one old-"M5+" bundle; they split across phases in the new plan.)*
+5. **Replay / backtest harness → ROADMAP Phase 1 (trust) `[BUILT — Step 1]`.** The instrument is shipped
+   (`backend/replay/`, `docs/REPLAY.md`); it produces the scored outcomes this pass runs against. **ETF radar +
+   umbrella/segment hierarchy → ROADMAP Phase 3 (breadth/depth).** *(These were one old-"M5+" bundle; they
+   split across phases in the new plan.)*
+
+## D. What the replay harness surfaced (Phase 1 Step 1 — SEED-ONLY, instrument-not-claim, log-not-fix)
+
+The instrument's first run over the seed (n=19 episodes across UNH + nuclear; **far too small to claim** —
+this is a question for Step 2 to confirm against real history, not a dial change now):
+
+1. **`exit_by` / alpha-liveness horizons look too LONG for volatile names.** `exit_by_vs_rollover`: the median
+   arm sits **~35 days past its realized peak** and gives back **~37%** from peak to `exit_by`; that long exit
+   turns peaked-positive arms into negative-at-`exit_by`, which is most of the **89% false-arm-at-exit_by**.
+   Meanwhile the **arm side looks sound**: calibration is monotonic (core −10% > flip −25% even here),
+   `early_vs_armed` is only +6% (the wait clips little edge), and the withhold **dodged UNH's −12% summer
+   slide** (2025-05-14→08-14). Net read: the **entry timing patches the flaw; the EXIT horizon may be the
+   miscalibration.** Candidate dials: `insider_core_alpha_liveness_days` (180), `catalyst_default_horizon_days`
+   (365), `conviction_hold_threshold_days` (90) — and the age-decay-of-confidence refinement (B.4). **Do not
+   tune on n=19** — Step 2 confirms on real history.
