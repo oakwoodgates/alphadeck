@@ -509,10 +509,11 @@ def seed_nuclear_shares(conn: psycopg.Connection) -> None:
     rows = [
         (
             LEU_ID,
-            18_953_594,
+            19_672_794,
             _LEU_10Q,
             date(2026, 5, 1),
-            "Class A as of 2026-05-01 (Class B 719,200 excluded).",
+            "Total economic = Class A 18,953,594 + Class B 719,200 (Class B is economic common, par "
+            "$0.10; the A/B split is voting, not economics), as of 2026-05-01.",
         ),
         (
             SMR_ID,
