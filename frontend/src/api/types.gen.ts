@@ -61,6 +61,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/scored": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scored
+         * @description Re-derive the per-name Workbench scores live at ``asof`` — a READ-ONLY path (Option B; nothing
+         *     persists). Mirrors the call endpoint: load the thesis (404 + its tenant), thread ``thesis.tenant_id``
+         *     into every scoring fact read so a production thesis scores off production's facts.
+         */
+        get: operations["get_scored_workbench_theses__thesis_id__scored_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workbench/theses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Promote
+         * @description Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
+         *     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
+         *     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
+         *     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
+         */
+        post: operations["promote_workbench_theses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -307,6 +352,32 @@ export interface components {
             /** Opened On */
             opened_on?: string | null;
         };
+        /**
+         * PromoteThesisRequest
+         * @description The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
+         *     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
+         *     it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
+         */
+        PromoteThesisRequest: {
+            /** Id */
+            id?: string | null;
+            /** Name */
+            name: string;
+            /** Narrative */
+            narrative: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Basket
+             * @default []
+             */
+            basket: components["schemas"]["BasketMember"][];
+            /**
+             * Segments
+             * @default []
+             */
+            segments: components["schemas"]["Segment"][];
+        };
         /** ProvenanceOut */
         ProvenanceOut: {
             /** Source */
@@ -322,6 +393,45 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * ScoredFigureOut
+         * @description One meter/figure on the wire: the 0-4 pip (null = "—"/no data), the raw value, and the provenance
+         *     chips ("behind the scores"). market_cap carries `value` only (pips null — a figure, not a meter).
+         */
+        ScoredFigureOut: {
+            /** Pips */
+            pips?: number | null;
+            /** Value */
+            value?: number | null;
+            /**
+             * Provenance
+             * @default []
+             */
+            provenance: components["schemas"]["ProvenanceOut"][];
+        };
+        /**
+         * ScoredMemberOut
+         * @description A basket member scored for the Workbench — the four meters + the market-cap figure + the fit label.
+         */
+        ScoredMemberOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            archetype: components["schemas"]["Archetype"];
+            /** Segment */
+            segment?: string | null;
+            purity: components["schemas"]["ScoredFigureOut"];
+            runway: components["schemas"]["ScoredFigureOut"];
+            catalysts: components["schemas"]["ScoredFigureOut"];
+            dilution: components["schemas"]["ScoredFigureOut"];
+            market_cap: components["schemas"]["ScoredFigureOut"];
+            /** Fit */
+            fit: string;
         };
         /**
          * Segment
@@ -442,6 +552,33 @@ export interface components {
          * @enum {string}
          */
         Verdict: "watching" | "not_yet" | "flip_only" | "starter_entry" | "core_entry" | "managing";
+        /**
+         * WorkbenchScored
+         * @description The Workbench scored read for a thesis: its value-chain segments + the scored members (the UI groups
+         *     by `member.segment`). Re-derived on read — never persisted.
+         */
+        WorkbenchScored: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Segments
+             * @default []
+             */
+            segments: components["schemas"]["Segment"][];
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["ScoredMemberOut"][];
+        };
     };
     responses: never;
     parameters: never;
@@ -523,6 +660,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallCardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scored_workbench_theses__thesis_id__scored_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; the scores use no data knowable after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchScored"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_workbench_theses_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteThesisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
                 };
             };
             /** @description Validation Error */

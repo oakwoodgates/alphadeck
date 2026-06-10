@@ -20,13 +20,13 @@ from ingest.edgar.converts import ConvertTerms
 from signals.base import PointInTimeData
 
 
-def score(
-    facts: list[dict[str, Any]],
-    security_id: UUID,
-    asof: date,
-    cfg: CallConfig = DEFAULT_CONFIG,
-) -> SignalEvent | None:
-    """Pure: score a security's OUTSTANDING convertible-note overhang into a dilution RISK signal."""
+def _live_converts(
+    facts: list[dict[str, Any]], asof: date
+) -> tuple[list[tuple[ConvertTerms, str]], float] | None:
+    """The as-of-LIVE convertible-note terms (matured ones dropped) + the shares-outstanding basis, or
+    ``None`` if there are no live converts or no shares. The single parse that BOTH the overhang number and
+    the risk-signal label/provenance read from — one read of ``fact_dilution``, one source of truth.
+    """
     terms: list[tuple[ConvertTerms, str]] = []
     shares_out: float | None = None
     for f in facts:
@@ -38,13 +38,45 @@ def score(
         terms.append((t, f["accession"]))
         if f.get("shares_outstanding"):
             shares_out = float(f["shares_outstanding"])
+    if not terms or not shares_out:
+        return None
+    return terms, shares_out
 
+
+def _pct(terms: list[tuple[ConvertTerms, str]], shares_out: float) -> float | None:
+    """The gross convert overhang as a % of shares outstanding (as-converted share count / shares)."""
     conv_shares = sum(t.principal_total_usd / 1000.0 * t.conversion_rate for t, _ in terms)
-    if not terms or not shares_out or conv_shares <= 0:
+    if conv_shares <= 0:
+        return None
+    return 100.0 * conv_shares / shares_out
+
+
+def overhang_pct(facts: list[dict[str, Any]], security_id: UUID, asof: date) -> float | None:
+    """The RAW convert-overhang % — the SINGLE source of overhang, shared by the dilution risk-veto
+    (``score`` below) and the Workbench dilution meter. The meter buckets on this real number, NEVER backed
+    out of the clamped/normalized risk ``severity`` (which saturates at the severe threshold). ``None`` when
+    there are no live converts / no shares — the meter renders that as "—", never a 0 (no fake zeros).
+    """
+    live = _live_converts(facts, asof)
+    return _pct(*live) if live is not None else None
+
+
+def score(
+    facts: list[dict[str, Any]],
+    security_id: UUID,
+    asof: date,
+    cfg: CallConfig = DEFAULT_CONFIG,
+) -> SignalEvent | None:
+    """Pure: score a security's OUTSTANDING convertible-note overhang into a dilution RISK signal."""
+    live = _live_converts(facts, asof)
+    if live is None:
+        return None
+    terms, shares_out = live
+    pct = _pct(terms, shares_out)
+    if pct is None:
         return None
 
-    overhang_pct = 100.0 * conv_shares / shares_out
-    severity = min(overhang_pct / cfg.dilution_overhang_severe_pct, 1.0) * cfg.risk_block_severity
+    severity = min(pct / cfg.dilution_overhang_severe_pct, 1.0) * cfg.risk_block_severity
     total_principal = sum(t.principal_total_usd for t, _ in terms)
     capped = any(t.capped_call_cost_usd is not None for t, _ in terms)
     cap_price = next((t.cap_price_usd for t, _ in terms if t.cap_price_usd), None)
@@ -55,7 +87,7 @@ def score(
     offset = f", offset by a capped call (cap ~${cap_price:,.2f})" if capped and cap_price else ""
     label = (
         f"~${total_principal / 1e6:,.1f}M {'zero-coupon ' if coupon_zero else ''}convertible notes "
-        f"due {due_year} — ~{overhang_pct:.1f}% potential share dilution{offset}; structural "
+        f"due {due_year} — ~{pct:.1f}% potential share dilution{offset}; structural "
         f"overhang, not an entry blocker"
     )
     return SignalEvent(
