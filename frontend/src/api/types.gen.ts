@@ -83,6 +83,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Securities
+         * @description Search the current tenant's security master for names to PLACE into a basket (the authoring
+         *     typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
+         *     — never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick
+         *     carries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).
+         */
+        get: operations["search_securities_workbench_securities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses": {
         parameters: {
             query?: never;
@@ -357,6 +380,7 @@ export interface components {
          * @description The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
          *     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
          *     it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
+         *     `authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body.
          */
         PromoteThesisRequest: {
             /** Id */
@@ -432,6 +456,25 @@ export interface components {
             market_cap: components["schemas"]["ScoredFigureOut"];
             /** Fit */
             fit: string;
+        };
+        /**
+         * SecurityMatchOut
+         * @description A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the
+         *     exact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING
+         *     per-tenant master (INVARIANT #2) — every match is a real member, nothing is ingested or guessed.
+         */
+        SecurityMatchOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name?: string | null;
+            /** Cik */
+            cik?: string | null;
         };
         /**
          * Segment
@@ -694,6 +737,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkbenchScored"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_securities_workbench_securities_get: {
+        parameters: {
+            query?: {
+                /** @description ticker or name fragment; a discovery net over the master */
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityMatchOut"][];
                 };
             };
             /** @description Validation Error */

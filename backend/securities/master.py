@@ -131,6 +131,33 @@ def ids_for_tickers(
         return {row["ticker"]: row["id"] for row in cur.fetchall()}
 
 
+def search(
+    conn: psycopg.Connection,
+    query: str,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    limit: int = 10,
+) -> list[Security]:
+    """Discovery net over the per-tenant master: the securities whose ticker or name contains ``query``
+    (case-insensitive), latest row per ticker, for the operator to PICK from when authoring a basket.
+
+    INVARIANT #2 by construction — "fuzzy is a discovery net, never a decider": every row returned is an
+    EXACT master member; the operator picks the exact ``security_id``. **Read-only** — it never ingests
+    (cf. ``resolve``'s ``allow_live`` live path) and never conjures an unknown ticker into existence. A
+    blank query matches all (capped at ``limit``); no match returns ``[]``. Tenant-scoped like every
+    master read.
+    """
+    like = f"%{query.strip().upper()}%"
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (ticker) * FROM security_master "
+            "WHERE tenant_id = %s AND ticker IS NOT NULL AND (ticker LIKE %s OR UPPER(name) LIKE %s) "
+            "ORDER BY ticker, recorded_at DESC LIMIT %s",
+            (tenant_id, like, like, limit),
+        )
+        return [_row_to_security(row) for row in cur.fetchall()]
+
+
 def tickers_for(
     conn: psycopg.Connection,
     security_ids: Iterable[UUID],

@@ -186,6 +186,68 @@
         }
       }
     },
+    "/workbench/securities": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Search Securities",
+        "description": "Search the current tenant's security master for names to PLACE into a basket (the authoring\ntypeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from\n\u2014 never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick\ncarries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).",
+        "operationId": "search_securities_workbench_securities_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "ticker or name fragment; a discovery net over the master",
+              "default": "",
+              "title": "Q"
+            },
+            "description": "ticker or name fragment; a discovery net over the master"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 10,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SecurityMatchOut"
+                  },
+                  "title": "Response Search Securities Workbench Securities Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses": {
       "post": {
         "tags": [
@@ -924,7 +986,7 @@
           "narrative"
         ],
         "title": "PromoteThesisRequest",
-        "description": "The promote/update payload \u2014 a thesis-with-chain. The router builds a domain Thesis (the\nsegment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts\nit (create when `id` is null, update otherwise). Scores are NOT sent \u2014 they re-derive on read."
+        "description": "The promote/update payload \u2014 a thesis-with-chain. The router builds a domain Thesis (the\nsegment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts\nit (create when `id` is null, update otherwise). Scores are NOT sent \u2014 they re-derive on read.\n`authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body."
       },
       "ProvenanceOut": {
         "properties": {
@@ -1063,6 +1125,48 @@
         ],
         "title": "ScoredMemberOut",
         "description": "A basket member scored for the Workbench \u2014 the four meters + the market-cap figure + the fit label."
+      },
+      "SecurityMatchOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cik"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker"
+        ],
+        "title": "SecurityMatchOut",
+        "description": "A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the\nexact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING\nper-tenant master (INVARIANT #2) \u2014 every match is a real member, nothing is ingested or guessed."
       },
       "Segment": {
         "properties": {

@@ -344,10 +344,23 @@ class WorkbenchScored(BaseModel):
     members: list[ScoredMemberOut] = []
 
 
+class SecurityMatchOut(BaseModel):
+    """A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the
+    exact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING
+    per-tenant master (INVARIANT #2) — every match is a real member, nothing is ingested or guessed.
+    """
+
+    security_id: UUID
+    ticker: str
+    name: str | None = None
+    cik: str | None = None
+
+
 class PromoteThesisRequest(BaseModel):
     """The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
     it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
+    `authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body.
     """
 
     id: UUID | None = None

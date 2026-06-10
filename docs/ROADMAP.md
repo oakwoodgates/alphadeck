@@ -126,7 +126,7 @@ into a basket.** So **Slice 4b is the second half of the MVP, not deferred polis
 - **Slice 3 — the scoring engine `[MERGED #50]`** — the **four** data-derived pip meters + the market-cap
   figure, re-derived on read (Option B); the Workbench API (`GET …/scored`, `POST /workbench/theses`) + the
   current-tenant resolver. See `docs/WORKBENCH_SCORING.md`.
-- **Slice 4 — the Workbench UI · DISPLAY · SCORE · PROMOTE `[BUILT — in review]`** — the React screen against
+- **Slice 4 — the Workbench UI · DISPLAY · SCORE · PROMOTE `[MERGED #52]`** — the React screen against
   the mockup, wired to the live scored endpoint: the four-meter rows + the market-cap figure + the fit label,
   the **DD rail** ("behind the scores" provenance with the burn-composition / cash-basis notes + clickable
   EDGAR), the quiet **promote round-trip** (→ an Incubating Board thesis). The **dilution meter is the ember
@@ -136,12 +136,23 @@ into a basket.** So **Slice 4b is the second half of the MVP, not deferred polis
   render as one flat scored list; the gap is made honest in-product (a disabled "add/edit names" affordance + an
   "authoring is 4b" marker) so the polish never masquerades as a finished product. **Frontend only — the
   Slice-3 wire is untouched.**
-- **Slice 4b — AUTHORING · the second half of the MVP, NOT optional `[NEXT]`** — build & edit the value chain:
-  add / place / move names with authorship tracked (the `operator_set` / `operator_edited` seam, already on
-  `ThesisDetail.basket[].authored_by`), **decompose the flat basket into links**, re-score on edit. Carries the
-  **one deliberate, reviewed wire addition the MVP still needs — a ticker→security resolve endpoint** (placing a
-  new name must turn a ticker into a `security_id`; none exists today). The **working Workbench MVP milestone
-  sits AFTER this slice.**
+- **Slice 4b — AUTHORING · the second half of the MVP, NOT optional** — build & edit the value chain:
+  add / place / move names (authorship tracked), **decompose the flat basket into links**, re-score on edit.
+  Two sub-slices — the wire add gated first (the S1→S4 rhythm):
+  - **4b-1 — the resolver + the `authored_by` write rule `[BUILT — in review]`** — `GET /workbench/securities`,
+    a **read-only discovery net** over the per-tenant master (exact-membership, INVARIANT #2 — never an ingest,
+    never a guess; the operator picks the exact `security_id`); the promote write **stamps**
+    `authored_by = operator_set` server-side (coercing the body — `system_drafted` is reserved for S5's own
+    write path, `operator_edited` defers to S5's draft-diff). The wire grows; openapi + types regenerated.
+  - **4b-2 — the authoring UI + the first frontend test harness `[NEXT]`** — segment CRUD, place/move, the
+    add-a-name typeahead, save via the existing full-replace `POST /workbench/theses`, re-score; plus a
+    vitest/RTL harness landing the grouped-render coverage the flat seed left unexercised in S4.
+  - **⚠️ Authoring is the MACHINERY, not a populated universe.** The resolver searches the CURRENT tenant's
+    master — **which is still just the seed**. So after 4b you can decompose / re-arrange the seeded basket and
+    add a name *already ingested*, but **"turn a fresh narrative into a basket" stays gated on INGESTION** (the
+    filed XBRL auto-extract that populates the master — NOT authoring). "Authoring done" must never read as
+    "the flaw is patched" — same discipline as the flat-basket gap.
+  The **working Workbench MVP milestone sits AFTER 4b *and* a populated universe.**
 - **Slice 5 — the bounded LLM drafter `[FILED]`** — `backend/llm`: drafts the decomposition + the thesis-fit
   prose; the operator ratifies every placement; cites sources; caches; **never sources a number.**
 
