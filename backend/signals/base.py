@@ -89,6 +89,39 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def revenue_mix_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """Workbench purity basis — operator-ratified revenue-mix facts (10-K segments), as-of."""
+        return as_of(
+            self.conn,
+            "fact_revenue_mix",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
+    def shares_outstanding_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """Workbench market-cap basis — operator-ratified shares-outstanding facts (10-Q), as-of."""
+        return as_of(
+            self.conn,
+            "fact_shares_outstanding",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
+    def cash_burn_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """Workbench runway basis — operator-ratified cash + quarterly-burn facts (10-Q), as-of."""
+        return as_of(
+            self.conn,
+            "fact_cash_burn",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
         return as_of_thesis(
