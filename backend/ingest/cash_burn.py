@@ -29,6 +29,7 @@ def ingest_cash_burn(
     source: str,
     source_ref: str,
     event_date: date,
+    note: str | None = None,
     ratified_by: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
@@ -46,6 +47,7 @@ def ingest_cash_burn(
         "quarterly_burn_usd": quarterly_burn_usd,
         "source": source,
         "source_ref": source_ref,
+        "note": note,
         "ratified_by": ratified_by,
         "valid_from": event_date,
     }
