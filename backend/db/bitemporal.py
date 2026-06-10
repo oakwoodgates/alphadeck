@@ -18,6 +18,13 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "source_ref"
     ],  # one catalyst per source (accession / award id / ratified URL)
     "fact_theme_conviction": ["source_ref"],  # one theme conviction per source (ratified doc / URL)
+    "fact_revenue_mix": [
+        "source_ref"
+    ],  # one revenue-mix fact per source (10-K segment) — Workbench purity
+    "fact_shares_outstanding": [
+        "source_ref"
+    ],  # one shares fact per source (10-Q cover) — Workbench mkt cap
+    "fact_cash_burn": ["source_ref"],  # one cash/burn fact per source (10-Q) — Workbench runway
 }
 
 

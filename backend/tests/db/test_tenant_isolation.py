@@ -23,12 +23,16 @@ from db.bitemporal import append_fact, as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype, State, Verdict
 from domain.thesis import BasketMember, Thesis
+from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
+from ingest.revenue_mix import ingest_revenue_mix
+from ingest.shares import ingest_shares_outstanding
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from securities import master
+from signals.base import PointInTimeData
 
 # A FIXED production tenant id, distinct from DEFAULT_TENANT_ID (the demo). Fixed (not random) because the
 # `db` fixture does NOT truncate `tenant`; combined with provision_tenant's ON CONFLICT, re-runs are
@@ -338,3 +342,87 @@ def test_production_cut_smoke(db):
     # omitted) — the same threading the API's ticker resolution relies on.
     assert master.tickers_for(db, {prod_sec}, tenant_id=PROD_TENANT_ID) == {prod_sec: "HIMS"}
     assert master.tickers_for(db, {prod_sec}, tenant_id=DEFAULT_TENANT_ID) == {}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The Workbench scoring facts (Slice 2) — every new read surface stays tenant-isolated.
+# ---------------------------------------------------------------------------------------------------------
+def test_scoring_facts_read_isolation(db):
+    """The three new scoring-fact accessors (revenue_mix / shares_outstanding / cash_burn) are tenant-scoped
+    like every other fact read: a demo fact and a prod fact on same-ticker securities are each visible ONLY
+    under their own tenant, and the cross-reads return []. Grows the isolation proof as new read surfaces
+    land — discipline-not-RLS only holds if each new path stays on the tenant-filtered accessor."""
+    provision_tenant(db, "prod-scoring", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID)
+    prod_sec = _security(db, PROD_TENANT_ID)
+
+    ingest_revenue_mix(
+        db,
+        demo_sec,
+        segment_label="telehealth",
+        mix_pct=90,
+        source="ratified",
+        source_ref="DEMO-MIX",
+        event_date=date(2026, 1, 1),
+    )
+    ingest_revenue_mix(
+        db,
+        prod_sec,
+        segment_label="nuclear",
+        mix_pct=100,
+        source="ratified",
+        source_ref="PROD-MIX",
+        event_date=date(2026, 1, 1),
+        tenant_id=PROD_TENANT_ID,
+    )
+    ingest_shares_outstanding(
+        db,
+        demo_sec,
+        shares=228_000_000,
+        source="ratified",
+        source_ref="DEMO-SH",
+        event_date=date(2026, 1, 1),
+    )
+    ingest_shares_outstanding(
+        db,
+        prod_sec,
+        shares=141_000_000,
+        source="ratified",
+        source_ref="PROD-SH",
+        event_date=date(2026, 1, 1),
+        tenant_id=PROD_TENANT_ID,
+    )
+    ingest_cash_burn(
+        db,
+        demo_sec,
+        cash_usd=1_000_000_000,
+        quarterly_burn_usd=0,
+        source="ratified",
+        source_ref="DEMO-CB",
+        event_date=date(2026, 1, 1),
+    )
+    ingest_cash_burn(
+        db,
+        prod_sec,
+        cash_usd=280_000_000,
+        quarterly_burn_usd=25_000_000,
+        source="ratified",
+        source_ref="PROD-CB",
+        event_date=date(2026, 1, 1),
+        tenant_id=PROD_TENANT_ID,
+    )
+
+    asof = date(2026, 6, 1)
+    demo_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID)
+    prod_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID)
+
+    def _assert_isolated(accessor: str, demo_ref: str, prod_ref: str) -> None:
+        assert [r["source_ref"] for r in getattr(demo_pit, accessor)(demo_sec)] == [demo_ref]
+        assert [r["source_ref"] for r in getattr(prod_pit, accessor)(prod_sec)] == [prod_ref]
+        # cross-reads: querying the OTHER tenant's security under your own tenant sees nothing.
+        assert getattr(demo_pit, accessor)(prod_sec) == []
+        assert getattr(prod_pit, accessor)(demo_sec) == []
+
+    _assert_isolated("revenue_mix_facts", "DEMO-MIX", "PROD-MIX")
+    _assert_isolated("shares_outstanding_facts", "DEMO-SH", "PROD-SH")
+    _assert_isolated("cash_burn_facts", "DEMO-CB", "PROD-CB")
