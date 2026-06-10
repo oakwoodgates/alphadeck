@@ -15,24 +15,10 @@ import argparse
 from datetime import date
 from uuid import UUID
 
-import psycopg
-
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import CatalystType, Grade
 from ingest.catalyst import ingest_catalyst
-
-
-def _resolve(conn: psycopg.Connection, ticker: str, tenant_id: UUID) -> UUID:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id FROM security_master WHERE tenant_id = %s AND ticker = %s "
-            "ORDER BY recorded_at DESC LIMIT 1",
-            (tenant_id, ticker.upper()),
-        )
-        row = cur.fetchone()
-    if row is None:
-        raise SystemExit(f"no security_master row for {ticker!r} — seed the security first")
-    return row["id"]
+from pipeline.ratify_common import resolve_security
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -63,7 +49,7 @@ def main(argv: list[str] | None = None) -> None:
     tenant_id = UUID(a.tenant_id)
     conn = connect()
     try:
-        sid = _resolve(conn, a.ticker, tenant_id)
+        sid = resolve_security(conn, a.ticker, tenant_id)
         fid = ingest_catalyst(
             conn,
             sid,

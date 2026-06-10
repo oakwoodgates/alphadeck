@@ -15,11 +15,14 @@ _CORE_SCORE = 0.9
 _FLIP_SCORE = 0.5
 
 
-def _liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
+def liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
     """The catalyst's relevance HORIZON in days — DECOUPLED from grade (unlike insider). When the
     structured record carries an agreement term (``horizon_end``, e.g. a DOE OTA's period of
     performance), liveness runs to that term; otherwise the configured default. So a provisional (flip)
-    but long-horizon catalyst stays live for its term, while grade still sets entry size."""
+    but long-horizon catalyst stays live for its term, while grade still sets entry size.
+
+    Public so the Workbench catalyst-density meter reuses the SAME live-window the back half uses (one
+    source of liveness — a name's catalyst is 'live' in the same sense for both)."""
     horizon_end = fact.get("horizon_end")
     if horizon_end is not None:
         return max((horizon_end - fact["valid_from"]).days, 1)
@@ -45,7 +48,7 @@ def score(
     """
     live: list[tuple[dict[str, Any], Grade, int]] = []
     for f in facts:
-        lv = _liveness(f, cfg)
+        lv = liveness(f, cfg)
         if f["valid_from"] >= asof - timedelta(days=lv):
             live.append((f, Grade(f["grade"]), lv))
     if not live:

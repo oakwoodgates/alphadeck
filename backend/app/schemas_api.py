@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
-from domain.enums import Grade, Kind, State, Verdict
+from domain.enums import Archetype, Grade, Kind, State, Verdict
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -18,6 +18,7 @@ from domain.thesis import (
     Segment,
     Thesis,
 )
+from domain.workbench import ScoredFigure, ScoredMember
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -266,3 +267,92 @@ class ThesisDetail(BaseModel):
             kill_criteria=list(t.kill_criteria),
             position=t.position,
         )
+
+
+# --- Workbench (Slice 3) — the scored read + the promote payload ---
+
+
+class ScoredFigureOut(BaseModel):
+    """One meter/figure on the wire: the 0-4 pip (null = "—"/no data), the raw value, and the provenance
+    chips ("behind the scores"). market_cap carries `value` only (pips null — a figure, not a meter).
+    """
+
+    pips: int | None = None
+    value: float | None = None
+    provenance: list[ProvenanceOut] = []
+
+
+class ScoredMemberOut(BaseModel):
+    """A basket member scored for the Workbench — the four meters + the market-cap figure + the fit label."""
+
+    security_id: UUID
+    ticker: str | None = None
+    archetype: Archetype
+    segment: str | None = None
+    purity: ScoredFigureOut
+    runway: ScoredFigureOut
+    catalysts: ScoredFigureOut
+    dilution: ScoredFigureOut
+    market_cap: ScoredFigureOut
+    fit: str
+
+    @classmethod
+    def from_scored(
+        cls,
+        m: ScoredMember,
+        ciks: Mapping[UUID, str | None],
+        tickers: Mapping[UUID, str | None],
+    ) -> "ScoredMemberOut":
+        cik = ciks.get(m.security_id)
+
+        def fig(f: ScoredFigure) -> ScoredFigureOut:
+            return ScoredFigureOut(
+                pips=f.pips,
+                value=f.value,
+                provenance=[
+                    ProvenanceOut(
+                        source=p.source,
+                        ref=p.ref,
+                        url=edgar_url(p.source, p.ref, cik),
+                        detail=p.detail,
+                    )
+                    for p in f.provenance
+                ],
+            )
+
+        return cls(
+            security_id=m.security_id,
+            ticker=tickers.get(m.security_id),
+            archetype=m.archetype,
+            segment=m.segment,
+            purity=fig(m.purity),
+            runway=fig(m.runway),
+            catalysts=fig(m.catalysts),
+            dilution=fig(m.dilution),
+            market_cap=fig(m.market_cap),
+            fit=m.fit,
+        )
+
+
+class WorkbenchScored(BaseModel):
+    """The Workbench scored read for a thesis: its value-chain segments + the scored members (the UI groups
+    by `member.segment`). Re-derived on read — never persisted."""
+
+    thesis_id: UUID
+    asof: date
+    segments: list[Segment] = []
+    members: list[ScoredMemberOut] = []
+
+
+class PromoteThesisRequest(BaseModel):
+    """The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
+    segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
+    it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
+    """
+
+    id: UUID | None = None
+    name: str
+    narrative: str
+    ticker: str | None = None
+    basket: list[BasketMember] = []
+    segments: list[Segment] = []

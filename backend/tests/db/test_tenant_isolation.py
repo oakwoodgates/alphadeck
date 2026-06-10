@@ -33,6 +33,7 @@ from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
+from workbench.scoring import score_member
 
 # A FIXED production tenant id, distinct from DEFAULT_TENANT_ID (the demo). Fixed (not random) because the
 # `db` fixture does NOT truncate `tenant`; combined with provision_tenant's ON CONFLICT, re-runs are
@@ -426,3 +427,52 @@ def test_scoring_facts_read_isolation(db):
     _assert_isolated("revenue_mix_facts", "DEMO-MIX", "PROD-MIX")
     _assert_isolated("shares_outstanding_facts", "DEMO-SH", "PROD-SH")
     _assert_isolated("cash_burn_facts", "DEMO-CB", "PROD-CB")
+
+
+def test_workbench_scored_read_is_tenant_isolated(db):
+    """The Workbench scored READ (the scorer over the pit) inherits the tenant filter: a prod member scores
+    off PROD's facts, a demo member off DEMO's — same-ticker securities never cross, and scoring a prod
+    security under the demo tenant sees no prod fact ("—"). The scored endpoint surface, proven isolated.
+    """
+    provision_tenant(db, "prod-scored", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID)
+    prod_sec = _security(db, PROD_TENANT_ID)
+    ingest_revenue_mix(
+        db,
+        demo_sec,
+        segment_label="x",
+        mix_pct=50,
+        source="10-k-segment",
+        source_ref="DEMO",
+        event_date=date(2026, 1, 1),
+    )
+    ingest_revenue_mix(
+        db,
+        prod_sec,
+        segment_label="x",
+        mix_pct=100,
+        source="10-k-business-description",
+        source_ref="PROD",
+        event_date=date(2026, 1, 1),
+        tenant_id=PROD_TENANT_ID,
+    )
+    asof = date(2026, 6, 1)
+    demo_member = BasketMember(
+        ticker="HIMS", role="r", archetype=Archetype.HIGH_BETA, security_id=demo_sec
+    )
+    prod_member = BasketMember(
+        ticker="HIMS", role="r", archetype=Archetype.HIGH_BETA, security_id=prod_sec
+    )
+    demo_scored = score_member(
+        PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID), demo_member
+    )
+    prod_scored = score_member(
+        PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID), prod_member
+    )
+    assert demo_scored.purity.value == 50.0 and demo_scored.purity.provenance[0].ref == "DEMO"
+    assert prod_scored.purity.value == 100.0 and prod_scored.purity.provenance[0].ref == "PROD"
+    # cross: scoring prod's security under the DEMO tenant reads no prod fact -> "—"
+    cross = score_member(
+        PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID), prod_member
+    )
+    assert cross.purity.pips is None

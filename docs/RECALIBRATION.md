@@ -43,6 +43,12 @@
 | `headline_lapsing_soon_days` | 45 | freshness band: runway < this = "lapsing-soon", ranks below any fresh member | **load-bearing for belief-vs-data (M5b):** also gates how readily a *fresh theme starter* leapfrogs a *lapsing own core* — tune with that in mind |
 | `theme_conviction_default_horizon_days` | 365 | theme-conviction liveness when no `horizon_end` is ratified | ~12mo; also the upper-bound / re-ratification-cadence knob (it expires unless re-ratified) |
 | within-band tiebreak (`is_own` placement) | own-above-theme, after grade | own-vs-theme ordering within a band | own-above-theme is *shape*; its placement/weight is the dial (M5b Q1) |
+| **Workbench scoring meters (0–4 pip cutoffs — Slice 3; PRE-REGISTERED, not fit to the n=4 seed):** | | | |
+| `purity_pip_pct` | (10, 25, 50, 80) | exposure-concentration % → 1/2/3/4 pips | 80 = the pure-play convention; 50 = majority; 25 = material (above the ~10% SEC segment-materiality floor); 10 = relevance floor. Seed check (separate): LEU 77→3, the three 100% names→4 |
+| `runway_pip_months` | (6, 12, 18, 24) | cash-runway months → 1/2/3/4 pips | the financing cycle: raises land ~12–18mo out; <6 = distress; ≥24 = ~2 raise cycles. Cash-generative → top pip |
+| `catalyst_pip_multi_count` / `catalyst_pip_dense_count` | 2 / 3 | live-catalyst count → 3 / 4 pips | + the core/flip grade: 1 live core = 2 pips, 1 flip = 1; 0 live = 0 (a real reading, not "—") |
+| `dilution_pip_pct` (+ `dilution_overhang_severe_pct` as the 4-pip bar) | (2, 8, 15) + 25 | raw convert-overhang % → 1/2/3/4 pips | PRESSURE polarity; "—" when no convert fact (no fake zeros); the shared `dilution_clock.overhang_pct`, never backed out of severity |
+| `cash_runway_basis` | "cash + equivalents + all marketable securities (current and noncurrent)" | the runway numerator rule | a RATIFY-TIME convention (documented), NOT scorer-enforced — the scorer trusts `cash_usd` as ratified |
 
 ## B. Filed structural refinements (small changes, deferred — not just value tweaks)
 
@@ -67,6 +73,15 @@
    the co-location window — shortening it to 90d kills UNH's arm), so holding ~35d past the realized peak and
    returning ~10% is a confidence-**shape** problem, not a liveness **magnitude**. Prioritized for a future
    shape pass (out of scope for the magnitudes-only recalibration).
+5. **Runway for a revenue-positive name `[Slice-3 methodology, filed]`.** The Workbench runway meter is a
+   pre-revenue-funding-risk gauge; for a revenue name (LEU) a single quarter's operating cash use is
+   working-capital noise, not structural burn, so the literal months figure is "technically right but thin."
+   MVP: the ≥24mo→4-pip cap keeps the **pip** honest (LEU 160mo → 4 = well-funded) plus a Slice-4 display cap
+   on the figure. The structural fix — separating working-capital noise from structural burn for a revenue
+   name — needs an **annual operating-cash-flow fact** we don't ingest yet. Filed.
+6. **Workbench dilution meter is inverted polarity `[Slice-4 display]`.** More pips = more risk, opposite the
+   three goodness-meters. The scoring is correct; the UI needs a clear visual distinction so a full dilution
+   meter never reads like a full purity meter. A display concern, not a scoring change.
 
 ## C. Deferred builds (the sequenced plan is `docs/ROADMAP.md`)
 

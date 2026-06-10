@@ -130,6 +130,104 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/scored": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Scored",
+        "description": "Re-derive the per-name Workbench scores live at ``asof`` \u2014 a READ-ONLY path (Option B; nothing\npersists). Mirrors the call endpoint: load the thesis (404 + its tenant), thread ``thesis.tenant_id``\ninto every scoring fact read so a production thesis scores off production's facts.",
+        "operationId": "get_scored_workbench_theses__thesis_id__scored_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; the scores use no data knowable after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; the scores use no data knowable after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbenchScored"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/theses": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Promote",
+        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.",
+        "operationId": "promote_workbench_theses_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteThesisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -770,6 +868,64 @@
         "title": "Position",
         "description": "Populated once the operator logs a fill \u2014 its presence drives the Managing state."
       },
+      "PromoteThesisRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "narrative": {
+            "type": "string",
+            "title": "Narrative"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "basket": {
+            "items": {
+              "$ref": "#/components/schemas/BasketMember"
+            },
+            "type": "array",
+            "title": "Basket",
+            "default": []
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "narrative"
+        ],
+        "title": "PromoteThesisRequest",
+        "description": "The promote/update payload \u2014 a thesis-with-chain. The router builds a domain Thesis (the\nsegment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts\nit (create when `id` is null, update otherwise). Scores are NOT sent \u2014 they re-derive on read."
+      },
       "ProvenanceOut": {
         "properties": {
           "source": {
@@ -804,6 +960,109 @@
           "ref"
         ],
         "title": "ProvenanceOut"
+      },
+      "ScoredFigureOut": {
+        "properties": {
+          "pips": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pips"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "provenance": {
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceOut"
+            },
+            "type": "array",
+            "title": "Provenance",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "ScoredFigureOut",
+        "description": "One meter/figure on the wire: the 0-4 pip (null = \"\u2014\"/no data), the raw value, and the provenance\nchips (\"behind the scores\"). market_cap carries `value` only (pips null \u2014 a figure, not a meter)."
+      },
+      "ScoredMemberOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "archetype": {
+            "$ref": "#/components/schemas/Archetype"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "purity": {
+            "$ref": "#/components/schemas/ScoredFigureOut"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/ScoredFigureOut"
+          },
+          "catalysts": {
+            "$ref": "#/components/schemas/ScoredFigureOut"
+          },
+          "dilution": {
+            "$ref": "#/components/schemas/ScoredFigureOut"
+          },
+          "market_cap": {
+            "$ref": "#/components/schemas/ScoredFigureOut"
+          },
+          "fit": {
+            "type": "string",
+            "title": "Fit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "archetype",
+          "purity",
+          "runway",
+          "catalysts",
+          "dilution",
+          "market_cap",
+          "fit"
+        ],
+        "title": "ScoredMemberOut",
+        "description": "A basket member scored for the Workbench \u2014 the four meters + the market-cap figure + the fit label."
       },
       "Segment": {
         "properties": {
@@ -1078,6 +1337,43 @@
           "managing"
         ],
         "title": "Verdict"
+      },
+      "WorkbenchScored": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "default": []
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredMemberOut"
+            },
+            "type": "array",
+            "title": "Members",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "asof"
+        ],
+        "title": "WorkbenchScored",
+        "description": "The Workbench scored read for a thesis: its value-chain segments + the scored members (the UI groups\nby `member.segment`). Re-derived on read \u2014 never persisted."
       }
     }
   }

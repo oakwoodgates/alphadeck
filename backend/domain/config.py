@@ -130,6 +130,51 @@ class CallConfig(DomainModel):
     # would otherwise float it high). Calibration dial.
     starter_confidence_cap: float = 0.55
 
+    # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
+    # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
+    # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass
+    # holds) — NEVER reverse-engineered from the (n=4, clustered) seed names. See docs/RECALIBRATION.md.
+    # Each tuple is the inclusive lower bound for the 1/2/3/4-pip bars.
+    #
+    # PURITY = % of revenue/business that IS the theme (exposure CONCENTRATION). 80 = the conventional
+    # "pure-play" bar; 50 = majority; 25 = a clearly-material segment (well above the ~10% SEC reportable-
+    # segment-materiality floor); 10 = the floor of relevance. NOT discounted for pre-revenue (runway +
+    # dilution carry funding risk). Seed lands SEPARATELY as a check: LEU 77% -> 3 (a 23% non-nuclear
+    # segment, honestly not a pure-play), the three 100% names -> 4.
+    purity_pip_pct: tuple[float, float, float, float] = (10.0, 25.0, 50.0, 80.0)
+    #
+    # RUNWAY = months of funding at the current burn (cash / (quarterly_burn / 3)); a FUNDING-RISK gauge.
+    # Grounded in the financing cycle: raises typically land ~12-18mo out; < 6mo signals distress; >= 24mo
+    # is ~two raise cycles of cushion. A cash-generative name (burn <= 0) reads max. For a revenue name a
+    # single quarter's operating cash use is working-capital noise; the >=24mo -> 4-pip cap keeps the pip
+    # honest now (LEU's 160mo -> 4), and the structural revenue-vs-burn refinement is filed (RECALIBRATION).
+    runway_pip_months: tuple[float, float, float, float] = (6.0, 12.0, 18.0, 24.0)
+    #
+    # CATALYSTS = density of LIVE catalysts (live = valid_from within the catalyst's liveness horizon — the
+    # SAME window the back half uses). Grounded in count + the existing core-vs-flip grade: a single binding
+    # (core) catalyst = 2 pips, denser than a single provisional (flip) one = 1 pip; >= multi -> 3 pips;
+    # >= dense -> 4 pips (a rich surface). Deliberately strict — a lone DOE award is not a dense surface.
+    catalyst_pip_multi_count: int = 2  # >= this many live catalysts -> 3 pips
+    catalyst_pip_dense_count: int = 3  # >= this many live catalysts -> 4 pips (a rich surface)
+    #
+    # DILUTION = convert-overhang PRESSURE (more pips = more RISK — opposite polarity to the others; the
+    # visual distinction is a Slice-4 display concern). Bars are the RAW overhang % (the shared
+    # dilution_clock.overhang_pct, NOT backed out of the clamped risk severity); the 4-pip "severe" bar
+    # REUSES dilution_overhang_severe_pct (25.0) above — one place. A name with converts below the 1-pip bar
+    # reads 0 pips (a clean low reading); NO convert fact reads "-" (not 0 — no fake zeros).
+    dilution_pip_pct: tuple[float, float, float] = (
+        2.0,
+        8.0,
+        15.0,
+    )  # 1/2/3-pip; 4-pip = the severe dial
+    #
+    # The uniform CASH-RUNWAY basis is a RATIFY-TIME convention (applied when cash_usd is ratified), NOT
+    # enforced in the scorer (which trusts cash_usd as ratified). Documented here as the single canonical
+    # statement the ratify CLIs + docs reference.
+    cash_runway_basis: str = (
+        "cash + equivalents + all marketable securities (current and noncurrent)"
+    )
+
     @property
     def own_conviction_kinds(self) -> frozenset[Kind]:
         """Name-sourced ("own") convictions — the theme conviction is a basket-level FALLBACK, not "own".
