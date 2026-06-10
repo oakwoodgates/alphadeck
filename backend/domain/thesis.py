@@ -3,10 +3,20 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from domain.base import DomainModel
-from domain.enums import Archetype
+from domain.enums import Archetype, Authorship
+
+
+class Segment(DomainModel):
+    """A link in the thesis's value chain (the Workbench decomposition) — STRUCTURE, not a score.
+
+    The per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored.
+    """
+
+    label: str  # the link, e.g. "Reactor developers"
+    descriptor: str | None = None  # the operator's per-segment tag, e.g. "catalyst-rich"
 
 
 class BasketMember(DomainModel):
@@ -15,6 +25,10 @@ class BasketMember(DomainModel):
     archetype: Archetype
     security_id: UUID | None = None
     detail: str | None = None  # the board/cockpit "met" cell (e.g. "mkt $1.2B")
+    segment: str | None = None  # the value-chain link this name sits in (a Thesis.segments label)
+    authored_by: Authorship = (
+        Authorship.OPERATOR_SET
+    )  # who placed it (the Workbench authorship seam)
 
 
 class Evidence(DomainModel):
@@ -58,7 +72,22 @@ class Thesis(DomainModel):
     parent_id: UUID | None = None  # nullable now; the umbrella/segment hierarchy lands in M5
     ticker: str | None = None
     basket: list[BasketMember] = Field(default_factory=list)
+    segments: list[Segment] = Field(
+        default_factory=list
+    )  # the value-chain links (Workbench structure)
     evidence: list[Evidence] = Field(default_factory=list)
     catalysts: list[Catalyst] = Field(default_factory=list)
     kill_criteria: list[KillCriterion] = Field(default_factory=list)
     position: Position | None = None
+
+    @model_validator(mode="after")
+    def _segments_consistent(self) -> "Thesis":
+        """Every placed ``member.segment`` must name one of the thesis's segments — the chain stays
+        internally consistent (a name can't sit in a link that isn't in the chain)."""
+        labels = {s.label for s in self.segments}
+        for m in self.basket:
+            if m.segment is not None and m.segment not in labels:
+                raise ValueError(
+                    f"basket member {m.ticker!r} placed in unknown segment {m.segment!r}"
+                )
+        return self

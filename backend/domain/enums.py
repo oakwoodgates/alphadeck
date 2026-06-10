@@ -72,3 +72,17 @@ class Archetype(StrEnum):
     HIGH_BETA = "high_beta"
     LOTTO = "lotto"
     SHOVEL = "shovel"
+    ADJACENT = "adjacent"  # off-thesis / impure exposure — surfaced and FLAGGED, never hidden (Workbench hero)
+    FUND = "fund"  # an ETF: the low-torque safe-exposure sleeve expression of the thesis
+
+
+class Authorship(StrEnum):
+    """Who placed a basket member in its value-chain segment (the Workbench authorship seam).
+
+    The MVP writes only the operator values; ``SYSTEM_DRAFTED`` is present now so the seam already
+    supports the bounded LLM drafter (the next slice) without a later schema change.
+    """
+
+    SYSTEM_DRAFTED = "system_drafted"  # LLM-drafted placement (post-MVP); the operator ratifies it
+    OPERATOR_SET = "operator_set"  # the operator placed it
+    OPERATOR_EDITED = "operator_edited"  # the operator edited a drafted placement

@@ -51,9 +51,9 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
         cur.execute(
             """
             INSERT INTO thesis (id, tenant_id, parent_id, name, narrative, ticker,
-                position_entry_price, position_current_price, position_opened_on)
+                position_entry_price, position_current_price, position_opened_on, segments)
             VALUES (%(id)s, %(tenant_id)s, %(parent_id)s, %(name)s, %(narrative)s, %(ticker)s,
-                %(position_entry_price)s, %(position_current_price)s, %(position_opened_on)s)
+                %(position_entry_price)s, %(position_current_price)s, %(position_opened_on)s, %(segments)s)
             ON CONFLICT (id) DO UPDATE SET
                 parent_id = EXCLUDED.parent_id,
                 name = EXCLUDED.name,
@@ -62,6 +62,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                 position_entry_price = EXCLUDED.position_entry_price,
                 position_current_price = EXCLUDED.position_current_price,
                 position_opened_on = EXCLUDED.position_opened_on,
+                segments = EXCLUDED.segments,
                 updated_at = now()
             """,
             row,
@@ -70,9 +71,21 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
         for i, m in enumerate(thesis.basket):
             cur.execute(
                 """INSERT INTO basket_member
-                   (tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id, detail)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (tenant, tid, i, m.ticker, m.role, m.archetype.value, m.security_id, m.detail),
+                   (tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id, detail,
+                    segment, authored_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    tenant,
+                    tid,
+                    i,
+                    m.ticker,
+                    m.role,
+                    m.archetype.value,
+                    m.security_id,
+                    m.detail,
+                    m.segment,
+                    m.authored_by.value,
+                ),
             )
         cur.execute("DELETE FROM catalyst WHERE thesis_id = %s", (tid,))
         for i, c in enumerate(thesis.catalysts):

@@ -4,10 +4,20 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from psycopg.types.json import Json
+
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
-from domain.enums import Archetype
-from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Position, Thesis
+from domain.enums import Archetype, Authorship
+from domain.thesis import (
+    BasketMember,
+    Catalyst,
+    Evidence,
+    KillCriterion,
+    Position,
+    Segment,
+    Thesis,
+)
 
 # This module is the ONLY place raw DB rows become domain objects (and back). Raw rows never escape
 # `repositories/`; callers always receive domain types (Thesis, CallCard, ...).
@@ -32,11 +42,16 @@ def row_to_thesis(
         narrative=t["narrative"],
         ticker=t["ticker"],
         basket=[_row_to_basket_member(b) for b in basket],
+        segments=[_row_to_segment(s) for s in t["segments"]],
         evidence=[_row_to_evidence(e) for e in evidence],
         catalysts=[_row_to_catalyst(c) for c in catalysts],
         kill_criteria=[_row_to_kill(k) for k in kills],
         position=_row_to_position(t),
     )
+
+
+def _row_to_segment(s: dict[str, Any]) -> Segment:
+    return Segment(label=s["label"], descriptor=s.get("descriptor"))
 
 
 def _row_to_position(t: dict[str, Any]) -> Position | None:
@@ -60,6 +75,8 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
         archetype=Archetype(b["archetype"]),
         security_id=b["security_id"],
         detail=b["detail"],
+        segment=b["segment"],
+        authored_by=Authorship(b["authored_by"]),
     )
 
 
@@ -95,6 +112,7 @@ def thesis_to_row(thesis: Thesis) -> dict[str, Any]:
         "position_entry_price": pos.entry_price if pos else None,
         "position_current_price": pos.current_price if pos else None,
         "position_opened_on": pos.opened_on if pos else None,
+        "segments": Json([s.model_dump(mode="json") for s in thesis.segments]),
     }
 
 

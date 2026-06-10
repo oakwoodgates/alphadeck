@@ -87,7 +87,16 @@ export interface components {
          * @description A basket member's role in expressing the thesis.
          * @enum {string}
          */
-        Archetype: "leader" | "high_beta" | "lotto" | "shovel";
+        Archetype: "leader" | "high_beta" | "lotto" | "shovel" | "adjacent" | "fund";
+        /**
+         * Authorship
+         * @description Who placed a basket member in its value-chain segment (the Workbench authorship seam).
+         *
+         *     The MVP writes only the operator values; ``SYSTEM_DRAFTED`` is present now so the seam already
+         *     supports the bounded LLM drafter (the next slice) without a later schema change.
+         * @enum {string}
+         */
+        Authorship: "system_drafted" | "operator_set" | "operator_edited";
         /** BasketMember */
         BasketMember: {
             /** Ticker */
@@ -99,6 +108,10 @@ export interface components {
             security_id?: string | null;
             /** Detail */
             detail?: string | null;
+            /** Segment */
+            segment?: string | null;
+            /** @default operator_set */
+            authored_by: components["schemas"]["Authorship"];
         };
         /**
          * CallCardResponse
@@ -311,6 +324,18 @@ export interface components {
             };
         };
         /**
+         * Segment
+         * @description A link in the thesis's value chain (the Workbench decomposition) — STRUCTURE, not a score.
+         *
+         *     The per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored.
+         */
+        Segment: {
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor?: string | null;
+        };
+        /**
          * State
          * @description Thesis lifecycle (a loop, not a ratchet).
          * @enum {string}
@@ -341,6 +366,11 @@ export interface components {
              * @default []
              */
             basket: components["schemas"]["BasketMember"][];
+            /**
+             * Segments
+             * @default []
+             */
+            segments: components["schemas"]["Segment"][];
             /**
              * Evidence
              * @default []

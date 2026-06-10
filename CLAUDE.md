@@ -50,7 +50,7 @@ Use these terms precisely; they are the ubiquitous language of the codebase.
 - **Lifecycle states** (a loop, not a one-way ratchet): `Incubating → Warming → Armed → Managing`.
 - **Signal taxonomy** (three orthogonal fields): **`role`** = `entry_trigger | risk_signal` (only entry triggers turn the keys; risk signals feed counter-case/confidence and can soft-veto *timing*); **`kind`** = what produced it (`insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …`); **`type`** = catalyst nature where one applies (`regulatory | promoter_attention | clinical_readout | personnel | …`, optional).
 - **Trigger grade**: `flip` (fast, sentiment-driven; small size, short-dated, do not hold) vs `core` (structural; build the position). Applies to entry triggers.
-- **Archetype** (basket member role): `leader | high_beta | lotto | shovel`.
+- **Archetype** (basket member role): `leader | high_beta | lotto | shovel | adjacent | fund` (`adjacent` = off-thesis/impure exposure, surfaced and *flagged* by the Workbench; `fund` = the ETF safe-exposure sleeve).
 - **Alpha half-life** — how long a signal's edge persists; sets the **exit-by** date.
 - **Catalyst surface** — the binary events crossed between entry and exit-by.
 - **Call card** — `{ verdict, grade, expression, exit_by, triggers_fired[] (with sources), missing[], counter_case, confidence, actions }`.
