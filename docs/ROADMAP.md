@@ -112,7 +112,11 @@ this spec and that mockup in sync.** Its scores / market caps / company facts ar
 — they never enter the codebase** (all data-derived in the build).
 
 ### Build status — the MVP slices
-The Workbench MVP ships in slices; the **data-and-engine half is done**, the UI + the drafter remain:
+The Workbench MVP ships in slices. **The data-and-engine half + the display half are done; AUTHORING and the
+drafter remain — and the "working Workbench MVP" is NOT done until authoring lands.** The MVP's whole pitch is
+narrative → *decompose into a value chain* → scored basket → promote; until authoring exists we have a
+Workbench that **displays, scores, and promotes a pre-built (seeded) basket — not one that turns a narrative
+into a basket.** So **Slice 4b is the second half of the MVP, not deferred polish.**
 - **Slice 1 — the persistence seam `[MERGED #47]`** — the value-chain **structure** persists operationally on
   the thesis spine (`segment` + `authored_by` on `basket_member`, the `segments` list on `thesis`; migration
   0008). Survives-reload proven on a fresh connection.
@@ -122,9 +126,22 @@ The Workbench MVP ships in slices; the **data-and-engine half is done**, the UI 
 - **Slice 3 — the scoring engine `[MERGED #50]`** — the **four** data-derived pip meters + the market-cap
   figure, re-derived on read (Option B); the Workbench API (`GET …/scored`, `POST /workbench/theses`) + the
   current-tenant resolver. See `docs/WORKBENCH_SCORING.md`.
-- **Slice 4 — the Workbench UI `[NEXT]`** — the React screen against the mockup: the chain hero, the
-  four-meter rows + the market-cap figure, the DD rail, the quiet basket + promote. The dilution meter's
-  pressure-polarity needs a visual distinction (it must not read like a goodness-meter).
+- **Slice 4 — the Workbench UI · DISPLAY · SCORE · PROMOTE `[BUILT — in review]`** — the React screen against
+  the mockup, wired to the live scored endpoint: the four-meter rows + the market-cap figure + the fit label,
+  the **DD rail** ("behind the scores" provenance with the burn-composition / cash-basis notes + clickable
+  EDGAR), the quiet **promote round-trip** (→ an Incubating Board thesis). The **dilution meter is the ember
+  RISK axis** (pressure polarity, set apart — never a goodness meter); a no-data figure renders **"—"**
+  (structurally distinct from a measured zero). Because the seed is a **flat basket** (no value-chain
+  decomposition — that is drafted in S5 + authored in 4b), the chain **hero is honestly empty** and the names
+  render as one flat scored list; the gap is made honest in-product (a disabled "add/edit names" affordance + an
+  "authoring is 4b" marker) so the polish never masquerades as a finished product. **Frontend only — the
+  Slice-3 wire is untouched.**
+- **Slice 4b — AUTHORING · the second half of the MVP, NOT optional `[NEXT]`** — build & edit the value chain:
+  add / place / move names with authorship tracked (the `operator_set` / `operator_edited` seam, already on
+  `ThesisDetail.basket[].authored_by`), **decompose the flat basket into links**, re-score on edit. Carries the
+  **one deliberate, reviewed wire addition the MVP still needs — a ticker→security resolve endpoint** (placing a
+  new name must turn a ticker into a `security_id`; none exists today). The **working Workbench MVP milestone
+  sits AFTER this slice.**
 - **Slice 5 — the bounded LLM drafter `[FILED]`** — `backend/llm`: drafts the decomposition + the thesis-fit
   prose; the operator ratifies every placement; cites sources; caches; **never sources a number.**
 
