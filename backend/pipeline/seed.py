@@ -23,6 +23,7 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Archetype, CatalystType, Grade
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
+from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
 from ingest.doe import entities as doe_entities
 from ingest.doe.client import UsaSpendingClient
@@ -30,6 +31,8 @@ from ingest.doe.feed import run_doe_feed
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
+from ingest.revenue_mix import ingest_revenue_mix
+from ingest.shares import ingest_shares_outstanding
 from ingest.theme_conviction import ingest_theme_conviction
 from repositories import thesis_repo
 from securities import master
@@ -426,6 +429,179 @@ def seed_unh(conn: psycopg.Connection) -> UUID:
     return thesis.id
 
 
+# EDGAR provenance for the nuclear Workbench scoring facts — operator-ratified 2026-06 against the filings
+# (the source_ref + the fact's natural identity). 10-K -> revenue-mix (purity); 10-Q -> shares + cash/burn.
+_LEU_10Q = "https://www.sec.gov/Archives/edgar/data/1065059/000162828026030891/leu-20260331.htm"
+_LEU_10K = "https://www.sec.gov/Archives/edgar/data/1065059/000162828026007117/leu-20251231.htm"
+_SMR_10Q = "https://www.sec.gov/Archives/edgar/data/1822966/000182296626000054/smr-20260331.htm"
+_SMR_10K = "https://www.sec.gov/Archives/edgar/data/1822966/000182296626000018/smr-20251231.htm"
+_OKLO_10Q = "https://www.sec.gov/Archives/edgar/data/1849056/000162828026034095/oklo-20260331.htm"
+_OKLO_10K = "https://www.sec.gov/Archives/edgar/data/1849056/000162828026018698/oklo-20251231.htm"
+_NNE_10Q = "https://www.sec.gov/Archives/edgar/data/1923891/000149315226023071/form10-q.htm"
+_NNE_10K = "https://www.sec.gov/Archives/edgar/data/1923891/000149315225028285/form10-k.htm"
+
+
+def seed_nuclear_revenue_mix(conn: psycopg.Connection) -> None:
+    """Operator-ratified exposure-PURITY facts for the nuclear basket (the Workbench purity meter).
+
+    The BASIS is explicit in ``source`` so a revenue-backed 100% (SMR) and a pre-revenue 100% (OKLO/NNE)
+    never flatten: ``10-k-segment`` = a real revenue-segment %, ``10-k-business-description`` = a pure-play
+    read off the Item-1 Business section. Purity is exposure CONCENTRATION — NOT discounted for pre-revenue
+    (runway + dilution carry funding risk). Real figures, ratified against the filings (2026-06).
+    """
+    rows = [
+        (
+            LEU_ID,
+            "enrichment",
+            77,
+            "10-k-segment",
+            _LEU_10K,
+            date(2025, 12, 31),
+            "LEU (enrichment) segment $346.2M of $448.7M total revenue, FY2025 (~77%).",
+        ),
+        (
+            SMR_ID,
+            "nuclear",
+            100,
+            "10-k-segment",
+            _SMR_10K,
+            date(2025, 12, 31),
+            "Single reportable segment; 100% of $31.5M FY2025 revenue is SMR nuclear technology/services "
+            "(revenue-backed).",
+        ),
+        (
+            OKLO_ID,
+            "nuclear",
+            100,
+            "10-k-business-description",
+            _OKLO_10K,
+            date(2025, 12, 31),
+            "100% advanced-fission pure-play (Aurora powerhouses + fuel recycling); business-description basis, "
+            "pre-revenue ($0 FY2025 revenue).",
+        ),
+        (
+            NNE_ID,
+            "nuclear",
+            100,
+            "10-k-business-description",
+            _NNE_10K,
+            date(2025, 9, 30),
+            "100% advanced-nuclear / micro-reactor pure-play (KRONOS MMR); business-description basis, "
+            "pre-commercial-revenue (trivial historical consulting/lease income).",
+        ),
+    ]
+    for sid, seg, pct, source, ref, event_date, note in rows:
+        ingest_revenue_mix(
+            conn,
+            sid,
+            segment_label=seg,
+            mix_pct=pct,
+            source=source,
+            source_ref=ref,
+            event_date=event_date,
+            note=note,
+            ratified_by="operator",
+        )
+
+
+def seed_nuclear_shares(conn: psycopg.Connection) -> None:
+    """Operator-ratified shares-outstanding facts (the Workbench market-cap basis) — latest 10-Q covers."""
+    rows = [
+        (
+            LEU_ID,
+            19_672_794,
+            _LEU_10Q,
+            date(2026, 5, 1),
+            "Total economic = Class A 18,953,594 + Class B 719,200 (Class B is economic common, par "
+            "$0.10; the A/B split is voting, not economics), as of 2026-05-01.",
+        ),
+        (
+            SMR_ID,
+            365_481_156,
+            _SMR_10Q,
+            date(2026, 4, 30),
+            "Total economic = Class A 346,105,785 + Class B 19,375,371 (Up-C), as of 2026-04-30.",
+        ),
+        (
+            OKLO_ID,
+            173_990_987,
+            _OKLO_10Q,
+            date(2026, 5, 7),
+            "Single common class as of 2026-05-07.",
+        ),
+        (NNE_ID, 52_083_294, _NNE_10Q, date(2026, 5, 12), "Common stock as of 2026-05-12."),
+    ]
+    for sid, shares, ref, event_date, note in rows:
+        ingest_shares_outstanding(
+            conn,
+            sid,
+            shares=shares,
+            source="10-q-cover",
+            source_ref=ref,
+            event_date=event_date,
+            note=note,
+            ratified_by="operator",
+        )
+
+
+def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
+    """Operator-ratified cash + quarterly-burn facts (the Workbench runway basis) — latest 10-Qs.
+
+    ``cash_usd`` is the UNIFORM runway numerator: cash + equivalents + ALL marketable securities (current
+    AND noncurrent) — they are liquid Treasuries regardless of balance-sheet classification. NuScale's burn
+    is the RECURRING figure (the one-time ENTRA1 settlement tranche backed out); see the note. (To be
+    formalized as a config rule at the Slice-3 gate.)
+    """
+    rows = [
+        (
+            LEU_ID,
+            1_868_200_000,
+            35_100_000,
+            _LEU_10Q,
+            "Cash+equiv $1,868.2M (no marketable securities reported); operating cash use -$35.1M, Q1 2026.",
+        ),
+        (
+            SMR_ID,
+            1_008_763_000,
+            50_483_000,
+            _SMR_10Q,
+            "Cash+equiv $341.1M + short-term investments $549.0M + noncurrent investments $118.6M = $1,008.8M "
+            "(all marketable/Treasuries). Recurring burn = reported Q1'26 operating cash use -$314.678M less the "
+            "-$264.195M ENTRA1 Milestone Contribution settlement tranche (a $507.4M strategic-partner obligation "
+            "under the Partnership Milestones Agreement, recognized as FY2025 G&A, paid to ENTRA1 in tranches).",
+        ),
+        (
+            OKLO_ID,
+            2_536_898_000,
+            17_867_000,
+            _OKLO_10Q,
+            "Cash+equiv $1,594.1M + marketable debt securities $942.8M (current $614.5M + noncurrent $328.3M) = "
+            "$2,536.9M; operating cash use -$17.9M, Q1 2026.",
+        ),
+        (
+            NNE_ID,
+            568_895_558,
+            5_264_361,
+            _NNE_10Q,
+            "Cash+equiv $197.7M + short-term investments $371.0M + marketable securities $0.22M = $568.9M; "
+            "operating burn ~$5.26M, DERIVED as Q2 FY2026 (six-month YTD operating cash use $9.254M - Q1 $3.990M; "
+            "the 10-Q discloses only a six-month cash-flow column).",
+        ),
+    ]
+    for sid, cash, burn, ref, note in rows:
+        ingest_cash_burn(
+            conn,
+            sid,
+            cash_usd=cash,
+            quarterly_burn_usd=burn,
+            source="10-q",
+            source_ref=ref,
+            event_date=date(2026, 3, 31),
+            note=note,
+            ratified_by="operator",
+        )
+
+
 def main() -> None:
     conn = connect()
     try:
@@ -437,6 +613,9 @@ def main() -> None:
         seed_nuclear_theme_conviction(
             conn
         )  # M5b -> SMR theme-armed starter (NNE stays watch: momentum-only)
+        seed_nuclear_revenue_mix(conn)  # Workbench purity facts (operator-ratified, real 10-K)
+        seed_nuclear_shares(conn)  # Workbench market-cap basis (real 10-Q covers)
+        seed_nuclear_cash_burn(conn)  # Workbench runway basis (real 10-Q, uniform cash rule)
         unh_id = seed_unh(conn)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

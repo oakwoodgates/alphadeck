@@ -15,9 +15,10 @@ def test_revenue_mix_ingest_and_asof_read(db, security_id):
         security_id,
         segment_label="nuclear",
         mix_pct=100,
-        source="ratified",
-        source_ref="10-K-2025-segments",
+        source="10-k-business-description",
+        source_ref="10-K-2025-business",
         event_date=date(2026, 1, 1),
+        note="100% nuclear pure-play (business-description basis, pre-revenue)",
         ratified_by="operator",
     )
     db.commit()
@@ -27,6 +28,9 @@ def test_revenue_mix_ingest_and_asof_read(db, security_id):
     assert len(rows) == 1
     assert rows[0]["segment_label"] == "nuclear"
     assert float(rows[0]["mix_pct"]) == 100.0
+    # the basis is queryable via `source`, and the free-text provenance round-trips via `note`
+    assert rows[0]["source"] == "10-k-business-description"
+    assert rows[0]["note"] == "100% nuclear pure-play (business-description basis, pre-revenue)"
 
 
 def test_revenue_mix_latest_version_wins_on_correction(db, security_id):

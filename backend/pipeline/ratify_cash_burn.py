@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--date", required=True, help="the filing's effective date (YYYY-MM-DD)")
     p.add_argument("--by", default="operator", help="who ratified")
     p.add_argument(
+        "--note",
+        default=None,
+        help="free-text provenance note (cash composition / one-time adjustment / derivation)",
+    )
+    p.add_argument(
         "--tenant-id",
         default=str(DEFAULT_TENANT_ID),
         help="tenant to ratify under (resolve + fact); defaults to the demo tenant",
@@ -50,6 +55,7 @@ def main(argv: list[str] | None = None) -> None:
             source="ratified",
             source_ref=a.source_url,
             event_date=date.fromisoformat(a.date),
+            note=a.note,
             ratified_by=a.by,
             tenant_id=tenant_id,
         )
