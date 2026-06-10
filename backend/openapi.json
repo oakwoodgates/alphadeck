@@ -164,10 +164,22 @@
           "leader",
           "high_beta",
           "lotto",
-          "shovel"
+          "shovel",
+          "adjacent",
+          "fund"
         ],
         "title": "Archetype",
         "description": "A basket member's role in expressing the thesis."
+      },
+      "Authorship": {
+        "type": "string",
+        "enum": [
+          "system_drafted",
+          "operator_set",
+          "operator_edited"
+        ],
+        "title": "Authorship",
+        "description": "Who placed a basket member in its value-chain segment (the Workbench authorship seam).\n\nThe MVP writes only the operator values; ``SYSTEM_DRAFTED`` is present now so the seam already\nsupports the bounded LLM drafter (the next slice) without a later schema change."
       },
       "BasketMember": {
         "properties": {
@@ -204,6 +216,21 @@
               }
             ],
             "title": "Detail"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "authored_by": {
+            "$ref": "#/components/schemas/Authorship",
+            "default": "operator_set"
           }
         },
         "additionalProperties": false,
@@ -778,6 +805,32 @@
         ],
         "title": "ProvenanceOut"
       },
+      "Segment": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "Segment",
+        "description": "A link in the thesis's value chain (the Workbench decomposition) \u2014 STRUCTURE, not a score.\n\nThe per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored."
+      },
       "State": {
         "type": "string",
         "enum": [
@@ -833,6 +886,14 @@
             },
             "type": "array",
             "title": "Basket",
+            "default": []
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segments",
             "default": []
           },
           "evidence": {

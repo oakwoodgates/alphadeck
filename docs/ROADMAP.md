@@ -152,9 +152,12 @@ the thesis**, even though the MVP drafts fresh and doesn't yet read from saved c
 - **Does NOT persist (scores):** purity, runway, catalyst density, market cap — they **re-derive on read** from
   the underlying facts (Option B), so a chain reopened months later shows current numbers, never a stale snap.
 - **Shape:** an **enrichment of the existing thesis→security membership graph** — a **segment label on each
-  `basket_member` edge**, plus the list of segments. **Not a new subsystem.** Persists **append-only in the
-  bitemporal store** like any other fact → it versions the chain's evolution for free (the history the taxonomy
-  accrual and the rotation record both draw on).
+  `basket_member` edge**, plus the list of segments. **Not a new subsystem.** Persists **OPERATIONAL on the
+  thesis spine** (editable config, like the rest of `0003` — the structure is the thesis *definition*, not a
+  bitemporal *fact*): no `valid_from`/`recorded_at`, no append-only trigger. *(Built in Phase-2 Slice 1 —
+  migration `0008_workbench_chain.sql`.)* **Chain-evolution history is a
+  taxonomy-era addition** — versioning is added **when that consumer lands** (taxonomy accrual + the rotation
+  record draw on it *then*, not now); a future author must **not** assume the history already exists.
 - **Why it's a hard requirement, not a feature:** it is the seam that keeps the drafted→hybrid upgrade
   *additive*. If the MVP throws the drafted chain away, the taxonomy, the knowledge base, and the cron all
   become a retrofit. Persisting the structure costs almost nothing now (the thesis already persists) and keeps
@@ -209,9 +212,11 @@ the thesis**, even though the MVP drafts fresh and doesn't yet read from saved c
 - **Trust before front-half build.**
 - **The recalibration backlog stays consolidated in `RECALIBRATION.md`** — reference it, don't scatter it back
   into the plan.
-- **The Workbench persistence seam** (above): when the Workbench MVP is built, the value-chain **structure**
-  persists on the thesis (a segment label on `basket_member`); the **scores never persist** (they re-derive on
-  read). This is a build requirement, not a feature.
+- **The Workbench persistence seam** (above): the value-chain **structure** persists **operationally on the
+  thesis spine** (a `segment` label + `authored_by` on `basket_member`, a `segments` list on `thesis` —
+  editable config, **not** bitemporal); the **scores never persist** (they re-derive on read). A build
+  requirement, not a feature. *(Chain-evolution history is deferred to the taxonomy era — see the seam section
+  above.)*
 
 ## Parked — deliberate non-goals
 - **Execution / brokerage — permanently out.** Advisory-only is the product's identity.

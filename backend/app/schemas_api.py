@@ -9,7 +9,15 @@ from pydantic import BaseModel
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
-from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Position, Thesis
+from domain.thesis import (
+    BasketMember,
+    Catalyst,
+    Evidence,
+    KillCriterion,
+    Position,
+    Segment,
+    Thesis,
+)
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -237,6 +245,7 @@ class ThesisDetail(BaseModel):
     narrative: str
     ticker: str | None = None
     basket: list[BasketMember] = []
+    segments: list[Segment] = []
     evidence: list[Evidence] = []
     catalysts: list[Catalyst] = []
     kill_criteria: list[KillCriterion] = []
@@ -251,6 +260,7 @@ class ThesisDetail(BaseModel):
             narrative=t.narrative,
             ticker=t.ticker,
             basket=list(t.basket),
+            segments=list(t.segments),
             evidence=list(t.evidence),
             catalysts=list(t.catalysts),
             kill_criteria=list(t.kill_criteria),
