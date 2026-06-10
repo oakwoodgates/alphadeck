@@ -57,7 +57,16 @@ replay stays honest.
 Every row carries `tenant_id`. Dev/demo data is a tenant; **production is a new tenant**. Never build a
 destructive reset path or assume a single global tenant — seeds are idempotent and additive.
 
-- *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append.
+**Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so
+nothing at the database layer *forces* a read to pass the right `tenant_id`. The standing obligation: **every
+new read path MUST route through the tenant-filtered accessors** (`db.bitemporal.as_of` / `as_of_thesis`,
+`securities/master.*`, the `PointInTimeData` methods) — never a raw fact query — **and the isolation test
+MUST GROW with each new read surface**. A forgotten filter on a raw query would leak with no DB backstop to
+catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`.)
+
+- *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append; the
+  poison-row proof `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme,
+  the three scoring facts, the Workbench scored read).
 
 ## 6. The call-assembler is pure and deterministic
 
@@ -82,7 +91,28 @@ exclusion (`conviction_kinds − {THEME_CONVICTION}` — the seam that keeps a f
 "own" automatically); the `theme_armed` **display flag**; and the `is_own` **ranking tiebreak**. None is a
 behavior branch.
 
+**The Workbench scorer is the front-half case.** Each of the four meters is factored on its own driving
+property — purity on revenue-mix %, runway on cash/burn, catalysts on live-count + grade, dilution on
+overhang % — with **no `if kind ==` branch anywhere in the engine**. The 0-4 pip cutoffs all come from
+`CallConfig` (no hardcoded thresholds), the same property-keyed discipline.
+
 - *Enforced by:* CALL_LOGIC §3/§4/§7; the verdict keys on `conviction_hold_threshold_days`, not kind; the
   confidence cap keys on `is_starter` (entry grade), not kind; the theme conviction caps via its `flip`
   grade (`signals/theme_conviction.broadcast` emits flip), with the `own_conviction_kinds` property in
-  `domain/config.py` — see `docs/THEME_CONVICTION.md` §5.
+  `domain/config.py` — see `docs/THEME_CONVICTION.md` §5. For the scorer: a **behavioral** magic-number test
+  (a changed cutoff changes a pip) + a **lexical** float-literal scan of `workbench/scoring.py`
+  (`tests/workbench/test_scoring.py`).
+
+## 8. The dilution overhang is computed ONCE — never backed out of the clamped severity
+
+`dilution_clock.overhang_pct(facts, sid, asof)` is the **single source** of the raw convert-overhang % —
+read by **both** the back-half risk-veto (`dilution_clock.score`) and the Workbench dilution meter. The meter
+buckets on this raw %; it **must NEVER recover the overhang from the risk `severity`**, because severity
+*saturates*: `severity = min(overhang / dilution_overhang_severe_pct, 1) × risk_block_severity`, so above the
+severe bar the overhang is unrecoverable from it. A future reader will be tempted to derive the meter from
+the already-computed severity — that is the trap. One raw computation, shared; "—" when there are no live
+converts (no fake zero). *(The same one-source discipline as the back half re-deriving firings on read — #4.)*
+
+- *Enforced by:* `signals/dilution_clock.overhang_pct` (the shared pure helper) used by both `score` and
+  `workbench/scoring._dilution`; the dilution-meter golden test asserts the raw % bucket
+  (`tests/workbench/test_scoring.py`); the existing `tests/signals/test_dilution_clock.py` covers `score`.

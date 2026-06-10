@@ -110,15 +110,36 @@ tests certify the discipline holds end-to-end:
 `thesis.tenant_id` equals the old hardcoded default → byte-identical reads, writes, calls, and `card` JSON;
 the existing suite stays green untouched.
 
+## The current-tenant resolver (Slice 3 — the Workbench surface)
+
+The Workbench is the front door for hunting + promoting theses, so it works **in** a tenant and resolves a
+**current tenant** rather than listing all tenants mixed. This does **NOT** need auth — a deployment-config
+setting scopes it:
+
+- **`db.session.current_tenant_id()`** reads the **`ALPHADECK_TENANT_ID`** env var (a UUID), defaulting to
+  `DEFAULT_TENANT_ID` (the demo); **`app.deps.get_current_tenant()`** is the FastAPI dependency (overridable
+  in tests). **Deployment config, NOT authentication** — it states "this deployment serves tenant X".
+- **Read and write take the tenant from different places, both correct:** the **`GET …/scored`** read takes
+  its tenant from the **thesis** (intrinsic — a thesis lives in one tenant, exactly like the call read); the
+  **`POST /workbench/theses`** promote/create takes its tenant from the **resolver** (which tenant to create
+  the new thesis under).
+- **Standing maintenance obligation (there is no RLS):** isolation is discipline + the poison-row test, so
+  **every new read path MUST route through the tenant-filtered accessors** (`as_of` / `as_of_thesis` /
+  `master.*` / the `PointInTimeData` methods) — never a raw fact query — **and
+  `tests/db/test_tenant_isolation.py` MUST grow to cover it.** It now covers insider/price/theme, the three
+  scoring-fact accessors, and the Workbench scored read. A forgotten filter on a raw query would leak with no
+  DB backstop. (See `INVARIANTS.md` #5 + #8.)
+
 ## Known limitations — read these before relying on the cut
 
 - **⚠️ The Board shows ALL tenants' theses mixed together (display mixing — NOT a fact leak).**
   `thesis_repo.list_all` is **not** tenant-scoped, so `GET /theses` (the Board/Cockpit list) returns the demo
   seed theses **and** production theses together. This is **display-only**: every *per-call* fact read is
   tenant-isolated (proven above), so no demo number ever appears inside a production call or vice versa — you
-  will just see both tenants' theses in the list until `list_all` is tenant-scoped. **Tenant-scoped listing
-  is deferred to the auth era** (there is no current-tenant resolver without a login). Do not mistake the
-  mixed Board for a data leak, and do not rely on the Board to separate tenants yet.
+  will just see both tenants' theses in the list until `list_all` is tenant-scoped. The current-tenant
+  resolver now **exists** (above), but `list_all` itself isn't yet wired to it — the Workbench's *per-thesis*
+  reads are already tenant-correct; scoping the Board's *list* is the remaining piece, **deferred**. Do not
+  mistake the mixed Board for a data leak, and do not rely on the Board to separate tenants yet.
 - **⚠️ Isolation is discipline + the poison-row test, not DB-enforced.** There is **no row-level security
   (RLS)** — the `security_id` FK carries no tenant, so nothing at the database layer *forces* a read to pass
   the right `tenant_id`. The guarantee is the audited discipline "every read funnels through `as_of` /
@@ -128,8 +149,9 @@ the existing suite stays green untouched.
 
 ## Out of scope / deferred
 
-Runtime **auth / login / access control** (the tenant here is data isolation, not authentication); a
-current-tenant resolver and **tenant-scoped `list_all`** (the Board mixing above); **RLS / DB-enforced
-tenancy**; a shared/reference security master; production-replay CLI flags; and **deploy / infra** —
+Runtime **auth / login / access control** (the tenant here is data isolation, not authentication);
+**tenant-scoped `list_all`** (the Board mixing above — the current-tenant resolver now exists, but wiring
+`list_all` to it is deferred); **RLS / DB-enforced tenancy**; a shared/reference security master;
+production-replay CLI flags; and **deploy / infra** —
 "production" here is a **tenant in the same deployment**; a separate production host / database / deployment
 is a follow-up infra step, not this seam.

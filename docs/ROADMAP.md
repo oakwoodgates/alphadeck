@@ -104,10 +104,29 @@ re-research a theme.
 
 **Visual companion (committed):** `docs/mockups/mockup_workbench_nuclear.html` — the front half in the existing
 Board/Cockpit aesthetic, interactive (click a chain link to switch segments, a name to load its DD): narrative
-up top (preserved + attributed), the chain links as the hero, scored names per link (the three meters —
-purity / runway / catalyst density — plus market cap as a *figure* and the archetype pill), a DD rail, the
-basket, and a promote-to-Board action. **Keep this spec and that mockup in sync.** Its scores / market caps /
-company facts are **illustrative placeholders — they never enter the codebase** (all data-derived in the build).
+up top (preserved + attributed), the chain links as the hero, scored names per link (the meters — purity /
+runway / catalysts / **dilution** — plus market cap as a *figure* and the archetype pill), a DD rail, the
+basket, and a promote-to-Board action. *(The mockup shows **three** meters; the build adds **dilution** as a
+fourth, its-own-meter — a deliberate divergence, pressure-polarity; see `docs/WORKBENCH_SCORING.md`.)* **Keep
+this spec and that mockup in sync.** Its scores / market caps / company facts are **illustrative placeholders
+— they never enter the codebase** (all data-derived in the build).
+
+### Build status — the MVP slices
+The Workbench MVP ships in slices; the **data-and-engine half is done**, the UI + the drafter remain:
+- **Slice 1 — the persistence seam `[MERGED #47]`** — the value-chain **structure** persists operationally on
+  the thesis spine (`segment` + `authored_by` on `basket_member`, the `segments` list on `thesis`; migration
+  0008). Survives-reload proven on a fresh connection.
+- **Slice 2 — the three ratify bridges `[MERGED #48]`** — `fact_revenue_mix` (purity),
+  `fact_shares_outstanding` (market cap), `fact_cash_burn` (runway): provenance-carrying bitemporal facts
+  mirroring the catalyst bridge. *(+ the nuclear seed on real operator-ratified figures, #49.)*
+- **Slice 3 — the scoring engine `[MERGED #50]`** — the **four** data-derived pip meters + the market-cap
+  figure, re-derived on read (Option B); the Workbench API (`GET …/scored`, `POST /workbench/theses`) + the
+  current-tenant resolver. See `docs/WORKBENCH_SCORING.md`.
+- **Slice 4 — the Workbench UI `[NEXT]`** — the React screen against the mockup: the chain hero, the
+  four-meter rows + the market-cap figure, the DD rail, the quiet basket + promote. The dilution meter's
+  pressure-polarity needs a visual distinction (it must not read like a goodness-meter).
+- **Slice 5 — the bounded LLM drafter `[FILED]`** — `backend/llm`: drafts the decomposition + the thesis-fit
+  prose; the operator ratifies every placement; cites sources; caches; **never sources a number.**
 
 ### Decisions locked (design pass)
 - **Curation:** surface **and score every candidate**, pre-tag a *suggested* basket; the operator makes the

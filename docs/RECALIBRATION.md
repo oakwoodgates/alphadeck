@@ -77,11 +77,20 @@
    pre-revenue-funding-risk gauge; for a revenue name (LEU) a single quarter's operating cash use is
    working-capital noise, not structural burn, so the literal months figure is "technically right but thin."
    MVP: the ≥24mo→4-pip cap keeps the **pip** honest (LEU 160mo → 4 = well-funded) plus a Slice-4 display cap
-   on the figure. The structural fix — separating working-capital noise from structural burn for a revenue
-   name — needs an **annual operating-cash-flow fact** we don't ingest yet. Filed.
+   on the figure. **The discriminator is SMR vs LEU, and a single quarter can't tell them apart:** LEU has
+   real revenue (~$448.7M FY25) and its −$35.1M quarter is working-capital lumpiness — roughly self-funding,
+   so a 4-pip "well-funded" read is right. **SMR also has revenue (~$31.5M/yr) but burns ~$50M/*quarter* — far
+   more than its *annual* revenue — so it is a structural burner despite having revenue, and its 60-mo runway
+   IS a real survival read.** Both show a negative operating quarter, so the structural fix — separating
+   working-capital noise from structural burn — needs an **annual operating-cash-flow fact** we don't ingest
+   yet. Filed. *(Reasoning: `docs/WORKBENCH_SCORING.md` "the recurring-vs-one-time burn pattern".)*
 6. **Workbench dilution meter is inverted polarity `[Slice-4 display]`.** More pips = more risk, opposite the
    three goodness-meters. The scoring is correct; the UI needs a clear visual distinction so a full dilution
    meter never reads like a full purity meter. A display concern, not a scoring change.
+7. **A varied demo name for the Workbench `[FILED, later]`.** The nuclear basket is homogeneous on these
+   meters (purity 3-4, runway all 4, dilution all "—", catalysts 0-2) — honest, but it doesn't show the
+   meters *discriminating*. Add a varied name (a lower-purity *adjacent*, a tight-runway one, or a
+   convert-heavy one) so the demo actually demonstrates the scoring's value. Demo data, not a code change.
 
 ## C. Deferred builds (the sequenced plan is `docs/ROADMAP.md`)
 
