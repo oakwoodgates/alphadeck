@@ -24,6 +24,7 @@
   --manage: #34c2a0;
   --pos: #46d07f;
   --neg: #ff5a6a;
+  --leader: #8ab4ff;
 
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --sans: "Archivo", system-ui, sans-serif;
@@ -272,3 +273,106 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 /* cockpit back-to-board control */
 .back { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--txt-2); cursor: pointer; border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 11px; background: var(--panel); font-family: inherit; }
 .back:hover { border-color: var(--txt-3); color: var(--txt); }
+
+/* ===========================================================================
+   Workbench (Phase-2 front half) — ported from docs/mockups/mockup_workbench_nuclear.html.
+   Reuses the global tokens + .topbar/.nav/.brand/.sect/.narrative/.arch/.asof. Two deliberate
+   deviations from the mockup: the DILUTION meter is the ember RISK axis (pressure polarity, set
+   apart) and a no-data figure renders "—" (distinct from a measured zero), plus an honest in-product
+   authoring-gap marker (authoring is Slice 4b).
+   =========================================================================== */
+.nav a { cursor: pointer; }
+.wb-shell { height: 100vh; display: flex; flex-direction: column; }
+
+.wb-top { min-height: 54px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap; padding: 10px 26px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+.wb-top h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; margin: 0; }
+.wb-badge { font-size: 9.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; padding: 3px 9px; border-radius: 6px; color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
+.wb-thesis { font-family: var(--sans); font-size: 12px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 9px; color-scheme: dark; cursor: pointer; }
+.wb-flow { margin-left: auto; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-family: var(--mono); }
+.wb-flow b { color: var(--txt-3); font-weight: 700; }
+
+.wb-body { flex: 1; display: grid; grid-template-columns: 1fr 396px; overflow: hidden; }
+@media (max-width: 880px) { .wb-body { grid-template-columns: 1fr; overflow: visible; } }
+.wb-main { overflow-y: auto; padding: 22px 26px 60px; min-width: 0; }
+.wb-rail { border-left: 1px solid var(--line); background: var(--bg-2); overflow-y: auto; padding: 20px 20px 60px; }
+
+.sect-h em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
+.note { font-size: 10.5px; color: var(--txt-4); line-height: 1.5; margin-top: 6px; }
+.note b { color: var(--txt-3); }
+
+/* the value-chain hero */
+.chain { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.seg { flex: 0 0 auto; min-width: 128px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 10px 12px; cursor: pointer; transition: 0.14s; font: inherit; color: inherit; text-align: left; }
+.seg:hover { border-color: var(--line-2); background: var(--panel-2); }
+.seg.on { border-color: var(--armed); background: linear-gradient(180deg, rgba(255, 87, 51, 0.07), var(--panel)); box-shadow: 0 0 20px -10px rgba(255, 87, 51, 0.5); }
+.seg .sn { font-weight: 600; font-size: 12.5px; color: var(--txt); margin-bottom: 5px; }
+.seg .smeta { font-family: var(--mono); font-size: 10px; color: var(--txt-3); display: flex; align-items: center; gap: 7px; }
+.seg .smeta .ct { color: var(--txt-2); }
+.chain-arrow { flex: 0 0 auto; display: flex; align-items: center; color: var(--txt-4); font-size: 13px; }
+
+/* the honest authoring gap — this view scores & promotes a SEEDED chain; it cannot yet build one */
+.wb-authoring-gap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.wb-stub { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); border: 1px dashed var(--line-2); border-radius: 6px; padding: 5px 10px; opacity: 0.6; cursor: not-allowed; white-space: nowrap; }
+.wb-authoring-gap .note { margin-top: 0; flex: 1; min-width: 220px; }
+.wb-empty { color: var(--txt-4); font-size: 12px; line-height: 1.5; padding: 14px; border: 1px dashed var(--line); border-radius: 9px; background: var(--panel); }
+
+/* a scored name row */
+.nmrow { display: block; width: 100%; text-align: left; font: inherit; color: inherit; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 11px 13px; margin-bottom: 9px; cursor: pointer; transition: 0.14s; }
+.nmrow:hover { border-color: var(--line-2); background: var(--panel-2); }
+.nmrow.sel { border-color: var(--leader); box-shadow: 0 0 18px -10px rgba(138, 180, 255, 0.5); }
+.nmrow .top { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.nmrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
+.nmrow .cap { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+.nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
+.arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
+.arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
+
+/* the four meters — purity/runway/catalysts cluster; dilution is the ember RISK axis, set apart */
+.wb-meters { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.wb-meter { display: flex; align-items: center; gap: 7px; }
+.wb-meter .ml { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-meter.risk .ml { color: color-mix(in srgb, var(--armed) 75%, var(--txt-3)); }
+.wb-meter-sep { width: 1px; align-self: stretch; min-height: 16px; background: var(--line-2); margin: 0 1px; }
+.wb-pips { display: flex; gap: 3px; }
+.wb-pip { width: 11px; height: 4px; border-radius: 2px; background: var(--line-2); }
+.wb-pip.on { background: var(--txt-2); }
+.wb-pip.risk.on { background: var(--armed); }
+.wb-nodata { font-family: var(--mono); font-size: 12px; line-height: 1; color: var(--txt-4); padding: 0 2px; }
+.fit { margin-left: auto; font-size: 10px; letter-spacing: 0.04em; color: var(--txt-3); }
+
+/* basket — quiet, bottom of main */
+.basket-bot { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); padding: 12px 14px; }
+.bmems { display: flex; gap: 9px; flex-wrap: wrap; }
+.bchip { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 9px; background: var(--panel-2); }
+.bchip b { font-family: var(--mono); font-weight: 700; font-size: 11.5px; }
+.bchip small { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
+/* the quietest-styled action (inverse loudness): low-opacity ember, no pulse/glow */
+.promote { margin-left: auto; padding: 9px 16px; border-radius: 8px; border: 1px solid rgba(255, 87, 51, 0.45); background: rgba(255, 87, 51, 0.08); color: var(--armed); font-family: var(--sans); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: 0.15s; white-space: nowrap; }
+.promote:hover { background: rgba(255, 87, 51, 0.16); }
+.promote:disabled { opacity: 0.5; cursor: default; background: rgba(255, 87, 51, 0.08); }
+.toast { margin-top: 9px; font-size: 10.5px; color: var(--manage); letter-spacing: 0.04em; }
+.toast.err { color: var(--neg); }
+.seam { margin-top: 10px; font-size: 10px; line-height: 1.55; color: var(--txt-4); }
+.seam b { color: var(--txt-3); font-weight: 700; }
+
+/* the DD rail = evidence behind the scores */
+.ddcard { border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel); overflow: hidden; }
+.dd-head { padding: 12px 14px; background: rgba(138, 180, 255, 0.08); display: flex; align-items: center; gap: 8px; }
+.dd-head .tk { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--leader); }
+.dd-body { padding: 15px; }
+.dd-facts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+.dd-facts span { font-size: 11.5px; color: var(--txt-2); display: flex; gap: 9px; }
+.dd-facts span b { color: var(--txt-4); font-weight: 700; font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase; min-width: 58px; padding-top: 2px; }
+.dd-sub { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); margin: 16px 0 8px; display: flex; align-items: center; gap: 8px; }
+.dd-sub::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.dd-sub em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10px; }
+.dd-sub.deferred { opacity: 0.5; }
+.dd-meter { margin-bottom: 12px; }
+.dd-meter-h { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; margin-bottom: 6px; }
+.dd-meter-h .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }
+.dd-meter-h .v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+.dd-why { font-size: 11px; line-height: 1.5; color: var(--txt-2); margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--line-2); }
+.prov { display: flex; flex-wrap: wrap; gap: 6px; }
+.prov .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; text-decoration: none; display: inline-block; }
+.prov .chip::before { content: "◇ "; color: var(--txt-4); }
+.prov a.chip:hover { color: var(--txt-2); border-color: var(--txt-4); }

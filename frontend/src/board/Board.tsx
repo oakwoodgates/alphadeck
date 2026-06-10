@@ -14,6 +14,7 @@ interface Props {
   asof: string;
   onAsofChange: (asof: string) => void;
   onSelect: (thesisId: string) => void;
+  onOpenWorkbench: () => void;
 }
 
 interface Row {
@@ -21,7 +22,7 @@ interface Row {
   call: CallCardResponse;
 }
 
-export function Board({ asof, onAsofChange, onSelect }: Props) {
+export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench }: Props) {
   const thesesQ = useTheses();
   const theses = thesesQ.data ?? [];
   const callResults = useCalls(
@@ -45,7 +46,7 @@ export function Board({ asof, onAsofChange, onSelect }: Props) {
         </div>
         <nav className="nav">
           <a className="on">Board</a>
-          <a className="stub">Workbench</a>
+          <a onClick={onOpenWorkbench}>Workbench</a>
           <a className="stub">Scoreboard</a>
         </nav>
         <div className="spacer" />
