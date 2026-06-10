@@ -138,3 +138,59 @@ def test_promote_rejects_orphan_segment_placement(db, security_id):
         assert client.post("/workbench/theses", json=payload).status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, name, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, name, cik, date(2026, 1, 1)),
+        )
+    db.commit()
+    return sid
+
+
+def test_securities_search_serves_the_master(db):
+    """The authoring typeahead (Slice 4b): the resolver surfaces exact master rows for the operator to pick
+    — a discovery net (INVARIANT #2), never a guess. No match -> []."""
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "LEU", name="Centrus Energy Corp.")
+    client = _client(db)
+    try:
+        hits = client.get("/workbench/securities", params={"q": "OK"}).json()
+        assert [h["ticker"] for h in hits] == ["OKLO"]
+        assert hits[0]["security_id"] == str(oklo) and hits[0]["cik"] == "0001849056"
+        assert client.get("/workbench/securities", params={"q": "ZZZ"}).json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_promote_stamps_authored_by_operator_set(db, security_id):
+    """The human authoring path STAMPS authorship server-side: a body claiming `system_drafted` is coerced
+    to `operator_set` (the operator is the author; `system_drafted` is reserved for the S5 drafter's own
+    write path)."""
+    payload = {
+        "name": "Nuclear",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "reactors"}],
+        "basket": [
+            {
+                "ticker": "DEVCO",
+                "role": "r",
+                "archetype": "leader",
+                "security_id": str(security_id),
+                "segment": "reactors",
+                "authored_by": "system_drafted",  # a stale / spoofed value from the body
+            }
+        ],
+    }
+    client = _client(db)
+    try:
+        tid = client.post("/workbench/theses", json=payload).json()["id"]
+        detail = client.get(f"/theses/{tid}").json()
+        assert detail["basket"][0]["authored_by"] == "operator_set"
+    finally:
+        app.dependency_overrides.clear()

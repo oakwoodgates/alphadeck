@@ -11,9 +11,11 @@ from app.deps import get_conn, get_current_tenant
 from app.schemas_api import (
     PromoteThesisRequest,
     ScoredMemberOut,
+    SecurityMatchOut,
     ThesisDetail,
     WorkbenchScored,
 )
+from domain.enums import Authorship
 from domain.thesis import Thesis
 from repositories import thesis_repo
 from securities import master
@@ -48,6 +50,24 @@ def get_scored(
     )
 
 
+@router.get("/securities", response_model=list[SecurityMatchOut])
+def search_securities(
+    q: str = Query("", description="ticker or name fragment; a discovery net over the master"),
+    limit: int = Query(10, ge=1, le=50),
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> list[SecurityMatchOut]:
+    """Search the current tenant's security master for names to PLACE into a basket (the authoring
+    typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
+    — never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick
+    carries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).
+    """
+    matches = master.search(conn, q, tenant_id=tenant_id, limit=limit)
+    return [
+        SecurityMatchOut(security_id=m.id, ticker=m.ticker, name=m.name, cik=m.cik) for m in matches
+    ]
+
+
 @router.post("/theses", response_model=ThesisDetail)
 def promote(
     req: PromoteThesisRequest,
@@ -65,7 +85,13 @@ def promote(
             name=req.name,
             narrative=req.narrative,
             ticker=req.ticker,
-            basket=req.basket,
+            # Authorship is STAMPED here, not taken from the body: this is the human authoring path, so
+            # every placement is `operator_set` (any incoming value — incl. a stale `system_drafted` — is
+            # coerced). `system_drafted` is reserved for the S5 drafter's own write path; `operator_edited`
+            # (a diff against a stored draft) also lands with S5, when drafts exist to edit. (INVARIANT #1.)
+            basket=[
+                m.model_copy(update={"authored_by": Authorship.OPERATOR_SET}) for m in req.basket
+            ],
             segments=req.segments,
         )
     except ValidationError as exc:

@@ -476,3 +476,16 @@ def test_workbench_scored_read_is_tenant_isolated(db):
         PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID), prod_member
     )
     assert cross.purity.pips is None
+
+
+def test_securities_search_is_tenant_isolated(db):
+    """The Workbench add-a-name search (Slice 4b) is a new tenant-scoped read surface: a same-ticker
+    security in demo + prod each surfaces ONLY under its own tenant — a demo search returns demo's row and
+    never prod's, and vice versa. Grows the poison-row proof (discipline-not-RLS holds only if each new
+    read path stays on the tenant filter)."""
+    provision_tenant(db, "prod-search", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID, ticker="OKLO")
+    prod_sec = _security(db, PROD_TENANT_ID, ticker="OKLO")
+
+    assert [s.id for s in master.search(db, "OKLO", tenant_id=DEFAULT_TENANT_ID)] == [demo_sec]
+    assert [s.id for s in master.search(db, "OKLO", tenant_id=PROD_TENANT_ID)] == [prod_sec]
