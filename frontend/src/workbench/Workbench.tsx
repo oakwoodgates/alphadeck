@@ -1,9 +1,10 @@
 import { Fragment, useState } from "react";
 
 import { usePromoteThesis, useTheses, useThesis, useWorkbenchScored } from "../api/hooks";
+import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
-import { archLabel } from "./format";
+import { archLabel, errText } from "./format";
 
 interface Props {
   asof: string;
@@ -11,15 +12,9 @@ interface Props {
   onBack: () => void;
 }
 
-function errText(e: unknown): string {
-  const d = (e as { detail?: unknown } | null)?.detail;
-  return typeof d === "string" ? d : "the request was rejected";
-}
-
 /** The Workbench (Phase-2 front half): a narrative → a scored, structured basket → promote to the Board.
- *  Slice 4 DISPLAYS + SCORES + PROMOTES the seeded chain (wired to the live scored endpoint, re-derived
- *  on read). AUTHORING — building/editing the chain — is Slice 4b; the gap is made honest in-product
- *  (the disabled affordance on the value-chain hero) so polish never masquerades as a finished product. */
+ *  DISPLAY · SCORE · PROMOTE (S4) + AUTHORING (S4b): the operator builds/edits the value chain in an edit
+ *  mode (ChainEditor), saving through the full-replace promote; the meters re-derive on the new structure. */
 export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const thesesQ = useTheses();
   const theses = thesesQ.data ?? [];
@@ -30,6 +25,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
 
   const [seg, setSeg] = useState<string | null>(null);
   const [pickedMemberId, setPickedMemberId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
@@ -40,8 +36,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
 
-  // The seeded basket is FLAT — the value-chain decomposition is authored (Slice 4b), so a seeded
-  // thesis has no segments yet. When it does (post-authoring), the names group under the selected
+  // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   const grouped = segments.length > 0;
   const countFor = (label: string) => members.filter((m) => m.segment === label).length;
@@ -50,6 +45,9 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const selectedMember =
     shownMembers.find((m) => m.security_id === pickedMemberId) ?? shownMembers[0] ?? null;
   const linkCount = new Set(members.map((m) => m.segment).filter(Boolean)).size;
+  // the authorship seam: who placed each name (operator now; S5's drafter will add "drafted")
+  const authoredByFor = (sid: string) =>
+    thesis?.basket.find((b) => b.security_id === sid)?.authored_by;
 
   const activeName = thesis?.name ?? theses.find((t) => t.id === thesisId)?.name ?? "…";
 
@@ -57,6 +55,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
     setPickedId(id);
     setSeg(null);
     setPickedMemberId(null);
+    setEditing(false);
     promote.reset();
   };
 
@@ -114,152 +113,184 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
       </div>
 
       <div className="wb-body">
-        <main className="wb-main">
-          {scoredQ.error && <p style={{ color: "var(--neg)" }}>Failed to score the basket.</p>}
+        {editing && thesis ? (
+          <>
+            <main className="wb-main">
+              <ChainEditor key={thesis.id} thesis={thesis} onDone={() => setEditing(false)} />
+            </main>
+            <aside className="wb-rail">
+              <div className="ddcard">
+                <div className="dd-body">
+                  <p className="muted">
+                    Editing the chain — place names into links, add names from the master, then save.
+                    The scores re-derive on the new structure (nothing is stored).
+                  </p>
+                </div>
+              </div>
+            </aside>
+          </>
+        ) : (
+          <>
+            <main className="wb-main">
+              {scoredQ.error && <p style={{ color: "var(--neg)" }}>Failed to score the basket.</p>}
 
-          <section className="sect">
-            <div className="sect-h">
-              The narrative <em>— your words, preserved</em>
-            </div>
-            <div className="narrative">
-              {thesis?.narrative ?? "…"}
-              <span className="by">Operator · the edge is yours, the chain and the names are the Workbench's job</span>
-            </div>
-          </section>
-
-          <section className="sect">
-            <div className="sect-h">
-              The value chain <em>— where the money flows, decomposed from your narrative</em>
-            </div>
-            {grouped ? (
-              <div className="chain">
-                {segments.map((s, i) => (
-                  <Fragment key={s.label}>
-                    <button
-                      type="button"
-                      className={`seg${s.label === activeSeg ? " on" : ""}`}
-                      onClick={() => {
-                        setSeg(s.label);
-                        setPickedMemberId(null);
-                      }}
-                    >
-                      <div className="sn">{s.label}</div>
-                      <div className="smeta">
-                        <span className="ct">
-                          {countFor(s.label)} {countFor(s.label) === 1 ? "name" : "names"}
-                        </span>
-                        {s.descriptor ? <> · {s.descriptor}</> : null}
-                      </div>
-                    </button>
-                    {i < segments.length - 1 ? (
-                      <span className="chain-arrow" aria-hidden="true">
-                        ›
-                      </span>
-                    ) : null}
-                  </Fragment>
-                ))}
-              </div>
-            ) : (
-              <div className="wb-empty">
-                {scoredQ.isLoading
-                  ? "Scoring…"
-                  : "No value chain yet — the seeded basket isn't decomposed into links. The decomposition (the Workbench's hero) is authored in Slice 4b; this slice scores & promotes the flat basket below."}
-              </div>
-            )}
-            {/* The honest authoring gap: this view scores & promotes a SEEDED basket — it cannot yet
-                BUILD or decompose one. The disabled affordance + note say so plainly (authoring = 4b). */}
-            <div className="wb-authoring-gap">
-              <span className="wb-stub" aria-disabled="true">
-                ＋ add / edit names
-              </span>
-              <span className="note">
-                Authoring — build &amp; edit the value chain, place names, decompose the basket — ships in
-                Slice 4b (with a ticker→security resolver). This view scores &amp; promotes the seeded
-                basket.
-              </span>
-            </div>
-            {grouped && (
-              <div className="note">
-                Click a link to see its names. The whole chain is visible so you pick from a map — not the
-                two names that came to mind first.
-              </div>
-            )}
-          </section>
-
-          {shownMembers.length > 0 && (
-            <section className="sect">
-              <div className="sect-h">
-                <span>{activeSeg ?? "The basket, scored"}</span>{" "}
-                <em>
-                  — {shownMembers.length} {shownMembers.length === 1 ? "name" : "names"}, scored
-                </em>
-              </div>
-              {shownMembers.map((m) => (
-                <ScoredRow
-                  key={m.security_id}
-                  member={m}
-                  selected={m.security_id === selectedMember?.security_id}
-                  onSelect={() => setPickedMemberId(m.security_id)}
-                />
-              ))}
-              <div className="note">
-                Scores are data-derived — purity from revenue mix, runway from cash &amp; burn, catalysts
-                from the feeds, dilution from convert overhang, market cap from price × shares.{" "}
-                <b>Dilution is the ember risk axis</b> (more = more pressure); a bare “—” means no data,
-                not zero. Click a name for the evidence.
-              </div>
-            </section>
-          )}
-
-          <section className="sect">
-            <div className="sect-h">
-              Basket{" "}
-              <em>
-                — {members.length} {members.length === 1 ? "name" : "names"}
-                {linkCount > 0 ? ` across ${linkCount} ${linkCount === 1 ? "link" : "links"}` : ""}
-              </em>
-            </div>
-            <div className="basket-bot">
-              <div className="bmems">
-                {members.map((m) => (
-                  <span className="bchip" key={m.security_id}>
-                    <b>{m.ticker ?? "◇"}</b>
-                    <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
-                    {m.segment ? <small>{m.segment}</small> : null}
+              <section className="sect">
+                <div className="sect-h">
+                  The narrative <em>— your words, preserved</em>
+                </div>
+                <div className="narrative">
+                  {thesis?.narrative ?? "…"}
+                  <span className="by">
+                    Operator · the edge is yours, the chain and the names are the Workbench's job
                   </span>
-                ))}
-                {members.length === 0 && <span className="muted">No scored names yet.</span>}
-              </div>
-              <button
-                type="button"
-                className="promote"
-                onClick={onPromote}
-                disabled={promote.isPending || !thesis}
-              >
-                {promote.isPending ? "Promoting…" : "Promote to thesis → Board (Incubating)"}
-              </button>
-            </div>
-            {promote.isSuccess && (
-              <div className="toast show">
-                ✓ Sent to the Board as Incubating — the back half takes over timing.
-              </div>
-            )}
-            {promote.isError && (
-              <div className="toast show err">
-                Couldn't promote — {errText(promote.error)}. Nothing was sent.
-              </div>
-            )}
-            <div className="seam">
-              <b>On promote</b>, the chain structure persists with the thesis — the segment each name
-              sits in (a label on basket_member). The scores aren't stored; they re-derive on read, so a
-              chain reopened months later shows current numbers.
-            </div>
-          </section>
-        </main>
+                </div>
+              </section>
 
-        <aside className="wb-rail">
-          <DDRail member={selectedMember} />
-        </aside>
+              <section className="sect">
+                <div className="sect-h">
+                  The value chain <em>— where the money flows, decomposed from your narrative</em>
+                </div>
+                {grouped ? (
+                  <div className="chain">
+                    {segments.map((s, i) => (
+                      <Fragment key={s.label}>
+                        <button
+                          type="button"
+                          className={`seg${s.label === activeSeg ? " on" : ""}`}
+                          onClick={() => {
+                            setSeg(s.label);
+                            setPickedMemberId(null);
+                          }}
+                        >
+                          <div className="sn">{s.label}</div>
+                          <div className="smeta">
+                            <span className="ct">
+                              {countFor(s.label)} {countFor(s.label) === 1 ? "name" : "names"}
+                            </span>
+                            {s.descriptor ? <> · {s.descriptor}</> : null}
+                          </div>
+                        </button>
+                        {i < segments.length - 1 ? (
+                          <span className="chain-arrow" aria-hidden="true">
+                            ›
+                          </span>
+                        ) : null}
+                      </Fragment>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="wb-empty">
+                    {scoredQ.isLoading
+                      ? "Scoring…"
+                      : "No value chain yet — the seeded basket isn't decomposed into links. Use “Edit the chain” to build it."}
+                  </div>
+                )}
+                <div className="wb-authoring-gap">
+                  <button
+                    type="button"
+                    className="wb-edit-btn"
+                    onClick={() => setEditing(true)}
+                    disabled={!thesis}
+                  >
+                    ✎ Edit the chain
+                  </button>
+                  <span className="note">
+                    Build &amp; edit the value chain — add links, place names, add names from the master.
+                    Operator-authored now; the LLM drafter (S5) will pre-fill it for you to ratify.
+                  </span>
+                </div>
+                {grouped && (
+                  <div className="note">
+                    Click a link to see its names. The whole chain is visible so you pick from a map —
+                    not the two names that came to mind first.
+                  </div>
+                )}
+              </section>
+
+              {shownMembers.length > 0 && (
+                <section className="sect">
+                  <div className="sect-h">
+                    <span>{activeSeg ?? "The basket, scored"}</span>{" "}
+                    <em>
+                      — {shownMembers.length} {shownMembers.length === 1 ? "name" : "names"}, scored
+                    </em>
+                  </div>
+                  {shownMembers.map((m) => (
+                    <ScoredRow
+                      key={m.security_id}
+                      member={m}
+                      selected={m.security_id === selectedMember?.security_id}
+                      onSelect={() => setPickedMemberId(m.security_id)}
+                    />
+                  ))}
+                  <div className="note">
+                    Scores are data-derived — purity from revenue mix, runway from cash &amp; burn,
+                    catalysts from the feeds, dilution from convert overhang, market cap from price ×
+                    shares. <b>Dilution is the ember risk axis</b> (more = more pressure); a bare “—”
+                    means no data, not zero. Click a name for the evidence.
+                  </div>
+                </section>
+              )}
+
+              <section className="sect">
+                <div className="sect-h">
+                  Basket{" "}
+                  <em>
+                    — {members.length} {members.length === 1 ? "name" : "names"}
+                    {linkCount > 0 ? ` across ${linkCount} ${linkCount === 1 ? "link" : "links"}` : ""}
+                  </em>
+                </div>
+                <div className="basket-bot">
+                  <div className="bmems">
+                    {members.map((m) => {
+                      const auth = authoredByFor(m.security_id);
+                      return (
+                        <span className="bchip" key={m.security_id}>
+                          <b>{m.ticker ?? "◇"}</b>
+                          <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
+                          {m.segment ? <small>{m.segment}</small> : null}
+                          {auth ? (
+                            <span className="wb-author">
+                              {auth === "operator_set" ? "operator" : auth.replace("_", " ")}
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                    {members.length === 0 && <span className="muted">No scored names yet.</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className="promote"
+                    onClick={onPromote}
+                    disabled={promote.isPending || !thesis}
+                  >
+                    {promote.isPending ? "Promoting…" : "Promote to thesis → Board (Incubating)"}
+                  </button>
+                </div>
+                {promote.isSuccess && (
+                  <div className="toast show">
+                    ✓ Sent to the Board as Incubating — the back half takes over timing.
+                  </div>
+                )}
+                {promote.isError && (
+                  <div className="toast show err">
+                    Couldn't promote — {errText(promote.error)}. Nothing was sent.
+                  </div>
+                )}
+                <div className="seam">
+                  <b>On promote</b>, the chain structure persists with the thesis — the segment each name
+                  sits in (a label on basket_member). The scores aren't stored; they re-derive on read,
+                  so a chain reopened months later shows current numbers.
+                </div>
+              </section>
+            </main>
+
+            <aside className="wb-rail">
+              <DDRail member={selectedMember} />
+            </aside>
+          </>
+        )}
       </div>
     </div>
   );
