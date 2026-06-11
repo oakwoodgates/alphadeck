@@ -16,7 +16,10 @@ from app.schemas_api import (
     WorkbenchScored,
 )
 from domain.enums import Authorship
+from domain.extraction import ExtractedFact
 from domain.thesis import Thesis
+from ingest.edgar.client import EdgarClient
+from ingest.edgar.extract import extract_for_security
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -66,6 +69,29 @@ def search_securities(
     return [
         SecurityMatchOut(security_id=m.id, ticker=m.ticker, name=m.name, cik=m.cik) for m in matches
     ]
+
+
+@router.get("/securities/{security_id}/extract", response_model=list[ExtractedFact])
+def extract_scoring_facts(
+    security_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> list[ExtractedFact]:
+    """Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) —
+    the three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the
+    located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
+    auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
+    never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+    """
+    cik = master.ciks_for(conn, {security_id}, tenant_id=tenant_id).get(security_id)
+    if not cik:
+        raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
+    try:
+        return extract_for_security(EdgarClient(allow_live=True), cik)
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
+        raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
 
 
 @router.post("/theses", response_model=ThesisDetail)

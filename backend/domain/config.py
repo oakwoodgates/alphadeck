@@ -186,3 +186,34 @@ class CallConfig(DomainModel):
 
 
 DEFAULT_CONFIG = CallConfig()
+
+
+class ExtractorConfig(DomainModel):
+    """The scoring-fact extractor's detector dials (Slice hybrid-1) — kept here, never hardcoded in the
+    extractor, under the same no-magic-number discipline as ``CallConfig`` (a behavioral guard proves a
+    changed dial changes a flag). Starting calibrations against the seed oracle, not claims of precision.
+    """
+
+    # YTD detector: a cash-flow period whose span exceeds this is a year-to-date column, not a quarter, so
+    # the quarter must be DERIVED (YTD - prior period). A clean fiscal quarter is ~89-92 days. (NNE.)
+    quarterly_span_max_days: int = 100
+    # one-time detector: a NON-ROUTINE operating line (accrued/settlement — NOT routine working capital like
+    # inventory/AR/trade-AP, and NOT a non-cash add-back) whose magnitude is at least this fraction of
+    # |operating cash use| is anomalous -> flag for ratification (the operator decides whether to back it
+    # out). SMR's ENTRA1 settlement (the AP-and-accrued line) is ~84%; routine working-capital swings (LEU's
+    # inventory is 139%!) are excluded by category, not by size, so they don't trip it.
+    one_time_line_fraction: float = 0.70
+    # corroborating keyword-class for the located passage (NEVER names a specific item like ENTRA1) — a
+    # one-time line whose label matches strengthens the flag and anchors the passage.
+    one_time_keywords: tuple[str, ...] = (
+        "settlement",
+        "milestone",
+        "litigation",
+        "impairment",
+        "nonrecurring",
+        "one-time",
+        "contribution",
+    )
+
+
+DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()
