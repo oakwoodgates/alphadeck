@@ -376,3 +376,42 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .prov .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; text-decoration: none; display: inline-block; }
 .prov .chip::before { content: "◇ "; color: var(--txt-4); }
 .prov a.chip:hover { color: var(--txt-2); border-color: var(--txt-4); }
+
+/* authoring (Slice 4b) — the edit-the-chain surface */
+.wb-edit-btn { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--leader); border: 1px solid rgba(138, 180, 255, 0.4); background: rgba(138, 180, 255, 0.07); border-radius: 7px; padding: 7px 13px; cursor: pointer; transition: 0.14s; white-space: nowrap; }
+.wb-edit-btn:hover { background: rgba(138, 180, 255, 0.14); }
+.wb-edit-btn:disabled { opacity: 0.5; cursor: default; }
+/* the authorship seam — quiet provenance (operator now; "drafted" once S5 lands), never loud */
+.wb-author { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 6px; white-space: nowrap; }
+
+.wb-input { font: inherit; font-size: 12px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 5px 8px; color-scheme: dark; }
+.wb-input:focus { outline: none; border-color: var(--leader); }
+.wb-mini { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: var(--txt-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 9px; cursor: pointer; transition: 0.14s; }
+.wb-mini:hover { border-color: var(--txt-3); color: var(--txt); }
+.wb-mini:disabled { opacity: 0.4; cursor: default; }
+.wb-mini.ghost { background: transparent; color: var(--txt-3); border-color: var(--line); }
+
+.wb-editor-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.wb-editor-head .sect-h { flex: 1; margin-bottom: 0; min-width: 200px; }
+.wb-editor-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+.wb-dirty { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warm); }
+
+.wb-seg-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.wb-seg-chip { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 6px; background: var(--panel); }
+.wb-seg-chip .wb-input { width: 130px; }
+.wb-seg-add { display: flex; gap: 6px; align-items: center; }
+
+.wb-mem-edit { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.wb-mem-row { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--panel); }
+.wb-mem-row .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
+.wb-mem-row > .wb-input { margin-left: auto; min-width: 150px; }
+
+.wb-addname { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 11px 13px; background: var(--bg-2); }
+.wb-addname.picked { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-addname .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
+.wb-matches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-matches li button { width: 100%; text-align: left; font: inherit; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; transition: 0.14s; }
+.wb-matches li button:hover { border-color: var(--leader); background: var(--panel-2); }
+.wb-matches li button:disabled { opacity: 0.5; cursor: default; }
+.wb-matches b { font-family: var(--mono); font-weight: 700; }
+.wb-matches .co { color: var(--txt-3); font-size: 11px; }

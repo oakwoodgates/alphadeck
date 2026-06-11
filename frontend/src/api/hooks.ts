@@ -13,6 +13,8 @@ export type ScoredFigureOut = components["schemas"]["ScoredFigureOut"];
 export type Segment = components["schemas"]["Segment"];
 export type ProvenanceOut = components["schemas"]["ProvenanceOut"];
 export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"];
+export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
+export type BasketMember = components["schemas"]["BasketMember"];
 
 export function useTheses() {
   return useQuery({
@@ -79,8 +81,25 @@ export function useWorkbenchScored(thesisId: string, asof: string) {
   });
 }
 
-// Promote a structured thesis to the Board (the app's only mutation): create/update via upsert, then
-// invalidate the Board list so the Incubating thesis appears. Scores are never sent — they re-derive.
+// The authoring add-a-name typeahead (Slice 4b): a read-only discovery net over the current tenant's
+// security master. Disabled until the operator types; the operator picks an exact row to place.
+export function useResolveSecurities(query: string) {
+  return useQuery({
+    queryKey: ["workbench-securities", query] as const,
+    enabled: query.trim().length > 0,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/securities", {
+        params: { query: { q: query, limit: 10 } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Promote/save a structured thesis (the app's only mutation): create/update via full-replace upsert,
+// then invalidate the Board list AND the scored read so the meters re-derive on the new structure.
+// Scores are never sent — they re-derive on read.
 export function usePromoteThesis() {
   const qc = useQueryClient();
   return useMutation({
@@ -91,7 +110,10 @@ export function usePromoteThesis() {
     },
     onSuccess: (thesis) => {
       qc.invalidateQueries({ queryKey: ["theses"] });
-      if (thesis?.id) qc.invalidateQueries({ queryKey: ["thesis", thesis.id] });
+      if (thesis?.id) {
+        qc.invalidateQueries({ queryKey: ["thesis", thesis.id] });
+        qc.invalidateQueries({ queryKey: ["workbench-scored", thesis.id] }); // re-score on edit
+      }
     },
   });
 }

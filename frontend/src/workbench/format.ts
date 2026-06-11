@@ -16,6 +16,15 @@ export function archLabel(archetype: string): string {
   return ARCH_LABEL[archetype] ?? archetype;
 }
 
+/** The basket-member archetypes the operator classifies a name as (the add-a-name form). */
+export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;
+
+/** A human message from a thrown API error (FastAPI `{detail}`); a safe fallback otherwise. */
+export function errText(e: unknown): string {
+  const d = (e as { detail?: unknown } | null)?.detail;
+  return typeof d === "string" ? d : "the request was rejected";
+}
+
 /** Market cap (a figure, not a meter) → "$8.0B" / "$600M"; "—" when either price or shares is missing
  *  (null value), never a fake "$0". */
 export function formatMarketCap(value: number | null | undefined): string {

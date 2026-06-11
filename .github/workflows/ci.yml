@@ -74,3 +74,4 @@ jobs:
           npm run gen:api
           git diff --exit-code src/api/types.gen.ts
       - run: npm run build  # tsc -b (strict typecheck) + vite build
+      - run: npm test  # vitest: the Workbench authoring components + the grouped-render coverage
