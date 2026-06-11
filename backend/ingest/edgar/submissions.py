@@ -13,8 +13,11 @@ def fetch_submissions(client: EdgarClient, cik: str | int) -> dict[str, Any]:
     return client.get_json(submissions_url(cik), f"submissions/CIK{int(cik):010d}.json")
 
 
-def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
-    """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed}``."""
+def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
+    """List a company's filings of one ``form`` type (newest first) from a submissions JSON:
+    ``{accession, primary_doc, filed}``. The submissions ``recent`` arrays are parallel + reverse-chrono,
+    so the first match is the latest (e.g. ``filings_of(subs, "10-Q")[0]`` = the most recent 10-Q).
+    """
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     accns = recent.get("accessionNumber", [])
@@ -22,9 +25,14 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     dates = recent.get("filingDate", [])
     return [
         {"accession": accns[i], "primary_doc": docs[i], "filed": dates[i]}
-        for i, form in enumerate(forms)
-        if form == "4"
+        for i, f in enumerate(forms)
+        if f == form
     ]
+
+
+def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
+    """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed}``."""
+    return filings_of(submissions, "4")
 
 
 def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:

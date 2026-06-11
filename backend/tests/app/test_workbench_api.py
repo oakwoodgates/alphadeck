@@ -167,6 +167,61 @@ def test_securities_search_serves_the_master(db):
         app.dependency_overrides.clear()
 
 
+def test_extract_endpoint_serves_candidates(db, security_id, monkeypatch):
+    """The extract route resolves the security's CIK, runs the extractor, and serves the candidate facts
+    (the extraction LOGIC is covered by the offline golden test; this covers the route + CIK resolution +
+    the wire shape). The live SEC fetch is monkeypatched so the test stays offline."""
+    from app.routers import workbench as wb
+    from domain.extraction import ExtractedFact, LocatedPassage, Tier
+
+    fake = [
+        ExtractedFact(
+            fact_type="cash_burn",
+            tier=Tier.FLAG,
+            source="10-q",
+            source_ref="https://sec.gov/x.htm",
+            event_date=date(2026, 3, 31),
+            cash_usd=1_000.0,
+            quarterly_burn_usd=314_678_000.0,
+            flags=["possible-one-time"],
+            located_passages=[
+                LocatedPassage(
+                    kind="cash-flow",
+                    source_ref="https://sec.gov/x.htm",
+                    anchor="264,195",
+                    excerpt="… accrued (264,195) …",
+                )
+            ],
+        )
+    ]
+    monkeypatch.setattr(wb, "extract_for_security", lambda client, cik: fake)
+    client = _client(db)
+    try:
+        r = client.get(f"/workbench/securities/{security_id}/extract")
+        assert r.status_code == 200
+        f = r.json()[0]
+        assert f["fact_type"] == "cash_burn" and f["tier"] == "flag"
+        assert f["flags"] == ["possible-one-time"]
+        assert f["located_passages"][0]["anchor"] == "264,195"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_extract_endpoint_404_without_cik(db):
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) VALUES (%s,%s,%s,%s,%s)",
+            (sid, DEFAULT_TENANT_ID, "NOCIK", None, date(2026, 1, 1)),
+        )
+    db.commit()
+    client = _client(db)
+    try:
+        assert client.get(f"/workbench/securities/{sid}/extract").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_promote_stamps_authored_by_operator_set(db, security_id):
     """The human authoring path STAMPS authorship server-side: a body claiming `system_drafted` is coerced
     to `operator_set` (the operator is the author; `system_drafted` is reserved for the S5 drafter's own

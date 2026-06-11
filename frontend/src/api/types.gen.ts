@@ -106,6 +106,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities/{security_id}/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Extract Scoring Facts
+         * @description Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) —
+         *     the three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the
+         *     located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
+         *     auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
+         *     never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+         */
+        get: operations["extract_scoring_facts_workbench_securities__security_id__extract_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses": {
         parameters: {
             query?: never;
@@ -287,6 +311,41 @@ export interface components {
             date_label?: string | null;
         };
         /**
+         * ExtractedFact
+         * @description One candidate scoring fact for a security, with its tier, raw value(s), located evidence, and flags.
+         *     The shape mirrors the three ``ingest_*`` writers: shares -> ``value``; cash_burn -> ``cash_usd`` +
+         *     ``quarterly_burn_usd``; revenue_mix (purity) -> no value (HUMAN).
+         */
+        ExtractedFact: {
+            /** Fact Type */
+            fact_type: string;
+            tier: components["schemas"]["Tier"];
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Value */
+            value?: number | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Flags */
+            flags?: string[];
+            /** Located Passages */
+            located_passages?: components["schemas"]["LocatedPassage"][];
+        };
+        /**
          * Grade
          * @enum {string}
          */
@@ -324,6 +383,21 @@ export interface components {
          * @enum {string}
          */
         Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk";
+        /**
+         * LocatedPassage
+         * @description A deterministically-retrieved passage that backs a fact — the evidence put in front of the operator
+         *     (or, later, S5). Retrieval only: a keyword/section match, never a model's reading.
+         */
+        LocatedPassage: {
+            /** Kind */
+            kind: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Anchor */
+            anchor: string;
+            /** Excerpt */
+            excerpt: string;
+        };
         /**
          * MemberCallOut
          * @description One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
@@ -563,6 +637,11 @@ export interface components {
             /** Narrative */
             narrative: string;
         };
+        /**
+         * Tier
+         * @enum {string}
+         */
+        Tier: "auto" | "flag" | "human";
         /** TriggerRefOut */
         TriggerRefOut: {
             /** Label */
@@ -770,6 +849,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecurityMatchOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_scoring_facts_workbench_securities__security_id__extract_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractedFact"][];
                 };
             };
             /** @description Validation Error */
