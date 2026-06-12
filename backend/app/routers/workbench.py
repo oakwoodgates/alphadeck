@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from app.deps import get_conn, get_current_tenant
 from app.schemas_api import (
     PromoteThesisRequest,
+    RatifiedFactOut,
+    RatifyFactRequest,
     ScoredMemberOut,
     SecurityMatchOut,
     ThesisDetail,
@@ -18,8 +20,11 @@ from app.schemas_api import (
 from domain.enums import Authorship
 from domain.extraction import ExtractedFact
 from domain.thesis import Thesis
+from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
+from ingest.revenue_mix import ingest_revenue_mix
+from ingest.shares import ingest_shares_outstanding
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -125,3 +130,46 @@ def promote(
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)
+
+
+@router.post("/facts", response_model=RatifiedFactOut)
+def ratify_fact(
+    req: RatifyFactRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> RatifiedFactOut:
+    """Ratify an extracted candidate -> write the scoring fact (hybrid-2a) — the app's first fact-WRITE. The
+    operator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this
+    persists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.
+
+    WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
+    tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
+    must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
+    ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+    """
+    if not master.exists(conn, req.security_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="security not in this tenant's master")
+    common = dict(
+        source=req.source,
+        source_ref=req.source_ref,
+        event_date=req.event_date,
+        note=req.note,
+        ratified_by="operator",  # the human ratify path — stamped, not taken from the body
+        tenant_id=tenant_id,
+    )
+    if req.fact_type == "revenue_mix":
+        fid = ingest_revenue_mix(
+            conn, req.security_id, segment_label=req.segment_label, mix_pct=req.mix_pct, **common
+        )
+    elif req.fact_type == "shares_outstanding":
+        fid = ingest_shares_outstanding(conn, req.security_id, shares=req.shares, **common)
+    else:  # cash_burn
+        fid = ingest_cash_burn(
+            conn,
+            req.security_id,
+            cash_usd=req.cash_usd,
+            quarterly_burn_usd=req.quarterly_burn_usd,
+            **common,
+        )
+    conn.commit()
+    return RatifiedFactOut(fact_id=fid, fact_type=req.fact_type)

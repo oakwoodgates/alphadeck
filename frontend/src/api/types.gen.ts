@@ -153,6 +153,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ratify Fact
+         * @description Ratify an extracted candidate -> write the scoring fact (hybrid-2a) — the app's first fact-WRITE. The
+         *     operator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this
+         *     persists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.
+         *
+         *     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
+         *     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
+         *     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
+         *     ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+         */
+        post: operations["ratify_fact_workbench_facts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -491,6 +518,98 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+        };
+        /** RatifiedFactOut */
+        RatifiedFactOut: {
+            /**
+             * Fact Id
+             * Format: uuid
+             */
+            fact_id: string;
+            /** Fact Type */
+            fact_type: string;
+        };
+        /** RatifyCashBurn */
+        RatifyCashBurn: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "cash_burn";
+            /** Cash Usd */
+            cash_usd: number;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd: number;
+        };
+        /** RatifyRevenueMix */
+        RatifyRevenueMix: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "revenue_mix";
+            /** Segment Label */
+            segment_label: string;
+            /** Mix Pct */
+            mix_pct: number;
+        };
+        /** RatifyShares */
+        RatifyShares: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding";
+            /** Shares */
+            shares: number;
         };
         /**
          * ScoredFigureOut
@@ -913,6 +1032,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ratify_fact_workbench_facts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RatifyRevenueMix"] | components["schemas"]["RatifyShares"] | components["schemas"]["RatifyCashBurn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatifiedFactOut"];
                 };
             };
             /** @description Validation Error */

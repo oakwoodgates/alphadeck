@@ -249,3 +249,137 @@ def test_promote_stamps_authored_by_operator_set(db, security_id):
         assert detail["basket"][0]["authored_by"] == "operator_set"
     finally:
         app.dependency_overrides.clear()
+
+
+# --- hybrid-2a: ratify a scoring fact (the first fact-WRITE) ---
+
+
+def _thesis_with(db, security_id) -> uuid.UUID:
+    t = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="nuclear",
+        narrative="x",
+        segments=[Segment(label="reactors")],
+        basket=[
+            BasketMember(
+                ticker="DEVCO",
+                role="r",
+                archetype=Archetype.HIGH_BETA,
+                security_id=security_id,
+                segment="reactors",
+            )
+        ],
+    )
+    thesis_repo.upsert(db, t)
+    db.commit()
+    return t.id
+
+
+def test_ratify_cash_burn_writes_and_rederives_runway(db, security_id):
+    """The loop: ratifying the RECURRING burn (the operator's composition, not the raw) writes the fact and
+    the runway meter re-derives. cash 1B / (50.483M/3) ~ 59 months -> 4 pips; the raw 314.678M would be 1.
+    """
+    tid = _thesis_with(db, security_id)
+    client = _client(db)
+    try:
+        m0 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+            "members"
+        ][0]
+        assert m0["runway"]["pips"] is None  # no cash_burn fact yet -> "—"
+        r = client.post(
+            "/workbench/facts",
+            json={
+                "fact_type": "cash_burn",
+                "security_id": str(security_id),
+                "source": "10-q",
+                "source_ref": "https://www.sec.gov/smr.htm",
+                "event_date": "2026-03-31",
+                "note": "recurring — the ENTRA1 settlement backed out",
+                "cash_usd": 1_000_000_000,
+                "quarterly_burn_usd": 50_483_000,
+            },
+        )
+        assert r.status_code == 200 and r.json()["fact_type"] == "cash_burn"
+        m1 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+            "members"
+        ][0]
+        assert m1["runway"]["pips"] == 4  # the recurring burn -> a comfortable runway
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT ratified_by, source FROM fact_cash_burn WHERE security_id=%s",
+                (security_id,),
+            )
+            row = cur.fetchone()
+        assert (
+            row["ratified_by"] == "operator" and row["source"] == "10-q"
+        )  # stamped + basis preserved
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ratify_revenue_mix_preserves_the_basis_source(db, security_id):
+    """`source` is the candidate's BASIS (10-k-segment), NOT flattened to 'ratified' — the DD-rail basis
+    provenance (the chip) stays honest."""
+    tid = _thesis_with(db, security_id)
+    client = _client(db)
+    try:
+        client.post(
+            "/workbench/facts",
+            json={
+                "fact_type": "revenue_mix",
+                "security_id": str(security_id),
+                "source": "10-k-segment",
+                "source_ref": "https://www.sec.gov/10k.htm",
+                "event_date": "2025-12-31",
+                "segment_label": "nuclear",
+                "mix_pct": 100,
+            },
+        )
+        m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+            "members"
+        ][0]
+        assert m["purity"]["pips"] == 4  # 100% -> 4 pips
+        assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ratify_rejects_security_not_in_tenant(db):
+    """Write-side tenant discipline: a security_id not in THIS tenant's master fails closed (no junk fact)."""
+    client = _client(db)
+    try:
+        r = client.post(
+            "/workbench/facts",
+            json={
+                "fact_type": "shares_outstanding",
+                "security_id": str(uuid.uuid4()),
+                "source": "10-q-cover",
+                "source_ref": "https://www.sec.gov/x.htm",
+                "event_date": "2026-03-31",
+                "shares": 1_000_000,
+            },
+        )
+        assert r.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ratify_missing_field_is_422(db, security_id):
+    """The discriminated union validates per-type required fields — cash_burn without quarterly_burn_usd."""
+    client = _client(db)
+    try:
+        r = client.post(
+            "/workbench/facts",
+            json={
+                "fact_type": "cash_burn",
+                "security_id": str(security_id),
+                "source": "10-q",
+                "source_ref": "https://www.sec.gov/x.htm",
+                "event_date": "2026-03-31",
+                "cash_usd": 1_000_000,
+            },
+        )
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

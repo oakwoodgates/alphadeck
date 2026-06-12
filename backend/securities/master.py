@@ -178,3 +178,18 @@ def tickers_for(
             (tenant_id, ids),
         )
         return {row["id"]: row["ticker"] for row in cur.fetchall()}
+
+
+def exists(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> bool:
+    """Whether ``security_id`` is in THIS tenant's master — the write-side tenant-boundary check. A write
+    path (e.g. ratifying a fact) validates this fail-closed before persisting: the tenant comes from the
+    deployment resolver, but the ``security_id`` is caller-supplied, so a foreign/unknown id must NOT write
+    a fact under the deployment tenant."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM security_master WHERE tenant_id = %s AND id = %s LIMIT 1",
+            (tenant_id, security_id),
+        )
+        return cur.fetchone() is not None

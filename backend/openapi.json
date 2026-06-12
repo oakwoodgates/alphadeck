@@ -338,6 +338,67 @@
         }
       }
     },
+    "/workbench/facts": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Ratify Fact",
+        "description": "Ratify an extracted candidate -> write the scoring fact (hybrid-2a) \u2014 the app's first fact-WRITE. The\noperator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this\npersists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.\n\nWRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) \u2014 the\ntenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id\nmust not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);\n``ratified_by`` is stamped \"operator\"; the fact is append-only (a re-ratify is a new row, latest-wins).",
+        "operationId": "ratify_fact_workbench_facts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RatifyRevenueMix"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RatifyShares"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RatifyCashBurn"
+                  }
+                ],
+                "title": "Req",
+                "discriminator": {
+                  "propertyName": "fact_type",
+                  "mapping": {
+                    "revenue_mix": "#/components/schemas/RatifyRevenueMix",
+                    "shares_outstanding": "#/components/schemas/RatifyShares",
+                    "cash_burn": "#/components/schemas/RatifyCashBurn"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RatifiedFactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1187,6 +1248,191 @@
           "ref"
         ],
         "title": "ProvenanceOut"
+      },
+      "RatifiedFactOut": {
+        "properties": {
+          "fact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Fact Id"
+          },
+          "fact_type": {
+            "type": "string",
+            "title": "Fact Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fact_id",
+          "fact_type"
+        ],
+        "title": "RatifiedFactOut"
+      },
+      "RatifyCashBurn": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "event_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Event Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "fact_type": {
+            "type": "string",
+            "const": "cash_burn",
+            "title": "Fact Type"
+          },
+          "cash_usd": {
+            "type": "number",
+            "title": "Cash Usd"
+          },
+          "quarterly_burn_usd": {
+            "type": "number",
+            "title": "Quarterly Burn Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "source",
+          "source_ref",
+          "event_date",
+          "fact_type",
+          "cash_usd",
+          "quarterly_burn_usd"
+        ],
+        "title": "RatifyCashBurn"
+      },
+      "RatifyRevenueMix": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "event_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Event Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "fact_type": {
+            "type": "string",
+            "const": "revenue_mix",
+            "title": "Fact Type"
+          },
+          "segment_label": {
+            "type": "string",
+            "title": "Segment Label"
+          },
+          "mix_pct": {
+            "type": "number",
+            "title": "Mix Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "source",
+          "source_ref",
+          "event_date",
+          "fact_type",
+          "segment_label",
+          "mix_pct"
+        ],
+        "title": "RatifyRevenueMix"
+      },
+      "RatifyShares": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "event_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Event Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "fact_type": {
+            "type": "string",
+            "const": "shares_outstanding",
+            "title": "Fact Type"
+          },
+          "shares": {
+            "type": "number",
+            "title": "Shares"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "source",
+          "source_ref",
+          "event_date",
+          "fact_type",
+          "shares"
+        ],
+        "title": "RatifyShares"
       },
       "ScoredFigureOut": {
         "properties": {
