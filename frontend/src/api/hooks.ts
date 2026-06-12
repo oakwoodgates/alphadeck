@@ -15,6 +15,13 @@ export type ProvenanceOut = components["schemas"]["ProvenanceOut"];
 export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"];
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
+export type ExtractedFact = components["schemas"]["ExtractedFact"];
+export type LocatedPassage = components["schemas"]["LocatedPassage"];
+// the ratify body is a discriminated union (one variant per fact type)
+export type RatifyFactBody =
+  | components["schemas"]["RatifyRevenueMix"]
+  | components["schemas"]["RatifyShares"]
+  | components["schemas"]["RatifyCashBurn"];
 
 export function useTheses() {
   return useQuery({
@@ -114,6 +121,38 @@ export function usePromoteThesis() {
         qc.invalidateQueries({ queryKey: ["thesis", thesis.id] });
         qc.invalidateQueries({ queryKey: ["workbench-scored", thesis.id] }); // re-score on edit
       }
+    },
+  });
+}
+
+// Auto-extract candidate scoring facts from a security's latest 10-Q/10-K (hybrid-1). An EXPLICIT operator
+// action: `enabled: false` so it NEVER fires on a render — the facts panel triggers it via `refetch()`.
+export function useExtract(securityId: string) {
+  return useQuery({
+    queryKey: ["workbench-extract", securityId] as const,
+    enabled: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/securities/{security_id}/extract", {
+        params: { path: { security_id: securityId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Ratify a confirmed scoring fact (hybrid-2a) — the operator's FINAL values written via ingest_*. On success
+// invalidate the scored read so the meter re-derives (Option B; nothing persists in the UI).
+export function useRatifyFact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: RatifyFactBody) => {
+      const { data, error } = await api.POST("/workbench/facts", { body });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the meter re-derives
     },
   });
 }

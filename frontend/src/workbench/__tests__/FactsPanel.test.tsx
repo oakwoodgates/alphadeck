@@ -1,0 +1,157 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// The network boundary, mocked: the extract query + the ratify mutation. The per-tier RatifyRow logic
+// (editability, the located-passage inline render, the purity gate) is the REAL component under test.
+const h = vi.hoisted(() => ({
+  refetch: vi.fn(),
+  extract: { data: undefined as unknown, error: null as unknown, isFetching: false },
+  mutate: vi.fn(),
+  ratify: { isPending: false, isError: false, isSuccess: false, error: null as unknown },
+}));
+
+vi.mock("../../api/hooks", () => ({
+  useExtract: () => ({ ...h.extract, refetch: h.refetch }),
+  useRatifyFact: () => ({ mutate: h.mutate, ...h.ratify }),
+}));
+
+import { FactsPanel } from "../FactsPanel";
+
+const AUTO_SHARES = {
+  fact_type: "shares_outstanding",
+  tier: "auto",
+  source: "10-q-cover",
+  source_ref: "https://sec.gov/oklo-10q",
+  event_date: "2026-03-31",
+  note: "",
+  value: 141000000,
+  flags: [],
+  located_passages: [],
+};
+
+const FLAG_BURN = {
+  fact_type: "cash_burn",
+  tier: "flag",
+  source: "10-q-cashflow",
+  source_ref: "https://sec.gov/smr-10q",
+  event_date: "2026-03-31",
+  note: "raw burn includes a one-time ENTRA1 partnership-milestone payment",
+  cash_usd: 890000000,
+  quarterly_burn_usd: 314678000,
+  flags: ["one_time_in_burn"],
+  located_passages: [
+    {
+      kind: "cash-flow-line",
+      source_ref: "https://sec.gov/smr-10q#p1",
+      anchor: "264,195",
+      excerpt: "Partnership milestone payment of 264,195 (in thousands) to ENTRA1 ...",
+    },
+  ],
+};
+
+const HUMAN_PURITY = {
+  fact_type: "revenue_mix",
+  tier: "human",
+  source: "10-k-business-description",
+  source_ref: "https://sec.gov/smr-10k",
+  event_date: "2025-12-31",
+  note: "",
+  flags: [],
+  located_passages: [
+    {
+      kind: "item-1",
+      source_ref: "https://sec.gov/smr-10k#item1",
+      anchor: "Business",
+      excerpt: "We are a pre-revenue nuclear technology company ...",
+    },
+  ],
+};
+
+const SID = "00000000-0000-0000-0000-000000000abc";
+
+beforeEach(() => {
+  h.refetch.mockReset();
+  h.mutate.mockReset();
+  h.extract = { data: undefined, error: null, isFetching: false };
+  h.ratify = { isPending: false, isError: false, isSuccess: false, error: null };
+});
+
+describe("FactsPanel — extract → ratify", () => {
+  it("renders a candidate per tier: AUTO value read-only, located excerpt inline, purity gated", () => {
+    h.extract.data = [AUTO_SHARES, FLAG_BURN, HUMAN_PURITY];
+    render(<FactsPanel securityId={SID} />);
+
+    // AUTO — the value is shown but read-only (confirm-as-is; the operator doesn't retype it)
+    const shares = screen.getByLabelText("shares") as HTMLInputElement;
+    expect(shares.value).toBe("141000000");
+    expect(shares.readOnly).toBe(true);
+
+    // FLAG — the raw burn is editable, and the located passage is readable INLINE (not a tooltip)
+    const burn = screen.getByLabelText("quarterly burn") as HTMLInputElement;
+    expect(burn.value).toBe("314678000");
+    expect(burn.readOnly).toBe(false);
+    expect(screen.getByText(/Partnership milestone payment of 264,195/)).toBeInTheDocument();
+    const chip = screen.getByRole("link", { name: /cash-flow-line/ });
+    expect(chip).toHaveAttribute("href", "https://sec.gov/smr-10q#p1");
+
+    // HUMAN purity — empty, never pre-filled; its Confirm is disabled until authored
+    expect((screen.getByLabelText("segment") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("purity percent") as HTMLInputElement).value).toBe("");
+    const confirms = screen.getAllByRole("button", { name: "Confirm" });
+    expect(confirms[2]).toBeDisabled(); // the purity row (third candidate)
+  });
+
+  it("extract fires on the explicit click, NOT on mount", async () => {
+    render(<FactsPanel securityId={SID} />);
+    expect(h.refetch).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /Extract from filings/ }));
+    expect(h.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("a FLAG confirm posts the EDITED recurring burn, not the raw value", async () => {
+    const user = userEvent.setup();
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+
+    const burn = screen.getByLabelText("quarterly burn");
+    await user.clear(burn);
+    await user.type(burn, "50483000"); // the operator strips the one-time payment
+
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "cash_burn",
+      security_id: SID,
+      source: "10-q-cashflow", // the candidate's BASIS, carried through (not retyped)
+      cash_usd: 890000000,
+      quarterly_burn_usd: 50483000,
+    });
+  });
+
+  it("a HUMAN purity confirm requires an operator-entered % (no pre-fill)", async () => {
+    const user = userEvent.setup();
+    h.extract.data = [HUMAN_PURITY];
+    render(<FactsPanel securityId={SID} />);
+
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(confirm).toBeDisabled();
+
+    // a segment alone is not enough — the % is the operator's judgment and is still required
+    await user.type(screen.getByLabelText("segment"), "nuclear");
+    expect(confirm).toBeDisabled();
+
+    await user.type(screen.getByLabelText("purity percent"), "100");
+    expect(confirm).toBeEnabled();
+
+    await user.click(confirm);
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "revenue_mix",
+      security_id: SID,
+      segment_label: "nuclear",
+      mix_pct: 100,
+    });
+  });
+});
