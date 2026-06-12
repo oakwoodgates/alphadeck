@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Archetype, Grade, Kind, State, Verdict
@@ -369,3 +369,48 @@ class PromoteThesisRequest(BaseModel):
     ticker: str | None = None
     basket: list[BasketMember] = []
     segments: list[Segment] = []
+
+
+# --- Ratify (hybrid-2a) — the first fact-WRITE: confirm an extracted candidate -> the existing ingest_* ---
+
+
+class _RatifyBase(BaseModel):
+    """Common provenance for a ratified scoring fact. ``source`` is the CANDIDATE's BASIS (e.g.
+    ``10-k-segment`` vs ``10-k-business-description``) — preserved, NOT flattened to "ratified", so the
+    DD-rail basis-provenance stays honest (it's read into the provenance chip, not the score). ``event_date``
+    -> the fact's ``valid_from`` (no lookahead). ``ratified_by`` is stamped "operator" server-side.
+    """
+
+    security_id: UUID
+    source: str
+    source_ref: str
+    event_date: date
+    note: str | None = None
+
+
+class RatifyRevenueMix(_RatifyBase):
+    fact_type: Literal["revenue_mix"]
+    segment_label: str
+    mix_pct: float
+
+
+class RatifyShares(_RatifyBase):
+    fact_type: Literal["shares_outstanding"]
+    shares: float
+
+
+class RatifyCashBurn(_RatifyBase):
+    fact_type: Literal["cash_burn"]
+    cash_usd: float
+    quarterly_burn_usd: float
+
+
+# the discriminated body — Pydantic validates the per-type required fields for free (a missing field -> 422)
+RatifyFactRequest = Annotated[
+    RatifyRevenueMix | RatifyShares | RatifyCashBurn, Field(discriminator="fact_type")
+]
+
+
+class RatifiedFactOut(BaseModel):
+    fact_id: UUID
+    fact_type: str
