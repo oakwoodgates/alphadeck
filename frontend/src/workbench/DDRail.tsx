@@ -1,4 +1,5 @@
 import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
+import { FactsPanel } from "./FactsPanel";
 import { archLabel, formatMarketCap, meterValueLabel, provChip, provNotes } from "./format";
 
 const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[] = [
@@ -55,9 +56,9 @@ interface Props {
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
  *  traces to a fact or a computation, and the notes (the recurring-vs-one-time burn composition, the
- *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The
- *  company-reference Overview and the auto-drafted thesis-fit prose are NOT yet wire-backed; they're
- *  marked as deferred rather than faked (Overview → an ingest slice; the prose → the LLM drafter, S5). */
+ *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
+ *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
+ *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
 export function DDRail({ member }: Props) {
   if (!member) {
     return (
@@ -95,9 +96,9 @@ export function DDRail({ member }: Props) {
           <MeterProvenance key={key} meter={key} figure={figure(member)} />
         ))}
 
-        <div className="dd-sub deferred">
-          Overview <em>· stored company facts — with ingest</em>
-        </div>
+        <div className="dd-sub">Extract &amp; ratify the facts</div>
+        <FactsPanel securityId={member.security_id} />
+
         <div className="dd-sub deferred">
           Thesis fit <em>· auto-drafted prose — Slice 5 (the LLM drafter)</em>
         </div>

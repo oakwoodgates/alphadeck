@@ -415,3 +415,27 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-matches li button:disabled { opacity: 0.5; cursor: default; }
 .wb-matches b { font-family: var(--mono); font-weight: 700; }
 .wb-matches .co { color: var(--txt-3); font-size: 11px; }
+
+/* The facts panel (hybrid-2b) — extract → ratify → re-score, in the DD rail. Compact rows; the located
+   passage is readable INLINE (the FLAG ratification decision), not a tooltip. */
+.facts-panel { display: flex; flex-direction: column; gap: 9px; }
+.facts-panel > .wb-edit-btn { align-self: flex-start; }
+.ratify-row { display: flex; flex-direction: column; gap: 7px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
+.ratify-row.flag { border-color: rgba(224, 162, 60, 0.32); }
+.ratify-row.human { border-color: rgba(138, 180, 255, 0.28); }
+.ratify-row.done { color: var(--manage); font-size: 11px; font-weight: 600; background: rgba(52, 194, 160, 0.06); border-color: rgba(52, 194, 160, 0.28); }
+.ratify-rh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ratify-rh .rk { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }
+.rtier { font-family: var(--mono); font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 4px; padding: 1px 5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); }
+.rtier.flag { color: var(--warm); background: rgba(224, 162, 60, 0.1); border-color: rgba(224, 162, 60, 0.32); }
+.rtier.human { color: var(--leader); background: rgba(138, 180, 255, 0.08); border-color: rgba(138, 180, 255, 0.28); }
+.rflag { font-size: 9.5px; color: var(--warm); }
+.located { display: flex; flex-direction: column; gap: 4px; padding-left: 9px; border-left: 2px solid var(--line-2); }
+.located .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; text-decoration: none; align-self: flex-start; }
+.located .chip:hover { border-color: var(--leader); color: var(--txt-2); }
+.located .excerpt { font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+.rf { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--txt-3); }
+.rf input { font: inherit; font-family: var(--mono); font-size: 11.5px; text-transform: none; letter-spacing: 0; color: var(--txt); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 8px; color-scheme: dark; flex: 1; min-width: 0; }
+.rf input:focus { outline: none; border-color: var(--leader); }
+.rf input:read-only { color: var(--txt-2); background: var(--bg-2); border-style: dashed; }
+.ratify-row > .wb-mini { align-self: flex-start; }
