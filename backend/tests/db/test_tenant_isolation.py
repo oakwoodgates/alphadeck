@@ -429,6 +429,35 @@ def test_scoring_facts_read_isolation(db):
     _assert_isolated("cash_burn_facts", "DEMO-CB", "PROD-CB")
 
 
+def test_master_population_is_tenant_isolated(db):
+    """The broadener (``populate_universe``) is a new WRITE surface — it stays tenant-scoped. Populating the
+    same SEC rows under two tenants writes each its OWN row (distinct ids), and a populate under one tenant
+    neither creates nor mutates the other's. Grows the poison-row proof to the master-population path.
+    """
+    provision_tenant(db, "prod-master", tenant_id=PROD_TENANT_ID)
+    rows = [("0001822966", "SMR", "NuScale Power")]
+
+    master.populate_universe(db, rows, tenant_id=DEFAULT_TENANT_ID)
+    master.populate_universe(db, rows, tenant_id=PROD_TENANT_ID)
+    db.commit()
+
+    demo = master.ids_for_tickers(db, ["SMR"], tenant_id=DEFAULT_TENANT_ID)
+    prod = master.ids_for_tickers(db, ["SMR"], tenant_id=PROD_TENANT_ID)
+    assert set(demo) == {"SMR"} and set(prod) == {"SMR"}
+    assert demo["SMR"] != prod["SMR"]  # each tenant owns its OWN row for the same name
+
+    # a re-populate under demo leaves prod's row untouched (not mutated, not duplicated)
+    prod_id = prod["SMR"]
+    master.populate_universe(db, rows, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM security_master WHERE tenant_id = %s AND ticker = 'SMR'",
+            (PROD_TENANT_ID,),
+        )
+        assert [r["id"] for r in cur.fetchall()] == [prod_id]
+
+
 def test_workbench_scored_read_is_tenant_isolated(db):
     """The Workbench scored READ (the scorer over the pit) inherits the tenant filter: a prod member scores
     off PROD's facts, a demo member off DEMO's — same-ticker securities never cross, and scoring a prod

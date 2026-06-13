@@ -111,6 +111,7 @@ backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.
 # backend dev loop (from backend\, venv active)
 python -m db.migrate                                    # apply migrations (idempotent)
 python -m pipeline.seed                                 # seed the HIMS demo thesis
+python -m pipeline.populate_master --live               # load the SEC universe into the master (UA req'd)
 python -m uvicorn app.main:app --reload                 # serve the API (127.0.0.1:8000)
 python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from the CLI
 pytest                                                   # tests (DB tests skip if no Postgres)

@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS security_master (
     cusip       text,
     figi        text,
     name        text,
-    valid_from  date NOT NULL,                          -- corporate actions append a new version
-    valid_to    date,
+    valid_from  date NOT NULL,                          -- identity row: the broadener UPDATEs it in place
+    valid_to    date,                                   -- (NOT append-only; nothing reads the master as-of)
     recorded_at timestamptz NOT NULL DEFAULT now()
 );
 

@@ -46,11 +46,17 @@ def resolve(
     sec_cache_dir: Path | None = None,
     allow_live: bool = False,
 ) -> Security:
-    """Resolve a ticker to a canonical Security, inserting it into the master if new (append-only).
+    """Resolve a ticker to a canonical Security, INSERTING it into the master if new (this path only ever
+    inserts — idempotent, never updates).
 
     FIGI/name come from OpenFIGI, CIK from SEC company_tickers — both cache-first, live only behind
     ``allow_live`` (the caller wires the env flag). Idempotent: an already-resolved ticker is read
     back from the master, never re-inserted.
+
+    Coexists with ``populate_universe`` (the bulk broadener): both set ``cik``, so neither double-inserts the
+    other's rows (resolve dedups by ticker via ``_lookup``; the broadener by ``(cik, ticker)``). NOTE: the
+    master is NOT append-only — the broadener UPDATEs a name in place (the id stays stable); see
+    ``populate_universe``. Post-broadener the universe is already loaded, so this path rarely inserts.
     """
     ticker = ticker.upper()
     existing = _lookup(conn, ticker, tenant_id)
@@ -84,6 +90,81 @@ def resolve(
         cik=cik,
         figi=mapping.get("figi"),
     )
+
+
+def populate_universe(
+    conn: psycopg.Connection,
+    rows: Iterable[tuple[str, str, str | None]],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    effective_date: date | None = None,
+) -> dict[str, int]:
+    """Populate THIS tenant's master from the SEC ``company_tickers`` universe — idempotent, additive, and
+    keyed on ``(cik, ticker)``. The broadener that lifts the loop from "the seeded basket" to "any name you
+    just thought of". The caller commits.
+
+    Per ``(cik, ticker)`` triple (from ``sec_tickers.load_all``): absent -> INSERT a new row (fresh id);
+    present with a changed ``name`` -> UPDATE the name **in place** (id stable); unchanged -> skip. Returns
+    ``{"inserted", "updated", "skipped"}``.
+
+    INVARIANT #2 by construction: only EXACT ``company_tickers`` mappings are written, never a fuzzy guess
+    (the ``search`` discovery net still only suggests; the operator still picks the exact id). Identity is
+    keyed on the stable CIK (the extractor keys on CIK; renames preserve it), with ticker in the key so a
+    CIK's several share classes (dual-class) each stay a pickable row. The seeded names reconcile for free —
+    their ``(cik, ticker)`` is already present, so their ids are reused, never duplicated, and their facts
+    stay linked.
+
+    NOTE — the master's FIRST in-place mutation. Legal: the ``no_update`` trigger guards the *fact* tables,
+    NOT ``security_master``. Safe: nothing reads the master as-of, so dropping the prior name (we keep only
+    the current mapping) leaks into no point-in-time read. Necessary: 8 tables FK ``security_id`` ->
+    ``security_master(id)``, so the id MUST stay stable or those facts orphan — an in-place UPDATE keeps it.
+    """
+    existing: dict[tuple[str, str], tuple[UUID, str | None]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cik, ticker) cik, ticker, id, name FROM security_master "
+            "WHERE tenant_id = %s AND cik IS NOT NULL AND ticker IS NOT NULL "
+            "ORDER BY cik, ticker, recorded_at DESC",
+            (tenant_id,),
+        )
+        for r in cur.fetchall():
+            existing[(r["cik"], r["ticker"])] = (r["id"], r["name"])
+
+    valid_from = effective_date or date.today()
+    inserts: list[tuple] = []
+    updates: list[tuple] = []
+    seen: set[tuple[str, str]] = set()
+    for cik, ticker, name in rows:
+        if not cik or not ticker:
+            continue
+        ticker = ticker.upper()
+        key = (cik, ticker)
+        if key in seen:  # company_tickers shouldn't repeat a (cik, ticker); be defensive anyway
+            continue
+        seen.add(key)
+        current = existing.get(key)
+        if current is None:
+            inserts.append((uuid4(), tenant_id, cik, ticker, name, valid_from))
+        elif name != current[1]:
+            updates.append((name, current[0]))
+
+    with conn.cursor() as cur:
+        if inserts:
+            cur.executemany(
+                "INSERT INTO security_master (id, tenant_id, cik, ticker, name, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                inserts,
+            )
+        if updates:
+            cur.executemany(
+                "UPDATE security_master SET name = %s, recorded_at = now() WHERE id = %s",
+                updates,
+            )
+    return {
+        "inserted": len(inserts),
+        "updated": len(updates),
+        "skipped": len(seen) - len(inserts) - len(updates),
+    }
 
 
 def ciks_for(
