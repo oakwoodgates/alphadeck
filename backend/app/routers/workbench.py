@@ -7,8 +7,9 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
-from app.deps import get_conn, get_current_tenant
+from app.deps import get_conn, get_current_tenant, get_llm_client
 from app.schemas_api import (
+    FlagExplanationOut,
     PromoteThesisRequest,
     RatifiedFactOut,
     RatifyFactRequest,
@@ -25,6 +26,8 @@ from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
+from llm.client import LLMClient
+from llm.flag_explanation import explain_flag
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -97,6 +100,27 @@ def extract_scoring_facts(
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
         raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
+
+
+@router.post("/facts/explain", response_model=FlagExplanationOut)
+def explain_flag_candidate(
+    candidate: ExtractedFact,
+    llm: LLMClient = Depends(get_llm_client),
+) -> FlagExplanationOut:
+    """Draft a plain-English explanation of a FLAG candidate, grounded in its located passage — the one LLM
+    seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
+
+    Note what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that
+    dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
+    ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
+    connection is what guarantees it can't become one.
+
+    Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, or the model
+    declining to ground it) returns 200 with ``{explanation: "", grounded: false}`` — NEVER a 5xx. The facts
+    panel renders identically to today. (FLAG-only: a non-FLAG candidate returns the same empty signal.)
+    """
+    explanation, grounded = explain_flag(llm, candidate)
+    return FlagExplanationOut(explanation=explanation, grounded=grounded)
 
 
 @router.post("/theses", response_model=ThesisDetail)

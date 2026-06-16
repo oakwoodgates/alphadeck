@@ -175,6 +175,23 @@ class CallConfig(DomainModel):
         "cash + equivalents + all marketable securities (current and noncurrent)"
     )
 
+    # --- LLM seam (M4b — the FLAG-explanation drafter, the FIRST LLM call) — operational dials only ---
+    # The one LLM seam in an otherwise-deterministic system: a plain-English explanation of an extracted
+    # FLAG candidate, grounded in its located passage, shown ALONGSIDE the raw text (an aid to the ratify,
+    # never the ratify). The PROMPT + structured-output schema live with the module (llm/flag_explanation.py,
+    # per CLAUDE.md); only these operational dials live here, under the same no-magic-number discipline.
+    # There is deliberately NO `enabled` flag — the absence of ANTHROPIC_API_KEY is the off switch
+    # (fail-open: no key -> no explanation, the facts panel works exactly as today).
+    llm_model: str = (
+        "claude-haiku-4-5-20251001"  # fast/cheap — a display aid, not a sourced number;
+    )
+    # the Sonnet bump (claude-sonnet-4-6) is the ADHERENCE lever if it ever states a final value (the one
+    # part of the bound that rests on the prompt, not the rail — see docs / the slice plan).
+    llm_max_tokens: int = 256  # <=2 sentences — an output ceiling and a cost guard
+    llm_timeout_s: float = (
+        10.0  # fail-open FAST if the API hangs (the panel must never block on it)
+    )
+
     @property
     def own_conviction_kinds(self) -> frozenset[Kind]:
         """Name-sourced ("own") convictions — the theme conviction is a basket-level FALLBACK, not "own".

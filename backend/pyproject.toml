@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary]>=3.1",
     "httpx>=0.27",
     "uvicorn>=0.29",  # to serve: python -m uvicorn app.main:app --reload
+    "anthropic>=0.40",  # the one LLM seam (the FLAG-explanation drafter); imported lazily, like httpx
 ]
 
 [project.optional-dependencies]
@@ -38,7 +39,7 @@ replay = [
 [tool.setuptools]
 packages = [
     "app", "app.routers",
-    "calls", "db", "domain",
+    "calls", "db", "domain", "llm",
     "ingest", "ingest.edgar", "ingest.prices",
     "pipeline", "repositories", "securities", "signals", "replay",
 ]
