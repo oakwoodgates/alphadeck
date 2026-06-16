@@ -56,6 +56,10 @@ Use these terms precisely; they are the ubiquitous language of the codebase.
 - **Call card** — `{ verdict, grade, expression, exit_by, triggers_fired[] (with sources), missing[], counter_case, confidence, actions }`.
 - **The gate** — advisory friction: withhold the go-signal + readiness scorecard + logged override.
 - **ETF radar** — per-theme ETF intelligence: *availability* (which ETFs express the theme), *coming launches* (SEC N-1A/485 — a new thematic launch is an emergence-kind signal), and *holdings/flows* (free universe seed + positioning signal). An ETF is also a low-torque **expression** of a thesis (the safe-exposure sleeve), always surfaced with fund internals (holdings, weights, expense ratio, AUM, liquidity).
+- **Scoring-fact tiers** (the Workbench extractor) — `AUTO` (companyfacts reproduces the value → pre-fill, confirm-and-go) · `FLAG` (raw value + a detected risk + a **located passage** → the operator ratifies the composition) · `HUMAN` (purity — located only, **never auto-valued**). The extractor **LOCATES; the operator RATIFIES** (invariant #3). See `docs/WORKBENCH_EXTRACTION.md`.
+- **Located passage** — a deterministically-retrieved filing excerpt (keyword/section match, never a model's reading), shown inline as the evidence behind a FLAG/HUMAN candidate.
+- **Authorship** — `operator_set` / `operator_edited` / `system_drafted`; LLM-drafted output is **`system_drafted` ("drafted")** and becomes a fact ONLY when the operator ratifies it.
+- **The explain seam** — the Workbench's flag-explanation drafter (`backend/llm`, the first LLM seam): a grounded plain-English **aid** to a FLAG ratify — an explanation, never a fact, on a rail that can't write one.
 
 ## Architecture & stack
 
@@ -66,7 +70,7 @@ See `README.md` for the full table. Key shape:
 - **Backend** = Python: FastAPI, Pydantic (core schemas are first-class and typed), Polars + Arrow for transforms.
 - **Ingestion** = thin custom EDGAR client over SEC JSON APIs (respect rate limits + User-Agent rules), OpenFIGI for ID mapping, FINRA short interest.
 - **Orchestration** = scheduled scripts now; Dagster only when the ingest→normalize→signal DAG earns it.
-- **LLM** = Anthropic API behind a model-agnostic interface; use structured/tool-use outputs to fill call-card fields, always with source citations.
+- **LLM** = Anthropic API behind a model-agnostic interface (`backend/llm`; the first seam is the Workbench flag-explanation drafter, fail-open + lazy-imported); use structured/tool-use outputs, always with source citations, and **never to source a number**.
 - **Frontend** = TypeScript, React (Vite SPA), Tailwind, TanStack Query for server state; lightweight-charts for price views.
 - **Ops** = Docker Compose → single VPS/Fly/Railway. Monolith. `tenant_id` in every table from day one; auth deferred.
 

@@ -32,8 +32,8 @@ And the load-bearing choice that *makes* it auditable: **signals are never store
                        ▼                        ▼
         ╔══════════════════════════════════════════════════════════════╗
         ║  POSTGRES — the system of record (all runtime state is here)  ║
-        ║  security_master · fact_insider_txn · fact_price_eod          ║  facts = append-only,
-        ║  thesis / basket / evidence / catalyst / kill · calls (log)   ║  bitemporal (no overwrite)
+        ║  security_master · fact_insider_txn · fact_price_eod          ║  fact_* = append-only,
+        ║  thesis / basket / evidence / catalyst / kill · calls (log)   ║  bitemporal; master mutable
         ╚══════════════════════════════════════════════════════════════╝
                        │ as-of read (no lookahead on either time axis)
                        ▼
@@ -88,7 +88,7 @@ flowchart TD
 | Sample EDGAR / FIGI / price fixtures (tests) | real captured **input** | `backend/tests/fixtures/` | once, by hand (committed) | **yes** |
 | EDGAR / price / FIGI raw responses | **cache** of live pulls | `data/` | on a live fetch (cache-first) | no (gitignored) |
 | `openapi.json` | build artifact | `backend/app/` | when you run `openapi_export` | no (generated) |
-| Resolved securities | identity | **Postgres** `security_master` | on resolve / seed | n/a (DB) |
+| Resolved securities | identity (mutable) | **Postgres** `security_master` | on resolve / seed / **populate** (the broadener) | n/a (DB) |
 | Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed | n/a (DB) |
 | Thesis + basket/evidence/catalyst/kill | the spine | **Postgres** | on `upsert` / seed | n/a (DB) |
 | Assembled calls | accountability **log** | **Postgres** `calls` | one row per batch `pipeline.run` (never on a `/call` GET) | n/a (DB) |
@@ -113,6 +113,6 @@ flowchart TD
 
 - **Recompute-on-read.** Signals and the call are derived fresh from facts every time — no stale, hidden, mutable cache of "what the system thinks."
 - **Provenance on everything.** Every fired trigger carries its source + the computation (the EDGAR filing link, the price/volume numbers). If we can't show the work, we don't surface the result.
-- **Append-only, bitemporal facts.** You can always ask "what did we know, and when?" Corrections never rewrite history.
-- **Deterministic, not model-sourced.** Triggers fire from code against data; the LLM (M4b) only writes the *explanation* prose and never invents a number or a signal.
+- **Append-only, bitemporal facts.** You can always ask "what did we know, and when?" Corrections never rewrite history. *(This is the `fact_*` tables — the `no_update` trigger. `security_master` is **identity metadata, mutable**: the broadener UPDATEs a name in place. It is not an append-only fact, so the master keeps only the current mapping, not a rename history — fine, because nothing reads the master as-of.)*
+- **Deterministic, not model-sourced.** Triggers fire from code against data; the LLM (now live in the Workbench's FLAG-explanation drafter) only writes *explanation* prose and **never invents a number or a signal** — and that explanation rides a separate rail that can't write a fact (`WORKBENCH_EXTRACTION.md`).
 - **No lookahead.** Reads are pinned to an `asof` (event time) and a `known_at` (transaction time), so a backtest can't peek at the future.
