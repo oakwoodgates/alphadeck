@@ -5,10 +5,12 @@
 > Siblings: `CALL_LOGIC.md` (the back-half brain), `RECALIBRATION.md` (the cutoffs as tunable dials),
 > `INVARIANTS.md` (the load-bearing rules this slice added), `PRODUCTION_TENANT.md` (the tenant resolver),
 > `ROADMAP.md` (Phase-2 sequencing). The DATA behind the scores is the three ratify bridges
-> (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn`) + the dilution clock.
+> (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn`) + the dilution clock — produced by the
+> **extract → ratify hybrid** (`WORKBENCH_EXTRACTION.md`, the production side; this doc is the consumption side).
 >
-> **Status: BUILT** (Slice 3, PR #50). The Workbench UI (Slice 4) and the bounded LLM drafter (Slice 5)
-> are downstream and do not change the scoring. Engine: `backend/workbench/scoring.py`.
+> **Status: BUILT** (Slice 3, PR #50), and **unchanged by every slice since** — the UI (#52), the extract →
+> ratify hybrid (#55–#57), the broadener (#58), and the flag-explanation drafter (#59) all FEED or DISPLAY
+> these meters without touching the scoring math. Engine: `backend/workbench/scoring.py`.
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred, recorded in `RECALIBRATION.md`.
 

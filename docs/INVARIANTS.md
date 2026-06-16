@@ -11,14 +11,21 @@
 ## 1. No model-sourced numbers or firings  (CLAUDE.md invariant #3)
 
 The LLM **augments, never sources.** It may draft the `counter_case` / explanatory prose citing existing
-evidence IDs. It must **never** fire a trigger, set a state / verdict / grade, or invent a number. Every
-trigger and grade comes from a **deterministic parse** of data **or** a **one-time operator ratification**.
+evidence IDs, or a grounded plain-English explanation of an extracted FLAG candidate (the Workbench drafter,
+below). It must **never** fire a trigger, set a state / verdict / grade, or invent a number. Every trigger and
+grade comes from a **deterministic parse** of data **or** a **one-time operator ratification**.
 
 - *Enforced by:* the assembler signature (the LLM hook only injects `counter_case`); detectors are pure
   `f(point_in_time_data) -> SignalEvent`; the catalyst grade is `_derive_grade` (deterministic) or set at
   ratification — see `ingest/doe/feed.py`, `ingest/catalyst.py`, `calls/assembler.py`. The **theme
   conviction**'s grade + horizon are operator inputs on the ratified fact (`ingest/theme_conviction.py`),
   never the model's.
+- *Also enforced by (the first LLM seam — the flag-explanation drafter, `backend/llm`):* the explanation
+  rides a **separate rail** — `POST /workbench/facts/explain` has **no DB connection, writes nothing, and is
+  never a field on `RatifyFactRequest`** — so it **structurally cannot become a fact**; the ratified number
+  comes only from the operator's typed field. The prompt asks for components + direction, never the final
+  value, but the **missing rail is the guarantee, the prompt only the courtesy**. Guarded by a
+  no-ratify-field test + a **zero-`fact_*`-write** test on the explain endpoint. See `WORKBENCH_EXTRACTION.md`.
 
 ## 2. Entity resolution is an exact-membership ALLOWLIST, never fuzzy, never a denylist
 
@@ -30,6 +37,18 @@ non-negotiable: fuzzy "Oklo" matches a polluted homonym holding **$48B** of nati
 
 - *Enforced by:* `ingest/doe/entities.resolve` (exact `recipient_id` lookup); rejection test
   `tests/ingest/test_doe_feed.py::test_resolver_is_exact_not_fuzzy`.
+
+**The Workbench securities resolver is the same rule on the populated universe.** The broadener
+(`pipeline.populate_master`) loaded the SEC `company_tickers` universe into the master, so `master.search` now
+spans thousands of names — but it is still a **discovery NET**: it surfaces exact master rows for the operator
+to PICK (the row shows ticker + CIK, so a homonym like Oklo is disambiguated by sight), and it **never decides
+a mapping** — the operator commits the exact `security_id`. More rows strengthen the net; exact-identifier-
+decides is unchanged. The broadener itself writes **only** exact `company_tickers` mappings — an incomplete
+row (missing CIK or ticker) is **dropped**, never guessed.
+
+- *Enforced by:* `securities/master.search` (read-only — never an ingest, never a write); the broadener's
+  exact `(cik, ticker)` keying that drops incomplete rows (`securities/master.populate_universe`,
+  `tests/securities/test_populate_master.py`).
 
 ## 3. Provenance to a real, checkable source on every trigger
 

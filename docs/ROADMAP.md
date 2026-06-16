@@ -5,23 +5,36 @@
 > whose "M5" is not the M5 we now mean — treat it as a historical artifact, not the live plan).
 >
 > Siblings: `CALL_LOGIC.md` (the brain), `CATALYST_CONVICTION.md` (the catalyst key), `INVARIANTS.md` (the
-> load-bearing rules), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there, not here),
-> `PROJECT_OVERVIEW.md` (design rationale). This doc is **sequencing**; it references the others, never
-> duplicates them.
+> load-bearing rules), `WORKBENCH_SCORING.md` (the four meters) + `WORKBENCH_EXTRACTION.md` (the extract →
+> ratify hybrid + the first LLM seam), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
+> not here), `PROJECT_OVERVIEW.md` (design rationale). This doc is **sequencing**; it references the others,
+> never duplicates them.
 
 ---
 
 ## Where we are
 
 The **back half is built and verified end-to-end**: the bitemporal store, two-key arming, the pure
-call-assembler, the catalyst subsystem (operator-ratified bridge + the automated DOE/USASpending feed), and
-the through-line refactor. **3 theses / 4 armed names render on real data** (HIMS starter, UNH core, nuclear →
-LEU core_entry headline with OKLO starter beneath). Docs are reconciled except the old build plan (now
-historical).
+call-assembler, the catalyst subsystem (operator-ratified bridge + the automated DOE/USASpending feed), the
+through-line refactor, and the M5 per-member ranked menu + theme arming (#42/#43). **3 theses / 4 armed names
+render on real data** (HIMS starter, UNH core, nuclear → LEU core_entry headline with OKLO starter beneath).
+**Phase 1 (trust + production) shipped** — the replay harness (#44), the recalibration pass (#45 — in-sample,
+*instrument-grounded, not forward-validated*; `RECALIBRATION_PASS_001.md`), and the production-tenant cut
+(#46, isolation proven by a poison-row test). Forward validation (the live Scoreboard) stays parked.
 
-The **front half — the Workbench — is unbuilt.** It is the only one of the four surfaces (Board, Cockpit,
-**Workbench**, Scoreboard) with **no mockup yet**, which is why it slipped; its design pass is now done (Phase
-2 below) and its mockup + spec land operator-side in `docs/mockups/`.
+The **front half — the Workbench — is now built through its MVP.** The mockup + spec landed (#41), then the
+slices: the persistence seam (#47), the three ratify bridges + nuclear seed (#48/#49), the scoring engine
+(#50), the UI (#52), and **authoring** (#53/#54). On top of the MVP, the **extract → ratify → score hybrid**
+(#55/#56/#57) lets the operator pull candidate scoring facts from a name's filings and ratify them
+(`WORKBENCH_EXTRACTION.md`); the **master-population broadener** (#58) loads the SEC universe so the loop runs
+on any name, not just the seed; and the **first LLM seam** — the flag-explanation drafter (#59) — adds a
+grounded plain-English aid to the FLAG ratify. **Both halves of the "working Workbench MVP" done-gate are now
+MET: authoring + a populated universe.** Docs are current as of this pass; the old M0–M5 build plan stays
+historical.
+
+**What's next: Slice 5 — the narrative → chain drafter** (the second LLM seam): decompose a narrative into a
+value chain and propose names from the populated universe, on the LLM plumbing #59 proved. The live Scoreboard
+and the Phase-3 breadth stay parked (below).
 
 ## Organizing principle — two halves on one spine
 
@@ -41,24 +54,18 @@ half (the Workbench) → enhances.**
 
 ---
 
-## NOW — cleanup + design (no build-pipeline contention)
+## NOW — cleanup + design  `[COMPLETE]`
 
-- **Confirmation-box honesty fix.** The Armed card's Confirmation key currently reads "a volume-backed
-  breakout" even on a momentum-only/flip card (HIMS) — the loudest element, overstating a starter, and it
-  *contradicts* the card's own caveat. Make it grade-aware: volume-backed → say so; momentum-only →
-  "momentum-only, not yet volume-confirmed" (reusing the caveat wording so they agree); amber, not green, for
-  the weak case. *(Requires exposing `confirmation_grade` — it is not derivable from the existing fields.)*
-- **Retire the old build plan.** This doc supersedes it; the historical copy gets a courtesy header pointing
-  here.
-- **Workbench design pass — operator-led, COMPLETE this round.** The locked decisions are in **Phase 2**
-  below; the mockup + spec are being finalized operator-side, in the existing Board/Cockpit language, to land
-  in `docs/mockups/`. **Not built now** — the build is Phase 2, after trust.
+*(All shipped — kept for the record.)* The **confirmation-box honesty fix** landed (#40 — `confirmation_grade`
+exposed; "momentum-only, not yet volume-confirmed" in amber, agreeing with the caveat). The **old build plan**
+was retired (this doc supersedes it). The **Workbench design pass** produced the committed mockup + spec
+(#41), and the build followed in Phase 2.
 
 ---
 
-## M5 — finish the back-half loop
+## M5 — finish the back-half loop  `[COMPLETE — #42 / #43]`
 
-### Part A — the per-member ranked menu  *(build now; independently shippable)*
+### Part A — the per-member ranked menu  *(MERGED #42)*
 A theme currently collapses to a single headline. Instead, show **every armed member ranked**, each with its
 **own call** (verdict / grade / confidence / clocks / name-specific evidence). Fold in the **runway + freshness
 ranking** (`RECALIBRATION.md` B.2): rank on grade **and** runway, so a core arm about to lapse (LEU → 06-30)
@@ -66,7 +73,7 @@ doesn't headline over a starter with years of runway (OKLO → 2029). Surface **
 ("moving, no conviction yet — watch"). The **Decision Queue shows a theme by its top-ranked *actionable*
 name**, not every member.
 
-### Part B — theme/group arming  *(design pass, THEN build)*
+### Part B — theme/group arming  *(MERGED #43)*
 New arming logic, so a short design pass first (like the catalyst pass) covering:
 - the theme conviction is **operator-ratified + graded + horizon'd** (the same shape as every conviction);
 - it arms on **volume-backed** confirmation, **not** momentum-only;
@@ -75,24 +82,25 @@ New arming logic, so a short design pass first (like the catalyst pass) covering
 
 ---
 
-## Phase 1 — Trust + production  *(strictly sequential)*
+## Phase 1 — Trust + production  *(strictly sequential)*  `[COMPLETE — #44 / #45 / #46]`
 
-1. **Replay / backtest harness** — DuckDB + Parquet; the `known_at` (transaction-time) axis already makes it
-   honest. Validates the edge over history **and** produces the scored outcomes recalibration needs.
-2. **Recalibration pass** — tune the dials + filed refinements in `RECALIBRATION.md` against replay outcomes,
-   **never to fit one name**.
-3. **Cut production as a fresh tenant** — `tenant_id` per row means production is a *new tenant*, never a
-   destructive wipe; dev/demo data is kept. The tenant is threaded from the thesis (auth deferred) and
-   isolation is **proven** by a poison-row test, not just asserted — design, threading map, and known
-   limitations (the Board is not yet tenant-scoped; no RLS) live in `PRODUCTION_TENANT.md`.
+1. **Replay / backtest harness** `[MERGED #44]` — DuckDB + Parquet; the `known_at` (transaction-time) axis
+   already makes it honest. Validates the edge over history **and** produces the scored outcomes recalibration
+   needs. See `REPLAY.md`.
+2. **Recalibration pass** `[MERGED #45]` — tune the dials + filed refinements in `RECALIBRATION.md` against
+   replay outcomes, **never to fit one name**. The first pass is `RECALIBRATION_PASS_001.md` (in-sample, n=19).
+3. **Cut production as a fresh tenant** `[MERGED #46]` — `tenant_id` per row means production is a *new
+   tenant*, never a destructive wipe; dev/demo data is kept. The tenant is threaded from the thesis (auth
+   deferred) and isolation is **proven** by a poison-row test, not just asserted — design, threading map, and
+   known limitations (the Board is not yet tenant-scoped; no RLS) live in `PRODUCTION_TENANT.md`.
 
 ---
 
-## Phase 2 — Build the front half (the Workbench)  *(after trust)*
+## Phase 2 — Build the front half (the Workbench)  *(MVP BUILT — after trust)*
 
 The deepest cut at name-selection: it **generates the names from a narrative** instead of the operator
-hand-seeding them. The design below is the output of the operator-led design pass — ready and waiting; the
-mockup + spec land operator-side in `docs/mockups/`.
+hand-seeding them. The design below was the output of the operator-led design pass; the **MVP is now built**
+(slices below) and the mockup + spec are committed in `docs/mockups/`.
 
 ### What it is
 Turn a **narrative** (the operator's edge, untouched) into a **scored, structured basket of names** (the
@@ -111,12 +119,12 @@ fourth, its-own-meter — a deliberate divergence, pressure-polarity; see `docs/
 this spec and that mockup in sync.** Its scores / market caps / company facts are **illustrative placeholders
 — they never enter the codebase** (all data-derived in the build).
 
-### Build status — the MVP slices
-The Workbench MVP ships in slices. **The data-and-engine half + the display half are done; AUTHORING and the
-drafter remain — and the "working Workbench MVP" is NOT done until authoring lands.** The MVP's whole pitch is
-narrative → *decompose into a value chain* → scored basket → promote; until authoring exists we have a
-Workbench that **displays, scores, and promotes a pre-built (seeded) basket — not one that turns a narrative
-into a basket.** So **Slice 4b is the second half of the MVP, not deferred polish.**
+### Build status — the MVP slices  `[MVP COMPLETE]`
+The Workbench MVP shipped in slices, **and authoring landed** (#53/#54) — so the done-gate the MVP was held to
+("displays / scores / promotes a *seeded* basket" → "turns a narrative into a basket") is met: the operator
+can decompose the chain, author names, and re-score. On top of the MVP, three slices extended the loop — the
+**extract → ratify hybrid** (#55/#56/#57), the **broadener** (#58, the populated universe), and the **first
+LLM seam** (#59) — all listed below. **Slice 5 (the narrative → chain drafter) is what remains.**
 - **Slice 1 — the persistence seam `[MERGED #47]`** — the value-chain **structure** persists operationally on
   the thesis spine (`segment` + `authored_by` on `basket_member`, the `segments` list on `thesis`; migration
   0008). Survives-reload proven on a fresh connection.
@@ -139,22 +147,40 @@ into a basket.** So **Slice 4b is the second half of the MVP, not deferred polis
 - **Slice 4b — AUTHORING · the second half of the MVP, NOT optional** — build & edit the value chain:
   add / place / move names (authorship tracked), **decompose the flat basket into links**, re-score on edit.
   Two sub-slices — the wire add gated first (the S1→S4 rhythm):
-  - **4b-1 — the resolver + the `authored_by` write rule `[BUILT — in review]`** — `GET /workbench/securities`,
+  - **4b-1 — the resolver + the `authored_by` write rule `[MERGED #53]`** — `GET /workbench/securities`,
     a **read-only discovery net** over the per-tenant master (exact-membership, INVARIANT #2 — never an ingest,
     never a guess; the operator picks the exact `security_id`); the promote write **stamps**
     `authored_by = operator_set` server-side (coercing the body — `system_drafted` is reserved for S5's own
     write path, `operator_edited` defers to S5's draft-diff). The wire grows; openapi + types regenerated.
-  - **4b-2 — the authoring UI + the first frontend test harness `[NEXT]`** — segment CRUD, place/move, the
+  - **4b-2 — the authoring UI + the first frontend test harness `[MERGED #54]`** — segment CRUD, place/move, the
     add-a-name typeahead, save via the existing full-replace `POST /workbench/theses`, re-score; plus a
     vitest/RTL harness landing the grouped-render coverage the flat seed left unexercised in S4.
-  - **⚠️ Authoring is the MACHINERY, not a populated universe.** The resolver searches the CURRENT tenant's
-    master — **which is still just the seed**. So after 4b you can decompose / re-arrange the seeded basket and
-    add a name *already ingested*, but **"turn a fresh narrative into a basket" stays gated on INGESTION** (the
-    filed XBRL auto-extract that populates the master — NOT authoring). "Authoring done" must never read as
-    "the flaw is patched" — same discipline as the flat-basket gap.
-  The **working Workbench MVP milestone sits AFTER 4b *and* a populated universe.**
-- **Slice 5 — the bounded LLM drafter `[FILED]`** — `backend/llm`: drafts the decomposition + the thesis-fit
-  prose; the operator ratifies every placement; cites sources; caches; **never sources a number.**
+  - **✅ The "populated universe" gate is now MET (was: gated on INGESTION).** At 4b the resolver searched
+    only the seed; the **broadener (#58)** then loaded the SEC `company_tickers` universe into the master, and
+    the **extract → ratify hybrid (#55/#56/#57)** pulls a name's scoring facts from its filings on demand. So
+    the operator can now pick *any* name, extract + ratify its facts, and score it — not just the seed. What
+    the S5 *drafter* still adds is proposing the chain + names FROM the narrative; the operator can already do
+    that by hand.
+  The **working Workbench MVP milestone (authoring + a populated universe) is MET.**
+- **The extract → ratify → score hybrid `[MERGED #55 / #56 / #57]`** — the per-name fact loop that FEEDS the
+  meters (`WORKBENCH_EXTRACTION.md`): a three-tier extractor (AUTO confirm-and-go / FLAG ratify-against-the-
+  located-passage / HUMAN purity operator-authored) pulls candidate scoring facts from a name's latest
+  10-Q/10-K (#55); the operator ratifies via `POST /workbench/facts` (#56); the DD-rail **facts panel** closes
+  the loop in the UI (#57). The extractor LOCATES, the operator RATIFIES (INVARIANT #3) — never auto-valued.
+- **The master-population broadener `[MERGED #58]`** — `pipeline.populate_master` loads the SEC
+  `company_tickers` universe into `security_master` ((cik, ticker)-keyed, idempotent, per-tenant), so the
+  resolve → extract → ratify → score loop runs on **any** name, not just the seed. The master is **mutable
+  identity metadata, NOT append-only** (names UPDATE in place; see `INVARIANTS.md` / `DATA_FLOW.md`).
+- **The first LLM seam — the flag-explanation drafter `[MERGED #59]`** — `backend/llm`: a grounded
+  plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage behind an explicit "Explain"
+  button. The bound is **STRUCTURAL** (the explain endpoint has no DB connection, writes nothing, is never on
+  the ratify body — it cannot become a fact); components+direction-only; fail-open by contract. See
+  `WORKBENCH_EXTRACTION.md`. *(The first of two LLM seams; S5 is the second.)*
+- **Slice 5 — the narrative → chain drafter `[NEXT]`** — the **second** LLM seam, on the `backend/llm`
+  plumbing the flag-explanation drafter (#59) proved: decompose a narrative into a value chain, **propose
+  names from the populated universe**, and draft the thesis-fit prose. The operator ratifies every placement;
+  it cites sources; it **never sources a number.** *(Narrative is the operator's, structure is a draft,
+  numbers are facts.)*
 
 ### Decisions locked (design pass)
 - **Curation:** surface **and score every candidate**, pre-tag a *suggested* basket; the operator makes the
