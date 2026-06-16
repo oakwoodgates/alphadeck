@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
+import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
 import { errText } from "./format";
 
 const METER_LABEL: Record<string, string> = {
@@ -46,7 +46,9 @@ export function FactsPanel({ securityId }: { securityId: string }) {
 
 function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securityId: string }) {
   const ratify = useRatifyFact();
+  const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
   const auto = candidate.tier === "auto";
+  const isFlag = candidate.tier === "flag";
   const [shares, setShares] = useState(candidate.value != null ? String(candidate.value) : "");
   const [cash, setCash] = useState(candidate.cash_usd != null ? String(candidate.cash_usd) : "");
   const [burn, setBurn] = useState(
@@ -119,6 +121,34 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
           <div className="excerpt">{p.excerpt}</div>
         </div>
       ))}
+
+      {/* the LLM seam (M4b) — a plain-English read GROUNDED in the passage above; an aid to the ratify, never
+          the value (it never touches the inputs). FLAG only; explicit (a click); fail-open (no block when the
+          model is unavailable or declines — the raw passage + manual ratify stay exactly as today). */}
+      {isFlag && (
+        <div className="drafted-wrap">
+          <button
+            type="button"
+            className="wb-mini ghost"
+            aria-label="Explain in plain English"
+            onClick={() => explain.refetch()}
+            disabled={explain.isFetching}
+          >
+            {explain.isFetching ? "Explaining…" : "✦ Explain in plain English"}
+          </button>
+          {explain.data?.grounded && (
+            <div className="drafted">
+              <span className="wb-author">drafted</span>
+              <span className="drafted-text">{explain.data.explanation}</span>
+            </div>
+          )}
+          {explain.data && !explain.data.grounded && !explain.isFetching && (
+            <div className="drafted muted">
+              No plain-English read grounded in the passage — read the excerpt above.
+            </div>
+          )}
+        </div>
+      )}
 
       {candidate.fact_type === "shares_outstanding" && (
         <label className="rf">

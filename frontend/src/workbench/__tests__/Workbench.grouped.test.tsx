@@ -47,6 +47,7 @@ vi.mock("../../api/hooks", () => ({
   // the DD rail's facts panel (hybrid-2b): inert here — extract is explicit (never on render), no candidates
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useRatifyFact: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
+  useExplainFlag: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
 }));
 
 import { Workbench } from "../Workbench";

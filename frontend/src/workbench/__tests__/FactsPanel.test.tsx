@@ -9,11 +9,14 @@ const h = vi.hoisted(() => ({
   extract: { data: undefined as unknown, error: null as unknown, isFetching: false },
   mutate: vi.fn(),
   ratify: { isPending: false, isError: false, isSuccess: false, error: null as unknown },
+  explainRefetch: vi.fn(),
+  explain: { data: undefined as unknown, error: null as unknown, isFetching: false },
 }));
 
 vi.mock("../../api/hooks", () => ({
   useExtract: () => ({ ...h.extract, refetch: h.refetch }),
   useRatifyFact: () => ({ mutate: h.mutate, ...h.ratify }),
+  useExplainFlag: () => ({ ...h.explain, refetch: h.explainRefetch }),
 }));
 
 import { FactsPanel } from "../FactsPanel";
@@ -73,8 +76,10 @@ const SID = "00000000-0000-0000-0000-000000000abc";
 beforeEach(() => {
   h.refetch.mockReset();
   h.mutate.mockReset();
+  h.explainRefetch.mockReset();
   h.extract = { data: undefined, error: null, isFetching: false };
   h.ratify = { isPending: false, isError: false, isSuccess: false, error: null };
+  h.explain = { data: undefined, error: null, isFetching: false };
 });
 
 describe("FactsPanel — extract → ratify", () => {
@@ -153,5 +158,59 @@ describe("FactsPanel — extract → ratify", () => {
       segment_label: "nuclear",
       mix_pct: 100,
     });
+  });
+});
+
+describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
+  it("offers Explain on FLAG rows only — not AUTO, not HUMAN", () => {
+    h.extract.data = [AUTO_SHARES, FLAG_BURN, HUMAN_PURITY];
+    render(<FactsPanel securityId={SID} />);
+    // exactly one Explain affordance — the FLAG (burn) row; AUTO is clean, HUMAN/purity is the operator's edge
+    expect(screen.getAllByRole("button", { name: /Explain/ })).toHaveLength(1);
+  });
+
+  it("fires on the explicit click (not on render) and shows the model text, marked 'drafted'", async () => {
+    h.explain.data = {
+      explanation: "The cash use includes a one-time ~$264M ENTRA1 milestone; recurring is lower.",
+      grounded: true,
+    };
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+
+    expect(h.explainRefetch).not.toHaveBeenCalled(); // never auto-fired on render
+    await userEvent.click(screen.getByRole("button", { name: /Explain/ }));
+    expect(h.explainRefetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/one-time ~\$264M ENTRA1 milestone/)).toBeInTheDocument();
+    expect(screen.getByText("drafted")).toBeInTheDocument(); // marked model-drafted
+  });
+
+  it("THE BOUND: a grounded explanation never pre-fills the value field", () => {
+    // the model's text even names a number; the burn input still shows the RAW value, untouched —
+    // the ratified number is the operator's to type (the explanation rides no rail into the field)
+    h.explain.data = { explanation: "Strip the 264,195 milestone and recurring is lower.", grounded: true };
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Strip the 264,195 milestone/)).toBeInTheDocument(); // the aid is shown
+    const burn = screen.getByLabelText("quarterly burn") as HTMLInputElement;
+    expect(burn.value).toBe("314678000"); // the operator's field is UNTOUCHED
+  });
+
+  it("grounded=false is a say-so, never a fabricated explanation", () => {
+    h.explain.data = { explanation: "", grounded: false };
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/No plain-English read grounded in the passage/)).toBeInTheDocument();
+    expect(screen.queryByText("drafted")).not.toBeInTheDocument();
+  });
+
+  it("fail-open: an explain error leaves the raw passage + manual ratify fully working", async () => {
+    h.explain = { data: undefined, error: new Error("LLM down"), isFetching: false };
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+    // no drafted block, but the located passage is still readable and the ratify still posts
+    expect(screen.queryByText("drafted")).not.toBeInTheDocument();
+    expect(screen.getByText(/Partnership milestone payment of 264,195/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(h.mutate).toHaveBeenCalledTimes(1); // the panel works exactly as today
   });
 });

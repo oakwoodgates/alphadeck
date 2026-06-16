@@ -106,7 +106,9 @@ docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost
 
 # backend setup (once)
 python -m venv backend\.venv
-backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" pytest ruff black
+backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" "anthropic>=0.40" pytest ruff black
+# the LLM seam (FLAG-explanation drafter) needs ANTHROPIC_API_KEY for LIVE drafts; with no key it fails open
+# (no explanation, the facts panel works as today). The suite never needs the key (the SDK is imported lazily).
 
 # backend dev loop (from backend\, venv active)
 python -m db.migrate                                    # apply migrations (idempotent)

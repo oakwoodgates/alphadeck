@@ -439,3 +439,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .rf input:focus { outline: none; border-color: var(--leader); }
 .rf input:read-only { color: var(--txt-2); background: var(--bg-2); border-style: dashed; }
 .ratify-row > .wb-mini { align-self: flex-start; }
+/* the FLAG-explanation drafter (M4b) — a model-drafted reading aid ALONGSIDE the located passage. Quiet
+   (inverse-loudness): it never out-shouts the raw excerpt, and it is display-only (never a value). */
+.drafted-wrap { display: flex; flex-direction: column; gap: 5px; padding-left: 9px; }
+.drafted-wrap > .wb-mini { align-self: flex-start; }
+.drafted { display: flex; align-items: baseline; gap: 7px; font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+.drafted.muted { color: var(--txt-3); font-style: italic; }
+.drafted .wb-author { flex-shrink: 0; }

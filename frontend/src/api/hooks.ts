@@ -17,6 +17,7 @@ export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
 export type LocatedPassage = components["schemas"]["LocatedPassage"];
+export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
 // the ratify body is a discriminated union (one variant per fact type)
 export type RatifyFactBody =
   | components["schemas"]["RatifyRevenueMix"]
@@ -135,6 +136,23 @@ export function useExtract(securityId: string) {
       const { data, error } = await api.GET("/workbench/securities/{security_id}/extract", {
         params: { path: { security_id: securityId } },
       });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// The FLAG-explanation drafter (M4b — the ONE LLM seam): a plain-English read of a FLAG candidate, grounded
+// in its located passage, shown ALONGSIDE the raw text. Same explicit pattern as useExtract (`enabled: false`
+// — fired by the "Explain" button via refetch(), never on a render; cached in-session per candidate). The
+// explanation is a DISPLAY aid only: it carries no value and never rides the ratify body. Fail-open — the
+// endpoint never 5xxs, returning {grounded:false} when the LLM is unavailable, so the panel works as today.
+export function useExplainFlag(candidate: ExtractedFact) {
+  return useQuery({
+    queryKey: ["flag-explain", candidate.source_ref, candidate.fact_type] as const,
+    enabled: false,
+    queryFn: async () => {
+      const { data, error } = await api.POST("/workbench/facts/explain", { body: candidate });
       if (error) throw error;
       return data;
     },

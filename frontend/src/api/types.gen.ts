@@ -130,6 +130,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/facts/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explain Flag Candidate
+         * @description Draft a plain-English explanation of a FLAG candidate, grounded in its located passage — the one LLM
+         *     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
+         *
+         *     Note what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that
+         *     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
+         *     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
+         *     connection is what guarantees it can't become one.
+         *
+         *     Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, or the model
+         *     declining to ground it) returns 200 with ``{explanation: "", grounded: false}`` — NEVER a 5xx. The facts
+         *     panel renders identically to today. (FLAG-only: a non-FLAG candidate returns the same empty signal.)
+         */
+        post: operations["explain_flag_candidate_workbench_facts_explain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses": {
         parameters: {
             query?: never;
@@ -371,6 +401,21 @@ export interface components {
             flags?: string[];
             /** Located Passages */
             located_passages?: components["schemas"]["LocatedPassage"][];
+        };
+        /**
+         * FlagExplanationOut
+         * @description The model-drafted, plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage.
+         *
+         *     Deliberately carries NO value field: it is display-only and never rides the ratify rail (the ratified
+         *     number comes solely from the operator's typed field on ``RatifyFactRequest``). ``grounded=False`` (with an
+         *     empty ``explanation``) is the honest no-explanation / fail-open signal — the UI shows the raw passage and
+         *     manual ratify exactly as today. (INVARIANT #3.)
+         */
+        FlagExplanationOut: {
+            /** Explanation */
+            explanation: string;
+            /** Grounded */
+            grounded: boolean;
         };
         /**
          * Grade
@@ -999,6 +1044,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedFact"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explain_flag_candidate_workbench_facts_explain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractedFact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlagExplanationOut"];
                 };
             };
             /** @description Validation Error */

@@ -414,3 +414,18 @@ RatifyFactRequest = Annotated[
 class RatifiedFactOut(BaseModel):
     fact_id: UUID
     fact_type: str
+
+
+# --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
+
+
+class FlagExplanationOut(BaseModel):
+    """The model-drafted, plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage.
+
+    Deliberately carries NO value field: it is display-only and never rides the ratify rail (the ratified
+    number comes solely from the operator's typed field on ``RatifyFactRequest``). ``grounded=False`` (with an
+    empty ``explanation``) is the honest no-explanation / fail-open signal — the UI shows the raw passage and
+    manual ratify exactly as today. (INVARIANT #3.)"""
+
+    explanation: str
+    grounded: bool

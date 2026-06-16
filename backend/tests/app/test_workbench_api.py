@@ -383,3 +383,110 @@ def test_ratify_missing_field_is_422(db, security_id):
         assert r.status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+# --- M4b: the FLAG-explanation drafter (the LLM seam) — a display aid that never becomes a fact ---
+
+
+class _FakeLLM:
+    """A stand-in for the live ``LLMClient`` (no network, no key) — returns/raises what the test wants."""
+
+    def __init__(self, *, returns=None, raises: Exception | None = None) -> None:
+        self._returns = returns
+        self._raises = raises
+
+    def draft_structured(self, *, system, user, tool):
+        if self._raises is not None:
+            raise self._raises
+        return self._returns
+
+
+def _flag_candidate() -> dict:
+    """A FLAG cash_burn candidate as the FE sends it back (the ExtractedFact it got from extract)."""
+    return {
+        "fact_type": "cash_burn",
+        "tier": "flag",
+        "source": "10-q-cashflow",
+        "source_ref": "https://sec.gov/smr-10q#p1",
+        "event_date": "2026-03-31",
+        "cash_usd": 890_000_000,
+        "quarterly_burn_usd": 314_678_000,
+        "flags": ["possible-one-time"],
+        "located_passages": [
+            {
+                "kind": "cash-flow-line",
+                "source_ref": "https://sec.gov/smr-10q#p1",
+                "anchor": "264,195",
+                "excerpt": "Partnership milestone payment of 264,195 in operating cash use.",
+            }
+        ],
+    }
+
+
+def test_explain_endpoint_drafts_for_a_flag_candidate(db):
+    from app.deps import get_llm_client
+
+    fake = _FakeLLM(
+        returns={
+            "explanation": "The cash use includes a one-time ~$264M milestone; recurring is lower.",
+            "grounded": True,
+        }
+    )
+    app.dependency_overrides[get_llm_client] = lambda: fake
+    try:
+        r = _client(db).post("/workbench/facts/explain", json=_flag_candidate())
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 200
+    body = r.json()
+    assert body["grounded"] is True and "milestone" in body["explanation"]
+
+
+def test_explain_endpoint_is_fail_open_never_5xx(db, monkeypatch):
+    """No fake, no key: the REAL client's offline gate (LLMUnavailable) is caught -> 200 + grounded:false.
+    Fail-open by contract — the facts panel works exactly as today."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    try:
+        r = _client(db).post("/workbench/facts/explain", json=_flag_candidate())
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 200  # NOT a 502/500
+    assert r.json() == {"explanation": "", "grounded": False}
+
+
+def test_explaining_writes_no_fact(db):
+    """THE BOUND: a grounded explanation that even names a figure creates ZERO scoring facts — the explain
+    endpoint takes no DB connection and rides a separate rail (the ratified number can only come from the
+    operator's /facts field). The candidate payload carries no security_id at all."""
+    from app.deps import get_llm_client
+
+    fake = _FakeLLM(
+        returns={
+            "explanation": "Strip the 264,195 milestone and recurring is lower.",
+            "grounded": True,
+        }
+    )
+    app.dependency_overrides[get_llm_client] = lambda: fake
+    try:
+        assert (
+            _client(db).post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
+        )
+    finally:
+        app.dependency_overrides.clear()
+    with db.cursor() as cur:
+        for table in ("fact_cash_burn", "fact_shares_outstanding", "fact_revenue_mix"):
+            cur.execute(
+                f"SELECT count(*) AS n FROM {table}"
+            )  # noqa: S608 — fixed literal table names
+            assert cur.fetchone()["n"] == 0  # explaining persisted nothing
+
+
+def test_explanation_has_no_path_into_a_ratified_fact():
+    """The structural half of the bound: no ratify variant has a field an explanation could ride in on
+    (no 'explanation'/'grounded'/'draft'). Pure schema guard — a regression here would re-open the rail.
+    """
+    from app.schemas_api import RatifyCashBurn, RatifyRevenueMix, RatifyShares
+
+    forbidden = {"explanation", "grounded", "draft", "drafted"}
+    for model in (RatifyRevenueMix, RatifyShares, RatifyCashBurn):
+        assert forbidden.isdisjoint(model.model_fields)

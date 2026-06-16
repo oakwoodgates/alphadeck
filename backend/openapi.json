@@ -296,6 +296,48 @@
         }
       }
     },
+    "/workbench/facts/explain": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Explain Flag Candidate",
+        "description": "Draft a plain-English explanation of a FLAG candidate, grounded in its located passage \u2014 the one LLM\nseam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.\n\nNote what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that\ndead-ends at the screen \u2014 the ratified number can only ever come from the operator's typed field on\n``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing\nconnection is what guarantees it can't become one.\n\nFail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, or the model\ndeclining to ground it) returns 200 with ``{explanation: \"\", grounded: false}`` \u2014 NEVER a 5xx. The facts\npanel renders identically to today. (FLAG-only: a non-FLAG candidate returns the same empty signal.)",
+        "operationId": "explain_flag_candidate_workbench_facts_explain_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractedFact"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlagExplanationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses": {
       "post": {
         "tags": [
@@ -876,6 +918,25 @@
         ],
         "title": "ExtractedFact",
         "description": "One candidate scoring fact for a security, with its tier, raw value(s), located evidence, and flags.\nThe shape mirrors the three ``ingest_*`` writers: shares -> ``value``; cash_burn -> ``cash_usd`` +\n``quarterly_burn_usd``; revenue_mix (purity) -> no value (HUMAN)."
+      },
+      "FlagExplanationOut": {
+        "properties": {
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "grounded": {
+            "type": "boolean",
+            "title": "Grounded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "explanation",
+          "grounded"
+        ],
+        "title": "FlagExplanationOut",
+        "description": "The model-drafted, plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage.\n\nDeliberately carries NO value field: it is display-only and never rides the ratify rail (the ratified\nnumber comes solely from the operator's typed field on ``RatifyFactRequest``). ``grounded=False`` (with an\nempty ``explanation``) is the honest no-explanation / fail-open signal \u2014 the UI shows the raw passage and\nmanual ratify exactly as today. (INVARIANT #3.)"
       },
       "Grade": {
         "type": "string",
