@@ -222,10 +222,48 @@ def test_extract_endpoint_404_without_cik(db):
         app.dependency_overrides.clear()
 
 
-def test_promote_stamps_authored_by_operator_set(db, security_id):
-    """The human authoring path STAMPS authorship server-side: a body claiming `system_drafted` is coerced
-    to `operator_set` (the operator is the author; `system_drafted` is reserved for the S5 drafter's own
-    write path)."""
+def test_promote_honors_authorship_from_the_body(db, security_id):
+    """Promote HONORS `authored_by` (it no longer coerces to operator_set, now that the S5 drafter's own
+    path exists): an S5-drafted placement the operator keeps stays `system_drafted`, an edited one
+    `operator_edited`, a hand-authored one `operator_set` — the seam round-trips so the badge + the eventual
+    ratify can tell drafted from operator-set. An out-of-enum value is rejected at the schema boundary.
+    """
+
+    def _payload(authored_by):
+        return {
+            "name": "Nuclear",
+            "narrative": "x",
+            "ticker": None,
+            "segments": [{"label": "reactors"}],
+            "basket": [
+                {
+                    "ticker": "DEVCO",
+                    "role": "r",
+                    "archetype": "leader",
+                    "security_id": str(security_id),
+                    "segment": "reactors",
+                    "authored_by": authored_by,
+                }
+            ],
+        }
+
+    client = _client(db)
+    try:
+        for authored_by in ("system_drafted", "operator_edited", "operator_set"):
+            tid = client.post("/workbench/theses", json=_payload(authored_by)).json()["id"]
+            detail = client.get(f"/theses/{tid}").json()
+            assert detail["basket"][0]["authored_by"] == authored_by  # honored, not coerced
+        # an out-of-enum authorship is a 422 at parse time (Pydantic validates against the enum)
+        assert client.post("/workbench/theses", json=_payload("robot")).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_promote_rejects_a_security_not_in_this_tenants_master(db):
+    """Bound #2 at the single writer (relocated here now that the S5 drafter returns a draft and writes
+    nothing): a placed `security_id` that isn't an EXACT member of this tenant's master fails closed — a
+    hallucinated / foreign id never reaches the spine. Distinct from the orphan-segment 422: the chain is
+    consistent here; the SECURITY is the problem (mirrors the ratify write-side check → 404)."""
     payload = {
         "name": "Nuclear",
         "narrative": "x",
@@ -233,20 +271,19 @@ def test_promote_stamps_authored_by_operator_set(db, security_id):
         "segments": [{"label": "reactors"}],
         "basket": [
             {
-                "ticker": "DEVCO",
+                "ticker": "GHOST",
                 "role": "r",
                 "archetype": "leader",
-                "security_id": str(security_id),
+                "security_id": str(uuid.uuid4()),  # not in this tenant's master
                 "segment": "reactors",
-                "authored_by": "system_drafted",  # a stale / spoofed value from the body
             }
         ],
     }
     client = _client(db)
     try:
-        tid = client.post("/workbench/theses", json=payload).json()["id"]
-        detail = client.get(f"/theses/{tid}").json()
-        assert detail["basket"][0]["authored_by"] == "operator_set"
+        r = client.post("/workbench/theses", json=payload)
+        assert r.status_code == 404
+        assert "not in this tenant's master" in r.json()["detail"]
     finally:
         app.dependency_overrides.clear()
 

@@ -344,7 +344,7 @@
           "workbench"
         ],
         "summary": "Promote",
-        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.",
+        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.\n\nTwo write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body \u2014 the human path sends\n``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``\n(an edited one) \u2014 not coerced, so a drafted placement stays drafted until the operator ratifies it. And\nevery placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed \u2014 a\ncaller-supplied id is never trusted), the single point where bound #2 is enforced now that the S5 drafter\nreturns a draft and writes nothing itself.",
         "operationId": "promote_workbench_theses_post",
         "requestBody": {
           "content": {
