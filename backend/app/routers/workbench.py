@@ -18,7 +18,6 @@ from app.schemas_api import (
     ThesisDetail,
     WorkbenchScored,
 )
-from domain.enums import Authorship
 from domain.extraction import ExtractedFact
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
@@ -132,7 +131,14 @@ def promote(
     """Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
-    resolver, NOT the body. Scores are never sent and never persist — they re-derive on read."""
+    resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
+
+    Two write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
+    ``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``
+    (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. And
+    every placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a
+    caller-supplied id is never trusted), the single point where bound #2 is enforced now that the S5 drafter
+    returns a draft and writes nothing itself."""
     try:
         thesis = Thesis(  # the Slice-1 segment-consistency validator runs here
             id=req.id or uuid4(),
@@ -140,17 +146,26 @@ def promote(
             name=req.name,
             narrative=req.narrative,
             ticker=req.ticker,
-            # Authorship is STAMPED here, not taken from the body: this is the human authoring path, so
-            # every placement is `operator_set` (any incoming value — incl. a stale `system_drafted` — is
-            # coerced). `system_drafted` is reserved for the S5 drafter's own write path; `operator_edited`
-            # (a diff against a stored draft) also lands with S5, when drafts exist to edit. (INVARIANT #1.)
-            basket=[
-                m.model_copy(update={"authored_by": Authorship.OPERATOR_SET}) for m in req.basket
-            ],
+            # `authored_by` is honored, not coerced: Pydantic has already validated each value against the
+            # `Authorship` enum (an out-of-enum value is a 422 at parse time), so the field IS the authorship
+            # seam. INVARIANT #1 is held by the membership check below + the LLM never writing — never by
+            # flattening authorship here.
+            basket=list(req.basket),
             segments=req.segments,
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Bound #2, fail-closed: a placed security must be an EXACT member of this tenant's master (mirrors the
+    # ratify write-side check). The id is caller-supplied — the operator's pick or an S5 draft's resolved
+    # placement — so a foreign / hallucinated id must NEVER reach the spine. A null id (unplaced name) is OK.
+    for m in thesis.basket:
+        if m.security_id is not None and not master.exists(
+            conn, m.security_id, tenant_id=tenant_id
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail=f"basket member {m.ticker!r} references a security not in this tenant's master",
+            )
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)
