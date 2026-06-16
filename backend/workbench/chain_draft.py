@@ -6,10 +6,11 @@ key, never an id. This module runs every proposed name through THIS tenant's sec
 
 - **PLACED** — a unique EXACT ticker match OR a unique EXACT name match → the master row's ``security_id``
   is assigned (auto-place as a drafted member). Exact membership, never a fuzzy judgment.
-- **AMBIGUOUS** — several / partial / token-only matches → the operator PICKS from the candidates (each
-  shown with ticker + CIK so a homonym is disambiguated by sight). A lone substring match is **deliberately
-  here, not PLACED** — a token overlap is the homonym-trap heuristic ("$48B Oklo Technologies"), and
-  auto-place must never rest on a judgment call.
+- **AMBIGUOUS** — several / partial / token-only matches, OR a ticker/name CONTRADICTION (the exact ticker
+  and the exact name resolve to DIFFERENT rows) → the operator PICKS from the candidates (each shown with
+  ticker + CIK so a homonym is disambiguated by sight). A lone substring match is **deliberately here, not
+  PLACED** — a token overlap is the homonym-trap heuristic ("$48B Oklo Technologies"), and auto-place must
+  never rest on a judgment call.
 - **ABSENT** — no master row → surfaced as "suggested, not in your universe", never guessed onto a ticker.
 
 It is **read-only** (it never ingests, never writes) and it sources **no number**: a PLACED name is still
@@ -102,6 +103,21 @@ def _candidate(s: Security) -> SecurityCandidate:
     return SecurityCandidate(security_id=s.id, ticker=s.ticker, name=s.name, cik=s.cik)
 
 
+def _conflict_candidates(
+    conn: psycopg.Connection, ticker_id: UUID, name_rows: list[Security], *, tenant_id: UUID
+) -> list[SecurityCandidate]:
+    """The operator-pick set for a ticker/name CONTRADICTION: the ticker's row + the exact-name row(s),
+    deduped — so the operator sees both companies (ticker + CIK) and decides which the narrative meant.
+    """
+    rows: dict[UUID, Security] = {}
+    ticker_row = master.get(conn, ticker_id, tenant_id=tenant_id)
+    if ticker_row is not None:
+        rows[ticker_row.id] = ticker_row
+    for c in name_rows:
+        rows.setdefault(c.id, c)
+    return [_candidate(s) for s in rows.values()]
+
+
 def _resolve_one(
     conn: psycopg.Connection, p: ProposedPlacement, segment: str, *, tenant_id: UUID
 ) -> ResolvedPlacement:
@@ -109,23 +125,35 @@ def _resolve_one(
     ticker = (p.ticker or "").strip().upper()
     name = p.name.strip()
 
-    # 1. unique EXACT ticker match — `ids_for_tickers` is an exact lookup and returns one row per ticker,
-    #    so a hit IS unique by construction. The model's ticker decides nothing on its own: only a master
-    #    row carrying exactly that ticker does.
-    if ticker:
-        sid = master.ids_for_tickers(conn, [ticker], tenant_id=tenant_id).get(ticker)
-        if sid is not None:
-            return ResolvedPlacement(**base, status=PlacementStatus.PLACED, security_id=sid)
-
-    # 2. the substring net by name, then a UNIQUE exact NAME match within it (case-insensitive). Two rows
-    #    sharing the exact name (e.g. a dual-class pair) is NOT unique → it falls through to the pick.
+    # The substring net by name — also the candidate pool when nothing resolves uniquely.
     candidates = master.search(conn, name, tenant_id=tenant_id, limit=_CANDIDATE_LIMIT)
-    exact = [c for c in candidates if (c.name or "").strip().upper() == name.upper()]
-    if len(exact) == 1:
-        return ResolvedPlacement(**base, status=PlacementStatus.PLACED, security_id=exact[0].id)
 
-    # 3. any rows but no unique exact match → the operator PICKS (a token/partial match is NOT membership);
-    #    no rows at all → ABSENT.
+    # Two independent EXACT, UNIQUE signals. `ids_for_tickers` is an exact lookup (one row per ticker), so a
+    # ticker hit is unique by construction; a name hit is unique only if exactly one master name equals it
+    # (two rows sharing it — e.g. a dual-class pair — is NOT unique, so by_name stays None → the pick).
+    by_ticker = (
+        master.ids_for_tickers(conn, [ticker], tenant_id=tenant_id).get(ticker) if ticker else None
+    )
+    name_exact = [c for c in candidates if (c.name or "").strip().upper() == name.upper()]
+    by_name = name_exact[0].id if len(name_exact) == 1 else None
+
+    # A ticker/name CONTRADICTION (both resolve, to DIFFERENT rows) is not a confident match — choosing one
+    # would be a judgment call (we can't know which the model meant) — so it goes to the operator's pick,
+    # never auto-placed (INVARIANT #2). Surface BOTH rows for the pick.
+    if by_ticker is not None and by_name is not None and by_ticker != by_name:
+        return ResolvedPlacement(
+            **base,
+            status=PlacementStatus.AMBIGUOUS,
+            candidates=_conflict_candidates(conn, by_ticker, name_exact, tenant_id=tenant_id),
+        )
+
+    # They agree, or only one fired → auto-place that exact member.
+    placed = by_ticker if by_ticker is not None else by_name
+    if placed is not None:
+        return ResolvedPlacement(**base, status=PlacementStatus.PLACED, security_id=placed)
+
+    # No unique exact match: any rows → the operator PICKS (a token/partial match is NOT membership — the
+    # homonym-trap heuristic); none → ABSENT.
     if candidates:
         return ResolvedPlacement(
             **base,
@@ -145,10 +173,10 @@ def resolve_placements(
     exact master membership DECIDES). Read-only — never ingests, never writes, sources no number.
 
     Per name: a unique EXACT ticker match OR a unique EXACT name match → PLACED with the master row's id
-    (auto-place; the exact TICKER takes precedence — it is the operator's primary carrier). Several /
-    partial / token-only matches → AMBIGUOUS (the operator picks; ticker + CIK disambiguate a homonym). No
-    master row → ABSENT. A PLACED name is always drafted, prunable, and UNSCORED until the operator
-    extract→ratifies it — so a mismatched model guess is caught at review, never silently scored.
+    (auto-place); if BOTH fire and resolve to DIFFERENT rows, that contradiction → AMBIGUOUS, never
+    auto-placed (choosing one would be a judgment call). Several / partial / token-only matches → AMBIGUOUS
+    (the operator picks; ticker + CIK disambiguate a homonym). No master row → ABSENT. A PLACED name is
+    always drafted, prunable, and UNSCORED until the operator extract→ratifies it.
     """
     return ResolvedChain(
         segments=[ResolvedSegment(label=s.label, descriptor=s.descriptor) for s in segments],

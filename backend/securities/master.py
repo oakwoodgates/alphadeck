@@ -274,3 +274,18 @@ def exists(
             (tenant_id, security_id),
         )
         return cur.fetchone() is not None
+
+
+def get(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> Security | None:
+    """Fetch one security by id within THIS tenant (``None`` if absent). The full row for the few callers
+    that need the ticker / name / CIK, not just existence (cf. ``exists``). Tenant-scoped like every master
+    read."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM security_master WHERE tenant_id = %s AND id = %s LIMIT 1",
+            (tenant_id, security_id),
+        )
+        row = cur.fetchone()
+    return _row_to_security(row) if row else None

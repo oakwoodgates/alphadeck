@@ -117,6 +117,23 @@ def test_unresolvable_ticker_falls_back_to_exact_name(db):
     assert p.status is PlacementStatus.PLACED and p.security_id == leu
 
 
+def test_name_and_ticker_exact_match_different_rows_is_ambiguous(db):
+    """The invariant-#2 line: when the exact name and the exact ticker resolve to DIFFERENT master rows, that
+    contradiction is not a confident match — it falls to the operator's pick (both rows surfaced), never
+    auto-placed (choosing ticker-over-name when they disagree would be a judgment call)."""
+    oklo = _insert(db, "OKLO", name="Oklo Inc.")
+    smr = _insert(db, "SMR", name="NuScale Power Corporation")
+    chain = resolve_placements(
+        db,
+        [_seg(ProposedPlacement(name="Oklo Inc.", ticker="SMR"))],  # name -> OKLO, ticker -> SMR
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    (p,) = chain.placements
+    assert p.status is PlacementStatus.AMBIGUOUS
+    assert p.security_id is None
+    assert {c.security_id for c in p.candidates} == {oklo, smr}  # both surfaced for the pick
+
+
 def test_preserves_segments_and_prose(db):
     """Structure is carried through: the resolved chain keeps every segment (label + descriptor) and each
     placement's segment + prose, whatever its resolution status."""
