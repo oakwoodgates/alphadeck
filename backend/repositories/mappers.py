@@ -76,6 +76,7 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
         security_id=b["security_id"],
         detail=b["detail"],
         segment=b["segment"],
+        thesis_fit=b["thesis_fit"],
         authored_by=Authorship(b["authored_by"]),
     )
 

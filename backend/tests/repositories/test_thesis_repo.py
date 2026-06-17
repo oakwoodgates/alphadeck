@@ -39,6 +39,7 @@ def _thesis(security_id) -> Thesis:
                 security_id=security_id,
                 detail="mkt ~$6B",
                 segment="Telehealth platforms",
+                thesis_fit="the leading US telehealth platform",
                 authored_by=Authorship.OPERATOR_SET,
             )
         ],
@@ -94,6 +95,9 @@ def test_chain_structure_survives_reload(db, security_id):
         ("Compounding / supply", None),
     ]
     assert got.basket[0].segment == "Telehealth platforms"
+    assert (
+        got.basket[0].thesis_fit == "the leading US telehealth platform"
+    )  # the prose is durable too
     assert got.basket[0].authored_by is Authorship.OPERATOR_SET
     assert got == t  # full structural round-trip across the reconnect
 
