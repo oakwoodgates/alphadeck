@@ -26,6 +26,12 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
+      # Live-feature secrets/config, injected from the gitignored `.env` (copy `.env.example`). Both are
+      # FAIL-OPEN: no key -> the LLM seams return no draft/explanation; no UA -> the live SEC pull is
+      # skipped. DATABASE_URL stays the in-network address on purpose (a `.env` DATABASE_URL is for the
+      # local dev loop only; the container must always reach postgres:5432).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-}
     depends_on:
       postgres:
         condition: service_healthy
