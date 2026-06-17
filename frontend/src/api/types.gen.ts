@@ -190,6 +190,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/draft-chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft Chain
+         * @description Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5). Read the narrative, ask the
+         *     model for segments + names + thesis-fit prose (``llm.chain_decomposition``), then resolve every proposed
+         *     name against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact membership ->
+         *     PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe -> ABSENT.
+         *
+         *     RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
+         *     and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
+         *     (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
+         *     absence-of-conn like the flag seam. The operator loads the draft, prunes / ratifies, and PROMOTE is the
+         *     only writer (which re-checks exact membership). It sources NO number — that bound rests on the prompt
+         *     (Sonnet is the adherence lever; the gate-2 manual no-number check is its real test).
+         *
+         *     Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, no tool call)
+         *     returns 200 with an EMPTY draft, NEVER a 5xx — hand-authoring is untouched.
+         */
+        post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts": {
         parameters: {
             query?: never;
@@ -356,6 +389,33 @@ export interface components {
             when_label?: string | null;
         };
         /**
+         * ChainDraftOut
+         * @description The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
+         *     resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
+         *
+         *     RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
+         *     placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only
+         *     writer. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the
+         *     resolver's output).
+         */
+        ChainDraftOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Segments
+             * @default []
+             */
+            segments: components["schemas"]["ResolvedSegment"][];
+            /**
+             * Placements
+             * @default []
+             */
+            placements: components["schemas"]["ResolvedPlacement"][];
+        };
+        /**
          * Evidence
          * @description Immutable reference to a filing / data point.
          */
@@ -517,6 +577,11 @@ export interface components {
             triggers: components["schemas"]["TriggerRefOut"][];
         };
         /**
+         * PlacementStatus
+         * @enum {string}
+         */
+        PlacementStatus: "placed" | "ambiguous" | "absent";
+        /**
          * Position
          * @description Populated once the operator logs a fill — its presence drives the Managing state.
          */
@@ -664,6 +729,37 @@ export interface components {
             shares: number;
         };
         /**
+         * ResolvedPlacement
+         * @description A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
+         *     ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are
+         *     preserved (so the UI can show what the model proposed even when it didn't resolve).
+         */
+        ResolvedPlacement: {
+            /** Name */
+            name: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Prose */
+            prose: string;
+            /** Segment */
+            segment: string;
+            status: components["schemas"]["PlacementStatus"];
+            /** Security Id */
+            security_id?: string | null;
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates: components["schemas"]["SecurityCandidate"][];
+        };
+        /** ResolvedSegment */
+        ResolvedSegment: {
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor?: string | null;
+        };
+        /**
          * ScoredFigureOut
          * @description One meter/figure on the wire: the 0-4 pip (null = "—"/no data), the raw value, and the provenance
          *     chips ("behind the scores"). market_cap carries `value` only (pips null — a figure, not a meter).
@@ -701,6 +797,23 @@ export interface components {
             market_cap: components["schemas"]["ScoredFigureOut"];
             /** Fit */
             fit: string;
+        };
+        /**
+         * SecurityCandidate
+         * @description A master row offered for the operator to pick (ticker + CIK shown so a homonym is disambiguated).
+         */
+        SecurityCandidate: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name?: string | null;
+            /** Cik */
+            cik?: string | null;
         };
         /**
          * SecurityMatchOut
@@ -1117,6 +1230,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_chain_workbench_theses__thesis_id__draft_chain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainDraftOut"];
                 };
             };
             /** @description Validation Error */

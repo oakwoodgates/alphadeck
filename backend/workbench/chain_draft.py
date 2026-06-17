@@ -24,6 +24,7 @@ from enum import StrEnum
 from uuid import UUID
 
 import psycopg
+from pydantic import ValidationError
 
 from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
@@ -186,3 +187,19 @@ def resolve_placements(
             for p in s.placements
         ],
     )
+
+
+def proposed_from_decomposition(raw: dict | None) -> list[ProposedSegment]:
+    """Parse the LLM decomposition's tool output (``{"segments": [...]}``) into proposed segments,
+    DEFENSIVELY (fail-open): a missing / non-dict / malformed payload yields ``[]`` (an empty draft, never an
+    error), and a single malformed segment is skipped without losing the rest. The resolver then decides
+    membership; this only shapes the input."""
+    if not isinstance(raw, dict):
+        return []
+    out: list[ProposedSegment] = []
+    for s in raw.get("segments", []):
+        try:
+            out.append(ProposedSegment.model_validate(s))
+        except ValidationError:
+            continue
+    return out

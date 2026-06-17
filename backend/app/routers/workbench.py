@@ -7,8 +7,9 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
-from app.deps import get_conn, get_current_tenant, get_llm_client
+from app.deps import get_conn, get_current_tenant, get_decompose_client, get_llm_client
 from app.schemas_api import (
+    ChainDraftOut,
     FlagExplanationOut,
     PromoteThesisRequest,
     RatifiedFactOut,
@@ -25,11 +26,13 @@ from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
+from llm.chain_decomposition import decompose_narrative
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
+from workbench.chain_draft import proposed_from_decomposition, resolve_placements
 from workbench.scoring import score_thesis
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
@@ -169,6 +172,34 @@ def promote(
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)
+
+
+@router.post("/theses/{thesis_id}/draft-chain", response_model=ChainDraftOut)
+def draft_chain(
+    thesis_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    llm: LLMClient = Depends(get_decompose_client),
+) -> ChainDraftOut:
+    """Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5). Read the narrative, ask the
+    model for segments + names + thesis-fit prose (``llm.chain_decomposition``), then resolve every proposed
+    name against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact membership ->
+    PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe -> ABSENT.
+
+    RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
+    and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
+    (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
+    absence-of-conn like the flag seam. The operator loads the draft, prunes / ratifies, and PROMOTE is the
+    only writer (which re-checks exact membership). It sources NO number — that bound rests on the prompt
+    (Sonnet is the adherence lever; the gate-2 manual no-number check is its real test).
+
+    Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, no tool call)
+    returns 200 with an EMPTY draft, NEVER a 5xx — hand-authoring is untouched."""
+    thesis = thesis_repo.get(conn, thesis_id)
+    if thesis is None:
+        raise HTTPException(status_code=404, detail="thesis not found")
+    segments = proposed_from_decomposition(decompose_narrative(llm, thesis.narrative))
+    chain = resolve_placements(conn, segments, tenant_id=thesis.tenant_id)
+    return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=chain.placements)
 
 
 @router.post("/facts", response_model=RatifiedFactOut)

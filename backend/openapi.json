@@ -380,6 +380,50 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/draft-chain": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Draft Chain",
+        "description": "Draft a value chain from the thesis's narrative \u2014 the SECOND LLM seam (S5). Read the narrative, ask the\nmodel for segments + names + thesis-fit prose (``llm.chain_decomposition``), then resolve every proposed\nname against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact membership ->\nPLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe -> ABSENT.\n\nRESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative\nand run ``master.search``), so \"writes nothing\" is response-only + TEST-ENFORCED\n(``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT\nabsence-of-conn like the flag seam. The operator loads the draft, prunes / ratifies, and PROMOTE is the\nonly writer (which re-checks exact membership). It sources NO number \u2014 that bound rests on the prompt\n(Sonnet is the adherence lever; the gate-2 manual no-number check is its real test).\n\nFail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, no tool call)\nreturns 200 with an EMPTY draft, NEVER a 5xx \u2014 hand-authoring is untouched.",
+        "operationId": "draft_chain_workbench_theses__thesis_id__draft_chain_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainDraftOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/facts": {
       "post": {
         "tags": [
@@ -790,6 +834,37 @@
         ],
         "title": "Catalyst"
       },
+      "ChainDraftOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/ResolvedSegment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "default": []
+          },
+          "placements": {
+            "items": {
+              "$ref": "#/components/schemas/ResolvedPlacement"
+            },
+            "type": "array",
+            "title": "Placements",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id"
+        ],
+        "title": "ChainDraftOut",
+        "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output)."
+      },
       "Evidence": {
         "properties": {
           "id": {
@@ -1175,6 +1250,15 @@
         "title": "MemberCallOut",
         "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
       },
+      "PlacementStatus": {
+        "type": "string",
+        "enum": [
+          "placed",
+          "ambiguous",
+          "absent"
+        ],
+        "title": "PlacementStatus"
+      },
       "Position": {
         "properties": {
           "entry_price": {
@@ -1495,6 +1579,92 @@
         ],
         "title": "RatifyShares"
       },
+      "ResolvedPlacement": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "prose": {
+            "type": "string",
+            "title": "Prose"
+          },
+          "segment": {
+            "type": "string",
+            "title": "Segment"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlacementStatus"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SecurityCandidate"
+            },
+            "type": "array",
+            "title": "Candidates",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "ticker",
+          "prose",
+          "segment",
+          "status"
+        ],
+        "title": "ResolvedPlacement",
+        "description": "A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;\n``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are\npreserved (so the UI can show what the model proposed even when it didn't resolve)."
+      },
+      "ResolvedSegment": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "ResolvedSegment"
+      },
       "ScoredFigureOut": {
         "properties": {
           "pips": {
@@ -1597,6 +1767,49 @@
         ],
         "title": "ScoredMemberOut",
         "description": "A basket member scored for the Workbench \u2014 the four meters + the market-cap figure + the fit label."
+      },
+      "SecurityCandidate": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cik"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker"
+        ],
+        "title": "SecurityCandidate",
+        "description": "A master row offered for the operator to pick (ticker + CIK shown so a homonym is disambiguated)."
       },
       "SecurityMatchOut": {
         "properties": {

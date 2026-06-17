@@ -527,3 +527,104 @@ def test_explanation_has_no_path_into_a_ratified_fact():
     forbidden = {"explanation", "grounded", "draft", "drafted"}
     for model in (RatifyRevenueMix, RatifyShares, RatifyCashBurn):
         assert forbidden.isdisjoint(model.model_fields)
+
+
+# --- S5 5b: the narrative→chain draft endpoint (decompose -> resolve -> ChainDraftOut, response-only) ---
+
+
+def _decomp(*placements: tuple[str, str]) -> dict:
+    """A fake decompose tool-output: one segment 'reactors' with the given (name, ticker) placements."""
+    return {
+        "segments": [
+            {
+                "label": "reactors",
+                "placements": [
+                    {"name": n, "ticker": t, "prose": "why it sits here"} for n, t in placements
+                ],
+            }
+        ]
+    }
+
+
+def _thesis_for_draft(db) -> uuid.UUID:
+    """A persisted thesis with an EMPTY basket (so basket_member starts at 0 — the writes-nothing assertion
+    is unambiguous)."""
+    t = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="nuclear",
+        narrative="small modular nuclear is about to rip",
+    )
+    thesis_repo.upsert(db, t)
+    db.commit()
+    return t.id
+
+
+def test_draft_endpoint_resolves_a_chain(db):
+    """The wire: narrative -> decompose (faked) -> resolve_placements (5a) -> ChainDraftOut. A name in the
+    master PLACES (exact ticker); a name not in the master is ABSENT — exact membership decides, the endpoint
+    only composes."""
+    from app.deps import get_decompose_client
+
+    _insert_security(db, "OKLO", name="Oklo Inc.")
+    tid = _thesis_for_draft(db)
+    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
+        returns=_decomp(("Oklo", "OKLO"), ("Ghost Co", "ZZZZ"))
+    )
+    try:
+        r = _client(db).post(f"/workbench/theses/{tid}/draft-chain")
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 200
+    body = r.json()
+    assert body["thesis_id"] == str(tid)
+    assert [s["label"] for s in body["segments"]] == ["reactors"]
+    by_name = {p["name"]: p for p in body["placements"]}
+    assert by_name["Oklo"]["status"] == "placed" and by_name["Oklo"]["security_id"]
+    assert by_name["Ghost Co"]["status"] == "absent" and by_name["Ghost Co"]["security_id"] is None
+
+
+def test_draft_endpoint_writes_nothing(db):
+    """RESPONSE-ONLY, TEST-ENFORCED (the endpoint HAS a read-only conn — to read the narrative + resolve — so
+    "writes nothing" is THIS test, not absence-of-conn like the flag seam): drafting a chain persists ZERO
+    fact_* rows AND adds ZERO basket_member rows. The operator's promote is the only writer."""
+    from app.deps import get_decompose_client
+
+    _insert_security(db, "OKLO", name="Oklo Inc.")
+    tid = _thesis_for_draft(db)  # empty basket
+    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
+        returns=_decomp(("Oklo", "OKLO"))
+    )
+    try:
+        assert _client(db).post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert cur.fetchone()["n"] == 0  # the draft persisted no placement
+        for table in ("fact_cash_burn", "fact_shares_outstanding", "fact_revenue_mix"):
+            cur.execute(f"SELECT count(*) AS n FROM {table}")  # noqa: S608 — fixed literal names
+            assert cur.fetchone()["n"] == 0  # and no scoring fact
+
+
+def test_draft_endpoint_failopen_never_5xx(db, monkeypatch):
+    """No fake, no key: the REAL decompose client's offline gate (LLMUnavailable) is caught in
+    decompose_narrative -> 200 with an EMPTY draft, NEVER a 5xx. Hand-authoring is untouched."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    tid = _thesis_for_draft(db)
+    try:
+        r = _client(db).post(f"/workbench/theses/{tid}/draft-chain")
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 200  # NOT a 5xx
+    body = r.json()
+    assert body["thesis_id"] == str(tid)
+    assert body["segments"] == [] and body["placements"] == []
+
+
+def test_draft_endpoint_404_for_unknown_thesis(db):
+    try:
+        r = _client(db).post(f"/workbench/theses/{uuid.uuid4()}/draft-chain")
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 404
