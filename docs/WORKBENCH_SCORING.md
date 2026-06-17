@@ -9,8 +9,9 @@
 > **extract → ratify hybrid** (`WORKBENCH_EXTRACTION.md`, the production side; this doc is the consumption side).
 >
 > **Status: BUILT** (Slice 3, PR #50), and **unchanged by every slice since** — the UI (#52), the extract →
-> ratify hybrid (#55–#57), the broadener (#58), and the flag-explanation drafter (#59) all FEED or DISPLAY
-> these meters without touching the scoring math. Engine: `backend/workbench/scoring.py`.
+> ratify hybrid (#55–#57), the broadener (#58), the flag-explanation drafter (#59), and the narrative→chain
+> drafter (#61–65) all FEED, DISPLAY, or DRAFT-INTO these meters without touching the scoring math (a drafted
+> name reads "—" until the operator extract→ratifies it). Engine: `backend/workbench/scoring.py`.
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred, recorded in `RECALIBRATION.md`.
 
