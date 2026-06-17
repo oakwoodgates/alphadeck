@@ -192,6 +192,21 @@ class CallConfig(DomainModel):
         10.0  # fail-open FAST if the API hangs (the panel must never block on it)
     )
 
+    # --- LLM seam (S5 — the narrative→chain DECOMPOSE drafter, the SECOND LLM call) — operational dials ---
+    # Decomposing a narrative into a value chain is reasoning-heavy and IS the product (a weak chain defeats
+    # the name-selection flaw-patch), so this seam runs on SONNET, NOT the Haiku flag dials above — kept
+    # separate so the flag drafter is undisturbed. Prompt + tool schema live with the module
+    # (llm/chain_decomposition.py); only these operational dials live here. Fail-open like the flag seam (no
+    # ANTHROPIC_API_KEY -> the draft endpoint is a no-op). Staged decomposition is the deferred fallback if a
+    # single call underperforms (a logged trigger, not a default).
+    llm_decompose_model: str = "claude-sonnet-4-6"  # reasoning-heavy; the chain IS the product
+    llm_decompose_max_tokens: int = (
+        2000  # a whole value chain (segments + names + prose), not a sentence
+    )
+    llm_decompose_timeout_s: float = (
+        20.0  # fail-open if the API hangs (a longer call than the flag aid)
+    )
+
     @property
     def own_conviction_kinds(self) -> frozenset[Kind]:
         """Name-sourced ("own") convictions — the theme conviction is a basket-level FALLBACK, not "own".

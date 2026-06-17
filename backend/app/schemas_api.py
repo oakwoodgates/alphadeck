@@ -19,6 +19,7 @@ from domain.thesis import (
     Thesis,
 )
 from domain.workbench import ScoredFigure, ScoredMember
+from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -429,3 +430,20 @@ class FlagExplanationOut(BaseModel):
 
     explanation: str
     grounded: bool
+
+
+# --- S5: the narrative→chain DECOMPOSE drafter (the SECOND LLM seam) — a DISPLAY draft, never a fact ---
+
+
+class ChainDraftOut(BaseModel):
+    """The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
+    resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
+
+    RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
+    placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only
+    writer. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the
+    resolver's output)."""
+
+    thesis_id: UUID
+    segments: list[ResolvedSegment] = []
+    placements: list[ResolvedPlacement] = []

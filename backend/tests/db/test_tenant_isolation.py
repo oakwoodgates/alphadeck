@@ -33,6 +33,12 @@ from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
+from workbench.chain_draft import (
+    PlacementStatus,
+    ProposedPlacement,
+    ProposedSegment,
+    resolve_placements,
+)
 from workbench.scoring import score_member
 
 # A FIXED production tenant id, distinct from DEFAULT_TENANT_ID (the demo). Fixed (not random) because the
@@ -518,3 +524,22 @@ def test_securities_search_is_tenant_isolated(db):
 
     assert [s.id for s in master.search(db, "OKLO", tenant_id=DEFAULT_TENANT_ID)] == [demo_sec]
     assert [s.id for s in master.search(db, "OKLO", tenant_id=PROD_TENANT_ID)] == [prod_sec]
+
+
+def test_chain_resolution_is_tenant_isolated(db):
+    """The narrative→chain resolver (Slice 5b's draft endpoint calls it, keyed on the THESIS's tenant) is
+    tenant-scoped: a name resolves against ONLY the given tenant's master. A ticker present in demo but not
+    prod PLACES under demo and is ABSENT under prod — resolve_placements threads the tenant through master.*.
+    Grows the poison-row proof to the draft read surface (discipline-not-RLS holds only if each new read path
+    stays on the tenant filter)."""
+    provision_tenant(db, "prod-draft", tenant_id=PROD_TENANT_ID)
+    _security(db, DEFAULT_TENANT_ID, ticker="OKLO")  # OKLO exists ONLY in demo
+    seg = [
+        ProposedSegment(
+            label="reactors", placements=[ProposedPlacement(name="Oklo", ticker="OKLO")]
+        )
+    ]
+    demo = resolve_placements(db, seg, tenant_id=DEFAULT_TENANT_ID)
+    prod = resolve_placements(db, seg, tenant_id=PROD_TENANT_ID)
+    assert demo.placements[0].status is PlacementStatus.PLACED  # demo owns OKLO
+    assert prod.placements[0].status is PlacementStatus.ABSENT  # prod has no OKLO -> not leaked
