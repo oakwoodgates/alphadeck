@@ -26,6 +26,9 @@ class BasketMember(DomainModel):
     security_id: UUID | None = None
     detail: str | None = None  # the board/cockpit "met" cell (e.g. "mkt $1.2B")
     segment: str | None = None  # the value-chain link this name sits in (a Thesis.segments label)
+    thesis_fit: str | None = (
+        None  # WHY it sits in that link — the drafted/edited thesis-fit reasoning (S5); never a fact/number
+    )
     authored_by: Authorship = (
         Authorship.OPERATOR_SET
     )  # who placed it (the Workbench authorship seam)

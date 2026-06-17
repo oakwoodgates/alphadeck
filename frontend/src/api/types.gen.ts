@@ -299,6 +299,8 @@ export interface components {
             detail?: string | null;
             /** Segment */
             segment?: string | null;
+            /** Thesis Fit */
+            thesis_fit?: string | null;
             /** @default operator_set */
             authored_by: components["schemas"]["Authorship"];
         };

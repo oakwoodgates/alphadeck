@@ -288,6 +288,38 @@ def test_promote_rejects_a_security_not_in_this_tenants_master(db):
         app.dependency_overrides.clear()
 
 
+def test_promote_persists_thesis_fit(db, security_id):
+    """The thesis-fit prose round-trips the spine (draft -> promote -> re-read): a basket member's
+    `thesis_fit` (the "why it sits here" reasoning) persists ALONGSIDE its `authored_by`. This is the column
+    5c's UI promotes the drafted prose into; it's kept distinct from `detail` (the live "met" cell).
+    """
+    payload = {
+        "name": "Nuclear",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "reactors"}],
+        "basket": [
+            {
+                "ticker": "DEVCO",
+                "role": "r",
+                "archetype": "leader",
+                "security_id": str(security_id),
+                "segment": "reactors",
+                "thesis_fit": "the only NRC-approved SMR designer in the US",
+                "authored_by": "system_drafted",
+            }
+        ],
+    }
+    client = _client(db)
+    try:
+        tid = client.post("/workbench/theses", json=payload).json()["id"]
+        member = client.get(f"/theses/{tid}").json()["basket"][0]
+    finally:
+        app.dependency_overrides.clear()
+    assert member["thesis_fit"] == "the only NRC-approved SMR designer in the US"
+    assert member["authored_by"] == "system_drafted"  # honored, and the prose rides alongside it
+
+
 # --- hybrid-2a: ratify a scoring fact (the first fact-WRITE) ---
 
 

@@ -72,8 +72,8 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
             cur.execute(
                 """INSERT INTO basket_member
                    (tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id, detail,
-                    segment, authored_by)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    segment, thesis_fit, authored_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tenant,
                     tid,
@@ -84,6 +84,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     m.security_id,
                     m.detail,
                     m.segment,
+                    m.thesis_fit,
                     m.authored_by.value,
                 ),
             )
