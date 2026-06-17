@@ -23,6 +23,11 @@ export type RatifyFactBody =
   | components["schemas"]["RatifyRevenueMix"]
   | components["schemas"]["RatifyShares"]
   | components["schemas"]["RatifyCashBurn"];
+// the narrative -> chain draft (S5): segments + each proposed name resolved to placed/ambiguous/absent
+export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
+export type ResolvedPlacement = components["schemas"]["ResolvedPlacement"];
+export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
+export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
 
 export function useTheses() {
   return useQuery({
@@ -135,6 +140,25 @@ export function useExtract(securityId: string) {
     queryFn: async () => {
       const { data, error } = await api.GET("/workbench/securities/{security_id}/extract", {
         params: { path: { security_id: securityId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// The narrative -> chain drafter (S5, the SECOND LLM seam): draft a value chain from the thesis's narrative.
+// Same explicit pattern as useExtract (`enabled: false` — fired by the "Draft from narrative" button via
+// refetch(), NEVER on a render). Response-only: it returns a draft (segments + placed/ambiguous/absent names)
+// and persists nothing; the operator ratifies + promotes. Fail-open — no key returns an empty draft, never a
+// 5xx, so hand-authoring is untouched.
+export function useDraftChain(thesisId: string) {
+  return useQuery({
+    queryKey: ["workbench-draft-chain", thesisId] as const,
+    enabled: false,
+    queryFn: async () => {
+      const { data, error } = await api.POST("/workbench/theses/{thesis_id}/draft-chain", {
+        params: { path: { thesis_id: thesisId } },
       });
       if (error) throw error;
       return data;

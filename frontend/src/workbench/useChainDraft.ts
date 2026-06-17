@@ -1,11 +1,16 @@
 import { useState } from "react";
 
-import type { BasketMember, Segment, ThesisDetail } from "../api/hooks";
+import type { BasketMember, ChainDraftOut, Segment, ThesisDetail } from "../api/hooks";
 
 // A member is keyed by its resolved security_id (always present for seeded + resolver-added names),
 // falling back to the ticker — so place / move / remove address the right row.
 export const memberKey = (m: { security_id?: string | null; ticker: string }): string =>
   m.security_id ?? m.ticker;
+
+// Editing a DRAFTED placement (system_drafted) is the operator taking it over → operator_edited; the
+// operator's own placement (operator_set / operator_edited) is unchanged by a further edit.
+const touched = (m: BasketMember): BasketMember["authored_by"] =>
+  m.authored_by === "system_drafted" ? "operator_edited" : m.authored_by;
 
 export interface ChainDraft {
   segments: Segment[];
@@ -71,7 +76,9 @@ export function useChainDraft(thesis: ThesisDetail) {
   const placeMember = (key: string, segment: string | null) =>
     setDraft((d) => ({
       ...d,
-      basket: d.basket.map((m) => (memberKey(m) === key ? { ...m, segment } : m)),
+      basket: d.basket.map((m) =>
+        memberKey(m) === key ? { ...m, segment, authored_by: touched(m) } : m,
+      ),
     }));
 
   const addMember = (m: BasketMember) =>
@@ -81,6 +88,63 @@ export function useChainDraft(thesis: ThesisDetail) {
 
   const removeMember = (key: string) =>
     setDraft((d) => ({ ...d, basket: d.basket.filter((m) => memberKey(m) !== key) }));
+
+  // --- S5 5c: draft from the narrative, then ratify per member ---
+
+  // MERGE a drafted chain in (never replace): append any NEW segments, and add the PLACED names as
+  // `system_drafted` placements, deduped by security_id (a name already in the basket is skipped — the
+  // operator's existing work is never clobbered). AMBIGUOUS / ABSENT names are NOT added here: the operator
+  // picks an AMBIGUOUS one explicitly (the editor surfaces the pick list), an ABSENT one is shown-not-placed.
+  const loadDraft = (chain: ChainDraftOut) =>
+    setDraft((d) => {
+      const haveSeg = new Set(d.segments.map((s) => s.label));
+      const segments = [
+        ...d.segments,
+        ...chain.segments
+          .filter((s) => !haveSeg.has(s.label))
+          .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
+      ];
+      const have = new Set(d.basket.map(memberKey));
+      const additions: BasketMember[] = chain.placements
+        .filter((p) => p.status === "placed" && p.security_id && !have.has(p.security_id))
+        .map((p) => ({
+          ticker: p.ticker || p.name,
+          role: "—",
+          archetype: "high_beta",
+          security_id: p.security_id,
+          segment: p.segment,
+          thesis_fit: p.prose || null,
+          authored_by: "system_drafted",
+        }));
+      return { segments, basket: [...d.basket, ...additions] };
+    });
+
+  // Ratify a drafted placement as-is — the operator owns it now.
+  const acceptMember = (key: string) =>
+    setDraft((d) => ({
+      ...d,
+      basket: d.basket.map((m) =>
+        memberKey(m) === key ? { ...m, authored_by: "operator_set" } : m,
+      ),
+    }));
+
+  // Edit the thesis-fit prose; editing a drafted member takes it over (→ operator_edited).
+  const editProse = (key: string, text: string) =>
+    setDraft((d) => ({
+      ...d,
+      basket: d.basket.map((m) =>
+        memberKey(m) === key ? { ...m, thesis_fit: text, authored_by: touched(m) } : m,
+      ),
+    }));
+
+  // Re-classify the basket role; editing a drafted member takes it over (→ operator_edited).
+  const editArchetype = (key: string, archetype: BasketMember["archetype"]) =>
+    setDraft((d) => ({
+      ...d,
+      basket: d.basket.map((m) =>
+        memberKey(m) === key ? { ...m, archetype, authored_by: touched(m) } : m,
+      ),
+    }));
 
   return {
     draft,
@@ -92,5 +156,9 @@ export function useChainDraft(thesis: ThesisDetail) {
     placeMember,
     addMember,
     removeMember,
+    loadDraft,
+    acceptMember,
+    editProse,
+    editArchetype,
   };
 }

@@ -96,6 +96,7 @@ export function AddName({ existingKeys, onAdd }: Props) {
                   }}
                 >
                   <b>{s.ticker}</b>
+                  {s.cik ? <span className="cik">CIK {s.cik}</span> : null}
                   {s.name ? <span className="co">{s.name}</span> : null}
                   {inBasket ? <span className="muted"> · in basket</span> : null}
                 </button>

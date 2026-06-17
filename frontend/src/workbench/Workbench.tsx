@@ -195,8 +195,8 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                     ✎ Edit the chain
                   </button>
                   <span className="note">
-                    Build &amp; edit the value chain — add links, place names, add names from the master.
-                    Operator-authored now; the LLM drafter (S5) will pre-fill it for you to ratify.
+                    Build &amp; edit the value chain by hand — or, in the editor, <b>Draft from narrative</b>{" "}
+                    to have the drafter pre-fill the links + names for you to accept, edit, or drop.
                   </span>
                 </div>
                 {grouped && (
