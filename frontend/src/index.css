@@ -404,7 +404,34 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-mem-edit { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
 .wb-mem-row { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--panel); }
 .wb-mem-row .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
-.wb-mem-row > .wb-input { margin-left: auto; min-width: 150px; }
+.wb-mem-row > .wb-input { min-width: 130px; }
+.wb-mem-row .wb-arch { min-width: 104px; }
+.wb-mem-row .wb-author { margin-left: auto; } /* push the badge + accept/drop to the right */
+
+/* S5 5c — the draft/ratify surface. A drafted member is a block (the row + its thesis-fit prose); inverse
+   loudness — quiet provenance, a faint leader-blue tint, never loud. */
+.wb-mem { display: flex; flex-direction: column; gap: 5px; }
+.wb-mem.is-drafted .wb-mem-row { border-color: rgba(138, 180, 255, 0.3); background: rgba(138, 180, 255, 0.05); }
+.wb-prose { font: inherit; font-size: 11px; line-height: 1.5; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; resize: vertical; color-scheme: dark; }
+.wb-prose:focus { outline: none; border-color: var(--leader); }
+.wb-prose::placeholder { color: var(--txt-4); font-style: italic; }
+
+/* the draft-from-narrative action row (mirrors .wb-authoring-gap) */
+.wb-draft-gap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.wb-draft-gap .note { margin-top: 0; flex: 1; min-width: 220px; }
+
+/* AMBIGUOUS — the operator-pick list (a non-PLACED name enters the basket only by an explicit pick); and
+   ABSENT — shown, never placed. */
+.wb-suggest, .wb-absent { display: flex; flex-direction: column; gap: 9px; margin-bottom: 16px; }
+.wb-suggest-row { display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(224, 162, 60, 0.3); border-radius: 9px; padding: 9px 11px; background: var(--panel); }
+.wb-suggest-h { display: flex; align-items: baseline; gap: 8px; }
+.wb-suggest-h b { font-size: 12.5px; }
+.wb-suggest-h small { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
+.wb-absent-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border: 1px dashed var(--line-2); border-radius: 8px; padding: 7px 10px; background: var(--bg-2); color: var(--txt-3); }
+.wb-absent-row b { font-size: 12px; color: var(--txt-2); }
+
+/* the CIK chip — the homonym tell, surfaced in the resolver matches + the pick list */
+.cik { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); }
 
 .wb-addname { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 11px 13px; background: var(--bg-2); }
 .wb-addname.picked { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }

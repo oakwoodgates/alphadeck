@@ -1,9 +1,14 @@
 import { useState } from "react";
 
-import type { ThesisDetail } from "../api/hooks";
-import { usePromoteThesis } from "../api/hooks";
+import type {
+  BasketMember,
+  ResolvedPlacement,
+  SecurityCandidate,
+  ThesisDetail,
+} from "../api/hooks";
+import { useDraftChain, usePromoteThesis } from "../api/hooks";
 import { AddName } from "./AddName";
-import { archLabel, errText } from "./format";
+import { ARCHETYPES, archLabel, errText } from "./format";
 import { memberKey, useChainDraft } from "./useChainDraft";
 
 interface Props {
@@ -11,18 +16,55 @@ interface Props {
   onDone: () => void; // exit edit mode (the parent unmounts this, re-snapshotting on the next edit)
 }
 
-/** The authoring surface (Slice 4b): build & edit the value chain — add / rename / reorder / remove
- *  links, place / move / add / remove names — then SAVE the whole draft through the existing full-replace
- *  `POST /workbench/theses`. On success the parent returns to the view, where the scored read re-derives
- *  (the meters group on the new structure). Authorship is operator-authored here (`operator_set`); the
- *  same surface is where S5's drafter will later show `system_drafted` placements to accept / edit. */
+// The authorship seam, in words: who placed each name. Quiet provenance (inverse loudness), never loud.
+const authorLabel = (a: string): string =>
+  a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
+
+/** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
+ *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
+ *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
+ *  A name the drafter couldn't resolve uniquely (AMBIGUOUS) enters the basket ONLY by an explicit operator
+ *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
+ *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
+ *  which honors each member's authorship and stores the thesis-fit prose). */
 export function ChainEditor({ thesis, onDone }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
+  const draftQ = useDraftChain(thesis.id);
   const [newSeg, setNewSeg] = useState("");
+  const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
+  const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
+  const [draftEmpty, setDraftEmpty] = useState(false);
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
+
+  // Draft the chain from the narrative — an EXPLICIT operator action (never on render). Fail-open: an empty
+  // draft (no key / the model declined) loads nothing and the editor is unchanged. MERGE, not replace.
+  const onDraft = async () => {
+    const { data } = await draftQ.refetch();
+    if (!data) return;
+    d.loadDraft(data);
+    setAmbiguous(data.placements.filter((p) => p.status === "ambiguous"));
+    setAbsent(data.placements.filter((p) => p.status === "absent"));
+    setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
+  };
+
+  // An AMBIGUOUS name enters the basket ONLY here, by an explicit pick — the operator commits the exact
+  // security_id (the membership decision, INVARIANT #2). It lands `system_drafted` (the prose is still
+  // drafted) for the operator to accept / edit, like any drafted placement.
+  const pickAmbiguous = (p: ResolvedPlacement, c: SecurityCandidate) => {
+    d.addMember({
+      ticker: c.ticker,
+      role: "—",
+      archetype: "high_beta",
+      security_id: c.security_id,
+      segment: p.segment,
+      thesis_fit: p.prose || null,
+      authored_by: "system_drafted",
+    });
+    setAmbiguous((prev) => prev.filter((x) => x !== p));
+  };
 
   const onSave = () =>
     save.mutate(
@@ -55,6 +97,28 @@ export function ChainEditor({ thesis, onDone }: Props) {
       </div>
       {save.isError && (
         <div className="toast show err">Couldn't save — {errText(save.error)}. Nothing changed.</div>
+      )}
+
+      <div className="wb-draft-gap">
+        <button
+          type="button"
+          className="wb-edit-btn"
+          onClick={onDraft}
+          disabled={draftQ.isFetching}
+        >
+          {draftQ.isFetching ? "Drafting…" : "✦ Draft from narrative"}
+        </button>
+        <span className="note">
+          Pre-fill the chain from your narrative — the drafter proposes the links, the names in each, and
+          thesis-fit prose; you accept / edit / drop each. Names resolve against the master (exact membership
+          decides); a placed name is <b>unscored</b> until you extract → ratify it. Nothing is sent until Save.
+        </span>
+      </div>
+      {draftEmpty && (
+        <div className="note">
+          The drafter returned nothing — no <code>ANTHROPIC_API_KEY</code> in the stack, or the model
+          declined. Hand-authoring below is unaffected.
+        </div>
       )}
 
       <div className="wb-seg-edit">
@@ -116,37 +180,127 @@ export function ChainEditor({ thesis, onDone }: Props) {
       </div>
 
       <div className="wb-mem-edit">
-        {d.draft.basket.map((m) => (
-          <div className="wb-mem-row" key={memberKey(m)}>
-            <span className="tk">{m.ticker}</span>
-            <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
-            <select
-              className="wb-input"
-              value={m.segment ?? ""}
-              aria-label={`place ${m.ticker}`}
-              onChange={(e) => d.placeMember(memberKey(m), e.target.value || null)}
-            >
-              <option value="">— unplaced —</option>
-              {segLabels.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            {/* the authorship seam — S5's drafter will later show "drafted · accept / edit" here */}
-            <span className="wb-author">{m.authored_by === "operator_set" ? "operator" : m.authored_by}</span>
-            <button
-              type="button"
-              className="wb-mini ghost"
-              aria-label={`remove ${m.ticker}`}
-              onClick={() => d.removeMember(memberKey(m))}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        {d.draft.basket.length === 0 && <div className="note">No names yet — add one below.</div>}
+        {d.draft.basket.map((m) => {
+          const k = memberKey(m);
+          const drafted = m.authored_by === "system_drafted";
+          return (
+            <div className={`wb-mem${drafted ? " is-drafted" : ""}`} key={k}>
+              <div className="wb-mem-row">
+                <span className="tk">{m.ticker}</span>
+                <select
+                  className="wb-input wb-arch"
+                  value={m.archetype}
+                  aria-label={`archetype for ${m.ticker}`}
+                  onChange={(e) =>
+                    d.editArchetype(k, e.target.value as BasketMember["archetype"])
+                  }
+                >
+                  {ARCHETYPES.map((a) => (
+                    <option key={a} value={a}>
+                      {archLabel(a)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="wb-input"
+                  value={m.segment ?? ""}
+                  aria-label={`place ${m.ticker}`}
+                  onChange={(e) => d.placeMember(k, e.target.value || null)}
+                >
+                  <option value="">— unplaced —</option>
+                  {segLabels.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+                <span className="wb-author">{authorLabel(m.authored_by)}</span>
+                {drafted && (
+                  <button
+                    type="button"
+                    className="wb-mini"
+                    aria-label={`accept ${m.ticker}`}
+                    onClick={() => d.acceptMember(k)}
+                  >
+                    ✓ accept
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="wb-mini ghost"
+                  aria-label={`remove ${m.ticker}`}
+                  onClick={() => d.removeMember(k)}
+                >
+                  ×
+                </button>
+              </div>
+              <textarea
+                className="wb-prose"
+                rows={2}
+                aria-label={`thesis-fit for ${m.ticker}`}
+                placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
+                value={m.thesis_fit ?? ""}
+                onChange={(e) => d.editProse(k, e.target.value)}
+              />
+            </div>
+          );
+        })}
+        {d.draft.basket.length === 0 && (
+          <div className="note">No names yet — draft from the narrative, or add one below.</div>
+        )}
       </div>
+
+      {ambiguous.length > 0 && (
+        <div className="wb-suggest">
+          <div className="note">
+            Ambiguous — the drafter found several matches; <b>pick the exact security</b> (ticker + CIK
+            disambiguate a homonym). Nothing is placed until you pick.
+          </div>
+          {ambiguous.map((p, i) => (
+            <div className="wb-suggest-row" key={i}>
+              <div className="wb-suggest-h">
+                <b>{p.name}</b>
+                {p.segment ? <small>{p.segment}</small> : null}
+              </div>
+              {p.prose ? <div className="drafted muted">{p.prose}</div> : null}
+              <ul className="wb-matches">
+                {p.candidates.map((c) => {
+                  const inBasket = keys.has(c.security_id);
+                  return (
+                    <li key={c.security_id}>
+                      <button
+                        type="button"
+                        disabled={inBasket}
+                        onClick={() => pickAmbiguous(p, c)}
+                      >
+                        <b>{c.ticker}</b>
+                        {c.cik ? <span className="cik">CIK {c.cik}</span> : null}
+                        {c.name ? <span className="co">{c.name}</span> : null}
+                        {inBasket ? <span className="muted"> · in basket</span> : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {absent.length > 0 && (
+        <div className="wb-absent">
+          <div className="note">
+            Suggested, not in your universe — shown, never placed (ingest the name to make it pickable).
+          </div>
+          {absent.map((p, i) => (
+            <div className="wb-absent-row" key={i}>
+              <b>{p.name}</b>
+              {p.ticker ? <span className="co">{p.ticker}?</span> : null}
+              {p.prose ? <span className="drafted muted">{p.prose}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
 
       <AddName existingKeys={keys} onAdd={d.addMember} />
     </div>
