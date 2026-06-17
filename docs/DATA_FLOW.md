@@ -90,10 +90,11 @@ flowchart TD
 | `openapi.json` | build artifact | `backend/app/` | when you run `openapi_export` | no (generated) |
 | Resolved securities | identity (mutable) | **Postgres** `security_master` | on resolve / seed / **populate** (the broadener) | n/a (DB) |
 | Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed | n/a (DB) |
-| Thesis + basket/evidence/catalyst/kill | the spine | **Postgres** | on `upsert` / seed | n/a (DB) |
+| Thesis + basket (incl. `segment` / `authored_by` / `thesis_fit`) + evidence/catalyst/kill | the spine (operational) | **Postgres** | on `upsert` / promote / seed | n/a (DB) |
 | Assembled calls | accountability **log** | **Postgres** `calls` | one row per batch `pipeline.run` (never on a `/call` GET) | n/a (DB) |
 | `SignalEvent[]` | **recomputed** | nowhere — in memory | **every read** | n/a |
 | `CallCard` | **recomputed** | in memory (a copy → `calls`) | **every read** | n/a |
+| Narrative → chain **draft** | **recomputed** (response-only) | nowhere — returned by `/draft-chain`, never stored | **every Draft click** | n/a |
 
 ## Your question, directly
 
@@ -114,5 +115,5 @@ flowchart TD
 - **Recompute-on-read.** Signals and the call are derived fresh from facts every time — no stale, hidden, mutable cache of "what the system thinks."
 - **Provenance on everything.** Every fired trigger carries its source + the computation (the EDGAR filing link, the price/volume numbers). If we can't show the work, we don't surface the result.
 - **Append-only, bitemporal facts.** You can always ask "what did we know, and when?" Corrections never rewrite history. *(This is the `fact_*` tables — the `no_update` trigger. `security_master` is **identity metadata, mutable**: the broadener UPDATEs a name in place. It is not an append-only fact, so the master keeps only the current mapping, not a rename history — fine, because nothing reads the master as-of.)*
-- **Deterministic, not model-sourced.** Triggers fire from code against data; the LLM (now live in the Workbench's FLAG-explanation drafter) only writes *explanation* prose and **never invents a number or a signal** — and that explanation rides a separate rail that can't write a fact (`WORKBENCH_EXTRACTION.md`).
+- **Deterministic, not model-sourced.** Triggers fire from code against data; the LLM, live in **two Workbench seams** — the FLAG-explanation drafter and the narrative→chain drafter — only drafts *explanation* prose / *chain structure + names + thesis-fit prose* and **never invents a number or a signal**. Both are write-safe: the explanation rides a separate rail (no DB conn); the chain drafter's `POST /workbench/theses/{id}/draft-chain` is **response-only** (a read-only conn, writes nothing — test-enforced), so the operator's **promote is the only writer** (and it rejects any placed id that isn't an exact master member). See `WORKBENCH_EXTRACTION.md` + `CHAIN_DRAFTER.md`.
 - **No lookahead.** Reads are pinned to an `asof` (event time) and a `known_at` (transaction time), so a backtest can't peek at the future.

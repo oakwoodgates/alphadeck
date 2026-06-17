@@ -58,8 +58,11 @@ Use these terms precisely; they are the ubiquitous language of the codebase.
 - **ETF radar** — per-theme ETF intelligence: *availability* (which ETFs express the theme), *coming launches* (SEC N-1A/485 — a new thematic launch is an emergence-kind signal), and *holdings/flows* (free universe seed + positioning signal). An ETF is also a low-torque **expression** of a thesis (the safe-exposure sleeve), always surfaced with fund internals (holdings, weights, expense ratio, AUM, liquidity).
 - **Scoring-fact tiers** (the Workbench extractor) — `AUTO` (companyfacts reproduces the value → pre-fill, confirm-and-go) · `FLAG` (raw value + a detected risk + a **located passage** → the operator ratifies the composition) · `HUMAN` (purity — located only, **never auto-valued**). The extractor **LOCATES; the operator RATIFIES** (invariant #3). See `docs/WORKBENCH_EXTRACTION.md`.
 - **Located passage** — a deterministically-retrieved filing excerpt (keyword/section match, never a model's reading), shown inline as the evidence behind a FLAG/HUMAN candidate.
-- **Authorship** — `operator_set` / `operator_edited` / `system_drafted`; LLM-drafted output is **`system_drafted` ("drafted")** and becomes a fact ONLY when the operator ratifies it.
-- **The explain seam** — the Workbench's flag-explanation drafter (`backend/llm`, the first LLM seam): a grounded plain-English **aid** to a FLAG ratify — an explanation, never a fact, on a rail that can't write one.
+- **Authorship** — `operator_set` / `operator_edited` / `system_drafted`. The **draft → ratify transitions**: a drafted placement **loads** `system_drafted`, the operator **accepts** it → `operator_set` or **edits** any field → `operator_edited`; promote **honors** the authorship (never coerces it). Nothing drafted becomes a fact until the operator ratifies it.
+- **The explain seam** — the Workbench's flag-explanation drafter (`backend/llm`, the FIRST LLM seam): a grounded plain-English **aid** to a FLAG ratify — an explanation, never a fact, on a rail that can't write one.
+- **The chain drafter / the SECOND LLM seam** — the narrative→chain drafter (`backend/llm/chain_decomposition.py`): from a narrative, Sonnet drafts the value chain (segments + names + thesis-fit prose) into the authoring surface as `system_drafted`, to ratify. **Response-only** (writes nothing; promote is the only writer), **fail-open**, and it **never sources a number**. The front door to the loop: **draft → ratify → extract → score → promote**. See `docs/CHAIN_DRAFTER.md`.
+- **Discovery net, made visible** — a drafter-proposed name is a *suggestion*; exact master membership DECIDES (`resolve_placements`): a unique exact ticker/name match auto-loads (drafted, prunable), an AMBIGUOUS one enters the basket **only by an explicit operator pick** (ticker + CIK shown), an ABSENT one is shown-not-placed. The allowlist rule of invariant #2, now on the UI.
+- **`thesis_fit`** — the per-member drafted thesis-fit prose ("why this name sits in its segment"), on `basket_member`. Kept **distinct** from `detail` (the board/cockpit "met" cell) and a segment's `descriptor`; operational on the spine, never a fact/number.
 
 ## Architecture & stack
 
@@ -70,7 +73,7 @@ See `README.md` for the full table. Key shape:
 - **Backend** = Python: FastAPI, Pydantic (core schemas are first-class and typed), Polars + Arrow for transforms.
 - **Ingestion** = thin custom EDGAR client over SEC JSON APIs (respect rate limits + User-Agent rules), OpenFIGI for ID mapping, FINRA short interest.
 - **Orchestration** = scheduled scripts now; Dagster only when the ingest→normalize→signal DAG earns it.
-- **LLM** = Anthropic API behind a model-agnostic interface (`backend/llm`; the first seam is the Workbench flag-explanation drafter, fail-open + lazy-imported); use structured/tool-use outputs, always with source citations, and **never to source a number**.
+- **LLM** = Anthropic API behind a model-agnostic interface (`backend/llm`, fail-open + lazy-imported). **Two seams, both in the Workbench:** the FLAG-explanation drafter (Haiku — an aid to a FLAG ratify) and the narrative→chain drafter (Sonnet — drafts the value chain to ratify; `docs/CHAIN_DRAFTER.md`). Use structured/tool-use outputs, always with source citations, and **never to source a number**.
 - **Frontend** = TypeScript, React (Vite SPA), Tailwind, TanStack Query for server state; lightweight-charts for price views.
 - **Ops** = Docker Compose → single VPS/Fly/Railway. Monolith. `tenant_id` in every table from day one; auth deferred.
 
@@ -83,6 +86,8 @@ See `README.md` for the full table. Key shape:
 - **Tests are point-in-time.** Any signal/backtest test fixes a timestamp and asserts no future leakage. Treat lookahead in a test as a failing test.
 - **Python**: type hints throughout; `ruff` + `black`. **TS**: strict mode; server state via TanStack Query (not ad-hoc fetch); no browser storage for app state.
 - **LLM calls** go through the `backend/llm` interface only — no scattered API calls. Prompts and structured-output schemas live with that module; responses must carry citations.
+- **The OpenAPI contract is generated — regenerate it in the SAME PR as anything FastAPI emits into the schema.** A route docstring (it becomes the operation `description`), a response model, a new endpoint, a status code — all drift `backend/openapi.json` *and* `frontend/src/api/types.gen.ts`. Regenerate both (`python -m app.openapi_export` + `npm run gen:api`) in the same PR, or CI's diff-guard fails (it bit #61 — a docstring rewrite alone was enough).
+- **A "tests pass" claim must come from a run that EXECUTED the DB tests.** The DB-backed suite SKIPS when Postgres is unreachable (or `DATABASE_URL` is unset) — a large "skipped" count is **not** a pass. Run against the test DB (`DATABASE_URL` → `alphadeck_test`, **never** the demo DB the `db` fixture truncates).
 
 ## Out of scope for v1
 
@@ -111,8 +116,9 @@ docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost
 # backend setup (once)
 python -m venv backend\.venv
 backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" "anthropic>=0.40" pytest ruff black
-# the LLM seam (FLAG-explanation drafter) needs ANTHROPIC_API_KEY for LIVE drafts; with no key it fails open
-# (no explanation, the facts panel works as today). The suite never needs the key (the SDK is imported lazily).
+# the LLM seams (the FLAG-explanation + narrative->chain drafters) need ANTHROPIC_API_KEY for LIVE drafts; with
+# no key they fail open (no draft, the app works as today). The suite never needs the key (the SDK is lazy).
+# Put it in a gitignored .env (copy .env.example) — docker compose injects it into the backend container.
 
 # backend dev loop (from backend\, venv active)
 python -m db.migrate                                    # apply migrations (idempotent)
@@ -125,6 +131,9 @@ ruff check . ; black --check .                          # lint + format
 
 # Checkpoint A, served:
 curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
+
+# the narrative->chain draft (S5; needs ANTHROPIC_API_KEY — else an empty fail-open draft):
+curl -X POST "http://127.0.0.1:8000/workbench/theses/<id>/draft-chain"
 
 # frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /theses -> :8000
 ```

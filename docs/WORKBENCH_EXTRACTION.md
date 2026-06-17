@@ -8,7 +8,7 @@
 > `backend/app/routers/workbench.py` + `backend/ingest/*`; the LLM seam: `backend/llm/`.
 >
 > **Status: BUILT** — hybrid-1 extractor (PR #55), hybrid-2a ratify endpoint (#56), hybrid-2b facts panel
-> (#57), the flag-explanation drafter (#59). The narrative→chain drafter (S5) is the next, separate LLM seam.
+> (#57), the flag-explanation drafter (#59). The narrative→chain drafter (S5, the SECOND LLM seam) is now BUILT — see `CHAIN_DRAFTER.md`.
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred.
 
@@ -111,7 +111,8 @@ interface only"). This seam establishes it: `LLMClient` (Anthropic tool-use for 
 `allow_live` offline gate mirroring `EdgarClient`; the SDK imported lazily, so the suite needs no key or
 network) + `flag_explanation` (the prompt + the structured-output schema + `explain_flag`). The dials live in
 `CallConfig` (`llm_model = claude-haiku-4-5-…`, `llm_max_tokens = 256`, `llm_timeout_s = 10`). S5 (the
-narrative→chain drafter) will extend this same interface.
+narrative→chain drafter) extends this same interface — now BUILT (`backend/llm/chain_decomposition.py`); see
+`CHAIN_DRAFTER.md`.
 
 ### THE BOUND — structural, not merely prompted (INVARIANT #3)
 
