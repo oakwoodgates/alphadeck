@@ -3,7 +3,7 @@
 > Working reference doc. Captures the high-level goals and design converged on during planning.
 > Scope: equities first (US), with commodities / crypto / prediction markets as later additions.
 > Codename: **Alpha Deck**.
-> This doc is the *design rationale* (the "why"). Stack, UI surfaces, repo layout, and v1 scope live in `README.md`; build conventions and invariants in `CLAUDE.md`.
+> This doc is the *design rationale* (the "why"). Stack, UI surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; the live sequencing in `docs/ROADMAP.md`.
 
 ---
 

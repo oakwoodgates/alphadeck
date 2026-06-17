@@ -6,7 +6,8 @@
 >
 > Siblings: `CALL_LOGIC.md` (the brain), `CATALYST_CONVICTION.md` (the catalyst key), `INVARIANTS.md` (the
 > load-bearing rules), `WORKBENCH_SCORING.md` (the four meters) + `WORKBENCH_EXTRACTION.md` (the extract →
-> ratify hybrid + the first LLM seam), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
+> ratify hybrid + the first LLM seam) + `CHAIN_DRAFTER.md` (the narrative → chain drafter, the second LLM seam),
+`RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
 > not here), `PROJECT_OVERVIEW.md` (design rationale). This doc is **sequencing**; it references the others,
 > never duplicates them.
 
@@ -29,12 +30,20 @@ slices: the persistence seam (#47), the three ratify bridges + nuclear seed (#48
 (`WORKBENCH_EXTRACTION.md`); the **master-population broadener** (#58) loads the SEC universe so the loop runs
 on any name, not just the seed; and the **first LLM seam** — the flag-explanation drafter (#59) — adds a
 grounded plain-English aid to the FLAG ratify. **Both halves of the "working Workbench MVP" done-gate are now
-MET: authoring + a populated universe.** Docs are current as of this pass; the old M0–M5 build plan stays
-historical.
+MET: authoring + a populated universe.**
 
-**What's next: Slice 5 — the narrative → chain drafter** (the second LLM seam): decompose a narrative into a
-value chain and propose names from the populated universe, on the LLM plumbing #59 proved. The live Scoreboard
-and the Phase-3 breadth stay parked (below).
+**S5 — the narrative → chain drafter (the SECOND LLM seam) — is DONE; the front-half loop now closes end to
+end: narrative → draft → ratify → promote → extract → score.** The capstone shipped in slices: the
+exact-membership **resolver** + the **promote write-guard** (#61); the **Sonnet decompose seam** + the
+**response-only draft endpoint** (#62); the **`thesis_fit` prose column** (#64); the **draft/ratify UI** + the
+**`ANTHROPIC_API_KEY` / `.env` wiring** (#65). The operator types a narrative, drafts the chain, ratifies each
+name (exact membership decides; a drafted name stays unscored until extract → ratify), and promotes. Full
+detail: `CHAIN_DRAFTER.md`. Docs are current as of this pass; the old M0–M5 build plan stays historical.
+
+**What's next: the create-thesis UI** — the deferred S5 entry point. The drafter operates on an *existing*
+thesis's narrative; there is **no UI yet to start a thesis from a NEW narrative** (today a thesis is created
+via promote or the seed). That surface closes the last front-half gap. After it, the **live Scoreboard** (the
+forward trust loop) and the **Phase-3 breadth** stay parked (below), by appetite.
 
 ## Organizing principle — two halves on one spine
 
@@ -124,7 +133,8 @@ The Workbench MVP shipped in slices, **and authoring landed** (#53/#54) — so t
 ("displays / scores / promotes a *seeded* basket" → "turns a narrative into a basket") is met: the operator
 can decompose the chain, author names, and re-score. On top of the MVP, three slices extended the loop — the
 **extract → ratify hybrid** (#55/#56/#57), the **broadener** (#58, the populated universe), and the **first
-LLM seam** (#59) — all listed below. **Slice 5 (the narrative → chain drafter) is what remains.**
+LLM seam** (#59) — all listed below. **Slice 5 (the narrative → chain drafter) then SHIPPED (#61 / #62 / #64 /
+#65) — the front-half loop now closes end to end; see the entry below + `CHAIN_DRAFTER.md`.**
 - **Slice 1 — the persistence seam `[MERGED #47]`** — the value-chain **structure** persists operationally on
   the thesis spine (`segment` + `authored_by` on `basket_member`, the `segments` list on `thesis`; migration
   0008). Survives-reload proven on a fresh connection.
@@ -176,11 +186,28 @@ LLM seam** (#59) — all listed below. **Slice 5 (the narrative → chain drafte
   button. The bound is **STRUCTURAL** (the explain endpoint has no DB connection, writes nothing, is never on
   the ratify body — it cannot become a fact); components+direction-only; fail-open by contract. See
   `WORKBENCH_EXTRACTION.md`. *(The first of two LLM seams; S5 is the second.)*
-- **Slice 5 — the narrative → chain drafter `[NEXT]`** — the **second** LLM seam, on the `backend/llm`
-  plumbing the flag-explanation drafter (#59) proved: decompose a narrative into a value chain, **propose
-  names from the populated universe**, and draft the thesis-fit prose. The operator ratifies every placement;
-  it cites sources; it **never sources a number.** *(Narrative is the operator's, structure is a draft,
-  numbers are facts.)*
+- **Slice 5 — the narrative → chain drafter `[DONE — #61 / #62 / #64 / #65]`** — the **second** LLM seam, on
+  the `backend/llm` plumbing #59 proved; **the front-half loop now closes end to end.** Full detail in
+  `CHAIN_DRAFTER.md`. *(Narrative is the operator's, structure is a draft, numbers are facts.)* The slices:
+  - **5a — the resolver + the promote write-guard `[#61]`** — `resolve_placements` is the discovery-net
+    DECIDER by EXACT master membership (PLACED unique-exact-ticker/name · AMBIGUOUS → operator-pick · ABSENT →
+    shown-not-placed); promote then validates every placed `security_id` is a master member (`404`) and
+    HONORS `authored_by` (no longer coerces it).
+  - **5b — the decompose seam + the response-only draft endpoint `[#62]`** — `claude-sonnet-4-6` drafts
+    segments + names + prose (`backend/llm/chain_decomposition.py`); `POST /theses/{id}/draft-chain` returns a
+    draft and **writes nothing** (response-only + test-enforced); fail-open; **never a number** (no value
+    field in the schema + the prompt forbids figures, Sonnet the adherence lever).
+  - **5c-1 — the `thesis_fit` prose column `[#64]`** — the per-member drafted-reasoning home (migration
+    0011), distinct from `detail` + a segment's `descriptor`; operational on the spine.
+  - **5c-2 — the draft/ratify UI `[#65]`** — "Draft from narrative" → the discovery net made VISIBLE: PLACED
+    auto-loads (`system_drafted`, badged, prunable), AMBIGUOUS is a pick-list (ticker + CIK — a non-PLACED
+    name enters ONLY by an explicit pick), ABSENT is shown-not-placed; accept → `operator_set`, edit →
+    `operator_edited`; merge-not-replace. Plus the **`ANTHROPIC_API_KEY` / `.env` wiring** (#63 — before it,
+    neither LLM seam worked in the deployed stack).
+- **Next — the create-thesis entry point `[NEXT]`** — there is **no UI yet to start a thesis from a NEW
+  narrative**: the drafter operates on an *existing* thesis's narrative (today a thesis is created via promote
+  or the seed). The deferred S5 entry point + the last front-half gap. After it, the live Scoreboard + the
+  Phase-3 breadth, by appetite.
 
 ### Decisions locked (design pass)
 - **Curation:** surface **and score every candidate**, pre-tag a *suggested* basket; the operator makes the

@@ -11,9 +11,10 @@
 ## 1. No model-sourced numbers or firings  (CLAUDE.md invariant #3)
 
 The LLM **augments, never sources.** It may draft the `counter_case` / explanatory prose citing existing
-evidence IDs, or a grounded plain-English explanation of an extracted FLAG candidate (the Workbench drafter,
-below). It must **never** fire a trigger, set a state / verdict / grade, or invent a number. Every trigger and
-grade comes from a **deterministic parse** of data **or** a **one-time operator ratification**.
+evidence IDs, a grounded plain-English explanation of an extracted FLAG candidate, or a value-chain DRAFT —
+segments + names + thesis-fit prose — from a narrative (the two Workbench seams, below). It must **never** fire
+a trigger, set a state / verdict / grade, or invent a number. Every trigger and grade comes from a
+**deterministic parse** of data **or** a **one-time operator ratification**.
 
 - *Enforced by:* the assembler signature (the LLM hook only injects `counter_case`); detectors are pure
   `f(point_in_time_data) -> SignalEvent`; the catalyst grade is `_derive_grade` (deterministic) or set at
@@ -26,6 +27,13 @@ grade comes from a **deterministic parse** of data **or** a **one-time operator 
   comes only from the operator's typed field. The prompt asks for components + direction, never the final
   value, but the **missing rail is the guarantee, the prompt only the courtesy**. Guarded by a
   no-ratify-field test + a **zero-`fact_*`-write** test on the explain endpoint. See `WORKBENCH_EXTRACTION.md`.
+- *Also enforced by (the second LLM seam — the narrative→chain drafter, `backend/llm/chain_decomposition.py`):*
+  it sources **no number** three ways — the tool schema + `ChainDraftOut` have **no value field** (structural);
+  the prompt forbids any figure (Sonnet the adherence lever, the gate-2 manual no-number check its real test);
+  and a drafted name is **UNSCORED** until the operator extract→ratifies it. The draft endpoint
+  (`POST /workbench/theses/{id}/draft-chain`) is **RESPONSE-ONLY + test-enforced** — it holds a read-only conn
+  (so NOT structural-by-absence like the flag seam) and writes nothing (`test_draft_endpoint_writes_nothing`:
+  zero `fact_*` AND `basket_member`); the operator's promote is the only writer. See `CHAIN_DRAFTER.md`.
 
 ## 2. Entity resolution is an exact-membership ALLOWLIST, never fuzzy, never a denylist
 
@@ -49,6 +57,20 @@ row (missing CIK or ticker) is **dropped**, never guessed.
 - *Enforced by:* `securities/master.search` (read-only — never an ingest, never a write); the broadener's
   exact `(cik, ticker)` keying that drops incomplete rows (`securities/master.populate_universe`,
   `tests/securities/test_populate_master.py`).
+
+**The chain drafter is where that net DECIDES, and promote is where it's enforced (S5).**
+`resolve_placements` (`backend/workbench/chain_draft.py`) runs each drafter-proposed name through the master
+and auto-places **only on a unique EXACT ticker or name match**; several / partial / token-only matches or a
+ticker/name contradiction go to an **operator pick** (ticker + CIK shown), and a no-match name is **ABSENT**
+(shown, never placed). Auto-place **never rests on a judgment call** — a lone substring match is the Oklo-trap
+heuristic, not membership. The UI makes this VISIBLE: PLACED auto-loads (drafted, prunable), AMBIGUOUS enters
+the basket **only by an explicit operator pick**, ABSENT is shown-not-placed. And because the drafter writes
+nothing, **promote is the single write-side check** — every placed `security_id` must be an exact master
+member, else `404`.
+
+- *Enforced by:* `workbench/chain_draft.resolve_placements` (exact ticker/name → PLACED, else pick / absent;
+  `tests/workbench/test_chain_draft.py`); the promote membership guard + honored-authorship
+  (`app/routers/workbench.py`; `tests/app/test_workbench_api.py`). See `CHAIN_DRAFTER.md`.
 
 ## 3. Provenance to a real, checkable source on every trigger
 
