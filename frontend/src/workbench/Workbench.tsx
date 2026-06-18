@@ -28,12 +28,13 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const [pickedMemberId, setPickedMemberId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
-  // M1a — create a thesis from a new narrative (the front door to the loop). The form's two fields
-  // live here; create goes through the single existing promote writer with a null id (an empty chain
-  // the operator drafts/authors into next).
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newNarrative, setNewNarrative] = useState("");
+  // M1a/M1b — the thesis form, ONE panel with two modes: "create" (a new narrative) or "edit" (an
+  // existing thesis's name/narrative). Both go through the single existing promote writer — create =
+  // a null id + empty chain (drafted next); edit = the SAME id RESENDING the existing chain, so a
+  // narrative tweak never wipes the operator's authored names.
+  const [formMode, setFormMode] = useState<"" | "create" | "edit">("");
+  const [formName, setFormName] = useState("");
+  const [formNarrative, setFormNarrative] = useState("");
 
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
@@ -68,35 +69,57 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   };
 
   const startCreate = () => {
-    setCreating(true);
+    setFormMode("create");
     setEditing(false);
-    setNewName("");
-    setNewNarrative("");
+    setFormName("");
+    setFormNarrative("");
     promote.reset();
   };
 
-  const cancelCreate = () => {
-    setCreating(false);
+  const startEditNarrative = () => {
+    if (!thesis) return;
+    setFormMode("edit");
+    setEditing(false);
+    setFormName(thesis.name);
+    setFormNarrative(thesis.narrative);
     promote.reset();
   };
 
-  const onCreate = async () => {
-    const name = newName.trim();
-    const narrative = newNarrative.trim();
+  const cancelForm = () => {
+    setFormMode("");
+    promote.reset();
+  };
+
+  const onSubmitForm = async () => {
+    const name = formName.trim();
+    const narrative = formNarrative.trim();
     if (!name || !narrative) return;
     try {
-      // create = the promote upsert with a null id (no new write path); the chain is empty and gets
-      // drafted/authored next. mutateAsync so we have the new id to land on.
-      const created = await promote.mutateAsync({
-        id: null,
-        name,
-        narrative,
-        ticker: null,
-        basket: [],
-        segments: [],
-      });
-      if (created?.id) switchThesis(created.id); // land on the new (Incubating) thesis
-      setCreating(false);
+      if (formMode === "edit") {
+        if (!thesis) return;
+        // edit = the promote upsert with the SAME id, RESENDING the existing chain (basket + segments)
+        // so a name/narrative tweak never wipes the operator's authored names. Scores re-derive on read.
+        await promote.mutateAsync({
+          id: thesis.id,
+          name,
+          narrative,
+          ticker: thesis.ticker ?? null,
+          basket: thesis.basket,
+          segments: thesis.segments,
+        });
+      } else {
+        // create = the promote upsert with a null id (no new write path); empty chain, drafted next.
+        const created = await promote.mutateAsync({
+          id: null,
+          name,
+          narrative,
+          ticker: null,
+          basket: [],
+          segments: [],
+        });
+        if (created?.id) switchThesis(created.id); // land on the new (Incubating) thesis
+      }
+      setFormMode("");
     } catch {
       // promote.error holds the FastAPI detail — surfaced inline below; the form stays open (nothing lost)
     }
@@ -160,35 +183,53 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
       </div>
 
       <div className="wb-body">
-        {creating ? (
+        {formMode ? (
           <>
             <main className="wb-main">
               <section className="sect">
                 <div className="sect-h">
-                  New thesis <em>— start from your own narrative</em>
+                  {formMode === "edit" ? "Edit the thesis" : "New thesis"}{" "}
+                  <em>
+                    {formMode === "edit"
+                      ? "— refine the name or narrative; your chain is preserved"
+                      : "— start from your own narrative"}
+                  </em>
                 </div>
                 <ThesisFields
-                  name={newName}
-                  narrative={newNarrative}
-                  onName={setNewName}
-                  onNarrative={setNewNarrative}
+                  name={formName}
+                  narrative={formNarrative}
+                  onName={setFormName}
+                  onNarrative={setFormNarrative}
                 />
                 <div className="wb-create-actions">
                   <button
                     type="button"
                     className="promote"
-                    onClick={onCreate}
-                    disabled={promote.isPending || !newName.trim() || !newNarrative.trim()}
+                    onClick={onSubmitForm}
+                    disabled={promote.isPending || !formName.trim() || !formNarrative.trim()}
                   >
-                    {promote.isPending ? "Creating…" : "Create thesis"}
+                    {promote.isPending
+                      ? formMode === "edit"
+                        ? "Saving…"
+                        : "Creating…"
+                      : formMode === "edit"
+                        ? "Save changes"
+                        : "Create thesis"}
                   </button>
-                  <button type="button" className="wb-edit-btn" onClick={cancelCreate}>
+                  <button type="button" className="wb-edit-btn" onClick={cancelForm}>
                     Cancel
                   </button>
                 </div>
+                {formMode === "edit" && thesis && thesis.basket.length > 0 && (
+                  <div className="note">
+                    Editing the narrative won't touch your {thesis.basket.length}-name chain. If the
+                    story shifted, <b>re-draft</b> from the editor to refresh the names.
+                  </div>
+                )}
                 {promote.isError && (
                   <div className="toast show err">
-                    Couldn't create — {errText(promote.error)}. Nothing was saved.
+                    Couldn't {formMode === "edit" ? "save" : "create"} — {errText(promote.error)}.{" "}
+                    {formMode === "edit" ? "No changes were saved." : "Nothing was saved."}
                   </div>
                 )}
               </section>
@@ -197,9 +238,18 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
               <div className="ddcard">
                 <div className="dd-body">
                   <p className="muted">
-                    Name the thesis and capture the narrative in your words. You'll land on it ready
-                    to <b>Draft from narrative</b> — the drafter proposes the value chain + the names
-                    for you to ratify.
+                    {formMode === "edit" ? (
+                      <>
+                        The narrative is your words, preserved. Editing it here leaves the value
+                        chain untouched — the names you placed stay placed.
+                      </>
+                    ) : (
+                      <>
+                        Name the thesis and capture the narrative in your words. You'll land on it
+                        ready to <b>Draft from narrative</b> — the drafter proposes the value chain +
+                        the names for you to ratify.
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -229,6 +279,16 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
               <section className="sect">
                 <div className="sect-h">
                   The narrative <em>— your words, preserved</em>
+                  {thesis && (
+                    <button
+                      type="button"
+                      className="wb-edit-narrative"
+                      onClick={startEditNarrative}
+                      aria-label="edit narrative"
+                    >
+                      ✎ Edit
+                    </button>
+                  )}
                 </div>
                 <div className="narrative">
                   {thesis?.narrative ?? "…"}

@@ -303,6 +303,9 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-textarea { font: inherit; font-size: 13px; line-height: 1.55; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; color-scheme: dark; resize: vertical; min-height: 96px; }
 .wb-textarea:focus { outline: none; border-color: var(--leader); }
 .wb-create-actions { display: flex; align-items: center; gap: 12px; }
+/* M1b — the quiet 'Edit' affordance on the narrative section header (reuses the create form) */
+.wb-edit-narrative { font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--leader); background: rgba(138, 180, 255, 0.08); border: 1px solid rgba(138, 180, 255, 0.28); border-radius: 5px; padding: 2px 8px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.wb-edit-narrative:hover { background: rgba(138, 180, 255, 0.16); }
 
 .wb-body { flex: 1; display: grid; grid-template-columns: 1fr 396px; overflow: hidden; }
 @media (max-width: 880px) { .wb-body { grid-template-columns: 1fr; overflow: visible; } }
