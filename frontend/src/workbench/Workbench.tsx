@@ -4,6 +4,7 @@ import { usePromoteThesis, useTheses, useThesis, useWorkbenchScored } from "../a
 import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
+import { ThesisFields } from "./ThesisFields";
 import { archLabel, errText } from "./format";
 
 interface Props {
@@ -26,6 +27,13 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const [seg, setSeg] = useState<string | null>(null);
   const [pickedMemberId, setPickedMemberId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+
+  // M1a — create a thesis from a new narrative (the front door to the loop). The form's two fields
+  // live here; create goes through the single existing promote writer with a null id (an empty chain
+  // the operator drafts/authors into next).
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newNarrative, setNewNarrative] = useState("");
 
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
@@ -57,6 +65,41 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
     setPickedMemberId(null);
     setEditing(false);
     promote.reset();
+  };
+
+  const startCreate = () => {
+    setCreating(true);
+    setEditing(false);
+    setNewName("");
+    setNewNarrative("");
+    promote.reset();
+  };
+
+  const cancelCreate = () => {
+    setCreating(false);
+    promote.reset();
+  };
+
+  const onCreate = async () => {
+    const name = newName.trim();
+    const narrative = newNarrative.trim();
+    if (!name || !narrative) return;
+    try {
+      // create = the promote upsert with a null id (no new write path); the chain is empty and gets
+      // drafted/authored next. mutateAsync so we have the new id to land on.
+      const created = await promote.mutateAsync({
+        id: null,
+        name,
+        narrative,
+        ticker: null,
+        basket: [],
+        segments: [],
+      });
+      if (created?.id) switchThesis(created.id); // land on the new (Incubating) thesis
+      setCreating(false);
+    } catch {
+      // promote.error holds the FastAPI detail — surfaced inline below; the form stays open (nothing lost)
+    }
   };
 
   const onPromote = () => {
@@ -107,13 +150,62 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
             ))}
           </select>
         )}
+        {/* the front door: always available, even with zero theses (the empty-universe entry point) */}
+        <button type="button" className="wb-new-btn" onClick={startCreate}>
+          + New thesis
+        </button>
         <div className="wb-flow">
           <b>NARRATIVE</b> › <b>DECOMPOSE</b> › <b>SCORE</b> › <b>PROMOTE</b>
         </div>
       </div>
 
       <div className="wb-body">
-        {editing && thesis ? (
+        {creating ? (
+          <>
+            <main className="wb-main">
+              <section className="sect">
+                <div className="sect-h">
+                  New thesis <em>— start from your own narrative</em>
+                </div>
+                <ThesisFields
+                  name={newName}
+                  narrative={newNarrative}
+                  onName={setNewName}
+                  onNarrative={setNewNarrative}
+                />
+                <div className="wb-create-actions">
+                  <button
+                    type="button"
+                    className="promote"
+                    onClick={onCreate}
+                    disabled={promote.isPending || !newName.trim() || !newNarrative.trim()}
+                  >
+                    {promote.isPending ? "Creating…" : "Create thesis"}
+                  </button>
+                  <button type="button" className="wb-edit-btn" onClick={cancelCreate}>
+                    Cancel
+                  </button>
+                </div>
+                {promote.isError && (
+                  <div className="toast show err">
+                    Couldn't create — {errText(promote.error)}. Nothing was saved.
+                  </div>
+                )}
+              </section>
+            </main>
+            <aside className="wb-rail">
+              <div className="ddcard">
+                <div className="dd-body">
+                  <p className="muted">
+                    Name the thesis and capture the narrative in your words. You'll land on it ready
+                    to <b>Draft from narrative</b> — the drafter proposes the value chain + the names
+                    for you to ratify.
+                  </p>
+                </div>
+              </div>
+            </aside>
+          </>
+        ) : editing && thesis ? (
           <>
             <main className="wb-main">
               <ChainEditor key={thesis.id} thesis={thesis} onDone={() => setEditing(false)} />
