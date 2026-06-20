@@ -9,7 +9,8 @@ the passage and the DIRECTION an adjustment implies; it must **not** state the f
 operator does the arithmetic and types the number. This is enforced two ways:
 - *Structurally* — the returned string is never a field on the ratify request and never reaches ``ingest_*``
   (the real guarantee; lives at the endpoint/wire).
-- *By prompt* — the system prompt below (the courtesy; the watch-item — pull the Sonnet lever if it slips).
+- *By prompt* — the system prompt (now in ``prompts/flag_explain.md``; the courtesy + watch-item — pull the
+  Sonnet lever if it slips).
 
 Every failure path (no key, live disabled, timeout, SDK error, ungrounded, malformed) returns
 ``("", False)`` — fail-open: the facts panel works exactly as today.
@@ -20,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from domain.extraction import ExtractedFact, Tier
+from llm.prompt_loader import load_prompt
 
 # The structured-output contract — the model MUST call this tool; we read back its validated input.
 EXPLAIN_TOOL: dict[str, Any] = {
@@ -47,23 +49,6 @@ EXPLAIN_TOOL: dict[str, Any] = {
         "required": ["explanation", "grounded"],
     },
 }
-
-SYSTEM_PROMPT = """\
-You explain ONE flagged figure from an SEC filing to an analyst who is looking at the same passage you are \
-given. Your explanation is a reading aid, never a decision and never a recommendation.
-
-Rules:
-- Use ONLY facts in the provided passage. No outside knowledge. Use no number that is not already in the \
-passage.
-- Name the specific component the flag points to (e.g. a one-time settlement or milestone payment, a \
-year-to-date basis, a dual-class share split) and restate ITS figure exactly as written in the passage.
-- State the DIRECTION an adjustment would imply in words (e.g. "the recurring figure is lower"). Do NOT \
-compute or state any final adjusted value — the analyst decides and enters that number themselves.
-- At most two sentences. Plain English, no preamble.
-- If the passage does not actually support an explanation of the flag, set grounded=false and leave \
-explanation empty.
-
-Always answer by calling the flag_explanation tool."""
 
 
 def _flagged_figure(c: ExtractedFact) -> str:
@@ -98,10 +83,11 @@ def explain_flag(client: Any, candidate: ExtractedFact) -> tuple[str, bool]:
         return ("", False)
     if not candidate.located_passages:
         return ("", False)  # nothing to ground an explanation in
+    # fail-loud: a missing prompt file is a deploy bug, raised HERE (outside the fail-open try below) so it
+    # surfaces instead of being swallowed into the no-explanation result.
+    system = load_prompt("flag_explain")
     try:
-        out = client.draft_structured(
-            system=SYSTEM_PROMPT, user=_build_user(candidate), tool=EXPLAIN_TOOL
-        )
+        out = client.draft_structured(system=system, user=_build_user(candidate), tool=EXPLAIN_TOOL)
     except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
         return ("", False)
     if not out:
