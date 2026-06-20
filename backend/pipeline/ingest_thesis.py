@@ -33,7 +33,8 @@ from domain.security import Security
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.submissions import fetch_submissions, form4_doc_url, form4_filings
-from ingest.prices.eod_loader import fetch_eod, ingest_prices, latest_bar_date
+from ingest.prices.eod_loader import ingest_prices, latest_bar_date
+from ingest.prices.source import PriceSource, YahooPriceSource
 from repositories import thesis_repo
 from securities import master
 
@@ -69,15 +70,25 @@ def _form4_leg(
 
 
 def _price_leg(
-    conn: psycopg.Connection, sec: Security, *, tenant_id: UUID, allow_live: bool
+    conn: psycopg.Connection,
+    sec: Security,
+    *,
+    tenant_id: UUID,
+    allow_live: bool,
+    force_refresh: bool,
+    source: PriceSource,
 ) -> int:
     """Ingest only EOD bars newer than the latest stored bar for this security (incremental). Returns the
-    count appended."""
+    count appended. Reads bars through the injected ``PriceSource`` (the seam), so the source is swappable;
+    ``force_refresh`` makes the recurring path bypass a stale cache hit (see ``eod_loader.fetch_eod``).
+    """
     if not sec.ticker:
         return 0
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
     rows = [
-        r for r in fetch_eod(sec.ticker, allow_live=allow_live) if last is None or r["d"] > last
+        r
+        for r in source.get_bars(sec.ticker, allow_live=allow_live, force_refresh=force_refresh)
+        if last is None or r["d"] > last
     ]
     return ingest_prices(conn, sec.id, rows, tenant_id=tenant_id)
 
@@ -87,7 +98,9 @@ def ingest_thesis(
     thesis_id: UUID,
     *,
     allow_live: bool = True,
+    force_refresh: bool = False,
     user_agent: str | None = None,
+    price_source: PriceSource | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts for each RESOLVED basket member of ``thesis_id``.
 
@@ -95,11 +108,15 @@ def ingest_thesis(
     and the price leg — EACH in its own try, COMMITTING on success and ROLLING BACK on failure, so one
     leg's error never discards the other's work and never aborts the run (the error is captured into the
     name's ``NameResult``). Incremental + no-lookahead (see the module docstring). Returns one ``NameResult``
-    per member that had a resolved id."""
+    per member that had a resolved id.
+
+    ``force_refresh`` makes the price leg bypass a stale cache hit (the recurring/daily path sets it; see
+    ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults to Yahoo)."""
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
         raise LookupError(f"thesis {thesis_id} not found")
     client = EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    source = price_source or YahooPriceSource()
     results: list[NameResult] = []
     for m in thesis.basket:
         if m.security_id is None:
@@ -121,7 +138,14 @@ def ingest_thesis(
             errs.append(f"form4: {e}")
         px = 0
         try:
-            px = _price_leg(conn, sec, tenant_id=thesis.tenant_id, allow_live=allow_live)
+            px = _price_leg(
+                conn,
+                sec,
+                tenant_id=thesis.tenant_id,
+                allow_live=allow_live,
+                force_refresh=force_refresh,
+                source=source,
+            )
             conn.commit()
         except Exception as e:  # noqa: BLE001
             conn.rollback()
@@ -157,11 +181,21 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="cache-only (no network); else live (needs ALPHADECK_USER_AGENT)",
     )
+    p.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="re-pull live + overwrite the cache (bypass a stale cache hit) — for a manual re-ingest",
+    )
     args = p.parse_args(argv)
 
     conn = connect()
     try:
-        results = ingest_thesis(conn, UUID(args.thesis), allow_live=not args.no_live)
+        results = ingest_thesis(
+            conn,
+            UUID(args.thesis),
+            allow_live=not args.no_live,
+            force_refresh=args.force_refresh,
+        )
     finally:
         conn.close()
     if _report(results):

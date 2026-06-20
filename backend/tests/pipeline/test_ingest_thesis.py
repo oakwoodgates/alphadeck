@@ -56,12 +56,22 @@ def _bars(dates):
     ]
 
 
+class _FakePriceSource:
+    """A PriceSource stub returning controlled bars (or delegating to a fn that may raise, for the
+    one-bad-name test). Injected through the YahooPriceSource seam."""
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    def get_bars(self, ticker, *, allow_live=False, force_refresh=False):
+        return self._fn(ticker)
+
+
 def _patch(monkeypatch, *, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),), eod_fn=None):
     monkeypatch.setattr(IT, "EdgarClient", _FakeClient)
     monkeypatch.setattr(IT, "fetch_submissions", lambda client, cik: _subs(accessions))
-    monkeypatch.setattr(
-        IT, "fetch_eod", eod_fn or (lambda ticker, allow_live=False: _bars(bar_dates))
-    )
+    fn = eod_fn or (lambda ticker: _bars(bar_dates))
+    monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(fn))
 
 
 # --- DB setup helpers -------------------------------------------------------------------------------

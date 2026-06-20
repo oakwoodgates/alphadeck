@@ -53,10 +53,15 @@ def run_daily(
     asof: date | None = None,
     known_at: datetime | None = None,
     allow_live: bool = True,
+    force_refresh: bool = True,
     user_agent: str | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
+
+    ``force_refresh`` defaults to **True**: the daily path is recurring, so it re-pulls fresh bars (bypassing
+    a stale cache hit) — otherwise the cron would re-ingest the same frozen cache every day and never see a
+    new bar. It threads to the price source (``eod_loader.fetch_eod``).
     """
     asof = asof or date.today()
     out: list[ThesisRunResult] = []
@@ -66,7 +71,11 @@ def run_daily(
         # failure (e.g. a malformed thesis) is captured, not fatal. A fact failure does NOT block the call.
         try:
             res.ingested = ingest_thesis(
-                conn, thesis.id, allow_live=allow_live, user_agent=user_agent
+                conn,
+                thesis.id,
+                allow_live=allow_live,
+                force_refresh=force_refresh,
+                user_agent=user_agent,
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
