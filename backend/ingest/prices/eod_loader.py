@@ -46,11 +46,18 @@ def parse_stooq_csv(text: str) -> list[dict]:
     return rows
 
 
-def fetch_csv(ticker: str, *, cache_dir: Path | None = None, allow_live: bool = False) -> str:
-    """Cache-first Stooq CSV text for a ticker; live only behind ``allow_live``."""
+def fetch_csv(
+    ticker: str,
+    *,
+    cache_dir: Path | None = None,
+    allow_live: bool = False,
+    force_refresh: bool = False,
+) -> str:
+    """Cache-first Stooq CSV text for a ticker; live only behind ``allow_live``. ``force_refresh`` (live
+    only) bypasses a cache hit to re-pull + overwrite — see ``fetch_eod`` for the why."""
     cache_dir = cache_dir or _DEFAULT_CACHE
     path = cache_dir / f"{ticker.upper()}.csv"
-    if path.exists():
+    if path.exists() and not (force_refresh and allow_live):
         return path.read_text(encoding="utf-8")
     if not allow_live:
         raise CacheMiss(f"no cached price CSV for {ticker!r} (live pulls disabled)")
@@ -104,11 +111,18 @@ def fetch_eod(
     cache_dir: Path | None = None,
     allow_live: bool = False,
     range_: str = "1y",
+    force_refresh: bool = False,
 ) -> list[dict]:
-    """Cache-first EOD bars from Yahoo Finance (free, no key). Live only behind ``allow_live``."""
+    """Cache-first EOD bars from Yahoo Finance (free, no key). Live only behind ``allow_live``.
+
+    ``force_refresh`` (meaningful ONLY together with ``allow_live``) bypasses a cache hit to re-pull live and
+    OVERWRITE the cache. The recurring/daily ingest sets it so the cron gets NEW bars instead of a frozen
+    cache hit; the dev / ``--no-live`` path leaves it ``False`` and stays cache-first (and is honored even if
+    ``force_refresh`` is set — no network without ``allow_live``). A cache MISS always fetches, so a new
+    name's first ingest is fresh regardless."""
     cache_dir = cache_dir or _DEFAULT_CACHE
     path = cache_dir / f"{ticker.upper()}.yahoo.json"
-    if path.exists():
+    if path.exists() and not (force_refresh and allow_live):
         return parse_yahoo_chart(json.loads(path.read_text(encoding="utf-8")))
     if not allow_live:
         raise CacheMiss(f"no cached EOD for {ticker!r} (live pulls disabled)")

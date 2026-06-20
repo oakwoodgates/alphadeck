@@ -98,6 +98,42 @@ Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENC
   the operator ratifies — the extractor LOCATES, the operator RATIFIES. Detail in `WORKBENCH_EXTRACTION.md`;
   the etiquette is the EDGAR etiquette above.
 
+## Free EOD prices — the price-source seam, adjustment, and cache  `[BUILT, M2a/the price-source slice]`
+
+The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-cap figure.
+
+- **Current source: Yahoo's chart API** (`query1.finance.yahoo.com/v8/finance/chart`) — free, no key, but
+  **unofficial / uncontracted** (a swap candidate, hence the seam below). **`quote.close` AND `quote.volume`
+  are already split-adjusted, and Yahoo RE-BASES the entire history on every new split** — verified live on a
+  forward (NVDA 10:1) and a reverse (LCID 1:10): pre-split bars are continuous with post-split (no
+  order-of-magnitude cliff in close or volume). This is a **property of the Yahoo adapter**, not an assumption
+  baked into the system. *(Re-basing-on-split is universal to adjusted feeds — e.g. Tiingo's docs likewise say
+  re-download when `splitFactor != 1`.)*
+- **Cache behavior.** Cache-first on disk (`data/price_cache/`) for dev and the `--no-live` path (re-runs
+  reproducible, polite). The **recurring/daily path force-refreshes** (`fetch_eod(force_refresh=True)`): it
+  re-pulls live and overwrites the cache, so the daily cron gets NEW bars instead of a frozen cache hit. A
+  cache MISS always fetches, so a new thesis's first ingest is fresh regardless.
+- **The `PriceSource` seam** (`ingest/prices/source.py`). The source sits behind a `get_bars(ticker, *,
+  allow_live, force_refresh) -> [normalized EOD bars]` interface; `YahooPriceSource` and `StooqPriceSource`
+  are adapters; the ingest path depends on the interface, so swapping the source is changing an **adapter**,
+  not a rewrite. The contract is "a source of EOD bars", not "Yahoo's adjusted bars" — a future raw-prices +
+  corporate-actions adapter isn't boxed out. (Deliberately no `get_splits` yet — that extends the interface
+  if/when we adopt an own-the-adjustment source.)
+
+> **KNOWN LIMITATION (deferred, not a silent bug): mixed-basis bars across a FUTURE split.** Because the
+> adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is
+> incremental (`d > latest_bar_date`), a thesis that lives ACROSS a future split accumulates **old-basis
+> stored bars + new-basis appended bars** → a distorted `volume_breakout` ratio over that window. **Trigger:**
+> a tracked thesis living across a future split (NOT the demo — the seeded names have no splits, and a fresh
+> thesis pulls a continuous whole-history-adjusted series). **Two resolution paths, deferred to the
+> source-strategy decision (post-MVP):** (a) keep Yahoo and **re-version** restated bars (re-store a bar when
+> the fresh value differs), or (b) move to a **raw + splits** source and **own the adjustment at read time**
+> (raw bars are immutable → no re-basing → the limitation dissolves).
+
+> **Cancelled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
+> split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
+> + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
+
 ## Point-in-time discipline (applies to every source)
 
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
