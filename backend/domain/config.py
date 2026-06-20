@@ -175,40 +175,10 @@ class CallConfig(DomainModel):
         "cash + equivalents + all marketable securities (current and noncurrent)"
     )
 
-    # --- LLM seam (M4b — the FLAG-explanation drafter, the FIRST LLM call) — operational dials only ---
-    # The one LLM seam in an otherwise-deterministic system: a plain-English explanation of an extracted
-    # FLAG candidate, grounded in its located passage, shown ALONGSIDE the raw text (an aid to the ratify,
-    # never the ratify). The PROMPT + structured-output schema live with the module (llm/flag_explanation.py,
-    # per CLAUDE.md); only these operational dials live here, under the same no-magic-number discipline.
-    # There is deliberately NO `enabled` flag — the absence of ANTHROPIC_API_KEY is the off switch
-    # (fail-open: no key -> no explanation, the facts panel works exactly as today).
-    llm_model: str = (
-        "claude-haiku-4-5-20251001"  # fast/cheap — a display aid, not a sourced number;
-    )
-    # the Sonnet bump (claude-sonnet-4-6) is the ADHERENCE lever if it ever states a final value (the one
-    # part of the bound that rests on the prompt, not the rail — see docs / the slice plan).
-    llm_max_tokens: int = 256  # <=2 sentences — an output ceiling and a cost guard
-    llm_timeout_s: float = (
-        10.0  # fail-open FAST if the API hangs (the panel must never block on it)
-    )
-
-    # --- LLM seam (S5 — the narrative→chain DECOMPOSE drafter, the SECOND LLM call) — operational dials ---
-    # Decomposing a narrative into a value chain is reasoning-heavy and IS the product (a weak chain defeats
-    # the name-selection flaw-patch), so this seam runs on SONNET, NOT the Haiku flag dials above — kept
-    # separate so the flag drafter is undisturbed. Prompt + tool schema live with the module
-    # (llm/chain_decomposition.py); only these operational dials live here. Fail-open like the flag seam (no
-    # ANTHROPIC_API_KEY -> the draft endpoint is a no-op). Staged decomposition is the deferred fallback if a
-    # single call underperforms (a logged trigger, not a default).
-    llm_decompose_model: str = "claude-sonnet-4-6"  # reasoning-heavy; the chain IS the product
-    llm_decompose_max_tokens: int = (
-        2000  # a whole value chain (segments + names + prose), not a sentence
-    )
-    llm_decompose_timeout_s: float = (
-        # Measured ~13s fast-path for a 3-segment chain (a 2000-token reasoning call); 20s overran on tail
-        # latency and failed OPEN (an empty draft), so the seam looked broken to the operator. 60s gives
-        # ~4.5x headroom for this on-demand action — the rare slow wait beats a silently lost draft.
-        60.0
-    )
+    # The LLM-seam operational dials (llm_model / llm_max_tokens / llm_timeout_s + the decompose_* siblings)
+    # moved to `domain/settings.py` (the env-overridable Settings), with their rationale comments verbatim:
+    # they are OPERATIONAL knobs an operator should change with an env edit, not trust-validated call-engine
+    # tuning. Everything above stays here, deliberately NOT env-overridable — the file boundary is the line.
 
     @property
     def own_conviction_kinds(self) -> frozenset[Kind]:

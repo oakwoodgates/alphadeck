@@ -13,6 +13,10 @@ dependencies = [
     # together and regenerate the contract (backend/openapi.json + the FE src/api/types.gen.ts).
     "fastapi==0.136.3",
     "pydantic==2.13.4",
+    # pydantic-settings pinned EXACTLY too: it depends on pydantic with a floor (>=2.7), so an unpinned bump
+    # could resolve pydantic UP and drift the byte-reproducible openapi.json (the CI diff-guard). 2.14.2 keeps
+    # pydantic at 2.13.4 (verified: `pip freeze` unchanged). Bump it only alongside the fastapi/pydantic pin.
+    "pydantic-settings==2.14.2",  # the typed Settings home (domain/settings.py) — env-overridable operational config
     "psycopg[binary]>=3.1",
     "httpx>=0.27",
     "uvicorn>=0.29",  # to serve: python -m uvicorn app.main:app --reload

@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from domain.config import DEFAULT_CONFIG
+from domain.settings import get_settings
 
 
 class LLMUnavailable(RuntimeError):
@@ -34,14 +34,20 @@ class LLMClient:
         model: str | None = None,
         max_tokens: int | None = None,
         timeout_s: float | None = None,
+        base_url: str | None = None,
     ) -> None:
         self.allow_live = allow_live
-        # read the key inside the client, exactly as EdgarClient reads ALPHADECK_USER_AGENT
+        # read the key inside the client, exactly as EdgarClient reads ALPHADECK_USER_AGENT — a LATE read of
+        # ANTHROPIC_API_KEY (Settings declares it for the inventory, but this env read is the off-switch, so a
+        # test that delenv's the key after import still gates offline). `or` is deliberate: ""/unset -> env.
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        # operational dials default from CallConfig (the no-magic-number home), overridable per call
-        self.model = model or DEFAULT_CONFIG.llm_model
-        self.max_tokens = max_tokens or DEFAULT_CONFIG.llm_max_tokens
-        self.timeout_s = timeout_s or DEFAULT_CONFIG.llm_timeout_s
+        # operational dials default from Settings (the env-overridable home), overridable per call. `is None`
+        # (NOT `or`): an explicit 0 / 0.0 / "" override must be honored, never silently coalesced to the default.
+        _s = get_settings()
+        self.model = model if model is not None else _s.llm_model
+        self.max_tokens = max_tokens if max_tokens is not None else _s.llm_max_tokens
+        self.timeout_s = timeout_s if timeout_s is not None else _s.llm_timeout_s
+        self.base_url = base_url if base_url is not None else _s.anthropic_base_url
 
     def draft_structured(
         self, *, system: str, user: str, tool: dict[str, Any]
@@ -58,7 +64,11 @@ class LLMClient:
 
         import anthropic  # lazy — like httpx in EdgarClient._fetch
 
-        client = anthropic.Anthropic(api_key=self.api_key, timeout=self.timeout_s)
+        # base_url only when truthy — None/"" means the SDK default (api.anthropic.com); base_url="" is broken.
+        kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_s}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        client = anthropic.Anthropic(**kwargs)
         resp = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
