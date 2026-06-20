@@ -204,7 +204,10 @@ class CallConfig(DomainModel):
         2000  # a whole value chain (segments + names + prose), not a sentence
     )
     llm_decompose_timeout_s: float = (
-        20.0  # fail-open if the API hangs (a longer call than the flag aid)
+        # Measured ~13s fast-path for a 3-segment chain (a 2000-token reasoning call); 20s overran on tail
+        # latency and failed OPEN (an empty draft), so the seam looked broken to the operator. 60s gives
+        # ~4.5x headroom for this on-demand action — the rare slow wait beats a silently lost draft.
+        60.0
     )
 
     @property
