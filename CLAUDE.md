@@ -110,6 +110,9 @@ pip (no `uv`); run from `backend/` with the venv active (or set `$env:PYTHONPATH
 # full stack — one command: Postgres + API (migrates + seeds HIMS on start) + the SPA behind nginx
 docker compose up --build                                # app: localhost:8080 · API/docs: localhost:8000/docs
 
+# + the daily call-of-record cron ("feeds itself", M2d) — DISABLED by default; opt in via the `cron` profile
+docker compose --profile cron up -d --build             # adds the cron sidecar (daily @ US close, America/New_York)
+
 # infra only — Postgres for the local backend dev loop
 docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
 
@@ -126,6 +129,8 @@ python -m pipeline.seed                                 # seed the HIMS demo the
 python -m pipeline.populate_master --live               # load the SEC universe into the master (UA req'd)
 python -m uvicorn app.main:app --reload                 # serve the API (127.0.0.1:8000)
 python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from the CLI
+python -m pipeline.ingest_thesis --thesis <id>          # ingest a thesis's back-half facts (Form 4 + EOD)
+python -m pipeline.daily                                 # the cron's unit: refresh facts + log each thesis's call-of-record
 pytest                                                   # tests (DB tests skip if no Postgres)
 ruff check . ; black --check .                          # lint + format
 

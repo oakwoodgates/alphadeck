@@ -44,6 +44,25 @@ services:
       retries: 12
       start_period: 20s # cover migrate + seed before failures count
 
+  # The daily call-of-record cron — "the platform feeds itself" (M2d). DISABLED by default: it runs ONLY
+  # under the `cron` profile (`docker compose --profile cron up`), so `docker compose up`, local dev, and
+  # tests never fire it. Shares the backend image; the idempotent `pipeline.daily` CLI is the unit of work,
+  # this sidecar is just the trigger (scripts/daily_cron.sh sleeps until the US-close time, then runs it).
+  cron:
+    profiles: ["cron"]
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
+      ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-} # the daily run does LIVE EDGAR/Yahoo pulls
+      TZ: ${ALPHADECK_CRON_TZ:-America/New_York} # explicit TZ — schedule at US market close, never UTC
+      RUN_AT: ${ALPHADECK_CRON_AT:-22:30} # HH:MM in TZ — after the US close + EOD settle
+      # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
+    depends_on:
+      backend:
+        condition: service_healthy # the API migrates + seeds on start; the cron needs the ready DB
+    command: ["sh", "/app/scripts/daily_cron.sh"]
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     depends_on:
