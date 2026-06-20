@@ -3,7 +3,14 @@
 > Working reference doc. Captures the high-level goals and design converged on during planning.
 > Scope: equities first (US), with commodities / crypto / prediction markets as later additions.
 > Codename: **Alpha Deck**.
-> This doc is the *design rationale* (the "why"). Stack, UI surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; the live sequencing in `docs/ROADMAP.md`.
+> This doc is the *design rationale* (the "why"). Stack, UI surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; **how the platform feeds itself** in `docs/FEED_LOOP.md`; the front door (narrative → chain) in `docs/CHAIN_DRAFTER.md`; the live sequencing in `docs/ROADMAP.md`.
+>
+> **Status — the MVP is COMPLETE.** Both halves on one spine are built: the **front-half loop closes**
+> (narrative → draft → ratify → promote → extract → score — S5 + the create-thesis front door, M1) and the
+> **back half feeds itself** (the per-thesis ingest + the daily call-of-record cron, M2). The **North Star is
+> reachable end to end on real data.** *Trust caveat (kept honest):* the calls are tuned **in-sample (n=19)**,
+> and "feeds itself daily" is the DATA loop — **not** forward validation. The **live Scoreboard** (the forward
+> trust loop) is the post-MVP open. See `ROADMAP.md`.
 
 ---
 

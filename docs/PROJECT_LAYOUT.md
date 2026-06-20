@@ -5,14 +5,17 @@
 > `ROADMAP.md` (sequencing), and `CLAUDE.md` (how to build). For the *why* of any subsystem, follow the doc
 > links; this is the *where*.
 >
-> **As of the S5 capstone (`main` through PR #65):** both halves of the loop are built. Back half — the
-> bitemporal store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed, the M5
-> per-member menu + theme arming, the replay harness + recalibration + the production-tenant cut. Front half
-> (the Workbench) — scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, and **the two
-> LLM seams** (the FLAG-explanation drafter + the narrative→chain drafter, S5). The front-half loop closes end
-> to end: **narrative → draft → ratify → promote → extract → score.** Suite: **221 backend** (pytest; DB-backed
-> tests skip without Postgres) + **27 frontend** (vitest); `ruff` + `black` + `tsc` + `vite build` clean; CI
-> runs them + the openapi↔types drift guard on every PR.
+> **As of the MVP (`main` through PR #73):** both halves are built **and the platform feeds itself.** Back
+> half — the bitemporal store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed,
+> the M5 per-member menu + theme arming, the replay harness + recalibration + the production-tenant cut. Front
+> half (the Workbench) — scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, **the two
+> LLM seams** (FLAG-explanation + narrative→chain, S5), and the **create-thesis front door** (M1). The **M2
+> feed loop** — the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the
+> scheduling sidecar — makes it **feed itself** (`FEED_LOOP.md`). The front-half loop closes end to end
+> (**narrative → draft → ratify → promote → extract → score**) and the back half feeds the promoted thesis its
+> call-engine facts. Suite: **249 backend** (pytest; DB-backed tests skip without Postgres) + **35 frontend**
+> (vitest); `ruff` + `black` + `tsc` + `vite build` clean; CI runs them + the openapi↔types drift guard on
+> every PR.
 
 ## Tracked hierarchy
 
@@ -20,7 +23,7 @@
 alphadeck/
 ├── CLAUDE.md                       # agent working agreements + invariants + the live vocabulary/commands
 ├── README.md                       # what it is, the stack table, v1 scope
-├── docker-compose.yml              # full stack: Postgres + backend (migrates+seeds on start) + SPA/nginx
+├── docker-compose.yml              # full stack: Postgres + backend + SPA/nginx; + a DISABLED-by-default `cron` sidecar (M2; --profile cron)
 ├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, ...
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
@@ -28,6 +31,7 @@ alphadeck/
 ├── docs/                           # THE CANON (see the doc index in PROJECT_OVERVIEW)
 │   ├── PROJECT_OVERVIEW.md · ROADMAP.md · CALL_LOGIC.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / S5)
+│   ├── FEED_LOOP.md                                          # the back half feeds itself (M2: ingest + cron + seam)
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
 │   ├── RECALIBRATION.md · RECALIBRATION_PASS_001.md   # the post-MVP tuning agenda + pass 001 (in-sample n=19)
 │   └── mockups/                    # the Board/Cockpit/Workbench visual targets
@@ -39,7 +43,8 @@ alphadeck/
 │       ├── cockpit/Cockpit.tsx                    # the Cockpit (one thesis's call)
 │       ├── components/{CallCard,MemberMenu}.tsx   # the call card + the M5 per-member ranked menu
 │       ├── workbench/                             # the front half
-│       │   ├── Workbench.tsx                      #   the page (NARRATIVE › DECOMPOSE › SCORE › PROMOTE)
+│       │   ├── Workbench.tsx                      #   the page (NARRATIVE › DECOMPOSE › SCORE › PROMOTE) + the create/edit form (M1)
+│       │   ├── ThesisFields.tsx                    #   M1: the name + narrative form (shared by create + narrative-edit)
 │       │   ├── ChainEditor.tsx · useChainDraft.ts #   AUTHOR + the S5 DRAFT/RATIFY surface + the draft state machine
 │       │   ├── AddName.tsx                        #   the resolver typeahead (exact-membership pick; CIK shown)
 │       │   ├── ScoredRow.tsx · Meter.tsx          #   the four-meter scored row
@@ -48,6 +53,8 @@ alphadeck/
 │       └── {test/setup.ts, **/__tests__/*}        # vitest (vi.mock the api/hooks boundary; real component logic)
 └── backend/                        # Python: FastAPI + Pydantic + psycopg
     ├── pyproject.toml              # deps (incl. anthropic) + ruff/black/pytest cfg
+    ├── Dockerfile                  # the FastAPI image (python:3.11-slim + tzdata, for the cron sidecar's explicit TZ)
+    ├── scripts/daily_cron.sh       # M2: the cron sidecar's sleep-loop trigger (sleeps to US-close, fires pipeline.daily)
     ├── domain/                     # THE SPINE — Pydantic schemas (the backend↔frontend contract)
     │   ├── base.py                 #   DomainModel (extra="forbid")
     │   ├── enums.py                #   State/Verdict/Grade/Role/Kind · Archetype · Authorship (drafted/operator)
@@ -69,9 +76,10 @@ alphadeck/
     │   ├── insider_conviction.py · volume_breakout.py · catalyst_conviction.py · theme_conviction.py
     │   └── dilution_clock.py · scan.py · base.py (PointInTimeData)
     ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live)
-    │   ├── edgar/{client,submissions,form4,converts,extract}.py   # SEC client + Form 4 + convert reader + the scoring-fact extractor
+    │   ├── http.py                                               # polite_get: 429/5xx retry + Retry-After (shared by EDGAR + prices)
+    │   ├── edgar/{client,submissions,form4,converts,extract}.py   # SEC client + Form 4 (+ existing_accessions) + converts + extractor
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
-    │   ├── prices/eod_loader.py                                   # EOD bars
+    │   ├── prices/{eod_loader,source}.py                          # EOD bars (+ latest_bar_date, force_refresh) · the PriceSource seam (Yahoo/Stooq)
     │   └── {cash_burn,revenue_mix,shares,catalyst,theme_conviction}.py   # the ratify bridges (write fact_*)
     ├── securities/                 # entity resolution → the security master
     │   ├── master.py               #   search (discovery net) · resolve · populate_universe (broadener) · exists · get
@@ -80,9 +88,11 @@ alphadeck/
     │   ├── session.py · bitemporal.py (as_of / as_of_thesis / append_fact) · migrate.py
     │   └── migrations/0001…0011    #   …0008 workbench_chain · 0009 scoring_facts · 0010 note · 0011 thesis_fit
     ├── repositories/               # the row↔domain seam (raw rows never escape)
-    │   └── mappers.py · thesis_repo.py (get/list_all/upsert) · calls_repo.py
+    │   └── mappers.py · thesis_repo.py (get/list_all/upsert) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical)
     ├── pipeline/                   # thin orchestration / CLIs
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
+    │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
+    │   ├── daily.py                #   M2: the daily call-of-record cron (ingest → assemble → record_if_changed)
     │   ├── populate_master.py      #   the SEC-universe broadener CLI
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py             #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares)
@@ -95,12 +105,14 @@ alphadeck/
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · run.py
     ├── seed_data/                  # committed REAL inputs (HIMS demo, DOE fixtures) — read by seed + tests
-    └── tests/                      # 221 tests; DB-backed ones skip if Postgres is unreachable
+    └── tests/                      # 249 tests; DB-backed ones skip if Postgres is unreachable
         ├── conftest.py             #   db / security_id fixtures (db TRUNCATEs the spine + facts + master)
         ├── workbench/              #   test_scoring · test_extract_golden · test_chain_draft (the resolver/Oklo-trap)
         ├── llm/                    #   test_flag_explanation · test_chain_decomposition (fake client; no network)
         ├── app/test_workbench_api.py   # promote guard · ratify · explain · draft-chain (writes-nothing/fail-open)
         ├── db/test_tenant_isolation.py # the poison-row proof — grows with each new read surface
+        ├── pipeline/test_ingest_thesis.py · test_daily.py  # M2: count-the-table idempotency · fail-visible · no-lookahead · tenant
+        ├── ingest/test_price_source.py · test_http.py       # M2: the fresh-data force-refresh + the seam · polite_get (429/5xx)
         └── calls/ · signals/ · ingest/ · securities/ · repositories/ · pipeline/ · replay/ · app/
 ```
 
@@ -121,12 +133,16 @@ alphadeck/
   EDGAR/Form-4 + the detectors + scan; Checkpoint A (computed Armed HIMS call); the catalyst subsystem + the
   DOE feed; M5 (per-member menu + theme arming); Phase 1 (replay harness + recalibration pass 001 + the
   production-tenant cut, isolation poison-row-proven); the Workbench — scoring (the four meters), authoring,
-  the extract → ratify hybrid, the SEC-universe broadener, and the two LLM seams (FLAG-explanation + the
-  narrative→chain drafter, S5). **The front-half loop closes end to end.**
-- **Not built yet:** the **create-thesis-from-a-new-narrative UI** (the deferred S5 entry point — the drafter
-  operates on an existing thesis's narrative; the known front-half gap); the **live Scoreboard** (the forward
-  trust loop — parked, arrives with live use); Phase-3 breadth (laggard scanner, ETF radar, more catalyst
-  sources, umbrella hierarchy, live LLM counter-case) — by appetite. See `ROADMAP.md`.
+  the extract → ratify hybrid, the SEC-universe broadener, the two LLM seams (FLAG-explanation + the
+  narrative→chain drafter, S5), the **create-thesis front door** (M1 — #67/#68), and the **M2 feed loop**
+  (the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
+  sidecar — #70/#71/#72/#73). **The front-half loop closes end to end AND the back half feeds itself**
+  (`FEED_LOOP.md`) — the MVP.
+- **Not built yet:** the **live Scoreboard** (the forward trust loop — parked, arrives with live use → the
+  second, out-of-sample recalibration); the **deferred restatement re-version** + the **source-strategy A/B
+  decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
+  the **cron-scaling refinement** (ingest active theses daily, dormant less); Phase-3 breadth (laggard scanner,
+  ETF radar, more catalyst sources, umbrella hierarchy, live LLM counter-case) — by appetite. See `ROADMAP.md`.
 
 ## Flags for the reviewer (current)
 

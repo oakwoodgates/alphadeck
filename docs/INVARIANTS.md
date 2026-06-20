@@ -72,6 +72,14 @@ member, else `404`.
   `tests/workbench/test_chain_draft.py`); the promote membership guard + honored-authorship
   (`app/routers/workbench.py`; `tests/app/test_workbench_api.py`). See `CHAIN_DRAFTER.md`.
 
+**The M2 back-half ingest honors the same rule on the WRITE side.** `pipeline.ingest_thesis` targets each
+basket member's already-resolved `security_id` via `master.get` (issuer ticker + CIK) — **never a fresh fuzzy
+resolve**; an unresolved member is skipped and a foreign id reported, never guessed. (It adds no invariant; it
+honors this one.) See `FEED_LOOP.md`.
+
+- *Enforced by:* `pipeline.ingest_thesis` (resolves via `master.get`, skips null / foreign ids;
+  `tests/pipeline/test_ingest_thesis.py`).
+
 ## 3. Provenance to a real, checkable source on every trigger
 
 Every fired trigger carries provenance that resolves to a **real source** — a working EDGAR Form-4 URL, a
@@ -92,6 +100,10 @@ replay stays honest.
 - *Enforced by:* `db/bitemporal.as_of` (security-scoped) + `as_of_thesis` (thesis-scoped, e.g.
   `fact_theme_conviction`), both delegating to the shared `_as_of`; the append-only DB trigger; the
   correction-axis test (`tests/ingest/test_pit.py` / the bitemporal tests).
+- *Also honored by (M2):* the per-thesis ingest leaves `recorded_at` to the DB default `now()` — **never
+  backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
+  is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,
+  the no-lookahead test). See `FEED_LOOP.md`.
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -117,6 +129,12 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
 
 - *Enforced by:* the assembler takes `cfg` + `asof` as parameters; determinism golden tests; the read path
   recomputes via `pipeline/call_for_thesis`.
+- *Also honored by (M2 — Option B intact):* the daily cron (`pipeline.daily`) appends the day's call-of-record
+  via `calls_repo.record_if_changed` — idempotent (the `calls` log is immutable [`no_update`] + non-unique, so
+  a conditional append, not an UPSERT) — but it builds **no read-serving signal/score cache**; the serve path
+  still recomputes from facts, and the log is never read back to serve. (`_canonical` makes the compare
+  order-independent so a pure reorder can't re-append; `tests/repositories/test_calls_repo.py`,
+  `tests/pipeline/test_daily.py`.) See `FEED_LOOP.md`.
 
 ## 7. Factor behavior on the property that drives it — never on grade-as-a-bundle or signal kind
 
