@@ -12,7 +12,7 @@
 2. **A gitignored cache** of live API pulls (`data/`) — a local mirror so we respect rate limits and re-runs are reproducible. **Safe to delete** (it re-pulls on demand). Not the source of truth.
 3. **Build artifacts** — `app/openapi.json` (the frontend's type source), produced on demand.
 
-And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (the serve path writes nothing; the batch `pipeline.run` appends the call of record to the `calls` log for accountability, and that log is never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
+And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (the serve path writes nothing; the batch `pipeline.run` and the daily cron append the call of record to the `calls` log for accountability, and that log is never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
 
 ## The pipeline
 
