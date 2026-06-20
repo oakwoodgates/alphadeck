@@ -3,18 +3,9 @@
 
 import type { ProvenanceOut, ScoredFigureOut } from "../api/hooks";
 
-const ARCH_LABEL: Record<string, string> = {
-  leader: "leader",
-  high_beta: "high-beta",
-  lotto: "lotto",
-  shovel: "shovel",
-  adjacent: "adjacent",
-  fund: "ETF sleeve",
-};
-
-export function archLabel(archetype: string): string {
-  return ARCH_LABEL[archetype] ?? archetype;
-}
+// archLabel + its ARCH_LABEL map moved to the shared util/format (the Cockpit board uses it too); re-exported
+// here so the Workbench / ChainEditor call sites import it unchanged.
+export { archLabel } from "../util/format";
 
 /** The basket-member archetypes the operator classifies a name as (the add-a-name form). */
 export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;

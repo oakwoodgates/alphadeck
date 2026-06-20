@@ -9,6 +9,8 @@ import {
   verdictLabel,
 } from "../util/format";
 
+type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
+
 // The rail: the opinionated, auditable call. Recomputed live at `card.asof` (the read path).
 export function CallCard({ card }: { card: CallCardResponse }) {
   const sc = STATE_CLASS[card.state] ?? "incub";
@@ -67,32 +69,9 @@ export function CallCard({ card }: { card: CallCardResponse }) {
         {triggers.length > 0 && (
           <div className="trg">
             <div className="trg-h">Triggers fired</div>
-            {triggers.map((t, i) => {
-              const url = (t.sources ?? []).find((s) => s.url)?.url;
-              return (
-                <div className="trg-item hit" key={i}>
-                  <span className="ic">◉</span>
-                  <span>
-                    {t.ticker && <span className="trg-tk">{t.ticker}</span>}
-                    {t.label}
-                    {t.grade && (
-                      <>
-                        {" · "}
-                        <span className={`grade ${gradeClass(t.grade)}`}>{t.grade.toUpperCase()}</span>
-                      </>
-                    )}
-                    {url && (
-                      <>
-                        {" "}
-                        <a href={url} target="_blank" rel="noreferrer">
-                          ↗ source
-                        </a>
-                      </>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+            {triggers.map((t, i) => (
+              <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade />
+            ))}
           </div>
         )}
 
@@ -111,26 +90,9 @@ export function CallCard({ card }: { card: CallCardResponse }) {
         {(card.risk_signals ?? []).length > 0 && (
           <div className="trg">
             <div className="trg-h">Risk signals</div>
-            {(card.risk_signals ?? []).map((r, i) => {
-              const url = (r.sources ?? []).find((s) => s.url)?.url;
-              return (
-                <div className="trg-item warn" key={i}>
-                  <span className="ic">▲</span>
-                  <span>
-                    {r.ticker && <span className="trg-tk">{r.ticker}</span>}
-                    {r.label}
-                    {url && (
-                      <>
-                        {" "}
-                        <a href={url} target="_blank" rel="noreferrer">
-                          ↗ source
-                        </a>
-                      </>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+            {(card.risk_signals ?? []).map((r, i) => (
+              <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
+            ))}
           </div>
         )}
 
@@ -234,6 +196,45 @@ function Key({
         {label}
       </div>
       <div className="kd">{detail}</div>
+    </div>
+  );
+}
+
+// One trigger / risk-signal row: ticker chip · label · (optional grade) · (optional source link). Triggers
+// pass showGrade + the hit variant (◉); risk signals don't (warn variant, ▲). The single source for the row.
+function TriggerRow({
+  item,
+  icon,
+  variant,
+  showGrade,
+}: {
+  item: TriggerLike;
+  icon: string;
+  variant: "hit" | "warn";
+  showGrade: boolean;
+}) {
+  const url = (item.sources ?? []).find((s) => s.url)?.url;
+  return (
+    <div className={`trg-item ${variant}`}>
+      <span className="ic">{icon}</span>
+      <span>
+        {item.ticker && <span className="trg-tk">{item.ticker}</span>}
+        {item.label}
+        {showGrade && item.grade && (
+          <>
+            {" · "}
+            <span className={`grade ${gradeClass(item.grade)}`}>{item.grade.toUpperCase()}</span>
+          </>
+        )}
+        {url && (
+          <>
+            {" "}
+            <a href={url} target="_blank" rel="noreferrer">
+              ↗ source
+            </a>
+          </>
+        )}
+      </span>
     </div>
   );
 }
