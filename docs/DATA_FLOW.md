@@ -41,8 +41,8 @@ And the load-bearing choice that *makes* it auditable: **signals are never store
                        │
                        ▼
         Call-assembler  ──►  CallCard        ◄── pure; recomputed on every read (serve path
-                       │                         writes nothing; the batch pipeline.run appends
-                       │                         the call of record to `calls`, never read back)
+                       │                         writes nothing; pipeline.run + the daily cron
+                       │                         append the call of record to `calls`, never read back)
                        ▼
         FastAPI   /theses/{id}/call?asof=   ──►  Board + Cockpit  (M3b)
                        │
@@ -75,7 +75,7 @@ flowchart TD
     SPINE --> ASM
     DET -->|"SignalEvent[]"| ASM["Call-assembler<br/>(recomputed on read)"]
     ASM -->|CallCard| API["FastAPI /call?asof="]
-    ASM -.->|"batch pipeline.run logs<br/>the call of record"| CALLS
+    ASM -.->|"pipeline.run + the daily cron<br/>log the call of record"| CALLS
     API --> UI["Board + Cockpit (M3b)"]
     API --> OAPI
 ```

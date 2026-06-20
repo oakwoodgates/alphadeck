@@ -120,7 +120,7 @@ alphadeck/
 
 - `.env` — the real secrets (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`, …). Copy from `.env.example`. Docker
   Compose injects it into the backend container; the local dev loop reads the same names from the shell.
-- `backend/.venv/` — the Python 3.13 venv.
+- `backend/.venv/` — the project venv (stdlib venv + pip; the image pins Python 3.11, `requires-python >=3.11`).
 - `data/` — on-disk caches of live pulls (`edgar_cache/`, `price_cache/`, `figi_cache/`, `sec_cache/`, `doe_cache/`).
 - Local **Postgres** via Docker Compose (`localhost:5544`, the shared `pgdata` volume). The demo DB
   (`alphadeck`) holds the seed + the populated master; **tests run against `alphadeck_test`** (the `db`

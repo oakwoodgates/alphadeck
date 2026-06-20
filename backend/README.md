@@ -1,17 +1,19 @@
 # Alpha Deck — backend
 
-Python project root. Packages (built through M3a):
+Python project root. Packages (the file-by-file map is `docs/PROJECT_LAYOUT.md`):
 
-- `domain/` — the spine: `Thesis`, `SignalEvent`, `CallCard`, `CallConfig` (Pydantic).
+- `domain/` — the spine: `Thesis`, `Segment`, `BasketMember`, `SignalEvent`, `CallCard`, `CallConfig` (Pydantic).
 - `calls/` — the **call-assembler**: pure, deterministic, golden-tested `assemble_call(...)`.
-- `signals/` — pure detectors: `insider_conviction` (Key 1, warms), `volume_breakout` (Key 2, arms), `scan`.
-- `ingest/` — cached/polite EDGAR client + Form 4 parse; EOD prices (Yahoo, Stooq parser as fallback).
+- `signals/` — pure detectors: `insider_conviction` (Key 1, warms), `volume_breakout` (Key 2, arms), `catalyst_conviction`, `theme_conviction`, `dilution_clock`, `scan`.
+- `ingest/` — cached/polite ingest bricks: the EDGAR client + Form 4 (+ `http.polite_get`'s 429/5xx backoff); the **PriceSource seam** (`prices/source.py` — `get_bars`; Yahoo/Stooq adapters; the recurring path **force-refreshes**); the DOE catalyst feed; the ratify bridges (`revenue_mix` / `shares` / `cash_burn`).
 - `db/` — bitemporal Postgres store: migrations, `as_of(asof, known_at)` reads, append-only facts.
-- `securities/` — canonical security master + entity resolution (OpenFIGI + SEC CIK, cache-first).
-- `repositories/` — row↔domain mappers + `thesis_repo` / `calls_repo` (raw rows never escape).
-- `pipeline/` — `call_for_thesis` (re-derive signals from facts → assemble → log), `seed`, `run` CLIs.
-- `app/` — FastAPI: `GET /theses`, `/theses/{id}`, `/theses/{id}/call?asof=` + the `schemas_api` wire contract.
-- (later) `llm/` (M4b), `replay/` (M5).
+- `securities/` — canonical security master + entity resolution (`search` discovery net · `populate_universe` broadener · OpenFIGI + SEC CIK, cache-first).
+- `workbench/` — the scorer (the four pip meters, re-derived on read) + `chain_draft` (the exact-membership resolver).
+- `llm/` — the two LLM seams (`flag_explanation` + `chain_decomposition`), model-agnostic, fail-open, SDK lazy-imported.
+- `repositories/` — row↔domain mappers + `thesis_repo` / `calls_repo` (`append` · `record_if_changed`); raw rows never escape.
+- `pipeline/` — `call_for_thesis` (re-derive → assemble → log); **`ingest_thesis`** (M2 per-thesis back-half ingest) + **`daily`** (the call-of-record cron); `seed` / `run` / `populate_master` / `provision_tenant` / `ratify_*` CLIs.
+- `replay/` — the DuckDB/Parquet point-in-time backtest harness.
+- `app/` — FastAPI: `/theses` · `/theses/{id}/call?asof=` · `/workbench/*` (scored · securities · extract · facts · promote · draft-chain) + the `schemas_api` wire contract.
 
 ## Dev setup
 
@@ -19,7 +21,7 @@ Python project root. Packages (built through M3a):
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" pytest ruff black
+.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" "anthropic>=0.40" pytest ruff black
 ```
 
 ## Database
@@ -65,4 +67,21 @@ curl "http://127.0.0.1:8000/theses/<thesis-id>/call?asof=2026-06-01"   # state: 
 curl "http://127.0.0.1:8000/theses/<thesis-id>/call?asof=2026-05-28"   # state: warming
 ```
 
-`app/openapi_export.py` dumps `openapi.json` — the frontend (M3b) generates its TS types from it.
+## Feed the platform (M2 — `docs/FEED_LOOP.md`)
+
+Pull a thesis's back-half facts (insider Form 4 + EOD) so it can WARM/ARM, then run the daily
+call-of-record cron. Both are **idempotent** (a re-run on unchanged data appends nothing):
+
+```powershell
+$env:PYTHONPATH = "backend"
+backend\.venv\Scripts\python -m pipeline.ingest_thesis --thesis <thesis-id>   # per-thesis back-half ingest (incremental, fail-visible)
+backend\.venv\Scripts\python -m pipeline.daily                                # per thesis: ingest -> assemble -> append the call-of-record
+```
+
+Or run the daily cron as the **disabled-by-default sidecar** in the full stack (US-close schedule):
+
+```powershell
+docker compose --profile cron up -d --build                                   # off unless the `cron` profile is set
+```
+
+`app/openapi_export.py` dumps `openapi.json` — the frontend generates its TS types from it (`npm run gen:api`).

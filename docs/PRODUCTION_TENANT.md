@@ -45,6 +45,11 @@ tenant, so a production thesis would have read demo facts. Step 3 threads it:
    always passes it.) Threading the read but hardcoding the write would **split the record across tenants**
    — a production read with a demo call-of-record. `CallCard` itself is unchanged (the tenant is a column
    on the `calls` row, not a card field), so the `card` JSON and the API wire models are byte-identical.
+   **The M2 daily cron (`pipeline.daily`) is now the primary recurring writer of the call-of-record, and it
+   is tenant-correct by this same threading:** its conditional append, `calls_repo.record_if_changed`, calls
+   `append(conn, card, thesis.tenant_id)` — the tenant rides the append exactly as on the batch path, so the
+   cron's call-of-record lands in the thesis's tenant too. (Its read goes through `call_for_thesis`'s
+   tenant-threaded `record=False` path above; parallel to the `DATA_FLOW.md` writer note.)
 3. **API ticker resolution.** `app/routers/theses.py::get_call` loads the thesis (404 if absent) and threads
    `thesis.tenant_id` into `master.ciks_for` / `master.tickers_for` — because the security master is
    per-tenant (below), a production thesis's tickers resolve from production's master, not demo's.
