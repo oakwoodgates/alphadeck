@@ -6,3 +6,8 @@ Dockerfile         text eol=lf
 .dockerignore      text eol=lf
 docker-compose.yml text eol=lf
 *.conf             text eol=lf
+
+# The externalized LLM system prompts (refactor S3) stay LF so the bytes the model sees are stable across
+# platforms. The loader also normalizes newlines at read time (belt + suspenders); the golden-hash test pins
+# the model-visible bytes regardless, but eol=lf keeps the committed file clean.
+backend/llm/prompts/*.md text eol=lf

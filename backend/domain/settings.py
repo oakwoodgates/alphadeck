@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     # + a test seam at zero cost today (nothing sets it). Read at the field name ALPHADECK_ANTHROPIC_BASE_URL.
     anthropic_base_url: str | None = None
 
+    # The two LLM SYSTEM_PROMPTs live in files (backend/llm/prompts/*.md, Slice 3) so a prompt tweak is a
+    # one-file PR. The loader caches after first read; set ALPHADECK_PROMPT_RELOAD=true in dev to re-read per
+    # call (iterate the prose without a restart). Prod leaves it off — load once.
+    prompt_reload: bool = False
+
     # --- Base URLs (Slice 2): the host/prefix is config, the PATH is logic (the builders append it) ---
     # Three distinct SEC hosts modeled separately (data.sec.gov · www.sec.gov/Archives · www.sec.gov/files),
     # so a copy-paste can't point one builder at another's host. Bases carry NO trailing slash; the builders

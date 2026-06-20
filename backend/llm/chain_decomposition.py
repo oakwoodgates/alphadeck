@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from llm.prompt_loader import load_prompt
+
 # The structured-output contract — the model MUST call this tool; we read back its validated input. STRUCTURE
 # + names + reasoning ONLY: there is no value/score/number field anywhere in the schema (INVARIANT #1).
 DECOMPOSE_TOOL: dict[str, Any] = {
@@ -85,25 +87,6 @@ DECOMPOSE_TOOL: dict[str, Any] = {
     },
 }
 
-SYSTEM_PROMPT = """\
-You decompose an investment narrative into a value chain for an analyst. Output ONLY structure, company \
-names, and short reasoning — you are a drafting aid, never a decision and never a recommendation.
-
-Rules:
-- Break the narrative into 2 to 6 value-chain SEGMENTS (links in the chain, e.g. "Reactor developers", \
-"Enrichment & fuel", "Utilities / offtake").
-- In each segment, list real, publicly-listed US companies you believe sit there. For each give: its common \
-NAME; your BEST-GUESS US exchange TICKER (we verify every ticker against our own security master, so a wrong \
-guess just costs the analyst a manual pick — always give your best guess, but never fabricate any OTHER \
-fact); and ONE sentence (at most 25 words) on why it sits in this segment, grounded in the narrative.
-- You are FORBIDDEN from emitting ANY number: no price, market cap, valuation, percentage, share count, \
-cash, runway, revenue, dollar figure, date, or catalyst value. Those come from a separate deterministic \
-system, never from you. If tempted to cite a figure, describe it in words or omit it.
-- Do not rank, size, or recommend; do not say which name is "best".
-- This reasoning is DRAFTED text for the analyst to ratify or rewrite, not fact.
-
-Always answer by calling the draft_value_chain tool."""
-
 
 def decompose_narrative(client: Any, narrative: str) -> dict[str, Any] | None:
     """Draft a value-chain decomposition from a narrative. Returns the validated tool input
@@ -118,9 +101,12 @@ def decompose_narrative(client: Any, narrative: str) -> dict[str, Any] | None:
     """
     if not narrative or not narrative.strip():
         return None
+    # fail-loud: a missing prompt file is a deploy bug, raised HERE (outside the fail-open try below) so it
+    # surfaces instead of being swallowed into an empty draft.
+    system = load_prompt("chain_decompose")
     try:
         out = client.draft_structured(
-            system=SYSTEM_PROMPT, user=f"Narrative:\n{narrative.strip()}", tool=DECOMPOSE_TOOL
+            system=system, user=f"Narrative:\n{narrative.strip()}", tool=DECOMPOSE_TOOL
         )
     except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
         return None
