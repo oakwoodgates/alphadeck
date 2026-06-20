@@ -6,7 +6,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect, current_tenant_id
-from domain.config import DEFAULT_CONFIG
+from domain.settings import get_settings
 from llm.client import LLMClient
 
 
@@ -36,9 +36,10 @@ def get_decompose_client() -> LLMClient:
     ``get_llm_client``, on its OWN dials (``llm_decompose_*``) so the Haiku flag drafter is undisturbed.
     Overridden in tests with a fake; fail-open by contract (no ``ANTHROPIC_API_KEY`` -> the draft endpoint
     returns an empty draft and hand-authoring is untouched)."""
+    _s = get_settings()
     return LLMClient(
         allow_live=True,
-        model=DEFAULT_CONFIG.llm_decompose_model,
-        max_tokens=DEFAULT_CONFIG.llm_decompose_max_tokens,
-        timeout_s=DEFAULT_CONFIG.llm_decompose_timeout_s,
+        model=_s.llm_decompose_model,
+        max_tokens=_s.llm_decompose_max_tokens,
+        timeout_s=_s.llm_decompose_timeout_s,
     )
