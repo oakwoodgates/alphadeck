@@ -3,13 +3,12 @@
 This is the env-mutable sibling of ``CallConfig`` (``domain/config.py``), kept in a SEPARATE file on purpose:
 ``CallConfig`` holds the trust-validated (n=19) call-engine dials that must NEVER be silently env-overridden
 (an env override of a validated threshold would change the calls); ``Settings`` holds the operational knobs —
-LLM model dials, and in later slices the base URLs + throttle — that an operator SHOULD be able to change with
-a ``.env`` / environment edit, not a code edit. The file boundary IS the "don't env-override a validated
-threshold" boundary.
+LLM model dials, base URLs, throttle — that an operator SHOULD be able to change with a ``.env`` / environment
+edit, not a code edit. The file boundary IS the "don't env-override a validated threshold" boundary.
 
 Access rule (LOAD-BEARING — D5 of the refactor plan):
-- ``get_settings()`` is a cached singleton — use it for STABLE config (the LLM dials now; base URLs + rate
-  limits in Slice 2). It reads the process env ONCE.
+- ``get_settings()`` is a cached singleton — use it for STABLE config (LLM dials, base URLs, throttle, the
+  user-agent / OpenFIGI key). It reads the process env ONCE.
 - The few env vars the test suite toggles AFTER import — ``DATABASE_URL``, ``ALPHADECK_TENANT_ID``,
   ``ANTHROPIC_API_KEY`` — are DECLARED here for the typed inventory but are still read LATE at their edge
   (``db.session`` / ``LLMClient``), NEVER off the cached instance. A module-level ``Settings()`` frozen at
@@ -82,6 +81,36 @@ class Settings(BaseSettings):
     # + a test seam at zero cost today (nothing sets it). Read at the field name ALPHADECK_ANTHROPIC_BASE_URL.
     anthropic_base_url: str | None = None
 
+    # --- Base URLs (Slice 2): the host/prefix is config, the PATH is logic (the builders append it) ---
+    # Three distinct SEC hosts modeled separately (data.sec.gov · www.sec.gov/Archives · www.sec.gov/files),
+    # so a copy-paste can't point one builder at another's host. Bases carry NO trailing slash; the builders
+    # join with an explicit "/" (the slash-join discipline — a trailing slash here would double it). Defaults
+    # == the exact pre-refactor literals (byte-identity gated). Override per host with ALPHADECK_<FIELD>.
+    sec_data_base: str = "https://data.sec.gov"  # submissions + companyfacts XBRL
+    sec_archives_base: str = (
+        "https://www.sec.gov/Archives/edgar/data"  # filing docs + the provenance index link
+    )
+    sec_company_tickers_url: str = (
+        "https://www.sec.gov/files/company_tickers.json"  # the full fixed file URL
+    )
+    stooq_base: str = "https://stooq.com"
+    yahoo_chart_base: str = "https://query1.finance.yahoo.com"
+    openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
+    usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
+    usaspending_award_url_base: str = (
+        "https://www.usaspending.gov/award"  # the human award link (a catalyst source_ref)
+    )
+
+    # --- Throttle (Slice 2): per-client rate limits + HTTP timeouts ---
+    # Rate limits are per-client API etiquette (SEC 8/s, USASpending 5/s). Timeouts are shared at 30s for the
+    # SEC / Stooq / FIGI GETs and 60s for the heavier USASpending POST — the pre-refactor values exactly.
+    # polite_get's BACKOFF (retries/base/cap) stays an injectable function default (retry mechanics, not deploy
+    # config) — see ingest/http.py.
+    edgar_rate_per_sec: float = 8.0
+    usaspending_rate_per_sec: float = 5.0
+    http_timeout_s: float = 30.0  # EdgarClient + Stooq fetch + sec_tickers + FIGI
+    usaspending_timeout_s: float = 60.0
+
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These three are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL +
     # ALPHADECK_TENANT_ID; an LLM test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,
@@ -100,15 +129,25 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY")
     )
+    # Also secrets/deploy values, but NOT toggled by any test post-import (verified) — so these ride the
+    # cached get_settings() at their edge (EdgarClient / UsaSpendingClient / sec_tickers / figi), unlike the
+    # three above. user_agent maps to ALPHADECK_USER_AGENT via the prefix (alias for symmetry); openfigi_api_key
+    # NEEDS the alias (its legacy name is unprefixed).
+    user_agent: str | None = Field(
+        default=None, validation_alias=AliasChoices("ALPHADECK_USER_AGENT")
+    )
+    openfigi_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("OPENFIGI_API_KEY")
+    )
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """The cached ``Settings`` singleton for STABLE config (the LLM dials now; base URLs + rate limits in
-    Slice 2). Reads the process env ONCE.
+    """The cached ``Settings`` singleton for STABLE config (the LLM dials, base URLs, throttle, and the
+    user-agent / OpenFIGI key). Reads the process env ONCE.
 
     Do NOT use this for ``DATABASE_URL`` / ``ALPHADECK_TENANT_ID`` / ``ANTHROPIC_API_KEY`` — those are read
-    late at the edge (see the module docstring). A test that overrides an ``ALPHADECK_*`` dial must call
+    late at the edge (see the module docstring). A test that overrides an ``ALPHADECK_*`` field must call
     ``get_settings.cache_clear()`` after monkeypatching the env.
     """
     return Settings()

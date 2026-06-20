@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import polite_get
 
@@ -41,12 +41,13 @@ class EdgarClient:
         cache_dir: Path | None = None,
         allow_live: bool = False,
         user_agent: str | None = None,
-        max_per_sec: float = 8.0,
+        max_per_sec: float | None = None,
     ) -> None:
         self.cache_dir = cache_dir or _DEFAULT_CACHE
         self.allow_live = allow_live
-        self.user_agent = user_agent or os.environ.get("ALPHADECK_USER_AGENT")
-        self._rate = RateLimiter(max_per_sec)
+        s = get_settings()
+        self.user_agent = user_agent or s.user_agent
+        self._rate = RateLimiter(max_per_sec if max_per_sec is not None else s.edgar_rate_per_sec)
 
     def get_text(self, url: str, cache_key: str) -> str:
         path = self.cache_dir / cache_key
@@ -70,6 +71,9 @@ class EdgarClient:
         # The token bucket throttles BEFORE each attempt (pre=acquire); polite_get adds 429/5xx backoff
         # on top, so a rate-limit response is retried politely instead of aborting the run.
         resp = polite_get(
-            url, headers={"User-Agent": self.user_agent}, timeout=30, pre=self._rate.acquire
+            url,
+            headers={"User-Agent": self.user_agent},
+            timeout=get_settings().http_timeout_s,
+            pre=self._rate.acquire,
         )
         return resp.text

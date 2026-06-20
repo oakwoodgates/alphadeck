@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 
 
 def submissions_url(cik: str | int) -> str:
-    return f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json"
+    return f"{get_settings().sec_data_base}/submissions/CIK{int(cik):010d}.json"
 
 
 def fetch_submissions(client: EdgarClient, cik: str | int) -> dict[str, Any]:
@@ -42,6 +43,4 @@ def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:
     the parseable raw XML is the same filename in the accession root, so we drop the ``xsl.../`` dir.
     """
     doc = primary_doc.rsplit("/", 1)[-1]
-    return (
-        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/" f"{accession.replace('-', '')}/{doc}"
-    )
+    return f"{get_settings().sec_archives_base}/{int(cik)}/{accession.replace('-', '')}/{doc}"
