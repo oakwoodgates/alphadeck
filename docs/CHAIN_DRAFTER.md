@@ -147,9 +147,22 @@ With no key, both seams degrade to no-output and the rest of the app is unaffect
 `scripts/run_5b_draft_check.ps1` is the repeatable live check: rebuild + restart, draft a chain from a
 narrative, and scan every prose string for a number (the manual no-number gate).
 
-## The known gap — no create-thesis-from-new-narrative UI yet  `[FILED]`
+## The create-thesis front door  `[BUILT — #67 / #68]`
 
-The drafter operates on an **existing** thesis's narrative (`/theses/{id}/draft-chain`, mirroring the scored
-read). There is **no UI yet to start a thesis from a NEW narrative** — the deferred S5 entry point. Today a
-thesis is created via `POST /workbench/theses` (promote) or the seed; the create-thesis surface is the next
-front-half slice (`ROADMAP.md`).
+The drafter operates on a thesis's narrative — and the front door to **create** that thesis from a NEW
+narrative is now built (M1, the last front-half gap). The whole loop runs from the UI:
+- **"+ New thesis" (M1a, #67)** — a small form (name + narrative) in the Workbench header, rendered even with
+  zero theses. Submit calls the existing promote endpoint with a **null id**
+  (`usePromoteThesis().mutateAsync({ id: null, basket: [], segments: [] })`) — the upsert's create branch, **no
+  new write path** — then switches to the new (Incubating) thesis, ready for **"Draft from narrative."** So:
+  **create → land in the editor → draft → ratify → promote.** Frontend-only (the backend create path already
+  existed; a fact-less new thesis reads Incubating because state is computed on read).
+- **Narrative editing after create (M1b, #68)** — the same `ThesisFields` form, pre-filled, opened from a
+  quiet "✎ Edit" next to the narrative. The edit branch resends the SAME id **and the existing basket +
+  segments** — the **WIPE-TRAP**: because promote is a full-replace upsert, an edit that sent empty arrays
+  would wipe the authored chain, so it must resend them (a vitest asserts the chain survives an edit). A
+  non-blocking "narrative changed — consider re-drafting" hint; the chain is never auto-wiped.
+
+With these, the front-half loop is complete from a blank narrative: **create → (edit) → draft → ratify →
+extract → score → promote.** After promote, the back half feeds the thesis its call-engine facts — see
+`FEED_LOOP.md`.

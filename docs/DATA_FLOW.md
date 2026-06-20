@@ -12,7 +12,7 @@
 2. **A gitignored cache** of live API pulls (`data/`) — a local mirror so we respect rate limits and re-runs are reproducible. **Safe to delete** (it re-pulls on demand). Not the source of truth.
 3. **Build artifacts** — `app/openapi.json` (the frontend's type source), produced on demand.
 
-And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (the serve path writes nothing; the batch `pipeline.run` appends the call of record to the `calls` log for accountability, and that log is never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
+And the load-bearing choice that *makes* it auditable: **signals are never stored, and the call you're served is recomputed from the facts on every read** (the serve path writes nothing; the batch `pipeline.run` and the daily cron append the call of record to the `calls` log for accountability, and that log is never read back to serve). There is no hidden "signals" layer that can drift — what you see is always the current facts run through the current code, with provenance attached.
 
 ## The pipeline
 
@@ -41,8 +41,8 @@ And the load-bearing choice that *makes* it auditable: **signals are never store
                        │
                        ▼
         Call-assembler  ──►  CallCard        ◄── pure; recomputed on every read (serve path
-                       │                         writes nothing; the batch pipeline.run appends
-                       │                         the call of record to `calls`, never read back)
+                       │                         writes nothing; pipeline.run + the daily cron
+                       │                         append the call of record to `calls`, never read back)
                        ▼
         FastAPI   /theses/{id}/call?asof=   ──►  Board + Cockpit  (M3b)
                        │
@@ -75,7 +75,7 @@ flowchart TD
     SPINE --> ASM
     DET -->|"SignalEvent[]"| ASM["Call-assembler<br/>(recomputed on read)"]
     ASM -->|CallCard| API["FastAPI /call?asof="]
-    ASM -.->|"batch pipeline.run logs<br/>the call of record"| CALLS
+    ASM -.->|"pipeline.run + the daily cron<br/>log the call of record"| CALLS
     API --> UI["Board + Cockpit (M3b)"]
     API --> OAPI
 ```
@@ -89,9 +89,9 @@ flowchart TD
 | EDGAR / price / FIGI raw responses | **cache** of live pulls | `data/` | on a live fetch (cache-first) | no (gitignored) |
 | `openapi.json` | build artifact | `backend/app/` | when you run `openapi_export` | no (generated) |
 | Resolved securities | identity (mutable) | **Postgres** `security_master` | on resolve / seed / **populate** (the broadener) | n/a (DB) |
-| Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed | n/a (DB) |
+| Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed / the per-thesis `ingest_thesis` + the daily cron (incremental) | n/a (DB) |
 | Thesis + basket (incl. `segment` / `authored_by` / `thesis_fit`) + evidence/catalyst/kill | the spine (operational) | **Postgres** | on `upsert` / promote / seed | n/a (DB) |
-| Assembled calls | accountability **log** | **Postgres** `calls` | one row per batch `pipeline.run` (never on a `/call` GET) | n/a (DB) |
+| Assembled calls (the call-of-record) | accountability **log** | **Postgres** `calls` | by batch `pipeline.run`, or per (thesis, day) by the daily cron's `record_if_changed` (only on change); never on a `/call` GET | n/a (DB) |
 | `SignalEvent[]` | **recomputed** | nowhere — in memory | **every read** | n/a |
 | `CallCard` | **recomputed** | in memory (a copy → `calls`) | **every read** | n/a |
 | Narrative → chain **draft** | **recomputed** (response-only) | nowhere — returned by `/draft-chain`, never stored | **every Draft click** | n/a |
@@ -103,12 +103,32 @@ flowchart TD
 - **Are files written each time?**
   - *Seeding / tests:* **no** — they read the committed fixtures and write to the **database**.
   - *Live pulls* (when you fetch a name from EDGAR/Yahoo): **yes, but only the `data/` cache** — one file per unique upstream request, cache-first, gitignored, deletable. It's a politeness/repro mirror, never the source of truth.
-  - *Serving a call* (`/call?asof=`): **zero files and zero writes** — it reads the DB and recomputes; the `calls` log is written only by the batch `pipeline.run`.
+  - *Serving a call* (`/call?asof=`): **zero files and zero writes** — it reads the DB and recomputes; the `calls` log is written only by the batch `pipeline.run` / the daily cron, never by a GET.
 
 ## Read path vs. write path
 
-- **Write (ingest):** sources → (cache) → `fact_*` tables. Append-only: a correction is a *new row* with a later `recorded_at`, never an overwrite. The thesis spine is upserted; evidence is append-only.
-- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard` — and **writes nothing** (a GET is safe/idempotent; a refetch or as-of scrub accretes no rows). The call of record is logged separately by the batch `pipeline.run`, and `calls` is **never read back to serve**. (The log *is* readable for accountability — `calls_repo.list_for_thesis` / `latest_for_thesis`, and the future Scoreboard.)
+- **Write (ingest):** sources → (cache) → `fact_*` tables. Append-only: a correction is a *new row* with a later `recorded_at`, never an overwrite. The back-half facts (insider Form 4 + EOD) are written by the per-thesis `ingest_thesis` + the daily cron, through the swappable **price-source seam** (`get_bars` — Yahoo/Stooq adapters), **incrementally** (only new bars / unseen filings, so a re-run appends nothing). The thesis spine is upserted; evidence is append-only.
+- **Read (serve a call):** `/theses/{id}/call?asof=` loads the thesis, **re-derives** the dated signals from the facts as-of that date, runs the assembler, and returns the `CallCard` — and **writes nothing** (a GET is safe/idempotent; a refetch or as-of scrub accretes no rows). The call of record is logged separately — by the batch `pipeline.run` or the **daily cron** (`record_if_changed`, appended only on change) — and `calls` is **never read back to serve**. (The log *is* readable for accountability — `calls_repo.list_for_thesis` / `latest_for_thesis`, and the future Scoreboard.)
+
+## The feed loop (M2 — how the platform feeds itself)
+
+The create/promote path writes only the spine, so a fresh thesis has no call-engine facts and stays
+Incubating. **M2 closes that** (full detail: `FEED_LOOP.md`):
+
+- **The per-thesis ingest** (`pipeline.ingest_thesis`) loops a thesis's **resolved** basket (`master.get`,
+  exact membership #2) and writes the back-half **facts** (insider Form 4 → `fact_insider_txn`, EOD →
+  `fact_price_eod`) — **incrementally** (only unseen accessions / bars newer than the latest stored), each leg
+  fail-visible, `recorded_at=now` (no-lookahead). Prices flow through the **price-source seam** (`get_bars` —
+  Yahoo / Stooq adapters, swappable); the recurring path **force-refreshes** (a cache hit returns stale).
+- **The daily cron** (`pipeline.daily`) does this per thesis (`list_all`), then **assembles the day's call
+  WITHOUT writing** (`call_for_thesis(record=False)`) and **appends the call-of-record only if it changed**
+  (`record_if_changed`; `asof=today`, `known_at=now`).
+- **The call-of-record is the forward RECORD** the Scoreboard will later track — one clean versioned row per
+  (thesis, day); Scoreboard-**ready**, not Scoreboard-**coupled**.
+- **Option B is intact.** The cron writes **facts + the call-of-record log** — it builds **no read-serving
+  signal/score cache.** Signals + the call still re-derive on every read; `calls` is the write-only
+  accountability record, never the serve path. *("Feeds itself" is the DATA loop — it is **not** "validated
+  forward"; that is the parked Scoreboard.)*
 
 ## Why this isn't a black box
 

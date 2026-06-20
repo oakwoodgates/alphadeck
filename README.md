@@ -52,8 +52,8 @@ Four surfaces; three clickable mockups exist in `docs/mockups/` (Board+Cockpit, 
 
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), basket with archetype tags, evidence, catalyst calendar, and the live **call card**.
-- **Workbench** — the front half: drop in a narrative, get the decomposed "section headline" lists, pull names into a basket that spawns a thesis. *(v1: stubbed)*
-- **Scoreboard** — review/calibration: platform calls vs your decisions vs the counterfactual; override log; outcome attribution. *(v1: stubbed)*
+- **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
+- **Scoreboard** — review/calibration: platform calls vs your decisions vs the counterfactual; override log; outcome attribution. *(Post-MVP — the forward trust loop; still parked.)*
 
 **Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm instrument panel. The UI *is* the gate.
 
@@ -107,7 +107,7 @@ alpha-deck/
 
 **In:** the Board + Cockpit surfaces; the thesis object + lifecycle; the SEC/filing intelligence brick (insider-conviction, dilution clock, 8-K classification) feeding both halves; the laggard scanner; the opinionated call layer with override logging; the point-in-time data foundation.
 
-**Stubbed:** Workbench and Scoreboard surfaces.
+**Built since (the MVP):** the **Workbench** (the full front half — scoring, authoring, the extract → ratify hybrid, the two LLM seams, and the create-thesis front door) + the **M2 feed loop** (per-thesis back-half ingest + the daily call-of-record cron). **Still parked:** the **Scoreboard** (the forward trust loop). See `docs/ROADMAP.md`.
 
 **Out** (see CLAUDE.md): trade execution / brokerage writes; intraday/streaming; options-gamma & paid borrow data; crypto / commodities / prediction markets; runtime auth & multi-tenancy.
 
@@ -121,11 +121,22 @@ alpha-deck/
 
 ## Status
 
-**M3a complete — Checkpoint A is reached and served.** A single real thesis (HIMS) flows end to end on
-real data: SEC Form 4 + EOD → the bitemporal store → pure detectors (insider conviction, volume
-breakout) → the golden-tested call-assembler → `GET /theses/{id}/call?asof=`, producing a computed,
-evidence-linked **Armed** call (currently a `starter_entry`: core conviction, momentum-only
-confirmation). Built so far: the domain spine, the bitemporal Postgres foundation, the SEC brick + the
-two detectors, thesis persistence + repositories + the assembly pipeline, and the FastAPI layer.
-**Next (M3b):** the Board + Cockpit UI rendering the call over generated TS types. Build/run/test
-commands live in `CLAUDE.md`.
+**The MVP is complete** — both halves on one spine are built and the platform feeds itself. A thesis flows
+end to end on real data: **create from a new narrative → draft the value chain (the LLM seam) → ratify the
+names + facts → promote → the back half ingests insider + price → it WARMS/ARMS → the daily cron logs the
+call-of-record.**
+
+Built: the domain spine + the bitemporal Postgres foundation; the SEC brick + the detectors + the
+golden-tested call-assembler (`GET /theses/{id}/call?asof=` → computed, evidence-linked Armed calls); the
+catalyst subsystem + the automated DOE feed; the M5 per-member menu + theme arming; Phase 1 (the replay
+harness + recalibration + the production-tenant cut); the Board + Cockpit UI; and the **Workbench** — scoring
+(the four meters), authoring, the extract → ratify hybrid, the SEC-universe broadener, the two LLM seams
+(FLAG-explanation + the narrative → chain drafter), and the create-thesis front door. The **M2 feed loop** —
+the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
+sidecar — makes it feed itself. Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
+[`docs/FEED_LOOP.md`](docs/FEED_LOOP.md). Build/run/test commands: [`CLAUDE.md`](CLAUDE.md).
+
+**Trust state (kept honest):** the calls are tuned **in-sample** (n=19; `docs/RECALIBRATION_PASS_001.md`).
+"The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard** (the
+forward trust loop: platform calls vs the operator's decisions vs the follow-blindly counterfactual) is the
+**post-MVP open, still parked** — the daily call-of-record is the forward record it will track.

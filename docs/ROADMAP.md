@@ -40,10 +40,26 @@ exact-membership **resolver** + the **promote write-guard** (#61); the **Sonnet 
 name (exact membership decides; a drafted name stays unscored until extract → ratify), and promotes. Full
 detail: `CHAIN_DRAFTER.md`. Docs are current as of this pass; the old M0–M5 build plan stays historical.
 
-**What's next: the create-thesis UI** — the deferred S5 entry point. The drafter operates on an *existing*
-thesis's narrative; there is **no UI yet to start a thesis from a NEW narrative** (today a thesis is created
-via promote or the seed). That surface closes the last front-half gap. After it, the **live Scoreboard** (the
-forward trust loop) and the **Phase-3 breadth** stay parked (below), by appetite.
+**The MVP is COMPLETE.** The last front-half gap — the **create-thesis front door** (M1: a "+ New thesis"
+form → the existing promote create-branch → land in the editor → Draft-from-narrative, #67; plus narrative
+editing, #68) — is built. And the **back half now feeds itself** (M2): the per-thesis back-half ingest (#70),
+the daily call-of-record cron (#71), the fresh-data fix + the price-source seam (#72), and the scheduling
+sidecar (#73). **The North Star is reachable end to end:** create a thesis from a new narrative →
+`ingest_thesis` pulls real insider + price → it WARMS/ARMS on real data → the daily cron logs the
+call-of-record. See `FEED_LOOP.md` (how the platform feeds itself) + `CHAIN_DRAFTER.md` (the front door).
+
+> **Keep the trust state honest.** "The platform feeds itself daily" is TRUE; **"the forward trust loop is
+> closed" is NOT** — that is the **Scoreboard**, still parked. M2 is platform PLUMBING, not the call engine; it
+> did not change the trust validation (still in-sample, n=19, `RECALIBRATION_PASS_001.md`). The daily
+> call-of-record is the forward RECORD the Scoreboard will later track — **Scoreboard-ready, not
+> Scoreboard-coupled.** Do not round "feeds itself" up to "validated forward."
+
+**What's next (post-MVP, by appetite — laid out in the MVP-finish section below):** the **live North-Star
+walkthrough** (the operator's manual proof on a real thesis — not a build); the **source-strategy A-vs-B
+decision** (keep Yahoo + re-version restated bars, vs raw+splits + own the adjustment at read time —
+`DATA_SOURCES.md` has the detail); then the **live Scoreboard** (the forward trust loop → the second,
+out-of-sample recalibration), the operator's **frontend-edits round**, the deferred **restatement re-version**,
+and the **Phase-3 breadth**.
 
 ## Organizing principle — two halves on one spine
 
@@ -204,10 +220,11 @@ LLM seam** (#59) — all listed below. **Slice 5 (the narrative → chain drafte
     name enters ONLY by an explicit pick), ABSENT is shown-not-placed; accept → `operator_set`, edit →
     `operator_edited`; merge-not-replace. Plus the **`ANTHROPIC_API_KEY` / `.env` wiring** (#63 — before it,
     neither LLM seam worked in the deployed stack).
-- **Next — the create-thesis entry point `[NEXT]`** — there is **no UI yet to start a thesis from a NEW
-  narrative**: the drafter operates on an *existing* thesis's narrative (today a thesis is created via promote
-  or the seed). The deferred S5 entry point + the last front-half gap. After it, the live Scoreboard + the
-  Phase-3 breadth, by appetite.
+- **The create-thesis entry point `[BUILT — #67 / #68]`** — the "+ New thesis" form (name + narrative) → the
+  existing promote endpoint's **create branch** (id=null) → land in the editor → Draft-from-narrative (#67);
+  plus **narrative editing** that preserves the chain (the wipe-trap, #68). The deferred S5 entry point, now
+  built — **the last front-half gap closed.** Detail: `CHAIN_DRAFTER.md`. *(This completes M1; the back-half
+  feed — M2 — and the MVP declaration are the next section.)*
 
 ### Decisions locked (design pass)
 - **Curation:** surface **and score every candidate**, pre-tag a *suggested* basket; the operator makes the
@@ -275,6 +292,54 @@ the thesis**, even though the MVP drafts fresh and doesn't yet read from saved c
   *emerges* from the existing two-key arming applied link by link (links light up on the Board in sequence),
   made legible by the living-Workbench layer. Reactive and disciplined, never predictive.
 - **Taxonomy accrual, the per-thesis knowledge base, liquidity, short interest** also sit here.
+
+---
+
+## MVP finish — the front door + the platform feeds itself  `[COMPLETE — #67 / #68 / #70 / #71 / #72 / #73]`
+
+The two milestones that close the MVP: **M1** finishes the front-half loop (create a thesis from a new
+narrative in the UI); **M2** makes the back half **feed itself** (per-thesis ingest of the call-engine facts +
+a daily call-of-record cron). With both, the **North Star is reachable end to end on real data.**
+
+**M1 — the create-thesis authoring loop (front half).**
+- **#67 — the "+ New thesis" front door** — a name+narrative form → the existing promote endpoint's create
+  branch (id=null) → land in the editor → Draft-from-narrative. Frontend-only (the backend create path existed).
+- **#68 — narrative editing** — the same `ThesisFields` form, pre-filled; the edit branch resends the existing
+  basket + segments (the wipe-trap). `CHAIN_DRAFTER.md`.
+
+**M2 — the platform feeds itself (the back-half data loop).** Full detail: `FEED_LOOP.md`.
+- **#70 — the per-thesis back-half ingest** (`pipeline.ingest_thesis`) — loops the RESOLVED basket
+  (`master.get`, exact membership #2); Form 4 + price legs each fail-visible; INCREMENTAL (a re-run appends
+  nothing — the count-the-table gate); `recorded_at=now` (no-lookahead); polite (≤8 req/s + 429/5xx backoff).
+- **#71 — the daily call-of-record cron** (`pipeline.daily`) — per thesis: ingest → assemble (`record=False`)
+  → `record_if_changed` (append only if changed — the immutable calls log forces a conditional append;
+  `_canonical` is the order-independent, float-rounded compare). Per-thesis isolation; `asof=today` /
+  `known_at=now`; Option B intact (facts + the call-of-record log, no read-serving signal/score cache).
+- **#72 — the fresh-data fix + the PriceSource seam** — the recurring path FORCE-REFRESHES (cache-first
+  returns stale otherwise); the `get_bars` interface makes the source swappable (Yahoo/Stooq adapters). The
+  old parser split-adjustment was **CANCELLED** (Yahoo already adjusts close+volume) and the restatement
+  re-version **DEFERRED** — both canonized in `DATA_SOURCES.md`.
+- **#73 — the scheduling sidecar** — a docker-compose `cron` profile (**DISABLED by default**) running a dumb
+  sleep-loop trigger at an explicit US-close TZ; the CLI is the unit, the sidecar a swappable trigger.
+
+**The done-gate met:** create a thesis from a new narrative → `ingest_thesis` → it WARMS/ARMS on real
+insider+price → the daily cron logs the call-of-record. **That is the MVP.** *(Trust caveat: feeds-itself ≠
+validated-forward — see "Where we are" + Parked.)*
+
+### What's next (post-MVP, by appetite — the next chapter, made legible)
+- **The live North-Star walkthrough** — the operator's manual proof on a real thesis (create → ingest → an
+  Armed call on real data). Not a build; the satisfying "prove the whole loop" gate.
+- **The source-strategy A-vs-B decision** — a documented, waiting decision: **(A)** keep Yahoo + re-version the
+  restated bars, or **(B)** move to a raw+splits source and own the adjustment at read time (dissolves the
+  re-version). `DATA_SOURCES.md` has the detail + the two paths.
+- **The live Scoreboard** — the forward trust loop (the forward twin of replay) → the **second, out-of-sample
+  recalibration** (vs the in-sample n=19). The daily call-of-record is its forward record (built ready).
+- **The operator's frontend-edits round** — polish, by appetite.
+- **The deferred restatement re-version** — once the source strategy is decided (`FEED_LOOP.md` /
+  `DATA_SOURCES.md`).
+- **Cron scaling refinement (newly tracked):** decouple the cron's "record ALL theses" (cheap — keep) from
+  "ingest ALL theses daily" (expensive — live pulls). As theses accumulate, ingest **active** theses daily and
+  dormant ones less often. Fine at today's scale; jotted so it doesn't evaporate.
 
 ---
 
