@@ -96,3 +96,19 @@ def ingest_form4(
         append_fact(conn, "fact_insider_txn", values)
         count += 1
     return count
+
+
+def existing_accessions(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> set[str]:
+    """The Form-4 accessions already ingested for (tenant, security) — so the per-thesis ingest can SKIP a
+    filing it already has and re-ingest ONLY new ones. Accession is the right grain: it is the filing
+    identity and the lead column of the insider natural key, so "accession present" ⇔ "its txns stored".
+    A re-run of an already-ingested name therefore appends NOTHING (the append-only table never silently
+    grows)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT accession FROM fact_insider_txn WHERE tenant_id = %s AND security_id = %s",
+            (tenant_id, security_id),
+        )
+        return {r["accession"] for r in cur.fetchall()}

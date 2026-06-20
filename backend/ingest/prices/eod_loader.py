@@ -12,6 +12,7 @@ import psycopg
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from ingest import CacheMiss
+from ingest.http import polite_get
 
 # Free EOD source. Stooq's free CSV is now apikey/captcha-gated, so the live default is Yahoo Finance
 # (free, no key); the loader stays swappable (DATA_SOURCES: Stooq / Tiingo-free / equivalent).
@@ -53,10 +54,7 @@ def fetch_csv(ticker: str, *, cache_dir: Path | None = None, allow_live: bool = 
         return path.read_text(encoding="utf-8")
     if not allow_live:
         raise CacheMiss(f"no cached price CSV for {ticker!r} (live pulls disabled)")
-    import httpx
-
-    resp = httpx.get(stooq_url(ticker), timeout=30)
-    resp.raise_for_status()
+    resp = polite_get(stooq_url(ticker), timeout=30)  # 429/5xx backoff (D6 politeness)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(resp.text, encoding="utf-8")
     return resp.text
@@ -114,14 +112,11 @@ def fetch_eod(
         return parse_yahoo_chart(json.loads(path.read_text(encoding="utf-8")))
     if not allow_live:
         raise CacheMiss(f"no cached EOD for {ticker!r} (live pulls disabled)")
-    import httpx
-
-    resp = httpx.get(
+    resp = polite_get(  # 429/5xx backoff (D6 politeness)
         yahoo_chart_url(ticker, range_),
         timeout=30,
         headers={"User-Agent": "Mozilla/5.0 (Alpha Deck research)"},
     )
-    resp.raise_for_status()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(resp.text, encoding="utf-8")
     return parse_yahoo_chart(resp.json())
@@ -155,3 +150,19 @@ def ingest_prices(
         append_fact(conn, "fact_price_eod", values)
         count += 1
     return count
+
+
+def latest_bar_date(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> date | None:
+    """The most-recent EOD bar date already stored for (tenant, security), or ``None`` if there are none.
+
+    The per-thesis ingest appends ONLY bars newer than this, so a re-run of an already-current name writes
+    NOTHING — the append-only table never silently grows on re-ingest (the read dedups; this stops the
+    write). A plain ``MAX`` is unaffected by duplicate versions of a date (they share ``d``)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT max(d) AS d FROM fact_price_eod WHERE tenant_id = %s AND security_id = %s",
+            (tenant_id, security_id),
+        )
+        return cur.fetchone()["d"]

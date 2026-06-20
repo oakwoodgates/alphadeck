@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from ingest.edgar.form4 import parse_form4
+from ingest.edgar.form4 import existing_accessions, ingest_form4, parse_form4
 
 _XML = (
     Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_sample.xml"
@@ -23,3 +23,15 @@ def test_parse_form4_extracts_transactions():
     assert "Chief Executive Officer" in (buy["insider_role"] or "")
 
     assert any(t["txn_code"] == "S" for t in txns)  # the sale is parsed too; the detector filters
+
+
+def test_existing_accessions_is_distinct_set(db, security_id):
+    assert existing_accessions(db, security_id) == set()  # nothing stored yet
+    # two filings (4 rows total) — the helper returns the DISTINCT accessions, not the row count
+    ingest_form4(db, security_id, _XML, "0000000000-26-000001")
+    ingest_form4(db, security_id, _XML, "0000000000-26-000002")
+    db.commit()
+    assert existing_accessions(db, security_id) == {
+        "0000000000-26-000001",
+        "0000000000-26-000002",
+    }
