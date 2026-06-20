@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Archetype, Grade, Kind, State, Verdict
 from domain.settings import get_settings
+from domain.signal import Provenance
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -62,6 +63,18 @@ class TriggerRefOut(BaseModel):
     sources: list[ProvenanceOut] = []
 
 
+def _provenance_out(p: Provenance, cik: str | None) -> ProvenanceOut:
+    """One provenance ref -> its wire form, resolving the clickable EDGAR URL from the issuer ``cik``. The
+    single place ProvenanceOut is built (reused by the trigger/risk-signal + scored-figure mappers).
+    """
+    return ProvenanceOut(
+        source=p.source,
+        ref=p.ref,
+        url=edgar_url(p.source, p.ref, cik),
+        detail=p.detail,
+    )
+
+
 def _trigger_out(
     t: TriggerRef, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
 ) -> TriggerRefOut:
@@ -70,15 +83,7 @@ def _trigger_out(
         kind=t.kind,
         grade=t.grade,
         ticker=tickers.get(t.security_id),
-        sources=[
-            ProvenanceOut(
-                source=p.source,
-                ref=p.ref,
-                url=edgar_url(p.source, p.ref, ciks.get(t.security_id)),
-                detail=p.detail,
-            )
-            for p in t.sources
-        ],
+        sources=[_provenance_out(p, ciks.get(t.security_id)) for p in t.sources],
     )
 
 
@@ -172,42 +177,8 @@ class CallCardResponse(BaseModel):
             confidence=card.confidence,
             key_conviction=card.key_conviction,
             key_confirmation=card.key_confirmation,
-            triggers_fired=[
-                TriggerRefOut(
-                    label=t.label,
-                    kind=t.kind,
-                    grade=t.grade,
-                    ticker=tickers.get(t.security_id),
-                    sources=[
-                        ProvenanceOut(
-                            source=p.source,
-                            ref=p.ref,
-                            url=edgar_url(p.source, p.ref, ciks.get(t.security_id)),
-                            detail=p.detail,
-                        )
-                        for p in t.sources
-                    ],
-                )
-                for t in card.triggers_fired
-            ],
-            risk_signals=[
-                TriggerRefOut(
-                    label=r.label,
-                    kind=r.kind,
-                    grade=r.grade,
-                    ticker=tickers.get(r.security_id),
-                    sources=[
-                        ProvenanceOut(
-                            source=p.source,
-                            ref=p.ref,
-                            url=edgar_url(p.source, p.ref, ciks.get(r.security_id)),
-                            detail=p.detail,
-                        )
-                        for p in r.sources
-                    ],
-                )
-                for r in card.risk_signals
-            ],
+            triggers_fired=[_trigger_out(t, ciks, tickers) for t in card.triggers_fired],
+            risk_signals=[_trigger_out(r, ciks, tickers) for r in card.risk_signals],
             missing=list(card.missing),
             counter_case=card.counter_case,
             safe_sleeve=card.safe_sleeve,
@@ -310,15 +281,7 @@ class ScoredMemberOut(BaseModel):
             return ScoredFigureOut(
                 pips=f.pips,
                 value=f.value,
-                provenance=[
-                    ProvenanceOut(
-                        source=p.source,
-                        ref=p.ref,
-                        url=edgar_url(p.source, p.ref, cik),
-                        detail=p.detail,
-                    )
-                    for p in f.provenance
-                ],
+                provenance=[_provenance_out(p, cik) for p in f.provenance],
             )
 
         return cls(

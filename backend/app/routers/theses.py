@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
-from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
-from app.deps import get_conn
+from app.deps import get_conn, get_thesis_or_404
 from app.schemas_api import CallCardResponse, ThesisDetail, ThesisSummary
+from domain.thesis import Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import thesis_repo
 from securities import master
@@ -21,30 +21,24 @@ def list_theses(conn: psycopg.Connection = Depends(get_conn)) -> list[ThesisSumm
 
 
 @router.get("/{thesis_id}", response_model=ThesisDetail)
-def get_thesis(thesis_id: UUID, conn: psycopg.Connection = Depends(get_conn)) -> ThesisDetail:
-    thesis = thesis_repo.get(conn, thesis_id)
-    if thesis is None:
-        raise HTTPException(status_code=404, detail="thesis not found")
+def get_thesis(thesis: Thesis = Depends(get_thesis_or_404)) -> ThesisDetail:
     return ThesisDetail.from_thesis(thesis)
 
 
 @router.get("/{thesis_id}/call", response_model=CallCardResponse)
 def get_call(
-    thesis_id: UUID,
     asof: date = Query(..., description="as-of date; the call uses no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
 ) -> CallCardResponse:
     """Recompute the CallCard live at ``asof`` — a READ-ONLY path. The signal stream is re-derived
     from the bitemporal facts (no persisted firing layer), so a given ``asof`` is deterministic and a
     refetch / as-of-slider scrub / poll writes nothing. The accountability ``calls`` log is written
     by the batch ``pipeline.run`` (the official call of record), never by this GET.
     """
-    # Load the thesis first — both for the 404 and for its tenant (auth deferred, so the tenant is
-    # intrinsic to the thesis). call_for_thesis re-loads it and threads the same tenant into every fact read.
-    thesis = thesis_repo.get(conn, thesis_id)
-    if thesis is None:
-        raise HTTPException(status_code=404, detail="thesis not found")
-    card = call_for_thesis(conn, thesis_id, asof, record=False)
+    # The thesis (loaded by get_thesis_or_404) carries its own tenant — call_for_thesis re-loads it and
+    # threads that tenant into every fact read; we reuse thesis.tenant_id for the ticker/CIK resolution below.
+    card = call_for_thesis(conn, thesis.id, asof, record=False)
     sec_ids = (
         {t.security_id for t in card.triggers_fired}
         | {r.security_id for r in card.risk_signals}

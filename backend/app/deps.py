@@ -4,10 +4,13 @@ from collections.abc import Iterator
 from uuid import UUID
 
 import psycopg
+from fastapi import Depends, HTTPException
 
 from db.session import connect, current_tenant_id
 from domain.settings import get_settings
+from domain.thesis import Thesis
 from llm.client import LLMClient
+from repositories import thesis_repo
 
 
 def get_conn() -> Iterator[psycopg.Connection]:
@@ -22,6 +25,17 @@ def get_conn() -> Iterator[psycopg.Connection]:
 def get_current_tenant() -> UUID:
     """The current deployment tenant (env-config, NOT auth). Overridable in tests, like ``get_conn``."""
     return current_tenant_id()
+
+
+def get_thesis_or_404(thesis_id: UUID, conn: psycopg.Connection = Depends(get_conn)) -> Thesis:
+    """Load the thesis for a ``/{thesis_id}`` route, or raise 404 — the shared load-or-404 the call, scored,
+    detail, and draft-chain routes all need (the thesis carries its own tenant; auth deferred). ``get_conn``
+    is request-cached, so this shares the route's connection (and the fixture conn under the test override).
+    """
+    thesis = thesis_repo.get(conn, thesis_id)
+    if thesis is None:
+        raise HTTPException(status_code=404, detail="thesis not found")
+    return thesis
 
 
 def get_llm_client() -> LLMClient:

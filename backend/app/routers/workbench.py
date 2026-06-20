@@ -7,7 +7,13 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
-from app.deps import get_conn, get_current_tenant, get_decompose_client, get_llm_client
+from app.deps import (
+    get_conn,
+    get_current_tenant,
+    get_decompose_client,
+    get_llm_client,
+    get_thesis_or_404,
+)
 from app.schemas_api import (
     ChainDraftOut,
     FlagExplanationOut,
@@ -40,16 +46,13 @@ router = APIRouter(prefix="/workbench", tags=["workbench"])
 
 @router.get("/theses/{thesis_id}/scored", response_model=WorkbenchScored)
 def get_scored(
-    thesis_id: UUID,
     asof: date = Query(..., description="as-of date; the scores use no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
 ) -> WorkbenchScored:
     """Re-derive the per-name Workbench scores live at ``asof`` — a READ-ONLY path (Option B; nothing
     persists). Mirrors the call endpoint: load the thesis (404 + its tenant), thread ``thesis.tenant_id``
     into every scoring fact read so a production thesis scores off production's facts."""
-    thesis = thesis_repo.get(conn, thesis_id)
-    if thesis is None:
-        raise HTTPException(status_code=404, detail="thesis not found")
     pit = PointInTimeData(conn, asof=asof, tenant_id=thesis.tenant_id)
     scored = score_thesis(pit, thesis)
     sec_ids = {m.security_id for m in scored}
@@ -176,9 +179,9 @@ def promote(
 
 @router.post("/theses/{thesis_id}/draft-chain", response_model=ChainDraftOut)
 def draft_chain(
-    thesis_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
     llm: LLMClient = Depends(get_decompose_client),
+    thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ChainDraftOut:
     """Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5). Read the narrative, ask the
     model for segments + names + thesis-fit prose (``llm.chain_decomposition``), then resolve every proposed
@@ -194,9 +197,6 @@ def draft_chain(
 
     Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, no tool call)
     returns 200 with an EMPTY draft, NEVER a 5xx — hand-authoring is untouched."""
-    thesis = thesis_repo.get(conn, thesis_id)
-    if thesis is None:
-        raise HTTPException(status_code=404, detail="thesis not found")
     segments = proposed_from_decomposition(decompose_narrative(llm, thesis.narrative))
     chain = resolve_placements(conn, segments, tenant_id=thesis.tenant_id)
     return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=chain.placements)
