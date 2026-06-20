@@ -13,6 +13,23 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+
+class RateLimiter:
+    """A minimal token-bucket gate: at most ``max_per_sec`` requests/second — the proactive politeness
+    throttle the cache-first clients put in front of every live fetch (pair with ``polite_get``'s ``pre``).
+    """
+
+    def __init__(self, max_per_sec: float = 8.0) -> None:
+        self._min_interval = 1.0 / max_per_sec
+        self._last = 0.0
+
+    def acquire(self) -> None:
+        wait = self._min_interval - (time.monotonic() - self._last)
+        if wait > 0:
+            time.sleep(wait)
+        self._last = time.monotonic()
+
+
 # Transient statuses worth a retry: rate-limit (429) + the standard transient 5xx. A 4xx other than 429
 # (e.g. 404) is NOT retried — it won't fix itself, so it raises straight through to the fail-visible caller.
 _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})

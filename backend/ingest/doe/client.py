@@ -2,29 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from pathlib import Path
 from typing import Any
 
 from domain.settings import get_settings
 from ingest import CacheMiss
+from ingest.http import RateLimiter
 
 # Runtime cache lives under the repo's gitignored data/; tests/seed pass the committed fixtures dir.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "doe_cache"
-
-
-class RateLimiter:
-    """A minimal token-bucket gate: at most ``max_per_sec`` requests/second (API etiquette)."""
-
-    def __init__(self, max_per_sec: float = 5.0) -> None:
-        self._min_interval = 1.0 / max_per_sec
-        self._last = 0.0
-
-    def acquire(self) -> None:
-        wait = self._min_interval - (time.monotonic() - self._last)
-        if wait > 0:
-            time.sleep(wait)
-        self._last = time.monotonic()
 
 
 class UsaSpendingClient:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +7,7 @@ from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
+from domain.coerce import to_float
 from domain.enums import Archetype, Authorship
 from domain.thesis import (
     BasketMember,
@@ -21,10 +21,6 @@ from domain.thesis import (
 
 # This module is the ONLY place raw DB rows become domain objects (and back). Raw rows never escape
 # `repositories/`; callers always receive domain types (Thesis, CallCard, ...).
-
-
-def _to_float(value: Decimal | float | None) -> float | None:
-    return float(value) if value is not None else None
 
 
 def row_to_thesis(
@@ -62,8 +58,8 @@ def _row_to_position(t: dict[str, Any]) -> Position | None:
     ):
         return None
     return Position(
-        entry_price=_to_float(t["position_entry_price"]),
-        current_price=_to_float(t["position_current_price"]),
+        entry_price=to_float(t["position_entry_price"]),
+        current_price=to_float(t["position_current_price"]),
         opened_on=t["position_opened_on"],
     )
 

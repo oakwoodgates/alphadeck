@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from ingest import CacheMiss
 from securities import master
-from securities.figi import CacheMiss
 
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIGI = _FIXTURES / "figi"

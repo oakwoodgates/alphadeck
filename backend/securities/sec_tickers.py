@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from domain.settings import get_settings
-from securities.figi import CacheMiss  # reuse the same cache-miss signal
+from ingest import CacheMiss
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "sec_cache"
