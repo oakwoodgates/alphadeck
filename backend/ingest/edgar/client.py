@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ingest import CacheMiss
+from ingest.http import polite_get
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "edgar_cache"
@@ -62,13 +63,13 @@ class EdgarClient:
         return json.loads(self.get_text(url, cache_key))
 
     def _fetch(self, url: str) -> str:
-        import httpx
-
         if not self.user_agent:
             raise RuntimeError(
                 "set ALPHADECK_USER_AGENT (SEC requires a declared User-Agent with contact)"
             )
-        self._rate.acquire()
-        resp = httpx.get(url, headers={"User-Agent": self.user_agent}, timeout=30)
-        resp.raise_for_status()
+        # The token bucket throttles BEFORE each attempt (pre=acquire); polite_get adds 429/5xx backoff
+        # on top, so a rate-limit response is retried politely instead of aborting the run.
+        resp = polite_get(
+            url, headers={"User-Agent": self.user_agent}, timeout=30, pre=self._rate.acquire
+        )
         return resp.text
