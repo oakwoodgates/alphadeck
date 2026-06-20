@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from typing import Any
 from uuid import UUID
 
 import psycopg
@@ -28,6 +30,49 @@ def append(conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_T
             {**row, "card": Json(row["card"])},
         )
         return cur.fetchone()["id"]
+
+
+def _canonical(card: CallCard) -> str:
+    """A deterministic, ORDER-INDEPENDENT serialization for the change-compare.
+
+    The CallCard has lists whose order is not load-bearing for "did the call change" (triggers, members,
+    a member's own triggers, provenance) — a pure reorder must NOT read as a change, or `record_if_changed`
+    would re-append every run. So this recursively sorts dict keys AND list elements, and rounds floats so
+    jsonb/IEEE repr noise (e.g. a `Provenance.detail` number round-tripped through jsonb) can't fake a diff.
+    (A genuinely meaningful reorder — e.g. a member rank change — is always accompanied by a changed field,
+    so sorting cannot mask it.)"""
+
+    def norm(x: Any) -> Any:
+        if isinstance(x, dict):
+            return {k: norm(x[k]) for k in sorted(x)}
+        if isinstance(x, list):
+            return sorted(
+                (norm(e) for e in x), key=lambda e: json.dumps(e, sort_keys=True, default=str)
+            )
+        if isinstance(x, float):
+            return round(x, 9)
+        return x
+
+    return json.dumps(norm(card.model_dump(mode="json")), sort_keys=True, default=str)
+
+
+def record_if_changed(
+    conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> bool:
+    """Append the call-of-record for ``(thesis, card.asof)`` ONLY if none exists for that as-of yet, or the
+    latest logged one differs in substance (a canonical, order-independent compare). Returns ``True`` iff it
+    appended. The caller owns the transaction.
+
+    This is the cron's idempotent writer: a same-day re-run on UNCHANGED facts appends NOTHING (the table
+    does not grow), while a GENUINE change (state / verdict / confidence / exit_by / provenance / members)
+    appends EXACTLY ONE new versioned row (latest-append-per-asof wins on read). It is the only correct path
+    because the ``calls`` log is immutable (the ``no_update`` trigger) and its ``(thesis_id, asof)`` index is
+    non-unique — so an UPSERT is impossible; we read-compare-then-conditionally-append."""
+    prior = next((c for c in latest_for_thesis(conn, card.thesis_id) if c.asof == card.asof), None)
+    if prior is not None and _canonical(prior) == _canonical(card):
+        return False
+    append(conn, card, tenant_id)
+    return True
 
 
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
