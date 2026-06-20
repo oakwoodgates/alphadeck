@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Archetype, Grade, Kind, State, Verdict
+from domain.settings import get_settings
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -25,7 +26,6 @@ from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
 # provenance ref resolves to a clickable EDGAR URL (a presentation concern, not a domain one).
 
-_EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 _FILING_SOURCES = frozenset({"form4", "8-k"})  # provenance sources that map to an EDGAR filing
 
 
@@ -42,7 +42,7 @@ def edgar_url(source: str, ref: str, cik: str | None) -> str | None:
     """
     if source in _FILING_SOURCES and cik and _is_accession(ref):
         nodash = ref.replace("-", "")
-        return f"{_EDGAR_ARCHIVES}/{int(cik)}/{nodash}/{ref}-index.htm"
+        return f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{ref}-index.htm"
     return None
 
 

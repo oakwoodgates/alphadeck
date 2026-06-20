@@ -11,6 +11,7 @@ import psycopg
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import polite_get
 
@@ -24,7 +25,7 @@ def _to_float(s: str | None) -> float | None:
 
 
 def stooq_url(ticker: str) -> str:
-    return f"https://stooq.com/q/d/l/?s={ticker.lower()}.us&i=d"
+    return f"{get_settings().stooq_base}/q/d/l/?s={ticker.lower()}.us&i=d"
 
 
 def parse_stooq_csv(text: str) -> list[dict]:
@@ -61,7 +62,9 @@ def fetch_csv(
         return path.read_text(encoding="utf-8")
     if not allow_live:
         raise CacheMiss(f"no cached price CSV for {ticker!r} (live pulls disabled)")
-    resp = polite_get(stooq_url(ticker), timeout=30)  # 429/5xx backoff (D6 politeness)
+    resp = polite_get(
+        stooq_url(ticker), timeout=get_settings().http_timeout_s
+    )  # 429/5xx backoff (D6 politeness)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(resp.text, encoding="utf-8")
     return resp.text
@@ -69,7 +72,7 @@ def fetch_csv(
 
 def yahoo_chart_url(ticker: str, range_: str = "1y") -> str:
     return (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
+        f"{get_settings().yahoo_chart_base}/v8/finance/chart/{ticker.upper()}"
         f"?interval=1d&range={range_}"
     )
 

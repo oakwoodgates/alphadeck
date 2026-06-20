@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from domain.settings import get_settings
+
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "figi_cache"
-_OPENFIGI_URL = "https://api.openfigi.com/v3/mapping"
 
 
 class CacheMiss(Exception):
@@ -33,16 +34,15 @@ def map_ticker(
 
 
 def _fetch_live(ticker: str) -> dict[str, str | None]:
-    import os
-
     import httpx
 
+    s = get_settings()
     headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("OPENFIGI_API_KEY")
+    api_key = s.openfigi_api_key
     if api_key:
         headers["X-OPENFIGI-APIKEY"] = api_key
     body = [{"idType": "TICKER", "idValue": ticker, "exchCode": "US"}]
-    resp = httpx.post(_OPENFIGI_URL, json=body, headers=headers, timeout=30)
+    resp = httpx.post(s.openfigi_url, json=body, headers=headers, timeout=s.http_timeout_s)
     resp.raise_for_status()
     matches = (resp.json()[0] or {}).get("data") or []
     if not matches:

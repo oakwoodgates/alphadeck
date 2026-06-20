@@ -26,6 +26,7 @@ from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, LocatedPassage, Tier
+from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.submissions import fetch_submissions, filings_of
@@ -402,7 +403,12 @@ def extract_facts(
 
 def _doc_url(cik: int, accession: str, primary_doc: str) -> str:
     doc = primary_doc.rsplit("/", 1)[-1]
-    return f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession.replace('-', '')}/{doc}"
+    return f"{get_settings().sec_archives_base}/{cik}/{accession.replace('-', '')}/{doc}"
+
+
+def companyfacts_url(cik: str | int) -> str:
+    """The SEC XBRL companyfacts JSON endpoint for a CIK (data.sec.gov)."""
+    return f"{get_settings().sec_data_base}/api/xbrl/companyfacts/CIK{int(cik):010d}.json"
 
 
 def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
@@ -428,7 +434,7 @@ def extract_for_security(
     An EXPLICIT operator action (the extract endpoint), never auto-fired on a render."""
     cik = int(cik)
     cf = client.get_json(
-        f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json",
+        companyfacts_url(cik),
         f"companyfacts/CIK{cik:010d}.json",
     )
     tenq = _latest_filing(client, cik, "10-Q")

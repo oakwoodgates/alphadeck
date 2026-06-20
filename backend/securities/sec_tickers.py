@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from domain.settings import get_settings
 from securities.figi import CacheMiss  # reuse the same cache-miss signal
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "sec_cache"
-_SEC_URL = "https://www.sec.gov/files/company_tickers.json"
 
 
 def _load_table(
@@ -73,15 +73,16 @@ def load_all(
 
 
 def _fetch_live(user_agent: str | None) -> dict:
-    import os
-
     import httpx
 
-    ua = user_agent or os.environ.get("ALPHADECK_USER_AGENT")
+    s = get_settings()
+    ua = user_agent or s.user_agent
     if not ua:
         raise RuntimeError(
             "set ALPHADECK_USER_AGENT (SEC requires a declared User-Agent with contact)"
         )
-    resp = httpx.get(_SEC_URL, headers={"User-Agent": ua}, timeout=30)
+    resp = httpx.get(
+        s.sec_company_tickers_url, headers={"User-Agent": ua}, timeout=s.http_timeout_s
+    )
     resp.raise_for_status()
     return resp.json()

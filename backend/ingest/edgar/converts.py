@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
 
 
 class ConvertTerms(BaseModel):
@@ -153,7 +154,7 @@ def ingest_convert_terms(
 
 
 def _filing_doc_url(cik: str | int, accession: str, doc: str) -> str:
-    return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{doc}"
+    return f"{get_settings().sec_archives_base}/{int(cik)}/{accession.replace('-', '')}/{doc}"
 
 
 def _is_convert_issuance(text: str) -> bool:

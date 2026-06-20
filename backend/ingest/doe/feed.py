@@ -20,11 +20,18 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade
+from domain.settings import get_settings
 from ingest.catalyst import ingest_catalyst
 from ingest.doe import entities
 from ingest.doe.client import UsaSpendingClient
 
 _SOURCE = "doe_usaspending"
+
+
+def usaspending_award_url(generated_internal_id: str) -> str:
+    """The human-facing USASpending award page (a catalyst's ``source_ref`` provenance link)."""
+    return f"{get_settings().usaspending_award_url_base}/{generated_internal_id}"
+
 
 # award_type_codes must be ONE group per call (USASpending 422s on mixed groups). These four cover the
 # award kinds DOE uses for the nuclear names: definitive contracts, grants/cooperative-agreements, direct
@@ -147,7 +154,7 @@ def parse_award(
         piid=piid,
         grade=grade,
         label=label,
-        source_ref=f"https://www.usaspending.gov/award/{generated_internal_id}",
+        source_ref=usaspending_award_url(generated_internal_id),
         event_date=event_date,
         horizon_end=horizon_end,
         obligation=obligation,
