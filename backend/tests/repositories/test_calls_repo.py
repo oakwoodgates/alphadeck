@@ -62,3 +62,48 @@ def test_latest_for_thesis_dedups_to_the_call_of_record(db):
     by_asof = {c.asof: c for c in calls_repo.latest_for_thesis(db, thesis.id)}
     assert set(by_asof) == {date(2026, 6, 1), date(2026, 6, 2)}  # one row per as-of
     assert by_asof[date(2026, 6, 1)].verdict is Verdict.WATCHING  # the latest append, not NOT_YET
+
+
+def test_record_if_changed_appends_first_then_skips_identical(db):
+    """A re-run on UNCHANGED data appends NOTHING — asserted by COUNTING the table, not the read (the read
+    dedups, so a duplicate append would hide behind a correct read while the log silently grows)."""
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+
+    assert calls_repo.record_if_changed(db, card) is True  # first time -> append
+    db.commit()
+    assert calls_repo.record_if_changed(db, card) is False  # identical -> NO append
+    db.commit()
+
+    assert len(calls_repo.list_for_thesis(db, thesis.id)) == 1  # the TABLE has one row, not two
+
+
+def test_record_if_changed_appends_exactly_one_on_a_real_change(db):
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+    calls_repo.record_if_changed(db, card)
+    db.commit()
+
+    changed = card.model_copy(update={"verdict": Verdict.NOT_YET})
+    assert calls_repo.record_if_changed(db, changed) is True  # differs -> one new versioned row
+    db.commit()
+
+    assert len(calls_repo.list_for_thesis(db, thesis.id)) == 2  # exactly one new row
+    assert calls_repo.latest_for_thesis(db, thesis.id)[0].verdict is Verdict.NOT_YET  # latest wins
+
+
+def test_record_if_changed_ignores_a_pure_list_reorder(db):
+    """The compare is canonical (order-independent), so reordering an unordered card list is NOT a change —
+    the determinism guard: a flapping serialize would re-append every run."""
+    thesis = _persist_minimal_thesis(db)
+    base = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+
+    assert calls_repo.record_if_changed(db, base.model_copy(update={"missing": ["x", "y"]})) is True
+    db.commit()
+    # same set, reversed order -> must NOT append
+    assert (
+        calls_repo.record_if_changed(db, base.model_copy(update={"missing": ["y", "x"]})) is False
+    )
+    db.commit()
+
+    assert len(calls_repo.list_for_thesis(db, thesis.id)) == 1
