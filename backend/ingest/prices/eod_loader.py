@@ -11,6 +11,7 @@ import psycopg
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.coerce import to_float
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import polite_get
@@ -18,10 +19,6 @@ from ingest.http import polite_get
 # Free EOD source. Stooq's free CSV is now apikey/captcha-gated, so the live default is Yahoo Finance
 # (free, no key); the loader stays swappable (DATA_SOURCES: Stooq / Tiingo-free / equivalent).
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "price_cache"
-
-
-def _to_float(s: str | None) -> float | None:
-    return float(s) if s not in (None, "") else None
 
 
 def stooq_url(ticker: str) -> str:
@@ -37,11 +34,11 @@ def parse_stooq_csv(text: str) -> list[dict]:
         rows.append(
             {
                 "d": date.fromisoformat(r["Date"]),
-                "open": _to_float(r.get("Open")),
-                "high": _to_float(r.get("High")),
-                "low": _to_float(r.get("Low")),
-                "close": _to_float(r.get("Close")),
-                "volume": _to_float(r.get("Volume")),
+                "open": to_float(r.get("Open")),
+                "high": to_float(r.get("High")),
+                "low": to_float(r.get("Low")),
+                "close": to_float(r.get("Close")),
+                "volume": to_float(r.get("Volume")),
             }
         )
     return rows

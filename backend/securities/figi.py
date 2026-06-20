@@ -4,13 +4,10 @@ import json
 from pathlib import Path
 
 from domain.settings import get_settings
+from ingest import CacheMiss
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "figi_cache"
-
-
-class CacheMiss(Exception):
-    """A mapping isn't cached and live pulls are disabled (the etiquette guard: tests never hit the net)."""
 
 
 def map_ticker(

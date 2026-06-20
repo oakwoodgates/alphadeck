@@ -9,10 +9,7 @@ import psycopg
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
-
-
-def _to_float(s: str | None) -> float | None:
-    return float(s) if s not in (None, "") else None
+from domain.coerce import to_float
 
 
 def _role(rel: Element | None) -> str | None:
@@ -43,8 +40,8 @@ def parse_form4(xml: str) -> list[dict]:
 
     txns: list[dict] = []
     for t in root.findall("nonDerivativeTable/nonDerivativeTransaction"):
-        shares = _to_float(t.findtext("transactionAmounts/transactionShares/value"))
-        price = _to_float(t.findtext("transactionAmounts/transactionPricePerShare/value"))
+        shares = to_float(t.findtext("transactionAmounts/transactionShares/value"))
+        price = to_float(t.findtext("transactionAmounts/transactionPricePerShare/value"))
         d = t.findtext("transactionDate/value")
         txns.append(
             {
