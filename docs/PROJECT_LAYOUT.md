@@ -5,7 +5,7 @@
 > `ROADMAP.md` (sequencing), and `CLAUDE.md` (how to build). For the *why* of any subsystem, follow the doc
 > links; this is the *where*.
 >
-> **As of the MVP (`main` through PR #73):** both halves are built **and the platform feeds itself.** Back
+> **As of the MVP + the config/quick-win refactor cycle (`main` through PR #81):** both halves are built **and the platform feeds itself.** Back
 > half — the bitemporal store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed,
 > the M5 per-member menu + theme arming, the replay harness + recalibration + the production-tenant cut. Front
 > half (the Workbench) — scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, **the two
@@ -13,7 +13,7 @@
 > feed loop** — the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the
 > scheduling sidecar — makes it **feed itself** (`FEED_LOOP.md`). The front-half loop closes end to end
 > (**narrative → draft → ratify → promote → extract → score**) and the back half feeds the promoted thesis its
-> call-engine facts. Suite: **249 backend** (pytest; DB-backed tests skip without Postgres) + **35 frontend**
+> call-engine facts. Suite: **283 backend** (pytest; DB-backed tests skip without Postgres) + **39 frontend**
 > (vitest); `ruff` + `black` + `tsc` + `vite build` clean; CI runs them + the openapi↔types drift guard on
 > every PR.
 
@@ -41,7 +41,7 @@ alphadeck/
 │       ├── api/{client,hooks,types.gen}.ts       # openapi-fetch client; the hooks; GENERATED wire types
 │       ├── board/{Board,ThesisCard}.tsx          # the Board (lifecycle columns)
 │       ├── cockpit/Cockpit.tsx                    # the Cockpit (one thesis's call)
-│       ├── components/{CallCard,MemberMenu}.tsx   # the call card + the M5 per-member ranked menu
+│       ├── components/{CallCard,MemberMenu,ErrorToast}.tsx   # the call card · the M5 per-member menu · the shared error toast (Tier-3)
 │       ├── workbench/                             # the front half
 │       │   ├── Workbench.tsx                      #   the page (NARRATIVE › DECOMPOSE › SCORE › PROMOTE) + the create/edit form (M1)
 │       │   ├── ThesisFields.tsx                    #   M1: the name + narrative form (shared by create + narrative-edit)
@@ -62,11 +62,15 @@ alphadeck/
     │   ├── call.py · signal.py · security.py
     │   ├── extraction.py           #   ExtractedFact · Tier (AUTO/FLAG/HUMAN) · LocatedPassage
     │   ├── workbench.py            #   ScoredMember · ScoredFigure (the meter results)
-    │   └── config.py               #   CallConfig (all dials, incl. llm_* + llm_decompose_*) · ExtractorConfig
+    │   ├── config.py               #   CallConfig (the trust-validated call-engine dials) · ExtractorConfig
+    │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle (ALPHADECK_*; config refactor)
+    │   └── coerce.py               #   to_float — the shared scalar coercer (Tier-1 dedup)
     ├── llm/                        # THE LLM SEAMS (model-agnostic; fail-open; SDK lazy-imported)
     │   ├── client.py               #   LLMClient.draft_structured (Anthropic tool-use) + the allow_live gate
     │   ├── flag_explanation.py     #   seam 1 (Haiku): the FLAG-explanation drafter (an aid to a ratify)
-    │   └── chain_decomposition.py  #   seam 2 (Sonnet, S5): decompose a narrative → segments + names + prose
+    │   ├── chain_decomposition.py  #   seam 2 (Sonnet, S5): decompose a narrative → segments + names + prose
+    │   ├── prompt_loader.py        #   loads the externalized system prompts (config refactor S3; fail-loud on a missing file)
+    │   └── prompts/*.md            #   the two seam prompts as files (flag_explain · chain_decompose)
     ├── workbench/                  # the Workbench engines (pure)
     │   ├── scoring.py              #   score_member/score_thesis → the four pip meters (re-derived on read)
     │   └── chain_draft.py          #   resolve_placements: the exact-membership DECIDER (PLACED/AMBIGUOUS/ABSENT)
@@ -75,8 +79,8 @@ alphadeck/
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None
     │   ├── insider_conviction.py · volume_breakout.py · catalyst_conviction.py · theme_conviction.py
     │   └── dilution_clock.py · scan.py · base.py (PointInTimeData)
-    ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live)
-    │   ├── http.py                                               # polite_get: 429/5xx retry + Retry-After (shared by EDGAR + prices)
+    ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live; CacheMiss canonical in __init__.py)
+    │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
     │   ├── edgar/{client,submissions,form4,converts,extract}.py   # SEC client + Form 4 (+ existing_accessions) + converts + extractor
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
     │   ├── prices/{eod_loader,source}.py                          # EOD bars (+ latest_bar_date, force_refresh) · the PriceSource seam (Yahoo/Stooq)
@@ -97,7 +101,7 @@ alphadeck/
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py             #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares)
     ├── app/                        # FastAPI
-    │   ├── main.py · deps.py        #   deps: get_conn · get_current_tenant · get_llm_client · get_decompose_client
+    │   ├── main.py · deps.py        #   deps: get_conn · get_current_tenant · get_thesis_or_404 · get_llm_client · get_decompose_client
     │   ├── openapi_export.py        #   dumps backend/openapi.json (the frontend's type source)
     │   ├── routers/theses.py        #   GET /theses · /theses/{id} · /theses/{id}/call?asof=
     │   ├── routers/workbench.py     #   /workbench: scored · securities · extract · facts(+/explain) · theses(promote) · theses/{id}/draft-chain
@@ -105,8 +109,9 @@ alphadeck/
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · run.py
     ├── seed_data/                  # committed REAL inputs (HIMS demo, DOE fixtures) — read by seed + tests
-    └── tests/                      # 249 tests; DB-backed ones skip if Postgres is unreachable
+    └── tests/                      # 283 tests; DB-backed ones skip if Postgres is unreachable
         ├── conftest.py             #   db / security_id fixtures (db TRUNCATEs the spine + facts + master)
+        ├── app/conftest.py         #   the shared `client` fixture (get_conn → db; clears overrides on teardown) — Tier-4
         ├── workbench/              #   test_scoring · test_extract_golden · test_chain_draft (the resolver/Oklo-trap)
         ├── llm/                    #   test_flag_explanation · test_chain_decomposition (fake client; no network)
         ├── app/test_workbench_api.py   # promote guard · ratify · explain · draft-chain (writes-nothing/fail-open)
@@ -138,6 +143,11 @@ alphadeck/
   (the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
   sidecar — #70/#71/#72/#73). **The front-half loop closes end to end AND the back half feeds itself**
   (`FEED_LOOP.md`) — the MVP.
+- **Behavior-preserving refactor cycle (#75–#81):** config centralization (a typed `domain/settings.py` —
+  env-overridable LLM dials + base URLs + throttle — and the LLM prompts externalized to `llm/prompts/*.md`),
+  then the quick-win dedups (Tier 1 `coerce.to_float` / `RateLimiter` / `CacheMiss`; Tier 2 the
+  `get_thesis_or_404` dependency + `_provenance_out`; Tier 3 the FE shared bits + as-of-defaults-to-today;
+  Tier 4 the shared `client` test fixture). No behavior change; gated by the suite + the openapi↔types guard.
 - **Not built yet:** the **live Scoreboard** (the forward trust loop — parked, arrives with live use → the
   second, out-of-sample recalibration); the **deferred restatement re-version** + the **source-strategy A/B
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
