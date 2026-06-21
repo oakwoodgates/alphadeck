@@ -38,6 +38,21 @@ export function gradeClass(g: string | null | undefined): string {
   return g === "core" ? "core" : g === "flip" ? "flip" : "";
 }
 
+const ARCH_LABEL: Record<string, string> = {
+  leader: "leader",
+  high_beta: "high-beta",
+  lotto: "lotto",
+  shovel: "shovel",
+  adjacent: "adjacent",
+  fund: "ETF sleeve",
+};
+
+/** Basket-member archetype → its display label (the `.arch` chip; CSS uppercases it visually). The single
+ *  source of archetype labels, shared by the Cockpit board, the Workbench chips, and the ChainEditor picker. */
+export function archLabel(archetype: string): string {
+  return ARCH_LABEL[archetype] ?? archetype;
+}
+
 /** A single-name thesis shows its ticker; a multi-name theme shows a basket marker (never a bare "—",
  *  which reads as missing data). */
 export function tickerLabel(ticker: string | null | undefined, basketSize?: number | null): string {
@@ -69,4 +84,13 @@ export function fmtDate(d: string | null | undefined): string {
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** Today's date as YYYY-MM-DD in the user's LOCAL timezone — the default as-of on load. Built from the local
+ *  Y/M/D (not toISOString(), which is UTC and can land a day off near midnight). */
+export function todayISO(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }

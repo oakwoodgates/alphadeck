@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 
 import { usePromoteThesis, useTheses, useThesis, useWorkbenchScored } from "../api/hooks";
+import { ErrorToast } from "../components/ErrorToast";
 import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
@@ -227,10 +228,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                   </div>
                 )}
                 {promote.isError && (
-                  <div className="toast show err">
+                  <ErrorToast>
                     Couldn't {formMode === "edit" ? "save" : "create"} — {errText(promote.error)}.{" "}
                     {formMode === "edit" ? "No changes were saved." : "Nothing was saved."}
-                  </div>
+                  </ErrorToast>
                 )}
               </section>
             </main>
@@ -426,9 +427,9 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                   </div>
                 )}
                 {promote.isError && (
-                  <div className="toast show err">
+                  <ErrorToast>
                     Couldn't promote — {errText(promote.error)}. Nothing was sent.
-                  </div>
+                  </ErrorToast>
                 )}
                 <div className="seam">
                   <b>On promote</b>, the chain structure persists with the thesis — the segment each name

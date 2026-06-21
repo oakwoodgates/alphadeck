@@ -1,14 +1,15 @@
 import { useCall, useThesis } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { MemberMenu } from "../components/MemberMenu";
-import { accentVar, daysFrom, fmtDate, STATE_CLASS, STATE_LABEL, tickerLabel } from "../util/format";
-
-const ARCH_LABEL: Record<string, string> = {
-  leader: "Leader",
-  high_beta: "High-beta",
-  lotto: "Lotto",
-  shovel: "Shovel",
-};
+import {
+  accentVar,
+  archLabel,
+  daysFrom,
+  fmtDate,
+  STATE_CLASS,
+  STATE_LABEL,
+  tickerLabel,
+} from "../util/format";
 
 interface Props {
   thesisId: string;
@@ -101,7 +102,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                         <td className="role">{b.role}</td>
                         <td>
                           <span className={`arch ${b.archetype}`}>
-                            {ARCH_LABEL[b.archetype] ?? b.archetype}
+                            {archLabel(b.archetype)}
                           </span>
                         </td>
                         <td className="met">{b.detail ?? "—"}</td>

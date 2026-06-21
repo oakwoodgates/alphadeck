@@ -3,13 +3,14 @@ import { useState } from "react";
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
+import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
 
 export function App() {
   const { isLoading, error, data: theses } = useTheses();
-  // Shared across Board + Cockpit + Workbench; default to the canonical armed date for HIMS (scrub to
-  // see the loop).
-  const [asof, setAsof] = useState("2026-06-01");
+  // Shared across Board + Cockpit + Workbench; defaults to TODAY (real operation). The seeded HIMS demo
+  // armed on 2026-06-01 — scrub back to that date to see the canonical loop checkpoint.
+  const [asof, setAsof] = useState(todayISO());
   const [selected, setSelected] = useState<string | null>(null);
   // The top-level view (tab-state, no router): the Board, or the Workbench front half. A selected
   // thesis opens the Cockpit and takes precedence.

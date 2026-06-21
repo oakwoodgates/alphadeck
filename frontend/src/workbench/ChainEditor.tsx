@@ -7,6 +7,7 @@ import type {
   ThesisDetail,
 } from "../api/hooks";
 import { useDraftChain, usePromoteThesis } from "../api/hooks";
+import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
 import { memberKey, useChainDraft } from "./useChainDraft";
@@ -96,7 +97,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
         </div>
       </div>
       {save.isError && (
-        <div className="toast show err">Couldn't save — {errText(save.error)}. Nothing changed.</div>
+        <ErrorToast>Couldn't save — {errText(save.error)}. Nothing changed.</ErrorToast>
       )}
 
       <div className="wb-draft-gap">
