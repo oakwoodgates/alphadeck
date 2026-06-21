@@ -3,9 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from fastapi.testclient import TestClient
-
-from app.deps import get_conn
 from app.main import app
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype
@@ -13,12 +10,6 @@ from domain.thesis import BasketMember, Segment, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
-
-
-def _client(db) -> TestClient:
-    # share the test's connection (and its seeded, committed data) with the app
-    app.dependency_overrides[get_conn] = lambda: db
-    return TestClient(app)
 
 
 def _scored_thesis(db, security_id) -> uuid.UUID:
@@ -61,12 +52,9 @@ def _scored_thesis(db, security_id) -> uuid.UUID:
     return thesis.id
 
 
-def test_scored_endpoint_serves_meters_on_real_data(db, security_id):
+def test_scored_endpoint_serves_meters_on_real_data(client, db, security_id):
     tid = _scored_thesis(db, security_id)
-    try:
-        r = _client(db).get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"})
-    finally:
-        app.dependency_overrides.clear()
+    r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"})
 
     assert r.status_code == 200
     body = r.json()
@@ -84,7 +72,7 @@ def test_scored_endpoint_serves_meters_on_real_data(db, security_id):
     )  # "behind the scores" traces to the filing
 
 
-def test_promote_creates_incubating_thesis_on_the_board(db, security_id):
+def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     payload = {
         "name": "Nuclear (promoted)",
         "narrative": "AI power demand + SMR build-out.",
@@ -101,22 +89,18 @@ def test_promote_creates_incubating_thesis_on_the_board(db, security_id):
             }
         ],
     }
-    client = _client(db)
-    try:
-        r = client.post("/workbench/theses", json=payload)
-        assert r.status_code == 200
-        tid = r.json()["id"]
-        assert [s["label"] for s in r.json()["segments"]] == ["reactors"]
-        # it now shows on the Board (GET /theses) and the chain persisted (GET /theses/{id})
-        assert any(t["id"] == tid for t in client.get("/theses").json())
-        detail = client.get(f"/theses/{tid}").json()
-        assert detail["basket"][0]["segment"] == "reactors"
-        assert detail["basket"][0]["authored_by"] == "operator_set"
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post("/workbench/theses", json=payload)
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert [s["label"] for s in r.json()["segments"]] == ["reactors"]
+    # it now shows on the Board (GET /theses) and the chain persisted (GET /theses/{id})
+    assert any(t["id"] == tid for t in client.get("/theses").json())
+    detail = client.get(f"/theses/{tid}").json()
+    assert detail["basket"][0]["segment"] == "reactors"
+    assert detail["basket"][0]["authored_by"] == "operator_set"
 
 
-def test_promote_rejects_orphan_segment_placement(db, security_id):
+def test_promote_rejects_orphan_segment_placement(client, security_id):
     """A name placed in a link that isn't in the chain -> 422 (the Slice-1 validator, surfaced by the API)."""
     payload = {
         "name": "bad",
@@ -133,11 +117,7 @@ def test_promote_rejects_orphan_segment_placement(db, security_id):
             }
         ],
     }
-    client = _client(db)
-    try:
-        assert client.post("/workbench/theses", json=payload).status_code == 422
-    finally:
-        app.dependency_overrides.clear()
+    assert client.post("/workbench/theses", json=payload).status_code == 422
 
 
 def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
@@ -152,22 +132,18 @@ def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
     return sid
 
 
-def test_securities_search_serves_the_master(db):
+def test_securities_search_serves_the_master(client, db):
     """The authoring typeahead (Slice 4b): the resolver surfaces exact master rows for the operator to pick
     — a discovery net (INVARIANT #2), never a guess. No match -> []."""
     oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     _insert_security(db, "LEU", name="Centrus Energy Corp.")
-    client = _client(db)
-    try:
-        hits = client.get("/workbench/securities", params={"q": "OK"}).json()
-        assert [h["ticker"] for h in hits] == ["OKLO"]
-        assert hits[0]["security_id"] == str(oklo) and hits[0]["cik"] == "0001849056"
-        assert client.get("/workbench/securities", params={"q": "ZZZ"}).json() == []
-    finally:
-        app.dependency_overrides.clear()
+    hits = client.get("/workbench/securities", params={"q": "OK"}).json()
+    assert [h["ticker"] for h in hits] == ["OKLO"]
+    assert hits[0]["security_id"] == str(oklo) and hits[0]["cik"] == "0001849056"
+    assert client.get("/workbench/securities", params={"q": "ZZZ"}).json() == []
 
 
-def test_extract_endpoint_serves_candidates(db, security_id, monkeypatch):
+def test_extract_endpoint_serves_candidates(client, security_id, monkeypatch):
     """The extract route resolves the security's CIK, runs the extractor, and serves the candidate facts
     (the extraction LOGIC is covered by the offline golden test; this covers the route + CIK resolution +
     the wire shape). The live SEC fetch is monkeypatched so the test stays offline."""
@@ -195,19 +171,15 @@ def test_extract_endpoint_serves_candidates(db, security_id, monkeypatch):
         )
     ]
     monkeypatch.setattr(wb, "extract_for_security", lambda client, cik: fake)
-    client = _client(db)
-    try:
-        r = client.get(f"/workbench/securities/{security_id}/extract")
-        assert r.status_code == 200
-        f = r.json()[0]
-        assert f["fact_type"] == "cash_burn" and f["tier"] == "flag"
-        assert f["flags"] == ["possible-one-time"]
-        assert f["located_passages"][0]["anchor"] == "264,195"
-    finally:
-        app.dependency_overrides.clear()
+    r = client.get(f"/workbench/securities/{security_id}/extract")
+    assert r.status_code == 200
+    f = r.json()[0]
+    assert f["fact_type"] == "cash_burn" and f["tier"] == "flag"
+    assert f["flags"] == ["possible-one-time"]
+    assert f["located_passages"][0]["anchor"] == "264,195"
 
 
-def test_extract_endpoint_404_without_cik(db):
+def test_extract_endpoint_404_without_cik(client, db):
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
@@ -215,14 +187,10 @@ def test_extract_endpoint_404_without_cik(db):
             (sid, DEFAULT_TENANT_ID, "NOCIK", None, date(2026, 1, 1)),
         )
     db.commit()
-    client = _client(db)
-    try:
-        assert client.get(f"/workbench/securities/{sid}/extract").status_code == 404
-    finally:
-        app.dependency_overrides.clear()
+    assert client.get(f"/workbench/securities/{sid}/extract").status_code == 404
 
 
-def test_promote_honors_authorship_from_the_body(db, security_id):
+def test_promote_honors_authorship_from_the_body(client, security_id):
     """Promote HONORS `authored_by` (it no longer coerces to operator_set, now that the S5 drafter's own
     path exists): an S5-drafted placement the operator keeps stays `system_drafted`, an edited one
     `operator_edited`, a hand-authored one `operator_set` — the seam round-trips so the badge + the eventual
@@ -247,19 +215,15 @@ def test_promote_honors_authorship_from_the_body(db, security_id):
             ],
         }
 
-    client = _client(db)
-    try:
-        for authored_by in ("system_drafted", "operator_edited", "operator_set"):
-            tid = client.post("/workbench/theses", json=_payload(authored_by)).json()["id"]
-            detail = client.get(f"/theses/{tid}").json()
-            assert detail["basket"][0]["authored_by"] == authored_by  # honored, not coerced
-        # an out-of-enum authorship is a 422 at parse time (Pydantic validates against the enum)
-        assert client.post("/workbench/theses", json=_payload("robot")).status_code == 422
-    finally:
-        app.dependency_overrides.clear()
+    for authored_by in ("system_drafted", "operator_edited", "operator_set"):
+        tid = client.post("/workbench/theses", json=_payload(authored_by)).json()["id"]
+        detail = client.get(f"/theses/{tid}").json()
+        assert detail["basket"][0]["authored_by"] == authored_by  # honored, not coerced
+    # an out-of-enum authorship is a 422 at parse time (Pydantic validates against the enum)
+    assert client.post("/workbench/theses", json=_payload("robot")).status_code == 422
 
 
-def test_promote_rejects_a_security_not_in_this_tenants_master(db):
+def test_promote_rejects_a_security_not_in_this_tenants_master(client):
     """Bound #2 at the single writer (relocated here now that the S5 drafter returns a draft and writes
     nothing): a placed `security_id` that isn't an EXACT member of this tenant's master fails closed — a
     hallucinated / foreign id never reaches the spine. Distinct from the orphan-segment 422: the chain is
@@ -279,16 +243,12 @@ def test_promote_rejects_a_security_not_in_this_tenants_master(db):
             }
         ],
     }
-    client = _client(db)
-    try:
-        r = client.post("/workbench/theses", json=payload)
-        assert r.status_code == 404
-        assert "not in this tenant's master" in r.json()["detail"]
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post("/workbench/theses", json=payload)
+    assert r.status_code == 404
+    assert "not in this tenant's master" in r.json()["detail"]
 
 
-def test_promote_persists_thesis_fit(db, security_id):
+def test_promote_persists_thesis_fit(client, security_id):
     """The thesis-fit prose round-trips the spine (draft -> promote -> re-read): a basket member's
     `thesis_fit` (the "why it sits here" reasoning) persists ALONGSIDE its `authored_by`. This is the column
     5c's UI promotes the drafted prose into; it's kept distinct from `detail` (the live "met" cell).
@@ -310,12 +270,8 @@ def test_promote_persists_thesis_fit(db, security_id):
             }
         ],
     }
-    client = _client(db)
-    try:
-        tid = client.post("/workbench/theses", json=payload).json()["id"]
-        member = client.get(f"/theses/{tid}").json()["basket"][0]
-    finally:
-        app.dependency_overrides.clear()
+    tid = client.post("/workbench/theses", json=payload).json()["id"]
+    member = client.get(f"/theses/{tid}").json()["basket"][0]
     assert member["thesis_fit"] == "the only NRC-approved SMR designer in the US"
     assert member["authored_by"] == "system_drafted"  # honored, and the prose rides alongside it
 
@@ -345,113 +301,95 @@ def _thesis_with(db, security_id) -> uuid.UUID:
     return t.id
 
 
-def test_ratify_cash_burn_writes_and_rederives_runway(db, security_id):
+def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
     """The loop: ratifying the RECURRING burn (the operator's composition, not the raw) writes the fact and
     the runway meter re-derives. cash 1B / (50.483M/3) ~ 59 months -> 4 pips; the raw 314.678M would be 1.
     """
     tid = _thesis_with(db, security_id)
-    client = _client(db)
-    try:
-        m0 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-            "members"
-        ][0]
-        assert m0["runway"]["pips"] is None  # no cash_burn fact yet -> "—"
-        r = client.post(
-            "/workbench/facts",
-            json={
-                "fact_type": "cash_burn",
-                "security_id": str(security_id),
-                "source": "10-q",
-                "source_ref": "https://www.sec.gov/smr.htm",
-                "event_date": "2026-03-31",
-                "note": "recurring — the ENTRA1 settlement backed out",
-                "cash_usd": 1_000_000_000,
-                "quarterly_burn_usd": 50_483_000,
-            },
+    m0 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m0["runway"]["pips"] is None  # no cash_burn fact yet -> "—"
+    r = client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "cash_burn",
+            "security_id": str(security_id),
+            "source": "10-q",
+            "source_ref": "https://www.sec.gov/smr.htm",
+            "event_date": "2026-03-31",
+            "note": "recurring — the ENTRA1 settlement backed out",
+            "cash_usd": 1_000_000_000,
+            "quarterly_burn_usd": 50_483_000,
+        },
+    )
+    assert r.status_code == 200 and r.json()["fact_type"] == "cash_burn"
+    m1 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m1["runway"]["pips"] == 4  # the recurring burn -> a comfortable runway
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT ratified_by, source FROM fact_cash_burn WHERE security_id=%s",
+            (security_id,),
         )
-        assert r.status_code == 200 and r.json()["fact_type"] == "cash_burn"
-        m1 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-            "members"
-        ][0]
-        assert m1["runway"]["pips"] == 4  # the recurring burn -> a comfortable runway
-        with db.cursor() as cur:
-            cur.execute(
-                "SELECT ratified_by, source FROM fact_cash_burn WHERE security_id=%s",
-                (security_id,),
-            )
-            row = cur.fetchone()
-        assert (
-            row["ratified_by"] == "operator" and row["source"] == "10-q"
-        )  # stamped + basis preserved
-    finally:
-        app.dependency_overrides.clear()
+        row = cur.fetchone()
+    assert row["ratified_by"] == "operator" and row["source"] == "10-q"  # stamped + basis preserved
 
 
-def test_ratify_revenue_mix_preserves_the_basis_source(db, security_id):
+def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     """`source` is the candidate's BASIS (10-k-segment), NOT flattened to 'ratified' — the DD-rail basis
     provenance (the chip) stays honest."""
     tid = _thesis_with(db, security_id)
-    client = _client(db)
-    try:
-        client.post(
-            "/workbench/facts",
-            json={
-                "fact_type": "revenue_mix",
-                "security_id": str(security_id),
-                "source": "10-k-segment",
-                "source_ref": "https://www.sec.gov/10k.htm",
-                "event_date": "2025-12-31",
-                "segment_label": "nuclear",
-                "mix_pct": 100,
-            },
-        )
-        m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-            "members"
-        ][0]
-        assert m["purity"]["pips"] == 4  # 100% -> 4 pips
-        assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
-    finally:
-        app.dependency_overrides.clear()
+    client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "revenue_mix",
+            "security_id": str(security_id),
+            "source": "10-k-segment",
+            "source_ref": "https://www.sec.gov/10k.htm",
+            "event_date": "2025-12-31",
+            "segment_label": "nuclear",
+            "mix_pct": 100,
+        },
+    )
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["purity"]["pips"] == 4  # 100% -> 4 pips
+    assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
 
 
-def test_ratify_rejects_security_not_in_tenant(db):
+def test_ratify_rejects_security_not_in_tenant(client):
     """Write-side tenant discipline: a security_id not in THIS tenant's master fails closed (no junk fact)."""
-    client = _client(db)
-    try:
-        r = client.post(
-            "/workbench/facts",
-            json={
-                "fact_type": "shares_outstanding",
-                "security_id": str(uuid.uuid4()),
-                "source": "10-q-cover",
-                "source_ref": "https://www.sec.gov/x.htm",
-                "event_date": "2026-03-31",
-                "shares": 1_000_000,
-            },
-        )
-        assert r.status_code == 404
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "shares_outstanding",
+            "security_id": str(uuid.uuid4()),
+            "source": "10-q-cover",
+            "source_ref": "https://www.sec.gov/x.htm",
+            "event_date": "2026-03-31",
+            "shares": 1_000_000,
+        },
+    )
+    assert r.status_code == 404
 
 
-def test_ratify_missing_field_is_422(db, security_id):
+def test_ratify_missing_field_is_422(client, security_id):
     """The discriminated union validates per-type required fields — cash_burn without quarterly_burn_usd."""
-    client = _client(db)
-    try:
-        r = client.post(
-            "/workbench/facts",
-            json={
-                "fact_type": "cash_burn",
-                "security_id": str(security_id),
-                "source": "10-q",
-                "source_ref": "https://www.sec.gov/x.htm",
-                "event_date": "2026-03-31",
-                "cash_usd": 1_000_000,
-            },
-        )
-        assert r.status_code == 422
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "cash_burn",
+            "security_id": str(security_id),
+            "source": "10-q",
+            "source_ref": "https://www.sec.gov/x.htm",
+            "event_date": "2026-03-31",
+            "cash_usd": 1_000_000,
+        },
+    )
+    assert r.status_code == 422
 
 
 # --- M4b: the FLAG-explanation drafter (the LLM seam) — a display aid that never becomes a fact ---
@@ -492,7 +430,7 @@ def _flag_candidate() -> dict:
     }
 
 
-def test_explain_endpoint_drafts_for_a_flag_candidate(db):
+def test_explain_endpoint_drafts_for_a_flag_candidate(client):
     from app.deps import get_llm_client
 
     fake = _FakeLLM(
@@ -502,28 +440,22 @@ def test_explain_endpoint_drafts_for_a_flag_candidate(db):
         }
     )
     app.dependency_overrides[get_llm_client] = lambda: fake
-    try:
-        r = _client(db).post("/workbench/facts/explain", json=_flag_candidate())
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post("/workbench/facts/explain", json=_flag_candidate())
     assert r.status_code == 200
     body = r.json()
     assert body["grounded"] is True and "milestone" in body["explanation"]
 
 
-def test_explain_endpoint_is_fail_open_never_5xx(db, monkeypatch):
+def test_explain_endpoint_is_fail_open_never_5xx(client, monkeypatch):
     """No fake, no key: the REAL client's offline gate (LLMUnavailable) is caught -> 200 + grounded:false.
     Fail-open by contract — the facts panel works exactly as today."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    try:
-        r = _client(db).post("/workbench/facts/explain", json=_flag_candidate())
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post("/workbench/facts/explain", json=_flag_candidate())
     assert r.status_code == 200  # NOT a 502/500
     assert r.json() == {"explanation": "", "grounded": False}
 
 
-def test_explaining_writes_no_fact(db):
+def test_explaining_writes_no_fact(client, db):
     """THE BOUND: a grounded explanation that even names a figure creates ZERO scoring facts — the explain
     endpoint takes no DB connection and rides a separate rail (the ratified number can only come from the
     operator's /facts field). The candidate payload carries no security_id at all."""
@@ -536,12 +468,7 @@ def test_explaining_writes_no_fact(db):
         }
     )
     app.dependency_overrides[get_llm_client] = lambda: fake
-    try:
-        assert (
-            _client(db).post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
-        )
-    finally:
-        app.dependency_overrides.clear()
+    assert client.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
     with db.cursor() as cur:
         for table in ("fact_cash_burn", "fact_shares_outstanding", "fact_revenue_mix"):
             cur.execute(
@@ -592,7 +519,7 @@ def _thesis_for_draft(db) -> uuid.UUID:
     return t.id
 
 
-def test_draft_endpoint_resolves_a_chain(db):
+def test_draft_endpoint_resolves_a_chain(client, db):
     """The wire: narrative -> decompose (faked) -> resolve_placements (5a) -> ChainDraftOut. A name in the
     master PLACES (exact ticker); a name not in the master is ABSENT — exact membership decides, the endpoint
     only composes."""
@@ -603,10 +530,7 @@ def test_draft_endpoint_resolves_a_chain(db):
     app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
         returns=_decomp(("Oklo", "OKLO"), ("Ghost Co", "ZZZZ"))
     )
-    try:
-        r = _client(db).post(f"/workbench/theses/{tid}/draft-chain")
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 200
     body = r.json()
     assert body["thesis_id"] == str(tid)
@@ -616,7 +540,7 @@ def test_draft_endpoint_resolves_a_chain(db):
     assert by_name["Ghost Co"]["status"] == "absent" and by_name["Ghost Co"]["security_id"] is None
 
 
-def test_draft_endpoint_writes_nothing(db):
+def test_draft_endpoint_writes_nothing(client, db):
     """RESPONSE-ONLY, TEST-ENFORCED (the endpoint HAS a read-only conn — to read the narrative + resolve — so
     "writes nothing" is THIS test, not absence-of-conn like the flag seam): drafting a chain persists ZERO
     fact_* rows AND adds ZERO basket_member rows. The operator's promote is the only writer."""
@@ -627,10 +551,7 @@ def test_draft_endpoint_writes_nothing(db):
     app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
         returns=_decomp(("Oklo", "OKLO"))
     )
-    try:
-        assert _client(db).post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
-    finally:
-        app.dependency_overrides.clear()
+    assert client.post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
         assert cur.fetchone()["n"] == 0  # the draft persisted no placement
@@ -639,24 +560,18 @@ def test_draft_endpoint_writes_nothing(db):
             assert cur.fetchone()["n"] == 0  # and no scoring fact
 
 
-def test_draft_endpoint_failopen_never_5xx(db, monkeypatch):
+def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
     """No fake, no key: the REAL decompose client's offline gate (LLMUnavailable) is caught in
     decompose_narrative -> 200 with an EMPTY draft, NEVER a 5xx. Hand-authoring is untouched."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     tid = _thesis_for_draft(db)
-    try:
-        r = _client(db).post(f"/workbench/theses/{tid}/draft-chain")
-    finally:
-        app.dependency_overrides.clear()
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 200  # NOT a 5xx
     body = r.json()
     assert body["thesis_id"] == str(tid)
     assert body["segments"] == [] and body["placements"] == []
 
 
-def test_draft_endpoint_404_for_unknown_thesis(db):
-    try:
-        r = _client(db).post(f"/workbench/theses/{uuid.uuid4()}/draft-chain")
-    finally:
-        app.dependency_overrides.clear()
+def test_draft_endpoint_404_for_unknown_thesis(client):
+    r = client.post(f"/workbench/theses/{uuid.uuid4()}/draft-chain")
     assert r.status_code == 404

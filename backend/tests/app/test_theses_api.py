@@ -4,10 +4,6 @@ import json
 import uuid
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from app.deps import get_conn
-from app.main import app
 from app.openapi_export import export
 from app.schemas_api import edgar_url
 from db.session import DEFAULT_TENANT_ID
@@ -70,18 +66,9 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
     return thesis.id
 
 
-def _client(db) -> TestClient:
-    # share the test's connection (and its seeded, committed data) with the app
-    app.dependency_overrides[get_conn] = lambda: db
-    return TestClient(app)
-
-
-def test_call_endpoint_serves_armed_card_on_real_data(db, security_id):
+def test_call_endpoint_serves_armed_card_on_real_data(client, db, security_id):
     tid = _seed_hims_thesis(db, security_id)
-    try:
-        r = _client(db).get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
-    finally:
-        app.dependency_overrides.clear()
+    r = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
 
     assert r.status_code == 200
     body = r.json()
@@ -98,30 +85,23 @@ def test_call_endpoint_serves_armed_card_on_real_data(db, security_id):
     assert any("sec.gov/Archives/edgar/data" in u and _WELLS_ACCESSION in u for u in urls)
 
 
-def test_call_endpoint_warming_before_breakout(db, security_id):
+def test_call_endpoint_warming_before_breakout(client, db, security_id):
     tid = _seed_hims_thesis(db, security_id)
-    try:
-        r = _client(db).get(f"/theses/{tid}/call", params={"asof": "2026-05-28"})
-    finally:
-        app.dependency_overrides.clear()
+    r = client.get(f"/theses/{tid}/call", params={"asof": "2026-05-28"})
     assert r.status_code == 200
     body = r.json()
     assert body["state"] == "warming"
     assert body["confidence"] is None  # a not-yet card shows no confidence bar (§7)
 
 
-def test_call_endpoint_is_deterministic(db, security_id):
+def test_call_endpoint_is_deterministic(client, db, security_id):
     tid = _seed_hims_thesis(db, security_id)
-    try:
-        client = _client(db)
-        a = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"}).json()
-        b = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"}).json()
-    finally:
-        app.dependency_overrides.clear()
+    a = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"}).json()
+    b = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"}).json()
     assert a == b
 
 
-def test_call_endpoint_does_not_write_to_the_calls_log(db, security_id):
+def test_call_endpoint_does_not_write_to_the_calls_log(client, db, security_id):
     """The serve path is read-only: a GET (or a refetch / slider scrub) recomputes and writes no
     accountability row — that is the batch ``pipeline.run``'s job. Otherwise polling accretes rows.
     """
@@ -133,23 +113,15 @@ def test_call_endpoint_does_not_write_to_the_calls_log(db, security_id):
             return cur.fetchone()["n"]
 
     assert _calls_count() == 0
-    try:
-        client = _client(db)
-        client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
-        client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})  # a refetch
-    finally:
-        app.dependency_overrides.clear()
+    client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
+    client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})  # a refetch
     assert _calls_count() == 0  # still nothing written
 
 
-def test_list_and_get_thesis(db, security_id):
+def test_list_and_get_thesis(client, db, security_id):
     tid = _seed_hims_thesis(db, security_id)
-    try:
-        client = _client(db)
-        listing = client.get("/theses").json()
-        detail = client.get(f"/theses/{tid}").json()
-    finally:
-        app.dependency_overrides.clear()
+    listing = client.get("/theses").json()
+    detail = client.get(f"/theses/{tid}").json()
     summary = next(t for t in listing if t["id"] == str(tid))
     assert summary["ticker"] == "HIMS" and summary["basket_size"] == 1
     assert detail["ticker"] == "HIMS"
@@ -157,11 +129,8 @@ def test_list_and_get_thesis(db, security_id):
     assert "tenant_id" not in detail  # the wire schema must not leak the domain's tenant_id
 
 
-def test_call_endpoint_unknown_thesis_404(db):
-    try:
-        r = _client(db).get(f"/theses/{uuid.uuid4()}/call", params={"asof": "2026-06-01"})
-    finally:
-        app.dependency_overrides.clear()
+def test_call_endpoint_unknown_thesis_404(client):
+    r = client.get(f"/theses/{uuid.uuid4()}/call", params={"asof": "2026-06-01"})
     assert r.status_code == 404
 
 
@@ -182,12 +151,9 @@ def test_edgar_url_built_from_issuer_cik_not_accession_prefix():
     assert edgar_url("form4", "0001773751-26-000086", None) is None  # issuer CIK unknown
 
 
-def test_call_endpoint_surfaces_the_dilution_risk_with_a_resolving_link(db, security_id):
+def test_call_endpoint_surfaces_the_dilution_risk_with_a_resolving_link(client, db, security_id):
     tid = _seed_hims_thesis(db, security_id)
-    try:
-        r = _client(db).get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
-    finally:
-        app.dependency_overrides.clear()
+    r = client.get(f"/theses/{tid}/call", params={"asof": "2026-06-01"})
     body = r.json()
     assert body["state"] == "armed"  # the ~$402.5M overhang is non-blocking
     risks = body["risk_signals"]
