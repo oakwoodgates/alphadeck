@@ -201,20 +201,24 @@ export interface paths {
         put?: never;
         /**
          * Draft Chain
-         * @description Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5). Read the narrative, ask the
-         *     model for segments + names + thesis-fit prose (``llm.chain_decomposition``), then resolve every proposed
-         *     name against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact membership ->
-         *     PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe -> ABSENT.
+         * @description Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), TWO-STEP since Slice 1.
+         *     First a web-search RESEARCH pass finds the currently-listed companies in the thesis space
+         *     (``research_companies``, Opus); its synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet asks
+         *     for segments + names + thesis-fit prose), so the names come from research, not training recall. Then every
+         *     proposed name resolves against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact
+         *     membership -> PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe
+         *     -> ABSENT.
          *
          *     RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
          *     and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
          *     (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
          *     absence-of-conn like the flag seam. The operator loads the draft, prunes / ratifies, and PROMOTE is the
-         *     only writer (which re-checks exact membership). It sources NO number — that bound rests on the prompt
-         *     (Sonnet is the adherence lever; the gate-2 manual no-number check is its real test).
+         *     only writer (which re-checks exact membership). It sources NO number — the chain is value-free by the
+         *     decompose tool's schema; the research is name-selection context only (INVARIANT #3).
          *
-         *     Fail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, no tool call)
-         *     returns 200 with an EMPTY draft, NEVER a 5xx — hand-authoring is untouched.
+         *     Fail-open by contract, in two tiers: if the RESEARCH pass fails (no key / timeout / SDK error / no text) it
+         *     degrades to the recall-only decompose (today's behavior); if the DECOMPOSE call also fails it returns 200
+         *     with an EMPTY draft. Never a 5xx — hand-authoring is untouched.
          */
         post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;

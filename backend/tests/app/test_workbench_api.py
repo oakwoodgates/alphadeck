@@ -396,16 +396,36 @@ def test_ratify_missing_field_is_422(client, security_id):
 
 
 class _FakeLLM:
-    """A stand-in for the live ``LLMClient`` (no network, no key) — returns/raises what the test wants."""
+    """A stand-in for the live ``LLMClient`` (no network, no key) — returns/raises what the test wants. Supports
+    the forced-tool ``draft_structured`` (flag + decompose) AND the auto-tool ``research`` (Slice 1), and
+    records each call so a test can assert the research→decompose wiring."""
 
-    def __init__(self, *, returns=None, raises: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        returns=None,
+        raises: Exception | None = None,
+        research_returns=None,
+        research_raises: Exception | None = None,
+    ) -> None:
         self._returns = returns
         self._raises = raises
+        self._research_returns = research_returns
+        self._research_raises = research_raises
+        self.calls: list[dict] = []
+        self.research_calls: list[dict] = []
 
     def draft_structured(self, *, system, user, tool):
+        self.calls.append({"system": system, "user": user, "tool": tool})
         if self._raises is not None:
             raise self._raises
         return self._returns
+
+    def research(self, *, system, user, tool):
+        self.research_calls.append({"system": system, "user": user, "tool": tool})
+        if self._research_raises is not None:
+            raise self._research_raises
+        return self._research_returns
 
 
 def _flag_candidate() -> dict:
@@ -523,10 +543,12 @@ def test_draft_endpoint_resolves_a_chain(client, db):
     """The wire: narrative -> decompose (faked) -> resolve_placements (5a) -> ChainDraftOut. A name in the
     master PLACES (exact ticker); a name not in the master is ABSENT — exact membership decides, the endpoint
     only composes."""
-    from app.deps import get_decompose_client
+    from app.deps import get_decompose_client, get_research_client
 
     _insert_security(db, "OKLO", name="Oklo Inc.")
     tid = _thesis_for_draft(db)
+    # override BOTH seams (no network): research returns nothing here, decompose is faked.
+    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns=None)
     app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
         returns=_decomp(("Oklo", "OKLO"), ("Ghost Co", "ZZZZ"))
     )
@@ -544,10 +566,11 @@ def test_draft_endpoint_writes_nothing(client, db):
     """RESPONSE-ONLY, TEST-ENFORCED (the endpoint HAS a read-only conn — to read the narrative + resolve — so
     "writes nothing" is THIS test, not absence-of-conn like the flag seam): drafting a chain persists ZERO
     fact_* rows AND adds ZERO basket_member rows. The operator's promote is the only writer."""
-    from app.deps import get_decompose_client
+    from app.deps import get_decompose_client, get_research_client
 
     _insert_security(db, "OKLO", name="Oklo Inc.")
     tid = _thesis_for_draft(db)  # empty basket
+    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns=None)
     app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
         returns=_decomp(("Oklo", "OKLO"))
     )
@@ -575,3 +598,47 @@ def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
 def test_draft_endpoint_404_for_unknown_thesis(client):
     r = client.post(f"/workbench/theses/{uuid.uuid4()}/draft-chain")
     assert r.status_code == 404
+
+
+def test_draft_endpoint_runs_research_then_decompose(client, db):
+    """The two-step (Slice 1): the web-search research pass runs first, and its synthesis is threaded into the
+    decompose call as CONTEXT. Both seams are faked (no network); we assert the research text reaches the
+    decompose user message and the chain still resolves by exact membership."""
+    from app.deps import get_decompose_client, get_research_client
+
+    _insert_security(db, "OKLO", name="Oklo Inc.")
+    tid = _thesis_for_draft(db)
+    decompose = _FakeLLM(returns=_decomp(("Oklo", "OKLO")))
+    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(
+        research_returns="Reactor developers: Oklo (OKLO) — lead SMR developer."
+    )
+    app.dependency_overrides[get_decompose_client] = lambda: decompose
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 200
+    assert decompose.calls, "decompose was consulted"
+    assert (
+        "Oklo (OKLO)" in decompose.calls[0]["user"]
+    )  # research threaded into the decompose prompt
+    assert "Current research" in decompose.calls[0]["user"]
+    by_name = {p["name"]: p for p in r.json()["placements"]}
+    assert by_name["Oklo"]["status"] == "placed"
+
+
+def test_draft_endpoint_research_failure_degrades_to_recall_only(client, db):
+    """Fail-open refinement (Slice 1): if the RESEARCH pass fails (here it raises), the draft does NOT go empty
+    — it degrades to the recall-only decompose (today's behavior). The decompose fake still runs with NO
+    research context, and the chain resolves."""
+    from app.deps import get_decompose_client, get_research_client
+
+    _insert_security(db, "OKLO", name="Oklo Inc.")
+    tid = _thesis_for_draft(db)
+    decompose = _FakeLLM(returns=_decomp(("Oklo", "OKLO")))
+    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(
+        research_raises=RuntimeError("web search down")
+    )
+    app.dependency_overrides[get_decompose_client] = lambda: decompose
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 200
+    assert decompose.calls and "Current research" not in decompose.calls[0]["user"]  # recall-only
+    by_name = {p["name"]: p for p in r.json()["placements"]}
+    assert by_name["Oklo"]["status"] == "placed"  # the recall-only chain still resolves

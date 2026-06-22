@@ -6,8 +6,10 @@ test suite runs — with **no** ``anthropic`` installed and **no** API key. With
 ``draft_structured`` raises ``LLMUnavailable`` (the offline gate), which every caller turns into fail-open.
 
 Interface is deliberately generic — ``draft_structured(system, user, tool) -> dict`` (one forced tool call,
-its validated args returned) — so a different provider is a one-file swap. Prompts + schemas live with the
-feature module (``llm/flag_explanation.py``), never here (CLAUDE.md).
+its validated args returned), plus its auto-tool sibling ``research(system, user, tool) -> str`` (a web-search
+pass → free-text synthesis, the Slice-1 research step) — so a different provider is a one-file swap. Prompts +
+schemas live with the feature module (``llm/flag_explanation.py``, ``llm/chain_decomposition.py``), never here
+(CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -81,3 +83,38 @@ class LLMClient:
             if getattr(block, "type", None) == "tool_use" and block.name == tool["name"]:
                 return dict(block.input)
         return None
+
+    def research(self, *, system: str, user: str, tool: dict[str, Any]) -> str | None:
+        """Run a web-search RESEARCH pass and return the model's synthesized TEXT (the concatenated text
+        blocks), or ``None`` if it produced none. ``tool`` is a SERVER-side tool (the ``web_search`` spec); the
+        model MAY use it (``tool_choice=auto``) — the opposite of ``draft_structured``'s one FORCED tool. The
+        result is free text used as CONTEXT for the decompose step, never structured output and never a written
+        fact (INVARIANT #3 — the chain stays value-free by the decompose tool's schema, not by this text).
+
+        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key) — the caller fails open
+        to the recall-only decompose. The SDK is imported HERE so the module stays import-clean without it.
+        """
+        if not self.allow_live:
+            raise LLMUnavailable("live LLM calls disabled (allow_live=False)")
+        if not self.api_key:
+            raise LLMUnavailable("ANTHROPIC_API_KEY not set")
+
+        import anthropic  # lazy — like draft_structured
+
+        kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_s}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        client = anthropic.Anthropic(**kwargs)
+        resp = client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            tools=[tool],
+            tool_choice={
+                "type": "auto"
+            },  # the model MAY search (vs draft_structured's forced tool)
+        )
+        parts = [getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text"]
+        text = "\n".join(p for p in parts if p).strip()
+        return text or None

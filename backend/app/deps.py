@@ -57,3 +57,17 @@ def get_decompose_client() -> LLMClient:
         max_tokens=_s.llm_decompose_max_tokens,
         timeout_s=_s.llm_decompose_timeout_s,
     )
+
+
+def get_research_client() -> LLMClient:
+    """The live LLM client for the narrative→chain RESEARCH pass (Slice 1) — on its OWN dials
+    (``llm_research_*``, default Opus) so the Sonnet decompose + Haiku flag seams are undisturbed. Overridden in
+    tests with a fake; fail-open by contract (no ``ANTHROPIC_API_KEY`` -> the research pass is skipped and the
+    draft degrades to the recall-only decompose, never an error)."""
+    _s = get_settings()
+    return LLMClient(
+        allow_live=True,
+        model=_s.llm_research_model,
+        max_tokens=_s.llm_research_max_tokens,
+        timeout_s=_s.llm_research_timeout_s,
+    )
