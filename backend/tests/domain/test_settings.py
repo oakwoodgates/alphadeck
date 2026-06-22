@@ -27,6 +27,12 @@ _DIAL_ENV = (
     "ALPHADECK_LLM_DECOMPOSE_MODEL",
     "ALPHADECK_LLM_DECOMPOSE_MAX_TOKENS",
     "ALPHADECK_LLM_DECOMPOSE_TIMEOUT_S",
+    "ALPHADECK_LLM_RESEARCH_MODEL",
+    "ALPHADECK_LLM_RESEARCH_MAX_TOKENS",
+    "ALPHADECK_LLM_RESEARCH_TIMEOUT_S",
+    "ALPHADECK_LLM_RESEARCH_MAX_SEARCHES",
+    "ALPHADECK_LLM_RESEARCH_CACHE_TTL_S",
+    "ALPHADECK_RESEARCH_WEB_SEARCH_TOOL",
     "ALPHADECK_ANTHROPIC_BASE_URL",
 )
 
@@ -54,6 +60,23 @@ def test_llm_dial_defaults_match_the_old_callconfig_values_and_types(monkeypatch
     assert s.llm_decompose_max_tokens == 2000 and isinstance(s.llm_decompose_max_tokens, int)
     assert s.llm_decompose_timeout_s == 60.0 and isinstance(s.llm_decompose_timeout_s, float)
     assert s.anthropic_base_url is None  # D7: None => the SDK default
+
+
+def test_research_dial_defaults(monkeypatch):
+    """The Slice-1 research dials (NEW — never in CallConfig): the Opus default + the bounded search budget,
+    and the CODE-COUPLED web_search version field (a Settings field for visibility, not a free env flip).
+    Env hermetic so an ambient override can't mask the defaults."""
+    for name in _DIAL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    s = Settings()
+    assert s.llm_research_model == "claude-opus-4-8"
+    assert s.llm_research_max_tokens == 4000 and isinstance(s.llm_research_max_tokens, int)
+    # 300s + 3 searches (raised/trimmed after the $8-and-nothing incident: at 120s the pass never completed; 3
+    # searches finish inside the window). cache TTL defaults 0 (off) so the convergence gate-2 runs fresh.
+    assert s.llm_research_timeout_s == 300.0 and isinstance(s.llm_research_timeout_s, float)
+    assert s.llm_research_max_searches == 3 and isinstance(s.llm_research_max_searches, int)
+    assert s.llm_research_cache_ttl_s == 0.0 and isinstance(s.llm_research_cache_ttl_s, float)
+    assert s.research_web_search_tool == "web_search_20250305"
 
 
 def test_the_llm_dials_left_callconfig():
@@ -135,12 +158,37 @@ def test_env_override_of_a_dial_reaches_the_client(monkeypatch):
     assert LLMClient(allow_live=True).model == "claude-test-override"
 
 
+def test_research_model_override_reaches_a_research_client(monkeypatch):
+    """ALPHADECK_LLM_RESEARCH_MODEL flows through Settings to a research-configured LLMClient — research is the
+    one seam where the model choice is a live decision (the Opus default is overridable per environment).
+    """
+    monkeypatch.setenv("ALPHADECK_LLM_RESEARCH_MODEL", "claude-test-research")
+    get_settings.cache_clear()  # re-read the env (the singleton may have been built at the default)
+    assert get_settings().llm_research_model == "claude-test-research"
+    assert (
+        LLMClient(allow_live=True, model=get_settings().llm_research_model).model
+        == "claude-test-research"
+    )
+
+
 def test_explicit_zero_override_is_honored_not_coalesced():
     """F1: dials use `is None`, NOT `or` — an explicit 0 / 0.0 / "" must survive (a falsy `or` would silently
     swap in the default, the #72-class latent freeze)."""
     assert LLMClient(max_tokens=0).max_tokens == 0
     assert LLMClient(timeout_s=0.0).timeout_s == 0.0
     assert LLMClient(model="").model == ""
+    # max_retries: None -> the SDK default (2); an explicit 0 (the research one-shot) is honored, not coalesced.
+    assert LLMClient().max_retries is None
+    assert LLMClient(max_retries=0).max_retries == 0
+
+
+def test_research_client_disables_sdk_retries():
+    """get_research_client builds the Opus research client with max_retries=0 — an expensive web-search
+    one-shot must NEVER auto-repeat at the SDK layer (a retry re-runs the whole search loop and re-spends; the
+    $8-and-nothing amplification)."""
+    from app.deps import get_research_client
+
+    assert get_research_client().max_retries == 0
 
 
 def test_anthropic_base_url_is_none_by_default_and_stored_when_given():

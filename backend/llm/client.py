@@ -6,8 +6,10 @@ test suite runs — with **no** ``anthropic`` installed and **no** API key. With
 ``draft_structured`` raises ``LLMUnavailable`` (the offline gate), which every caller turns into fail-open.
 
 Interface is deliberately generic — ``draft_structured(system, user, tool) -> dict`` (one forced tool call,
-its validated args returned) — so a different provider is a one-file swap. Prompts + schemas live with the
-feature module (``llm/flag_explanation.py``), never here (CLAUDE.md).
+its validated args returned), plus its auto-tool sibling ``research(system, user, tool) -> str`` (a web-search
+pass → free-text synthesis, the Slice-1 research step) — so a different provider is a one-file swap. Prompts +
+schemas live with the feature module (``llm/flag_explanation.py``, ``llm/chain_decomposition.py``), never here
+(CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ class LLMClient:
         max_tokens: int | None = None,
         timeout_s: float | None = None,
         base_url: str | None = None,
+        max_retries: int | None = None,
     ) -> None:
         self.allow_live = allow_live
         # read the key inside the client, exactly as EdgarClient reads ALPHADECK_USER_AGENT — a LATE read of
@@ -48,15 +51,15 @@ class LLMClient:
         self.max_tokens = max_tokens if max_tokens is not None else _s.llm_max_tokens
         self.timeout_s = timeout_s if timeout_s is not None else _s.llm_timeout_s
         self.base_url = base_url if base_url is not None else _s.anthropic_base_url
+        # SDK auto-retry count. None => the SDK default (2). The RESEARCH client passes 0 (an expensive
+        # web-search one-shot must NEVER auto-repeat at the SDK layer — a retry re-runs the whole search loop
+        # and re-spends; see workbench cost-safety). `is None` keeps an explicit 0 honored, never coalesced.
+        self.max_retries = max_retries
 
-    def draft_structured(
-        self, *, system: str, user: str, tool: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """Force the model to call ``tool`` once and return its (schema-validated) input dict.
-
-        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key). Returns ``None`` if
-        the model returned no tool call. The Anthropic SDK is imported HERE so the module is import-clean
-        without it (the suite never needs the dependency)."""
+    def _live_client(self) -> Any:
+        """The offline gate + the lazily-imported Anthropic client, shared by ``draft_structured`` and
+        ``research``. Raises ``LLMUnavailable`` when no live call is possible (live disabled / no key) — the
+        SDK is imported HERE so the module (and the whole suite) stays import-clean without it."""
         if not self.allow_live:
             raise LLMUnavailable("live LLM calls disabled (allow_live=False)")
         if not self.api_key:
@@ -68,7 +71,20 @@ class LLMClient:
         kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_s}
         if self.base_url:
             kwargs["base_url"] = self.base_url
-        client = anthropic.Anthropic(**kwargs)
+        if (
+            self.max_retries is not None
+        ):  # else the SDK default; 0 disables retries (the research one-shot)
+            kwargs["max_retries"] = self.max_retries
+        return anthropic.Anthropic(**kwargs)
+
+    def draft_structured(
+        self, *, system: str, user: str, tool: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Force the model to call ``tool`` once and return its (schema-validated) input dict.
+
+        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key). Returns ``None`` if
+        the model returned no tool call."""
+        client = self._live_client()
         resp = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -81,3 +97,28 @@ class LLMClient:
             if getattr(block, "type", None) == "tool_use" and block.name == tool["name"]:
                 return dict(block.input)
         return None
+
+    def research(self, *, system: str, user: str, tool: dict[str, Any]) -> str | None:
+        """Run a web-search RESEARCH pass and return the model's synthesized TEXT (the concatenated text
+        blocks), or ``None`` if it produced none. ``tool`` is a SERVER-side tool (the ``web_search`` spec); the
+        model MAY use it (``tool_choice=auto``) — the opposite of ``draft_structured``'s one FORCED tool. The
+        result is free text used as CONTEXT for the decompose step, never structured output and never a written
+        fact (INVARIANT #3 — the chain stays value-free by the decompose tool's schema, not by this text).
+
+        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key) — the caller fails open
+        to the recall-only decompose.
+        """
+        client = self._live_client()
+        resp = client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            tools=[tool],
+            tool_choice={
+                "type": "auto"
+            },  # the model MAY search (vs draft_structured's forced tool)
+        )
+        parts = [getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text"]
+        text = "\n".join(p for p in parts if p).strip()
+        return text or None

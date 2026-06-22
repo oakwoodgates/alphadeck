@@ -76,6 +76,39 @@ class Settings(BaseSettings):
         60.0
     )
 
+    # --- LLM seam (research upgrade — the narrative→chain RESEARCH pass, Slice 1) — operational dials ---
+    # BEFORE the decompose call, a web-search research pass finds the CURRENTLY-LISTED companies in the thesis
+    # space (recall -> research): it kills the run-to-run instability + the off-thesis drift, and proposes
+    # CURRENT identities (post-rename) so the resolver places them. Runs on OPUS — research-synthesis quality
+    # IS the leverage of this slice; the budget has ~10x headroom and one bounded pass stays inside it; the
+    # draft is an infrequent, explicit, high-value action where the best model earns its cost. Separate dials so
+    # the Sonnet decompose + Haiku flag seams are undisturbed. Fail-open: research trouble degrades to the
+    # recall-only decompose (today's behavior), NOT an empty draft.
+    llm_research_model: str = "claude-opus-4-8"  # best synthesis for the highest-leverage step
+    llm_research_max_tokens: int = 4000  # a synthesis of many names + roles, not a sentence
+    # 300s, raised in concert with the nginx + vite proxy timeouts: at 120s a thorough Opus multi-search pass
+    # NEVER completed — it timed out, retried, and fell through to the recall-only decompose, so the research
+    # substance was never actually tested. The SDK call timeout is the INNER bound; nginx alone wouldn't help.
+    llm_research_timeout_s: float = 300.0
+    # 3 (trimmed from 8) so ONE pass reliably FINISHES inside the 300s window — fewer searches that complete beat
+    # more that time out. A dial: widen once real timings + convergence are seen. Also the per-call cost ceiling
+    # (= the web_search tool's max_uses; the search-result context is the dominant Opus input cost).
+    llm_research_max_searches: int = 3
+    # Cache TTL (seconds) for the research SYNTHESIS, keyed by thesis + narrative-hash (see workbench/research_runner).
+    # 0 DISABLES caching (always fresh) — the DEFAULT, precisely so the convergence gate-2 runs fresh each time (a
+    # cache hit would mask convergence). After convergence is validated, set a production TTL (e.g. 21600 = 6h) so a
+    # re-open / re-draft of the same narrative doesn't re-spend; the TTL also bounds staleness so the next rebrand
+    # isn't re-stranded. The cached text is discovery CONTEXT, not a fact/signal — never the persisted-signal layer.
+    llm_research_cache_ttl_s: float = 0.0
+
+    # The web_search tool VERSION is a CODE-COUPLED capability contract, NOT a free-tuning dial. It lives here
+    # for visibility + single-source, but flipping it via env WITHOUT the matching code change BREAKS the call:
+    # web_search_20250305 (the default — simpler, no extra deps) and web_search_20260209 (dynamic filtering)
+    # are NOT interchangeable — 20260209 REQUIRES the code-execution tool wired in ALONGSIDE it. Moving to
+    # 20260209 is a deliberate PR that changes the version AND wires code execution as ONE gated change — never
+    # an env flip. (Same dial-vs-code distinction as the config refactor: looks like config, coupled to code.)
+    research_web_search_tool: str = "web_search_20250305"
+
     # Optional Anthropic base_url override (refactor D7): None => the SDK default (api.anthropic.com); passed
     # to the SDK by LLMClient ONLY when truthy (base_url="" is a broken URL). Buys a future proxy / self-host
     # + a test seam at zero cost today (nothing sets it). Read at the field name ALPHADECK_ANTHROPIC_BASE_URL.

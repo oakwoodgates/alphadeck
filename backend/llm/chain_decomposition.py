@@ -5,6 +5,13 @@ Given an operator's narrative, draft a value chain: 2-6 **segments** (links in t
 sit in each, and one short thesis-fit **prose** sentence per name. The output is STRUCTURE + NAMES + REASONING
 only — it is a drafting aid the operator ratifies, never a decision.
 
+TWO-STEP (the research upgrade, Slice 1): ``research_companies`` first runs a web-search pass that finds the
+CURRENTLY-LISTED companies in the thesis space; its plain-text synthesis is threaded into ``decompose_narrative``
+as ``research_context`` so the model decomposes from RESEARCH, not training recall (killing the run-to-run
+instability + off-thesis drift, and proposing CURRENT post-rename identities). Research is CONTEXT only —
+INVARIANT #3 stays structural (the tool schema below has no number field). The research step is fail-open: any
+trouble degrades to the recall-only decompose (``research_context=None``), never an empty draft.
+
 THE BOUNDS (carried from the gate-1 plan):
 - **Never a number** (INVARIANT #1/#3). The prompt + tool schema forbid any price / %% / share count / cash /
   runway / market cap / catalyst value; the response carries no value field. This half of the bound rests on
@@ -22,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from domain.settings import get_settings
 from llm.prompt_loader import load_prompt
 
 # The structured-output contract — the model MUST call this tool; we read back its validated input. STRUCTURE
@@ -88,15 +96,24 @@ DECOMPOSE_TOOL: dict[str, Any] = {
 }
 
 
-def decompose_narrative(client: Any, narrative: str) -> dict[str, Any] | None:
+def decompose_narrative(
+    client: Any, narrative: str, *, research_context: str | None = None
+) -> dict[str, Any] | None:
     """Draft a value-chain decomposition from a narrative. Returns the validated tool input
     (``{"segments": [...]}``) or ``None`` on ANY failure — fail-open: no key / live disabled / timeout / SDK
     error / no tool call / blank narrative → ``None`` (the draft endpoint then returns an empty draft, and
     hand-authoring is untouched).
 
+    When ``research_context`` is given (the Slice-1 research pass's synthesis of currently-listed companies),
+    it is appended to the user message so the model decomposes using RESEARCHED current names instead of
+    training recall — fixing the run-to-run instability + off-thesis drift. It is CONTEXT only: the tool schema
+    carries no number field and the prompt forbids numbers, so the chain stays value-free regardless of what the
+    research text contains (INVARIANT #3 is structural here, not trust). ``research_context=None`` is exactly
+    today's recall-only behavior.
+
     ``client`` only needs a ``draft_structured(system, user, tool)`` method (the real ``LLMClient`` or a test
-    fake). It sources NO number; the no-number bound rests on the prompt (Sonnet is the adherence lever) — the
-    gate-2 manual check is its real test. Parsing/validation of the shape happens downstream
+    fake). It sources NO number; the no-number bound rests on the schema + prompt — the gate-2 manual check is
+    its real test. Parsing/validation of the shape happens downstream
     (``workbench.chain_draft.proposed_from_decomposition``), also fail-open.
     """
     if not narrative or not narrative.strip():
@@ -104,12 +121,51 @@ def decompose_narrative(client: Any, narrative: str) -> dict[str, Any] | None:
     # fail-loud: a missing prompt file is a deploy bug, raised HERE (outside the fail-open try below) so it
     # surfaces instead of being swallowed into an empty draft.
     system = load_prompt("chain_decompose")
-    try:
-        out = client.draft_structured(
-            system=system, user=f"Narrative:\n{narrative.strip()}", tool=DECOMPOSE_TOOL
+    user = f"Narrative:\n{narrative.strip()}"
+    if research_context and research_context.strip():
+        user += (
+            "\n\nCurrent research — publicly-listed companies in this space (prefer these CURRENT identities; "
+            "this is CONTEXT for name selection, never facts and never numbers):\n"
+            + research_context.strip()
         )
+    try:
+        out = client.draft_structured(system=system, user=user, tool=DECOMPOSE_TOOL)
     except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
         return None
     if not isinstance(out, dict):
         return None
     return out
+
+
+def _web_search_tool() -> dict[str, Any]:
+    """The server-side web_search tool spec for the research pass, built from Settings. The tool VERSION is a
+    CODE-COUPLED capability field (see ``domain/settings.py``) — read here so it is single-source, NOT so it is
+    a free env flip; ``max_uses`` is the per-draft search budget (``llm_research_max_searches``)."""
+    _s = get_settings()
+    return {
+        "type": _s.research_web_search_tool,
+        "name": "web_search",
+        "max_uses": _s.llm_research_max_searches,
+    }
+
+
+def research_companies(client: Any, narrative: str) -> str | None:
+    """Run the web-search RESEARCH pass over a narrative (Slice 1): find the CURRENTLY-LISTED US companies
+    across the thesis's value chain, returning a plain-text synthesis (names + tickers + one-line roles) used
+    as CONTEXT for ``decompose_narrative`` — never structured output, never a fact, never a number into the
+    chain.
+
+    Fail-open: a blank narrative / no key / live disabled / timeout / SDK error / no text → ``None`` (the draft
+    endpoint then runs the recall-only decompose — today's behavior, NOT an empty draft). ``client`` only needs
+    a ``research(system, user, tool)`` method (the real ``LLMClient`` or a test fake).
+    """
+    if not narrative or not narrative.strip():
+        return None
+    # fail-loud on a missing prompt (a deploy bug), outside the fail-open try — like decompose_narrative.
+    system = load_prompt("chain_research")
+    try:
+        return client.research(
+            system=system, user=f"Narrative:\n{narrative.strip()}", tool=_web_search_tool()
+        )
+    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
+        return None
