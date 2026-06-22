@@ -209,6 +209,12 @@ export interface paths {
          *     membership -> PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe
          *     -> ABSENT.
          *
+         *     The research pass runs behind a cost-safety wrapper (``workbench.research_runner``): an IN-FLIGHT guard
+         *     (at most one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray retry can
+         *     never launch a parallel expensive Opus call) + a TTL cache of the synthesis keyed by thesis + narrative-hash
+         *     (``llm_research_cache_ttl_s``; 0 = always fresh). The expensive Opus call's amplifiers are all closed: the
+         *     SDK research client runs ``max_retries=0`` and the FE draft query ``retry:false``.
+         *
          *     RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
          *     and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
          *     (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
@@ -218,7 +224,7 @@ export interface paths {
          *
          *     Fail-open by contract, in two tiers: if the RESEARCH pass fails (no key / timeout / SDK error / no text) it
          *     degrades to the recall-only decompose (today's behavior); if the DECOMPOSE call also fails it returns 200
-         *     with an EMPTY draft. Never a 5xx — hand-authoring is untouched.
+         *     with an EMPTY draft. Never a 5xx — hand-authoring is untouched (a 409 is the one intentional non-200).
          */
         post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;

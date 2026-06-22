@@ -97,6 +97,26 @@ before. The two clients come from `get_research_client` (Opus dials) and `get_de
 in `app/deps.py`; the dials live in `domain/settings.py` (`llm_research_*` operational dials + the
 **code-coupled** `research_web_search_tool` version field — see its comment).
 
+## Cost-safety (post-incident hardening)
+
+Slice 1's first live test cost **$8.29 and returned nothing**: `llm_research_timeout_s` was 120s, so the
+Opus multi-search pass never finished — it timed out, and a stack of retries (nginx 60s → TanStack `retry:3`
+→ SDK `max_retries:2`, with the sync endpoint not cancelling on disconnect) re-launched it ~5–9×. The fix
+makes one pass COMPLETE and a re-launch impossible:
+
+- **Timeout chain raised in concert to 300s** — `llm_research_timeout_s` (the SDK call timeout, the inner
+  bound), nginx `proxy_read_timeout`/`proxy_send_timeout` on `/workbench`, and the vite dev `proxyTimeout`. And
+  `llm_research_max_searches` trimmed 8→3 so one pass finishes inside the window (a dial; widen on real timings).
+- **In-flight guard** (`workbench/research_runner.py`) — at most one research pass per thesis; a concurrent
+  second draft → HTTP 409. The claim is **atomic** (one lock acquisition) and the key is released in a
+  **`finally`** (a timeout/raise can't strand a thesis permanently in-flight). The single most important safety.
+- **Retry amplifiers off** — the SDK research client runs `max_retries=0`; the FE draft + extract queries
+  `retry:false`. An expensive one-shot never auto-repeats.
+- **TTL cache** of the research synthesis (`llm_research_cache_ttl_s`, keyed by thesis + narrative-hash;
+  success-only) so a re-draft of the same narrative doesn't re-spend. **Default 0 (off)** so the convergence
+  gate-2 runs fresh; set a production TTL (~6h) once validated. The cached text is discovery context, never the
+  persisted-signal layer.
+
 ## The wire
 
 Slice 1 is **wire-clean in shape** (the `ChainDraftOut` / `ResolvedPlacement` shape is unchanged). The only

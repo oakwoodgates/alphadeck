@@ -31,6 +31,7 @@ _DIAL_ENV = (
     "ALPHADECK_LLM_RESEARCH_MAX_TOKENS",
     "ALPHADECK_LLM_RESEARCH_TIMEOUT_S",
     "ALPHADECK_LLM_RESEARCH_MAX_SEARCHES",
+    "ALPHADECK_LLM_RESEARCH_CACHE_TTL_S",
     "ALPHADECK_RESEARCH_WEB_SEARCH_TOOL",
     "ALPHADECK_ANTHROPIC_BASE_URL",
 )
@@ -70,8 +71,11 @@ def test_research_dial_defaults(monkeypatch):
     s = Settings()
     assert s.llm_research_model == "claude-opus-4-8"
     assert s.llm_research_max_tokens == 4000 and isinstance(s.llm_research_max_tokens, int)
-    assert s.llm_research_timeout_s == 120.0 and isinstance(s.llm_research_timeout_s, float)
-    assert s.llm_research_max_searches == 8 and isinstance(s.llm_research_max_searches, int)
+    # 300s + 3 searches (raised/trimmed after the $8-and-nothing incident: at 120s the pass never completed; 3
+    # searches finish inside the window). cache TTL defaults 0 (off) so the convergence gate-2 runs fresh.
+    assert s.llm_research_timeout_s == 300.0 and isinstance(s.llm_research_timeout_s, float)
+    assert s.llm_research_max_searches == 3 and isinstance(s.llm_research_max_searches, int)
+    assert s.llm_research_cache_ttl_s == 0.0 and isinstance(s.llm_research_cache_ttl_s, float)
     assert s.research_web_search_tool == "web_search_20250305"
 
 
@@ -173,6 +177,18 @@ def test_explicit_zero_override_is_honored_not_coalesced():
     assert LLMClient(max_tokens=0).max_tokens == 0
     assert LLMClient(timeout_s=0.0).timeout_s == 0.0
     assert LLMClient(model="").model == ""
+    # max_retries: None -> the SDK default (2); an explicit 0 (the research one-shot) is honored, not coalesced.
+    assert LLMClient().max_retries is None
+    assert LLMClient(max_retries=0).max_retries == 0
+
+
+def test_research_client_disables_sdk_retries():
+    """get_research_client builds the Opus research client with max_retries=0 — an expensive web-search
+    one-shot must NEVER auto-repeat at the SDK layer (a retry re-runs the whole search loop and re-spends; the
+    $8-and-nothing amplification)."""
+    from app.deps import get_research_client
+
+    assert get_research_client().max_retries == 0
 
 
 def test_anthropic_base_url_is_none_by_default_and_stored_when_given():

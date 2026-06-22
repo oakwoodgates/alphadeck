@@ -137,6 +137,7 @@ export function useExtract(securityId: string) {
   return useQuery({
     queryKey: ["workbench-extract", securityId] as const,
     enabled: false,
+    retry: false, // an explicit one-shot operator action — never auto-retry (same pattern as the draft query)
     queryFn: async () => {
       const { data, error } = await api.GET("/workbench/securities/{security_id}/extract", {
         params: { path: { security_id: securityId } },
@@ -156,6 +157,9 @@ export function useDraftChain(thesisId: string) {
   return useQuery({
     queryKey: ["workbench-draft-chain", thesisId] as const,
     enabled: false,
+    // An expensive Opus web-search one-shot: a retry re-runs the whole search loop and re-spends. NEVER
+    // auto-retry — the operator re-clicks if a draft fails (the server-side in-flight guard blocks a parallel run).
+    retry: false,
     queryFn: async () => {
       const { data, error } = await api.POST("/workbench/theses/{thesis_id}/draft-chain", {
         params: { path: { thesis_id: thesisId } },

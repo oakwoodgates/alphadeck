@@ -27,6 +27,7 @@ from app.schemas_api import (
     WorkbenchScored,
 )
 from domain.extraction import ExtractedFact
+from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar.client import EdgarClient
@@ -40,6 +41,7 @@ from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from workbench.chain_draft import proposed_from_decomposition, resolve_placements
+from workbench.research_runner import ResearchInFlight, run_research
 from workbench.scoring import score_thesis
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
@@ -193,6 +195,12 @@ def draft_chain(
     membership -> PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe
     -> ABSENT.
 
+    The research pass runs behind a cost-safety wrapper (``workbench.research_runner``): an IN-FLIGHT guard
+    (at most one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray retry can
+    never launch a parallel expensive Opus call) + a TTL cache of the synthesis keyed by thesis + narrative-hash
+    (``llm_research_cache_ttl_s``; 0 = always fresh). The expensive Opus call's amplifiers are all closed: the
+    SDK research client runs ``max_retries=0`` and the FE draft query ``retry:false``.
+
     RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
     and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
     (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
@@ -202,8 +210,19 @@ def draft_chain(
 
     Fail-open by contract, in two tiers: if the RESEARCH pass fails (no key / timeout / SDK error / no text) it
     degrades to the recall-only decompose (today's behavior); if the DECOMPOSE call also fails it returns 200
-    with an EMPTY draft. Never a 5xx — hand-authoring is untouched."""
-    research = research_companies(research_llm, thesis.narrative)  # fail-open -> None (recall-only)
+    with an EMPTY draft. Never a 5xx — hand-authoring is untouched (a 409 is the one intentional non-200).
+    """
+    try:
+        research = run_research(  # fail-open -> None (recall-only); ResearchInFlight -> 409
+            thesis.id,
+            thesis.narrative,
+            ttl_s=get_settings().llm_research_cache_ttl_s,
+            run=lambda: research_companies(research_llm, thesis.narrative),
+        )
+    except ResearchInFlight as exc:
+        raise HTTPException(
+            status_code=409, detail="a draft is already running for this thesis"
+        ) from exc
     segments = proposed_from_decomposition(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=research)
     )

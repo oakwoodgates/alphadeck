@@ -86,10 +86,20 @@ class Settings(BaseSettings):
     # recall-only decompose (today's behavior), NOT an empty draft.
     llm_research_model: str = "claude-opus-4-8"  # best synthesis for the highest-leverage step
     llm_research_max_tokens: int = 4000  # a synthesis of many names + roles, not a sentence
-    llm_research_timeout_s: float = 120.0  # multi-search is slow; generous on an on-demand action
-    llm_research_max_searches: int = (
-        8  # the web_search tool's max_uses — the search budget per draft
-    )
+    # 300s, raised in concert with the nginx + vite proxy timeouts: at 120s a thorough Opus multi-search pass
+    # NEVER completed — it timed out, retried, and fell through to the recall-only decompose, so the research
+    # substance was never actually tested. The SDK call timeout is the INNER bound; nginx alone wouldn't help.
+    llm_research_timeout_s: float = 300.0
+    # 3 (trimmed from 8) so ONE pass reliably FINISHES inside the 300s window — fewer searches that complete beat
+    # more that time out. A dial: widen once real timings + convergence are seen. Also the per-call cost ceiling
+    # (= the web_search tool's max_uses; the search-result context is the dominant Opus input cost).
+    llm_research_max_searches: int = 3
+    # Cache TTL (seconds) for the research SYNTHESIS, keyed by thesis + narrative-hash (see workbench/research_runner).
+    # 0 DISABLES caching (always fresh) — the DEFAULT, precisely so the convergence gate-2 runs fresh each time (a
+    # cache hit would mask convergence). After convergence is validated, set a production TTL (e.g. 21600 = 6h) so a
+    # re-open / re-draft of the same narrative doesn't re-spend; the TTL also bounds staleness so the next rebrand
+    # isn't re-stranded. The cached text is discovery CONTEXT, not a fact/signal — never the persisted-signal layer.
+    llm_research_cache_ttl_s: float = 0.0
 
     # The web_search tool VERSION is a CODE-COUPLED capability contract, NOT a free-tuning dial. It lives here
     # for visibility + single-source, but flipping it via env WITHOUT the matching code change BREAKS the call:

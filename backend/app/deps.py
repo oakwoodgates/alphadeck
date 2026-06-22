@@ -70,4 +70,5 @@ def get_research_client() -> LLMClient:
         model=_s.llm_research_model,
         max_tokens=_s.llm_research_max_tokens,
         timeout_s=_s.llm_research_timeout_s,
+        max_retries=0,  # an expensive web-search one-shot must NEVER auto-repeat at the SDK layer
     )

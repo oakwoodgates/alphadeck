@@ -37,6 +37,7 @@ class LLMClient:
         max_tokens: int | None = None,
         timeout_s: float | None = None,
         base_url: str | None = None,
+        max_retries: int | None = None,
     ) -> None:
         self.allow_live = allow_live
         # read the key inside the client, exactly as EdgarClient reads ALPHADECK_USER_AGENT — a LATE read of
@@ -50,15 +51,15 @@ class LLMClient:
         self.max_tokens = max_tokens if max_tokens is not None else _s.llm_max_tokens
         self.timeout_s = timeout_s if timeout_s is not None else _s.llm_timeout_s
         self.base_url = base_url if base_url is not None else _s.anthropic_base_url
+        # SDK auto-retry count. None => the SDK default (2). The RESEARCH client passes 0 (an expensive
+        # web-search one-shot must NEVER auto-repeat at the SDK layer — a retry re-runs the whole search loop
+        # and re-spends; see workbench cost-safety). `is None` keeps an explicit 0 honored, never coalesced.
+        self.max_retries = max_retries
 
-    def draft_structured(
-        self, *, system: str, user: str, tool: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """Force the model to call ``tool`` once and return its (schema-validated) input dict.
-
-        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key). Returns ``None`` if
-        the model returned no tool call. The Anthropic SDK is imported HERE so the module is import-clean
-        without it (the suite never needs the dependency)."""
+    def _live_client(self) -> Any:
+        """The offline gate + the lazily-imported Anthropic client, shared by ``draft_structured`` and
+        ``research``. Raises ``LLMUnavailable`` when no live call is possible (live disabled / no key) — the
+        SDK is imported HERE so the module (and the whole suite) stays import-clean without it."""
         if not self.allow_live:
             raise LLMUnavailable("live LLM calls disabled (allow_live=False)")
         if not self.api_key:
@@ -70,7 +71,20 @@ class LLMClient:
         kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_s}
         if self.base_url:
             kwargs["base_url"] = self.base_url
-        client = anthropic.Anthropic(**kwargs)
+        if (
+            self.max_retries is not None
+        ):  # else the SDK default; 0 disables retries (the research one-shot)
+            kwargs["max_retries"] = self.max_retries
+        return anthropic.Anthropic(**kwargs)
+
+    def draft_structured(
+        self, *, system: str, user: str, tool: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Force the model to call ``tool`` once and return its (schema-validated) input dict.
+
+        Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key). Returns ``None`` if
+        the model returned no tool call."""
+        client = self._live_client()
         resp = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -92,19 +106,9 @@ class LLMClient:
         fact (INVARIANT #3 — the chain stays value-free by the decompose tool's schema, not by this text).
 
         Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key) — the caller fails open
-        to the recall-only decompose. The SDK is imported HERE so the module stays import-clean without it.
+        to the recall-only decompose.
         """
-        if not self.allow_live:
-            raise LLMUnavailable("live LLM calls disabled (allow_live=False)")
-        if not self.api_key:
-            raise LLMUnavailable("ANTHROPIC_API_KEY not set")
-
-        import anthropic  # lazy — like draft_structured
-
-        kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_s}
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
-        client = anthropic.Anthropic(**kwargs)
+        client = self._live_client()
         resp = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,

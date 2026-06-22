@@ -8,7 +8,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/theses": "http://127.0.0.1:8000",
-      "/workbench": "http://127.0.0.1:8000",
+      // draft-chain's research pass (Opus + web search) runs for minutes — give the dev proxy a matching long
+      // timeout (ms) so it doesn't disconnect mid-call, in concert with nginx + llm_research_timeout_s (300s).
+      "/workbench": { target: "http://127.0.0.1:8000", proxyTimeout: 300_000, timeout: 300_000 },
       "/health": "http://127.0.0.1:8000",
     },
   },

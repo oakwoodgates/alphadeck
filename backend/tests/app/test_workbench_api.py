@@ -642,3 +642,26 @@ def test_draft_endpoint_research_failure_degrades_to_recall_only(client, db):
     assert decompose.calls and "Current research" not in decompose.calls[0]["user"]  # recall-only
     by_name = {p["name"]: p for p in r.json()["placements"]}
     assert by_name["Oklo"]["status"] == "placed"  # the recall-only chain still resolves
+
+
+def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, monkeypatch):
+    """The in-flight guard, surfaced: a draft for a thesis whose research pass is already running returns 409 —
+    NOT a second (expensive) Opus call. We force the guard to fire by faking the runner to raise."""
+    from app.deps import get_decompose_client, get_research_client
+    from app.routers import workbench as wb
+    from workbench.research_runner import ResearchInFlight
+
+    _insert_security(db, "OKLO", name="Oklo Inc.")
+    tid = _thesis_for_draft(db)
+    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns="x")
+    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
+        returns=_decomp(("Oklo", "OKLO"))
+    )
+
+    def _already_running(*args, **kwargs):
+        raise ResearchInFlight(str(tid))
+
+    monkeypatch.setattr(wb, "run_research", _already_running)
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 409
+    assert "already running" in r.json()["detail"]

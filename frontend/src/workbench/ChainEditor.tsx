@@ -115,6 +115,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
           decides); a placed name is <b>unscored</b> until you extract → ratify it. Nothing is sent until Save.
         </span>
       </div>
+      {draftQ.isError && (
+        <ErrorToast>Couldn't draft — {errText(draftQ.error)}.</ErrorToast>
+      )}
       {draftEmpty && (
         <div className="note">
           The drafter returned nothing — no <code>ANTHROPIC_API_KEY</code> in the stack, or the model

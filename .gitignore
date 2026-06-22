@@ -225,3 +225,7 @@ data/
 
 # Temporary documentation files
 docs/temp/
+
+# Vite / Vitest cache — a stray .vite/ appears at the repo root if vitest is ever run from here
+# (it normally lives under frontend/). Never committed.
+.vite/
