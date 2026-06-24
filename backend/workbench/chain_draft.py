@@ -30,9 +30,18 @@ from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
 from domain.security import Security
 from securities import master
+from workbench.discovery import DiscoveredUniverse
 
 # How many master rows to offer the operator when a proposed name is ambiguous (the pick list).
 _CANDIDATE_LIMIT = 10
+
+# The fallback bucket for an EDGAR-discovered, in-master name the organizer didn't arrange into a segment. The
+# deterministic discovery layer OWNS completeness; this guarantees no discovered name is silently dropped by the
+# organizer's (LLM) layout step — the per-CIK reconciliation in ``resolve_discovered_chain`` populates it.
+_DISCOVERED_LABEL = "Discovered"
+_DISCOVERED_DESCRIPTOR = (
+    "Found by EDGAR full-text search — not arranged into a segment by the draft."
+)
 
 
 class ProposedPlacement(DomainModel):
@@ -59,6 +68,7 @@ class ProposedSegment(DomainModel):
 
 class PlacementStatus(StrEnum):
     PLACED = "placed"  # a unique EXACT master member → security_id assigned (auto-place)
+    VERIFY = "verify"  # EDGAR-discovered, in-master, single BROAD keyword → lower-confidence, never auto-mixed
     AMBIGUOUS = "ambiguous"  # several / partial matches → the operator PICKS (membership decides)
     ABSENT = "absent"  # no master row → "suggested, not in your universe", never placed
 
@@ -93,7 +103,9 @@ class ResolvedSegment(DomainModel):
 
 class ResolvedChain(DomainModel):
     """The decomposition after every proposed name is run through the master: the segments, and each
-    placement tagged PLACED / AMBIGUOUS / ABSENT. STRUCTURE + names only — no score, no fact, no number.
+    placement tagged PLACED / VERIFY / AMBIGUOUS / ABSENT. STRUCTURE + names only — no score, no fact, no
+    number. (VERIFY is the EDGAR-first reconciler's lower-confidence tier; ``resolve_placements`` never emits
+    it.)
     """
 
     segments: list[ResolvedSegment] = []
@@ -187,6 +199,107 @@ def resolve_placements(
             for p in s.placements
         ],
     )
+
+
+def _discovered_lookup(universe: DiscoveredUniverse) -> tuple[dict[str, str], dict[str, str]]:
+    """Build the ``TICKER -> cik`` and ``NAME(upper) -> cik`` indexes over the PLACEABLE discovered filers
+    (``placed`` ∪ ``verify``) so an organizer placement can be matched back to the CIK that resolved it. Only
+    placeable CIKs are indexed — a match therefore always carries a ``security_id`` (one of the two tiers).
+    """
+    by_ticker: dict[str, str] = {}
+    by_name: dict[str, str] = {}
+    for cik in (*universe.placed, *universe.verify):
+        f = universe.filers.get(cik)
+        if f is None:
+            continue
+        if f.ticker:
+            by_ticker.setdefault(f.ticker.strip().upper(), cik)
+        if f.name:
+            by_name.setdefault(f.name.strip().upper(), cik)
+    return by_ticker, by_name
+
+
+def _match_discovered_cik(
+    p: ProposedPlacement, by_ticker: dict[str, str], by_name: dict[str, str]
+) -> str | None:
+    """Match one organizer placement to a discovered CIK — exact ticker first (the strongest key), then exact
+    name. Returns the CIK or ``None`` (a tail-sweep / off-universe name the master resolver then handles).
+    """
+    ticker = (p.ticker or "").strip().upper()
+    if ticker and ticker in by_ticker:
+        return by_ticker[ticker]
+    name = p.name.strip().upper()
+    return by_name.get(name)
+
+
+def resolve_discovered_chain(
+    conn: psycopg.Connection,
+    segments: list[ProposedSegment],
+    universe: DiscoveredUniverse,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> ResolvedChain:
+    """Resolve the organizer's layout against the EDGAR-first discovered universe (the chain reconciler, Slice
+    4a). The deterministic discovery layer OWNS COMPLETENESS; the organizer (LLM) owns only LAYOUT — so:
+
+    - An organizer placement that matches a discovered CIK (exact ticker / name) is PLACED or VERIFY by that
+      CIK's ``security_id`` (the cleanest INVARIANT #2 — CIK-exact membership), carrying the organizer's segment
+      + prose. The CIK is recorded as EMITTED.
+    - A placement that matches NO discovered CIK is a tail-sweep / off-universe name → the existing master
+      resolver (``_resolve_one``: PLACED / AMBIGUOUS / ABSENT). The organizer never sources a number (#3).
+    - **The completeness guarantee — per-CIK, not a count heuristic:** after the layout pass, EVERY in-master
+      discovered CIK NOT emitted is appended to a synthetic 'Discovered' segment by its CIK. A single name the
+      organizer silently dropped — invisible to an eyeball among a plausible-looking many — is caught
+      structurally. The organizer's mistakes cost segment arrangement, never a lost name.
+
+    Read-only — no write, no number; a PLACED/VERIFY name is still UNSCORED until the operator extract→ratifies.
+    """
+    by_ticker, by_name = _discovered_lookup(universe)
+    emitted: set[str] = set()
+    placements: list[ResolvedPlacement] = []
+    for s in segments:
+        for p in s.placements:
+            cik = _match_discovered_cik(p, by_ticker, by_name)
+            if cik is None:
+                placements.append(_resolve_one(conn, p, s.label, tenant_id=tenant_id))
+                continue
+            emitted.add(cik)
+            in_placed = cik in universe.placed
+            placements.append(
+                ResolvedPlacement(
+                    name=p.name,
+                    ticker=p.ticker,
+                    prose=p.prose,
+                    segment=s.label,
+                    status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,
+                    security_id=universe.placed[cik] if in_placed else universe.verify[cik],
+                )
+            )
+
+    out_segments = [ResolvedSegment(label=s.label, descriptor=s.descriptor) for s in segments]
+
+    # Per-CIK reconciliation: diff the resolved discovered set against what the organizer emitted. Any dropped
+    # CIK (placed OR verify) lands in 'Discovered' by its CIK — completeness is the deterministic layer's, never
+    # the organizer's to lose.
+    dropped = [cik for cik in (*universe.placed, *universe.verify) if cik not in emitted]
+    if dropped:
+        out_segments.append(
+            ResolvedSegment(label=_DISCOVERED_LABEL, descriptor=_DISCOVERED_DESCRIPTOR)
+        )
+        for cik in dropped:
+            f = universe.filers.get(cik)
+            in_placed = cik in universe.placed
+            placements.append(
+                ResolvedPlacement(
+                    name=f.name if f else "",
+                    ticker=f.ticker if f else None,
+                    prose="",
+                    segment=_DISCOVERED_LABEL,
+                    status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,
+                    security_id=universe.placed[cik] if in_placed else universe.verify[cik],
+                )
+            )
+    return ResolvedChain(segments=out_segments, placements=placements)
 
 
 def proposed_from_decomposition(raw: dict | None) -> list[ProposedSegment]:

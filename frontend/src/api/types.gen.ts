@@ -592,7 +592,7 @@ export interface components {
          * PlacementStatus
          * @enum {string}
          */
-        PlacementStatus: "placed" | "ambiguous" | "absent";
+        PlacementStatus: "placed" | "verify" | "ambiguous" | "absent";
         /**
          * Position
          * @description Populated once the operator logs a fill — its presence drives the Managing state.
