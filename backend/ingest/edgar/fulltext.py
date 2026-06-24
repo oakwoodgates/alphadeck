@@ -242,10 +242,11 @@ class Discovery:
     """The classified EFTS universe as ``security_id``s, by tier (the resolver placed each by exact CIK
     membership — INVARIANT #2, the cleanest form).
 
-    - ``placed`` — high-confidence (>=2 keywords OR >=1 SIGNAL keyword), in-master.
-    - ``verify`` — LOWER-confidence (in-master, a single BROAD keyword, no signal): the gate-2 "ketamine is
-      broad" drops (ALKS/BTAI/OVID) surfaced for the operator to promote, NEVER mixed into ``placed`` (a single
-      keyword auto-treated as on-thesis is the homonym trap; same discipline as AMBIGUOUS).
+    - ``placed`` — high-confidence: in-master AND hits >=1 SIGNAL (a seed — an operator-specified compound).
+    - ``verify`` — LOWER-confidence (in-master, no signal, hits >=1 BROAD keyword — any count): the broad-only
+      adjacents (ALKS/JUNS/PRTG-class) surfaced for the operator to promote, NEVER mixed into ``placed`` (an
+      LLM-driven broad match auto-treated as on-thesis is the homonym/corroboration trap; discovery proposes,
+      the operator decides — #2).
 
     A filer not in the master is omitted (foreign / no US ticker -> the LLM tail-sweep's job)."""
 
@@ -264,9 +265,19 @@ def classify(
     in-master ids (``master.ids_for_ciks``). Only in-master CIKs are placeable; a not-in-master on-thesis name
     is the tail-sweep's job (Slice 3/4), omitted here.
 
-    PLACED = in-master AND (>=2 distinct keywords OR >=1 SIGNAL). VERIFY = in-master AND not placed AND hits
-    >=1 BROAD keyword (a single broad hit, no signal) — surfaced lower-confidence, kept SEPARATE from placed
-    so a single match never auto-places (#2: discovery proposes, the operator decides)."""
+    PLACED = in-master AND hits >=1 SIGNAL (a seed — an operator-specified compound). VERIFY = in-master AND no
+    signal AND hits >=1 BROAD keyword (ANY broad-only count, 1 or more) — surfaced lower-confidence, kept
+    SEPARATE from placed so an LLM-driven broad match never auto-places (#2: discovery proposes, the operator
+    decides).
+
+    SEEDS-ONLY-PLACE (the deterministic-PLACED rule): SIGNAL is the operator's seeds alone, so PLACED means
+    exactly "hit a compound the operator specified" — DETERMINISTIC run-to-run (fixed seeds x deterministic
+    EFTS) and clean. The OLD ">=2 distinct keywords -> PLACED" clause was dropped: with an LLM-PROPOSED broad
+    set it placed corroborated names NON-deterministically (PLACED swung 96->184 on the same seeds across runs)
+    for a +3 answer-key gain those names already had in VERIFY. Broad corroboration is a real signal — it
+    belongs in "show me these" (VERIFY, visible + operator-promotable), NOT "auto-trust these" (PLACED),
+    precisely because it is LLM-driven. Nothing is dropped; the split moves from PLACED to VERIFY.
+    """
     sig, brd = set(signal), set(broad)
     placed: dict[str, UUID] = {}
     verify: dict[str, UUID] = {}
@@ -274,8 +285,8 @@ def classify(
         sid = in_master_ids.get(cik)
         if sid is None:
             continue  # not in the master -> not placeable here (the tail-sweep covers the foreign tail)
-        if len(f.keywords) >= 2 or (f.keywords & sig):
+        if f.keywords & sig:  # >=1 SEED (operator-specified compound) -> high-confidence PLACED
             placed[cik] = sid
-        elif f.keywords & brd:
+        elif f.keywords & brd:  # broad-only (any count, LLM-driven) -> VERIFY, never auto-placed
             verify[cik] = sid
     return Discovery(placed=placed, verify=verify)

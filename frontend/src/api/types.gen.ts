@@ -190,6 +190,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Produce Terms
+         * @description Produce + PERSIST the thesis's tiered discovery term set — the SIGNAL/BROAD keywords the EDGAR precision
+         *     filter reads. Two sources, two authorities: the operator's ``seeds`` (canonical compounds) are anchored as
+         *     ``operator_set`` SIGNAL — the RECALL guarantor against keyword-gen's non-determinism — and keyword-gen
+         *     PROPOSES the rest, which a DETERMINISTIC guard tiers (``system_drafted``; the "is this discriminating?"
+         *     decision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in
+         *     ``promote`` (the pure structured writer).
+         *
+         *     REGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in
+         *     the body) while RE-ROLLING the LLM-proposed terms — so the inspect-and-tune loop re-rolls the augmentation
+         *     without ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored
+         *     SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft then
+         *     503s "produce terms first" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
+         *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``).
+         */
+        post: operations["produce_terms_workbench_theses__thesis_id__terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/draft-chain": {
         parameters: {
             query?: never;
@@ -613,6 +645,20 @@ export interface components {
             current_price?: number | null;
             /** Opened On */
             opened_on?: string | null;
+        };
+        /**
+         * ProduceTermsRequest
+         * @description Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds
+         *     (e.g. the known psychedelic compounds) — persisted as operator-authored SIGNAL, the recall guarantor against
+         *     keyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator
+         *     seeds and just re-rolls the LLM-proposed terms.
+         */
+        ProduceTermsRequest: {
+            /**
+             * Seeds
+             * @default []
+             */
+            seeds: string[];
         };
         /**
          * PromoteThesisRequest
@@ -1276,6 +1322,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PromoteThesisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    produce_terms_workbench_theses__thesis_id__terms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProduceTermsRequest"] | null;
             };
         };
         responses: {

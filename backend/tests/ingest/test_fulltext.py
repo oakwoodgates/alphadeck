@@ -205,12 +205,12 @@ def test_discover_pervasive_failure_raises_not_returns_empty():
 
 
 def test_classify_placed_verify_and_omits_not_in_master():
-    """PLACED = in-master AND (>=2 keywords OR >=1 signal). VERIFY = in-master, single BROAD hit, no signal —
-    a SEPARATE lower-confidence tier (the 'ketamine is broad' adjacents, made visible, never auto-placed). A
-    filer not in the master is omitted entirely (the tail-sweep's job)."""
+    """SEEDS-ONLY-PLACE: PLACED = in-master AND >=1 SIGNAL (a seed). VERIFY = in-master, no signal, hits >=1
+    BROAD (any count) — a SEPARATE lower-confidence tier (the broad-only adjacents, made visible, never
+    auto-placed). A filer not in the master is omitted entirely (the tail-sweep's job)."""
     s_a, s_b, s_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     filers = {
-        "A": Filer("A", "Multi", "M", {"psilocybin", "ibogaine"}),  # >=2 -> PLACED
+        "A": Filer("A", "Two signals", "M", {"psilocybin", "ibogaine"}),  # signal -> PLACED
         "B": Filer("B", "Signal-single", "S", {"ibogaine"}),  # 1 signal -> PLACED
         "C": Filer(
             "C", "Broad-single in-master (e.g. Alkermes/ketamine)", "ALKS", {"ketamine"}
@@ -225,18 +225,23 @@ def test_classify_placed_verify_and_omits_not_in_master():
         broad={"ketamine", "MDMA"},
     )
     assert out.placed == {"A": s_a, "B": s_b}
-    assert out.verify == {"C": s_c}  # the single-broad adjacent, surfaced not dropped
+    assert out.verify == {"C": s_c}  # the broad-only adjacent, surfaced not dropped
     # D is in neither tier (not placeable here)
     assert "D" not in out.placed and "D" not in out.verify
 
 
-def test_classify_multi_keyword_is_placed_not_verify():
-    """A name with >=2 keywords is PLACED even if one is broad — placed takes precedence over verify."""
+def test_classify_broad_only_is_verify_not_placed():
+    """SEEDS-ONLY-PLACE: broad corroboration no longer auto-places. A name hitting MANY distinct BROAD keywords
+    but NO signal -> VERIFY (visible, operator-promotable), never PLACED — because a broad set is LLM-proposed
+    and non-deterministic, so >=2-broad placement made PLACED swing run-to-run. Corroboration is 'show me', not
+    'auto-trust'. (Supersedes the old '>=2 keywords -> PLACED' rule; nothing is dropped, the split moves.)
+    """
     sid = uuid.uuid4()
-    filers = {
-        "X": Filer("X", "Two broad", "X", {"ketamine", "MDMA"})
-    }  # 2 broad, no signal -> >=2 -> PLACED
+    filers = {"X": Filer("X", "Three broad, no signal", "X", {"ketamine", "MDMA", "psychedelic"})}
     out = classify(
-        filers, in_master_ids={"X": sid}, signal={"psilocybin"}, broad={"ketamine", "MDMA"}
+        filers,
+        in_master_ids={"X": sid},
+        signal={"psilocybin"},
+        broad={"ketamine", "MDMA", "psychedelic"},
     )
-    assert out.placed == {"X": sid} and out.verify == {}
+    assert out.placed == {} and out.verify == {"X": sid}  # broad-only (any count) -> VERIFY
