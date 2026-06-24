@@ -109,6 +109,15 @@ class Settings(BaseSettings):
     # an env flip. (Same dial-vs-code distinction as the config refactor: looks like config, coupled to code.)
     research_web_search_tool: str = "web_search_20250305"
 
+    # --- LLM seam (discovery Slice 2 — the thesis→keyword generator) — operational dials ---
+    # The LLM's FIRST bounded job in the EDGAR-first discovery: narrative -> SIGNAL + BROAD search keywords for
+    # the EFTS enumerator. Cheap + bounded (a structured keyword list, NO web search) -> the Haiku flag dials'
+    # cost class, but its OWN dials so the seams stay independent. Fail-open: no key -> no EFTS keywords -> the
+    # caller degrades to the LLM tail-sweep / hand-authoring.
+    llm_keyword_model: str = "claude-haiku-4-5-20251001"  # cheap; a keyword list, not reasoning
+    llm_keyword_max_tokens: int = 512  # two short keyword lists, not prose
+    llm_keyword_timeout_s: float = 20.0
+
     # Optional Anthropic base_url override (refactor D7): None => the SDK default (api.anthropic.com); passed
     # to the SDK by LLMClient ONLY when truthy (base_url="" is a broken URL). Buys a future proxy / self-host
     # + a test seam at zero cost today (nothing sets it). Read at the field name ALPHADECK_ANTHROPIC_BASE_URL.
