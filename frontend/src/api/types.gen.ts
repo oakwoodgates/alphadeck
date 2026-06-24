@@ -234,9 +234,10 @@ export interface paths {
         /**
          * Draft Chain
          * @description Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), EDGAR-FIRST since Slice 4.
-         *     Discovery is OFF the model: (1) keyword-gen (Haiku) -> SIGNAL/BROAD EFTS terms; (2) the deterministic EDGAR
-         *     full-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED vs the lower-
-         *     confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,
+         *     Discovery is OFF the model: (1) the thesis's PERSISTED term set (SIGNAL seeds + BROAD terms, produced
+         *     out-of-band by ``POST .../terms``) is read — no keyword-gen on the draft path; (2) the deterministic EDGAR
+         *     full-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED (>=1 SIGNAL seed) vs
+         *     the lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,
          *     Opus) adds only the foreign / brand-new names EFTS structurally can't see, given the already-found list.
          *     Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet ORGANIZES the stable name
          *     set into segments + thesis-fit prose — it never enumerates). Then ``resolve_discovered_chain`` reconciles
@@ -258,14 +259,14 @@ export interface paths {
          *     the decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).
          *
          *     DISCOVERY IS COMPLETENESS-OR-FAIL (it must NOT silently degrade to recall — that's the deterministic layer
-         *     turning stochastic). If discovery can't enumerate the universe — too many EFTS pages failed after retries
-         *     (``DiscoveryDegraded``), or keyword-gen produced terms but nothing placeable came back
-         *     (``DiscoveryEmpty``) — ``run_discovery`` RAISES and the draft returns HTTP **503** ("discovery unavailable —
-         *     retry"), VISIBLE to the operator, never a plausible-looking recall draft. The only benign empty is "no
-         *     keywords at all" (no key / blank narrative): then there is nothing to discover and the decompose runs on
-         *     whatever survives. The tail-sweep still fails-open to None (it's an additive corner, not the universe), and a
-         *     failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are deliberate: 409 (a draft already running)
-         *     and 503 (discovery unavailable).
+         *     turning stochastic). Every not-ready / can't-enumerate state RAISES and the draft returns HTTP **503**,
+         *     VISIBLE to the operator, never a plausible-looking recall draft: the thesis has no produced term set
+         *     (``DiscoveryNoTerms`` — "produce it first (POST .../terms)"), too many EFTS pages failed after retries
+         *     (``DiscoveryDegraded``), or the terms enumerated but nothing placeable came back (``DiscoveryEmpty``). There
+         *     is no benign-empty path anymore — discovery reads a persisted, operator-produced term set, so its absence is
+         *     a not-ready signal, not "nothing to discover". The tail-sweep still fails-open to None (it's an additive
+         *     corner, not the universe), and a failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are
+         *     deliberate: 409 (a draft already running) and 503 (discovery not ready / unavailable).
          */
         post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;
