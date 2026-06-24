@@ -8,7 +8,7 @@ from psycopg.types.json import Json
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.coerce import to_float
-from domain.enums import Archetype, Authorship
+from domain.enums import Archetype, Authorship, TermTier
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -16,6 +16,7 @@ from domain.thesis import (
     KillCriterion,
     Position,
     Segment,
+    TermSetEntry,
     Thesis,
 )
 
@@ -39,6 +40,7 @@ def row_to_thesis(
         ticker=t["ticker"],
         basket=[_row_to_basket_member(b) for b in basket],
         segments=[_row_to_segment(s) for s in t["segments"]],
+        term_set=[_row_to_term(e) for e in (t.get("term_set") or [])],
         evidence=[_row_to_evidence(e) for e in evidence],
         catalysts=[_row_to_catalyst(c) for c in catalysts],
         kill_criteria=[_row_to_kill(k) for k in kills],
@@ -48,6 +50,15 @@ def row_to_thesis(
 
 def _row_to_segment(s: dict[str, Any]) -> Segment:
     return Segment(label=s["label"], descriptor=s.get("descriptor"))
+
+
+def _row_to_term(e: dict[str, Any]) -> TermSetEntry:
+    return TermSetEntry(
+        term=e["term"],
+        tier=TermTier(e["tier"]),
+        authored_by=Authorship(e.get("authored_by", Authorship.SYSTEM_DRAFTED.value)),
+        source=e.get("source"),
+    )
 
 
 def _row_to_position(t: dict[str, Any]) -> Position | None:
@@ -110,6 +121,8 @@ def thesis_to_row(thesis: Thesis) -> dict[str, Any]:
         "position_current_price": pos.current_price if pos else None,
         "position_opened_on": pos.opened_on if pos else None,
         "segments": Json([s.model_dump(mode="json") for s in thesis.segments]),
+        # NB: `term_set` is intentionally NOT here. The full `upsert` never names that column, so a `promote`
+        # (which omits term_set) CANNOT blank it — the sole writer is the narrow `thesis_repo.set_term_set`.
     }
 
 

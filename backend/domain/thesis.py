@@ -6,7 +6,25 @@ from uuid import UUID
 from pydantic import Field, model_validator
 
 from domain.base import DomainModel
-from domain.enums import Archetype, Authorship
+from domain.enums import Archetype, Authorship, TermTier
+
+
+class TermSetEntry(DomainModel):
+    """One discovery keyword in the thesis's persisted, tiered term set — the SIGNAL/BROAD input the EDGAR
+    precision filter reads (it decides which EFTS hits PLACE a company).
+
+    ``term`` is the EFTS phrase; ``tier`` is SIGNAL or BROAD (see ``TermTier``). ``authored_by`` + ``source``
+    carry provenance so the future operator-edit UI (confirm / override a term's tier) is a PURE addition on
+    the same object: the deterministic ``/terms`` guard writes ``system_drafted``; an operator override becomes
+    ``operator_set`` / ``operator_edited``. It is STRUCTURE / config — never a fact or a number (#3).
+    """
+
+    term: str
+    tier: TermTier
+    authored_by: Authorship = (
+        Authorship.SYSTEM_DRAFTED
+    )  # the guard's default; the operator overrides later
+    source: str | None = None  # candidate provenance, e.g. "keyword_gen" / "operator" / "seed"
 
 
 class Segment(DomainModel):
@@ -78,6 +96,9 @@ class Thesis(DomainModel):
     segments: list[Segment] = Field(
         default_factory=list
     )  # the value-chain links (Workbench structure)
+    term_set: list[TermSetEntry] = Field(
+        default_factory=list
+    )  # the persisted SIGNAL/BROAD discovery terms (written by /terms, READ by discovery)
     evidence: list[Evidence] = Field(default_factory=list)
     catalysts: list[Catalyst] = Field(default_factory=list)
     kill_criteria: list[KillCriterion] = Field(default_factory=list)

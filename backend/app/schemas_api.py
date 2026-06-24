@@ -18,6 +18,7 @@ from domain.thesis import (
     KillCriterion,
     Position,
     Segment,
+    TermSetEntry,
     Thesis,
 )
 from domain.workbench import ScoredFigure, ScoredMember
@@ -219,6 +220,7 @@ class ThesisDetail(BaseModel):
     ticker: str | None = None
     basket: list[BasketMember] = []
     segments: list[Segment] = []
+    term_set: list[TermSetEntry] = []  # the persisted SIGNAL/BROAD discovery terms (read-only here)
     evidence: list[Evidence] = []
     catalysts: list[Catalyst] = []
     kill_criteria: list[KillCriterion] = []
@@ -234,6 +236,7 @@ class ThesisDetail(BaseModel):
             ticker=t.ticker,
             basket=list(t.basket),
             segments=list(t.segments),
+            term_set=list(t.term_set),
             evidence=list(t.evidence),
             catalysts=list(t.catalysts),
             kill_criteria=list(t.kill_criteria),

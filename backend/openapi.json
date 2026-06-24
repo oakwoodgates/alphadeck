@@ -1902,6 +1902,49 @@
         "title": "State",
         "description": "Thesis lifecycle (a loop, not a ratchet)."
       },
+      "TermSetEntry": {
+        "properties": {
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/TermTier"
+          },
+          "authored_by": {
+            "$ref": "#/components/schemas/Authorship",
+            "default": "system_drafted"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term",
+          "tier"
+        ],
+        "title": "TermSetEntry",
+        "description": "One discovery keyword in the thesis's persisted, tiered term set \u2014 the SIGNAL/BROAD input the EDGAR\nprecision filter reads (it decides which EFTS hits PLACE a company).\n\n``term`` is the EFTS phrase; ``tier`` is SIGNAL or BROAD (see ``TermTier``). ``authored_by`` + ``source``\ncarry provenance so the future operator-edit UI (confirm / override a term's tier) is a PURE addition on\nthe same object: the deterministic ``/terms`` guard writes ``system_drafted``; an operator override becomes\n``operator_set`` / ``operator_edited``. It is STRUCTURE / config \u2014 never a fact or a number (#3)."
+      },
+      "TermTier": {
+        "type": "string",
+        "enum": [
+          "signal",
+          "broad"
+        ],
+        "title": "TermTier",
+        "description": "A discovery keyword's tier in the thesis's persisted term set \u2014 the precision filter's INPUT.\n\nSIGNAL = a discriminating compound / drug / mechanism token; a single EFTS hit PLACES a company.\nBROAD = a collision-prone abbreviation or disease/indication term; counts only toward the >=2-distinct\nrule, never places alone. The thesis OWNS this tiering (a deterministic guard sets the default; the\noperator overrides later) and discovery READS it \u2014 the \"is this discriminating?\" decision is OFF the LLM."
+      },
       "ThesisDetail": {
         "properties": {
           "id": {
@@ -1954,6 +1997,14 @@
             },
             "type": "array",
             "title": "Segments",
+            "default": []
+          },
+          "term_set": {
+            "items": {
+              "$ref": "#/components/schemas/TermSetEntry"
+            },
+            "type": "array",
+            "title": "Term Set",
             "default": []
           },
           "evidence": {
