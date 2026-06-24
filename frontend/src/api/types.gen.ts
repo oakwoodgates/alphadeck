@@ -225,10 +225,15 @@ export interface paths {
          *     draft, prunes / ratifies, and PROMOTE is the only writer. It sources NO number — the chain is value-free by
          *     the decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).
          *
-         *     Fail-open by contract: discovery degrades to an empty universe (no keywords / EFTS or DB trouble) and the
-         *     tail-sweep to None (no key / timeout / SDK error) -> the decompose runs on whatever context survives (recall-
-         *     only if none); if the DECOMPOSE call also fails it returns 200 with an EMPTY draft. Never a 5xx — hand-
-         *     authoring is untouched (a 409 is the one intentional non-200).
+         *     DISCOVERY IS COMPLETENESS-OR-FAIL (it must NOT silently degrade to recall — that's the deterministic layer
+         *     turning stochastic). If discovery can't enumerate the universe — too many EFTS pages failed after retries
+         *     (``DiscoveryDegraded``), or keyword-gen produced terms but nothing placeable came back
+         *     (``DiscoveryEmpty``) — ``run_discovery`` RAISES and the draft returns HTTP **503** ("discovery unavailable —
+         *     retry"), VISIBLE to the operator, never a plausible-looking recall draft. The only benign empty is "no
+         *     keywords at all" (no key / blank narrative): then there is nothing to discover and the decompose runs on
+         *     whatever survives. The tail-sweep still fails-open to None (it's an additive corner, not the universe), and a
+         *     failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are deliberate: 409 (a draft already running)
+         *     and 503 (discovery unavailable).
          */
         post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;

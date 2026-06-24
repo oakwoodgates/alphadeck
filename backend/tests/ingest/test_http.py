@@ -23,13 +23,16 @@ class _FakeResp:
 
 
 def _seq(monkeypatch, responses):
-    """Make httpx.get return the given responses in order; record the call URLs."""
+    """Make httpx.get return (or RAISE, for an exception item) the given responses in order; record call URLs."""
     it = iter(responses)
     calls: list[str] = []
 
     def fake_get(url, **kw):
         calls.append(url)
-        return next(it)
+        x = next(it)
+        if isinstance(x, BaseException):
+            raise x
+        return x
 
     monkeypatch.setattr(httpx, "get", fake_get)
     return calls
@@ -86,6 +89,30 @@ def test_pre_hook_runs_before_every_attempt(monkeypatch):
     pres: list[int] = []
     polite_get("http://x", pre=lambda: pres.append(1), sleep=lambda s: None)
     assert len(pres) == 2  # the throttle runs before the retry too, not just the first try
+
+
+def test_retries_transient_network_blip_then_succeeds(monkeypatch):
+    """The class of failure that silently broke the parallel discovery fan-out: a transient httpx transport
+    error (connect / read-timeout / protocol). It is now retried with backoff like a 5xx — and the SHARED rate
+    limiter (``pre``) still runs before the retry, never bypassed."""
+    calls = _seq(monkeypatch, [httpx.ConnectError("conn reset"), _FakeResp(200)])
+    slept: list[float] = []
+    pres: list[int] = []
+    resp = polite_get("http://x", pre=lambda: pres.append(1), sleep=lambda s: slept.append(s))
+    assert resp.status_code == 200
+    assert len(calls) == 2 and len(slept) == 1  # retried once after the blip
+    assert (
+        len(pres) == 2
+    )  # rate-limited on the retry too (shared throttle, not a per-call/bypassed limiter)
+
+
+def test_gives_up_after_network_retries_exhausted(monkeypatch):
+    """A PERSISTENT transport error raises after the budget is spent — discover()'s per-page guard then
+    skips/threshold-fails it, never silently empties the universe."""
+    calls = _seq(monkeypatch, [httpx.ReadTimeout("slow")] * 5)
+    with pytest.raises(httpx.TransportError):
+        polite_get("http://x", max_retries=2, sleep=lambda s: None)
+    assert len(calls) == 3  # initial + 2 retries
 
 
 # --- RateLimiter: the SHARED, thread-safe throttle behind the parallel EFTS fan-out ---

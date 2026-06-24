@@ -85,8 +85,18 @@ def polite_get(
     attempt = 0
     while True:
         if pre is not None:
-            pre()
-        resp = httpx.get(url, headers=headers, timeout=timeout)
+            pre()  # the shared rate-limiter runs before EVERY attempt (incl. retries) — never per-call/bypassed
+        try:
+            resp = httpx.get(url, headers=headers, timeout=timeout)
+        except httpx.TransportError:
+            # A transient NETWORK blip (connect / read-timeout / protocol) — the class that, unretried, made the
+            # parallel discovery fan-out fail wholesale on a single flaky request. Retry it with backoff like a
+            # 5xx; re-raise only after the budget is spent (then discover()'s per-page guard skips/threshold it).
+            if attempt < max_retries:
+                sleep(min(backoff_base * (2**attempt), backoff_cap))
+                attempt += 1
+                continue
+            raise
         if resp.status_code in _RETRY_STATUS and attempt < max_retries:
             delay = _retry_after_seconds(resp)
             if delay is None:

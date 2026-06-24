@@ -7,8 +7,11 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import pytest
+
 from db.session import DEFAULT_TENANT_ID
-from workbench.discovery import run_discovery
+from ingest.edgar.fulltext import DiscoveryDegraded, DiscoveryUnavailable
+from workbench.discovery import DiscoveryEmpty, run_discovery
 
 
 class _FakeKeyword:
@@ -114,12 +117,23 @@ def test_run_discovery_failopen_no_keywords(db):
     assert edgar.calls == []  # never reached the enumerator
 
 
-def test_run_discovery_failopen_on_efts_error(db):
-    """An EFTS / network fault in the FREE enumerate step degrades to an empty universe (carrying the keywords),
-    never a 5xx — the draft then falls back to the recall-only decompose."""
+def test_run_discovery_raises_when_efts_degraded(db):
+    """COMPLETENESS-OR-FAIL: an EFTS fault is NO LONGER swallowed to an empty universe (the silent-degradation
+    bug that quietly fell back to recall). Every page fails -> discover() raises DiscoveryDegraded ->
+    run_discovery lets it PROPAGATE so the draft can fail VISIBLY (503)."""
     _insert(db, "CMPS", name="COMPASS Pathways plc", cik=_A)
-    uni = run_discovery(
-        db, _FakeEfts(_PAGES, raises=True), _FakeKeyword(returns=_KEYWORDS), "x", hit_cap=1000
-    )
-    assert uni.is_empty
-    assert uni.signal == ["psilocybin", "ibogaine"]  # keywords survive for visibility
+    with pytest.raises(DiscoveryDegraded):
+        run_discovery(
+            db, _FakeEfts(_PAGES, raises=True), _FakeKeyword(returns=_KEYWORDS), "x", hit_cap=1000
+        )
+
+
+def test_run_discovery_raises_empty_despite_keywords(db):
+    """Keyword-gen produced keywords but NOTHING placeable came back (here: none of the discovered CIKs are in
+    the master) -> against a populated master that is a BROKEN discovery, not an empty theme. run_discovery
+    raises DiscoveryEmpty (a DiscoveryUnavailable) rather than return an empty universe the draft would silently
+    fill from model recall."""
+    # master left empty of the discovered CIKs
+    with pytest.raises(DiscoveryEmpty):
+        run_discovery(db, _FakeEfts(_PAGES), _FakeKeyword(returns=_KEYWORDS), "x", hit_cap=1000)
+    assert issubclass(DiscoveryEmpty, DiscoveryUnavailable)  # the endpoint catches the base -> 503

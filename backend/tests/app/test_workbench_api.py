@@ -512,12 +512,17 @@ def test_explanation_has_no_path_into_a_ratified_fact():
 
 
 class _FakeEfts:
-    """Canned EFTS pages by cache_key (``efts/{kw}_{from}.json``); an unknown key -> an empty page."""
+    """Canned EFTS pages by cache_key (``efts/{kw}_{from}.json``); an unknown key -> an empty page. ``raises``
+    makes every page fetch fail (every page fails after retries -> discover() -> DiscoveryDegraded).
+    """
 
-    def __init__(self, pages: dict) -> None:
+    def __init__(self, pages: dict, *, raises: bool = False) -> None:
         self.pages = pages
+        self.raises = raises
 
     def get_json(self, url, cache_key):
+        if self.raises:
+            raise RuntimeError("EFTS unreachable")
         return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
 
 
@@ -741,3 +746,41 @@ def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, 
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 409
     assert "already running" in r.json()["detail"]
+
+
+def test_draft_endpoint_503_when_discovery_degraded(client, db):
+    """COMPLETENESS-OR-FAIL end to end: keyword-gen works but EFTS pages all fail -> DiscoveryDegraded ->
+    the draft returns 503 (the operator SEES "discovery unavailable"), NEVER a silent recall draft.
+    """
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=_FakeEfts({}, raises=True),  # every EFTS page fails -> degraded
+        decompose=_FakeLLM(
+            returns=_decomp(("Oklo", "OKLO"))
+        ),  # would have made a plausible recall draft
+    )
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 503
+    assert "discovery unavailable" in r.json()["detail"]
+
+
+def test_draft_endpoint_503_when_empty_despite_keywords(client, db):
+    """Keyword-gen produced keywords but nothing placeable came back (the discovered CIK isn't in the master) ->
+    against the populated master that is a BROKEN discovery -> 503, not a quiet recall fallback. The decompose
+    fake would have produced a draft; the operator must not silently get it."""
+    tid = _thesis_for_draft(
+        db
+    )  # NOTE: the discovered CIK is deliberately NOT inserted -> 0 placeable
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0009999999", "Ghost Co  (GHST)  (CIK 0009999999)"))}
+    )
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=edgar,
+        decompose=_FakeLLM(returns=_decomp(("Ghost Co", "GHST"))),
+    )
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 503
+    assert "discovery unavailable" in r.json()["detail"]
