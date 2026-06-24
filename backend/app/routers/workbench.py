@@ -20,6 +20,7 @@ from app.deps import (
 from app.schemas_api import (
     ChainDraftOut,
     FlagExplanationOut,
+    ProduceTermsRequest,
     PromoteThesisRequest,
     RatifiedFactOut,
     RatifyFactRequest,
@@ -28,6 +29,7 @@ from app.schemas_api import (
     ThesisDetail,
     WorkbenchScored,
 )
+from domain.enums import Authorship
 from domain.extraction import ExtractedFact
 from domain.settings import get_settings
 from domain.thesis import Thesis
@@ -47,6 +49,7 @@ from workbench.chain_draft import proposed_from_decomposition, resolve_discovere
 from workbench.discovery import discovered_names, discovery_context, run_discovery
 from workbench.research_runner import ResearchInFlight, run_research
 from workbench.scoring import score_thesis
+from workbench.term_set import produce_term_set
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -182,6 +185,36 @@ def promote(
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)
+
+
+@router.post("/theses/{thesis_id}/terms", response_model=ThesisDetail)
+def produce_terms(
+    req: ProduceTermsRequest | None = None,
+    conn: psycopg.Connection = Depends(get_conn),
+    keyword_llm: LLMClient = Depends(get_keyword_client),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    """Produce + PERSIST the thesis's tiered discovery term set — the SIGNAL/BROAD keywords the EDGAR precision
+    filter reads. Two sources, two authorities: the operator's ``seeds`` (canonical compounds) are anchored as
+    ``operator_set`` SIGNAL — the RECALL guarantor against keyword-gen's non-determinism — and keyword-gen
+    PROPOSES the rest, which a DETERMINISTIC guard tiers (``system_drafted``; the "is this discriminating?"
+    decision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in
+    ``promote`` (the pure structured writer).
+
+    REGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in
+    the body) while RE-ROLLING the LLM-proposed terms — so the inspect-and-tune loop re-rolls the augmentation
+    without ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored
+    SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft then
+    503s "produce terms first" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
+    only — and writes ONLY ``term_set`` (the narrow ``set_term_set``)."""
+    prior_seeds = [e.term for e in thesis.term_set if e.authored_by is Authorship.OPERATOR_SET]
+    seeds = prior_seeds + (
+        req.seeds if req else []
+    )  # preserve anchored seeds + add any new ones (dedup in producer)
+    entries = produce_term_set(keyword_llm, thesis.narrative, seeds=seeds)
+    thesis_repo.set_term_set(conn, thesis.id, entries)
+    conn.commit()
+    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
 
 
 @router.post("/theses/{thesis_id}/draft-chain", response_model=ChainDraftOut)

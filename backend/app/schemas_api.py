@@ -338,6 +338,15 @@ class PromoteThesisRequest(BaseModel):
     segments: list[Segment] = []
 
 
+class ProduceTermsRequest(BaseModel):
+    """Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds
+    (e.g. the known psychedelic compounds) — persisted as operator-authored SIGNAL, the recall guarantor against
+    keyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator
+    seeds and just re-rolls the LLM-proposed terms."""
+
+    seeds: list[str] = []
+
+
 # --- Ratify (hybrid-2a) — the first fact-WRITE: confirm an extracted candidate -> the existing ingest_* ---
 
 

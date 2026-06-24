@@ -380,6 +380,67 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/terms": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Produce Terms",
+        "description": "Produce + PERSIST the thesis's tiered discovery term set \u2014 the SIGNAL/BROAD keywords the EDGAR precision\nfilter reads. Two sources, two authorities: the operator's ``seeds`` (canonical compounds) are anchored as\n``operator_set`` SIGNAL \u2014 the RECALL guarantor against keyword-gen's non-determinism \u2014 and keyword-gen\nPROPOSES the rest, which a DETERMINISTIC guard tiers (``system_drafted``; the \"is this discriminating?\"\ndecision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in\n``promote`` (the pure structured writer).\n\nREGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in\nthe body) while RE-ROLLING the LLM-proposed terms \u2014 so the inspect-and-tune loop re-rolls the augmentation\nwithout ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored\nSIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds \u2192 an empty set is stored (the draft then\n503s \"produce terms first\" \u2014 surfaced, never a silent recall fallback). It sources NO number (#3) \u2014 terms\nonly \u2014 and writes ONLY ``term_set`` (the narrow ``set_term_set``).",
+        "operationId": "produce_terms_workbench_theses__thesis_id__terms_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProduceTermsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/draft-chain": {
       "post": {
         "tags": [
@@ -1312,6 +1373,21 @@
         "type": "object",
         "title": "Position",
         "description": "Populated once the operator logs a fill \u2014 its presence drives the Managing state."
+      },
+      "ProduceTermsRequest": {
+        "properties": {
+          "seeds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Seeds",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "ProduceTermsRequest",
+        "description": "Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds\n(e.g. the known psychedelic compounds) \u2014 persisted as operator-authored SIGNAL, the recall guarantor against\nkeyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator\nseeds and just re-rolls the LLM-proposed terms."
       },
       "PromoteThesisRequest": {
         "properties": {

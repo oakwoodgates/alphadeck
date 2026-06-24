@@ -168,6 +168,89 @@ def test_promote_preserves_a_persisted_term_set(client, db):
     ]  # the term set SURVIVED the promote
 
 
+def test_produce_terms_endpoint_persists_and_is_regenerable(client, db):
+    """POST /terms produces (keyword-gen PROPOSES -> the deterministic guard TIERS) + PERSISTS, returns the
+    stored split for inspection, and a re-POST REPLACES it (the inspect-and-tune loop). Option 3: no keyword-gen
+    term is SIGNAL — survivors are BROAD, junk is DROPPED. The load-bearing precision behavior, end to end.
+    """
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    ).json()["id"]
+
+    # fake keyword-gen putting compounds + junk in its SIGNAL tier -> the guard discards the split entirely
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": ["psilocybin", "MDMA", "clinical trial"], "broad": ["psychedelic"]}
+    )
+    r = client.post(f"/workbench/theses/{tid}/terms")
+    assert r.status_code == 200
+    tiers = {e["term"]: e["tier"] for e in r.json()["term_set"]}
+    assert tiers["psilocybin"] == "broad" and tiers["psychedelic"] == "broad"  # never SIGNAL
+    assert all(t == "broad" for t in tiers.values())  # no keyword-gen term is SIGNAL (seeds-only)
+    assert (
+        "MDMA" not in tiers and "clinical trial" not in tiers
+    )  # guard dropped both (collision abbrev + generic)
+    # persisted: a fresh GET shows the same stored set
+    assert {e["term"]: e["tier"] for e in client.get(f"/theses/{tid}").json()["term_set"]} == tiers
+
+    # REGENERABLE: a re-POST with a different proposal REPLACES the set (not appends)
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": ["ibogaine"], "broad": []}
+    )
+    r2 = client.post(f"/workbench/theses/{tid}/terms")
+    assert [e["term"] for e in r2.json()["term_set"]] == ["ibogaine"]  # superseded the prior set
+
+
+def test_produce_terms_seeds_are_operator_signal_and_preserved_on_regenerate(client, db):
+    """Seeds anchor the SIGNAL set (the recall guarantor vs keyword-gen non-determinism): supplied seeds persist
+    as OPERATOR_SET SIGNAL, and a REGENERATE (re-POST, no body) PRESERVES them while RE-ROLLING the LLM-proposed
+    terms — the convergent inspect-tune loop, never dropping an anchored compound."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    ).json()["id"]
+
+    # first production: operator seeds + a keyword-gen proposal
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": ["psychedelic"], "broad": []}
+    )
+    r1 = client.post(f"/workbench/theses/{tid}/terms", json={"seeds": ["psilocybin", "ibogaine"]})
+    e1 = {x["term"]: (x["tier"], x["authored_by"]) for x in r1.json()["term_set"]}
+    assert e1["psilocybin"] == ("signal", "operator_set")  # seeds anchored as operator SIGNAL
+    assert e1["ibogaine"] == ("signal", "operator_set")
+    assert e1["psychedelic"] == ("broad", "system_drafted")  # LLM-proposed -> BROAD, never SIGNAL
+
+    # regenerate with NO body + a DIFFERENT proposal: seeds PRESERVED, LLM RE-ROLLED
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": ["entactogen"], "broad": []}
+    )
+    e2 = {
+        x["term"]: (x["tier"], x["authored_by"])
+        for x in client.post(f"/workbench/theses/{tid}/terms").json()["term_set"]
+    }
+    assert e2["psilocybin"] == ("signal", "operator_set")  # PRESERVED across regenerate (no body)
+    assert e2["ibogaine"] == ("signal", "operator_set")
+    assert (
+        "entactogen" in e2 and "psychedelic" not in e2
+    )  # the LLM half re-rolled (new in, old out)
+
+
 def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:
