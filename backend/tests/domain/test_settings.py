@@ -33,6 +33,9 @@ _DIAL_ENV = (
     "ALPHADECK_LLM_RESEARCH_MAX_SEARCHES",
     "ALPHADECK_LLM_RESEARCH_CACHE_TTL_S",
     "ALPHADECK_RESEARCH_WEB_SEARCH_TOOL",
+    "ALPHADECK_LLM_KEYWORD_MODEL",
+    "ALPHADECK_LLM_KEYWORD_MAX_TOKENS",
+    "ALPHADECK_LLM_KEYWORD_TIMEOUT_S",
     "ALPHADECK_ANTHROPIC_BASE_URL",
 )
 
@@ -77,6 +80,17 @@ def test_research_dial_defaults(monkeypatch):
     assert s.llm_research_max_searches == 3 and isinstance(s.llm_research_max_searches, int)
     assert s.llm_research_cache_ttl_s == 0.0 and isinstance(s.llm_research_cache_ttl_s, float)
     assert s.research_web_search_tool == "web_search_20250305"
+
+
+def test_keyword_dial_defaults(monkeypatch):
+    """The Slice-2 keyword-gen dials (cheap Haiku — a bounded structured keyword list, no web search). Env
+    hermetic so an ambient override can't mask the defaults."""
+    for name in _DIAL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    s = Settings()
+    assert s.llm_keyword_model == "claude-haiku-4-5-20251001"
+    assert s.llm_keyword_max_tokens == 512 and isinstance(s.llm_keyword_max_tokens, int)
+    assert s.llm_keyword_timeout_s == 20.0 and isinstance(s.llm_keyword_timeout_s, float)
 
 
 def test_the_llm_dials_left_callconfig():

@@ -21,6 +21,7 @@ import urllib.parse
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+from uuid import UUID
 
 _EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 
@@ -106,6 +107,51 @@ def discover(
 def precision_filter(filers: dict[str, Filer], *, signal: Iterable[str]) -> dict[str, Filer]:
     """Keep a filer iff it hit ``>=2`` DISTINCT keywords OR ``>=1`` SIGNAL keyword — dropping the
     abbreviation-collision noise while keeping the on-thesis names. (Gate-2 Check 1 scans what this DROPS for
-    real on-thesis names, since a false NEGATIVE is silent.)"""
+    real on-thesis names, since a false NEGATIVE is silent.) The richer ``classify`` adds the VERIFY tier so a
+    real-but-low-signal adjacent isn't silently lost."""
     sig = set(signal)
     return {cik: f for cik, f in filers.items() if len(f.keywords) >= 2 or (f.keywords & sig)}
+
+
+@dataclass
+class Discovery:
+    """The classified EFTS universe as ``security_id``s, by tier (the resolver placed each by exact CIK
+    membership — INVARIANT #2, the cleanest form).
+
+    - ``placed`` — high-confidence (>=2 keywords OR >=1 SIGNAL keyword), in-master.
+    - ``verify`` — LOWER-confidence (in-master, a single BROAD keyword, no signal): the gate-2 "ketamine is
+      broad" drops (ALKS/BTAI/OVID) surfaced for the operator to promote, NEVER mixed into ``placed`` (a single
+      keyword auto-treated as on-thesis is the homonym trap; same discipline as AMBIGUOUS).
+
+    A filer not in the master is omitted (foreign / no US ticker -> the LLM tail-sweep's job)."""
+
+    placed: dict[str, UUID]  # cik -> security_id
+    verify: dict[str, UUID]  # cik -> security_id
+
+
+def classify(
+    filers: dict[str, Filer],
+    *,
+    in_master_ids: dict[str, UUID],
+    signal: Iterable[str],
+    broad: Iterable[str],
+) -> Discovery:
+    """Classify discover()'d filers into the PLACED / VERIFY tiers, using the keyword tiers + the resolved
+    in-master ids (``master.ids_for_ciks``). Only in-master CIKs are placeable; a not-in-master on-thesis name
+    is the tail-sweep's job (Slice 3/4), omitted here.
+
+    PLACED = in-master AND (>=2 distinct keywords OR >=1 SIGNAL). VERIFY = in-master AND not placed AND hits
+    >=1 BROAD keyword (a single broad hit, no signal) — surfaced lower-confidence, kept SEPARATE from placed
+    so a single match never auto-places (#2: discovery proposes, the operator decides)."""
+    sig, brd = set(signal), set(broad)
+    placed: dict[str, UUID] = {}
+    verify: dict[str, UUID] = {}
+    for cik, f in filers.items():
+        sid = in_master_ids.get(cik)
+        if sid is None:
+            continue  # not in the master -> not placeable here (the tail-sweep covers the foreign tail)
+        if len(f.keywords) >= 2 or (f.keywords & sig):
+            placed[cik] = sid
+        elif f.keywords & brd:
+            verify[cik] = sid
+    return Discovery(placed=placed, verify=verify)

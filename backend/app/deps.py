@@ -72,3 +72,17 @@ def get_research_client() -> LLMClient:
         timeout_s=_s.llm_research_timeout_s,
         max_retries=0,  # an expensive web-search one-shot must NEVER auto-repeat at the SDK layer
     )
+
+
+def get_keyword_client() -> LLMClient:
+    """The live LLM client for the thesis→keyword generator (discovery Slice 2a) — on its OWN cheap dials
+    (``llm_keyword_*``, default Haiku, no web search) so the other seams are undisturbed. Overridden in tests
+    with a fake; fail-open by contract (no ``ANTHROPIC_API_KEY`` -> no EFTS keywords -> the caller degrades to
+    the tail-sweep / hand-authoring)."""
+    _s = get_settings()
+    return LLMClient(
+        allow_live=True,
+        model=_s.llm_keyword_model,
+        max_tokens=_s.llm_keyword_max_tokens,
+        timeout_s=_s.llm_keyword_timeout_s,
+    )

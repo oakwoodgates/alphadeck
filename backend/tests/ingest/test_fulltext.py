@@ -4,10 +4,13 @@ the pagination cap) are gate-2, run against real EFTS + the master."""
 
 from __future__ import annotations
 
+import uuid
+
 from ingest.edgar.fulltext import (
     Filer,
     _parse_display,
     ciks_for_keyword,
+    classify,
     discover,
     precision_filter,
 )
@@ -105,3 +108,44 @@ def test_discover_is_deterministic():
     a = discover(_FakeEfts(pages), ["psilocybin"])
     b = discover(_FakeEfts(pages), ["psilocybin"])
     assert {k: v.keywords for k, v in a.items()} == {k: v.keywords for k, v in b.items()}
+
+
+# --- classify: the PLACED / VERIFY tiers (Slice 2b) ---
+
+
+def test_classify_placed_verify_and_omits_not_in_master():
+    """PLACED = in-master AND (>=2 keywords OR >=1 signal). VERIFY = in-master, single BROAD hit, no signal —
+    a SEPARATE lower-confidence tier (the 'ketamine is broad' adjacents, made visible, never auto-placed). A
+    filer not in the master is omitted entirely (the tail-sweep's job)."""
+    s_a, s_b, s_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    filers = {
+        "A": Filer("A", "Multi", "M", {"psilocybin", "ibogaine"}),  # >=2 -> PLACED
+        "B": Filer("B", "Signal-single", "S", {"ibogaine"}),  # 1 signal -> PLACED
+        "C": Filer(
+            "C", "Broad-single in-master (e.g. Alkermes/ketamine)", "ALKS", {"ketamine"}
+        ),  # -> VERIFY
+        "D": Filer("D", "Broad-single NOT in master", "D", {"MDMA"}),  # not in master -> omitted
+    }
+    in_master = {"A": s_a, "B": s_b, "C": s_c}  # D absent
+    out = classify(
+        filers,
+        in_master_ids=in_master,
+        signal={"psilocybin", "ibogaine"},
+        broad={"ketamine", "MDMA"},
+    )
+    assert out.placed == {"A": s_a, "B": s_b}
+    assert out.verify == {"C": s_c}  # the single-broad adjacent, surfaced not dropped
+    # D is in neither tier (not placeable here)
+    assert "D" not in out.placed and "D" not in out.verify
+
+
+def test_classify_multi_keyword_is_placed_not_verify():
+    """A name with >=2 keywords is PLACED even if one is broad — placed takes precedence over verify."""
+    sid = uuid.uuid4()
+    filers = {
+        "X": Filer("X", "Two broad", "X", {"ketamine", "MDMA"})
+    }  # 2 broad, no signal -> >=2 -> PLACED
+    out = classify(
+        filers, in_master_ids={"X": sid}, signal={"psilocybin"}, broad={"ketamine", "MDMA"}
+    )
+    assert out.placed == {"X": sid} and out.verify == {}
