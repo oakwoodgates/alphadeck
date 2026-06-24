@@ -212,6 +212,36 @@ def ids_for_tickers(
         return {row["ticker"]: row["id"] for row in cur.fetchall()}
 
 
+def ids_for_ciks(
+    conn: psycopg.Connection,
+    ciks: Iterable[str],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[str, UUID]:
+    """Map CIKs -> their canonical security id (the inverse of ``ciks_for``). The EDGAR-first discovery path:
+    EFTS returns the CIKs of US filers in a theme; this resolves each to an EXACT master member (INVARIANT #2,
+    the cleanest form — CIK is the stable identity, so a rename / DBA / ticker change can't break the match).
+
+    One id per CIK (``DISTINCT ON (cik)``, latest ``recorded_at`` — a CIK's several share classes collapse to
+    its primary row; the operator picks a specific class if it matters). CIKs with no master row are omitted
+    (foreign / no US ticker -> the tail-sweep's job, not placeable here).
+
+    The master stores CIKs as the EDGAR zero-padded 10-digit string (``sec_tickers`` writes ``f"{int:010d}"``);
+    EFTS returns the same form, so the match is direct. We zero-pad numeric inputs anyway so an unpadded caller
+    can't silently miss (a format mismatch would return nothing — the invisible-failure class). Keys returned
+    are the normalized 10-digit form."""
+    wanted = {(c.zfill(10) if c.isdigit() else c) for c in ciks if c}
+    if not wanted:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cik) cik, id FROM security_master "
+            "WHERE tenant_id = %s AND cik = ANY(%s) ORDER BY cik, recorded_at DESC",
+            (tenant_id, list(wanted)),
+        )
+        return {row["cik"]: row["id"] for row in cur.fetchall()}
+
+
 def search(
     conn: psycopg.Connection,
     query: str,
