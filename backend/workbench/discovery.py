@@ -1,22 +1,26 @@
-"""The EDGAR-first discovery orchestrator (Slice 4a) — the deterministic universe behind the chain draft.
+"""The EDGAR-first discovery orchestrator (Slice 4a; term-set-driven since T3) — the deterministic universe
+behind the chain draft.
 
-One call, three demoted-LLM-and-deterministic steps, end to end:
+One call, two FREE deterministic steps over the thesis's PERSISTED term set, end to end:
 
-1. **keyword-gen** (LLM, cheap, Slice 2) — narrative -> SIGNAL + BROAD EFTS keywords.
-2. **EFTS enumerate** (FREE, deterministic, Slice 1) — ``discover`` unions the distinct CIKs across the
-   keywords; the precision/keyword tiers stay attached for ``classify``.
+1. **read the term set** — the thesis's stored SIGNAL (operator seeds) + BROAD terms (``thesis.term_set``,
+   produced by ``POST .../terms``). The "is this term discriminating?" decision is OFF the model and OFF the
+   draft path — discovery just READS what the operator ratified. No term set -> ``DiscoveryNoTerms`` (the draft
+   503s "produce the term set first"); the LLM is no longer called here.
+2. **EFTS enumerate** (FREE, deterministic, Slice 1) — ``discover`` unions the distinct CIKs across the terms;
+   the keyword tiers stay attached for ``classify``.
 3. **CIK -> placeable** (FREE, deterministic) — ``master.ids_for_ciks`` resolves each CIK to an EXACT in-master
-   member (INVARIANT #2, the cleanest form), then ``classify`` splits PLACED (high-confidence) vs VERIFY
-   (single-BROAD, lower-confidence) and omits the not-in-master tail (the LLM tail-sweep's job).
+   member (INVARIANT #2, the cleanest form), then ``classify`` splits PLACED (>=1 SIGNAL seed) vs VERIFY
+   (broad-only, lower-confidence) and omits the not-in-master tail (the LLM tail-sweep's job).
 
 The OUTPUT is a ``DiscoveredUniverse``: the placeable CIKs as ``security_id``s by tier, plus the raw ``Filer``
 map (name / ticker / keyword overlap) the chain reconciler matches the organizer's layout back against. This
 layer OWNS COMPLETENESS — it deterministically finds the universe; the downstream organizer owns only LAYOUT,
 and a per-CIK reconciliation guarantees no discovered name is ever silently dropped (``workbench.chain_draft``).
 
-It sources NO number (#3) and only PROPOSES (#2 — exact CIK membership decides). **Fail-open by contract:** no
-keywords (no key / blank narrative) -> an empty universe; any EFTS / DB trouble in the enumerate step -> an
-empty universe too (the draft then degrades to the recall-only decompose — never a 5xx).
+It sources NO number (#3) and only PROPOSES (#2 — exact CIK membership decides). **Completeness-or-fail:** an
+empty term set -> ``DiscoveryNoTerms``; keywords-but-nothing-placeable -> ``DiscoveryEmpty``; an EFTS enumerate
+fault -> ``DiscoveryDegraded`` — all surface as 503, never a silent recall fallback.
 """
 
 from __future__ import annotations
@@ -29,12 +33,23 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.enums import TermTier
 from domain.settings import get_settings
+from domain.thesis import TermSetEntry
 from ingest.edgar.fulltext import DiscoveryUnavailable, Filer, classify, discover
-from llm.keyword_gen import generate_keywords
 from securities import master
 
 _log = logging.getLogger("alphadeck.discovery")
+
+
+class DiscoveryNoTerms(DiscoveryUnavailable):
+    """The thesis has no produced term set — discovery has nothing to read. The draft FAILS VISIBLY (503,
+    "produce the term set first") instead of silently degrading to model recall: an empty term set is the
+    not-ready state (the operator hasn't run ``POST .../terms`` yet), NOT an empty theme. A wiped set is
+    indistinguishable from never-produced, so this is also the wipe-trap's last line of defense."""
+
+    def __init__(self) -> None:
+        super().__init__("no term set produced for this thesis — run POST .../terms first")
 
 
 class DiscoveryEmpty(DiscoveryUnavailable):
@@ -108,23 +123,25 @@ def discovery_context(universe: DiscoveredUniverse, tail_sweep: str | None = Non
 def run_discovery(
     conn: psycopg.Connection,
     edgar: Any,
-    keyword_llm: Any,
-    narrative: str,
+    term_set: list[TermSetEntry],
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     hit_cap: int | None = None,
 ) -> DiscoveredUniverse:
-    """Run the EDGAR-first discovery for ``narrative``: keyword-gen -> EFTS enumerate -> CIK-resolve -> classify.
+    """Run the EDGAR-first discovery off the thesis's PERSISTED term set: read SIGNAL/BROAD -> EFTS enumerate ->
+    CIK-resolve -> classify. The LLM is NOT called here (the term set was produced out-of-band by ``.../terms``).
 
-    Returns a ``DiscoveredUniverse`` (placeable CIKs by tier + the raw filer map). Fail-open everywhere: a blank
-    narrative / no key / empty keyword result -> an empty universe; any error in the FREE enumerate+resolve step
-    (EFTS network / DB) -> an empty universe carrying the keywords. ``edgar`` needs a ``get_json(url, cache_key)``
-    method (the real ``EdgarClient`` or a fake); ``keyword_llm`` a ``draft_structured`` method.
+    Returns a ``DiscoveredUniverse`` (placeable CIKs by tier + the raw filer map). COMPLETENESS-OR-FAIL: an empty
+    term set -> ``DiscoveryNoTerms`` (the operator hasn't produced one); nothing placeable -> ``DiscoveryEmpty``;
+    an EFTS enumerate fault -> ``DiscoveryDegraded`` — all surface (the draft 503s), never a silent recall
+    fallback. ``edgar`` needs a ``get_json(url, cache_key)`` method (the real ``EdgarClient`` or a fake).
     """
-    kws = generate_keywords(keyword_llm, narrative)
-    if kws is None:
-        return DiscoveredUniverse()
-    signal, broad = kws
+    signal = [e.term for e in term_set if e.tier is TermTier.SIGNAL]
+    broad = [e.term for e in term_set if e.tier is TermTier.BROAD]
+    if not signal and not broad:
+        # No term set yet — discovery has nothing to read. Fail VISIBLY (the draft 503s "produce terms first")
+        # rather than silently degrade to recall: an empty term set is not-ready, not an empty theme.
+        raise DiscoveryNoTerms()
     settings = get_settings()
     cap = hit_cap if hit_cap is not None else settings.discovery_hit_cap
     # NO bare except-to-empty: that conflated "broke" with "found nothing" and SILENTLY degraded the

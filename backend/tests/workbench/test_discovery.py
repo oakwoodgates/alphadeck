@@ -1,6 +1,7 @@
-"""The EDGAR-first discovery orchestrator (Slice 4a) — keyword-gen → EFTS enumerate → CIK-resolve → classify,
-end to end with a fake keyword LLM + a fake EFTS client against the test master (DB-backed: ``ids_for_ciks``
-is real). Pins the PLACED/VERIFY tiers, the not-in-master omission, and the fail-open contract."""
+"""The EDGAR-first discovery orchestrator (Slice 4a; term-set-driven since T3) — read the thesis's persisted
+term set → EFTS enumerate → CIK-resolve → classify, end to end with a fake EFTS client against the test master
+(DB-backed: ``ids_for_ciks`` is real). Pins the PLACED/VERIFY tiers, the not-in-master omission, and the
+completeness-or-fail contract (no term set / degraded / nothing-placeable all RAISE)."""
 
 from __future__ import annotations
 
@@ -10,20 +11,17 @@ from datetime import date
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain.enums import TermTier
+from domain.thesis import TermSetEntry
 from ingest.edgar.fulltext import DiscoveryDegraded, DiscoveryUnavailable
-from workbench.discovery import DiscoveryEmpty, run_discovery
+from workbench.discovery import DiscoveryEmpty, DiscoveryNoTerms, run_discovery
 
 
-class _FakeKeyword:
-    """A keyword-gen LLM: ``draft_structured`` returns canned ``{signal, broad}`` (or None to fail open)."""
-
-    def __init__(self, *, returns):
-        self._returns = returns
-        self.calls: list[dict] = []
-
-    def draft_structured(self, *, system, user, tool):
-        self.calls.append({"user": user})
-        return self._returns
+def _terms(signal: list[str], broad: list[str]) -> list[TermSetEntry]:
+    """A stored term set: SIGNAL = operator seeds, BROAD = keyword-gen breadth (what ``run_discovery`` reads)."""
+    return [TermSetEntry(term=t, tier=TermTier.SIGNAL) for t in signal] + [
+        TermSetEntry(term=t, tier=TermTier.BROAD) for t in broad
+    ]
 
 
 class _FakeEfts:
@@ -77,20 +75,18 @@ _PAGES = {
     "efts/ibogaine_0.json": _page(1, (_A, "COMPASS Pathways plc  (CMPS)  (CIK 0001816590)")),
     "efts/ketamine_0.json": _page(1, (_B, "Alkermes plc  (ALKS)  (CIK 0000000002)")),
 }
-_KEYWORDS = {"signal": ["psilocybin", "ibogaine"], "broad": ["ketamine"]}
+_TERMS = _terms(["psilocybin", "ibogaine"], ["ketamine"])
 
 
 def test_run_discovery_places_and_verifies(db):
-    """Two keywords -> PLACED (Compass, >=2 keywords; Silo, 1 SIGNAL); the single-BROAD ketamine filer (Alkermes)
-    -> VERIFY. All three resolve to their CIK's master id; the raw filer map is carried for the reconciler.
-    """
+    """SEEDS-ONLY-PLACE: a SIGNAL seed hit -> PLACED (Compass on psilocybin+ibogaine; Silo on psilocybin); the
+    broad-only ketamine filer (Alkermes) -> VERIFY. All three resolve to their CIK's master id; the raw filer
+    map is carried for the reconciler. ``run_discovery`` READS the stored term set (no LLM call)."""
     a = _insert(db, "CMPS", name="COMPASS Pathways plc", cik=_A)
     c = _insert(db, "SILO", name="Silo Pharma, Inc.", cik=_C)
     b = _insert(db, "ALKS", name="Alkermes plc", cik=_B)
     edgar = _FakeEfts(_PAGES)
-    uni = run_discovery(
-        db, edgar, _FakeKeyword(returns=_KEYWORDS), "psychedelic therapy", hit_cap=1000
-    )
+    uni = run_discovery(db, edgar, _TERMS, hit_cap=1000)
     assert uni.placed == {_A: a, _C: c}
     assert uni.verify == {_B: b}
     assert set(uni.filers) == {_A, _C, _B}  # the raw enumerated set, for the layout match-back
@@ -102,19 +98,21 @@ def test_run_discovery_omits_not_in_master(db):
     """A discovered CIK with no master row is omitted from both tiers (foreign / no US ticker -> the tail-sweep's
     job, not placeable here) — only Compass is in the master."""
     a = _insert(db, "CMPS", name="COMPASS Pathways plc", cik=_A)
-    uni = run_discovery(
-        db, _FakeEfts(_PAGES), _FakeKeyword(returns=_KEYWORDS), "psychedelics", hit_cap=1000
-    )
+    uni = run_discovery(db, _FakeEfts(_PAGES), _TERMS, hit_cap=1000)
     assert uni.placed == {_A: a}  # Silo placed-tier but not in master -> omitted
     assert uni.verify == {}  # Alkermes not in master -> omitted
 
 
-def test_run_discovery_failopen_no_keywords(db):
-    """No keywords (the keyword LLM fails open to None) -> an empty universe, and EFTS is never queried."""
+def test_run_discovery_raises_when_no_term_set(db):
+    """No term set produced yet (empty list) -> DiscoveryNoTerms (the operator must run .../terms first); EFTS is
+    never queried. The not-ready state FAILS VISIBLY (503), never a silent recall fallback."""
     edgar = _FakeEfts(_PAGES)
-    uni = run_discovery(db, edgar, _FakeKeyword(returns=None), "anything", hit_cap=1000)
-    assert uni.is_empty and uni.placed == {} and uni.verify == {}
+    with pytest.raises(DiscoveryNoTerms):
+        run_discovery(db, edgar, [], hit_cap=1000)
     assert edgar.calls == []  # never reached the enumerator
+    assert issubclass(
+        DiscoveryNoTerms, DiscoveryUnavailable
+    )  # the endpoint catches the base -> 503
 
 
 def test_run_discovery_raises_when_efts_degraded(db):
@@ -123,17 +121,15 @@ def test_run_discovery_raises_when_efts_degraded(db):
     run_discovery lets it PROPAGATE so the draft can fail VISIBLY (503)."""
     _insert(db, "CMPS", name="COMPASS Pathways plc", cik=_A)
     with pytest.raises(DiscoveryDegraded):
-        run_discovery(
-            db, _FakeEfts(_PAGES, raises=True), _FakeKeyword(returns=_KEYWORDS), "x", hit_cap=1000
-        )
+        run_discovery(db, _FakeEfts(_PAGES, raises=True), _TERMS, hit_cap=1000)
 
 
-def test_run_discovery_raises_empty_despite_keywords(db):
-    """Keyword-gen produced keywords but NOTHING placeable came back (here: none of the discovered CIKs are in
+def test_run_discovery_raises_empty_despite_terms(db):
+    """The term set enumerated terms but NOTHING placeable came back (here: none of the discovered CIKs are in
     the master) -> against a populated master that is a BROKEN discovery, not an empty theme. run_discovery
     raises DiscoveryEmpty (a DiscoveryUnavailable) rather than return an empty universe the draft would silently
     fill from model recall."""
     # master left empty of the discovered CIKs
     with pytest.raises(DiscoveryEmpty):
-        run_discovery(db, _FakeEfts(_PAGES), _FakeKeyword(returns=_KEYWORDS), "x", hit_cap=1000)
+        run_discovery(db, _FakeEfts(_PAGES), _TERMS, hit_cap=1000)
     assert issubclass(DiscoveryEmpty, DiscoveryUnavailable)  # the endpoint catches the base -> 503

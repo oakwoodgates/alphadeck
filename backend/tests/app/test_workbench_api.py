@@ -5,8 +5,8 @@ from datetime import date
 
 from app.main import app
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype
-from domain.thesis import BasketMember, Segment, Thesis
+from domain.enums import Archetype, TermTier
+from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
@@ -667,11 +667,6 @@ def _efts_page(*rows: tuple[str, str]) -> dict:
     }
 
 
-def _kw(signal, broad=()) -> dict:
-    """A keyword-gen tool-output (SIGNAL / BROAD term tiers)."""
-    return {"signal": list(signal), "broad": list(broad)}
-
-
 def _decomp(*placements: tuple[str, str]) -> dict:
     """A fake decompose tool-output: one segment 'reactors' with the given (name, ticker) placements."""
     return {
@@ -686,9 +681,11 @@ def _decomp(*placements: tuple[str, str]) -> dict:
     }
 
 
-def _thesis_for_draft(db) -> uuid.UUID:
-    """A persisted thesis with an EMPTY basket (so basket_member starts at 0 — the writes-nothing assertion
-    is unambiguous)."""
+def _thesis_for_draft(db, *, terms: tuple[str, ...] = ("nuclear",)) -> uuid.UUID:
+    """A persisted thesis with an EMPTY basket (so basket_member starts at 0 — the writes-nothing assertion is
+    unambiguous) and a stored SIGNAL term set (discovery READS it since T3 — ``terms=()`` produces NO term set,
+    the not-ready state). Default seed ``nuclear`` matches the EFTS ``efts/nuclear_0.json`` pages below.
+    """
     t = Thesis(
         id=uuid.uuid4(),
         tenant_id=DEFAULT_TENANT_ID,
@@ -696,22 +693,21 @@ def _thesis_for_draft(db) -> uuid.UUID:
         narrative="small modular nuclear is about to rip",
     )
     thesis_repo.upsert(db, t)
+    if terms:
+        thesis_repo.set_term_set(
+            db, t.id, [TermSetEntry(term=x, tier=TermTier.SIGNAL) for x in terms]
+        )
     db.commit()
     return t.id
 
 
-def _override_draft(*, keyword=None, edgar=None, research=None, decompose=None):
-    """Override the four draft seams (the ``client`` fixture clears overrides after the test). Defaults: a
-    no-keyword keyword client (empty discovery), an empty EFTS, no tail-sweep, an empty decompose.
+def _override_draft(*, edgar=None, research=None, decompose=None):
+    """Override the three draft LLM/EFTS seams (the ``client`` fixture clears overrides after the test). Since T3
+    the draft path no longer calls keyword-gen — discovery reads the thesis's stored term set. Defaults: an empty
+    EFTS, no tail-sweep, an empty decompose.
     """
-    from app.deps import (
-        get_decompose_client,
-        get_edgar_client,
-        get_keyword_client,
-        get_research_client,
-    )
+    from app.deps import get_decompose_client, get_edgar_client, get_research_client
 
-    app.dependency_overrides[get_keyword_client] = lambda: keyword or _FakeLLM(returns=None)
     app.dependency_overrides[get_edgar_client] = lambda: edgar or _FakeEfts({})
     app.dependency_overrides[get_research_client] = lambda: research or _FakeLLM(
         research_returns=None
@@ -720,16 +716,15 @@ def _override_draft(*, keyword=None, edgar=None, research=None, decompose=None):
 
 
 def test_draft_endpoint_resolves_via_discovery(client, db):
-    """The EDGAR-first wire: keyword-gen -> EFTS discovery (a CIK in the master) -> organizer decompose ->
-    reconcile by CIK -> PLACED with that CIK's id. An off-universe name the organizer adds falls to the master
+    """The EDGAR-first wire: the stored term set -> EFTS discovery (a CIK in the master) -> organizer decompose
+    -> reconcile by CIK -> PLACED with that CIK's id. An off-universe name the organizer adds falls to the master
     resolver -> ABSENT. Exact membership decides; the endpoint only composes."""
     oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
-    tid = _thesis_for_draft(db)
+    tid = _thesis_for_draft(db)  # seed term "nuclear" -> EFTS efts/nuclear_0.json
     edgar = _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
     _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
         edgar=edgar,
         decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"), ("Ghost Co", "ZZZZ"))),
     )
@@ -747,9 +742,12 @@ def test_draft_endpoint_writes_nothing(client, db):
     """RESPONSE-ONLY, TEST-ENFORCED (the endpoint HAS a read-only conn — to read the narrative + resolve — so
     "writes nothing" is THIS test, not absence-of-conn like the flag seam): drafting a chain persists ZERO
     fact_* rows AND adds ZERO basket_member rows. The operator's promote is the only writer."""
-    _insert_security(db, "OKLO", name="Oklo Inc.")
-    tid = _thesis_for_draft(db)  # empty basket; empty discovery -> the master resolver places OKLO
-    _override_draft(decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)  # empty basket; term "nuclear" -> EFTS places OKLO by CIK
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
     assert client.post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
@@ -760,16 +758,26 @@ def test_draft_endpoint_writes_nothing(client, db):
 
 
 def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
-    """No fake, no key: every seam's offline gate fails open — keyword-gen -> empty discovery (EFTS never
-    queried), tail-sweep -> None, decompose (LLMUnavailable) -> 200 with an EMPTY draft, NEVER a 5xx.
-    """
+    """No key: the LLM seams' offline gates fail open — tail-sweep -> None, decompose (LLMUnavailable) -> empty
+    layout — yet discovery is FREE + deterministic (it reads the stored term set + a faked EFTS), so the draft
+    is 200 with the discovered name surfaced in 'Discovered', NEVER a 5xx. (EFTS is faked to avoid live network;
+    the real research/decompose clients exercise the no-key path.)"""
+    from app.deps import get_edgar_client
+
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    tid = _thesis_for_draft(db)
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)  # stored term "nuclear"
+    app.dependency_overrides[get_edgar_client] = lambda: _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 200  # NOT a 5xx
+    assert (
+        r.status_code == 200
+    )  # NOT a 5xx — the LLM seams failed open, discovery carried the draft
     body = r.json()
     assert body["thesis_id"] == str(tid)
-    assert body["segments"] == [] and body["placements"] == []
+    by_name = {p["name"]: p for p in body["placements"]}
+    assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # discovered + placed despite no LLM
 
 
 def test_draft_endpoint_404_for_unknown_thesis(client):
@@ -788,12 +796,7 @@ def test_draft_endpoint_threads_discovery_and_sweep_into_decompose(client, db):
     )
     research = _FakeLLM(research_returns="Foreign tail: Nuclear ADR Co (NADR).")
     decompose = _FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
-    _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
-        edgar=edgar,
-        research=research,
-        decompose=decompose,
-    )
+    _override_draft(edgar=edgar, research=research, decompose=decompose)
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 200
     user = decompose.calls[0]["user"]
@@ -814,7 +817,6 @@ def test_draft_endpoint_tail_sweep_failure_still_drafts_on_edgar_context(client,
     )
     decompose = _FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
     _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
         edgar=edgar,
         research=_FakeLLM(research_raises=RuntimeError("web search down")),
         decompose=decompose,
@@ -847,7 +849,6 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
         }
     )
     _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
         edgar=edgar,
         decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))),  # SMR dropped by the organizer
     )
@@ -867,8 +868,14 @@ def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, 
     from app.routers import workbench as wb
     from workbench.research_runner import ResearchInFlight
 
-    tid = _thesis_for_draft(db)
-    _override_draft(decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(
+        db
+    )  # discovery must SUCCEED (term + placeable CIK) to reach run_research
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
 
     def _already_running(*args, **kwargs):
         raise ResearchInFlight(str(tid))
@@ -880,13 +887,12 @@ def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, 
 
 
 def test_draft_endpoint_503_when_discovery_degraded(client, db):
-    """COMPLETENESS-OR-FAIL end to end: keyword-gen works but EFTS pages all fail -> DiscoveryDegraded ->
+    """COMPLETENESS-OR-FAIL end to end: the term set is present but EFTS pages all fail -> DiscoveryDegraded ->
     the draft returns 503 (the operator SEES "discovery unavailable"), NEVER a silent recall draft.
     """
     _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     tid = _thesis_for_draft(db)
     _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
         edgar=_FakeEfts({}, raises=True),  # every EFTS page fails -> degraded
         decompose=_FakeLLM(
             returns=_decomp(("Oklo", "OKLO"))
@@ -897,8 +903,8 @@ def test_draft_endpoint_503_when_discovery_degraded(client, db):
     assert "discovery unavailable" in r.json()["detail"]
 
 
-def test_draft_endpoint_503_when_empty_despite_keywords(client, db):
-    """Keyword-gen produced keywords but nothing placeable came back (the discovered CIK isn't in the master) ->
+def test_draft_endpoint_503_when_empty_despite_terms(client, db):
+    """The term set enumerated terms but nothing placeable came back (the discovered CIK isn't in the master) ->
     against the populated master that is a BROKEN discovery -> 503, not a quiet recall fallback. The decompose
     fake would have produced a draft; the operator must not silently get it."""
     tid = _thesis_for_draft(
@@ -907,11 +913,24 @@ def test_draft_endpoint_503_when_empty_despite_keywords(client, db):
     edgar = _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0009999999", "Ghost Co  (GHST)  (CIK 0009999999)"))}
     )
-    _override_draft(
-        keyword=_FakeLLM(returns=_kw(["nuclear"])),
-        edgar=edgar,
-        decompose=_FakeLLM(returns=_decomp(("Ghost Co", "GHST"))),
-    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Ghost Co", "GHST"))))
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 503
     assert "discovery unavailable" in r.json()["detail"]
+
+
+def test_draft_endpoint_503_when_no_term_set(client, db):
+    """T3 readiness gate: a thesis with NO produced term set -> 503 ("produce it first"), and EFTS is NEVER
+    queried (discovery has nothing to read). The not-ready state is VISIBLE — never a silent recall draft, never
+    a confusing empty. This is also the wipe-trap's last line: a blanked set would land here, not pass silently.
+    """
+    tid = _thesis_for_draft(db, terms=())  # no term set produced
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo  (OKLO)  (CIK ...)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 503
+    assert (
+        "term set" in r.json()["detail"]
+    )  # the specific not-ready message, distinct from "unavailable"
