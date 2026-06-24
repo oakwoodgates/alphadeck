@@ -76,6 +76,19 @@ class Archetype(StrEnum):
     FUND = "fund"  # an ETF: the low-torque safe-exposure sleeve expression of the thesis
 
 
+class TermTier(StrEnum):
+    """A discovery keyword's tier in the thesis's persisted term set — the precision filter's INPUT.
+
+    SIGNAL = a discriminating compound / drug / mechanism token; a single EFTS hit PLACES a company.
+    BROAD = a collision-prone abbreviation or disease/indication term; counts only toward the >=2-distinct
+    rule, never places alone. The thesis OWNS this tiering (a deterministic guard sets the default; the
+    operator overrides later) and discovery READS it — the "is this discriminating?" decision is OFF the LLM.
+    """
+
+    SIGNAL = "signal"
+    BROAD = "broad"
+
+
 class Authorship(StrEnum):
     """Who placed a basket member in its value-chain segment (the Workbench authorship seam).
 

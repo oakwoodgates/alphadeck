@@ -3,8 +3,9 @@ from __future__ import annotations
 from uuid import UUID
 
 import psycopg
+from psycopg.types.json import Json
 
-from domain.thesis import Thesis
+from domain.thesis import TermSetEntry, Thesis
 from repositories.mappers import row_to_thesis, thesis_to_row
 
 
@@ -28,6 +29,21 @@ def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
         )
         kills = cur.fetchall()
     return row_to_thesis(t, basket, evidence, catalysts, kills)
+
+
+def set_term_set(conn: psycopg.Connection, thesis_id: UUID, term_set: list[TermSetEntry]) -> None:
+    """Persist the thesis's tiered discovery term set (the SIGNAL/BROAD keywords discovery reads). The SOLE
+    writer of ``thesis.term_set`` — a NARROW single-column UPDATE that touches nothing else.
+
+    Deliberately NOT part of ``upsert``: ``upsert`` never names the ``term_set`` column, so a ``promote`` that
+    omits the term set CANNOT blank it (a STRUCTURAL wipe-guard, not a remembered read-merge). Overwrites the
+    whole set — the ``/terms`` producer regenerates wholesale, so a re-run cleanly supersedes. The caller owns
+    the transaction (commit/rollback)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE thesis SET term_set = %s, updated_at = now() WHERE id = %s",
+            (Json([e.model_dump(mode="json") for e in term_set]), thesis_id),
+        )
 
 
 def list_all(conn: psycopg.Connection) -> list[Thesis]:

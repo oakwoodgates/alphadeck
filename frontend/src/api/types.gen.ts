@@ -874,6 +874,36 @@ export interface components {
          */
         State: "incubating" | "warming" | "armed" | "managing";
         /**
+         * TermSetEntry
+         * @description One discovery keyword in the thesis's persisted, tiered term set — the SIGNAL/BROAD input the EDGAR
+         *     precision filter reads (it decides which EFTS hits PLACE a company).
+         *
+         *     ``term`` is the EFTS phrase; ``tier`` is SIGNAL or BROAD (see ``TermTier``). ``authored_by`` + ``source``
+         *     carry provenance so the future operator-edit UI (confirm / override a term's tier) is a PURE addition on
+         *     the same object: the deterministic ``/terms`` guard writes ``system_drafted``; an operator override becomes
+         *     ``operator_set`` / ``operator_edited``. It is STRUCTURE / config — never a fact or a number (#3).
+         */
+        TermSetEntry: {
+            /** Term */
+            term: string;
+            tier: components["schemas"]["TermTier"];
+            /** @default system_drafted */
+            authored_by: components["schemas"]["Authorship"];
+            /** Source */
+            source?: string | null;
+        };
+        /**
+         * TermTier
+         * @description A discovery keyword's tier in the thesis's persisted term set — the precision filter's INPUT.
+         *
+         *     SIGNAL = a discriminating compound / drug / mechanism token; a single EFTS hit PLACES a company.
+         *     BROAD = a collision-prone abbreviation or disease/indication term; counts only toward the >=2-distinct
+         *     rule, never places alone. The thesis OWNS this tiering (a deterministic guard sets the default; the
+         *     operator overrides later) and discovery READS it — the "is this discriminating?" decision is OFF the LLM.
+         * @enum {string}
+         */
+        TermTier: "signal" | "broad";
+        /**
          * ThesisDetail
          * @description The full thesis for the Cockpit — a wire model (no tenant_id) so generated FE types never bind
          *     to the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the
@@ -903,6 +933,11 @@ export interface components {
              * @default []
              */
             segments: components["schemas"]["Segment"][];
+            /**
+             * Term Set
+             * @default []
+             */
+            term_set: components["schemas"]["TermSetEntry"][];
             /**
              * Evidence
              * @default []

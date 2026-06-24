@@ -120,6 +120,54 @@ def test_promote_rejects_orphan_segment_placement(client, security_id):
     assert client.post("/workbench/theses", json=payload).status_code == 422
 
 
+def test_promote_preserves_a_persisted_term_set(client, db):
+    """LOAD-BEARING — the invisible-wipe seam. Produce a term set, then a promote whose request OMITS term_set
+    must NOT blank it (a wiped set is indistinguishable from never-produced, and the next draft would 503 with
+    no clue why). The stored set SURVIVES — `upsert` structurally cannot write the column."""
+    from domain.enums import TermTier
+    from domain.thesis import TermSetEntry
+    from repositories import thesis_repo
+
+    created = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    )
+    tid = created.json()["id"]
+    assert created.json()["term_set"] == []  # born empty — no producer has run yet
+
+    # produce a term set out-of-band (the /terms producer endpoint lands in T2; the repo writer stands in here)
+    thesis_repo.set_term_set(
+        db, uuid.UUID(tid), [TermSetEntry(term="psilocybin", tier=TermTier.SIGNAL)]
+    )
+    db.commit()
+
+    # a SECOND promote (a narrative edit) whose request OMITS term_set — the exact wipe scenario
+    r = client.post(
+        "/workbench/theses",
+        json={
+            "id": tid,
+            "name": "psy",
+            "narrative": "psychedelic therapy — edited",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    )
+    assert r.status_code == 200
+
+    detail = client.get(f"/theses/{tid}").json()
+    assert detail["narrative"] == "psychedelic therapy — edited"  # the edit landed
+    assert [e["term"] for e in detail["term_set"]] == [
+        "psilocybin"
+    ]  # the term set SURVIVED the promote
+
+
 def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:

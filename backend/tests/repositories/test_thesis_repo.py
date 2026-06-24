@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from db.session import DEFAULT_TENANT_ID, connect
-from domain.enums import Archetype, Authorship
+from domain.enums import Archetype, Authorship, TermTier
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -15,6 +15,7 @@ from domain.thesis import (
     KillCriterion,
     Position,
     Segment,
+    TermSetEntry,
     Thesis,
 )
 from repositories import thesis_repo
@@ -123,6 +124,56 @@ def test_thesis_rejects_member_in_unknown_segment():
 
 def test_get_missing_returns_none(db):
     assert thesis_repo.get(db, uuid.uuid4()) is None
+
+
+# --- the persisted, tiered term set (discovery precision; written ONLY by set_term_set) ---
+
+
+def test_set_term_set_roundtrips(db, security_id):
+    """``set_term_set`` is the sole writer of the tiered term set; term + tier + authored_by default + source
+    all round-trip through ``get``."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    terms = [
+        TermSetEntry(term="psilocybin", tier=TermTier.SIGNAL, source="keyword_gen"),
+        TermSetEntry(term="MDMA", tier=TermTier.BROAD, source="keyword_gen"),
+    ]
+    thesis_repo.set_term_set(db, t.id, terms)
+    db.commit()
+    assert thesis_repo.get(db, t.id).term_set == terms  # full structural round-trip
+
+
+def test_set_term_set_touches_only_the_term_set(db, security_id):
+    """The NARROW writer touches ONLY ``term_set`` — the chain (segments + basket) is untouched."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    thesis_repo.set_term_set(db, t.id, [TermSetEntry(term="ibogaine", tier=TermTier.SIGNAL)])
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    assert [s.label for s in got.segments] == ["Telehealth platforms", "Compounding / supply"]
+    assert len(got.basket) == 1 and got.basket[0].ticker == "HIMS"
+    assert [e.term for e in got.term_set] == ["ibogaine"]
+
+
+def test_upsert_cannot_blank_a_persisted_term_set(db, security_id):
+    """THE STRUCTURAL WIPE-GUARD (the seam where this design would fail SILENTLY): once a term set is produced,
+    a later ``upsert`` of the SAME thesis whose object carries an empty ``term_set`` — exactly what ``promote``
+    builds from a request that omits it — must NOT blank the stored set. ``upsert`` never names the column, so
+    it can't. (A wiped term set is indistinguishable from a never-produced one — that's why this is load-bearing.)
+    """
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    thesis_repo.set_term_set(db, t.id, [TermSetEntry(term="psilocin", tier=TermTier.SIGNAL)])
+    db.commit()
+    # re-upsert the thesis object (its term_set defaults to [], as a promote would) + a narrative edit
+    thesis_repo.upsert(db, t.model_copy(update={"narrative": "edited"}))
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    assert got.narrative == "edited"  # upsert DID write the fields it owns
+    assert [e.term for e in got.term_set] == ["psilocin"]  # the term set SURVIVED unblanked
 
 
 def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
