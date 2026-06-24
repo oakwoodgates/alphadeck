@@ -5,12 +5,14 @@ Given an operator's narrative, draft a value chain: 2-6 **segments** (links in t
 sit in each, and one short thesis-fit **prose** sentence per name. The output is STRUCTURE + NAMES + REASONING
 only — it is a drafting aid the operator ratifies, never a decision.
 
-TWO-STEP (the research upgrade, Slice 1): ``research_companies`` first runs a web-search pass that finds the
-CURRENTLY-LISTED companies in the thesis space; its plain-text synthesis is threaded into ``decompose_narrative``
-as ``research_context`` so the model decomposes from RESEARCH, not training recall (killing the run-to-run
-instability + off-thesis drift, and proposing CURRENT post-rename identities). Research is CONTEXT only —
-INVARIANT #3 stays structural (the tool schema below has no number field). The research step is fail-open: any
-trouble degrades to the recall-only decompose (``research_context=None``), never an empty draft.
+EDGAR-FIRST DISCOVERY (Slice 4): the names no longer come from the model's recall. The deterministic EDGAR
+full-text enumerator finds the US-listed universe (``workbench.discovery``); the directed ``research_tail_sweep``
+below adds the foreign / brand-new tail EFTS can't see. Their combined synthesis is threaded into
+``decompose_narrative`` as ``research_context`` so the model only ORGANIZES a stable, deterministic name set into
+value-chain segments — never enumerates it. Research is CONTEXT only — INVARIANT #3 stays structural (the tool
+schema below has no number field). Fail-open throughout: with no context the decompose runs recall-only, never an
+empty draft; the reconciler (``workbench.chain_draft.resolve_discovered_chain``) then guarantees per-CIK that no
+deterministically-found name is dropped by the organizer's layout.
 
 THE BOUNDS (carried from the gate-1 plan):
 - **Never a number** (INVARIANT #1/#3). The prompt + tool schema forbid any price / %% / share count / cash /
@@ -147,28 +149,6 @@ def _web_search_tool() -> dict[str, Any]:
         "name": "web_search",
         "max_uses": _s.llm_research_max_searches,
     }
-
-
-def research_companies(client: Any, narrative: str) -> str | None:
-    """Run the web-search RESEARCH pass over a narrative (Slice 1): find the CURRENTLY-LISTED US companies
-    across the thesis's value chain, returning a plain-text synthesis (names + tickers + one-line roles) used
-    as CONTEXT for ``decompose_narrative`` — never structured output, never a fact, never a number into the
-    chain.
-
-    Fail-open: a blank narrative / no key / live disabled / timeout / SDK error / no text → ``None`` (the draft
-    endpoint then runs the recall-only decompose — today's behavior, NOT an empty draft). ``client`` only needs
-    a ``research(system, user, tool)`` method (the real ``LLMClient`` or a test fake).
-    """
-    if not narrative or not narrative.strip():
-        return None
-    # fail-loud on a missing prompt (a deploy bug), outside the fail-open try — like decompose_narrative.
-    system = load_prompt("chain_research")
-    try:
-        return client.research(
-            system=system, user=f"Narrative:\n{narrative.strip()}", tool=_web_search_tool()
-        )
-    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
-        return None
 
 
 def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> str | None:

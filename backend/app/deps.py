@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException
 from db.session import connect, current_tenant_id
 from domain.settings import get_settings
 from domain.thesis import Thesis
+from ingest.edgar.client import EdgarClient
 from llm.client import LLMClient
 from repositories import thesis_repo
 
@@ -72,6 +73,14 @@ def get_research_client() -> LLMClient:
         timeout_s=_s.llm_research_timeout_s,
         max_retries=0,  # an expensive web-search one-shot must NEVER auto-repeat at the SDK layer
     )
+
+
+def get_edgar_client() -> EdgarClient:
+    """The EDGAR client for the EDGAR-first discovery (Slice 4b). Live by default (cache-first + polite +
+    declared User-Agent, like the extract seam's inline client), overridden in tests with a fake EFTS client.
+    Discovery is fail-open: any EFTS trouble degrades to an empty universe inside ``run_discovery`` — the draft
+    then falls back to the recall-only decompose, never a 5xx."""
+    return EdgarClient(allow_live=True)
 
 
 def get_keyword_client() -> LLMClient:

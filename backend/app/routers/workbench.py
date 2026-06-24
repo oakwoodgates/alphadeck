@@ -11,6 +11,8 @@ from app.deps import (
     get_conn,
     get_current_tenant,
     get_decompose_client,
+    get_edgar_client,
+    get_keyword_client,
     get_llm_client,
     get_research_client,
     get_thesis_or_404,
@@ -34,13 +36,14 @@ from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
-from llm.chain_decomposition import decompose_narrative, research_companies
+from llm.chain_decomposition import decompose_narrative, research_tail_sweep
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
-from workbench.chain_draft import proposed_from_decomposition, resolve_placements
+from workbench.chain_draft import proposed_from_decomposition, resolve_discovered_chain
+from workbench.discovery import discovered_names, discovery_context, run_discovery
 from workbench.research_runner import ResearchInFlight, run_research
 from workbench.scoring import score_thesis
 
@@ -183,50 +186,60 @@ def promote(
 @router.post("/theses/{thesis_id}/draft-chain", response_model=ChainDraftOut)
 def draft_chain(
     conn: psycopg.Connection = Depends(get_conn),
+    keyword_llm: LLMClient = Depends(get_keyword_client),
     research_llm: LLMClient = Depends(get_research_client),
     decompose_llm: LLMClient = Depends(get_decompose_client),
+    edgar: EdgarClient = Depends(get_edgar_client),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ChainDraftOut:
-    """Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), TWO-STEP since Slice 1.
-    First a web-search RESEARCH pass finds the currently-listed companies in the thesis space
-    (``research_companies``, Opus); its synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet asks
-    for segments + names + thesis-fit prose), so the names come from research, not training recall. Then every
-    proposed name resolves against THIS thesis's tenant master (``resolve_placements``, the 5a decider): exact
-    membership -> PLACED, partial / ambiguous / a ticker-name contradiction -> the operator's pick, off-universe
-    -> ABSENT.
+    """Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), EDGAR-FIRST since Slice 4.
+    Discovery is OFF the model: (1) keyword-gen (Haiku) -> SIGNAL/BROAD EFTS terms; (2) the deterministic EDGAR
+    full-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED vs the lower-
+    confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,
+    Opus) adds only the foreign / brand-new names EFTS structurally can't see, given the already-found list.
+    Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet ORGANIZES the stable name
+    set into segments + thesis-fit prose — it never enumerates). Then ``resolve_discovered_chain`` reconciles
+    the organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its
+    CIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and
+    every discovered CIK the organizer dropped is appended to a 'Discovered' bucket — completeness is the
+    deterministic layer's, never the organizer's to lose.
 
-    The research pass runs behind a cost-safety wrapper (``workbench.research_runner``): an IN-FLIGHT guard
-    (at most one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray retry can
-    never launch a parallel expensive Opus call) + a TTL cache of the synthesis keyed by thesis + narrative-hash
-    (``llm_research_cache_ttl_s``; 0 = always fresh). The expensive Opus call's amplifiers are all closed: the
-    SDK research client runs ``max_retries=0`` and the FE draft query ``retry:false``.
+    Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an
+    IN-FLIGHT guard (one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray
+    retry can never launch a parallel Opus call) + a TTL cache keyed by thesis + narrative-hash
+    (``llm_research_cache_ttl_s``; 0 = always fresh). Its amplifiers stay closed: the SDK research client runs
+    ``max_retries=0`` and the FE draft query ``retry:false``. EFTS is free + deterministic (no guard needed).
 
-    RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it must read the narrative
-    and run ``master.search``), so "writes nothing" is response-only + TEST-ENFORCED
-    (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``), NOT
-    absence-of-conn like the flag seam. The operator loads the draft, prunes / ratifies, and PROMOTE is the
-    only writer (which re-checks exact membership). It sources NO number — the chain is value-free by the
-    decompose tool's schema; the research is name-selection context only (INVARIANT #3).
+    RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it reads the narrative,
+    resolves CIKs, and runs the master resolver), so "writes nothing" is response-only + TEST-ENFORCED
+    (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``). The operator loads the
+    draft, prunes / ratifies, and PROMOTE is the only writer. It sources NO number — the chain is value-free by
+    the decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).
 
-    Fail-open by contract, in two tiers: if the RESEARCH pass fails (no key / timeout / SDK error / no text) it
-    degrades to the recall-only decompose (today's behavior); if the DECOMPOSE call also fails it returns 200
-    with an EMPTY draft. Never a 5xx — hand-authoring is untouched (a 409 is the one intentional non-200).
+    Fail-open by contract: discovery degrades to an empty universe (no keywords / EFTS or DB trouble) and the
+    tail-sweep to None (no key / timeout / SDK error) -> the decompose runs on whatever context survives (recall-
+    only if none); if the DECOMPOSE call also fails it returns 200 with an EMPTY draft. Never a 5xx — hand-
+    authoring is untouched (a 409 is the one intentional non-200).
     """
+    universe = run_discovery(conn, edgar, keyword_llm, thesis.narrative, tenant_id=thesis.tenant_id)
     try:
-        research = run_research(  # fail-open -> None (recall-only); ResearchInFlight -> 409
+        sweep = run_research(  # fail-open -> None; ResearchInFlight -> 409
             thesis.id,
             thesis.narrative,
             ttl_s=get_settings().llm_research_cache_ttl_s,
-            run=lambda: research_companies(research_llm, thesis.narrative),
+            run=lambda: research_tail_sweep(
+                research_llm, thesis.narrative, discovered_names(universe)
+            ),
         )
     except ResearchInFlight as exc:
         raise HTTPException(
             status_code=409, detail="a draft is already running for this thesis"
         ) from exc
+    context = discovery_context(universe, sweep)
     segments = proposed_from_decomposition(
-        decompose_narrative(decompose_llm, thesis.narrative, research_context=research)
+        decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
     )
-    chain = resolve_placements(conn, segments, tenant_id=thesis.tenant_id)
+    chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
     return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=chain.placements)
 
 

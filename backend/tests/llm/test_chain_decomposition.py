@@ -13,7 +13,6 @@ import pytest
 from llm.chain_decomposition import (
     DECOMPOSE_TOOL,
     decompose_narrative,
-    research_companies,
     research_tail_sweep,
 )
 from llm.client import LLMClient, LLMUnavailable
@@ -125,38 +124,9 @@ def test_decompose_without_research_context_is_recall_only():
     assert "Current research" not in user
 
 
-def test_research_companies_returns_synthesis():
-    """``research_companies`` returns the model's web-search synthesis text, sends the narrative, and wires the
-    server-side web_search tool (auto-choice) — the research half of the two-step."""
-    fake = _FakeClient(research_returns="Reactor developers: Oklo (OKLO).")
-    out = research_companies(fake, "small modular nuclear is about to rip")
-    assert out == "Reactor developers: Oklo (OKLO)."
-    assert len(fake.research_calls) == 1
-    assert "small modular nuclear" in fake.research_calls[0]["user"]
-    tool = fake.research_calls[0]["tool"]
-    assert tool["name"] == "web_search" and tool["type"].startswith("web_search_")
-    assert tool["max_uses"] >= 1  # the per-draft search budget from Settings
-
-
-def test_research_companies_failopen():
-    """Every failure path -> None (fail-open): no key / live disabled / timeout / SDK error, and no text. The
-    draft endpoint then runs the recall-only decompose — today's behavior, NOT an empty draft."""
-    for exc in (LLMUnavailable("no key"), TimeoutError("hung"), RuntimeError("boom")):
-        assert research_companies(_FakeClient(research_raises=exc), "a real narrative") is None
-    assert (
-        research_companies(_FakeClient(research_returns=None), "a real narrative") is None
-    )  # no text
-
-
-def test_research_companies_blank_narrative_does_not_call_the_model():
-    fake = _FakeClient(research_returns="x")
-    assert research_companies(fake, "   ") is None
-    assert fake.research_calls == []  # nothing to research -> never consult the model
-
-
 def test_research_offline_gate_raises_when_live_disabled():
     """``LLMClient.research`` mirrors ``draft_structured``'s offline gate: live disabled -> LLMUnavailable
-    (which ``research_companies`` catches -> None). allow_live=False is hermetic — independent of any ambient
+    (which ``research_tail_sweep`` catches -> None). allow_live=False is hermetic — independent of any ambient
     key."""
     with pytest.raises(LLMUnavailable):
         LLMClient(allow_live=False).research(
@@ -165,10 +135,11 @@ def test_research_offline_gate_raises_when_live_disabled():
 
 
 def test_real_client_research_offline_gate_fails_open(monkeypatch):
-    """The real ``LLMClient.research`` raises ``LLMUnavailable`` with no key -> ``research_companies`` degrades
-    to None (no network); the draft then falls back to the recall-only decompose."""
+    """The real ``LLMClient.research`` raises ``LLMUnavailable`` with no key -> ``research_tail_sweep`` degrades
+    to None (no network); the draft then runs the decompose on the EDGAR context alone (or recall-only).
+    """
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert research_companies(LLMClient(allow_live=True), "a real narrative") is None
+    assert research_tail_sweep(LLMClient(allow_live=True), "a real narrative", ["X"]) is None
 
 
 # --- Slice 3: the directed tail-sweep (the foreign/brand-new names EFTS can't see) ---
