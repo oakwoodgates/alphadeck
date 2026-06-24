@@ -97,3 +97,48 @@ def test_search_returns_latest_row_per_ticker(db):
         db, ticker="OKLO", name="Oklo Inc.", recorded_at=datetime(2026, 6, 1, tzinfo=timezone.utc)
     )
     assert [h.name for h in master.search(db, "OKLO")] == ["Oklo Inc."]
+
+
+# --- ids_for_ciks: the EDGAR-first discovery resolution (CIK -> security id, the cleanest #2) ---
+
+
+def test_ids_for_ciks_maps_cik_to_id_and_omits_missing(db):
+    oklo = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
+    leu = _insert(db, ticker="LEU", name="Centrus Energy Corp.", cik="0001065059")
+    out = master.ids_for_ciks(db, ["0001849056", "0001065059", "9999999999"])
+    assert out == {"0001849056": oklo, "0001065059": leu}  # a CIK with no master row is omitted
+
+
+def test_ids_for_ciks_pads_unpadded_input(db):
+    """A format mismatch would silently match NOTHING (the invisible-failure class) — so an unpadded numeric
+    CIK is zero-padded to the master's 10-digit storage. (EFTS already sends the padded form; this guards a
+    careless caller.)"""
+    oklo = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
+    assert master.ids_for_ciks(db, ["1849056"]) == {"0001849056": oklo}
+
+
+def test_ids_for_ciks_latest_row_per_cik(db):
+    """One id per CIK — the latest-recorded (a CIK's share classes / name corrections collapse to its primary
+    row, the same latest-wins the rest of the master uses)."""
+    _insert(
+        db,
+        ticker="ATAI",
+        name="Old Atai",
+        cik="0002081043",
+        recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    new = _insert(
+        db,
+        ticker="ATAI",
+        name="AtaiBeckley Inc.",
+        cik="0002081043",
+        recorded_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    assert master.ids_for_ciks(db, ["0002081043"]) == {"0002081043": new}
+
+
+def test_ids_for_ciks_empty_and_blank_input(db):
+    """No CIKs / blanks -> no query, empty map (blanks are filtered before the lookup). Tenant-scoping is the
+    same ``WHERE tenant_id`` pattern as ``ids_for_tickers``/``search``."""
+    assert master.ids_for_ciks(db, []) == {}
+    assert master.ids_for_ciks(db, ["", None]) == {}
