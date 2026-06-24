@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
@@ -60,47 +61,104 @@ def _cache_key(keyword: str, frm: int) -> str:
     return f"efts/{re.sub(r'[^A-Za-z0-9_-]', '_', keyword)}_{frm}.json"
 
 
+def _fetch_page(
+    client: _JsonClient, keyword: str, frm: int
+) -> tuple[list[tuple[str, str, str | None]], int, int]:
+    """Fetch ONE EFTS page (``&from=frm``) for ``keyword`` -> ``(rows, total, page_size)``. Each row is
+    ``(cik, name, ticker)`` (a filing's CIKs x its parsed display); ``total`` is EFTS's reported hit count;
+    ``page_size`` is this page's hit count (0 = past the end). Cache-first via ``client.get_json`` with the
+    SAME ``cache_key`` as the sequential walk, so the parallel fan-out reuses the same cached pages.
+    """
+    q = urllib.parse.quote(f'"{keyword}"')
+    data = client.get_json(f"{_EFTS_URL}?q={q}&from={frm}", _cache_key(keyword, frm))
+    hits = data.get("hits", {}).get("hits", [])
+    rows: list[tuple[str, str, str | None]] = []
+    for h in hits:
+        src = h.get("_source", {})
+        name, ticker = _parse_display((src.get("display_names") or [""])[0])
+        for cik in src.get("ciks", []):
+            rows.append((cik, name, ticker))
+    total = data.get("hits", {}).get("total", {}).get("value", 0)
+    return rows, total, len(hits)
+
+
+def _merge_rows(
+    uni: dict[str, Filer], keyword: str, rows: list[tuple[str, str, str | None]]
+) -> None:
+    """Union one page's rows into the CIK->Filer map: a new CIK seeds a Filer (first-seen name/ticker — best-
+    effort DISPLAY only, the CIK is the identity), an existing one just adds the keyword. Order-independent on
+    the CIK SET + the keyword tagging (what the precision filter scores); name/ticker is cosmetic.
+    """
+    for cik, name, ticker in rows:
+        f = uni.get(cik)
+        if f is None:
+            uni[cik] = Filer(cik=cik, name=name, ticker=ticker, keywords={keyword})
+        else:
+            f.keywords.add(keyword)
+
+
 def ciks_for_keyword(
     client: _JsonClient, keyword: str, *, hit_cap: int = 1000
 ) -> dict[str, tuple[str, str | None]]:
-    """``{cik: (name, ticker)}`` for the US filers whose filings mention ``keyword`` (the exact phrase).
-
-    Paginated (``&from=N``) and CAPPED at ``hit_cap`` filing-hits. The cap is a MEASURED choice, not an
-    assumption (gate-2): on-thesis filers file repeatedly and surface early; deep pages are mostly noise. The
-    many filings of one filer dedup to its single CIK. The CIK is read from ``_source.ciks`` (never parsed).
+    """``{cik: (name, ticker)}`` for the US filers whose filings mention ``keyword`` — the SEQUENTIAL per-keyword
+    walk, kept as the determinism reference for the parallel ``discover``. Paginated (``&from=N``), CAPPED at
+    ``hit_cap`` filing-hits — a pathological-keyword BACKSTOP, not a recall limiter (on-thesis filers file
+    repeatedly and hit several keywords, so they surface early / under signal keywords; a low cap silently drops
+    real names that surface deep — measured in the Slice-1 gate). The CIK is read from ``_source.ciks``.
     """
     out: dict[str, tuple[str, str | None]] = {}
     frm = 0
     while frm < hit_cap:
-        q = urllib.parse.quote(f'"{keyword}"')
-        data = client.get_json(f"{_EFTS_URL}?q={q}&from={frm}", _cache_key(keyword, frm))
-        hits = data.get("hits", {}).get("hits", [])
-        if not hits:
+        rows, total, page_size = _fetch_page(client, keyword, frm)
+        if page_size == 0:
             break
-        for h in hits:
-            src = h.get("_source", {})
-            name, ticker = _parse_display((src.get("display_names") or [""])[0])
-            for cik in src.get("ciks", []):
-                out.setdefault(cik, (name, ticker))
-        frm += len(hits)
-        if frm >= data.get("hits", {}).get("total", {}).get("value", 0):
+        for cik, name, ticker in rows:
+            out.setdefault(cik, (name, ticker))
+        frm += page_size
+        if frm >= total:
             break
     return out
 
 
 def discover(
-    client: _JsonClient, keywords: Iterable[str], *, hit_cap: int = 1000
+    client: _JsonClient,
+    keywords: Iterable[str],
+    *,
+    hit_cap: int = 1000,
+    max_workers: int = 8,
 ) -> dict[str, Filer]:
-    """Run EFTS over the keyword set and union the distinct CIKs, each tagged with which keywords hit it. The
-    RAW universe — high recall, PRE-filter (call ``precision_filter`` next)."""
+    """Run EFTS over the keyword set and union the distinct CIKs, each tagged with which keywords hit it — the
+    RAW universe (high recall, PRE-filter; call ``precision_filter`` / ``classify`` next).
+
+    PARALLEL but rate-bounded: the per-keyword pages fan out over a ``max_workers`` thread pool, yet every
+    ``get_json`` funnels through the ONE shared ``EdgarClient`` -> the ONE ``RateLimiter`` (the SEC fair-access
+    budget is GLOBAL, not per-request), so concurrency removes the per-request-latency serialization WITHOUT
+    exceeding the limit. Two phases: (A) page 0 of every keyword -> read ``total`` + the real ``page_size``;
+    (B) fan out all remaining offsets. ``ThreadPoolExecutor.map`` yields in INPUT order, so the merge order is
+    fixed run-to-run; the CIK set + keyword tagging are order-independent -> identical to the sequential walk
+    (``ciks_for_keyword``, the gate's determinism reference). ``hit_cap`` is the per-keyword backstop.
+    """
+    kws = list(dict.fromkeys(k for k in keywords if k))  # de-dup, preserve order, drop blanks
+    if not kws:
+        return {}
     uni: dict[str, Filer] = {}
-    for kw in keywords:
-        for cik, (name, ticker) in ciks_for_keyword(client, kw, hit_cap=hit_cap).items():
-            f = uni.get(cik)
-            if f is None:
-                uni[cik] = Filer(cik=cik, name=name, ticker=ticker, keywords={kw})
-            else:
-                f.keywords.add(kw)
+    # Phase A: page 0 of every keyword, concurrently (map preserves keyword order in its output).
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        page0 = list(ex.map(lambda kw: (kw, _fetch_page(client, kw, 0)), kws))
+    offsets: list[tuple[str, int]] = []
+    for kw, (rows, total, page_size) in page0:
+        _merge_rows(uni, kw, rows)
+        if page_size == 0:
+            continue
+        limit = min(total, hit_cap)
+        offsets.extend((kw, frm) for frm in range(page_size, limit, page_size))
+    # Phase B: every remaining page, concurrently (map preserves offsets order -> deterministic merge).
+    if offsets:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for kw, (rows, _total, _ps) in ex.map(
+                lambda o: (o[0], _fetch_page(client, o[0], o[1])), offsets
+            ):
+                _merge_rows(uni, kw, rows)
     return uni
 
 

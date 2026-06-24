@@ -9,6 +9,7 @@ clients); ``sleep`` is injectable so tests never actually wait.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -17,17 +18,32 @@ from typing import Any
 class RateLimiter:
     """A minimal token-bucket gate: at most ``max_per_sec`` requests/second — the proactive politeness
     throttle the cache-first clients put in front of every live fetch (pair with ``polite_get``'s ``pre``).
+
+    THREAD-SAFE and the SHARED throttle across concurrent callers: the EDGAR-first discovery fans out the
+    per-keyword EFTS pages over a thread pool, but they all funnel through the ONE ``RateLimiter`` on the ONE
+    ``EdgarClient`` — the SEC fair-access limit is a GLOBAL budget, not a per-request one. ``acquire`` RESERVES
+    the next slot under a lock (advancing ``_next`` by the interval) and then sleeps OUTSIDE the lock, so N
+    threads get N distinct slots spaced by ``_min_interval`` (global rate <= ``max_per_sec``) without
+    serializing their sleeps. Single-threaded callers behave exactly as before (each slot is ``last + interval``).
     """
 
     def __init__(self, max_per_sec: float = 8.0) -> None:
         self._min_interval = 1.0 / max_per_sec
-        self._last = 0.0
+        self._lock = threading.Lock()
+        self._next = 0.0  # earliest monotonic time the next request may fire
 
     def acquire(self) -> None:
-        wait = self._min_interval - (time.monotonic() - self._last)
-        if wait > 0:
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next)  # this caller's reserved slot
+            self._next = (
+                start + self._min_interval
+            )  # the following caller waits a full interval past it
+            wait = start - now
+        if (
+            wait > 0
+        ):  # sleep OUTSIDE the lock — the slot is already reserved, so others don't block on it
             time.sleep(wait)
-        self._last = time.monotonic()
 
 
 # Transient statuses worth a retry: rate-limit (429) + the standard transient 5xx. A 4xx other than 429

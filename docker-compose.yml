@@ -32,6 +32,10 @@ services:
       # local dev loop only; the container must always reach postgres:5432).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-}
+      # Optional discovery tuning (unset -> the Settings default 1000). Lower it so the EFTS pagination of
+      # broad keywords finishes inside the ~300s draft timeout; deep pages are collision noise the precision
+      # filter drops, and signal keywords have few hits so are unaffected.
+      ALPHADECK_DISCOVERY_HIT_CAP: ${ALPHADECK_DISCOVERY_HIT_CAP:-}
     depends_on:
       postgres:
         condition: service_healthy

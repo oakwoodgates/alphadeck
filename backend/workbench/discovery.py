@@ -110,9 +110,12 @@ def run_discovery(
     if kws is None:
         return DiscoveredUniverse()
     signal, broad = kws
-    cap = hit_cap if hit_cap is not None else get_settings().discovery_hit_cap
+    settings = get_settings()
+    cap = hit_cap if hit_cap is not None else settings.discovery_hit_cap
     try:
-        filers = discover(edgar, [*signal, *broad], hit_cap=cap)
+        filers = discover(
+            edgar, [*signal, *broad], hit_cap=cap, max_workers=settings.discovery_max_workers
+        )
         in_master = master.ids_for_ciks(conn, filers.keys(), tenant_id=tenant_id)
         disc = classify(filers, in_master_ids=in_master, signal=signal, broad=broad)
     except Exception:  # noqa: BLE001 — EFTS / DB trouble degrades to recall-only, never a 5xx

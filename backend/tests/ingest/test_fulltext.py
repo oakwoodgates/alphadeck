@@ -110,6 +110,36 @@ def test_discover_is_deterministic():
     assert {k: v.keywords for k, v in a.items()} == {k: v.keywords for k, v in b.items()}
 
 
+def test_discover_parallel_matches_the_sequential_reference():
+    """The concurrency gate: the PARALLEL ``discover`` returns the SAME universe as the SEQUENTIAL per-keyword
+    walk (``ciks_for_keyword``) — the CIK set + the keyword tagging are order-independent. Multi-page (the
+    fan-out is exercised: 25 hits over 3 pages) with a CIK shared across two keywords (the union is exercised).
+    """
+
+    def _rows(*ids: int) -> list[tuple[str, str]]:
+        return [(f"{i:010d}", f"Co{i}  (T{i})  (CIK {i:010d})") for i in ids]
+
+    pages = {
+        "efts/psilocybin_0.json": _page(25, *_rows(*range(0, 10))),
+        "efts/psilocybin_10.json": _page(25, *_rows(*range(10, 20))),
+        "efts/psilocybin_20.json": _page(
+            25, *_rows(*range(20, 25))
+        ),  # 5 hits — the short last page
+        "efts/ibogaine_0.json": _page(2, *_rows(5, 99)),  # cik 5 overlaps psilocybin; 99 is new
+    }
+    kws = ["psilocybin", "ibogaine"]
+    par = discover(_FakeEfts(pages), kws, max_workers=8)
+
+    ref: dict[str, set[str]] = {}  # the sequential union, keyword-by-keyword
+    for kw in kws:
+        for cik in ciks_for_keyword(_FakeEfts(pages), kw):
+            ref.setdefault(cik, set()).add(kw)
+
+    assert {c: f.keywords for c, f in par.items()} == ref  # identical CIK set + keyword tagging
+    assert par["0000000005"].keywords == {"psilocybin", "ibogaine"}  # the shared CIK tagged by both
+    assert "0000000099" in par  # a deep/second-keyword name isn't lost by the fan-out
+
+
 # --- classify: the PLACED / VERIFY tiers (Slice 2b) ---
 
 
