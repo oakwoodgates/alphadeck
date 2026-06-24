@@ -34,6 +34,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const draftQ = useDraftChain(thesis.id);
   const [newSeg, setNewSeg] = useState("");
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
+  const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
   const [draftEmpty, setDraftEmpty] = useState(false);
 
@@ -47,6 +48,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
     if (!data) return;
     d.loadDraft(data);
     setAmbiguous(data.placements.filter((p) => p.status === "ambiguous"));
+    setVerify(data.placements.filter((p) => p.status === "verify"));
     setAbsent(data.placements.filter((p) => p.status === "absent"));
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
   };
@@ -65,6 +67,24 @@ export function ChainEditor({ thesis, onDone }: Props) {
       authored_by: "system_drafted",
     });
     setAmbiguous((prev) => prev.filter((x) => x !== p));
+  };
+
+  // A VERIFY name is already RESOLVED (in your universe by exact CIK) but matched on a single broad keyword,
+  // so the deterministic discovery surfaces it LOWER-confidence and never auto-places it (the same discipline
+  // as AMBIGUOUS — a single match is never auto-membership, INVARIANT #2). One explicit "add" commits its known
+  // security_id; it lands `system_drafted` (still unscored) for the operator to accept / edit / drop.
+  const addVerify = (p: ResolvedPlacement) => {
+    if (!p.security_id) return;
+    d.addMember({
+      ticker: p.ticker || p.name,
+      role: "—",
+      archetype: "high_beta",
+      security_id: p.security_id,
+      segment: p.segment,
+      thesis_fit: p.prose || null,
+      authored_by: "system_drafted",
+    });
+    setVerify((prev) => prev.filter((x) => x !== p));
   };
 
   const onSave = () =>
@@ -288,6 +308,37 @@ export function ChainEditor({ thesis, onDone }: Props) {
               </ul>
             </div>
           ))}
+        </div>
+      )}
+
+      {verify.length > 0 && (
+        <div className="wb-verify">
+          <div className="note">
+            Verify — in your universe, but matched on a single broad keyword (lower confidence). Each is
+            resolved by CIK; <b>add</b> the ones that fit. An added name is drafted (still unscored).
+          </div>
+          {verify.map((p, i) => {
+            const inBasket = p.security_id ? keys.has(p.security_id) : false;
+            return (
+              <div className="wb-verify-row" key={i}>
+                <div className="wb-suggest-h">
+                  <b>{p.name}</b>
+                  {p.ticker ? <span className="co">{p.ticker}</span> : null}
+                  {p.segment ? <small>{p.segment}</small> : null}
+                </div>
+                {p.prose ? <div className="drafted muted">{p.prose}</div> : null}
+                <button
+                  type="button"
+                  className="wb-mini"
+                  disabled={inBasket || !p.security_id}
+                  aria-label={`add ${p.ticker || p.name}`}
+                  onClick={() => addVerify(p)}
+                >
+                  {inBasket ? "· in basket" : "+ add"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

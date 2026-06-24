@@ -438,13 +438,16 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 
 /* AMBIGUOUS — the operator-pick list (a non-PLACED name enters the basket only by an explicit pick); and
    ABSENT — shown, never placed. */
-.wb-suggest, .wb-absent { display: flex; flex-direction: column; gap: 9px; margin-bottom: 16px; }
+.wb-suggest, .wb-verify, .wb-absent { display: flex; flex-direction: column; gap: 9px; margin-bottom: 16px; }
 .wb-suggest-row { display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(224, 162, 60, 0.3); border-radius: 9px; padding: 9px 11px; background: var(--panel); }
 .wb-suggest-h { display: flex; align-items: baseline; gap: 8px; }
 .wb-suggest-h b { font-size: 12.5px; }
 .wb-suggest-h small { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
 .wb-absent-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border: 1px dashed var(--line-2); border-radius: 8px; padding: 7px 10px; background: var(--bg-2); color: var(--txt-3); }
 .wb-absent-row b { font-size: 12px; color: var(--txt-2); }
+.wb-verify-row { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 9px 11px; background: var(--bg-2); }
+.wb-verify-row > .wb-mini { align-self: flex-start; }
+.wb-verify-row .co { color: var(--txt-3); font-size: 11px; }
 
 /* the CIK chip — the homonym tell, surfaced in the resolver matches + the pick list */
 .cik { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); }

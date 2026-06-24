@@ -63,6 +63,16 @@ const PLACED_SMR = {
   candidates: [],
 };
 
+const VERIFY_ALKS = {
+  name: "Alkermes plc",
+  ticker: "ALKS",
+  prose: "ketamine-adjacent CNS pipeline",
+  segment: "therapeutics",
+  status: "verify",
+  security_id: "s-alks",
+  candidates: [],
+};
+
 beforeEach(() => {
   h.mutate.mockReset();
   h.refetch.mockReset();
@@ -219,6 +229,31 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
     expect(body.basket.find((m) => m.ticker === "LEU")).toMatchObject({ security_id: "s-leu" });
+  });
+
+  it("a VERIFY name is surfaced lower-confidence and enters the basket only by an explicit add", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    h.refetch.mockResolvedValue(
+      draft([VERIFY_ALKS], [{ label: "therapeutics", descriptor: null }]),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    // NOT auto-placed (single broad keyword -> lower confidence) — shown, not yet a member row
+    expect(screen.queryByLabelText("place ALKS")).not.toBeInTheDocument();
+    expect(await screen.findByText("Alkermes plc")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "add ALKS" })); // the explicit confirm
+    expect(screen.getByLabelText("place ALKS")).toBeInTheDocument(); // now a placed member
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+    expect(body.basket.find((m) => m.ticker === "ALKS")).toMatchObject({
+      security_id: "s-alks",
+      segment: "therapeutics",
+    });
   });
 
   it("an ABSENT name is shown, never placed", async () => {
