@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from ingest.edgar.fulltext import (
+    DiscoveryDegraded,
     Filer,
     _parse_display,
     ciks_for_keyword,
@@ -17,14 +20,19 @@ from ingest.edgar.fulltext import (
 
 
 class _FakeEfts:
-    """Returns canned EFTS JSON by cache_key; an unknown key -> an empty page (terminates pagination)."""
+    """Returns canned EFTS JSON by cache_key; an unknown key -> an empty page (terminates pagination). A
+    cache_key in ``fail`` RAISES (simulating a page that failed even after ``polite_get``'s retries).
+    """
 
-    def __init__(self, pages: dict[str, dict]) -> None:
+    def __init__(self, pages: dict[str, dict], *, fail: set[str] | None = None) -> None:
         self.pages = pages
+        self.fail = set(fail or ())
         self.calls: list[str] = []
 
     def get_json(self, url, cache_key):
         self.calls.append(cache_key)
+        if cache_key in self.fail:
+            raise RuntimeError(f"EFTS {cache_key} unreachable")
         return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
 
 
@@ -138,6 +146,59 @@ def test_discover_parallel_matches_the_sequential_reference():
     assert {c: f.keywords for c, f in par.items()} == ref  # identical CIK set + keyword tagging
     assert par["0000000005"].keywords == {"psilocybin", "ibogaine"}  # the shared CIK tagged by both
     assert "0000000099" in par  # a deep/second-keyword name isn't lost by the fan-out
+
+
+# --- reliability: per-page resilience + the completeness-or-fail threshold ---
+
+
+def _pages_3() -> dict[str, dict]:
+    """One keyword 'kw' over 3 pages of 2 hits each (total 6) -> cache keys kw_0, kw_2, kw_4."""
+    return {
+        "efts/kw_0.json": _page(
+            6, ("0000000001", "A (A) (CIK 0000000001)"), ("0000000002", "B (B) (CIK 0000000002)")
+        ),
+        "efts/kw_2.json": _page(
+            6, ("0000000003", "C (C) (CIK 0000000003)"), ("0000000004", "D (D) (CIK 0000000004)")
+        ),
+        "efts/kw_4.json": _page(
+            6, ("0000000005", "E (E) (CIK 0000000005)"), ("0000000006", "F (F) (CIK 0000000006)")
+        ),
+    }
+
+
+def test_discover_skips_a_failed_page_below_threshold_and_keeps_the_rest():
+    """A single page that fails after retries does NOT nuke the universe (the silent-degradation bug): it is
+    skipped, the surrounding pages still union, and below ``degraded_ratio`` the run returns (the skip is logged
+    elsewhere). The failed page's CIKs are simply absent — never a wholesale empty."""
+    fake = _FakeEfts(_pages_3(), fail={"efts/kw_2.json"})  # the middle (offset-2) page fails
+    uni = discover(
+        fake, ["kw"], max_workers=4, degraded_ratio=0.5
+    )  # 1 of 3 pages = 33% < 50% -> returns
+    assert set(uni) == {
+        "0000000001",
+        "0000000002",
+        "0000000005",
+        "0000000006",
+    }  # page-0 + page-4 survive
+    assert (
+        "0000000003" not in uni and "0000000004" not in uni
+    )  # the failed page's CIKs, skipped not faked
+
+
+def test_discover_raises_DiscoveryDegraded_past_threshold():
+    """Past the threshold the run is DEGRADED -> it RAISES rather than return a partial universe as if whole
+    (completeness-or-fail). Same single failure, a stricter ratio."""
+    fake = _FakeEfts(_pages_3(), fail={"efts/kw_2.json"})  # 1 of 3 = 33%
+    with pytest.raises(DiscoveryDegraded):
+        discover(fake, ["kw"], max_workers=4, degraded_ratio=0.10)  # 33% > 10% -> degraded
+
+
+def test_discover_pervasive_failure_raises_not_returns_empty():
+    """A pervasive failure (SEC down / a parse bug failing EVERY page) blows the ratio and surfaces LOUDLY as
+    DiscoveryDegraded — never the silent empty universe that masqueraded as 'found nothing'."""
+    fake = _FakeEfts(_pages_3(), fail=set(_pages_3()))  # every page fails
+    with pytest.raises(DiscoveryDegraded):
+        discover(fake, ["kw"], max_workers=4, degraded_ratio=0.05)
 
 
 # --- classify: the PLACED / VERIFY tiers (Slice 2b) ---

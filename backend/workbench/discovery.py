@@ -21,6 +21,7 @@ empty universe too (the draft then degrades to the recall-only decompose — nev
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -29,9 +30,23 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
-from ingest.edgar.fulltext import Filer, classify, discover
+from ingest.edgar.fulltext import DiscoveryUnavailable, Filer, classify, discover
 from llm.keyword_gen import generate_keywords
 from securities import master
+
+_log = logging.getLogger("alphadeck.discovery")
+
+
+class DiscoveryEmpty(DiscoveryUnavailable):
+    """Keyword-gen produced keywords but EFTS returned NOTHING placeable — against a populated master that is a
+    BROKEN discovery, not an empty theme. Surfaced (the draft 503s) rather than silently degrading to recall.
+    """
+
+    def __init__(self, signal: list[str], broad: list[str]) -> None:
+        self.signal, self.broad = list(signal), list(broad)
+        super().__init__(
+            f"discovery empty despite {len(self.signal)} signal / {len(self.broad)} broad keywords"
+        )
 
 
 @dataclass
@@ -112,14 +127,33 @@ def run_discovery(
     signal, broad = kws
     settings = get_settings()
     cap = hit_cap if hit_cap is not None else settings.discovery_hit_cap
-    try:
-        filers = discover(
-            edgar, [*signal, *broad], hit_cap=cap, max_workers=settings.discovery_max_workers
-        )
-        in_master = master.ids_for_ciks(conn, filers.keys(), tenant_id=tenant_id)
-        disc = classify(filers, in_master_ids=in_master, signal=signal, broad=broad)
-    except Exception:  # noqa: BLE001 — EFTS / DB trouble degrades to recall-only, never a 5xx
-        return DiscoveredUniverse(signal=signal, broad=broad)
-    return DiscoveredUniverse(
+    # NO bare except-to-empty: that conflated "broke" with "found nothing" and SILENTLY degraded the
+    # deterministic layer to model recall. discover() already absorbs transient page failures (retry +
+    # skip-one) and raises DiscoveryDegraded only when it couldn't enumerate the universe — let that PROPAGATE
+    # so the draft surfaces it; an unexpected error (DB fault / bug) likewise propagates, never masquerades as
+    # an empty universe.
+    filers = discover(
+        edgar,
+        [*signal, *broad],
+        hit_cap=cap,
+        max_workers=settings.discovery_max_workers,
+        degraded_ratio=settings.discovery_degraded_ratio,
+    )
+    in_master = master.ids_for_ciks(conn, filers.keys(), tenant_id=tenant_id)
+    disc = classify(filers, in_master_ids=in_master, signal=signal, broad=broad)
+    universe = DiscoveredUniverse(
         placed=disc.placed, verify=disc.verify, filers=filers, signal=signal, broad=broad
     )
+    if universe.is_empty:
+        # Keyword-gen produced real keywords but NOTHING placeable came back — against the full master that
+        # means discovery BROKE, not that the theme is empty. Fail VISIBLY (the draft 503s) instead of letting
+        # the chain quietly fall to model recall — the exact silent failure we are killing.
+        _log.warning(
+            "discovery: %d signal / %d broad keywords but 0 placeable (raw filers=%d); failing visibly, "
+            "not falling back to recall",
+            len(signal),
+            len(broad),
+            len(filers),
+        )
+        raise DiscoveryEmpty(signal, broad)
+    return universe

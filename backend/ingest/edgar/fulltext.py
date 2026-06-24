@@ -16,6 +16,7 @@ supplied by the caller (a fixed list now; the per-thesis LLM keyword-gen is Slic
 
 from __future__ import annotations
 
+import logging
 import re
 import urllib.parse
 from collections.abc import Iterable
@@ -25,6 +26,28 @@ from typing import Any, Protocol
 from uuid import UUID
 
 _EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
+
+# Scoped to the discovery path (the codebase otherwise avoids logging); WARNINGs propagate to uvicorn's root
+# handler, so a skipped page / a degraded run is VISIBLE in `docker compose logs` — never a silent gap.
+_log = logging.getLogger("alphadeck.discovery")
+
+
+class DiscoveryUnavailable(RuntimeError):
+    """Discovery could not produce a trustworthy universe — the draft must FAIL VISIBLY (the endpoint maps this
+    to HTTP 503) rather than silently fall back to model recall. The base of the discovery failure modes.
+    """
+
+
+class DiscoveryDegraded(DiscoveryUnavailable):
+    """Too large a fraction of EFTS pages failed to fetch (AFTER ``polite_get``'s retries): the run could not
+    enumerate the universe, so it must NOT be returned as if complete. Completeness-or-fail."""
+
+    def __init__(self, failed: int, attempted: int) -> None:
+        self.failed, self.attempted = failed, attempted
+        self.ratio = failed / attempted if attempted else 1.0
+        super().__init__(
+            f"discovery degraded: {failed}/{attempted} EFTS pages failed ({self.ratio:.0%}) after retries"
+        )
 
 
 class _JsonClient(Protocol):
@@ -126,6 +149,7 @@ def discover(
     *,
     hit_cap: int = 1000,
     max_workers: int = 8,
+    degraded_ratio: float = 0.05,
 ) -> dict[str, Filer]:
     """Run EFTS over the keyword set and union the distinct CIKs, each tagged with which keywords hit it — the
     RAW universe (high recall, PRE-filter; call ``precision_filter`` / ``classify`` next).
@@ -137,16 +161,47 @@ def discover(
     (B) fan out all remaining offsets. ``ThreadPoolExecutor.map`` yields in INPUT order, so the merge order is
     fixed run-to-run; the CIK set + keyword tagging are order-independent -> identical to the sequential walk
     (``ciks_for_keyword``, the gate's determinism reference). ``hit_cap`` is the per-keyword backstop.
+
+    COMPLETENESS-OR-FAIL (the reliability contract): a single page that fails AFTER ``polite_get``'s retries no
+    longer raises out of the fan-out and wipes the whole universe (the silent-degradation bug). Instead the
+    failure is logged (keyword + offset) and the page is skipped — but if the failed fraction exceeds
+    ``degraded_ratio`` the run is DEGRADED and raises ``DiscoveryDegraded``, so a run that couldn't fetch part of
+    the universe NEVER presents itself as the whole. (A pervasive failure — SEC down, a parse bug — fails every
+    page, blows the ratio, and surfaces loudly rather than returning empty.)
     """
     kws = list(dict.fromkeys(k for k in keywords if k))  # de-dup, preserve order, drop blanks
     if not kws:
         return {}
+
+    failed: list[tuple[str, int]] = []
+
+    def _safe(keyword: str, frm: int):
+        try:
+            return _fetch_page(client, keyword, frm)
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — a page that fails AFTER polite_get's retries is persistent;
+            # log + skip it (never nuke the run), and count it toward the degraded threshold below.
+            _log.warning(
+                "discovery: EFTS page failed after retries; keyword=%r from=%d: %s",
+                keyword,
+                frm,
+                exc,
+            )
+            failed.append((keyword, frm))
+            return None
+
     uni: dict[str, Filer] = {}
     # Phase A: page 0 of every keyword, concurrently (map preserves keyword order in its output).
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        page0 = list(ex.map(lambda kw: (kw, _fetch_page(client, kw, 0)), kws))
+        page0 = list(ex.map(lambda kw: (kw, _safe(kw, 0)), kws))
     offsets: list[tuple[str, int]] = []
-    for kw, (rows, total, page_size) in page0:
+    for kw, res in page0:
+        if (
+            res is None
+        ):  # page-0 failed -> the keyword is unenumerable this run (no total, no deep pages)
+            continue
+        rows, total, page_size = res
         _merge_rows(uni, kw, rows)
         if page_size == 0:
             continue
@@ -155,10 +210,21 @@ def discover(
     # Phase B: every remaining page, concurrently (map preserves offsets order -> deterministic merge).
     if offsets:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            for kw, (rows, _total, _ps) in ex.map(
-                lambda o: (o[0], _fetch_page(client, o[0], o[1])), offsets
-            ):
-                _merge_rows(uni, kw, rows)
+            for kw, res in ex.map(lambda o: (o[0], _safe(o[0], o[1])), offsets):
+                if res is not None:
+                    _merge_rows(uni, kw, res[0])
+
+    attempted = len(kws) + len(offsets)
+    if attempted and len(failed) / attempted > degraded_ratio:
+        raise DiscoveryDegraded(len(failed), attempted)
+    if failed:  # within tolerance, but NEVER silent — the gap is on the record
+        _log.warning(
+            "discovery: completed with %d/%d pages skipped (within the %.0f%% tolerance): %s",
+            len(failed),
+            attempted,
+            degraded_ratio * 100,
+            failed[:20],
+        )
     return uni
 
 

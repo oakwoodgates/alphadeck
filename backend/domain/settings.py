@@ -129,6 +129,13 @@ class Settings(BaseSettings):
     # ``edgar_rate_per_sec`` so the SHARED RateLimiter (the global SEC budget) stays saturated despite
     # per-request latency, never to exceed it — the limiter, not the pool, is the throttle.
     discovery_max_workers: int = 10
+    # COMPLETENESS-OR-FAIL: a run that fails to fetch more than this FRACTION of its EFTS pages (after
+    # ``polite_get``'s retries) is DEGRADED — ``discover`` RAISES rather than return a partial universe as if
+    # whole, and the draft surfaces "discovery unavailable" to the operator. A deterministic layer must FAIL
+    # VISIBLY, never silently degrade to recall. Every skipped page is logged regardless; this only governs
+    # when the residual is too large to call the universe complete. Small on purpose (retries heal transients,
+    # so a post-retry failure is a real one).
+    discovery_degraded_ratio: float = 0.05
 
     # Optional Anthropic base_url override (refactor D7): None => the SDK default (api.anthropic.com); passed
     # to the SDK by LLMClient ONLY when truthy (base_url="" is a broken URL). Buys a future proxy / self-host
