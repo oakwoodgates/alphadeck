@@ -53,6 +53,43 @@ class DiscoveredUniverse:
         return not self.placed and not self.verify
 
 
+def discovered_names(universe: DiscoveredUniverse) -> list[str]:
+    """The placeable discovered names (placed then verify), for the tail-sweep's already-found list — so the
+    directed sweep looks for what's MISSING, never re-lists the deterministic core."""
+    out: list[str] = []
+    for cik in (*universe.placed, *universe.verify):
+        f = universe.filers.get(cik)
+        if f is not None and f.name:
+            out.append(f.name)
+    return out
+
+
+def discovery_context(universe: DiscoveredUniverse, tail_sweep: str | None = None) -> str | None:
+    """Render the research-context block the organizer decompose arranges: the EDGAR-found US-listed names
+    (name + ticker, the deterministic spine) followed by the tail-sweep synthesis (the foreign/brand-new tail).
+    Returns ``None`` when BOTH are empty (the decompose then runs recall-only).
+
+    The names are listed with their CURRENT ticker so the organizer emits a ticker the reconciler can match back
+    to the discovered CIK; a single-BROAD verify name is tagged so the organizer keeps it but the operator sees
+    its lower confidence. No number is emitted (#3 — names + tickers + tags only)."""
+    lines: list[str] = []
+    for cik in (*universe.placed, *universe.verify):
+        f = universe.filers.get(cik)
+        if f is None or not f.name:
+            continue
+        ticker = f" ({f.ticker})" if f.ticker else ""
+        tag = "" if cik in universe.placed else " [verify — single broad-keyword hit]"
+        lines.append(f"- {f.name}{ticker}{tag}")
+
+    block = ""
+    if lines:
+        block = "US-listed companies found by EDGAR full-text search:\n" + "\n".join(lines)
+    if tail_sweep and tail_sweep.strip():
+        prefix = block + "\n\n" if block else ""
+        block = prefix + "Additional names (directed web-search tail-sweep):\n" + tail_sweep.strip()
+    return block or None
+
+
 def run_discovery(
     conn: psycopg.Connection,
     edgar: Any,

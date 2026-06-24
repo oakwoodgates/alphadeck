@@ -23,8 +23,10 @@ from llm.prompt_loader import PromptNotFound, _normalize, load_prompt
 # constant verified True). An intended prompt change re-captures this DELIBERATELY and re-checks the guards.
 _GOLDEN = {
     "chain_decompose": (
-        "8682047909dd7e1d64140ad0f31967fd68a107a5e944429bc24a340384543b7d",
-        1277,
+        # Slice 4b: re-captured for the ORGANIZER reframe — the EDGAR-first decompose ORGANIZES a stable
+        # researched name set into segments (place every researched name, skip foreign/private), never curates.
+        "4ccb7f06c9fcce9bfc848e8d58d227df09fd79f3e45eb93bfca239e75bcb8de7",
+        2423,
     ),
     "flag_explain": (
         "d4e4d6b4ebbbc49ebea54c3d5890d511bed3ae660573896d62f9cb350494fe69",

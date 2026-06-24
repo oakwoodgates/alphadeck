@@ -508,7 +508,32 @@ def test_explanation_has_no_path_into_a_ratified_fact():
         assert forbidden.isdisjoint(model.model_fields)
 
 
-# --- S5 5b: the narrative→chain draft endpoint (decompose -> resolve -> ChainDraftOut, response-only) ---
+# --- S5/Slice 4b: the EDGAR-first draft endpoint (discovery -> tail-sweep -> organizer -> reconcile) ---
+
+
+class _FakeEfts:
+    """Canned EFTS pages by cache_key (``efts/{kw}_{from}.json``); an unknown key -> an empty page."""
+
+    def __init__(self, pages: dict) -> None:
+        self.pages = pages
+
+    def get_json(self, url, cache_key):
+        return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
+
+
+def _efts_page(*rows: tuple[str, str]) -> dict:
+    """An EFTS page: each row is ``(cik, display_name)``."""
+    return {
+        "hits": {
+            "total": {"value": len(rows)},
+            "hits": [{"_source": {"ciks": [c], "display_names": [d]}} for c, d in rows],
+        }
+    }
+
+
+def _kw(signal, broad=()) -> dict:
+    """A keyword-gen tool-output (SIGNAL / BROAD term tiers)."""
+    return {"signal": list(signal), "broad": list(broad)}
 
 
 def _decomp(*placements: tuple[str, str]) -> dict:
@@ -539,41 +564,56 @@ def _thesis_for_draft(db) -> uuid.UUID:
     return t.id
 
 
-def test_draft_endpoint_resolves_a_chain(client, db):
-    """The wire: narrative -> decompose (faked) -> resolve_placements (5a) -> ChainDraftOut. A name in the
-    master PLACES (exact ticker); a name not in the master is ABSENT — exact membership decides, the endpoint
-    only composes."""
-    from app.deps import get_decompose_client, get_research_client
+def _override_draft(*, keyword=None, edgar=None, research=None, decompose=None):
+    """Override the four draft seams (the ``client`` fixture clears overrides after the test). Defaults: a
+    no-keyword keyword client (empty discovery), an empty EFTS, no tail-sweep, an empty decompose.
+    """
+    from app.deps import (
+        get_decompose_client,
+        get_edgar_client,
+        get_keyword_client,
+        get_research_client,
+    )
 
-    _insert_security(db, "OKLO", name="Oklo Inc.")
+    app.dependency_overrides[get_keyword_client] = lambda: keyword or _FakeLLM(returns=None)
+    app.dependency_overrides[get_edgar_client] = lambda: edgar or _FakeEfts({})
+    app.dependency_overrides[get_research_client] = lambda: research or _FakeLLM(
+        research_returns=None
+    )
+    app.dependency_overrides[get_decompose_client] = lambda: decompose or _FakeLLM(returns=None)
+
+
+def test_draft_endpoint_resolves_via_discovery(client, db):
+    """The EDGAR-first wire: keyword-gen -> EFTS discovery (a CIK in the master) -> organizer decompose ->
+    reconcile by CIK -> PLACED with that CIK's id. An off-universe name the organizer adds falls to the master
+    resolver -> ABSENT. Exact membership decides; the endpoint only composes."""
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     tid = _thesis_for_draft(db)
-    # override BOTH seams (no network): research returns nothing here, decompose is faked.
-    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns=None)
-    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
-        returns=_decomp(("Oklo", "OKLO"), ("Ghost Co", "ZZZZ"))
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=edgar,
+        decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"), ("Ghost Co", "ZZZZ"))),
     )
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 200
     body = r.json()
     assert body["thesis_id"] == str(tid)
-    assert [s["label"] for s in body["segments"]] == ["reactors"]
     by_name = {p["name"]: p for p in body["placements"]}
-    assert by_name["Oklo"]["status"] == "placed" and by_name["Oklo"]["security_id"]
-    assert by_name["Ghost Co"]["status"] == "absent" and by_name["Ghost Co"]["security_id"] is None
+    assert by_name["Oklo Inc."]["status"] == "placed"
+    assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # PLACED by its EDGAR CIK
+    assert by_name["Ghost Co"]["status"] == "absent"  # off-universe -> master resolver
 
 
 def test_draft_endpoint_writes_nothing(client, db):
     """RESPONSE-ONLY, TEST-ENFORCED (the endpoint HAS a read-only conn — to read the narrative + resolve — so
     "writes nothing" is THIS test, not absence-of-conn like the flag seam): drafting a chain persists ZERO
     fact_* rows AND adds ZERO basket_member rows. The operator's promote is the only writer."""
-    from app.deps import get_decompose_client, get_research_client
-
     _insert_security(db, "OKLO", name="Oklo Inc.")
-    tid = _thesis_for_draft(db)  # empty basket
-    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns=None)
-    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
-        returns=_decomp(("Oklo", "OKLO"))
-    )
+    tid = _thesis_for_draft(db)  # empty basket; empty discovery -> the master resolver places OKLO
+    _override_draft(decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
     assert client.post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
@@ -584,8 +624,9 @@ def test_draft_endpoint_writes_nothing(client, db):
 
 
 def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
-    """No fake, no key: the REAL decompose client's offline gate (LLMUnavailable) is caught in
-    decompose_narrative -> 200 with an EMPTY draft, NEVER a 5xx. Hand-authoring is untouched."""
+    """No fake, no key: every seam's offline gate fails open — keyword-gen -> empty discovery (EFTS never
+    queried), tail-sweep -> None, decompose (LLMUnavailable) -> 200 with an EMPTY draft, NEVER a 5xx.
+    """
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     tid = _thesis_for_draft(db)
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
@@ -600,63 +641,98 @@ def test_draft_endpoint_404_for_unknown_thesis(client):
     assert r.status_code == 404
 
 
-def test_draft_endpoint_runs_research_then_decompose(client, db):
-    """The two-step (Slice 1): the web-search research pass runs first, and its synthesis is threaded into the
-    decompose call as CONTEXT. Both seams are faked (no network); we assert the research text reaches the
-    decompose user message and the chain still resolves by exact membership."""
-    from app.deps import get_decompose_client, get_research_client
-
-    _insert_security(db, "OKLO", name="Oklo Inc.")
+def test_draft_endpoint_threads_discovery_and_sweep_into_decompose(client, db):
+    """The EDGAR names AND the directed tail-sweep synthesis are both threaded into the organizer decompose as
+    CONTEXT (the model ORGANIZES, never enumerates), and the tail-sweep receives the already-found list so it
+    looks for what's MISSING."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     tid = _thesis_for_draft(db)
-    decompose = _FakeLLM(returns=_decomp(("Oklo", "OKLO")))
-    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(
-        research_returns="Reactor developers: Oklo (OKLO) — lead SMR developer."
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
-    app.dependency_overrides[get_decompose_client] = lambda: decompose
+    research = _FakeLLM(research_returns="Foreign tail: Nuclear ADR Co (NADR).")
+    decompose = _FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=edgar,
+        research=research,
+        decompose=decompose,
+    )
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 200
-    assert decompose.calls, "decompose was consulted"
+    user = decompose.calls[0]["user"]
+    assert "Current research" in user
+    assert "Oklo Inc." in user and "(OKLO)" in user  # the EDGAR name+ticker reached the organizer
+    assert "Nuclear ADR Co" in user  # the tail-sweep synthesis threaded in
+    assert "Oklo Inc." in research.research_calls[0]["user"]  # found list given to the sweep
+
+
+def test_draft_endpoint_tail_sweep_failure_still_drafts_on_edgar_context(client, db):
+    """Fail-open: if the tail-sweep RAISES, the draft does NOT go empty — the EDGAR discovery context survives,
+    the organizer runs on it, and the chain resolves by CIK. (Only the tail-sweep is the expensive call.)
+    """
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    decompose = _FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=edgar,
+        research=_FakeLLM(research_raises=RuntimeError("web search down")),
+        decompose=decompose,
+    )
+    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert r.status_code == 200
+    user = decompose.calls[0]["user"]
     assert (
-        "Oklo (OKLO)" in decompose.calls[0]["user"]
-    )  # research threaded into the decompose prompt
-    assert "Current research" in decompose.calls[0]["user"]
+        "Current research" in user and "Oklo Inc." in user
+    )  # EDGAR context survived the sweep failure
     by_name = {p["name"]: p for p in r.json()["placements"]}
-    assert by_name["Oklo"]["status"] == "placed"
+    assert by_name["Oklo Inc."]["status"] == "placed" and by_name["Oklo Inc."][
+        "security_id"
+    ] == str(oklo)
 
 
-def test_draft_endpoint_research_failure_degrades_to_recall_only(client, db):
-    """Fail-open refinement (Slice 1): if the RESEARCH pass fails (here it raises), the draft does NOT go empty
-    — it degrades to the recall-only decompose (today's behavior). The decompose fake still runs with NO
-    research context, and the chain resolves."""
-    from app.deps import get_decompose_client, get_research_client
-
-    _insert_security(db, "OKLO", name="Oklo Inc.")
+def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
+    """End-to-end per-CIK completeness: EFTS finds two in-master names; the organizer arranges only ONE; the
+    dropped one STILL appears (in 'Discovered', by its CIK). The deterministic layer owns completeness.
+    """
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    smr = _insert_security(db, "SMR", name="NuScale Power Corporation", cik="0001822966")
     tid = _thesis_for_draft(db)
-    decompose = _FakeLLM(returns=_decomp(("Oklo", "OKLO")))
-    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(
-        research_raises=RuntimeError("web search down")
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0001822966", "NuScale Power Corporation  (SMR)  (CIK 0001822966)"),
+            )
+        }
     )
-    app.dependency_overrides[get_decompose_client] = lambda: decompose
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 200
-    assert decompose.calls and "Current research" not in decompose.calls[0]["user"]  # recall-only
-    by_name = {p["name"]: p for p in r.json()["placements"]}
-    assert by_name["Oklo"]["status"] == "placed"  # the recall-only chain still resolves
+    _override_draft(
+        keyword=_FakeLLM(returns=_kw(["nuclear"])),
+        edgar=edgar,
+        decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))),  # SMR dropped by the organizer
+    )
+    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    by_name = {p["name"]: p for p in body["placements"]}
+    assert by_name["Oklo Inc."]["status"] == "placed"
+    nuscale = by_name["NuScale Power Corporation"]
+    assert nuscale["status"] == "placed"  # dropped by the organizer, surfaced by reconciliation
+    assert nuscale["segment"] == "Discovered" and nuscale["security_id"] == str(smr)
+    assert "Discovered" in [s["label"] for s in body["segments"]]
 
 
 def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, monkeypatch):
-    """The in-flight guard, surfaced: a draft for a thesis whose research pass is already running returns 409 —
-    NOT a second (expensive) Opus call. We force the guard to fire by faking the runner to raise."""
-    from app.deps import get_decompose_client, get_research_client
+    """The in-flight guard, surfaced: a draft for a thesis whose tail-sweep pass is already running returns 409
+    — NOT a second (expensive) Opus call. We force the guard to fire by faking the runner to raise.
+    """
     from app.routers import workbench as wb
     from workbench.research_runner import ResearchInFlight
 
-    _insert_security(db, "OKLO", name="Oklo Inc.")
     tid = _thesis_for_draft(db)
-    app.dependency_overrides[get_research_client] = lambda: _FakeLLM(research_returns="x")
-    app.dependency_overrides[get_decompose_client] = lambda: _FakeLLM(
-        returns=_decomp(("Oklo", "OKLO"))
-    )
+    _override_draft(decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
 
     def _already_running(*args, **kwargs):
         raise ResearchInFlight(str(tid))
