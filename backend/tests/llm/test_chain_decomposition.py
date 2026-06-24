@@ -14,8 +14,10 @@ from llm.chain_decomposition import (
     DECOMPOSE_TOOL,
     decompose_narrative,
     research_companies,
+    research_tail_sweep,
 )
 from llm.client import LLMClient, LLMUnavailable
+from llm.prompt_loader import load_prompt
 
 
 class _FakeClient:
@@ -167,3 +169,43 @@ def test_real_client_research_offline_gate_fails_open(monkeypatch):
     to None (no network); the draft then falls back to the recall-only decompose."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert research_companies(LLMClient(allow_live=True), "a real narrative") is None
+
+
+# --- Slice 3: the directed tail-sweep (the foreign/brand-new names EFTS can't see) ---
+
+
+def test_tail_sweep_returns_synthesis_and_threads_the_found_list():
+    fake = _FakeClient(research_returns="New foreign name: PharmAla Biotech.")
+    out = research_tail_sweep(fake, "psychedelic therapy", ["Compass Pathways", "GH Research"])
+    assert out == "New foreign name: PharmAla Biotech."
+    assert len(fake.research_calls) == 1
+    user = fake.research_calls[0]["user"]
+    assert "psychedelic therapy" in user  # the narrative
+    assert "Compass Pathways" in user and "GH Research" in user  # the found list is threaded in
+    assert "do NOT re-list" in user  # framed as a directed sweep, not a bare exclusion
+    assert fake.research_calls[0]["tool"]["name"] == "web_search"  # the server-side web_search tool
+
+
+def test_tail_sweep_empty_found_list_still_runs():
+    fake = _FakeClient(research_returns="x")
+    assert research_tail_sweep(fake, "a narrative", []) == "x"
+    assert "(none yet)" in fake.research_calls[0]["user"]
+
+
+def test_tail_sweep_failopen():
+    for exc in (LLMUnavailable("no key"), TimeoutError("hung"), RuntimeError("boom")):
+        assert research_tail_sweep(_FakeClient(research_raises=exc), "a narrative", ["X"]) is None
+    assert research_tail_sweep(_FakeClient(research_returns=None), "a narrative", ["X"]) is None
+
+
+def test_tail_sweep_blank_narrative_does_not_call_the_model():
+    fake = _FakeClient(research_returns="x")
+    assert research_tail_sweep(fake, "   ", ["X"]) is None
+    assert fake.research_calls == []  # nothing to sweep -> never consult the model
+
+
+def test_tail_sweep_prompt_keeps_no_number_and_the_redirect():
+    """The prompt CONTRACT: no number (#3) + the directed-sweep redirect (not a bare exclusion)."""
+    p = load_prompt("tail_sweep")
+    assert "NO numbers" in p
+    assert "Do NOT re-list" in p

@@ -169,3 +169,29 @@ def research_companies(client: Any, narrative: str) -> str | None:
         )
     except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
         return None
+
+
+def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> str | None:
+    """The DIRECTED tail-sweep (discovery Slice 3) — the LLM's SECOND bounded job in the EDGAR-first
+    architecture. Given the names the EDGAR full-text enumerator already found, web-search the corners EFTS
+    STRUCTURALLY can't see — foreign-with-US-listing (ADR/dual) / brand-new IPOs / DBA-or-very-recent-rebrand /
+    no-US-filing — for on-thesis, US-tradeable names NOT in the found list. Returns a plain-text synthesis (the
+    NEW names + tickers + roles), or ``None`` on any failure (fail-open).
+
+    Framed as a directed sweep, NOT a bare "ignore these" (a bare exclusion makes the model re-list the core and
+    stop early). The found list is threaded into the user message. ``client`` only needs a
+    ``research(system, user, tool)`` method. It sources NO number (#3); discovery only PROPOSES (#2 — the
+    resolver + the secondary name/ticker bridges decide membership, never auto-place).
+    """
+    if not narrative or not narrative.strip():
+        return None
+    system = load_prompt("tail_sweep")  # fail-loud on a missing prompt, outside the fail-open try
+    found = ", ".join(n for n in found_names if n and n.strip()) or "(none yet)"
+    user = (
+        f"Narrative:\n{narrative.strip()}\n\n"
+        f"Already-found names (do NOT re-list these — find what's MISSING):\n{found}"
+    )
+    try:
+        return client.research(system=system, user=user, tool=_web_search_tool())
+    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
+        return None
