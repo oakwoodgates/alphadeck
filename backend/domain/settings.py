@@ -118,12 +118,17 @@ class Settings(BaseSettings):
     llm_keyword_max_tokens: int = 512  # two short keyword lists, not prose
     llm_keyword_timeout_s: float = 20.0
 
-    # --- EDGAR-first discovery (the EFTS enumerator) — operational dial ---
-    # The per-keyword pagination cap for the full-text enumerator (``ingest.edgar.fulltext.discover``). A
-    # tunable DIAL, not an assumption (the Slice-1 gate measured it): on-thesis filers file repeatedly and
-    # surface EARLY, so a generous cap maximizes recall while the deep, noisy tail stays bounded. The precision
-    # filter (>=2 keywords OR >=1 SIGNAL) drops the collision noise the deep pages add, so erring high is safe.
+    # --- EDGAR-first discovery (the EFTS enumerator) — operational dials ---
+    # The per-keyword pagination cap. NOT a recall limiter — a BACKSTOP against a pathological keyword: a low
+    # cap silently drops real on-thesis names that surface deep (the Slice-1 gate measured 25 dropped at 200).
+    # Speed comes from CONCURRENCY (``discover`` fans the pages over a thread pool under the shared rate limit),
+    # never from capping recall. On-thesis filers file repeatedly + hit several keywords, so signal keywords
+    # never reach this; the precision filter drops the deep collision tail. Keep it generous.
     discovery_hit_cap: int = 1000
+    # The discovery thread-pool size: how many EFTS pages are in flight at once. Set a hair above
+    # ``edgar_rate_per_sec`` so the SHARED RateLimiter (the global SEC budget) stays saturated despite
+    # per-request latency, never to exceed it — the limiter, not the pool, is the throttle.
+    discovery_max_workers: int = 10
 
     # Optional Anthropic base_url override (refactor D7): None => the SDK default (api.anthropic.com); passed
     # to the SDK by LLMClient ONLY when truthy (base_url="" is a broken URL). Buys a future proxy / self-host

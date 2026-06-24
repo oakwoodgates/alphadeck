@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import httpx
 import pytest
 
-from ingest.http import polite_get
+from ingest import http as http_mod
+from ingest.http import RateLimiter, polite_get
 
 
 class _FakeResp:
@@ -82,3 +86,53 @@ def test_pre_hook_runs_before_every_attempt(monkeypatch):
     pres: list[int] = []
     polite_get("http://x", pre=lambda: pres.append(1), sleep=lambda s: None)
     assert len(pres) == 2  # the throttle runs before the retry too, not just the first try
+
+
+# --- RateLimiter: the SHARED, thread-safe throttle behind the parallel EFTS fan-out ---
+
+
+def test_rate_limiter_reserves_evenly_spaced_slots(monkeypatch):
+    """Deterministic (no real time): each ``acquire`` RESERVES the next slot one interval past the last, so
+    consecutive callers sleep exactly one interval. The reservation arithmetic is what keeps concurrent callers
+    from colliding on the same slot."""
+    clock = [0.0]
+    sleeps: list[float] = []
+
+    def fake_sleep(s: float) -> None:
+        sleeps.append(s)
+        clock[0] += s  # the sleeping thread advances to its reserved slot
+
+    monkeypatch.setattr(http_mod.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(http_mod.time, "sleep", fake_sleep)
+
+    rl = RateLimiter(max_per_sec=10)  # interval 0.1s
+    for _ in range(4):
+        rl.acquire()
+    # first slot is free (now); each subsequent slot is exactly one interval later
+    assert sleeps == pytest.approx([0.1, 0.1, 0.1])
+
+
+def test_rate_limiter_is_the_shared_throttle_under_threads():
+    """The load-bearing concurrency guarantee: N threads hammering ONE shared limiter at once get N DISTINCT
+    slots spaced by >= the interval — so the discovery thread-pool can fan out EFTS pages without exceeding the
+    SEC budget. The lower bound (n-1)*interval is enforced by the algorithm regardless of machine speed (a slow
+    box only makes it longer), so this is not timing-flaky."""
+    n, rate = 12, 50.0  # interval 20ms
+    interval = 1.0 / rate
+    rl = RateLimiter(max_per_sec=rate)
+    barrier = threading.Barrier(n)
+
+    def worker() -> None:
+        barrier.wait()  # release all threads to contend simultaneously
+        rl.acquire()
+
+    threads = [threading.Thread(target=worker) for _ in range(n)]
+    t0 = time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = time.monotonic() - t0
+    # n requests took >= (n-1)*interval -> the global rate never exceeded max_per_sec (concurrency didn't
+    # collapse the slots). 0.8 leaves margin for sleep granularity; it can only run LONGER, never shorter.
+    assert elapsed >= (n - 1) * interval * 0.8
