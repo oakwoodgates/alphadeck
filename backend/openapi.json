@@ -386,7 +386,7 @@
           "workbench"
         ],
         "summary": "Produce Terms",
-        "description": "Produce + PERSIST the thesis's tiered discovery term set \u2014 the SIGNAL/BROAD keywords the EDGAR precision\nfilter reads. Two sources, two authorities: the operator's ``seeds`` (canonical compounds) are anchored as\n``operator_set`` SIGNAL \u2014 the RECALL guarantor against keyword-gen's non-determinism \u2014 and keyword-gen\nPROPOSES the rest, which a DETERMINISTIC guard tiers (``system_drafted``; the \"is this discriminating?\"\ndecision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in\n``promote`` (the pure structured writer).\n\nREGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in\nthe body) while RE-ROLLING the LLM-proposed terms \u2014 so the inspect-and-tune loop re-rolls the augmentation\nwithout ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored\nSIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds \u2192 an empty set is stored (the draft then\n503s \"produce terms first\" \u2014 surfaced, never a silent recall fallback). It sources NO number (#3) \u2014 terms\nonly \u2014 and writes ONLY ``term_set`` (the narrow ``set_term_set``).",
+        "description": "Produce + PERSIST the thesis's tiered discovery term set \u2014 the SIGNAL/BROAD keywords the EDGAR precision\nfilter reads. Two sources, two authorities: the operator's ``seeds`` (canonical compounds) are anchored as\n``operator_set`` SIGNAL \u2014 the RECALL guarantor against keyword-gen's non-determinism \u2014 and keyword-gen\nPROPOSES the rest, which a DETERMINISTIC guard tiers (``system_drafted``; the \"is this discriminating?\"\ndecision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in\n``promote`` (the pure structured writer).\n\nREGENERABLE + CONVERGENT: a re-POST PRESERVES every operator-authored entry \u2014 ``operator_set`` seeds AND\n``operator_edited`` promotions/demotions (from the edit-UI), each VERBATIM (term + tier + authorship) \u2014 while\nRE-ROLLING only the ``system_drafted`` LLM-proposed terms. So the inspect-and-tune loop re-rolls the\naugmentation without ever dropping an operator decision (a demoted SIGNAL\u2192BROAD term comes back BROAD, not\nre-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the\nstored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds \u2192 an empty set is stored (the draft\nthen 503s \"term set is empty\" \u2014 surfaced, never a silent recall fallback). It sources NO number (#3) \u2014 terms\nonly \u2014 and writes ONLY ``term_set`` (the narrow ``set_term_set``).",
         "operationId": "produce_terms_workbench_theses__thesis_id__terms_post",
         "parameters": [
           {
@@ -413,6 +413,60 @@
                   }
                 ],
                 "title": "Req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/theses/{thesis_id}/terms/edit": {
+      "put": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Edit Terms",
+        "description": "SAVE the operator's manually-edited term set DIRECTLY \u2014 NO LLM (the LLM lives only in ``POST .../terms``;\nthis mirrors LLM-out-of-promote, a structural boundary, not a convention). The operator adds a seed\n(\u2192 ``operator_set`` SIGNAL), removes a term, promotes BROAD\u2192SIGNAL or demotes SIGNAL\u2192BROAD\n(\u2192 ``operator_edited``); an UNTOUCHED ``system_drafted`` BROAD term keeps its authorship so a later\nregenerate can re-roll it. Authorship is STAMPED server-side by diffing the stored set\n(``stamp_edited_term_set``), never trusted from the body. A full-set replace via the narrow\n``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` \u2014 the structural wipe-guard stays\nintact). Sources NO number (#3) \u2014 structure/config only. 422 on an empty term or a case-insensitive\nduplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s \"term set is\nempty\").",
+        "operationId": "edit_terms_workbench_theses__thesis_id__terms_edit_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditTermsRequest"
               }
             }
           }
@@ -936,6 +990,21 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output)."
+      },
+      "EditTermsRequest": {
+        "properties": {
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/TermEdit"
+            },
+            "type": "array",
+            "title": "Terms",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "EditTermsRequest",
+        "description": "Body for ``PUT /theses/{id}/terms/edit`` \u2014 the operator's full, edited term set, saved DIRECTLY (no LLM,\nmirroring LLM-out-of-promote). Authorship is re-stamped server-side: an untouched ``system_drafted`` BROAD\nterm keeps its authorship so a later regenerate can re-roll it; only operator-touched entries become\n``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator\nchoice)."
       },
       "Evidence": {
         "properties": {
@@ -1985,6 +2054,24 @@
         ],
         "title": "State",
         "description": "Thesis lifecycle (a loop, not a ratchet)."
+      },
+      "TermEdit": {
+        "properties": {
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/TermTier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "term",
+          "tier"
+        ],
+        "title": "TermEdit",
+        "description": "One operator-edited term in the manual save (``PUT .../terms/edit``). The operator owns ``term`` +\n``tier``; ``authored_by`` is NOT in the body \u2014 the server stamps it by diffing against the stored set (a\nnaive client must not be able to mark a term ``operator_edited`` and freeze it against regenerate)."
       },
       "TermSetEntry": {
         "properties": {

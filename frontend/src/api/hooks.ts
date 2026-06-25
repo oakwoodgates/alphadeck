@@ -29,6 +29,7 @@ export type ResolvedPlacement = components["schemas"]["ResolvedPlacement"];
 export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
 export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
 export type TermSetEntry = components["schemas"]["TermSetEntry"];
+export type TermEdit = components["schemas"]["TermEdit"];
 
 export function useTheses() {
   return useQuery({
@@ -144,6 +145,28 @@ export function useProduceTerms(thesisId: string) {
     mutationFn: async () => {
       const { data, error } = await api.POST("/workbench/theses/{thesis_id}/terms", {
         params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+    },
+  });
+}
+
+// SAVE the operator's manually-edited term set — NO LLM (the writer seam with the LLM is `useProduceTerms`).
+// The caller sends the FULL edited set ({term, tier}); the server re-stamps authorship by diffing the stored
+// set (an untouched system_drafted term stays re-rollable). Returns the saved ThesisDetail — the caller adopts
+// its RE-STAMPED term_set as the next working set (never an optimistic copy: the next edit must diff against
+// the server's authorship, not a guessed one).
+export function useEditTerms(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (terms: TermEdit[]) => {
+      const { data, error } = await api.PUT("/workbench/theses/{thesis_id}/terms/edit", {
+        params: { path: { thesis_id: thesisId } },
+        body: { terms },
       });
       if (error) throw error;
       return data;

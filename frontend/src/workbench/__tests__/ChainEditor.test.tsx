@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   mutate: vi.fn(),
   refetch: vi.fn(),
   produce: vi.fn(),
+  edit: vi.fn(),
   produceData: undefined as any,
 }));
 
@@ -35,6 +36,8 @@ vi.mock("../../api/hooks", () => ({
     isError: false,
     error: null,
   }),
+  // the manual term-set save (no LLM): mutate records the PUT body (the full edited set)
+  useEditTerms: () => ({ mutate: h.edit, isPending: false, isError: false, error: null }),
 }));
 
 import { ChainEditor } from "../ChainEditor";
@@ -94,6 +97,7 @@ beforeEach(() => {
   h.mutate.mockReset();
   h.refetch.mockReset();
   h.produce.mockReset();
+  h.edit.mockReset();
   h.produceData = undefined;
 });
 
@@ -333,31 +337,73 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   });
 });
 
-describe("ChainEditor — produce term set (read-only inspect)", () => {
-  it("the Produce button POSTs /terms (the writer seam the operator triggers)", async () => {
+// A thesis carrying a stored term set (the editor seeds its working set from the prop on load).
+const thesisWithTerms = {
+  ...flatThesis,
+  term_set: [
+    { term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" },
+    { term: "ketamine", tier: "broad", authored_by: "system_drafted", source: "keyword_gen" },
+  ],
+};
+
+describe("ChainEditor — term set produce + edit", () => {
+  it("the Produce button POSTs /terms (the LLM writer seam the operator triggers)", async () => {
     const user = userEvent.setup();
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Produce term set/ }));
     expect(h.produce).toHaveBeenCalledTimes(1);
   });
 
-  it("displays the SIGNAL/BROAD split with provenance, read-only (regenerate, no per-term edit)", async () => {
-    h.produceData = {
-      term_set: [
-        { term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" },
-        { term: "ketamine", tier: "broad", authored_by: "system_drafted", source: "keyword_gen" },
-      ],
-    };
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
-
+  it("displays the stored SIGNAL/BROAD split with provenance + per-term edit controls", () => {
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
     expect(screen.getByText("psilocybin")).toBeInTheDocument(); // SIGNAL (a seed)
     expect(screen.getByText("ketamine")).toBeInTheDocument(); // BROAD (proposed)
     expect(screen.getByText("seed")).toBeInTheDocument(); // operator provenance, surfaced
-    // a produced set flips the action to a REGENERATE (preserves seeds, re-rolls broad) — not an append
-    expect(
-      screen.getByRole("button", { name: /Regenerate term set/ }),
-    ).toBeInTheDocument();
-    // READ-ONLY this slice: no add / remove / re-tier control on a term (the edit UI is deferred)
-    expect(screen.queryByRole("button", { name: /remove psilocybin/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerate term set/ })).toBeInTheDocument();
+    // the edit surface is live now: a demote on the SIGNAL, a promote on the BROAD, a remove on each
+    expect(screen.getByRole("button", { name: /↓ broad/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /↑ signal/ })).toBeInTheDocument();
+  });
+
+  it("add-seed PUTs the new compound as SIGNAL (the new-thesis entry path)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // empty set
+    await user.type(screen.getByPlaceholderText(/add a seed/i), "ibogaine");
+    await user.click(screen.getByRole("button", { name: /Add seed/ }));
+    expect(h.edit).toHaveBeenCalledTimes(1);
+    expect(h.edit.mock.calls[0][0]).toEqual([{ term: "ibogaine", tier: "signal" }]);
+  });
+
+  it("remove drops the term from the PUT body (curate junk)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    // remove ketamine (the BROAD) — one of two terms, so no clear-confirm fires
+    const ketamineRow = screen.getByText("ketamine").closest("li") as HTMLElement;
+    await user.click(within(ketamineRow).getByRole("button", { name: "×" }));
+    expect(h.edit.mock.calls[0][0]).toEqual([{ term: "psilocybin", tier: "signal" }]);
+  });
+
+  it("demote/promote toggles the tier in the PUT body (re-tier → operator_edited server-side)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /↑ signal/ })); // promote ketamine
+    expect(h.edit.mock.calls[0][0]).toEqual([
+      { term: "psilocybin", tier: "signal" },
+      { term: "ketamine", tier: "signal" }, // flipped broad -> signal
+    ]);
+  });
+
+  it("removing the LAST term confirms before clearing (deliberate empty → draft 503s)", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false); // operator cancels
+    const oneTerm = {
+      ...flatThesis,
+      term_set: [{ term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" }],
+    };
+    render(<ChainEditor thesis={oneTerm} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "×" }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(h.edit).not.toHaveBeenCalled(); // cancelled → no save, the set is preserved
+    confirmSpy.mockRestore();
   });
 });
