@@ -76,6 +76,7 @@ const PLACED_SMR = {
   status: "placed",
   security_id: "s-smr",
   candidates: [],
+  matched_terms: ["psilocybin"],
 };
 
 const VERIFY_ALKS = {
@@ -86,6 +87,7 @@ const VERIFY_ALKS = {
   status: "verify",
   security_id: "s-alks",
   candidates: [],
+  matched_terms: ["ketamine"],
 };
 
 beforeEach(() => {
@@ -296,6 +298,25 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText("Kairos Power")).toBeInTheDocument(); // shown…
     expect(screen.queryByLabelText("place KAIROS")).not.toBeInTheDocument(); // …never placed
+  });
+
+  it("surfaces the matched discovery term(s) on a placed row AND a verify row (provenance, #9)", async () => {
+    const user = userEvent.setup();
+    h.refetch.mockResolvedValue(
+      draft(
+        [PLACED_SMR, VERIFY_ALKS],
+        [
+          { label: "reactors", descriptor: null },
+          { label: "therapeutics", descriptor: null },
+        ],
+      ),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("place SMR");
+    expect(screen.getByText("← psilocybin")).toBeInTheDocument(); // placed row (from the display-only stash)
+    expect(screen.getByText("← ketamine")).toBeInTheDocument(); // verify row (from p.matched_terms)
   });
 
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {

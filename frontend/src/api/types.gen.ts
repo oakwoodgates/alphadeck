@@ -244,7 +244,10 @@ export interface paths {
          *     the organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its
          *     CIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and
          *     every discovered CIK the organizer dropped is appended to a 'Discovered' bucket — completeness is the
-         *     deterministic layer's, never the organizer's to lose.
+         *     deterministic layer's, never the organizer's to lose. A final fail-open narration step then writes thesis-fit
+         *     prose for the reconciler-appended names the organizer never narrated (so EVERY placed/verify name carries
+         *     reasoning); each name also carries its matched discovery term(s) as provenance. Both are display strings —
+         *     no number (#3), nothing persisted.
          *
          *     Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an
          *     IN-FLIGHT guard (one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray
@@ -801,6 +804,10 @@ export interface components {
          * @description A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
          *     ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are
          *     preserved (so the UI can show what the model proposed even when it didn't resolve).
+         *
+         *     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
+         *     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
+         *     name resolved by the master rather than discovered by a term. Never a number (#3 — a keyword string).
          */
         ResolvedPlacement: {
             /** Name */
@@ -819,6 +826,11 @@ export interface components {
              * @default []
              */
             candidates: components["schemas"]["SecurityCandidate"][];
+            /**
+             * Matched Terms
+             * @default []
+             */
+            matched_terms: string[];
         };
         /** ResolvedSegment */
         ResolvedSegment: {

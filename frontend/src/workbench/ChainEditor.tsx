@@ -46,6 +46,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
   const [draftEmpty, setDraftEmpty] = useState(false);
+  // Display-only provenance: security_id -> the discovery term(s) that surfaced it. Set on a draft, NOT a
+  // field on BasketMember (it's draft-time discovery provenance, not a thesis fact — never promoted).
+  const [matched, setMatched] = useState<Record<string, string[]>>({});
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
@@ -59,6 +62,13 @@ export function ChainEditor({ thesis, onDone }: Props) {
     setAmbiguous(data.placements.filter((p) => p.status === "ambiguous"));
     setVerify(data.placements.filter((p) => p.status === "verify"));
     setAbsent(data.placements.filter((p) => p.status === "absent"));
+    setMatched(
+      Object.fromEntries(
+        data.placements
+          .filter((p) => p.security_id)
+          .map((p) => [p.security_id as string, p.matched_terms]),
+      ),
+    );
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
   };
 
@@ -282,6 +292,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
         {d.draft.basket.map((m) => {
           const k = memberKey(m);
           const drafted = m.authored_by === "system_drafted";
+          const mt = m.security_id ? matched[m.security_id] : undefined; // discovery provenance (display-only)
           return (
             <div className={`wb-mem${drafted ? " is-drafted" : ""}`} key={k}>
               <div className="wb-mem-row">
@@ -313,6 +324,11 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     </option>
                   ))}
                 </select>
+                {mt && mt.length > 0 && (
+                  <span className="wb-matched" title="discovery term(s) this name matched">
+                    ← {mt.join(", ")}
+                  </span>
+                )}
                 <span className="wb-author">{authorLabel(m.authored_by)}</span>
                 {drafted && (
                   <button
@@ -400,6 +416,11 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   <b>{p.name}</b>
                   {p.ticker ? <span className="co">{p.ticker}</span> : null}
                   {p.segment ? <small>{p.segment}</small> : null}
+                  {p.matched_terms.length > 0 ? (
+                    <span className="wb-matched" title="discovery term(s) this name matched">
+                      ← {p.matched_terms.join(", ")}
+                    </span>
+                  ) : null}
                 </div>
                 {p.prose ? <div className="drafted muted">{p.prose}</div> : null}
                 <button

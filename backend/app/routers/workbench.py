@@ -39,7 +39,7 @@ from ingest.edgar.extract import extract_for_security
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
-from llm.chain_decomposition import decompose_narrative, research_tail_sweep
+from llm.chain_decomposition import decompose_narrative, narrate_placements, research_tail_sweep
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
 from repositories import thesis_repo
@@ -241,7 +241,10 @@ def draft_chain(
     the organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its
     CIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and
     every discovered CIK the organizer dropped is appended to a 'Discovered' bucket — completeness is the
-    deterministic layer's, never the organizer's to lose.
+    deterministic layer's, never the organizer's to lose. A final fail-open narration step then writes thesis-fit
+    prose for the reconciler-appended names the organizer never narrated (so EVERY placed/verify name carries
+    reasoning); each name also carries its matched discovery term(s) as provenance. Both are display strings —
+    no number (#3), nothing persisted.
 
     Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an
     IN-FLIGHT guard (one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray
@@ -295,7 +298,28 @@ def draft_chain(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
     )
     chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
-    return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=chain.placements)
+    # Fill thesis-fit prose for placed/verify names the ORGANIZER didn't narrate — the deterministic reconciler
+    # appends discovered CIKs with prose="" (it owns completeness, not prose). FAIL-OPEN + #9-safe: a narration
+    # failure leaves prose empty (today's behavior), never drops a name; a DISPLAY string only — no number (#3),
+    # nothing persisted (response-only). (security_id set <=> PLACED/VERIFY; AMBIGUOUS/ABSENT are left alone.)
+    needs = [
+        {"name": p.name, "ticker": p.ticker, "segment": p.segment}
+        for p in chain.placements
+        if p.security_id is not None and not p.prose.strip() and p.name
+    ]
+    placements = chain.placements
+    if needs:
+        narrated = narrate_placements(decompose_llm, thesis.narrative, needs)
+        if narrated:
+            placements = [
+                (
+                    p.model_copy(update={"prose": narrated[p.name]})
+                    if (p.security_id is not None and not p.prose.strip() and p.name in narrated)
+                    else p
+                )
+                for p in chain.placements
+            ]
+    return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=placements)
 
 
 @router.post("/facts", response_model=RatifiedFactOut)

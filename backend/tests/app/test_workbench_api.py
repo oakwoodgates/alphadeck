@@ -538,11 +538,15 @@ class _FakeLLM:
         raises: Exception | None = None,
         research_returns=None,
         research_raises: Exception | None = None,
+        narrate_returns=None,
     ) -> None:
         self._returns = returns
         self._raises = raises
         self._research_returns = research_returns
         self._research_raises = research_raises
+        self._narrate_returns = (
+            narrate_returns  # returned when the NARRATE tool is used (else _returns)
+        )
         self.calls: list[dict] = []
         self.research_calls: list[dict] = []
 
@@ -550,6 +554,10 @@ class _FakeLLM:
         self.calls.append({"system": system, "user": user, "tool": tool})
         if self._raises is not None:
             raise self._raises
+        # the same decompose client serves BOTH the organizer (draft_value_chain) and the prose-fill
+        # (narrate_placements); switch on the tool so a test can drive each independently.
+        if tool.get("name") == "narrate_placements" and self._narrate_returns is not None:
+            return self._narrate_returns
         return self._returns
 
     def research(self, *, system, user, tool):
@@ -735,7 +743,11 @@ def test_draft_endpoint_resolves_via_discovery(client, db):
     by_name = {p["name"]: p for p in body["placements"]}
     assert by_name["Oklo Inc."]["status"] == "placed"
     assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # PLACED by its EDGAR CIK
+    assert by_name["Oklo Inc."]["matched_terms"] == [
+        "nuclear"
+    ]  # provenance: the term that surfaced it (#9)
     assert by_name["Ghost Co"]["status"] == "absent"  # off-universe -> master resolver
+    assert by_name["Ghost Co"]["matched_terms"] == []  # off-universe -> no discovery term
 
 
 def test_draft_endpoint_writes_nothing(client, db):
@@ -835,7 +847,9 @@ def test_draft_endpoint_tail_sweep_failure_still_drafts_on_edgar_context(client,
 
 def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
     """End-to-end per-CIK completeness: EFTS finds two in-master names; the organizer arranges only ONE; the
-    dropped one STILL appears (in 'Discovered', by its CIK). The deterministic layer owns completeness.
+    dropped one STILL appears (in 'Discovered', by its CIK). The deterministic layer owns completeness. AND the
+    reconciler-appended name (no organizer prose) gets thesis-fit prose from the fail-open narration step, plus
+    its matched discovery term as provenance (#9).
     """
     _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     smr = _insert_security(db, "SMR", name="NuScale Power Corporation", cik="0001822966")
@@ -850,15 +864,56 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
     )
     _override_draft(
         edgar=edgar,
-        decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))),  # SMR dropped by the organizer
+        decompose=_FakeLLM(
+            returns=_decomp(
+                ("Oklo Inc.", "OKLO")
+            ),  # SMR dropped by the organizer (no prose for it)
+            narrate_returns={  # the prose-fill step narrates the reconciler-appended name
+                "placements": [
+                    {
+                        "name": "NuScale Power Corporation",
+                        "prose": "the only NRC-approved SMR designer",
+                    }
+                ]
+            },
+        ),
     )
     body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
     by_name = {p["name"]: p for p in body["placements"]}
     assert by_name["Oklo Inc."]["status"] == "placed"
+    assert by_name["Oklo Inc."]["matched_terms"] == [
+        "nuclear"
+    ]  # provenance on the organizer-matched name
     nuscale = by_name["NuScale Power Corporation"]
     assert nuscale["status"] == "placed"  # dropped by the organizer, surfaced by reconciliation
     assert nuscale["segment"] == "Discovered" and nuscale["security_id"] == str(smr)
+    assert nuscale["matched_terms"] == ["nuclear"]  # provenance on the reconciler-appended name
+    assert (
+        nuscale["prose"] == "the only NRC-approved SMR designer"
+    )  # prose filled by narration (Bug 2)
     assert "Discovered" in [s["label"] for s in body["segments"]]
+
+
+def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
+    """#9-safe fail-open: if the prose-fill narration RAISES, the reconciler-appended name keeps prose="" (never
+    dropped, never a 5xx) — completeness is the deterministic layer's, prose is a best-effort display add.
+    """
+    _insert_security(db, "SMR", name="NuScale Power Corporation", cik="0001822966")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001822966", "NuScale Power Corporation  (SMR)  (CIK 0001822966)")
+            )
+        }
+    )
+    # the organizer places nothing in-universe (Ghost is off-universe -> absent); SMR is reconciler-appended.
+    # the decompose fake RAISES on every draft_structured -> both the organizer AND the narration fail open.
+    _override_draft(edgar=edgar, decompose=_FakeLLM(raises=RuntimeError("LLM down")))
+    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    nuscale = next(p for p in body["placements"] if p["name"] == "NuScale Power Corporation")
+    assert nuscale["status"] == "placed" and nuscale["prose"] == ""  # surfaced, prose empty, no 5xx
+    assert nuscale["matched_terms"] == ["nuclear"]  # provenance still attached
 
 
 def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, monkeypatch):

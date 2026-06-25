@@ -139,6 +139,90 @@ def decompose_narrative(
     return out
 
 
+# The narration tool — one reasoning sentence per company, NO number (same #3 bound as the decompose prose).
+NARRATE_TOOL: dict[str, Any] = {
+    "name": "narrate_placements",
+    "description": (
+        "For each given US-listed company, return one short reasoning sentence (<=25 words, NO numbers) on why "
+        "it fits the investment narrative and its value-chain segment. Reasoning only — never a number."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "placements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The company name, copied EXACTLY from the input list (the join key).",
+                        },
+                        "prose": {
+                            "type": "string",
+                            "description": (
+                                "At most 25 words: why this company fits the narrative / its segment. NO "
+                                "numbers, prices, %, share counts, cash, or valuations."
+                            ),
+                        },
+                    },
+                    "required": ["name", "prose"],
+                },
+            }
+        },
+        "required": ["placements"],
+    },
+}
+
+
+def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]]) -> dict[str, str]:
+    """Draft a per-name thesis-fit sentence for each placement in ``items`` (``{name, ticker?, segment?}``),
+    returning ``{name: prose}``. The deterministic EDGAR reconciler appends discovered CIKs the organizer never
+    narrated (``prose=""``); this fills that gap so EVERY placed/verify name carries reasoning — without the
+    organizer (the reconciler stays deterministic + completeness-owning; this only adds DISPLAY prose).
+
+    FAIL-OPEN + #9-safe: any failure (no key / live disabled / SDK error / no tool call / empty list) returns
+    ``{}`` and the affected names keep ``prose=""`` (today's behavior) — a narration failure never drops a name,
+    only its prose. Sources NO number (#3 — the tool schema + prompt forbid figures; reasoning only). ``client``
+    needs a ``draft_structured(system, user, tool)`` method (the decompose client; the real ``LLMClient`` or a
+    test fake)."""
+    if not narrative or not narrative.strip() or not items:
+        return {}
+    system = load_prompt(
+        "chain_narrate"
+    )  # fail-loud on a missing prompt, outside the fail-open try
+    lines: list[str] = []
+    for it in items:
+        name = (it.get("name") or "").strip()
+        if not name:
+            continue
+        ticker = f" ({it['ticker']})" if it.get("ticker") else ""
+        seg = f" — segment: {it['segment']}" if it.get("segment") else ""
+        lines.append(f"- {name}{ticker}{seg}")
+    if not lines:
+        return {}
+    user = (
+        f"Narrative:\n{narrative.strip()}\n\n"
+        "Companies to narrate (one reasoning sentence each, copy the name exactly, NO numbers):\n"
+        + "\n".join(lines)
+    )
+    try:
+        out = client.draft_structured(system=system, user=user, tool=NARRATE_TOOL)
+    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
+        return {}
+    if not isinstance(out, dict):
+        return {}
+    result: dict[str, str] = {}
+    for p in out.get("placements", []) or []:
+        if (
+            isinstance(p, dict)
+            and isinstance(p.get("name"), str)
+            and isinstance(p.get("prose"), str)
+        ):
+            result[p["name"]] = p["prose"]
+    return result
+
+
 def _web_search_tool() -> dict[str, Any]:
     """The server-side web_search tool spec for the research pass, built from Settings. The tool VERSION is a
     CODE-COUPLED capability field (see ``domain/settings.py``) — read here so it is single-source, NOT so it is

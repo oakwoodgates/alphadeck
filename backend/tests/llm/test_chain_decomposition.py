@@ -12,7 +12,9 @@ import pytest
 
 from llm.chain_decomposition import (
     DECOMPOSE_TOOL,
+    NARRATE_TOOL,
     decompose_narrative,
+    narrate_placements,
     research_tail_sweep,
 )
 from llm.client import LLMClient, LLMUnavailable
@@ -180,3 +182,56 @@ def test_tail_sweep_prompt_keeps_no_number_and_the_redirect():
     p = load_prompt("tail_sweep")
     assert "NO numbers" in p
     assert "Do NOT re-list" in p
+
+
+# --- Bug 2: the prose-fill narration step (per-name thesis-fit for the reconciler-appended names) ---
+
+_NARR = {
+    "placements": [
+        {"name": "Compass Pathways", "prose": "lead psilocybin developer"},
+        {"name": "GH Research", "prose": "5-MeO-DMT for treatment-resistant depression"},
+    ]
+}
+
+
+def test_narrate_returns_name_to_prose_map_and_threads_inputs():
+    fake = _FakeClient(returns=_NARR)
+    out = narrate_placements(
+        fake,
+        "psychedelic therapy",
+        [
+            {"name": "Compass Pathways", "ticker": "CMPS", "segment": "developers"},
+            {"name": "GH Research"},
+        ],
+    )
+    assert out == {
+        "Compass Pathways": "lead psilocybin developer",
+        "GH Research": "5-MeO-DMT for treatment-resistant depression",
+    }
+    assert len(fake.calls) == 1
+    user = fake.calls[0]["user"]
+    assert "psychedelic therapy" in user  # the narrative
+    assert (
+        "Compass Pathways (CMPS)" in user and "segment: developers" in user
+    )  # name+ticker+segment threaded
+    assert fake.calls[0]["tool"] is NARRATE_TOOL  # the narrate structured contract (value-free)
+
+
+def test_narrate_failopen_returns_empty():
+    """FAIL-OPEN (#9-safe): any failure -> {} (the names keep prose=""; a narration failure never drops a name)."""
+    for exc in (LLMUnavailable("no key"), TimeoutError("hung"), RuntimeError("boom")):
+        assert narrate_placements(_FakeClient(raises=exc), "n", [{"name": "X"}]) == {}
+    assert narrate_placements(_FakeClient(returns=None), "n", [{"name": "X"}]) == {}  # no tool call
+    assert narrate_placements(_FakeClient(returns="not a dict"), "n", [{"name": "X"}]) == {}
+
+
+def test_narrate_no_items_or_blank_narrative_does_not_call_the_model():
+    fake = _FakeClient(returns=_NARR)
+    assert narrate_placements(fake, "a narrative", []) == {}  # nothing to narrate
+    assert narrate_placements(fake, "   ", [{"name": "X"}]) == {}  # blank narrative
+    assert fake.calls == []  # never consulted the model
+
+
+def test_narrate_prompt_forbids_numbers():
+    """The no-number bound (#3) rests on the prompt — a fake can't exercise it; pin the contract text."""
+    assert "NEVER a number" in load_prompt("chain_narrate")
