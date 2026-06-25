@@ -129,7 +129,7 @@ this is a question for Step 2 to confirm against real history, not a dial change
    (365), `conviction_hold_threshold_days` (90) — and the age-decay-of-confidence refinement (B.4). **Do not
    tune on n=19** — Step 2 confirms on real history.
 
-   **→ RESOLVED in Pass 001 (Step 2; see `RECALIBRATION_PASS_001.md`): all three candidate dials DEFER, ZERO
+   **→ RESOLVED in Pass 001 (Step 2 — full item-by-item in §E below): all three candidate dials DEFER, ZERO
    changes.** Inspected `insider_core_alpha_liveness_days` via an old-vs-new replay (180 vs 90, UNH-core
    disaggregated): the give-back is real (UNH peaks +21.7%/+6.3%, exits +11.5%/−2.5%, ~35d past peak) **but the
    dial does double-duty** — it's also the co-location window, and shortening to 90d makes UNH **fail to arm**
@@ -140,8 +140,9 @@ this is a question for Step 2 to confirm against real history, not a dial change
 
 ## E. Pass 001 resolution (Phase 1 / Step 2 — the first recalibration pass)
 
-Full decision record + evidence in **`RECALIBRATION_PASS_001.md`**. **Outcome: ZERO dial-value changes** — the
-correct, disciplined result on a 19-episode, mostly-UNH seed (in-sample, not validation). Item-by-item:
+The full decision record + evidence lives here (the standalone `RECALIBRATION_PASS_001.md` was retired into this
+section + `ROADMAP.md`'s trust box + git history). **Outcome: ZERO dial-value changes** — the correct,
+disciplined result on a 19-episode, mostly-UNH seed (in-sample, not validation). Item-by-item:
 
 - **Inspected → DEFER:** `insider_core_alpha_liveness_days` (180) — the only seed-exercised dial; an old-vs-new
   replay showed the give-back is real but the dial does double-duty (shortening kills UNH's arm) → it's a shape

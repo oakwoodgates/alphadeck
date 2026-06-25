@@ -17,8 +17,8 @@
 > call-of-record.
 >
 > **Trust caveat (load-bearing): "feeds itself" is NOT "validated forward."** This arc is platform PLUMBING,
-> not the call engine. It did not change the trust validation — still in-sample (`RECALIBRATION_PASS_001.md`,
-> n=19); the forward trust loop (the **Scoreboard**) stays PARKED. The daily call-of-record is the forward
+> not the call engine. It did not change the trust validation — still in-sample (n=19; see `ROADMAP.md`'s "Keep
+> the trust state honest" box); the forward trust loop (the **Scoreboard**) stays PARKED. The daily call-of-record is the forward
 > RECORD the Scoreboard will later track — built **Scoreboard-ready, not Scoreboard-coupled**.
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]`/`[DEFERRED]` not built.

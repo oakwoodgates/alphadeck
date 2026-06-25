@@ -30,10 +30,10 @@ alphadeck/
 ├── scripts/run_5b_draft_check.ps1  # live gate-2 check: draft a chain from a narrative + scan the prose for numbers
 ├── docs/                           # THE CANON (see the doc index in PROJECT_OVERVIEW)
 │   ├── PROJECT_OVERVIEW.md · ROADMAP.md · CALL_LOGIC.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
-│   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / S5)
+│   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · DISCOVERY.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / EDGAR-first discovery / S5 authoring)
 │   ├── FEED_LOOP.md                                          # the back half feeds itself (M2: ingest + cron + seam)
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
-│   ├── RECALIBRATION.md · RECALIBRATION_PASS_001.md   # the post-MVP tuning agenda + pass 001 (in-sample n=19)
+│   ├── RECALIBRATION.md   # the post-MVP tuning agenda (pass-001 record retired into ROADMAP's trust box)
 │   └── mockups/                    # the Board/Cockpit/Workbench visual targets
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/
@@ -57,8 +57,8 @@ alphadeck/
     ├── scripts/daily_cron.sh       # M2: the cron sidecar's sleep-loop trigger (sleeps to US-close, fires pipeline.daily)
     ├── domain/                     # THE SPINE — Pydantic schemas (the backend↔frontend contract)
     │   ├── base.py                 #   DomainModel (extra="forbid")
-    │   ├── enums.py                #   State/Verdict/Grade/Role/Kind · Archetype · Authorship (drafted/operator)
-    │   ├── thesis.py               #   Thesis · Segment · BasketMember (segment / authored_by / thesis_fit)
+    │   ├── enums.py                #   State/Verdict/Grade/Role/Kind · Archetype · Authorship (drafted/operator) · TermTier (signal/broad)
+    │   ├── thesis.py               #   Thesis (+ term_set) · Segment · BasketMember (segment / authored_by / thesis_fit) · TermSetEntry
     │   ├── call.py · signal.py · security.py
     │   ├── extraction.py           #   ExtractedFact · Tier (AUTO/FLAG/HUMAN) · LocatedPassage
     │   ├── workbench.py            #   ScoredMember · ScoredFigure (the meter results)
@@ -66,14 +66,18 @@ alphadeck/
     │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle (ALPHADECK_*; config refactor)
     │   └── coerce.py               #   to_float — the shared scalar coercer (Tier-1 dedup)
     ├── llm/                        # THE LLM SEAMS (model-agnostic; fail-open; SDK lazy-imported)
-    │   ├── client.py               #   LLMClient.draft_structured (Anthropic tool-use) + the allow_live gate
+    │   ├── client.py               #   LLMClient.draft_structured (forced tool-use) + research (web_search) + the allow_live gate
     │   ├── flag_explanation.py     #   seam 1 (Haiku): the FLAG-explanation drafter (an aid to a ratify)
-    │   ├── chain_decomposition.py  #   seam 2 (Sonnet, S5): decompose a narrative → segments + names + prose
+    │   ├── chain_decomposition.py  #   seam 2 (Sonnet): ORGANIZE the discovered universe → segments + prose · narrate_placements (batched prose) · research_tail_sweep (Opus)
+    │   ├── keyword_gen.py          #   discovery: narrative → candidate keywords (Haiku) — proposes, the term-set guard tiers
     │   ├── prompt_loader.py        #   loads the externalized system prompts (config refactor S3; fail-loud on a missing file)
-    │   └── prompts/*.md            #   the two seam prompts as files (flag_explain · chain_decompose)
+    │   └── prompts/*.md            #   the seam prompts as files (flag_explain · chain_decompose · chain_narrate · keyword_gen · tail_sweep)
     ├── workbench/                  # the Workbench engines (pure)
     │   ├── scoring.py              #   score_member/score_thesis → the four pip meters (re-derived on read)
-    │   └── chain_draft.py          #   resolve_placements: the exact-membership DECIDER (PLACED/AMBIGUOUS/ABSENT)
+    │   ├── term_set.py             #   the discovery term-set producer: keyword-gen PROPOSES, the deterministic guard TIERS (seeds=SIGNAL)
+    │   ├── discovery.py            #   run_discovery: read the stored term set → EFTS enumerate → classify → DiscoveredUniverse (DiscoveryNoTerms/Empty/Degraded → 503)
+    │   ├── research_runner.py      #   the tail-sweep cost-safety wrapper (in-flight 409 guard + TTL cache)
+    │   └── chain_draft.py          #   resolve_discovered_chain: the per-CIK RECONCILER (PLACED/VERIFY by CIK + matched_terms; _resolve_one for off-universe names)
     ├── calls/                      # THE CALL-ASSEMBLER (the product) — pure + golden-tested
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None
@@ -81,16 +85,16 @@ alphadeck/
     │   └── dilution_clock.py · scan.py · base.py (PointInTimeData)
     ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live; CacheMiss canonical in __init__.py)
     │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
-    │   ├── edgar/{client,submissions,form4,converts,extract}.py   # SEC client + Form 4 (+ existing_accessions) + converts + extractor
+    │   ├── edgar/{client,submissions,form4,converts,extract,fulltext}.py   # SEC client + Form 4 + converts + extractor + fulltext (the EFTS discovery enumerator: discover · classify · parallel under the shared RateLimiter)
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
     │   ├── prices/{eod_loader,source}.py                          # EOD bars (+ latest_bar_date, force_refresh) · the PriceSource seam (Yahoo/Stooq)
     │   └── {cash_burn,revenue_mix,shares,catalyst,theme_conviction}.py   # the ratify bridges (write fact_*)
     ├── securities/                 # entity resolution → the security master
-    │   ├── master.py               #   search (discovery net) · resolve · populate_universe (broadener) · exists · get
+    │   ├── master.py               #   search (discovery net) · resolve · ids_for_tickers / ids_for_ciks (exact membership) · populate_universe (broadener) · exists · get
     │   └── figi.py · sec_tickers.py
     ├── db/                         # bitemporal Postgres store
     │   ├── session.py · bitemporal.py (as_of / as_of_thesis / append_fact) · migrate.py
-    │   └── migrations/0001…0011    #   …0008 workbench_chain · 0009 scoring_facts · 0010 note · 0011 thesis_fit
+    │   └── migrations/0001…0012    #   …0008 workbench_chain · 0009 scoring_facts · 0010 note · 0011 thesis_fit · 0012 thesis_term_set
     ├── repositories/               # the row↔domain seam (raw rows never escape)
     │   └── mappers.py · thesis_repo.py (get/list_all/upsert) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical)
     ├── pipeline/                   # thin orchestration / CLIs
@@ -101,10 +105,10 @@ alphadeck/
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py             #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares)
     ├── app/                        # FastAPI
-    │   ├── main.py · deps.py        #   deps: get_conn · get_current_tenant · get_thesis_or_404 · get_llm_client · get_decompose_client
+    │   ├── main.py · deps.py        #   deps: get_conn · get_current_tenant · get_thesis_or_404 · get_llm_client · get_decompose_client · get_keyword_client · get_research_client · get_edgar_client
     │   ├── openapi_export.py        #   dumps backend/openapi.json (the frontend's type source)
     │   ├── routers/theses.py        #   GET /theses · /theses/{id} · /theses/{id}/call?asof=
-    │   ├── routers/workbench.py     #   /workbench: scored · securities · extract · facts(+/explain) · theses(promote) · theses/{id}/draft-chain
+    │   ├── routers/workbench.py     #   /workbench: scored · securities · extract · facts(+/explain) · theses(promote) · theses/{id}/terms (produce the term set) · theses/{id}/draft-chain (EDGAR-first)
     │   └── schemas_api.py           #   the WIRE contracts (ThesisDetail · WorkbenchScored · ChainDraftOut · …)
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · run.py

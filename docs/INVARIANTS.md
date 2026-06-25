@@ -211,4 +211,5 @@ surfaced to the operator, not silently resolved in code.**
   reliability raises (`DiscoveryDegraded` / `DiscoveryEmpty` / `DiscoveryNoTerms` → 503, never a recall
   fallback — `workbench/discovery.py`); the per-CIK reconciler that set-difference-guarantees every
   discovered in-master CIK reaches the draft (`workbench/chain_draft.resolve_discovered_chain`); the VERIFY
-  tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`).
+  tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`). The
+  full discovery system this invariant governs: `docs/DISCOVERY.md`.

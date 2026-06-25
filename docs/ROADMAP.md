@@ -6,8 +6,8 @@
 >
 > Siblings: `CALL_LOGIC.md` (the brain), `CATALYST_CONVICTION.md` (the catalyst key), `INVARIANTS.md` (the
 > load-bearing rules), `WORKBENCH_SCORING.md` (the four meters) + `WORKBENCH_EXTRACTION.md` (the extract →
-> ratify hybrid + the first LLM seam) + `CHAIN_DRAFTER.md` (the narrative → chain drafter, the second LLM seam),
-`RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
+> ratify hybrid + the first LLM seam) + `DISCOVERY.md` (EDGAR-first name discovery) + `CHAIN_DRAFTER.md` (the
+> narrative → chain authoring surface, the second LLM seam), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
 > not here), `PROJECT_OVERVIEW.md` (design rationale). This doc is **sequencing**; it references the others,
 > never duplicates them.
 
@@ -20,7 +20,7 @@ call-assembler, the catalyst subsystem (operator-ratified bridge + the automated
 through-line refactor, and the M5 per-member ranked menu + theme arming (#42/#43). **3 theses / 4 armed names
 render on real data** (HIMS starter, UNH core, nuclear → LEU core_entry headline with OKLO starter beneath).
 **Phase 1 (trust + production) shipped** — the replay harness (#44), the recalibration pass (#45 — in-sample,
-*instrument-grounded, not forward-validated*; `RECALIBRATION_PASS_001.md`), and the production-tenant cut
+*instrument-grounded, not forward-validated*; the caveat is in the trust box below), and the production-tenant cut
 (#46, isolation proven by a poison-row test). Forward validation (the live Scoreboard) stays parked.
 
 The **front half — the Workbench — is now built through its MVP.** The mockup + spec landed (#41), then the
@@ -48,11 +48,26 @@ sidecar (#73). **The North Star is reachable end to end:** create a thesis from 
 `ingest_thesis` pulls real insider + price → it WARMS/ARMS on real data → the daily cron logs the
 call-of-record. See `FEED_LOOP.md` (how the platform feeds itself) + `CHAIN_DRAFTER.md` (the front door).
 
-> **Keep the trust state honest.** "The platform feeds itself daily" is TRUE; **"the forward trust loop is
-> closed" is NOT** — that is the **Scoreboard**, still parked. M2 is platform PLUMBING, not the call engine; it
-> did not change the trust validation (still in-sample, n=19, `RECALIBRATION_PASS_001.md`). The daily
-> call-of-record is the forward RECORD the Scoreboard will later track — **Scoreboard-ready, not
-> Scoreboard-coupled.** Do not round "feeds itself" up to "validated forward."
+**EDGAR-first DISCOVERY is now built + operator-confirmed live** — the deepest cut at name-selection (the
+narrative no longer drafts names from model recall). EFTS enumeration → the operator-seeded term set →
+deterministic PLACED/VERIFY classify → the per-CIK reconciler → batched thesis-fit prose + matched-term tags →
+the tail-sweep. Deterministic ~57 PLACED + a VERIFY tier, every name carrying prose + a provenance tag, recall
+31/32. The two follow-on cleanup passes are done too: the seed-precision/junk-visibility pass (the term set +
+tags) and the prose/legibility pass. Full home: **`DISCOVERY.md`**. *(This supersedes the old "research-not-
+recall web-search" plan — that road was not taken.)*
+
+> **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
+> is TRUE; **"the forward trust loop is closed" is NOT** — that is the **Scoreboard**, still parked. The first
+> recalibration pass (#45) tuned **direction from the literature + the mechanism**; the replay only
+> *illustrated*, it never *selected* a value. Its seed is **n=19 episodes, only UNH a long forward arc**, so its
+> honest claim is "the dials are grounded in replayed history + the one obvious lever was inspected" — **NOT**
+> "the system is validated." It shipped **zero dial changes** (the disciplined result at n=19; the one give-back
+> — insider-core exit ~35d past peak — is a confidence-*shape* problem [age-decay, `RECALIBRATION.md` B.4], not
+> a magnitude the binary liveness window can fix). M2 + discovery are platform PLUMBING; neither changed this
+> validation state. The daily call-of-record is the forward RECORD the Scoreboard will later track —
+> **Scoreboard-ready, not Scoreboard-coupled.** Do not round "feeds itself" up to "validated forward." *(The
+> full first-pass record lived in `RECALIBRATION_PASS_001.md`, retired into this caveat + git history; the
+> standing dial backlog stays in `RECALIBRATION.md`.)*
 
 **What's next (post-MVP, by appetite — laid out in the MVP-finish section below):** the **live North-Star
 walkthrough** (the operator's manual proof on a real thesis — not a build); the **source-strategy A-vs-B
@@ -113,7 +128,8 @@ New arming logic, so a short design pass first (like the catalyst pass) covering
    already makes it honest. Validates the edge over history **and** produces the scored outcomes recalibration
    needs. See `REPLAY.md`.
 2. **Recalibration pass** `[MERGED #45]` — tune the dials + filed refinements in `RECALIBRATION.md` against
-   replay outcomes, **never to fit one name**. The first pass is `RECALIBRATION_PASS_001.md` (in-sample, n=19).
+   replay outcomes, **never to fit one name**. The first pass shipped **zero dial changes** (the disciplined
+   result at in-sample n=19 — the caveat is in the "Keep the trust state honest" trust box above).
 3. **Cut production as a fresh tenant** `[MERGED #46]` — `tenant_id` per row means production is a *new
    tenant*, never a destructive wipe; dev/demo data is kept. The tenant is threaded from the thesis (auth
    deferred) and isolation is **proven** by a poison-row test, not just asserted — design, threading map, and
@@ -327,6 +343,21 @@ insider+price → the daily cron logs the call-of-record. **That is the MVP.** *
 validated-forward — see "Where we are" + Parked.)*
 
 ### What's next (post-MVP, by appetite — the next chapter, made legible)
+
+**The discovery fork (sequence together — not yet prioritized).** With EDGAR-first discovery shipped
+(`DISCOVERY.md`), four open threads extend it:
+- **The seed-edit UI** — *load-bearing, not polish.* A draft needs a produced term set or it 503s, and seed
+  quality (e.g. demote a marketed-drug seed) is an operator judgment with no UI yet — so **every
+  non-pre-seeded thesis is currently unusable without it.** The data model already carries `authored_by` /
+  `source` for it; the producer should also warn when a seed is a short collision-prone token.
+- **Tail-sweep live validation** — `research_tail_sweep` is built + cost-guarded but unvalidated live for the
+  foreign / ADR / brand-new tail it targets.
+- **The identity bridge** — the ATAI dual-CIK redomicile (CIK …904 pre / …043 post) is the one answer-key
+  recall miss; surface both as a pick, never auto-place.
+- **Enrichment (the old RESEARCH_ENRICH pieces 3–5)** — status / size-band / a *suggested* archetype with its
+  basis, to replace the blanket `high_beta` default and **kill "high-beta on everything."**
+
+**The rest of the post-MVP chapter:**
 - **The live North-Star walkthrough** — the operator's manual proof on a real thesis (create → ingest → an
   Armed call on real data). Not a build; the satisfying "prove the whole loop" gate.
 - **The source-strategy A-vs-B decision** — a documented, waiting decision: **(A)** keep Yahoo + re-version the

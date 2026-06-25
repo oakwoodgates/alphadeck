@@ -3,7 +3,7 @@
 > Working reference doc. Captures the high-level goals and design converged on during planning.
 > Scope: equities first (US), with commodities / crypto / prediction markets as later additions.
 > Codename: **Alpha Deck**.
-> This doc is the *design rationale* (the "why"). Stack, UI surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; **how the platform feeds itself** in `docs/FEED_LOOP.md`; the front door (narrative → chain) in `docs/CHAIN_DRAFTER.md`; the live sequencing in `docs/ROADMAP.md`.
+> This doc is the *design rationale* (the "why"). Stack, UI surfaces, and v1 scope live in `README.md`; build conventions + invariants in `CLAUDE.md`; the **file-by-file repo layout** in `docs/PROJECT_LAYOUT.md`; where data lives at runtime in `docs/DATA_FLOW.md`; **how the platform feeds itself** in `docs/FEED_LOOP.md`; the front door (narrative → chain) in `docs/DISCOVERY.md` (how the names are found — EDGAR-first) + `docs/CHAIN_DRAFTER.md` (the authoring / ratify / promote surface); the live sequencing in `docs/ROADMAP.md`.
 >
 > **Status — the MVP is COMPLETE.** Both halves on one spine are built: the **front-half loop closes**
 > (narrative → draft → ratify → promote → extract → score — S5 + the create-thesis front door, M1) and the

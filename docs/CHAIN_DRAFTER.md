@@ -1,17 +1,22 @@
-# CHAIN_DRAFTER.md — the narrative → value-chain drafter (the second LLM seam)
+# CHAIN_DRAFTER.md — the narrative → value-chain authoring surface (the second LLM seam)
 
-> Repo path: `docs/CHAIN_DRAFTER.md`. How the Workbench turns an operator's NARRATIVE into a drafted,
-> ratifiable value chain — the front door to the loop: **draft → ratify → extract → score → promote**. The
-> capstone of the front half (S5). Companion to `WORKBENCH_EXTRACTION.md` (the per-name extract → ratify side
-> + the FIRST LLM seam), `WORKBENCH_SCORING.md` (what the ratified facts SCORE to), `INVARIANTS.md` (#2 exact
-> membership, #3 no model-sourced numbers), `ROADMAP.md` (sequencing). Engines: the resolver
-> `backend/workbench/chain_draft.py`; the decompose seam `backend/llm/chain_decomposition.py`; the endpoint +
-> the promote guard `backend/app/routers/workbench.py`; the UI `frontend/src/workbench/` (`ChainEditor` +
-> `useChainDraft` + `AddName`).
+> Repo path: `docs/CHAIN_DRAFTER.md`. How the Workbench turns a drafted value chain into a **ratified,
+> promotable** thesis — the **author / ratify / promote** half of the front door: `draft → ratify → extract →
+> score → promote`. The **how-the-names-are-found** half (EDGAR full-text enumeration → the operator-seeded
+> term set → deterministic PLACED/VERIFY classify → the per-CIK reconciler → batched narration + matched-term
+> tags → the tail-sweep) lives in its own home, **`DISCOVERY.md`** — read it first; this doc picks up where the
+> draft lands. Companions: `DISCOVERY.md` (discovery), `WORKBENCH_EXTRACTION.md` (the per-name extract → ratify
+> side + the FIRST LLM seam), `WORKBENCH_SCORING.md` (what the ratified facts SCORE to), `INVARIANTS.md` (#2
+> exact membership, #3 no model-sourced numbers, #9 recall is sacred), `ROADMAP.md` (sequencing). Engines: the
+> reconciler/resolver `backend/workbench/chain_draft.py`; the organize+narrate seams
+> `backend/llm/chain_decomposition.py`; the endpoint + the promote guard `backend/app/routers/workbench.py`;
+> the UI `frontend/src/workbench/` (`ChainEditor` + `useChainDraft` + `AddName`).
 >
-> **Status: BUILT** — the resolver + the promote write-guard (PR #61), the Sonnet decompose seam + the
-> response-only draft endpoint (#62), the `thesis_fit` prose column (#64), the draft/ratify UI + the
-> `ANTHROPIC_API_KEY` / `.env` wiring (#65). With it, the **front-half loop closes end to end.**
+> **Status: BUILT, then re-pointed onto EDGAR-first discovery.** The authoring spine shipped as S5 (the
+> resolver + promote write-guard #61, the Sonnet decompose seam + the response-only draft endpoint #62, the
+> `thesis_fit` prose column #64, the draft/ratify UI + the `.env` wiring #65). The drafter then stopped
+> enumerating from model recall: discovery now finds the names deterministically (`DISCOVERY.md`), and this seam
+> ORGANIZES + narrates that universe. The **front-half loop closes end to end.**
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred.
 
@@ -19,11 +24,18 @@
 
 ## What it is
 
-The operator types a narrative ("small modular nuclear is about to rip"). S5 drafts the **value chain** — the
-**segments** (links: "Reactor developers", "Enrichment & fuel", "Utilities / offtake"), the **names** that sit
-in each, and short thesis-fit **prose** (why a name sits there) — into the 4b authoring surface as
-`system_drafted`, for the operator to ratify. It is **deferential about the narrative, opinionated about the
-chain + the names** — the flaw-patch (name selection) the whole tool exists for.
+The operator types a narrative ("small modular nuclear is about to rip"). The draft surfaces the **value
+chain** — the **segments** (links: "Reactor developers", "Enrichment & fuel", "Utilities / offtake"), the
+**names** that sit in each, and short thesis-fit **prose** (why a name sits there) — into the 4b authoring
+surface as `system_drafted`, for the operator to ratify. It is **deferential about the narrative, opinionated
+about the chain + the names** — the flaw-patch (name selection) the whole tool exists for.
+
+**The names come from EDGAR-first DISCOVERY, not model recall** (`DISCOVERY.md`): the deterministic EFTS
+enumerator finds the US-listed universe by CIK from the thesis's operator-seeded term set; Sonnet only
+ORGANIZES that stable set into segments + prose (it never enumerates), and the per-CIK reconciler guarantees no
+discovered name is lost to the organizer's layout. This doc is the **authoring / ratify / promote** surface
+that consumes the draft — the resolver-decides-at-promote, the no-number bound, the `thesis_fit` home, the
+draft/ratify UI, and the create-thesis front door.
 
 **Three authorities stay separate** (the spine of the design):
 - **S5 drafts STRUCTURE + NAMES + PROSE.** Never a number.
@@ -33,41 +45,46 @@ chain + the names** — the flaw-patch (name selection) the whole tool exists fo
 A freshly drafted name is **UNSCORED** (its meters read "—") until the operator runs the extract → ratify loop
 on it. *Narrative is the operator's, structure is a draft, numbers are facts.*
 
-## The resolver — exact membership DECIDES (INVARIANT #2)
+## Membership decides (INVARIANT #2) — the reconciler + the master-resolver fallback
 
-`resolve_placements(conn, segments, *, tenant_id)` (`backend/workbench/chain_draft.py`) runs every proposed
-name through THIS tenant's security master and classifies it. **A model name is a discovery suggestion; exact
-master membership decides** — the model proposing "Oklo" does NOT resolve Oklo; a placed `security_id` is only
-ever the master row's, never the model's string.
+**A model name is a discovery suggestion; exact membership decides** — the model proposing "Oklo" does NOT
+resolve Oklo; a placed `security_id` is only ever the master row's, never the model's string. With EDGAR-first
+discovery, that decision happens TWICE, both in `backend/workbench/chain_draft.py`:
 
-- **PLACED** — a **unique EXACT ticker match OR a unique EXACT name match** → the master row's `security_id`
-  (auto-place as a drafted member). The model emits a best-guess ticker per name, so exact-ticker carries the
-  clean proposals.
-- **AMBIGUOUS** — several / partial / token-only matches, OR a **ticker/name CONTRADICTION** (the exact ticker
-  and the exact name resolve to DIFFERENT rows) → the operator **PICKS** from the candidates (each shown with
-  ticker + CIK so a homonym is disambiguated by sight). **Auto-place never rests on a judgment call:** a lone
-  substring/token match is the homonym-trap heuristic (the "$48B Oklo Technologies" trap), so it falls here,
-  not to PLACED.
-- **ABSENT** — no master row → "suggested, not in your universe": shown, never guessed onto a ticker.
+- **The per-CIK reconciler — `resolve_discovered_chain`** (the live path) places by EXACT CIK membership against
+  the discovered universe (PLACED ≥1 signal · VERIFY broad-only · the dropped-but-discovered appended to
+  "Discovered") and owns COMPLETENESS. Full treatment in **`DISCOVERY.md`**.
+- **The master-resolver fallback — `_resolve_one`** (the old `resolve_placements` logic) handles an organizer
+  name that matches NO discovered CIK (a tail-sweep / off-universe name): it runs the name through THIS tenant's
+  master and classifies it —
+  - **PLACED** — a **unique EXACT ticker OR name match** → the master row's `security_id` (auto-place).
+  - **AMBIGUOUS** — several / partial / token-only matches, OR a ticker/name CONTRADICTION → the operator
+    **PICKS** (each candidate shown with ticker + CIK). **Auto-place never rests on a judgment call:** a lone
+    substring match is the homonym-trap heuristic (the "$48B Oklo Technologies" trap), so it falls here.
+  - **ABSENT** — no master row → "suggested, not in your universe": shown, never guessed onto a ticker.
 
-Read-only — the resolver never ingests, never writes, sources no number. (`master.get`, added with the
-resolver, fetches the conflicting ticker's row for the AMBIGUOUS pick list.)
+Read-only — neither path ingests, writes, or sources a number. (`master.get` fetches the conflicting ticker's
+row for the AMBIGUOUS pick list.)
 
-## The decompose seam — Sonnet, structured, fail-open
+## The organize + narrate seams — Sonnet, structured, fail-open
 
-`backend/llm/chain_decomposition.py` extends the `backend/llm` interface the first seam (#59) established:
-- **`DECOMPOSE_TOOL`** — the structured-output contract: `segments[2..6] → {label, descriptor?, placements[] →
-  {name, ticker?, prose}}`. There is **no value / score / number field anywhere in the schema** (structural).
-- **`SYSTEM_PROMPT`** — bakes in: 2–6 segments; real US-listed companies; a best-guess ticker per name
-  (verified against the master, never fabricated); ≤25-word grounded prose; and it **FORBIDS any number** —
-  price / % / share count / runway / market cap / catalyst value. Drafted reasoning, not fact.
-- **`decompose_narrative(client, narrative) -> dict | None`** — fail-open on EVERY path (no key / timeout /
-  SDK error / no tool call / blank narrative → `None`).
-- Dials live in `CallConfig`: `llm_decompose_model = "claude-sonnet-4-6"`, `llm_decompose_max_tokens ≈ 2000`,
-  `llm_decompose_timeout_s ≈ 20` — **separate from the Haiku flag-drafter dials** so the first seam is
-  undisturbed. Sonnet because decomposing a novel narrative is reasoning-heavy and **is** the product (a weak
-  chain defeats the flaw-patch). Staged decomposition (segments → names → prose) is the `[FILED]` fallback if
-  one call underperforms — a logged trigger, not a default.
+`backend/llm/chain_decomposition.py` extends the `backend/llm` interface the first seam (#59) established. With
+discovery owning enumeration, the decompose call is now an **ORGANIZER** (it arranges the discovered set), and a
+second focused call NARRATES:
+- **`decompose_narrative(client, narrative, research_context=…)`** + **`DECOMPOSE_TOOL`** — the structured
+  contract `segments[2..6] → {label, descriptor?, placements[] → {name, ticker?, prose}}`, with the discovery
+  universe threaded in as `research_context` so the model ORGANIZES a stable set into segments + prose (it never
+  enumerates). **No value / score / number field anywhere in the schema** (structural). Fail-open on every path
+  → `None`.
+- **`narrate_placements(client, narrative, items)`** + **`NARRATE_TOOL`** — fills thesis-fit prose for the
+  PLACED + VERIFY names the organizer didn't narrate (BATCHED, numbered-`ref` join, per-batch fail-open + logged
+  — the mechanism + its live war story are in `DISCOVERY.md`). `{ref, prose}` only — no number.
+- The system prompts **FORBID any number** (price / % / share count / runway / market cap). Drafted reasoning,
+  not fact — Sonnet is the adherence lever, the gate-2 manual no-number check its real test.
+- Dials in `CallConfig`: `llm_decompose_model = "claude-sonnet-4-6"`, `llm_decompose_max_tokens = 2000`,
+  `llm_decompose_timeout_s = 60` — separate from the Haiku flag-drafter dials so the first seam is undisturbed.
+  Sonnet because organizing a novel narrative is reasoning-heavy and **is** the product (a weak chain defeats
+  the flaw-patch).
 
 ## NEVER A NUMBER — schema + prompt + drafted-unscored (INVARIANT #3)
 
@@ -84,19 +101,23 @@ The bound holds three ways:
 
 ## The draft endpoint — RESPONSE-ONLY, test-enforced
 
-`POST /workbench/theses/{id}/draft-chain` (`backend/app/routers/workbench.py`): reads the thesis narrative →
-`decompose_narrative` → `proposed_from_decomposition` (a defensive, fail-open parse) → `resolve_placements` →
-returns `ChainDraftOut {thesis_id, segments, placements}`. The tenant comes from the thesis (mirrors the
-scored endpoint).
+`POST /workbench/theses/{id}/draft-chain` (`backend/app/routers/workbench.py`) runs the EDGAR-first pipeline
+(full treatment in `DISCOVERY.md`): read the stored term set → `run_discovery` (EFTS → classify) →
+`research_tail_sweep` → `decompose_narrative` (organize) → `resolve_discovered_chain` (per-CIK reconcile) →
+fill prose + matched-term tags → `ChainDraftOut {thesis_id, segments, placements}`. The tenant comes from the
+thesis (mirrors the scored endpoint).
 
 - **Writes NOTHING.** It returns a draft and persists nothing — the operator's promote is the only writer.
 - **The bound is RESPONSE-ONLY + TEST-ENFORCED, not structural-by-absence.** Unlike the flag-explanation
   endpoint (#59, which takes **no DB connection at all** — a write is literally impossible), the draft
-  endpoint **holds a read-only conn** (it must, to read the narrative and run `master.search`). So "writes
+  endpoint **holds a read-only conn** (it must, to read the narrative + term set and resolve CIKs). So "writes
   nothing" is guaranteed by **`test_draft_endpoint_writes_nothing`** (zero `fact_*` AND zero `basket_member`)
   + read-only discipline — treat that test as **load-bearing**, not a formality.
-- **Fail-open by contract** — any LLM trouble → **200 with an empty draft, never a 5xx**; with no
-  `ANTHROPIC_API_KEY` the endpoint is a no-op and hand-authoring is untouched.
+- **Discovery is completeness-or-fail (#9), not silently fail-open.** A thesis with no produced term set, or a
+  universe EFTS can't enumerate, returns **503** (`DiscoveryNoTerms` / `DiscoveryDegraded` / `DiscoveryEmpty`),
+  VISIBLE — never a quiet fall back to model recall. The LLM seams (tail-sweep / organize / narrate) still
+  fail-open: their trouble degrades prose, never drops a name, and a failed organize returns 200 with an empty
+  draft. With no `ANTHROPIC_API_KEY` the prose/organize degrade and hand-authoring is untouched.
 
 ## The promote guard — bound #2 at the single writer
 
@@ -127,9 +148,15 @@ never the stored company-reference facts (layer a) the LLM does not narrate (`RO
 - **"Draft from narrative"** (`ChainEditor`) calls the endpoint on an EXPLICIT click (never on render) and
   **MERGES** the draft into the local chain draft (`useChainDraft.loadDraft`) — never replaces: new segments
   append, PLACED names are added, deduped by `security_id`, so the operator's existing work is never clobbered.
-- **PLACED** names auto-load as `system_drafted` (badged, prunable). **AMBIGUOUS** names are a **pick list**
-  (ticker + CIK) — a non-PLACED name enters the basket **ONLY by an explicit operator pick** (which commits
-  the exact `security_id`). **ABSENT** names are shown, never placeable.
+- **"Produce term set"** (the writer for `DISCOVERY.md`'s term set) produces + DISPLAYS the SIGNAL/BROAD split
+  read-only, so the operator inspects what discovery will read before drafting (a draft with no term set 503s).
+- **PLACED** names auto-load as `system_drafted` (badged, prunable). **VERIFY** names (in-universe by CIK,
+  broad-only, lower-confidence) sit in a quiet "Verify" section — shown not auto-placed, one-click **add**
+  commits the known `security_id` (the same #2 discipline as AMBIGUOUS); they are **promotable**, so they carry
+  thesis-fit prose too. **AMBIGUOUS** names are a **pick list** (ticker + CIK) — a non-PLACED name enters the
+  basket **ONLY by an explicit operator pick**. **ABSENT** names are shown, never placeable.
+- Each PLACED/VERIFY name shows its **matched-term tag** (`← psilocybin` — the discovery keyword(s) that
+  surfaced it), display-only provenance, never promoted as a fact.
 - **The authorship transitions:** load → `system_drafted`; **accept** → `operator_set`; **edit** any field
   (segment / prose / archetype) → `operator_edited`. A drafted member shows its prose in an editable box with
   an accept / drop affordance; a placed-but-unratified name reads **unscored ("—")** until extract → ratify
