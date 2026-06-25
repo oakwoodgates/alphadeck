@@ -30,10 +30,10 @@ alphadeck/
 ├── scripts/run_5b_draft_check.ps1  # live gate-2 check: draft a chain from a narrative + scan the prose for numbers
 ├── docs/                           # THE CANON (see the doc index in PROJECT_OVERVIEW)
 │   ├── PROJECT_OVERVIEW.md · ROADMAP.md · CALL_LOGIC.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
-│   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / S5)
+│   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · DISCOVERY.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / EDGAR-first discovery / S5 authoring)
 │   ├── FEED_LOOP.md                                          # the back half feeds itself (M2: ingest + cron + seam)
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
-│   ├── RECALIBRATION.md · RECALIBRATION_PASS_001.md   # the post-MVP tuning agenda + pass 001 (in-sample n=19)
+│   ├── RECALIBRATION.md   # the post-MVP tuning agenda (pass-001 record retired into ROADMAP's trust box)
 │   └── mockups/                    # the Board/Cockpit/Workbench visual targets
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/

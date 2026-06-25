@@ -136,7 +136,7 @@ the per-thesis back-half ingest + the daily call-of-record cron + the price-sour
 sidecar — makes it feed itself. Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
 [`docs/FEED_LOOP.md`](docs/FEED_LOOP.md). Build/run/test commands: [`CLAUDE.md`](CLAUDE.md).
 
-**Trust state (kept honest):** the calls are tuned **in-sample** (n=19; `docs/RECALIBRATION_PASS_001.md`).
+**Trust state (kept honest):** the calls are tuned **in-sample** (n=19; see `docs/ROADMAP.md`'s trust box).
 "The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard** (the
 forward trust loop: platform calls vs the operator's decisions vs the follow-blindly counterfactual) is the
 **post-MVP open, still parked** — the daily call-of-record is the forward record it will track.
