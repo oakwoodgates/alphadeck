@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   BasketMember,
+  ChainDraftOut,
   ResolvedPlacement,
   SecurityCandidate,
   TermEdit,
@@ -9,15 +10,21 @@ import type {
   ThesisDetail,
 } from "../api/hooks";
 import {
-  useDraftChain,
+  useDraftJobStatus,
   useEditTerms,
   useProduceTerms,
   usePromoteThesis,
+  useStartDraft,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
 import { memberKey, useChainDraft } from "./useChainDraft";
+
+// Stop polling a draft after this long and show "timed out, try again". Set ABOVE the 300s Opus cap and BELOW
+// the 600s server-side running-job reaper, so the operator sees the timeout before the job is reaped (the
+// backend job is left to the reaper — the FE only stops polling, never orphans it).
+const DRAFT_POLL_TIMEOUT_MS = 360_000;
 
 interface Props {
   thesis: ThesisDetail;
@@ -42,7 +49,15 @@ const termAuthor = (a: string): string =>
 export function ChainEditor({ thesis, onDone }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
-  const draftQ = useDraftChain(thesis.id);
+  // The draft is a KICK-OFF + POLL job now (it takes minutes; held open it 504'd). Start it, stash the job_id,
+  // and poll until terminal. A poll-timeout (below) and a 404 (server restart) both surface as a visible failure
+  // — never an infinite spinner.
+  const startDraft = useStartDraft(thesis.id);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const jobQ = useDraftJobStatus(thesis.id, jobId);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const pollTimeout = useRef<number | null>(null);
+  const drafting = startDraft.isPending || !!jobId; // kicking off, or a job is running
   const produceTerms = useProduceTerms(thesis.id);
   const editTerms = useEditTerms(thesis.id);
   // The working term set. Seeded from what loaded; after produce OR a manual edit it ADOPTS the server's
@@ -96,11 +111,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
 
-  // Draft the chain from the narrative — an EXPLICIT operator action (never on render). Fail-open: an empty
-  // draft (no key / the model declined) loads nothing and the editor is unchanged. MERGE, not replace.
-  const onDraft = async () => {
-    const { data } = await draftQ.refetch();
-    if (!data) return;
+  // Load a completed draft into the editor (MERGE, not replace). Fail-open: an empty draft (no key / the model
+  // declined) loads nothing and shows the quiet "returned nothing" note.
+  const applyDraft = (data: ChainDraftOut) => {
     d.loadDraft(data);
     setAmbiguous(data.placements.filter((p) => p.status === "ambiguous"));
     setVerify(data.placements.filter((p) => p.status === "verify"));
@@ -114,6 +127,51 @@ export function ChainEditor({ thesis, onDone }: Props) {
     );
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
   };
+
+  const clearPollTimeout = () => {
+    if (pollTimeout.current) window.clearTimeout(pollTimeout.current);
+    pollTimeout.current = null;
+  };
+
+  // Draft the chain from the narrative — an EXPLICIT operator action (never on render). KICK OFF the job and
+  // start polling; arm a poll-timeout so the operator always reaches a terminal state.
+  const onDraft = async () => {
+    setDraftError(null);
+    setDraftEmpty(false);
+    try {
+      const ref = await startDraft.mutateAsync();
+      setJobId(ref.job_id);
+      clearPollTimeout();
+      pollTimeout.current = window.setTimeout(() => {
+        setJobId(null); // stop polling; the backend job is left to the server reaper, never orphaned
+        setDraftError("Draft timed out — try again.");
+      }, DRAFT_POLL_TIMEOUT_MS);
+    } catch (e) {
+      setDraftError(errText(e)); // a 409 ("already running") or a kick-off transport error
+    }
+  };
+
+  // The poll's terminal transition: done → load the result; failed → show the operator-facing error; a 404
+  // (unknown/expired/restart-wiped job) → a visible "draft was lost". In every case stop polling + disarm the
+  // timeout. Keyed on the status/error edge so it fires once per terminal arrival.
+  const jobStatus = jobQ.data?.status;
+  useEffect(() => {
+    if (!jobId) return;
+    if (jobStatus === "done") {
+      clearPollTimeout();
+      if (jobQ.data?.result) applyDraft(jobQ.data.result);
+      setJobId(null);
+    } else if (jobStatus === "failed") {
+      clearPollTimeout();
+      setDraftError(jobQ.data?.error || "Draft failed.");
+      setJobId(null);
+    } else if (jobQ.isError) {
+      clearPollTimeout();
+      setDraftError("Draft was lost (the server may have restarted) — try again.");
+      setJobId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobStatus, jobQ.isError, jobId]);
 
   // An AMBIGUOUS name enters the basket ONLY here, by an explicit pick — the operator commits the exact
   // security_id (the membership decision, INVARIANT #2). It lands `system_drafted` (the prose is still
@@ -310,13 +368,8 @@ export function ChainEditor({ thesis, onDone }: Props) {
       </div>
 
       <div className="wb-draft-gap">
-        <button
-          type="button"
-          className="wb-edit-btn"
-          onClick={onDraft}
-          disabled={draftQ.isFetching}
-        >
-          {draftQ.isFetching ? "Drafting…" : "✦ Draft from narrative"}
+        <button type="button" className="wb-edit-btn" onClick={onDraft} disabled={drafting}>
+          {drafting ? "Drafting… (takes a minute)" : "✦ Draft from narrative"}
         </button>
         <span className="note">
           Pre-fill the chain from your narrative — the drafter proposes the links, the names in each, and
@@ -324,9 +377,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
           decides); a placed name is <b>unscored</b> until you extract → ratify it. Nothing is sent until Save.
         </span>
       </div>
-      {draftQ.isError && (
-        <ErrorToast>Couldn't draft — {errText(draftQ.error)}.</ErrorToast>
-      )}
+      {draftError && <ErrorToast>Couldn't draft — {draftError}.</ErrorToast>}
       {draftEmpty && (
         <div className="note">
           The drafter returned nothing — no <code>ANTHROPIC_API_KEY</code> in the stack, or the model

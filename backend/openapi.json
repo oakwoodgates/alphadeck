@@ -500,9 +500,9 @@
         "tags": [
           "workbench"
         ],
-        "summary": "Draft Chain",
-        "description": "Draft a value chain from the thesis's narrative \u2014 the SECOND LLM seam (S5), EDGAR-FIRST since Slice 4.\nDiscovery is OFF the model: (1) the thesis's PERSISTED term set (SIGNAL seeds + BROAD terms, produced\nout-of-band by ``POST .../terms``) is read \u2014 no keyword-gen on the draft path; (2) the deterministic EDGAR\nfull-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED (>=1 SIGNAL seed) vs\nthe lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,\nOpus) adds only the foreign / brand-new names EFTS structurally can't see, given the already-found list.\nTheir combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet ORGANIZES the stable name\nset into segments + thesis-fit prose \u2014 it never enumerates). Then ``resolve_discovered_chain`` reconciles\nthe organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its\nCIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and\nevery discovered CIK the organizer dropped is appended to a 'Discovered' bucket \u2014 completeness is the\ndeterministic layer's, never the organizer's to lose. A final fail-open narration step then writes thesis-fit\nprose for the reconciler-appended names the organizer never narrated (so EVERY placed/verify name carries\nreasoning); each name also carries its matched discovery term(s) as provenance. Both are display strings \u2014\nno number (#3), nothing persisted.\n\nOnly the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an\nIN-FLIGHT guard (one pass per thesis \u2014 a concurrent second draft gets HTTP 409, so a double-click / stray\nretry can never launch a parallel Opus call) + a TTL cache keyed by thesis + narrative-hash\n(``llm_research_cache_ttl_s``; 0 = always fresh). Its amplifiers stay closed: the SDK research client runs\n``max_retries=0`` and the FE draft query ``retry:false``. EFTS is free + deterministic (no guard needed).\n\nRESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it reads the narrative,\nresolves CIKs, and runs the master resolver), so \"writes nothing\" is response-only + TEST-ENFORCED\n(``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``). The operator loads the\ndraft, prunes / ratifies, and PROMOTE is the only writer. It sources NO number \u2014 the chain is value-free by\nthe decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).\n\nDISCOVERY IS COMPLETENESS-OR-FAIL (it must NOT silently degrade to recall \u2014 that's the deterministic layer\nturning stochastic). Every not-ready / can't-enumerate state RAISES and the draft returns HTTP **503**,\nVISIBLE to the operator, never a plausible-looking recall draft: the thesis has no produced term set\n(``DiscoveryNoTerms`` \u2014 \"produce it first (POST .../terms)\"), too many EFTS pages failed after retries\n(``DiscoveryDegraded``), or the terms enumerated but nothing placeable came back (``DiscoveryEmpty``). There\nis no benign-empty path anymore \u2014 discovery reads a persisted, operator-produced term set, so its absence is\na not-ready signal, not \"nothing to discover\". The tail-sweep still fails-open to None (it's an additive\ncorner, not the universe), and a failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are\ndeliberate: 409 (a draft already running) and 503 (discovery not ready / unavailable).",
-        "operationId": "draft_chain_workbench_theses__thesis_id__draft_chain_post",
+        "summary": "Start Draft Chain",
+        "description": "KICK OFF the narrative\u2192chain draft as a background JOB and return immediately (**202** + ``job_id``); the\nFE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the\nOpus tail-sweep + decompose + narrate); held open as one request it blew past nginx's 300s proxy timeout \u2014\nthe browser 504'd while the backend kept billing. Only the DELIVERY changed; ``execute_draft`` is unchanged.\n\nThe IN-FLIGHT 409 guard lives HERE now (one running draft per thesis \u2014 ``DraftInFlight`` \u2192 HTTP 409, so a\ndouble-click / stray retry can never launch a parallel Opus pass). The job runs in a daemon thread that opens\nits OWN DB connection (it OUTLIVES this request \u2014 the ``get_thesis_or_404`` conn is closed once the 202 is\nsent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty\ndraft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY\n(the job writes only its in-memory result \u2014 no fact, no promote).",
+        "operationId": "start_draft_chain_workbench_theses__thesis_id__draft_chain_post",
         "parameters": [
           {
             "name": "thesis_id",
@@ -516,12 +516,65 @@
           }
         ],
         "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftJobRef"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/theses/{thesis_id}/draft-chain/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Draft Chain Job",
+        "description": "POLL a kicked-off draft job. ``done`` \u2192 the ``result`` (a ChainDraftOut); ``failed`` \u2192 an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, #9). **404** if the job is\nunknown / expired, or the registry was wiped by a restart \u2014 the FE shows a visible \"draft was lost\" (never an\ninfinite spinner). The job_id must belong to this thesis.",
+        "operationId": "get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChainDraftOut"
+                  "$ref": "#/components/schemas/DraftJobStatus"
                 }
               }
             }
@@ -990,6 +1043,75 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output)."
+      },
+      "DraftJobRef": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "DraftJobRef",
+        "description": "The 202 kick-off body \u2014 the draft started as a background JOB (it takes minutes; held open it 504'd at the\nproxy). The FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. Only the DELIVERY changed; the\ndraft logic is unchanged."
+      },
+      "DraftJobStatus": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChainDraftOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "DraftJobStatus",
+        "description": "The poll body. ``done`` carries the ``result`` (the ChainDraftOut); ``failed`` carries an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, never a silent empty draft, #9).\nA benign fail-open (no key / the model declined) is ``done`` with an EMPTY draft, not a failure."
       },
       "EditTermsRequest": {
         "properties": {
