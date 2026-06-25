@@ -6,7 +6,7 @@ import type {
   SecurityCandidate,
   ThesisDetail,
 } from "../api/hooks";
-import { useDraftChain, usePromoteThesis } from "../api/hooks";
+import { useDraftChain, useProduceTerms, usePromoteThesis } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
@@ -21,6 +21,10 @@ interface Props {
 const authorLabel = (a: string): string =>
   a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
 
+// A term's provenance: an operator seed vs an LLM-proposed (guard-tiered) term. The data already carries it.
+const termAuthor = (a: string): string =>
+  a === "operator_set" ? "seed" : a === "operator_edited" ? "edited" : "auto";
+
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
  *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
  *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
@@ -32,6 +36,11 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
   const draftQ = useDraftChain(thesis.id);
+  const produceTerms = useProduceTerms(thesis.id);
+  // The stored term set the draft reads — the freshly-produced one if just regenerated, else what loaded.
+  const termSet = produceTerms.data?.term_set ?? thesis.term_set;
+  const signalTerms = termSet.filter((e) => e.tier === "signal");
+  const broadTerms = termSet.filter((e) => e.tier === "broad");
   const [newSeg, setNewSeg] = useState("");
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
@@ -119,6 +128,72 @@ export function ChainEditor({ thesis, onDone }: Props) {
       {save.isError && (
         <ErrorToast>Couldn't save — {errText(save.error)}. Nothing changed.</ErrorToast>
       )}
+
+      <div className="wb-terms">
+        <div className="wb-draft-gap">
+          <button
+            type="button"
+            className="wb-edit-btn"
+            onClick={() => produceTerms.mutate()}
+            disabled={produceTerms.isPending}
+          >
+            {produceTerms.isPending
+              ? "Producing…"
+              : termSet.length > 0
+                ? "↻ Regenerate term set"
+                : "⚙ Produce term set"}
+          </button>
+          <span className="note">
+            Produce the discovery term set the draft reads — keyword-gen proposes, a deterministic guard
+            tiers, and your seeds are the only <b>SIGNAL</b>. Regenerate preserves your seeds and re-rolls the
+            proposed <b>BROAD</b> terms. Inspect the split, then Draft.
+          </span>
+        </div>
+        {produceTerms.isError && (
+          <ErrorToast>Couldn't produce terms — {errText(produceTerms.error)}.</ErrorToast>
+        )}
+        {termSet.length > 0 ? (
+          <div className="wb-terms-split">
+            <div className="wb-terms-tier">
+              <div className="wb-terms-tier-h">
+                SIGNAL <small>· seeds — a hit PLACES</small>
+              </div>
+              <ul>
+                {signalTerms.map((e, i) => (
+                  <li key={i}>
+                    <b>{e.term}</b>
+                    <span className="wb-author">{termAuthor(e.authored_by)}</span>
+                  </li>
+                ))}
+                {signalTerms.length === 0 && (
+                  <li className="muted">none — seed canonical compounds to place names</li>
+                )}
+              </ul>
+            </div>
+            <div className="wb-terms-tier">
+              <div className="wb-terms-tier-h">
+                BROAD <small>· corroboration — VERIFY only</small>
+              </div>
+              <ul>
+                {broadTerms.map((e, i) => (
+                  <li key={i}>
+                    <b>{e.term}</b>
+                    <span className="wb-author">{termAuthor(e.authored_by)}</span>
+                  </li>
+                ))}
+                {broadTerms.length === 0 && <li className="muted">none</li>}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          !produceTerms.isPending && (
+            <div className="note">
+              No term set yet — produce one before drafting (a draft without it returns “produce terms
+              first”).
+            </div>
+          )
+        )}
+      </div>
 
       <div className="wb-draft-gap">
         <button

@@ -4,7 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The network boundary, mocked: the promote (save) mutation, the resolver typeahead, and the narrative→chain
 // drafter. The draft logic (useChainDraft) is the REAL hook — exercised through the editor UI.
-const h = vi.hoisted(() => ({ mutate: vi.fn(), refetch: vi.fn() }));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const h = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  refetch: vi.fn(),
+  produce: vi.fn(),
+  produceData: undefined as any,
+}));
 
 vi.mock("../../api/hooks", () => ({
   usePromoteThesis: () => ({
@@ -21,6 +27,14 @@ vi.mock("../../api/hooks", () => ({
   }),
   // the drafter: the test drives refetch()'s resolved value per-case (an explicit "Draft from narrative")
   useDraftChain: () => ({ refetch: h.refetch, isFetching: false }),
+  // the term-set producer: the test sets h.produceData to simulate a produced split; mutate records the POST
+  useProduceTerms: () => ({
+    mutate: h.produce,
+    data: h.produceData,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 
 import { ChainEditor } from "../ChainEditor";
@@ -45,6 +59,7 @@ const flatThesis = {
   catalysts: [],
   kill_criteria: [],
   position: null,
+  term_set: [] as { term: string; tier: string; authored_by: string; source: string | null }[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
@@ -76,6 +91,8 @@ const VERIFY_ALKS = {
 beforeEach(() => {
   h.mutate.mockReset();
   h.refetch.mockReset();
+  h.produce.mockReset();
+  h.produceData = undefined;
 });
 
 describe("ChainEditor — authoring", () => {
@@ -292,5 +309,34 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     expect(screen.getByText("OKLO")).toBeInTheDocument(); // unchanged
     expect(screen.getByText(/drafter returned nothing/)).toBeInTheDocument(); // honest fail-open note
     expect(screen.queryByText("drafted")).not.toBeInTheDocument(); // nothing loaded
+  });
+});
+
+describe("ChainEditor — produce term set (read-only inspect)", () => {
+  it("the Produce button POSTs /terms (the writer seam the operator triggers)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Produce term set/ }));
+    expect(h.produce).toHaveBeenCalledTimes(1);
+  });
+
+  it("displays the SIGNAL/BROAD split with provenance, read-only (regenerate, no per-term edit)", async () => {
+    h.produceData = {
+      term_set: [
+        { term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" },
+        { term: "ketamine", tier: "broad", authored_by: "system_drafted", source: "keyword_gen" },
+      ],
+    };
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    expect(screen.getByText("psilocybin")).toBeInTheDocument(); // SIGNAL (a seed)
+    expect(screen.getByText("ketamine")).toBeInTheDocument(); // BROAD (proposed)
+    expect(screen.getByText("seed")).toBeInTheDocument(); // operator provenance, surfaced
+    // a produced set flips the action to a REGENERATE (preserves seeds, re-rolls broad) — not an append
+    expect(
+      screen.getByRole("button", { name: /Regenerate term set/ }),
+    ).toBeInTheDocument();
+    // READ-ONLY this slice: no add / remove / re-tier control on a term (the edit UI is deferred)
+    expect(screen.queryByRole("button", { name: /remove psilocybin/i })).not.toBeInTheDocument();
   });
 });

@@ -28,6 +28,7 @@ export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
 export type ResolvedPlacement = components["schemas"]["ResolvedPlacement"];
 export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
 export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
+export type TermSetEntry = components["schemas"]["TermSetEntry"];
 
 export function useTheses() {
   return useQuery({
@@ -127,6 +128,28 @@ export function usePromoteThesis() {
         qc.invalidateQueries({ queryKey: ["thesis", thesis.id] });
         qc.invalidateQueries({ queryKey: ["workbench-scored", thesis.id] }); // re-score on edit
       }
+    },
+  });
+}
+
+// Produce + persist the thesis's tiered discovery term set (the WRITER seam that discovery later READS): the
+// keyword-gen LLM PROPOSES candidates, a deterministic guard tiers them, and the operator's SEEDS are the only
+// SIGNAL. An EXPLICIT operator action (a mutation, fired by the "Produce term set" button — never on render).
+// A re-run REGENERATES (preserves operator seeds, re-rolls the LLM broad terms) — not an append. On success
+// invalidate the thesis so the stored `term_set` re-reads. This slice is PRODUCE + DISPLAY only; the edit UI
+// (re-tier / add / remove a term by hand) is a later slice on the same object.
+export function useProduceTerms(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/workbench/theses/{thesis_id}/terms", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
     },
   });
 }
