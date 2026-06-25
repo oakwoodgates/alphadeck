@@ -303,14 +303,20 @@ def draft_chain(
     )
     chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
 
-    # Fill thesis-fit prose for the PLACED names the ORGANIZER didn't narrate — the deterministic reconciler
-    # appends discovered CIKs with prose="" (it owns completeness, not prose). Scoped to PLACED (the basket
-    # members the editor shows a prose box for); the lower-confidence VERIFY list is shown by name/ticker/match,
-    # not narrated. narrate_placements BATCHES (a large universe would truncate one call to nothing) and logs any
-    # batch failure (#9 — visible, never a silent empty). FAIL-OPEN: a narration miss leaves prose empty, never
-    # drops a name; a DISPLAY string only — no number (#3), nothing persisted (response-only).
+    # Fill thesis-fit prose for the PLACED + VERIFY names the ORGANIZER didn't narrate — the deterministic
+    # reconciler appends discovered CIKs with prose="" (it owns completeness, not prose). Both tiers are
+    # PROMOTABLE (a verify name the operator adds becomes a basket member, and promote — the structured writer,
+    # no LLM — carries whatever prose it had at draft time), so both must carry reasoning or the gap just moves
+    # one tier down onto the names acted on by hand. AMBIGUOUS/ABSENT are left alone. narrate_placements BATCHES
+    # (a large universe would truncate one call to nothing) and logs any batch failure (#9 — visible, never a
+    # silent empty). FAIL-OPEN: a narration miss leaves prose empty, never drops a name; a DISPLAY string only —
+    # no number (#3), nothing persisted (response-only).
     def _needs_prose(p) -> bool:
-        return p.status == PlacementStatus.PLACED and bool(p.name) and not p.prose.strip()
+        return (
+            p.status in (PlacementStatus.PLACED, PlacementStatus.VERIFY)
+            and bool(p.name)
+            and not p.prose.strip()
+        )
 
     needs = [
         {"name": p.name, "ticker": p.ticker, "segment": p.segment}

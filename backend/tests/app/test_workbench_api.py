@@ -689,10 +689,13 @@ def _decomp(*placements: tuple[str, str]) -> dict:
     }
 
 
-def _thesis_for_draft(db, *, terms: tuple[str, ...] = ("nuclear",)) -> uuid.UUID:
+def _thesis_for_draft(
+    db, *, terms: tuple[str, ...] = ("nuclear",), broad: tuple[str, ...] = ()
+) -> uuid.UUID:
     """A persisted thesis with an EMPTY basket (so basket_member starts at 0 — the writes-nothing assertion is
-    unambiguous) and a stored SIGNAL term set (discovery READS it since T3 — ``terms=()`` produces NO term set,
-    the not-ready state). Default seed ``nuclear`` matches the EFTS ``efts/nuclear_0.json`` pages below.
+    unambiguous) and a stored term set (discovery READS it since T3 — ``terms=()`` produces NO term set, the
+    not-ready state). ``terms`` are SIGNAL seeds, ``broad`` are BROAD terms (a CIK hitting only a broad term ->
+    VERIFY). Default seed ``nuclear`` matches the EFTS ``efts/nuclear_0.json`` pages below.
     """
     t = Thesis(
         id=uuid.uuid4(),
@@ -701,10 +704,11 @@ def _thesis_for_draft(db, *, terms: tuple[str, ...] = ("nuclear",)) -> uuid.UUID
         narrative="small modular nuclear is about to rip",
     )
     thesis_repo.upsert(db, t)
-    if terms:
-        thesis_repo.set_term_set(
-            db, t.id, [TermSetEntry(term=x, tier=TermTier.SIGNAL) for x in terms]
-        )
+    entries = [TermSetEntry(term=x, tier=TermTier.SIGNAL) for x in terms] + [
+        TermSetEntry(term=x, tier=TermTier.BROAD) for x in broad
+    ]
+    if entries:
+        thesis_repo.set_term_set(db, t.id, entries)
     db.commit()
     return t.id
 
@@ -887,6 +891,43 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
         nuscale["prose"] == "the only NRC-approved SMR designer"
     )  # prose filled by narration (Bug 2)
     assert "Discovered" in [s["label"] for s in body["segments"]]
+
+
+def test_draft_endpoint_narrates_verify_names_too(client, db):
+    """VERIFY names are PROMOTABLE (the operator adds one -> it becomes a basket member carrying its draft-time
+    prose), so they get narrated too — not just PLACED. A reconciler-appended VERIFY name (single broad hit) is
+    filled by the prose step like a placed one."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "GENCO", name="Generic Reactor Co", cik="0001000000")
+    tid = _thesis_for_draft(
+        db, terms=("nuclear",), broad=("reactor",)
+    )  # GENCO hits only the broad term
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)")
+            ),
+            "efts/reactor_0.json": _efts_page(
+                ("0001000000", "Generic Reactor Co  (GENCO)  (CIK 0001000000)")
+            ),
+        }
+    )
+    _override_draft(
+        edgar=edgar,
+        decompose=_FakeLLM(
+            returns=_decomp(
+                ("Oklo Inc.", "OKLO")
+            ),  # GENCO dropped by the organizer -> reconciled as VERIFY
+            narrate_returns={"placements": [{"ref": 1, "prose": "reactor-component supplier"}]},
+        ),
+    )
+    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    genco = next(p for p in body["placements"] if p["name"] == "Generic Reactor Co")
+    assert genco["status"] == "verify"  # single broad keyword -> lower-confidence tier
+    assert (
+        genco["prose"] == "reactor-component supplier"
+    )  # narrated too (promotable -> needs reasoning)
+    assert genco["matched_terms"] == ["reactor"]
 
 
 def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
