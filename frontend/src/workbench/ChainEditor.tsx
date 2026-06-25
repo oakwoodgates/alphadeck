@@ -4,9 +4,16 @@ import type {
   BasketMember,
   ResolvedPlacement,
   SecurityCandidate,
+  TermEdit,
+  TermSetEntry,
   ThesisDetail,
 } from "../api/hooks";
-import { useDraftChain, useProduceTerms, usePromoteThesis } from "../api/hooks";
+import {
+  useDraftChain,
+  useEditTerms,
+  useProduceTerms,
+  usePromoteThesis,
+} from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
@@ -37,11 +44,47 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const save = usePromoteThesis();
   const draftQ = useDraftChain(thesis.id);
   const produceTerms = useProduceTerms(thesis.id);
-  // The stored term set the draft reads — the freshly-produced one if just regenerated, else what loaded.
-  const termSet = produceTerms.data?.term_set ?? thesis.term_set;
+  const editTerms = useEditTerms(thesis.id);
+  // The working term set. Seeded from what loaded; after produce OR a manual edit it ADOPTS the server's
+  // RE-STAMPED set (never an optimistic copy — the next edit must diff against the server's authorship, not a
+  // guessed one). Both writers update it via their per-call onSuccess below.
+  const [termSet, setTermSet] = useState<TermSetEntry[]>(thesis.term_set);
   const signalTerms = termSet.filter((e) => e.tier === "signal");
   const broadTerms = termSet.filter((e) => e.tier === "broad");
+  const [newSeed, setNewSeed] = useState("");
   const [newSeg, setNewSeg] = useState("");
+
+  const adopt = (t: ThesisDetail | undefined) => t && setTermSet(t.term_set);
+  // Each edit op sends the FULL set (current working set + the one change) and adopts the re-stamped response.
+  const toEdits = (ts: TermSetEntry[]): TermEdit[] => ts.map((e) => ({ term: e.term, tier: e.tier }));
+  const saveEdits = (next: TermSetEntry[]) =>
+    editTerms.mutate(toEdits(next), { onSuccess: adopt });
+  const onProduce = () => produceTerms.mutate(undefined, { onSuccess: adopt });
+
+  const addSeed = () => {
+    const term = newSeed.trim();
+    if (!term) return;
+    // a fresh seed lands SIGNAL; the server re-stamps authorship (operator_set). Tier here is just the request.
+    saveEdits([...termSet, { term, tier: "signal", authored_by: "operator_set", source: "operator" }]);
+    setNewSeed("");
+  };
+  const removeTerm = (term: string) => {
+    const next = termSet.filter((e) => e.term !== term);
+    if (next.length === 0 && termSet.length > 0) {
+      // refinement 2 — clearing must be DELIBERATE (an empty set 503s the draft). Confirm before the wipe.
+      const ok = window.confirm(
+        "Remove the last term? This clears the set — the draft will return “term set is empty” until you produce or seed again.",
+      );
+      if (!ok) return;
+    }
+    saveEdits(next);
+  };
+  const toggleTier = (term: string) =>
+    saveEdits(
+      termSet.map((e) =>
+        e.term === term ? { ...e, tier: e.tier === "signal" ? "broad" : "signal" } : e,
+      ),
+    );
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
@@ -144,7 +187,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
           <button
             type="button"
             className="wb-edit-btn"
-            onClick={() => produceTerms.mutate()}
+            onClick={onProduce}
             disabled={produceTerms.isPending}
           >
             {produceTerms.isPending
@@ -154,14 +197,39 @@ export function ChainEditor({ thesis, onDone }: Props) {
                 : "⚙ Produce term set"}
           </button>
           <span className="note">
-            Produce the discovery term set the draft reads — keyword-gen proposes, a deterministic guard
-            tiers, and your seeds are the only <b>SIGNAL</b>. Regenerate preserves your seeds and re-rolls the
-            proposed <b>BROAD</b> terms. Inspect the split, then Draft.
+            The discovery term set the draft reads — your <b>seeds</b> are the only <b>SIGNAL</b> (a hit
+            PLACES); keyword-gen proposes the <b>BROAD</b> terms (corroboration → VERIFY). Seed and curate
+            below; Regenerate re-rolls the proposed BROAD terms while preserving every edit.
           </span>
         </div>
         {produceTerms.isError && (
           <ErrorToast>Couldn't produce terms — {errText(produceTerms.error)}.</ErrorToast>
         )}
+        {editTerms.isError && (
+          <ErrorToast>Couldn't save the term edit — {errText(editTerms.error)}.</ErrorToast>
+        )}
+
+        {/* Add a seed — works on an empty set (how a NEW thesis gets seeded). Lands SIGNAL / operator_set. */}
+        <div className="wb-seed-add">
+          <input
+            type="text"
+            className="wb-seed-input"
+            placeholder="add a seed compound (SIGNAL — a hit places a name)…"
+            value={newSeed}
+            onChange={(ev) => setNewSeed(ev.target.value)}
+            onKeyDown={(ev) => ev.key === "Enter" && addSeed()}
+            disabled={editTerms.isPending}
+          />
+          <button
+            type="button"
+            className="wb-mini"
+            onClick={addSeed}
+            disabled={editTerms.isPending || !newSeed.trim()}
+          >
+            + Add seed
+          </button>
+        </div>
+
         {termSet.length > 0 ? (
           <div className="wb-terms-split">
             <div className="wb-terms-tier">
@@ -173,6 +241,24 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   <li key={i}>
                     <b>{e.term}</b>
                     <span className="wb-author">{termAuthor(e.authored_by)}</span>
+                    <button
+                      type="button"
+                      className="wb-term-btn"
+                      title="demote to BROAD (corroboration only — won't place alone)"
+                      onClick={() => toggleTier(e.term)}
+                      disabled={editTerms.isPending}
+                    >
+                      ↓ broad
+                    </button>
+                    <button
+                      type="button"
+                      className="wb-term-x"
+                      title="remove this term"
+                      onClick={() => removeTerm(e.term)}
+                      disabled={editTerms.isPending}
+                    >
+                      ×
+                    </button>
                   </li>
                 ))}
                 {signalTerms.length === 0 && (
@@ -189,6 +275,24 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   <li key={i}>
                     <b>{e.term}</b>
                     <span className="wb-author">{termAuthor(e.authored_by)}</span>
+                    <button
+                      type="button"
+                      className="wb-term-btn"
+                      title="promote to SIGNAL (a hit will place a name alone)"
+                      onClick={() => toggleTier(e.term)}
+                      disabled={editTerms.isPending}
+                    >
+                      ↑ signal
+                    </button>
+                    <button
+                      type="button"
+                      className="wb-term-x"
+                      title="remove this term"
+                      onClick={() => removeTerm(e.term)}
+                      disabled={editTerms.isPending}
+                    >
+                      ×
+                    </button>
                   </li>
                 ))}
                 {broadTerms.length === 0 && <li className="muted">none</li>}
@@ -198,8 +302,8 @@ export function ChainEditor({ thesis, onDone }: Props) {
         ) : (
           !produceTerms.isPending && (
             <div className="note">
-              No term set yet — produce one before drafting (a draft without it returns “produce terms
-              first”).
+              No term set yet — add a seed above (or Produce) before drafting; a draft without one returns
+              “term set is empty”.
             </div>
           )
         )}

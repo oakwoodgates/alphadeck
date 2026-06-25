@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
-from domain.enums import Archetype, Grade, Kind, State, Verdict
+from domain.enums import Archetype, Grade, Kind, State, TermTier, Verdict
 from domain.settings import get_settings
 from domain.signal import Provenance
 from domain.thesis import (
@@ -345,6 +345,26 @@ class ProduceTermsRequest(BaseModel):
     seeds and just re-rolls the LLM-proposed terms."""
 
     seeds: list[str] = []
+
+
+class TermEdit(BaseModel):
+    """One operator-edited term in the manual save (``PUT .../terms/edit``). The operator owns ``term`` +
+    ``tier``; ``authored_by`` is NOT in the body — the server stamps it by diffing against the stored set (a
+    naive client must not be able to mark a term ``operator_edited`` and freeze it against regenerate).
+    """
+
+    term: str
+    tier: TermTier
+
+
+class EditTermsRequest(BaseModel):
+    """Body for ``PUT /theses/{id}/terms/edit`` — the operator's full, edited term set, saved DIRECTLY (no LLM,
+    mirroring LLM-out-of-promote). Authorship is re-stamped server-side: an untouched ``system_drafted`` BROAD
+    term keeps its authorship so a later regenerate can re-roll it; only operator-touched entries become
+    ``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator
+    choice)."""
+
+    terms: list[TermEdit] = []
 
 
 # --- Ratify (hybrid-2a) — the first fact-WRITE: confirm an extracted candidate -> the existing ingest_* ---

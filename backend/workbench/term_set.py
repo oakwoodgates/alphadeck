@@ -102,44 +102,121 @@ def assign_tier(term: str) -> TermTier | None:
 
 
 def produce_term_set(
-    keyword_llm: Any, narrative: str, *, seeds: list[str] | None = None
+    keyword_llm: Any,
+    narrative: str,
+    *,
+    seeds: list[str] | None = None,
+    operator_terms: list[TermSetEntry] | None = None,
 ) -> list[TermSetEntry]:
     """Produce the thesis's tiered term set: keyword-gen PROPOSES candidates (the LLM brainstorm — its OWN
     signal/broad split is discarded), the deterministic ``assign_tier`` guard sets each DEFAULT tier, dropped
     terms are removed, and the survivors become ``system_drafted`` ``TermSetEntry``s. PURE (the LLM via the
     passed client; no DB). Fail-open: no candidates (no key / blank narrative) → ``[]``.
 
-    ``seeds`` are the OPERATOR-anchored canonical compounds (the recall guarantor — keyword-gen is
-    non-deterministic, so the compounds it fails to propose this run are simply never discovered; seeds make the
-    SIGNAL set COMPLETE + deterministic). A seed is always SIGNAL and ``OPERATOR_SET`` (distinct from the guard's
-    ``system_drafted`` keyword-gen entries — exactly what ``authored_by`` is for, and what lets a regenerate
-    PRESERVE the seeds while re-rolling the LLM proposals). Seeds are listed FIRST, so a seed wins the
-    case-insensitive dedup over a same-term keyword-gen candidate (keeping the SIGNAL + operator authorship).
-    """
-    candidates: list[tuple[str, str]] = [(s, "seed") for s in (seeds or [])]
-    kws = generate_keywords(keyword_llm, narrative)
-    if kws is not None:
-        signal, broad = kws
-        candidates += [(t, "keyword_gen") for t in (*signal, *broad)]
+    Three sources, three authorities, in PRECEDENCE order (first wins the case-insensitive dedup):
 
+    1. ``operator_terms`` — EXISTING operator-authored entries (``operator_set`` seeds AND ``operator_edited``
+       promotions/demotions), preserved **VERBATIM** (term, tier, AND authorship). This is the regenerate-PRESERVE
+       guarantee: a re-roll re-generates ONLY the ``system_drafted`` keyword-gen terms; every operator decision
+       survives — including a SIGNAL→BROAD demotion, which must come back BROAD, NOT silently re-promoted to
+       SIGNAL by a same-term seed below.
+    2. ``seeds`` — the OPERATOR-anchored canonical compounds NEW this call (the recall guarantor — keyword-gen is
+       non-deterministic, so a compound it fails to propose is simply never discovered; seeds make the SIGNAL set
+       COMPLETE + deterministic). Each becomes SIGNAL / ``OPERATOR_SET``.
+    3. keyword-gen proposals — guard-tiered (BROAD or DROP), ``system_drafted`` (re-rollable).
+    """
     out: list[TermSetEntry] = []
     seen: set[str] = set()
-    for term, src in candidates:
-        norm = term.strip().lower()
+
+    # 1. preserved operator entries — verbatim (term/tier/authorship), win the dedup
+    for e in operator_terms or []:
+        norm = e.term.strip().lower()
         if not norm or norm in seen:
             continue
         seen.add(norm)
-        if src == "seed":
-            tier, authored = (
-                TermTier.SIGNAL,
-                Authorship.OPERATOR_SET,
-            )  # operator-anchored, bypasses the guard
-        else:
-            tier, authored = (
-                assign_tier(term),
-                Authorship.SYSTEM_DRAFTED,
-            )  # guard-tiered LLM proposal
-        if tier is None:
-            continue  # dropped by the guard
-        out.append(TermSetEntry(term=term.strip(), tier=tier, authored_by=authored, source=src))
+        out.append(e)
+
+    # 2. new seeds -> SIGNAL / operator_set (a seed colliding with a preserved demotion is skipped: the
+    #    operator's explicit BROAD wins — re-promoting is the edit endpoint's job, not a regenerate side effect)
+    for s in seeds or []:
+        norm = s.strip().lower()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(
+            TermSetEntry(
+                term=s.strip(),
+                tier=TermTier.SIGNAL,
+                authored_by=Authorship.OPERATOR_SET,
+                source="seed",
+            )
+        )
+
+    # 3. keyword-gen proposals -> guard-tiered, system_drafted (the only re-rollable tier)
+    kws = generate_keywords(keyword_llm, narrative)
+    if kws is not None:
+        signal, broad = kws
+        for term in (*signal, *broad):
+            norm = term.strip().lower()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            tier = assign_tier(term)
+            if tier is None:
+                continue  # dropped by the guard
+            out.append(
+                TermSetEntry(
+                    term=term.strip(),
+                    tier=tier,
+                    authored_by=Authorship.SYSTEM_DRAFTED,
+                    source="keyword_gen",
+                )
+            )
+    return out
+
+
+def stamp_edited_term_set(
+    stored: list[TermSetEntry], edits: list[tuple[str, TermTier]]
+) -> list[TermSetEntry]:
+    """Stamp authorship on an operator's MANUALLY-edited term set (the ``PUT .../terms/edit`` save path) by
+    diffing the submitted ``edits`` (term + tier only) against the ``stored`` set. PURE (no DB, no LLM) — the
+    LLM stays OUT of the save path, same principle as LLM-out-of-promote.
+
+    Authorship is the SERVER's to assign, never the body's (a naive client must not be able to mark a term
+    ``operator_edited`` and freeze it against regenerate). The load-bearing rule is the UNCHANGED-tier branch:
+    an untouched ``system_drafted`` keyword-gen term keeps its authorship, so a later regenerate can re-roll it —
+    only operator-TOUCHED entries become operator-authored:
+
+    - not in ``stored`` (operator ADDED) → ``operator_set``, ``source="operator"`` (a net-new term is an
+      explicit operator choice regardless of tier; it is then preserved across regenerate).
+    - in ``stored``, tier UNCHANGED → carry the stored ``authored_by`` + ``source`` VERBATIM.
+    - in ``stored``, tier CHANGED (promote/demote) → ``operator_edited``, preserve the stored ``source``
+      (honest origin provenance — a promoted keyword-gen term keeps ``source="keyword_gen"``).
+    - removed (in ``stored``, absent from ``edits``) → simply not emitted (a visible operator choice, #9).
+
+    Matching is by normalized key (``strip().lower()``); the operator's submitted casing is persisted (EFTS is
+    case-insensitive, so a casing-only change is cosmetic → treated as unchanged-tier). Raises ``ValueError`` on
+    an empty term or a case-insensitive duplicate within the submitted list (the router maps it to a 422). Digits
+    are allowed — terms legitimately contain them (``5-MeO-DMT``, ``5-HT2A``); #3 bans a numeric FACT, not a
+    keyword. An empty ``edits`` returns ``[]`` (the operator cleared the set — a visible, deliberate state).
+    """
+    by_key = {e.term.strip().lower(): e for e in stored}
+    out: list[TermSetEntry] = []
+    seen: set[str] = set()
+    for term, tier in edits:
+        clean = term.strip()
+        key = clean.lower()
+        if not key:
+            raise ValueError("a term cannot be empty")
+        if key in seen:
+            raise ValueError(f"duplicate term: {term!r}")
+        seen.add(key)
+        prior = by_key.get(key)
+        if prior is None:  # operator added
+            authored, source = Authorship.OPERATOR_SET, "operator"
+        elif prior.tier == tier:  # untouched -> carry verbatim (keeps system_drafted re-rollable)
+            authored, source = prior.authored_by, prior.source
+        else:  # re-tiered (promote/demote) -> operator_edited, keep origin provenance
+            authored, source = Authorship.OPERATOR_EDITED, prior.source
+        out.append(TermSetEntry(term=clean, tier=tier, authored_by=authored, source=source))
     return out

@@ -251,6 +251,168 @@ def test_produce_terms_seeds_are_operator_signal_and_preserved_on_regenerate(cli
     )  # the LLM half re-rolled (new in, old out)
 
 
+def test_edit_terms_saves_directly_and_restamps_authorship(client, db):
+    """PUT /terms/edit SAVES the operator's edited set directly (no LLM) and re-stamps authorship by diffing the
+    stored set: an UNTOUCHED system_drafted BROAD keeps its authorship (stays re-rollable); a PROMOTE/DEMOTE
+    becomes operator_edited (origin source preserved); an ADD becomes operator_set; a REMOVE drops. A fresh GET
+    shows the saved set (full-set replace via the narrow set_term_set)."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    ).json()["id"]
+    # seed psilocybin (operator SIGNAL) + two keyword-gen BROAD (ketamine, ibogaine)
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": [], "broad": ["ketamine", "ibogaine"]}
+    )
+    client.post(f"/workbench/theses/{tid}/terms", json={"seeds": ["psilocybin"]})
+
+    # operator edits: keep psilocybin SIGNAL (untouched seed), promote ketamine->SIGNAL, leave ibogaine BROAD
+    # (untouched system_drafted — proves that branch survives the save), add 5-MeO-DMT (digits allowed).
+    r = client.put(
+        f"/workbench/theses/{tid}/terms/edit",
+        json={
+            "terms": [
+                {"term": "psilocybin", "tier": "signal"},
+                {"term": "ketamine", "tier": "signal"},  # promote
+                {"term": "ibogaine", "tier": "broad"},  # untouched system_drafted
+                {
+                    "term": "5-MeO-DMT",
+                    "tier": "signal",
+                },  # add (digits allowed — #3 bans a numeric FACT)
+            ]
+        },
+    )
+    assert r.status_code == 200
+    by = {e["term"]: (e["tier"], e["authored_by"]) for e in r.json()["term_set"]}
+    assert by["psilocybin"] == ("signal", "operator_set")  # untouched seed
+    assert by["ketamine"] == ("signal", "operator_edited")  # promoted
+    assert by["ibogaine"] == ("broad", "system_drafted")  # untouched -> still re-rollable
+    assert by["5-MeO-DMT"] == ("signal", "operator_set")  # added (digits allowed)
+    # persisted: a fresh GET shows the saved set
+    assert {
+        e["term"]: (e["tier"], e["authored_by"])
+        for e in client.get(f"/theses/{tid}").json()["term_set"]
+    } == by
+
+
+def test_edit_terms_runs_no_llm(client, db):
+    """STRUCTURAL: the save path resolves NO LLM dependency. We override get_keyword_client to RAISE; because
+    edit_terms doesn't depend on it, FastAPI never instantiates it and the PUT still 200s — the LLM is out of
+    the save path (mirrors LLM-out-of-promote)."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={"name": "psy", "narrative": "x", "ticker": None, "segments": [], "basket": []},
+    ).json()["id"]
+
+    def _boom():
+        raise AssertionError("the keyword LLM must NOT be resolved on the save path")
+
+    app.dependency_overrides[get_keyword_client] = _boom
+    r = client.put(
+        f"/workbench/theses/{tid}/terms/edit",
+        json={"terms": [{"term": "psilocybin", "tier": "signal"}]},
+    )
+    assert r.status_code == 200
+    assert [e["term"] for e in r.json()["term_set"]] == ["psilocybin"]
+
+
+def test_edit_terms_422_on_duplicate_and_empty(client, db):
+    tid = client.post(
+        "/workbench/theses",
+        json={"name": "psy", "narrative": "x", "ticker": None, "segments": [], "basket": []},
+    ).json()["id"]
+    dup = client.put(
+        f"/workbench/theses/{tid}/terms/edit",
+        json={
+            "terms": [
+                {"term": "psilocybin", "tier": "signal"},
+                {"term": "Psilocybin", "tier": "broad"},
+            ]
+        },
+    )
+    assert dup.status_code == 422 and "duplicate" in dup.json()["detail"]
+    empty = client.put(
+        f"/workbench/theses/{tid}/terms/edit", json={"terms": [{"term": "   ", "tier": "signal"}]}
+    )
+    assert empty.status_code == 422
+
+
+def test_edit_terms_empty_list_clears_the_set(client, db):
+    """An empty terms list clears the set (a visible operator choice) — the draft then 503s 'term set is empty'."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={"name": "psy", "narrative": "x", "ticker": None, "segments": [], "basket": []},
+    ).json()["id"]
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": [], "broad": ["ketamine"]}
+    )
+    client.post(f"/workbench/theses/{tid}/terms")
+    r = client.put(f"/workbench/theses/{tid}/terms/edit", json={"terms": []})
+    assert r.status_code == 200 and r.json()["term_set"] == []
+    assert client.get(f"/theses/{tid}").json()["term_set"] == []  # cleared
+
+
+def test_produce_terms_preserves_operator_edited_on_regenerate(client, db):
+    """END-TO-END #9 core: after the operator EDITS the set (a demotion + a promotion via PUT /terms/edit), a
+    REGENERATE (re-POST /terms) preserves BOTH operator_edited entries VERBATIM (a demoted term stays BROAD, NOT
+    re-promoted) while re-rolling only the system_drafted BROAD. Operator work is never silently lost on a
+    re-roll."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    ).json()["id"]
+    # produce: seed psilocybin (SIGNAL) + keyword-gen ketamine, ibogaine (BROAD)
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": [], "broad": ["ketamine", "ibogaine"]}
+    )
+    client.post(f"/workbench/theses/{tid}/terms", json={"seeds": ["psilocybin"]})
+    # edit: DEMOTE psilocybin SIGNAL->BROAD, PROMOTE ketamine BROAD->SIGNAL, drop ibogaine
+    client.put(
+        f"/workbench/theses/{tid}/terms/edit",
+        json={
+            "terms": [
+                {"term": "psilocybin", "tier": "broad"},
+                {"term": "ketamine", "tier": "signal"},
+            ]
+        },
+    )
+    # regenerate with a DIFFERENT keyword-gen roll
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": [], "broad": ["entactogen"]}
+    )
+    e = {
+        x["term"]: (x["tier"], x["authored_by"])
+        for x in client.post(f"/workbench/theses/{tid}/terms").json()["term_set"]
+    }
+    assert e["psilocybin"] == (
+        "broad",
+        "operator_edited",
+    )  # demotion SURVIVED (not re-promoted to SIGNAL)
+    assert e["ketamine"] == ("signal", "operator_edited")  # promotion survived
+    assert "entactogen" in e  # the system_drafted half re-rolled
+    assert "ibogaine" not in e  # the dropped system_drafted term did not resurface this roll
+
+
 def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:
@@ -1022,6 +1184,5 @@ def test_draft_endpoint_503_when_no_term_set(client, db):
     _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
     assert r.status_code == 503
-    assert (
-        "term set" in r.json()["detail"]
-    )  # the specific not-ready message, distinct from "unavailable"
+    detail = r.json()["detail"]
+    assert "term set" in detail and "empty" in detail  # names the cause, not an opaque 503

@@ -208,14 +208,45 @@ export interface paths {
          *     decision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in
          *     ``promote`` (the pure structured writer).
          *
-         *     REGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in
-         *     the body) while RE-ROLLING the LLM-proposed terms — so the inspect-and-tune loop re-rolls the augmentation
-         *     without ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored
-         *     SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft then
-         *     503s "produce terms first" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
+         *     REGENERABLE + CONVERGENT: a re-POST PRESERVES every operator-authored entry — ``operator_set`` seeds AND
+         *     ``operator_edited`` promotions/demotions (from the edit-UI), each VERBATIM (term + tier + authorship) — while
+         *     RE-ROLLING only the ``system_drafted`` LLM-proposed terms. So the inspect-and-tune loop re-rolls the
+         *     augmentation without ever dropping an operator decision (a demoted SIGNAL→BROAD term comes back BROAD, not
+         *     re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
+         *     stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
+         *     then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
          *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``).
          */
         post: operations["produce_terms_workbench_theses__thesis_id__terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workbench/theses/{thesis_id}/terms/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit Terms
+         * @description SAVE the operator's manually-edited term set DIRECTLY — NO LLM (the LLM lives only in ``POST .../terms``;
+         *     this mirrors LLM-out-of-promote, a structural boundary, not a convention). The operator adds a seed
+         *     (→ ``operator_set`` SIGNAL), removes a term, promotes BROAD→SIGNAL or demotes SIGNAL→BROAD
+         *     (→ ``operator_edited``); an UNTOUCHED ``system_drafted`` BROAD term keeps its authorship so a later
+         *     regenerate can re-roll it. Authorship is STAMPED server-side by diffing the stored set
+         *     (``stamp_edited_term_set``), never trusted from the body. A full-set replace via the narrow
+         *     ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
+         *     intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
+         *     duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
+         *     empty").
+         */
+        put: operations["edit_terms_workbench_theses__thesis_id__terms_edit_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -471,6 +502,21 @@ export interface components {
              * @default []
              */
             placements: components["schemas"]["ResolvedPlacement"][];
+        };
+        /**
+         * EditTermsRequest
+         * @description Body for ``PUT /theses/{id}/terms/edit`` — the operator's full, edited term set, saved DIRECTLY (no LLM,
+         *     mirroring LLM-out-of-promote). Authorship is re-stamped server-side: an untouched ``system_drafted`` BROAD
+         *     term keeps its authorship so a later regenerate can re-roll it; only operator-touched entries become
+         *     ``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator
+         *     choice).
+         */
+        EditTermsRequest: {
+            /**
+             * Terms
+             * @default []
+             */
+            terms: components["schemas"]["TermEdit"][];
         };
         /**
          * Evidence
@@ -933,6 +979,17 @@ export interface components {
          */
         State: "incubating" | "warming" | "armed" | "managing";
         /**
+         * TermEdit
+         * @description One operator-edited term in the manual save (``PUT .../terms/edit``). The operator owns ``term`` +
+         *     ``tier``; ``authored_by`` is NOT in the body — the server stamps it by diffing against the stored set (a
+         *     naive client must not be able to mark a term ``operator_edited`` and freeze it against regenerate).
+         */
+        TermEdit: {
+            /** Term */
+            term: string;
+            tier: components["schemas"]["TermTier"];
+        };
+        /**
          * TermSetEntry
          * @description One discovery keyword in the thesis's persisted, tiered term set — the SIGNAL/BROAD input the EDGAR
          *     precision filter reads (it decides which EFTS hits PLACE a company).
@@ -1370,6 +1427,41 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["ProduceTermsRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_terms_workbench_theses__thesis_id__terms_edit_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditTermsRequest"];
             };
         };
         responses: {

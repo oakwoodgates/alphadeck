@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from domain.enums import TermTier
-from workbench.term_set import assign_tier, produce_term_set
+from domain.enums import Authorship, TermTier
+from domain.thesis import TermSetEntry
+from workbench.term_set import assign_tier, produce_term_set, stamp_edited_term_set
 
 
 @pytest.mark.parametrize(
@@ -138,3 +139,171 @@ def test_produce_term_set_seeds_are_operator_signal_and_win_dedup():
     assert (
         e.authored_by.value == "operator_set" and e.source == "seed"
     )  # operator-anchored, distinct authorship
+
+
+# --- regenerate-PRESERVE: operator_terms survive verbatim, only system_drafted re-rolls (the #9 core) ---
+
+
+def test_produce_term_set_preserves_operator_terms_verbatim():
+    """A re-roll preserves EVERY operator-authored entry verbatim (term + tier + authorship). The load-bearing
+    case: a SIGNAL→BROAD DEMOTION must come back BROAD (not re-promoted to SIGNAL), and an operator_edited
+    PROMOTION must stay SIGNAL — while a prior-roll system_drafted BROAD is re-rolled, not frozen.
+    """
+    demoted = TermSetEntry(
+        term="ketamine",
+        tier=TermTier.BROAD,
+        authored_by=Authorship.OPERATOR_EDITED,
+        source="keyword_gen",
+    )
+    promoted = TermSetEntry(
+        term="ibogaine",
+        tier=TermTier.SIGNAL,
+        authored_by=Authorship.OPERATOR_EDITED,
+        source="keyword_gen",
+    )
+    seed = TermSetEntry(
+        term="psilocybin", tier=TermTier.SIGNAL, authored_by=Authorship.OPERATOR_SET, source="seed"
+    )
+    fake = _FakeKw({"signal": [], "broad": ["psychedelic"]})  # a fresh keyword-gen roll
+    by = {e.term: e for e in produce_term_set(fake, "x", operator_terms=[demoted, promoted, seed])}
+    assert by["ketamine"].tier is TermTier.BROAD  # demotion survives — NOT re-promoted to SIGNAL
+    assert by["ketamine"].authored_by is Authorship.OPERATOR_EDITED
+    assert (
+        by["ibogaine"].tier is TermTier.SIGNAL
+        and by["ibogaine"].authored_by is Authorship.OPERATOR_EDITED
+    )
+    assert (
+        by["psilocybin"].tier is TermTier.SIGNAL
+        and by["psilocybin"].authored_by is Authorship.OPERATOR_SET
+    )
+    assert by["psychedelic"].authored_by is Authorship.SYSTEM_DRAFTED  # the re-rolled augmentation
+
+
+def test_produce_term_set_preserved_operator_term_wins_seed_dedup():
+    """A new seed that collides with a preserved operator_edited DEMOTION does NOT silently re-promote it: the
+    operator's explicit BROAD wins (re-promoting is the edit endpoint's job). Recall-safe — the term stays.
+    """
+    demoted = TermSetEntry(
+        term="ketamine",
+        tier=TermTier.BROAD,
+        authored_by=Authorship.OPERATOR_EDITED,
+        source="keyword_gen",
+    )
+    (e,) = produce_term_set(_FakeKw(None), "x", seeds=["ketamine"], operator_terms=[demoted])
+    assert e.tier is TermTier.BROAD  # the preserved demotion wins over the same-term seed
+    assert e.authored_by is Authorship.OPERATOR_EDITED
+
+
+def test_produce_term_set_operator_terms_listed_first():
+    """Preserved operator entries precede the keyword-gen augmentation (so they win the dedup, and the UI shows
+    the operator's anchors first)."""
+    seed = TermSetEntry(
+        term="psilocybin", tier=TermTier.SIGNAL, authored_by=Authorship.OPERATOR_SET, source="seed"
+    )
+    entries = produce_term_set(
+        _FakeKw({"signal": [], "broad": ["ketamine"]}), "x", operator_terms=[seed]
+    )
+    assert entries[0].term == "psilocybin"  # operator entry first
+    assert entries[-1].term == "ketamine"  # keyword-gen augmentation after
+
+
+# --- stamp_edited_term_set: the manual-save authorship diff (pure, no DB, no LLM) ---
+
+
+def _stored() -> list[TermSetEntry]:
+    return [
+        TermSetEntry(
+            term="psilocybin",
+            tier=TermTier.SIGNAL,
+            authored_by=Authorship.OPERATOR_SET,
+            source="seed",
+        ),
+        TermSetEntry(
+            term="ketamine",
+            tier=TermTier.BROAD,
+            authored_by=Authorship.SYSTEM_DRAFTED,
+            source="keyword_gen",
+        ),
+        TermSetEntry(
+            term="ibogaine",
+            tier=TermTier.BROAD,
+            authored_by=Authorship.SYSTEM_DRAFTED,
+            source="keyword_gen",
+        ),
+    ]
+
+
+def test_stamp_untouched_system_drafted_stays_rerollable():
+    """The load-bearing branch: an untouched system_drafted BROAD term keeps its authorship + source, so a
+    later regenerate can still re-roll it (it is NOT frozen by passing through the save path)."""
+    out = stamp_edited_term_set(
+        _stored(), [("psilocybin", TermTier.SIGNAL), ("ketamine", TermTier.BROAD)]
+    )
+    by = {e.term: e for e in out}
+    assert (
+        by["ketamine"].authored_by is Authorship.SYSTEM_DRAFTED
+        and by["ketamine"].source == "keyword_gen"
+    )
+    assert by["psilocybin"].authored_by is Authorship.OPERATOR_SET  # untouched seed unchanged too
+
+
+def test_stamp_promote_and_demote_become_operator_edited():
+    out = stamp_edited_term_set(
+        _stored(),
+        [
+            ("psilocybin", TermTier.BROAD),
+            ("ketamine", TermTier.SIGNAL),
+        ],  # demote a seed, promote a broad
+    )
+    by = {e.term: e for e in out}
+    assert (
+        by["psilocybin"].tier is TermTier.BROAD
+        and by["psilocybin"].authored_by is Authorship.OPERATOR_EDITED
+    )
+    assert (
+        by["ketamine"].tier is TermTier.SIGNAL
+        and by["ketamine"].authored_by is Authorship.OPERATOR_EDITED
+    )
+    assert by["ketamine"].source == "keyword_gen"  # origin provenance preserved on a re-tier
+
+
+def test_stamp_added_term_is_operator_set():
+    (added,) = [e for e in stamp_edited_term_set([], [("DMT", TermTier.SIGNAL)])]
+    assert added.tier is TermTier.SIGNAL
+    assert added.authored_by is Authorship.OPERATOR_SET and added.source == "operator"
+
+
+def test_stamp_removed_term_is_dropped():
+    out = stamp_edited_term_set(
+        _stored(), [("psilocybin", TermTier.SIGNAL)]
+    )  # ketamine + ibogaine removed
+    assert [e.term for e in out] == ["psilocybin"]
+
+
+def test_stamp_allows_digits_in_terms():
+    (e,) = stamp_edited_term_set(
+        [], [("5-MeO-DMT", TermTier.BROAD)]
+    )  # #3 bans a numeric FACT, not a keyword
+    assert e.term == "5-MeO-DMT"
+
+
+def test_stamp_persists_operator_casing_but_matches_case_insensitively():
+    """A casing-only change with unchanged tier is treated as untouched (EFTS is case-insensitive), persisting
+    the operator's submitted casing."""
+    (e,) = stamp_edited_term_set(_stored()[:1], [("Psilocybin", TermTier.SIGNAL)])
+    assert e.term == "Psilocybin"  # operator's casing
+    assert e.authored_by is Authorship.OPERATOR_SET  # matched the stored seed -> untouched
+
+
+def test_stamp_empty_list_clears_the_set():
+    assert stamp_edited_term_set(_stored(), []) == []
+
+
+def test_stamp_rejects_empty_term():
+    with pytest.raises(ValueError, match="empty"):
+        stamp_edited_term_set([], [("   ", TermTier.SIGNAL)])
+
+
+def test_stamp_rejects_case_insensitive_duplicate():
+    with pytest.raises(ValueError, match="duplicate"):
+        stamp_edited_term_set([], [("psilocybin", TermTier.SIGNAL), ("Psilocybin", TermTier.BROAD)])

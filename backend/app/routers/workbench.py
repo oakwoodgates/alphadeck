@@ -19,6 +19,7 @@ from app.deps import (
 )
 from app.schemas_api import (
     ChainDraftOut,
+    EditTermsRequest,
     FlagExplanationOut,
     ProduceTermsRequest,
     PromoteThesisRequest,
@@ -58,7 +59,7 @@ from workbench.discovery import (
 )
 from workbench.research_runner import ResearchInFlight, run_research
 from workbench.scoring import score_thesis
-from workbench.term_set import produce_term_set
+from workbench.term_set import produce_term_set, stamp_edited_term_set
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -210,17 +211,48 @@ def produce_terms(
     decision is OFF the LLM, ``workbench.term_set``). This is the WRITER seam: the LLM lives HERE, never in
     ``promote`` (the pure structured writer).
 
-    REGENERABLE + CONVERGENT: a re-POST PRESERVES the thesis's existing operator seeds (and adds any new ones in
-    the body) while RE-ROLLING the LLM-proposed terms — so the inspect-and-tune loop re-rolls the augmentation
-    without ever dropping the compounds you anchored. Returns the thesis so the operator can INSPECT the stored
-    SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft then
-    503s "produce terms first" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
+    REGENERABLE + CONVERGENT: a re-POST PRESERVES every operator-authored entry — ``operator_set`` seeds AND
+    ``operator_edited`` promotions/demotions (from the edit-UI), each VERBATIM (term + tier + authorship) — while
+    RE-ROLLING only the ``system_drafted`` LLM-proposed terms. So the inspect-and-tune loop re-rolls the
+    augmentation without ever dropping an operator decision (a demoted SIGNAL→BROAD term comes back BROAD, not
+    re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
+    stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
+    then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``)."""
-    prior_seeds = [e.term for e in thesis.term_set if e.authored_by is Authorship.OPERATOR_SET]
-    seeds = prior_seeds + (
-        req.seeds if req else []
-    )  # preserve anchored seeds + add any new ones (dedup in producer)
-    entries = produce_term_set(keyword_llm, thesis.narrative, seeds=seeds)
+    operator_terms = [
+        e for e in thesis.term_set if e.authored_by is not Authorship.SYSTEM_DRAFTED
+    ]  # operator_set ∪ operator_edited — preserved verbatim; only system_drafted re-rolls
+    entries = produce_term_set(
+        keyword_llm,
+        thesis.narrative,
+        seeds=(req.seeds if req else []),
+        operator_terms=operator_terms,
+    )
+    thesis_repo.set_term_set(conn, thesis.id, entries)
+    conn.commit()
+    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+
+
+@router.put("/theses/{thesis_id}/terms/edit", response_model=ThesisDetail)
+def edit_terms(
+    req: EditTermsRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    """SAVE the operator's manually-edited term set DIRECTLY — NO LLM (the LLM lives only in ``POST .../terms``;
+    this mirrors LLM-out-of-promote, a structural boundary, not a convention). The operator adds a seed
+    (→ ``operator_set`` SIGNAL), removes a term, promotes BROAD→SIGNAL or demotes SIGNAL→BROAD
+    (→ ``operator_edited``); an UNTOUCHED ``system_drafted`` BROAD term keeps its authorship so a later
+    regenerate can re-roll it. Authorship is STAMPED server-side by diffing the stored set
+    (``stamp_edited_term_set``), never trusted from the body. A full-set replace via the narrow
+    ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
+    intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
+    duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
+    empty")."""
+    try:
+        entries = stamp_edited_term_set(thesis.term_set, [(t.term, t.tier) for t in req.terms])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
     return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
@@ -277,7 +309,7 @@ def draft_chain(
     except DiscoveryNoTerms as exc:
         raise HTTPException(
             status_code=503,
-            detail="no term set for this thesis — produce it first (POST .../terms)",
+            detail="term set is empty — produce or seed it first (POST .../terms or the edit UI)",
         ) from exc
     except DiscoveryUnavailable as exc:
         raise HTTPException(
