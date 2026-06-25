@@ -21,10 +21,11 @@ import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
 import { memberKey, useChainDraft } from "./useChainDraft";
 
-// Stop polling a draft after this long and show "timed out, try again". Set ABOVE the 300s Opus cap and BELOW
-// the 600s server-side running-job reaper, so the operator sees the timeout before the job is reaped (the
-// backend job is left to the reaper — the FE only stops polling, never orphans it).
-const DRAFT_POLL_TIMEOUT_MS = 360_000;
+// Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
+// tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
+// 900s server-side running-job reaper, so the operator sees the timeout before the job is reaped (the backend
+// job is left to the reaper — the FE only stops polling, never orphans it).
+const DRAFT_POLL_TIMEOUT_MS = 600_000;
 
 interface Props {
   thesis: ThesisDetail;
@@ -369,7 +370,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
 
       <div className="wb-draft-gap">
         <button type="button" className="wb-edit-btn" onClick={onDraft} disabled={drafting}>
-          {drafting ? "Drafting… (takes a minute)" : "✦ Draft from narrative"}
+          {drafting ? "Drafting… (can take a few minutes)" : "✦ Draft from narrative"}
         </button>
         <span className="note">
           Pre-fill the chain from your narrative — the drafter proposes the links, the names in each, and

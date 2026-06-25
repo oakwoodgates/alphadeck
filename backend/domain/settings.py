@@ -113,10 +113,11 @@ class Settings(BaseSettings):
     # The draft runs as an in-memory job (a daemon thread) the FE polls, so a multi-minute draft is never a
     # held-open request. The reaper bounds the registry: a finished job is dropped after FINISHED_TTL; a
     # still-running job past RUNNING_TTL is flipped to failed (the abandoned-job backstop). RUNNING_TTL sits
-    # ABOVE the FE poll-cap (~360s) so the operator sees "timed out, try again" BEFORE the reaper acts — the job
-    # is never orphaned under an active poll. (The real cost bound is the Opus client's max_retries=0 + 300s
-    # SDK timeout — one bounded pass per job; this TTL is only the registry-leak/stuck-thread backstop.)
-    draft_job_running_ttl_s: float = 600.0
+    # ABOVE the FE poll-cap (~600s) so the operator sees "timed out, try again" BEFORE the reaper acts — the job
+    # is never orphaned under an active poll. A real draft floor is the Opus tail-sweep (~300s) + EDGAR discovery
+    # over a large universe + decompose + narrate, so both are generous. (The real cost bound is the Opus client's
+    # max_retries=0 + 300s SDK timeout — one bounded pass per job; this TTL is only the leak/stuck-thread backstop.)
+    draft_job_running_ttl_s: float = 900.0
     draft_job_finished_ttl_s: float = 1800.0
 
     # --- LLM seam (discovery Slice 2 — the thesis→keyword generator) — operational dials ---

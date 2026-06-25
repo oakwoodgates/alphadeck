@@ -30,6 +30,7 @@ THE BOUNDS (carried from the gate-1 plan):
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from domain.settings import get_settings
@@ -150,6 +151,9 @@ def decompose_narrative(
 # degradation the live gate-2 caught; the fake-client tests passed because they used 1 name). A small batch
 # (~15 names x a <=25-word sentence ~= 750 tokens) sits well under the ceiling, so each call completes.
 _NARRATE_BATCH = 15
+# Cap on concurrent narration calls — a broad universe is many batches (380 names -> 26); run them in parallel
+# (bounded) so narration is ~one wave, not ~26x a single call. Bounded so a huge draft can't burst the rate limit.
+_NARRATE_MAX_WORKERS = 6
 
 
 # The narration tool — one reasoning sentence per company, NO number (same #3 bound as the decompose prose).
@@ -210,51 +214,22 @@ def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]])
     if not clean:
         return {}
 
+    batches = [clean[s : s + _NARRATE_BATCH] for s in range(0, len(clean), _NARRATE_BATCH)]
     result: dict[str, str] = {}
-    for start in range(0, len(clean), _NARRATE_BATCH):
-        batch = clean[start : start + _NARRATE_BATCH]
-        # NUMBER each line and join the model's reply by that ref — NOT by a re-typed name. (Live gate-2 showed
-        # the model copies "Name (TICKER)" into a name field, so name-keying lost the join; a ref can't drift.)
-        lines = [
-            f"{i}. {it['name'].strip()}"
-            + (f" ({it['ticker']})" if it.get("ticker") else "")
-            + (f" — segment: {it['segment']}" if it.get("segment") else "")
-            for i, it in enumerate(batch, start=1)
-        ]
-        user = (
-            f"Narrative:\n{narrative.strip()}\n\n"
-            "Companies to narrate (return each company's number `ref` + one sentence, NO numbers in the prose):\n"
-            + "\n".join(lines)
-        )
-        try:
-            out = client.draft_structured(system=system, user=user, tool=NARRATE_TOOL)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — no key / timeout / SDK error -> fail open, but LOUD (#9)
-            _log.warning(
-                "narrate: batch %d-%d of %d FAILED (%s: %s) — those names keep empty prose",
-                start,
-                start + len(batch),
-                len(clean),
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        if not isinstance(out, dict):
-            _log.warning(
-                "narrate: batch %d-%d of %d returned NO tool call — those names keep empty prose",
-                start,
-                start + len(batch),
-                len(clean),
-            )
-            continue
-        for p in out.get("placements", []) or []:
-            ref = p.get("ref") if isinstance(p, dict) else None
-            prose = p.get("prose") if isinstance(p, dict) else None
-            if isinstance(ref, int) and 1 <= ref <= len(batch) and isinstance(prose, str):
-                result[batch[ref - 1]["name"]] = (
-                    prose  # ref -> the batch item's exact name (stable key)
-                )
+    if len(batches) == 1:
+        result.update(_narrate_one_batch(client, system, narrative, batches[0], 0, len(clean)))
+    else:
+        # A broad universe is MANY batches (e.g. 380 names -> 26); run them concurrently (bounded) so narration
+        # isn't ~26x a single call. Each batch is an independent Sonnet call; the merge is sequential after.
+        workers = min(_NARRATE_MAX_WORKERS, len(batches))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for partial in ex.map(
+                lambda sb: _narrate_one_batch(
+                    client, system, narrative, sb[1], sb[0] * _NARRATE_BATCH, len(clean)
+                ),
+                list(enumerate(batches)),
+            ):
+                result.update(partial)
 
     if len(result) < len(clean):  # VISIBLE partial/total miss — never a silent empty (#9)
         _log.warning(
@@ -263,6 +238,60 @@ def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]])
             len(clean),
         )
     return result
+
+
+def _narrate_one_batch(
+    client: Any,
+    system: str,
+    narrative: str,
+    batch: list[dict[str, Any]],
+    start: int,
+    total: int,
+) -> dict[str, str]:
+    """Narrate ONE batch -> ``{name: prose}`` (a partial of the whole). FAIL-OPEN + #9-LOUD: a batch that errors /
+    returns no tool call is LOGGED and yields ``{}`` (its names keep empty prose), never raising."""
+    # NUMBER each line and join the model's reply by that ref — NOT by a re-typed name. (Live gate-2 showed the
+    # model copies "Name (TICKER)" into a name field, so name-keying lost the join; a ref can't drift.)
+    lines = [
+        f"{i}. {it['name'].strip()}"
+        + (f" ({it['ticker']})" if it.get("ticker") else "")
+        + (f" — segment: {it['segment']}" if it.get("segment") else "")
+        for i, it in enumerate(batch, start=1)
+    ]
+    user = (
+        f"Narrative:\n{narrative.strip()}\n\n"
+        "Companies to narrate (return each company's number `ref` + one sentence, NO numbers in the prose):\n"
+        + "\n".join(lines)
+    )
+    try:
+        out = client.draft_structured(system=system, user=user, tool=NARRATE_TOOL)
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — no key / timeout / SDK error -> fail open, but LOUD (#9)
+        _log.warning(
+            "narrate: batch %d-%d of %d FAILED (%s: %s) — those names keep empty prose",
+            start,
+            start + len(batch),
+            total,
+            type(exc).__name__,
+            exc,
+        )
+        return {}
+    if not isinstance(out, dict):
+        _log.warning(
+            "narrate: batch %d-%d of %d returned NO tool call — those names keep empty prose",
+            start,
+            start + len(batch),
+            total,
+        )
+        return {}
+    res: dict[str, str] = {}
+    for p in out.get("placements", []) or []:
+        ref = p.get("ref") if isinstance(p, dict) else None
+        prose = p.get("prose") if isinstance(p, dict) else None
+        if isinstance(ref, int) and 1 <= ref <= len(batch) and isinstance(prose, str):
+            res[batch[ref - 1]["name"]] = prose  # ref -> the batch item's exact name (stable key)
+    return res
 
 
 def _web_search_tool() -> dict[str, Any]:
