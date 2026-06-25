@@ -324,11 +324,6 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     </option>
                   ))}
                 </select>
-                {mt && mt.length > 0 && (
-                  <span className="wb-matched" title="discovery term(s) this name matched">
-                    ← {mt.join(", ")}
-                  </span>
-                )}
                 <span className="wb-author">{authorLabel(m.authored_by)}</span>
                 {drafted && (
                   <button
@@ -349,6 +344,11 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   ×
                 </button>
               </div>
+              {mt && mt.length > 0 && (
+                <div className="wb-matched" title={`discovery match: ${mt.join(", ")}`}>
+                  ← {mt.join(", ")}
+                </div>
+              )}
               <textarea
                 className="wb-prose"
                 rows={2}
@@ -417,7 +417,10 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   {p.ticker ? <span className="co">{p.ticker}</span> : null}
                   {p.segment ? <small>{p.segment}</small> : null}
                   {p.matched_terms.length > 0 ? (
-                    <span className="wb-matched" title="discovery term(s) this name matched">
+                    <span
+                      className="wb-matched"
+                      title={`discovery match: ${p.matched_terms.join(", ")}`}
+                    >
                       ← {p.matched_terms.join(", ")}
                     </span>
                   ) : null}

@@ -186,15 +186,16 @@ def test_tail_sweep_prompt_keeps_no_number_and_the_redirect():
 
 # --- Bug 2: the prose-fill narration step (per-name thesis-fit for the reconciler-appended names) ---
 
+# the model replies by REF (the list number), never by re-typing the name — the join key can't drift.
 _NARR = {
     "placements": [
-        {"name": "Compass Pathways", "prose": "lead psilocybin developer"},
-        {"name": "GH Research", "prose": "5-MeO-DMT for treatment-resistant depression"},
+        {"ref": 1, "prose": "lead psilocybin developer"},
+        {"ref": 2, "prose": "5-MeO-DMT for treatment-resistant depression"},
     ]
 }
 
 
-def test_narrate_returns_name_to_prose_map_and_threads_inputs():
+def test_narrate_maps_ref_to_name_and_threads_inputs():
     fake = _FakeClient(returns=_NARR)
     out = narrate_placements(
         fake,
@@ -204,6 +205,7 @@ def test_narrate_returns_name_to_prose_map_and_threads_inputs():
             {"name": "GH Research"},
         ],
     )
+    # ref 1/2 -> the items' exact names (the stable join key), so the prose attaches to the right name
     assert out == {
         "Compass Pathways": "lead psilocybin developer",
         "GH Research": "5-MeO-DMT for treatment-resistant depression",
@@ -212,8 +214,8 @@ def test_narrate_returns_name_to_prose_map_and_threads_inputs():
     user = fake.calls[0]["user"]
     assert "psychedelic therapy" in user  # the narrative
     assert (
-        "Compass Pathways (CMPS)" in user and "segment: developers" in user
-    )  # name+ticker+segment threaded
+        "1. Compass Pathways (CMPS)" in user and "segment: developers" in user
+    )  # NUMBERED line + ticker + segment threaded
     assert fake.calls[0]["tool"] is NARRATE_TOOL  # the narrate structured contract (value-free)
 
 
@@ -235,3 +237,55 @@ def test_narrate_no_items_or_blank_narrative_does_not_call_the_model():
 def test_narrate_prompt_forbids_numbers():
     """The no-number bound (#3) rests on the prompt — a fake can't exercise it; pin the contract text."""
     assert "NEVER a number" in load_prompt("chain_narrate")
+
+
+class _BatchEcho:
+    """Replies by REF for each 'N. Name' line in the user message (so a batched narrate joins every name however
+    it's split), recording each call — the harness for the batching/truncation guard. Prose echoes the name so a
+    test can assert the ref->name join is correct."""
+
+    def __init__(self, *, fail_on: int | None = None) -> None:
+        self.calls = 0
+        self._fail_on = fail_on
+
+    def draft_structured(self, *, system, user, tool):
+        self.calls += 1
+        if self.calls == self._fail_on:
+            raise RuntimeError("boom")  # simulate ONE batch failing (max_tokens / SDK error)
+        placements = []
+        for ln in user.splitlines():
+            num, dot, rest = ln.partition(". ")
+            if dot and num.strip().isdigit():
+                name = rest.split(" (")[0].split(" — segment")[0].strip()
+                placements.append({"ref": int(num), "prose": f"why {name} fits"})
+        return {"placements": placements}
+
+
+def test_narrate_batches_a_large_list_so_one_call_cannot_truncate_to_nothing():
+    """The live gate-2 failure: ~123 names in ONE call -> max_tokens truncation -> 0 parsed -> every prose empty.
+    The fix BATCHES, so each call is small and EVERY name gets prose. (Pins call-count = ceil(n/batch).)
+    """
+    import math
+
+    from llm.chain_decomposition import _NARRATE_BATCH
+
+    items = [{"name": f"Co{i}"} for i in range(_NARRATE_BATCH * 2 + 3)]  # spans 3 batches
+    fake = _BatchEcho()
+    out = narrate_placements(fake, "a narrative", items)
+    assert len(out) == len(items)  # EVERY name narrated — none lost to truncation
+    assert out["Co0"] == "why Co0 fits"
+    assert fake.calls == math.ceil(
+        len(items) / _NARRATE_BATCH
+    )  # split into batches, not one giant call
+
+
+def test_narrate_one_failing_batch_does_not_lose_the_others():
+    """Per-batch fail-open (#9): a single batch erroring (e.g. max_tokens) skips ONLY its names — the other
+    batches still fill — instead of the old all-or-nothing where one failure emptied everything."""
+    from llm.chain_decomposition import _NARRATE_BATCH
+
+    items = [{"name": f"Co{i}"} for i in range(_NARRATE_BATCH * 3)]  # exactly 3 full batches
+    out = narrate_placements(_BatchEcho(fail_on=2), "a narrative", items)  # batch 2 fails
+    assert (
+        len(out) == _NARRATE_BATCH * 2
+    )  # batches 1 + 3 filled; batch 2's names kept empty (not all lost)

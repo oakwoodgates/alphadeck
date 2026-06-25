@@ -425,9 +425,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-mem-row .wb-author { margin-left: auto; } /* push the badge + accept/drop to the right */
 
 /* discovery provenance — the term(s) a placed/verify name matched (makes a colliding seed visible at a glance,
-   #9). Quiet, monospace, low-energy — information, not a control. */
-.wb-matched { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.01em; color: var(--txt-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
-.wb-mem-row .wb-matched { margin-left: auto; } /* right-align the tag; the author badge's own auto sits next to it */
+   #9). Quiet, monospace, low-energy, fully LEGIBLE — it must be readable to be prunable. On a placed member it
+   is its OWN line below the controls (wraps freely, never truncated); on a verify row it sits inline + wraps. */
+.wb-matched { font-family: var(--mono); font-size: 9.5px; line-height: 1.4; letter-spacing: 0.01em; color: var(--txt-4); white-space: normal; overflow-wrap: anywhere; }
+.wb-mem .wb-matched { margin: 1px 0 0; } /* the placed-member provenance line (between the row and the prose) */
 
 /* S5 5c — the draft/ratify surface. A drafted member is a block (the row + its thesis-fit prose); inverse
    loudness — quiet provenance, a faint leader-blue tint, never loud. */

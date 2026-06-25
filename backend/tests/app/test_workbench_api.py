@@ -868,13 +868,8 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
             returns=_decomp(
                 ("Oklo Inc.", "OKLO")
             ),  # SMR dropped by the organizer (no prose for it)
-            narrate_returns={  # the prose-fill step narrates the reconciler-appended name
-                "placements": [
-                    {
-                        "name": "NuScale Power Corporation",
-                        "prose": "the only NRC-approved SMR designer",
-                    }
-                ]
+            narrate_returns={  # the prose-fill narrates the reconciler-appended name (by ref — NuScale is #1)
+                "placements": [{"ref": 1, "prose": "the only NRC-approved SMR designer"}]
             },
         ),
     )

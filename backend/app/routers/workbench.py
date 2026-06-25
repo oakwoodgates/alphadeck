@@ -45,7 +45,11 @@ from llm.flag_explanation import explain_flag
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
-from workbench.chain_draft import proposed_from_decomposition, resolve_discovered_chain
+from workbench.chain_draft import (
+    PlacementStatus,
+    proposed_from_decomposition,
+    resolve_discovered_chain,
+)
 from workbench.discovery import (
     DiscoveryNoTerms,
     discovered_names,
@@ -298,14 +302,20 @@ def draft_chain(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
     )
     chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
-    # Fill thesis-fit prose for placed/verify names the ORGANIZER didn't narrate — the deterministic reconciler
-    # appends discovered CIKs with prose="" (it owns completeness, not prose). FAIL-OPEN + #9-safe: a narration
-    # failure leaves prose empty (today's behavior), never drops a name; a DISPLAY string only — no number (#3),
-    # nothing persisted (response-only). (security_id set <=> PLACED/VERIFY; AMBIGUOUS/ABSENT are left alone.)
+
+    # Fill thesis-fit prose for the PLACED names the ORGANIZER didn't narrate — the deterministic reconciler
+    # appends discovered CIKs with prose="" (it owns completeness, not prose). Scoped to PLACED (the basket
+    # members the editor shows a prose box for); the lower-confidence VERIFY list is shown by name/ticker/match,
+    # not narrated. narrate_placements BATCHES (a large universe would truncate one call to nothing) and logs any
+    # batch failure (#9 — visible, never a silent empty). FAIL-OPEN: a narration miss leaves prose empty, never
+    # drops a name; a DISPLAY string only — no number (#3), nothing persisted (response-only).
+    def _needs_prose(p) -> bool:
+        return p.status == PlacementStatus.PLACED and bool(p.name) and not p.prose.strip()
+
     needs = [
         {"name": p.name, "ticker": p.ticker, "segment": p.segment}
         for p in chain.placements
-        if p.security_id is not None and not p.prose.strip() and p.name
+        if _needs_prose(p)
     ]
     placements = chain.placements
     if needs:
@@ -314,7 +324,7 @@ def draft_chain(
             placements = [
                 (
                     p.model_copy(update={"prose": narrated[p.name]})
-                    if (p.security_id is not None and not p.prose.strip() and p.name in narrated)
+                    if (_needs_prose(p) and p.name in narrated)
                     else p
                 )
                 for p in chain.placements
