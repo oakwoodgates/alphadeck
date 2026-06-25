@@ -29,10 +29,15 @@ THE BOUNDS (carried from the gate-1 plan):
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from domain.settings import get_settings
 from llm.prompt_loader import load_prompt
+
+# Scoped to the LLM seams; WARNINGs propagate to uvicorn's root handler so a narration failure is VISIBLE in
+# `docker compose logs` (the #9 discipline — fail open, but never silently).
+_log = logging.getLogger("alphadeck.llm")
 
 # The structured-output contract — the model MUST call this tool; we read back its validated input. STRUCTURE
 # + names + reasoning ONLY: there is no value/score/number field anywhere in the schema (INVARIANT #1).
@@ -137,6 +142,127 @@ def decompose_narrative(
     if not isinstance(out, dict):
         return None
     return out
+
+
+# BATCH the narration: the discovered universe can be 100+ names, but ONE tool call must fit the model's output
+# ceiling (the decompose client's ``max_tokens`` ~2000). Narrating ALL names at once TRUNCATES the tool JSON
+# mid-array (``stop_reason=max_tokens``) so NOTHING parses -> every prose silently empty (the #9 silent-
+# degradation the live gate-2 caught; the fake-client tests passed because they used 1 name). A small batch
+# (~15 names x a <=25-word sentence ~= 750 tokens) sits well under the ceiling, so each call completes.
+_NARRATE_BATCH = 15
+
+
+# The narration tool — one reasoning sentence per company, NO number (same #3 bound as the decompose prose).
+NARRATE_TOOL: dict[str, Any] = {
+    "name": "narrate_placements",
+    "description": (
+        "For each given US-listed company, return one short reasoning sentence (<=25 words, NO numbers) on why "
+        "it fits the investment narrative and its value-chain segment. Reasoning only — never a number."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "placements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "ref": {
+                            "type": "integer",
+                            "description": "The company's NUMBER in the list (1, 2, 3, …) — the join key.",
+                        },
+                        "prose": {
+                            "type": "string",
+                            "description": (
+                                "At most 25 words: why this company fits the narrative / its segment. NO "
+                                "numbers, prices, %, share counts, cash, or valuations."
+                            ),
+                        },
+                    },
+                    "required": ["ref", "prose"],
+                },
+            }
+        },
+        "required": ["placements"],
+    },
+}
+
+
+def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]]) -> dict[str, str]:
+    """Draft a per-name thesis-fit sentence for each placement in ``items`` (``{name, ticker?, segment?}``),
+    returning ``{name: prose}``. The deterministic EDGAR reconciler appends discovered CIKs the organizer never
+    narrated (``prose=""``); this fills that gap so EVERY placed/verify name carries reasoning — without the
+    organizer (the reconciler stays deterministic + completeness-owning; this only adds DISPLAY prose).
+
+    BATCHED (``_NARRATE_BATCH``) so a large universe can't truncate the tool output to nothing (the live failure
+    mode). FAIL-OPEN PER BATCH + #9-safe: a batch that errors / returns no tool call is LOGGED (with the reason)
+    and skipped — its names keep ``prose=""`` (never a 5xx, never a dropped name, only missing prose), while the
+    other batches still fill; "prose empty because narration BROKE" is then distinguishable in the logs from
+    "nothing needed it". Sources NO number (#3 — schema + prompt forbid figures). ``client`` needs a
+    ``draft_structured(system, user, tool)`` method (the decompose client; the real ``LLMClient`` or a fake).
+    """
+    if not narrative or not narrative.strip() or not items:
+        return {}
+    system = load_prompt(
+        "chain_narrate"
+    )  # fail-loud on a missing prompt, outside the fail-open try
+    clean = [it for it in items if (it.get("name") or "").strip()]
+    if not clean:
+        return {}
+
+    result: dict[str, str] = {}
+    for start in range(0, len(clean), _NARRATE_BATCH):
+        batch = clean[start : start + _NARRATE_BATCH]
+        # NUMBER each line and join the model's reply by that ref — NOT by a re-typed name. (Live gate-2 showed
+        # the model copies "Name (TICKER)" into a name field, so name-keying lost the join; a ref can't drift.)
+        lines = [
+            f"{i}. {it['name'].strip()}"
+            + (f" ({it['ticker']})" if it.get("ticker") else "")
+            + (f" — segment: {it['segment']}" if it.get("segment") else "")
+            for i, it in enumerate(batch, start=1)
+        ]
+        user = (
+            f"Narrative:\n{narrative.strip()}\n\n"
+            "Companies to narrate (return each company's number `ref` + one sentence, NO numbers in the prose):\n"
+            + "\n".join(lines)
+        )
+        try:
+            out = client.draft_structured(system=system, user=user, tool=NARRATE_TOOL)
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — no key / timeout / SDK error -> fail open, but LOUD (#9)
+            _log.warning(
+                "narrate: batch %d-%d of %d FAILED (%s: %s) — those names keep empty prose",
+                start,
+                start + len(batch),
+                len(clean),
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        if not isinstance(out, dict):
+            _log.warning(
+                "narrate: batch %d-%d of %d returned NO tool call — those names keep empty prose",
+                start,
+                start + len(batch),
+                len(clean),
+            )
+            continue
+        for p in out.get("placements", []) or []:
+            ref = p.get("ref") if isinstance(p, dict) else None
+            prose = p.get("prose") if isinstance(p, dict) else None
+            if isinstance(ref, int) and 1 <= ref <= len(batch) and isinstance(prose, str):
+                result[batch[ref - 1]["name"]] = (
+                    prose  # ref -> the batch item's exact name (stable key)
+                )
+
+    if len(result) < len(clean):  # VISIBLE partial/total miss — never a silent empty (#9)
+        _log.warning(
+            "narrate: filled prose for %d of %d names (the rest keep empty prose — see batch warnings)",
+            len(result),
+            len(clean),
+        )
+    return result
 
 
 def _web_search_tool() -> dict[str, Any]:

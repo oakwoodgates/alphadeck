@@ -85,7 +85,12 @@ class SecurityCandidate(DomainModel):
 class ResolvedPlacement(DomainModel):
     """A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
     ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are
-    preserved (so the UI can show what the model proposed even when it didn't resolve)."""
+    preserved (so the UI can show what the model proposed even when it didn't resolve).
+
+    ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
+    on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
+    name resolved by the master rather than discovered by a term. Never a number (#3 — a keyword string).
+    """
 
     name: str
     ticker: str | None
@@ -94,6 +99,7 @@ class ResolvedPlacement(DomainModel):
     status: PlacementStatus
     security_id: UUID | None = None
     candidates: list[SecurityCandidate] = []
+    matched_terms: list[str] = []
 
 
 class ResolvedSegment(DomainModel):
@@ -265,6 +271,7 @@ def resolve_discovered_chain(
                 continue
             emitted.add(cik)
             in_placed = cik in universe.placed
+            f = universe.filers.get(cik)
             placements.append(
                 ResolvedPlacement(
                     name=p.name,
@@ -273,6 +280,9 @@ def resolve_discovered_chain(
                     segment=s.label,
                     status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,
                     security_id=universe.placed[cik] if in_placed else universe.verify[cik],
+                    matched_terms=(
+                        sorted(f.keywords) if f else []
+                    ),  # the term(s) that surfaced it (#9 tell)
                 )
             )
 
@@ -297,6 +307,9 @@ def resolve_discovered_chain(
                     segment=_DISCOVERED_LABEL,
                     status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,
                     security_id=universe.placed[cik] if in_placed else universe.verify[cik],
+                    matched_terms=(
+                        sorted(f.keywords) if f else []
+                    ),  # the term(s) that surfaced it (#9 tell)
                 )
             )
     return ResolvedChain(segments=out_segments, placements=placements)
