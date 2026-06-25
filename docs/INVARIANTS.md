@@ -175,3 +175,40 @@ converts (no fake zero). *(The same one-source discipline as the back half re-de
 - *Enforced by:* `signals/dilution_clock.overhang_pct` (the shared pure helper) used by both `score` and
   `workbench/scoring._dilution`; the dilution-meter golden test asserts the raw % bucket
   (`tests/workbench/test_scoring.py`); the existing `tests/signals/test_dilution_clock.py` covers `score`.
+
+## 9. Recall is sacred — a silently dropped name is a system failure
+
+Surfacing every real on-thesis name is the point of discovery. The asymmetry is load-bearing: a
+**false positive** (junk surfaced) is **visible and deletable** — a nuisance; a **false negative**
+(a real name dropped) is **invisible and gone** — the operator can't evaluate, delete, or even know
+about a name they never see. So discovery **optimizes for recall and over-includes**; precision is
+handled by the operator deleting visible junk in a lower-confidence tier, **never** by a filter that
+might silently eat a real name. (Why this is non-negotiable: this rule has been violated five distinct
+ways — the EFTS hit-cap, the pagination cap, the silent-recall fallback, the per-page skip, and a
+seed-demotion-to-BROAD — each a plausible local fix that quietly cost real names. Every one passed its
+own unit gate; none was caught by anything but a recall re-score.)
+
+Rules this imposes on any change touching discovery / classify / filters / caps / term tiers:
+1. **No change may REDUCE recall to gain precision, speed, or cost without PROVING recall is preserved.**
+   Re-run the answer-key score; recall must hold (currently 31/32). "Probably fine" / "the dropped pages
+   are noise anyway" is an assumption, not proof — and exactly the wording that preceded the misses above.
+2. **No name may lose placement/surfacing authority SILENTLY.** If a name changes tier, gets filtered,
+   or stops placing, that effect must be VISIBLE — logged, flagged, or surfaced. A demotion the operator
+   can't see IS a drop.
+3. **Degradation must be LOUD.** A capacity / error / empty condition that can't enumerate the full
+   universe must raise or flag (the 503s, `DiscoveryDegraded`), never quietly return a smaller set as if
+   complete. Silent fallback to a worse method is worse than an error.
+4. **Caps and thresholds are backstops against pathology, never recall limiters.** Default them generous;
+   a cap that could drop real names on a NORMAL run is too low — prove it doesn't.
+5. **"Make the failure rarer" is not "make the failure safe."** Robustness reduces frequency; it does not
+   satisfy this invariant. The failure MODE itself must be visible or impossible.
+
+When this conflicts with tightness, determinism, cost, or convenience: **recall wins, and the trade-off is
+surfaced to the operator, not silently resolved in code.**
+
+- *Enforced by:* the answer-key recall re-score on every discovery-touching change (currently 31/32; the
+  one miss, ATAI, is the documented dual-CIK redomicile deferred to the identity bridge, not a drop); the
+  reliability raises (`DiscoveryDegraded` / `DiscoveryEmpty` / `DiscoveryNoTerms` → 503, never a recall
+  fallback — `workbench/discovery.py`); the per-CIK reconciler that set-difference-guarantees every
+  discovered in-master CIK reaches the draft (`workbench/chain_draft.resolve_discovered_chain`); the VERIFY
+  tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`).
