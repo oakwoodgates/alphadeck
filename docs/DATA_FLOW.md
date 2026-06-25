@@ -90,11 +90,11 @@ flowchart TD
 | `openapi.json` | build artifact | `backend/app/` | when you run `openapi_export` | no (generated) |
 | Resolved securities | identity (mutable) | **Postgres** `security_master` | on resolve / seed / **populate** (the broadener) | n/a (DB) |
 | Insider txns, EOD bars | bitemporal **facts** | **Postgres** `fact_*` | on ingest / seed / the per-thesis `ingest_thesis` + the daily cron (incremental) | n/a (DB) |
-| Thesis + basket (incl. `segment` / `authored_by` / `thesis_fit`) + evidence/catalyst/kill | the spine (operational) | **Postgres** | on `upsert` / promote / seed | n/a (DB) |
+| Thesis + basket (incl. `segment` / `authored_by` / `thesis_fit`) + `term_set` (the discovery SIGNAL/BROAD terms, jsonb) + evidence/catalyst/kill | the spine (operational) | **Postgres** | on `upsert` / promote / seed; `term_set` via `POST .../terms` (`set_term_set` — the sole writer) | n/a (DB) |
 | Assembled calls (the call-of-record) | accountability **log** | **Postgres** `calls` | by batch `pipeline.run`, or per (thesis, day) by the daily cron's `record_if_changed` (only on change); never on a `/call` GET | n/a (DB) |
 | `SignalEvent[]` | **recomputed** | nowhere — in memory | **every read** | n/a |
 | `CallCard` | **recomputed** | in memory (a copy → `calls`) | **every read** | n/a |
-| Narrative → chain **draft** | **recomputed** (response-only) | nowhere — returned by `/draft-chain`, never stored | **every Draft click** | n/a |
+| Narrative → chain **draft** | **recomputed** (response-only) | nowhere — `/draft-chain` READS the stored `term_set` → EDGAR-first discovery → returned, never stored | **every Draft click** | n/a |
 
 ## Your question, directly
 

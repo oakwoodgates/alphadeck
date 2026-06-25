@@ -10,7 +10,7 @@
 
 | Source | What it gives | Powers |
 |---|---|---|
-| **SEC EDGAR** — submissions API, full-text search, daily index/RSS | 8-Ks, Form 4 (insider), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint |
+| **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 (insider), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals, **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (coming launches = emergence signal) |
 | **SEC `company_tickers.json`** (one file: ticker → CIK → name) | the full US filer universe | **the broadener** (`populate_master`) — seeds the security master so the extract → ratify → score loop runs on any name |
