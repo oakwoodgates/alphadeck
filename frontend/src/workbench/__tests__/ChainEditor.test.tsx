@@ -7,10 +7,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const h = vi.hoisted(() => ({
   mutate: vi.fn(),
-  refetch: vi.fn(),
+  start: vi.fn(),
   produce: vi.fn(),
   edit: vi.fn(),
   produceData: undefined as any,
+  jobData: undefined as any,
+  jobIsError: false,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -26,8 +28,10 @@ vi.mock("../../api/hooks", () => ({
     data: q?.trim() ? [{ security_id: "s-ccj", ticker: "CCJ", name: "Cameco", cik: "0001" }] : [],
     isFetching: false,
   }),
-  // the drafter: the test drives refetch()'s resolved value per-case (an explicit "Draft from narrative")
-  useDraftChain: () => ({ refetch: h.refetch, isFetching: false }),
+  // the drafter is a KICK-OFF + POLL job now: start returns a job_id; the status query returns h.jobData. A
+  // test sets both via mockDraft() (done) or directly (failed / lost).
+  useStartDraft: () => ({ mutateAsync: h.start, isPending: false }),
+  useDraftJobStatus: () => ({ data: h.jobData, isError: h.jobIsError }),
   // the term-set producer: the test sets h.produceData to simulate a produced split; mutate records the POST
   useProduceTerms: () => ({
     mutate: h.produce,
@@ -66,10 +70,18 @@ const flatThesis = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
-// A drafted chain the endpoint would return — one PLACED name in one segment, unless overridden.
+// A drafted chain the job would return (the ChainDraftOut result) — one PLACED name in one segment, unless
+// overridden.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const draft = (placements: unknown[], segments: unknown[] = [{ label: "reactors", descriptor: null }]) =>
-  ({ data: { thesis_id: "t1", segments, placements } }) as any;
+  ({ thesis_id: "t1", segments, placements }) as any;
+
+// Wire the kick-off + poll so a draft completes: start resolves a job_id, the status query reports done + result.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockDraft(result: any) {
+  h.start.mockResolvedValue({ job_id: "j1", status: "running" });
+  h.jobData = { job_id: "j1", status: "done", result, error: null };
+}
 
 const PLACED_SMR = {
   name: "NuScale Power",
@@ -95,10 +107,12 @@ const VERIFY_ALKS = {
 
 beforeEach(() => {
   h.mutate.mockReset();
-  h.refetch.mockReset();
+  h.start.mockReset();
   h.produce.mockReset();
   h.edit.mockReset();
   h.produceData = undefined;
+  h.jobData = undefined;
+  h.jobIsError = false;
 });
 
 describe("ChainEditor — authoring", () => {
@@ -177,7 +191,7 @@ describe("ChainEditor — authoring", () => {
 describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("loads a PLACED name as a drafted, badged placement with its prose", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(draft([PLACED_SMR]));
+    mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
@@ -191,7 +205,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
   it("accepting a drafted name flips it to operator_set", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(draft([PLACED_SMR]));
+    mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
@@ -205,7 +219,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
   it("editing a drafted name's prose flips it to operator_edited", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(draft([PLACED_SMR]));
+    mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
@@ -221,7 +235,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    h.refetch.mockResolvedValue(
+    mockDraft(
       draft(
         [
           {
@@ -259,7 +273,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    h.refetch.mockResolvedValue(
+    mockDraft(
       draft([VERIFY_ALKS], [{ label: "therapeutics", descriptor: null }]),
     );
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
@@ -281,7 +295,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
   it("an ABSENT name is shown, never placed", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(
+    mockDraft(
       draft(
         [
           {
@@ -306,7 +320,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
   it("surfaces the matched discovery term(s) on a placed row AND a verify row (provenance, #9)", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(
+    mockDraft(
       draft(
         [PLACED_SMR, VERIFY_ALKS],
         [
@@ -325,15 +339,45 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue(draft([], []));
+    mockDraft(draft([], []));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.getByText("OKLO")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
+    expect(await screen.findByText(/drafter returned nothing/)).toBeInTheDocument(); // honest note (done-empty)
     expect(screen.getByText("OKLO")).toBeInTheDocument(); // unchanged
-    expect(screen.getByText(/drafter returned nothing/)).toBeInTheDocument(); // honest fail-open note
     expect(screen.queryByText("drafted")).not.toBeInTheDocument(); // nothing loaded
+  });
+
+  it("a FAILED job shows the operator-facing error (discovery not ready), loads no draft", async () => {
+    const user = userEvent.setup();
+    h.start.mockResolvedValue({ job_id: "j1", status: "running" });
+    h.jobData = { job_id: "j1", status: "failed", result: null, error: "term set is empty" };
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    const toast = await screen.findByText(/Couldn't draft/); // the error toast (unique prefix)
+    expect(toast).toHaveTextContent("term set is empty"); // visible failure (#9), no spinner
+    expect(screen.queryByText("drafted")).not.toBeInTheDocument();
+  });
+
+  it("a LOST job (404 / server restart) shows a visible failure, never an infinite spinner", async () => {
+    const user = userEvent.setup();
+    h.start.mockResolvedValue({ job_id: "j1", status: "running" });
+    h.jobData = undefined;
+    h.jobIsError = true; // the poll 404s
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    expect(await screen.findByText(/draft was lost/i)).toBeInTheDocument();
+  });
+
+  it("a 409 (a draft already running) is shown, not retried", async () => {
+    const user = userEvent.setup();
+    h.start.mockRejectedValue({ detail: "a draft is already running for this thesis" });
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    expect(await screen.findByText(/already running/)).toBeInTheDocument();
+    expect(h.start).toHaveBeenCalledTimes(1); // no auto-retry of the expensive kick-off
   });
 });
 

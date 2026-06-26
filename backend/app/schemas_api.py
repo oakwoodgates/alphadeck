@@ -442,3 +442,27 @@ class ChainDraftOut(BaseModel):
     thesis_id: UUID
     segments: list[ResolvedSegment] = []
     placements: list[ResolvedPlacement] = []
+
+
+# --- Async draft delivery (kick-off → poll): the draft is a JOB, not a held-open request ---
+
+
+class DraftJobRef(BaseModel):
+    """The 202 kick-off body — the draft started as a background JOB (it takes minutes; held open it 504'd at the
+    proxy). The FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. Only the DELIVERY changed; the
+    draft logic is unchanged."""
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+
+
+class DraftJobStatus(BaseModel):
+    """The poll body. ``done`` carries the ``result`` (the ChainDraftOut); ``failed`` carries an operator-facing
+    ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, never a silent empty draft, #9).
+    A benign fail-open (no key / the model declined) is ``done`` with an EMPTY draft, not a failure.
+    """
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+    result: ChainDraftOut | None = None
+    error: str | None = None

@@ -99,25 +99,38 @@ The bound holds three ways:
   ratifies it. Drafting proposes structure + names + prose; the number always enters later, by the operator's
   hand.
 
-## The draft endpoint — RESPONSE-ONLY, test-enforced
+## The draft endpoint — a KICK-OFF → POLL job, RESPONSE-ONLY, test-enforced
 
-`POST /workbench/theses/{id}/draft-chain` (`backend/app/routers/workbench.py`) runs the EDGAR-first pipeline
-(full treatment in `DISCOVERY.md`): read the stored term set → `run_discovery` (EFTS → classify) →
-`research_tail_sweep` → `decompose_narrative` (organize) → `resolve_discovered_chain` (per-CIK reconcile) →
-fill prose + matched-term tags → `ChainDraftOut {thesis_id, segments, placements}`. The tenant comes from the
-thesis (mirrors the scored endpoint).
+The draft takes minutes (EDGAR discovery + the Opus tail-sweep + decompose + narrate). Held open as one
+request it blew past nginx's 300s `proxy_read_timeout` — the browser 504'd while the backend kept billing. So
+the draft is a **kicked-off JOB**, not a held-open request (`backend/workbench/draft_jobs.py`, an in-memory
+registry mirroring `research_runner` — module-level dict + `threading.Lock`, single-worker; a daemon thread runs
+the pipeline):
 
-- **Writes NOTHING.** It returns a draft and persists nothing — the operator's promote is the only writer.
-- **The bound is RESPONSE-ONLY + TEST-ENFORCED, not structural-by-absence.** Unlike the flag-explanation
-  endpoint (#59, which takes **no DB connection at all** — a write is literally impossible), the draft
-  endpoint **holds a read-only conn** (it must, to read the narrative + term set and resolve CIKs). So "writes
-  nothing" is guaranteed by **`test_draft_endpoint_writes_nothing`** (zero `fact_*` AND zero `basket_member`)
-  + read-only discipline — treat that test as **load-bearing**, not a formality.
-- **Discovery is completeness-or-fail (#9), not silently fail-open.** A thesis with no produced term set, or a
-  universe EFTS can't enumerate, returns **503** (`DiscoveryNoTerms` / `DiscoveryDegraded` / `DiscoveryEmpty`),
-  VISIBLE — never a quiet fall back to model recall. The LLM seams (tail-sweep / organize / narrate) still
-  fail-open: their trouble degrades prose, never drops a name, and a failed organize returns 200 with an empty
-  draft. With no `ANTHROPIC_API_KEY` the prose/organize degrade and hand-authoring is untouched.
+- `POST /workbench/theses/{id}/draft-chain` → **202** `{job_id, status:"running"}` (the kick-off). **409** if a
+  draft for the thesis is already running (the in-flight guard, now at the JOB layer); **404** unknown thesis.
+- `GET /workbench/theses/{id}/draft-chain/jobs/{job_id}` → the poll: `{status: running|done|failed, result, error}`.
+  **404** if the job is unknown / expired / wiped by a restart — the FE shows a visible "draft was lost", never an
+  infinite spinner. The FE polls every ~2.5s, caps at ~360s, and stops on a terminal status.
+
+The pipeline itself is unchanged — `execute_draft(conn, …)` (full treatment in `DISCOVERY.md`): read the stored
+term set → `run_discovery` (EFTS → classify) → `research_tail_sweep` → `decompose_narrative` (organize) →
+`resolve_discovered_chain` (per-CIK reconcile) → fill prose + matched-term tags → `ChainDraftOut`.
+
+- **Writes NOTHING.** The job returns a draft (in memory) and persists nothing — the operator's promote is the
+  only writer. The job thread opens its OWN read-only conn (it outlives the request); "writes nothing" is
+  guaranteed by **`test_draft_endpoint_writes_nothing`** (zero `fact_*` AND zero `basket_member`) — load-bearing.
+- **Discovery is completeness-or-fail (#9), surfaced as a VISIBLE failed job, not silently fail-open.** A thesis
+  with no produced term set, or a universe EFTS can't enumerate, ends the job **`failed`** with the cause
+  (`DiscoveryNoTerms` → "term set is empty…"; `DiscoveryDegraded`/`DiscoveryEmpty` → "discovery unavailable…"),
+  shown on the poll — never a quiet fall back to model recall. (This moved from a synchronous 503 to a failed
+  job in the async-draft slice.) The LLM seams (tail-sweep / organize / narrate) still fail-open: their trouble
+  degrades prose, never drops a name, and a failed organize is a **done** job with an empty draft. With no
+  `ANTHROPIC_API_KEY` the prose/organize degrade and hand-authoring is untouched.
+- **Cost stays bounded.** One job per thesis (the 409 guard) + the Opus client's `max_retries=0` + 300s SDK
+  timeout → an abandoned job (the FE stopped polling) bills at most one bounded pass; a registry reaper
+  (`draft_job_running_ttl_s` / `draft_job_finished_ttl_s`) flips a stuck job to failed and bounds the registry.
+  **Single-worker is load-bearing** (mirrors `research_runner`'s caveat) — `--workers>1` would need a shared store.
 
 ## The promote guard — bound #2 at the single writer
 

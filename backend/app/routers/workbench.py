@@ -19,6 +19,8 @@ from app.deps import (
 )
 from app.schemas_api import (
     ChainDraftOut,
+    DraftJobRef,
+    DraftJobStatus,
     EditTermsRequest,
     FlagExplanationOut,
     ProduceTermsRequest,
@@ -30,6 +32,7 @@ from app.schemas_api import (
     ThesisDetail,
     WorkbenchScored,
 )
+from db.session import connect
 from domain.enums import Authorship
 from domain.extraction import ExtractedFact
 from domain.settings import get_settings
@@ -57,7 +60,8 @@ from workbench.discovery import (
     discovery_context,
     run_discovery,
 )
-from workbench.research_runner import ResearchInFlight, run_research
+from workbench.draft_jobs import DraftError, DraftInFlight, get_job, start_draft_job
+from workbench.research_runner import run_research
 from workbench.scoring import score_thesis
 from workbench.term_set import produce_term_set, stamp_edited_term_set
 
@@ -258,66 +262,46 @@ def edit_terms(
     return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
 
 
-@router.post("/theses/{thesis_id}/draft-chain", response_model=ChainDraftOut)
-def draft_chain(
-    conn: psycopg.Connection = Depends(get_conn),
-    research_llm: LLMClient = Depends(get_research_client),
-    decompose_llm: LLMClient = Depends(get_decompose_client),
-    edgar: EdgarClient = Depends(get_edgar_client),
-    thesis: Thesis = Depends(get_thesis_or_404),
+def execute_draft(
+    conn: psycopg.Connection,
+    research_llm: LLMClient,
+    decompose_llm: LLMClient,
+    edgar: EdgarClient,
+    thesis: Thesis,
 ) -> ChainDraftOut:
-    """Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), EDGAR-FIRST since Slice 4.
+    """The narrative→chain draft PIPELINE — the SECOND LLM seam (S5), EDGAR-FIRST. Unchanged by the async-job
+    move; it runs inside a background job now (``start_draft_chain`` → ``workbench.draft_jobs``), not held open.
+
     Discovery is OFF the model: (1) the thesis's PERSISTED term set (SIGNAL seeds + BROAD terms, produced
     out-of-band by ``POST .../terms``) is read — no keyword-gen on the draft path; (2) the deterministic EDGAR
     full-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED (>=1 SIGNAL seed) vs
-    the lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,
-    Opus) adds only the foreign / brand-new names EFTS structurally can't see, given the already-found list.
-    Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet ORGANIZES the stable name
-    set into segments + thesis-fit prose — it never enumerates). Then ``resolve_discovered_chain`` reconciles
-    the organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its
-    CIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and
-    every discovered CIK the organizer dropped is appended to a 'Discovered' bucket — completeness is the
-    deterministic layer's, never the organizer's to lose. A final fail-open narration step then writes thesis-fit
-    prose for the reconciler-appended names the organizer never narrated (so EVERY placed/verify name carries
-    reasoning); each name also carries its matched discovery term(s) as provenance. Both are display strings —
-    no number (#3), nothing persisted.
+    the lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP
+    (``research_tail_sweep``, Opus) adds only the foreign / brand-new names EFTS structurally can't see, given
+    the already-found list. Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet
+    ORGANIZES the stable name set into segments + thesis-fit prose — it never enumerates). Then
+    ``resolve_discovered_chain`` reconciles the organizer's layout against the discovered universe PER CIK: a
+    matched name is PLACED / VERIFY by its CIK's exact membership (the cleanest INVARIANT #2), an off-universe
+    name falls to the master resolver, and every discovered CIK the organizer dropped is appended to a
+    'Discovered' bucket — completeness is the deterministic layer's, never the organizer's to lose. A final
+    fail-open narration step then writes thesis-fit prose for the reconciler-appended names the organizer never
+    narrated (so EVERY placed/verify name carries reasoning); each name also carries its matched discovery
+    term(s) as provenance. Both are display strings — no number (#3), nothing persisted.
 
-    Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an
-    IN-FLIGHT guard (one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray
-    retry can never launch a parallel Opus call) + a TTL cache keyed by thesis + narrative-hash
-    (``llm_research_cache_ttl_s``; 0 = always fresh). Its amplifiers stay closed: the SDK research client runs
-    ``max_retries=0`` and the FE draft query ``retry:false``. EFTS is free + deterministic (no guard needed).
+    Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): its
+    TTL cache keyed by thesis + narrative-hash (``llm_research_cache_ttl_s``; 0 = always fresh) makes a re-draft
+    free. Its amplifiers stay closed: the SDK research client runs ``max_retries=0``. EFTS is free + deterministic
+    (no guard needed). (The in-flight 409 guard now lives at the JOB layer — one running draft per thesis —
+    ``start_draft_chain``; ``run_research``'s own guard is harmless defense-in-depth and owns the TTL cache.)
 
-    RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it reads the narrative,
-    resolves CIKs, and runs the master resolver), so "writes nothing" is response-only + TEST-ENFORCED
-    (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``). The operator loads the
-    draft, prunes / ratifies, and PROMOTE is the only writer. It sources NO number — the chain is value-free by
-    the decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).
-
-    DISCOVERY IS COMPLETENESS-OR-FAIL (it must NOT silently degrade to recall — that's the deterministic layer
-    turning stochastic). Every not-ready / can't-enumerate state RAISES and the draft returns HTTP **503**,
-    VISIBLE to the operator, never a plausible-looking recall draft: the thesis has no produced term set
-    (``DiscoveryNoTerms`` — "produce it first (POST .../terms)"), too many EFTS pages failed after retries
-    (``DiscoveryDegraded``), or the terms enumerated but nothing placeable came back (``DiscoveryEmpty``). There
-    is no benign-empty path anymore — discovery reads a persisted, operator-produced term set, so its absence is
-    a not-ready signal, not "nothing to discover". The tail-sweep still fails-open to None (it's an additive
-    corner, not the universe), and a failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are
-    deliberate: 409 (a draft already running) and 503 (discovery not ready / unavailable).
+    RESPONSE-ONLY: it returns a draft and persists NOTHING (the operator's promote is the only writer; it sources
+    NO number — INVARIANT #2/#3). DISCOVERY IS COMPLETENESS-OR-FAIL: every not-ready / can't-enumerate state
+    RAISES (``DiscoveryNoTerms`` / the ``DiscoveryUnavailable`` base = Degraded/Empty) — the JOB RUNNER maps these
+    to a VISIBLE failed job (never a silent recall draft, #9). The tail-sweep still fails-open to None (an
+    additive corner), and a failed DECOMPOSE yields an EMPTY draft (a done-but-empty job, today's benign note).
     """
-    try:
-        universe = run_discovery(conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id)
-    except DiscoveryNoTerms as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="term set is empty — produce or seed it first (POST .../terms or the edit UI)",
-        ) from exc
-    except DiscoveryUnavailable as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="discovery unavailable — couldn't enumerate the universe; please retry",
-        ) from exc
-    try:
-        sweep = run_research(  # fail-open -> None; ResearchInFlight -> 409
+    universe = run_discovery(conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id)
+    sweep = (
+        run_research(  # fail-open -> None; TTL cache; the job layer owns the in-flight 409 guard
             thesis.id,
             thesis.narrative,
             ttl_s=get_settings().llm_research_cache_ttl_s,
@@ -325,10 +309,7 @@ def draft_chain(
                 research_llm, thesis.narrative, discovered_names(universe)
             ),
         )
-    except ResearchInFlight as exc:
-        raise HTTPException(
-            status_code=409, detail="a draft is already running for this thesis"
-        ) from exc
+    )
     context = discovery_context(universe, sweep)
     segments = proposed_from_decomposition(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
@@ -368,6 +349,64 @@ def draft_chain(
                 for p in chain.placements
             ]
     return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=placements)
+
+
+@router.post("/theses/{thesis_id}/draft-chain", status_code=202, response_model=DraftJobRef)
+def start_draft_chain(
+    research_llm: LLMClient = Depends(get_research_client),
+    decompose_llm: LLMClient = Depends(get_decompose_client),
+    edgar: EdgarClient = Depends(get_edgar_client),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> DraftJobRef:
+    """KICK OFF the narrative→chain draft as a background JOB and return immediately (**202** + ``job_id``); the
+    FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the
+    Opus tail-sweep + decompose + narrate); held open as one request it blew past nginx's 300s proxy timeout —
+    the browser 504'd while the backend kept billing. Only the DELIVERY changed; ``execute_draft`` is unchanged.
+
+    The IN-FLIGHT 409 guard lives HERE now (one running draft per thesis — ``DraftInFlight`` → HTTP 409, so a
+    double-click / stray retry can never launch a parallel Opus pass). The job runs in a daemon thread that opens
+    its OWN DB connection (it OUTLIVES this request — the ``get_thesis_or_404`` conn is closed once the 202 is
+    sent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty
+    draft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY
+    (the job writes only its in-memory result — no fact, no promote)."""
+
+    def _run() -> ChainDraftOut:
+        own = connect()  # the job outlives the request; the request-scoped conn is already closed
+        try:
+            return execute_draft(own, research_llm, decompose_llm, edgar, thesis)
+        except DiscoveryNoTerms as exc:  # SPECIFIC first (it subclasses DiscoveryUnavailable)
+            raise DraftError(
+                "term set is empty — produce or seed it first (POST .../terms or the edit UI)"
+            ) from exc
+        except DiscoveryUnavailable as exc:  # Degraded / Empty / enumerate fault
+            raise DraftError(
+                "discovery unavailable — couldn't enumerate the universe; please retry"
+            ) from exc
+        finally:
+            own.close()
+
+    try:
+        job_id = start_draft_job(thesis.id, _run)
+    except DraftInFlight as exc:
+        raise HTTPException(
+            status_code=409, detail="a draft is already running for this thesis"
+        ) from exc
+    return DraftJobRef(job_id=job_id, status="running")
+
+
+@router.get("/theses/{thesis_id}/draft-chain/jobs/{job_id}", response_model=DraftJobStatus)
+def get_draft_chain_job(thesis_id: UUID, job_id: str) -> DraftJobStatus:
+    """POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
+    ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
+    unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
+    infinite spinner). The job_id must belong to this thesis."""
+    job = get_job(job_id)
+    if job is None or job.thesis_id != str(thesis_id):
+        raise HTTPException(
+            status_code=404,
+            detail="draft job not found (it may have expired or the server restarted)",
+        )
+    return DraftJobStatus(job_id=job.job_id, status=job.status, result=job.result, error=job.error)
 
 
 @router.post("/facts", response_model=RatifiedFactOut)

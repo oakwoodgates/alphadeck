@@ -263,46 +263,43 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Draft Chain
-         * @description Draft a value chain from the thesis's narrative — the SECOND LLM seam (S5), EDGAR-FIRST since Slice 4.
-         *     Discovery is OFF the model: (1) the thesis's PERSISTED term set (SIGNAL seeds + BROAD terms, produced
-         *     out-of-band by ``POST .../terms``) is read — no keyword-gen on the draft path; (2) the deterministic EDGAR
-         *     full-text enumerator finds the US-listed universe by CIK and ``classify`` splits PLACED (>=1 SIGNAL seed) vs
-         *     the lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP (``research_tail_sweep``,
-         *     Opus) adds only the foreign / brand-new names EFTS structurally can't see, given the already-found list.
-         *     Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet ORGANIZES the stable name
-         *     set into segments + thesis-fit prose — it never enumerates). Then ``resolve_discovered_chain`` reconciles
-         *     the organizer's layout against the discovered universe PER CIK: a matched name is PLACED / VERIFY by its
-         *     CIK's exact membership (the cleanest INVARIANT #2), an off-universe name falls to the master resolver, and
-         *     every discovered CIK the organizer dropped is appended to a 'Discovered' bucket — completeness is the
-         *     deterministic layer's, never the organizer's to lose. A final fail-open narration step then writes thesis-fit
-         *     prose for the reconciler-appended names the organizer never narrated (so EVERY placed/verify name carries
-         *     reasoning); each name also carries its matched discovery term(s) as provenance. Both are display strings —
-         *     no number (#3), nothing persisted.
+         * Start Draft Chain
+         * @description KICK OFF the narrative→chain draft as a background JOB and return immediately (**202** + ``job_id``); the
+         *     FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the
+         *     Opus tail-sweep + decompose + narrate); held open as one request it blew past nginx's 300s proxy timeout —
+         *     the browser 504'd while the backend kept billing. Only the DELIVERY changed; ``execute_draft`` is unchanged.
          *
-         *     Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): an
-         *     IN-FLIGHT guard (one pass per thesis — a concurrent second draft gets HTTP 409, so a double-click / stray
-         *     retry can never launch a parallel Opus call) + a TTL cache keyed by thesis + narrative-hash
-         *     (``llm_research_cache_ttl_s``; 0 = always fresh). Its amplifiers stay closed: the SDK research client runs
-         *     ``max_retries=0`` and the FE draft query ``retry:false``. EFTS is free + deterministic (no guard needed).
-         *
-         *     RESPONSE-ONLY: it returns a draft and persists NOTHING. The conn is read-only (it reads the narrative,
-         *     resolves CIKs, and runs the master resolver), so "writes nothing" is response-only + TEST-ENFORCED
-         *     (``test_draft_endpoint_writes_nothing``: zero ``fact_*`` AND zero ``basket_member``). The operator loads the
-         *     draft, prunes / ratifies, and PROMOTE is the only writer. It sources NO number — the chain is value-free by
-         *     the decompose tool's schema; discovery returns CIKs / names / keywords only (INVARIANT #3).
-         *
-         *     DISCOVERY IS COMPLETENESS-OR-FAIL (it must NOT silently degrade to recall — that's the deterministic layer
-         *     turning stochastic). Every not-ready / can't-enumerate state RAISES and the draft returns HTTP **503**,
-         *     VISIBLE to the operator, never a plausible-looking recall draft: the thesis has no produced term set
-         *     (``DiscoveryNoTerms`` — "produce it first (POST .../terms)"), too many EFTS pages failed after retries
-         *     (``DiscoveryDegraded``), or the terms enumerated but nothing placeable came back (``DiscoveryEmpty``). There
-         *     is no benign-empty path anymore — discovery reads a persisted, operator-produced term set, so its absence is
-         *     a not-ready signal, not "nothing to discover". The tail-sweep still fails-open to None (it's an additive
-         *     corner, not the universe), and a failed DECOMPOSE returns 200 with an EMPTY draft. The non-200s are
-         *     deliberate: 409 (a draft already running) and 503 (discovery not ready / unavailable).
+         *     The IN-FLIGHT 409 guard lives HERE now (one running draft per thesis — ``DraftInFlight`` → HTTP 409, so a
+         *     double-click / stray retry can never launch a parallel Opus pass). The job runs in a daemon thread that opens
+         *     its OWN DB connection (it OUTLIVES this request — the ``get_thesis_or_404`` conn is closed once the 202 is
+         *     sent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty
+         *     draft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY
+         *     (the job writes only its in-memory result — no fact, no promote).
          */
-        post: operations["draft_chain_workbench_theses__thesis_id__draft_chain_post"];
+        post: operations["start_draft_chain_workbench_theses__thesis_id__draft_chain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workbench/theses/{thesis_id}/draft-chain/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Draft Chain Job
+         * @description POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
+         *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
+         *     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
+         *     infinite spinner). The job_id must belong to this thesis.
+         */
+        get: operations["get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -502,6 +499,39 @@ export interface components {
              * @default []
              */
             placements: components["schemas"]["ResolvedPlacement"][];
+        };
+        /**
+         * DraftJobRef
+         * @description The 202 kick-off body — the draft started as a background JOB (it takes minutes; held open it 504'd at the
+         *     proxy). The FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. Only the DELIVERY changed; the
+         *     draft logic is unchanged.
+         */
+        DraftJobRef: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+        };
+        /**
+         * DraftJobStatus
+         * @description The poll body. ``done`` carries the ``result`` (the ChainDraftOut); ``failed`` carries an operator-facing
+         *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, never a silent empty draft, #9).
+         *     A benign fail-open (no key / the model declined) is ``done`` with an EMPTY draft, not a failure.
+         */
+        DraftJobStatus: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+            result?: components["schemas"]["ChainDraftOut"] | null;
+            /** Error */
+            error?: string | null;
         };
         /**
          * EditTermsRequest
@@ -1485,7 +1515,7 @@ export interface operations {
             };
         };
     };
-    draft_chain_workbench_theses__thesis_id__draft_chain_post: {
+    start_draft_chain_workbench_theses__thesis_id__draft_chain_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1497,12 +1527,44 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftJobRef"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChainDraftOut"];
+                    "application/json": components["schemas"]["DraftJobStatus"];
                 };
             };
             /** @description Validation Error */

@@ -194,24 +194,42 @@ export function useExtract(securityId: string) {
   });
 }
 
-// The narrative -> chain drafter (S5, the SECOND LLM seam): draft a value chain from the thesis's narrative.
-// Same explicit pattern as useExtract (`enabled: false` — fired by the "Draft from narrative" button via
-// refetch(), NEVER on a render). Response-only: it returns a draft (segments + placed/ambiguous/absent names)
-// and persists nothing; the operator ratifies + promotes. Fail-open — no key returns an empty draft, never a
-// 5xx, so hand-authoring is untouched.
-export function useDraftChain(thesisId: string) {
-  return useQuery({
-    queryKey: ["workbench-draft-chain", thesisId] as const,
-    enabled: false,
-    // An expensive Opus web-search one-shot: a retry re-runs the whole search loop and re-spends. NEVER
-    // auto-retry — the operator re-clicks if a draft fails (the server-side in-flight guard blocks a parallel run).
+// The narrative -> chain drafter (S5, the SECOND LLM seam) — now a KICK-OFF + POLL job (the draft takes minutes;
+// held open as one request it 504'd at the proxy while the backend kept billing). `useStartDraft` POSTs and gets
+// a job_id back (202); `useDraftJobStatus` polls for the result. Response-only: the job returns a draft and
+// persists nothing; the operator ratifies + promotes.
+
+// Kick off the draft job. retry:false — an expensive Opus pass must NEVER auto-retry (the server 409s a parallel
+// run); the operator re-clicks on failure.
+export function useStartDraft(thesisId: string) {
+  return useMutation({
     retry: false,
-    queryFn: async () => {
+    mutationFn: async () => {
       const { data, error } = await api.POST("/workbench/theses/{thesis_id}/draft-chain", {
         params: { path: { thesis_id: thesisId } },
       });
       if (error) throw error;
-      return data;
+      return data; // DraftJobRef { job_id, status: "running" }
+    },
+  });
+}
+
+// Poll a kicked-off draft job. Enabled only once a job_id exists; polls every 2.5s WHILE the job is "running"
+// and STOPS on a terminal status (done|failed). retry:false — a 404 (unknown/expired/restart-wiped job) is a
+// terminal, visible failure (never an infinite spinner), not something to retry.
+export function useDraftJobStatus(thesisId: string, jobId: string | null) {
+  return useQuery({
+    queryKey: ["workbench-draft-job", thesisId, jobId] as const,
+    enabled: !!jobId,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 2500 : false),
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/workbench/theses/{thesis_id}/draft-chain/jobs/{job_id}",
+        { params: { path: { thesis_id: thesisId, job_id: jobId as string } } },
+      );
+      if (error) throw error;
+      return data; // DraftJobStatus { job_id, status, result, error }
     },
   });
 }

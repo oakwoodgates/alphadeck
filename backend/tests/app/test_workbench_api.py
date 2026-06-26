@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import pytest
+
 from app.main import app
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype, TermTier
@@ -889,6 +891,33 @@ def _override_draft(*, edgar=None, research=None, decompose=None):
     app.dependency_overrides[get_decompose_client] = lambda: decompose or _FakeLLM(returns=None)
 
 
+@pytest.fixture(autouse=True)
+def _inline_draft_jobs(monkeypatch):
+    """Run draft jobs INLINE (synchronously) so a kicked-off draft is terminal by the time the 202 returns — no
+    thread-timing flakiness, no race with the test-DB teardown. Reset the in-process registry per test. (The
+    thunk still opens its OWN ``connect()`` to ``alphadeck_test`` and sees the helpers' COMMITTED rows — exactly
+    the prod path, minus the thread.)"""
+    from workbench import draft_jobs
+
+    draft_jobs.reset_state()
+    monkeypatch.setattr(
+        draft_jobs, "_DEFAULT_EXECUTOR", lambda job, run: draft_jobs._run_job(job, run)
+    )
+    yield
+    draft_jobs.reset_state()
+
+
+def _draft(client, tid) -> dict:
+    """Kick off the draft (202 + job_id) then poll once — the inline executor makes the job terminal before the
+    202 returns, so a single poll is conclusive. Returns the poll body ({status, result, error})."""
+    started = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert started.status_code == 202, started.text
+    job_id = started.json()["job_id"]
+    polled = client.get(f"/workbench/theses/{tid}/draft-chain/jobs/{job_id}")
+    assert polled.status_code == 200, polled.text
+    return polled.json()
+
+
 def test_draft_endpoint_resolves_via_discovery(client, db):
     """The EDGAR-first wire: the stored term set -> EFTS discovery (a CIK in the master) -> organizer decompose
     -> reconcile by CIK -> PLACED with that CIK's id. An off-universe name the organizer adds falls to the master
@@ -902,11 +931,11 @@ def test_draft_endpoint_resolves_via_discovery(client, db):
         edgar=edgar,
         decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"), ("Ghost Co", "ZZZZ"))),
     )
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["thesis_id"] == str(tid)
-    by_name = {p["name"]: p for p in body["placements"]}
+    body = _draft(client, tid)
+    assert body["status"] == "done"
+    result = body["result"]
+    assert result["thesis_id"] == str(tid)
+    by_name = {p["name"]: p for p in result["placements"]}
     assert by_name["Oklo Inc."]["status"] == "placed"
     assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # PLACED by its EDGAR CIK
     assert by_name["Oklo Inc."]["matched_terms"] == [
@@ -926,7 +955,7 @@ def test_draft_endpoint_writes_nothing(client, db):
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
     _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
-    assert client.post(f"/workbench/theses/{tid}/draft-chain").status_code == 200
+    assert _draft(client, tid)["status"] == "done"
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
         assert cur.fetchone()["n"] == 0  # the draft persisted no placement
@@ -948,13 +977,13 @@ def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
     app.dependency_overrides[get_edgar_client] = lambda: _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
+    body = _draft(client, tid)
     assert (
-        r.status_code == 200
-    )  # NOT a 5xx — the LLM seams failed open, discovery carried the draft
-    body = r.json()
-    assert body["thesis_id"] == str(tid)
-    by_name = {p["name"]: p for p in body["placements"]}
+        body["status"] == "done"
+    )  # NOT failed — the LLM seams failed open, discovery carried the draft
+    result = body["result"]
+    assert result["thesis_id"] == str(tid)
+    by_name = {p["name"]: p for p in result["placements"]}
     assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # discovered + placed despite no LLM
 
 
@@ -975,8 +1004,7 @@ def test_draft_endpoint_threads_discovery_and_sweep_into_decompose(client, db):
     research = _FakeLLM(research_returns="Foreign tail: Nuclear ADR Co (NADR).")
     decompose = _FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
     _override_draft(edgar=edgar, research=research, decompose=decompose)
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 200
+    assert _draft(client, tid)["status"] == "done"
     user = decompose.calls[0]["user"]
     assert "Current research" in user
     assert "Oklo Inc." in user and "(OKLO)" in user  # the EDGAR name+ticker reached the organizer
@@ -999,13 +1027,13 @@ def test_draft_endpoint_tail_sweep_failure_still_drafts_on_edgar_context(client,
         research=_FakeLLM(research_raises=RuntimeError("web search down")),
         decompose=decompose,
     )
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 200
+    body = _draft(client, tid)
+    assert body["status"] == "done"
     user = decompose.calls[0]["user"]
     assert (
         "Current research" in user and "Oklo Inc." in user
     )  # EDGAR context survived the sweep failure
-    by_name = {p["name"]: p for p in r.json()["placements"]}
+    by_name = {p["name"]: p for p in body["result"]["placements"]}
     assert by_name["Oklo Inc."]["status"] == "placed" and by_name["Oklo Inc."][
         "security_id"
     ] == str(oklo)
@@ -1039,7 +1067,9 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
             },
         ),
     )
-    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    out = _draft(client, tid)
+    assert out["status"] == "done"
+    body = out["result"]
     by_name = {p["name"]: p for p in body["placements"]}
     assert by_name["Oklo Inc."]["status"] == "placed"
     assert by_name["Oklo Inc."]["matched_terms"] == [
@@ -1083,7 +1113,7 @@ def test_draft_endpoint_narrates_verify_names_too(client, db):
             narrate_returns={"placements": [{"ref": 1, "prose": "reactor-component supplier"}]},
         ),
     )
-    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    body = _draft(client, tid)["result"]
     genco = next(p for p in body["placements"] if p["name"] == "Generic Reactor Co")
     assert genco["status"] == "verify"  # single broad keyword -> lower-confidence tier
     assert (
@@ -1108,40 +1138,38 @@ def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
     # the organizer places nothing in-universe (Ghost is off-universe -> absent); SMR is reconciler-appended.
     # the decompose fake RAISES on every draft_structured -> both the organizer AND the narration fail open.
     _override_draft(edgar=edgar, decompose=_FakeLLM(raises=RuntimeError("LLM down")))
-    body = client.post(f"/workbench/theses/{tid}/draft-chain").json()
+    body = _draft(client, tid)["result"]
     nuscale = next(p for p in body["placements"] if p["name"] == "NuScale Power Corporation")
     assert nuscale["status"] == "placed" and nuscale["prose"] == ""  # surfaced, prose empty, no 5xx
     assert nuscale["matched_terms"] == ["nuclear"]  # provenance still attached
 
 
-def test_draft_endpoint_409_when_a_research_pass_is_already_running(client, db, monkeypatch):
-    """The in-flight guard, surfaced: a draft for a thesis whose tail-sweep pass is already running returns 409
-    — NOT a second (expensive) Opus call. We force the guard to fire by faking the runner to raise.
-    """
-    from app.routers import workbench as wb
-    from workbench.research_runner import ResearchInFlight
+def test_draft_endpoint_409_when_a_draft_is_already_running(client, db, monkeypatch):
+    """The in-flight 409 guard, now at the JOB layer (one running draft per thesis): a second kick-off while a
+    job is still running returns 409 — never a second (expensive) Opus pass. A no-op executor holds the first
+    job 'running' so the thesis slot stays claimed."""
+    from workbench import draft_jobs
 
     _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
-    tid = _thesis_for_draft(
-        db
-    )  # discovery must SUCCEED (term + placeable CIK) to reach run_research
+    tid = _thesis_for_draft(db)
     edgar = _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
     _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
+    monkeypatch.setattr(
+        draft_jobs, "_DEFAULT_EXECUTOR", lambda job, run: None
+    )  # never runs -> stays running
+    first = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert first.status_code == 202  # the slot is claimed
+    second = client.post(f"/workbench/theses/{tid}/draft-chain")
+    assert second.status_code == 409  # the guard fires — no parallel Opus pass
+    assert "already running" in second.json()["detail"]
 
-    def _already_running(*args, **kwargs):
-        raise ResearchInFlight(str(tid))
 
-    monkeypatch.setattr(wb, "run_research", _already_running)
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 409
-    assert "already running" in r.json()["detail"]
-
-
-def test_draft_endpoint_503_when_discovery_degraded(client, db):
+def test_draft_failed_job_when_discovery_degraded(client, db):
     """COMPLETENESS-OR-FAIL end to end: the term set is present but EFTS pages all fail -> DiscoveryDegraded ->
-    the draft returns 503 (the operator SEES "discovery unavailable"), NEVER a silent recall draft.
+    a VISIBLE *failed* job carrying "discovery unavailable" (the operator SEES it on the poll), NEVER a silent
+    recall draft. (Discovery-not-ready moved from a synchronous 503 to a failed job in the async-draft slice.)
     """
     _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     tid = _thesis_for_draft(db)
@@ -1151,15 +1179,15 @@ def test_draft_endpoint_503_when_discovery_degraded(client, db):
             returns=_decomp(("Oklo", "OKLO"))
         ),  # would have made a plausible recall draft
     )
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 503
-    assert "discovery unavailable" in r.json()["detail"]
+    body = _draft(client, tid)
+    assert body["status"] == "failed" and body["result"] is None
+    assert "discovery unavailable" in body["error"]
 
 
-def test_draft_endpoint_503_when_empty_despite_terms(client, db):
+def test_draft_failed_job_when_empty_despite_terms(client, db):
     """The term set enumerated terms but nothing placeable came back (the discovered CIK isn't in the master) ->
-    against the populated master that is a BROKEN discovery -> 503, not a quiet recall fallback. The decompose
-    fake would have produced a draft; the operator must not silently get it."""
+    against the populated master that is a BROKEN discovery -> a failed job, not a quiet recall fallback. The
+    decompose fake would have produced a draft; the operator must not silently get it."""
     tid = _thesis_for_draft(
         db
     )  # NOTE: the discovered CIK is deliberately NOT inserted -> 0 placeable
@@ -1167,22 +1195,42 @@ def test_draft_endpoint_503_when_empty_despite_terms(client, db):
         {"efts/nuclear_0.json": _efts_page(("0009999999", "Ghost Co  (GHST)  (CIK 0009999999)"))}
     )
     _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Ghost Co", "GHST"))))
-    r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 503
-    assert "discovery unavailable" in r.json()["detail"]
+    body = _draft(client, tid)
+    assert body["status"] == "failed" and "discovery unavailable" in body["error"]
 
 
-def test_draft_endpoint_503_when_no_term_set(client, db):
-    """T3 readiness gate: a thesis with NO produced term set -> 503 ("produce it first"), and EFTS is NEVER
-    queried (discovery has nothing to read). The not-ready state is VISIBLE — never a silent recall draft, never
-    a confusing empty. This is also the wipe-trap's last line: a blanked set would land here, not pass silently.
-    """
+def test_draft_failed_job_when_no_term_set(client, db):
+    """T3 readiness gate: a thesis with NO produced term set -> a failed job naming "term set is empty" (the
+    not-ready state is VISIBLE on the poll), and EFTS is NEVER queried (discovery has nothing to read). Also the
+    wipe-trap's last line: a blanked set would land here, not pass silently as an empty draft."""
     tid = _thesis_for_draft(db, terms=())  # no term set produced
     edgar = _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo  (OKLO)  (CIK ...)"))}
     )
     _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo", "OKLO"))))
+    body = _draft(client, tid)
+    assert body["status"] == "failed"
+    assert "term set" in body["error"] and "empty" in body["error"]  # names the cause, not opaque
+
+
+def test_draft_kickoff_returns_202_running_ref(client, db):
+    """Kick-off returns a 202 + a job_id + status 'running' (the ref is always 'running' by contract — the
+    result arrives on the poll), even though the inline test executor has already finished the job.
+    """
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
     r = client.post(f"/workbench/theses/{tid}/draft-chain")
-    assert r.status_code == 503
-    detail = r.json()["detail"]
-    assert "term set" in detail and "empty" in detail  # names the cause, not an opaque 503
+    assert r.status_code == 202
+    assert r.json()["status"] == "running" and r.json()["job_id"]
+
+
+def test_draft_poll_404_for_unknown_job(client, db):
+    """An unknown / expired / restart-wiped job_id -> 404 (the FE shows a visible 'draft was lost', never an
+    infinite spinner)."""
+    tid = _thesis_for_draft(db)
+    r = client.get(f"/workbench/theses/{tid}/draft-chain/jobs/{uuid.uuid4().hex}")
+    assert r.status_code == 404
