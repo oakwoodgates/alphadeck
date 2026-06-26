@@ -213,3 +213,42 @@ surfaced to the operator, not silently resolved in code.**
   discovered in-master CIK reaches the draft (`workbench/chain_draft.resolve_discovered_chain`); the VERIFY
   tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`). The
   full discovery system this invariant governs: `docs/DISCOVERY.md`.
+
+## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
+
+The invariants above forbid the LLM **deciding** — sourcing a number (#1), deciding a mapping (#2),
+firing a trigger, setting a tier that places names. They do **not** forbid the LLM **recommending**: a
+**visible, pending** suggestion the operator confirms. The danger was never the recommendation — it was
+a recommendation being **auto-applied**. A recommendation that changes nothing until the operator
+confirms cannot cause the silent flood or silent drop the other invariants exist to prevent. So the LLM
+may be maximally helpful — flag, suggest, recommend a tier — as long as the operator's confirmation is
+what acts.
+
+**The boundary:** a recommendation is the model's *loudest possible disagreement that still changes
+nothing on its own.* The moment a suggestion can act without operator confirmation, it is a decision,
+and the other invariants apply.
+
+This is a **clarification of restraint, not a relaxation.** "Never decides" means never **autonomously
+or silently** — not "never informs a decision the operator makes." The platform already runs on this
+pattern: the chain drafter PROPOSES names, the operator RATIFIES; exact membership still DECIDES (#2).
+A tier recommendation is the same shape one level up.
+
+What this does NOT loosen (state it so the freedom isn't misread): no LLM-proposed term ever places
+autonomously; no model-sourced number (#1); recall stays sacred (#9). On confirm, **authorship transfers
+to the operator** (`system_drafted` recommendation → `operator_edited`) — so the record shows the
+operator as the decider, and a confirmed recommendation is operator-authored and **stable across a
+regenerate** (it does not return determinism to the model).
+
+The illustrating case is the *valuable* one, not the defensive one: the model surfaces a discriminating
+term the operator **didn't** seed, recommends it as SIGNAL, shows why — and it sits as an opportunity
+until the operator adopts it. The project's core value (surface what the operator missed) and its core
+restraint (the LLM never autonomously places) live in the same act; pending-until-confirmed is what lets
+them coexist.
+
+- *Enforced by:* the authorship model (`system_drafted` → `operator_edited` on confirm; the #100
+  diff-stamp `stamp_edited_term_set`, `tests/workbench/test_term_set.py`); the chain drafter's
+  propose-then-ratify seam (`workbench/chain_draft.resolve_placements`); the rule that no recommendation
+  is persisted as a tier or auto-applied (a recommendation rides display-only, like the `matched_terms`
+  provenance tags, never mutating `authored_by` until the operator acts). Recommendation surfaces this
+  invariant governs as they ship: tier recommendation (`docs/DISCOVERY.md`), and — same shape — any
+  later flag/archetype recommendation.

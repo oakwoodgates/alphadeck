@@ -55,13 +55,18 @@ The thesis OWNS a persisted, tiered **term set** (`thesis.term_set`, JSONB, oper
   SIGNAL hit **places a company alone**. `authored_by = operator_set`.
 - **BROAD = keyword-gen proposals** — the LLM brainstorms candidates; a deterministic guard (`assign_tier`)
   tiers each. **No LLM proposal is ever SIGNAL** — it is BROAD (contributes only to the ≥-net, never places
-  alone) or DROPPED (generic/regulatory noise; a short collision abbreviation like `MDMA`/`DMT`/`LSD` that
-  would ≥2-combine into junk). `authored_by = system_drafted`.
+alone) or DROPPED (generic/regulatory noise; a short collision abbreviation like `MDMA`/`DMT`/`LSD` that
+  would ≥2-combine into junk). `authored_by = system_drafted`. An LLM term may be **recommended** for
+  promotion to SIGNAL, but it becomes `operator_edited` SIGNAL only on the operator's explicit approval —
+  the model never self-promotes (INVARIANTS.md #10).
 
 Produced out of band by **`POST /workbench/theses/{id}/terms`** (`produce_terms` → `produce_term_set`): the
 keyword-gen LLM proposes, the guard tiers, the operator's seeds are preserved across a regenerate (so a re-POST
-re-rolls the LLM half while anchoring the seeds). The "is this term discriminating?" decision is **off the
-model and off the draft path** — discovery just READS what the operator ratified.
+re-rolls the LLM half while anchoring the seeds). The **autonomous** "is this term discriminating?"
+decision is **off the model and off the draft path** — no LLM term self-tiers to SIGNAL, and discovery
+just READS what the operator ratified. The model MAY **recommend** a tier (for an operator seed or its own
+proposal); the operator confirms it, exact membership still decides placement, and the confirmed tier is
+operator-authored (INVARIANTS.md #10).
 
 - *War story:* the live draft once placed ~370 junk names (utilities on "substance use disorder", Verisign on
   "MDMA") because keyword-gen put generic/collision terms in its SIGNAL tier and "≥1 signal → PLACED" faithfully
@@ -155,7 +160,9 @@ a silent fall back to model recall (#9).
 
 ## The key decisions, and why  *(do not relitigate)*
 
-- **SIGNAL = operator seeds only.** Moving the discriminating decision off the LLM made PLACED **deterministic**:
+- **SIGNAL = operator seeds only** (the model may *recommend* a tier; an operator-confirmed recommendation
+  is operator-authored and stable across runs, so it does not return determinism to the model — INVARIANTS.md
+  #10). Moving the *autonomous* discriminating decision off the LLM made PLACED **deterministic**:
   the same byte-identical **57-name set across three runs** while keyword-gen re-rolled the broad terms each run
   (raw universe 3296 / 1020 / 610). The `≥2-broad → PLACED` clause was the *last* LLM-driven placement authority
   and the source of run-to-run variance (PLACED swung 96 → 184 on the same seeds); demoting it to VERIFY made
