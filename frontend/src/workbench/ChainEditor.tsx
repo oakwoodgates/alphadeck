@@ -14,6 +14,7 @@ import {
   useEditTerms,
   useProduceTerms,
   usePromoteThesis,
+  useRecommendTiers,
   useStartDraft,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
@@ -70,12 +71,39 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const [newSeed, setNewSeed] = useState("");
   const [newSeg, setNewSeg] = useState("");
 
+  // The tier RECOMMENDER (INVARIANT #10): the LLM recommends signal/broad + a reason per term; the operator
+  // confirms via the EXISTING toggle. Display-only — `recs` is stashed (like `matched`), never persisted.
+  const recommendTiers = useRecommendTiers(thesis.id);
+  const [recs, setRecs] = useState<Record<string, { tier: string; reason: string }>>({});
+  // OFFENSE adoptions (a BROAD term the model recommended SIGNAL, then confirmed): keep a "✦ adopted" trace in
+  // v1 so the model's best contribution doesn't dissolve into an indistinguishable agreement while we judge it.
+  const [adopted, setAdopted] = useState<Set<string>>(new Set());
+  const norm = (t: string) => t.trim().toLowerCase();
+
   const adopt = (t: ThesisDetail | undefined) => t && setTermSet(t.term_set);
   // Each edit op sends the FULL set (current working set + the one change) and adopts the re-stamped response.
   const toEdits = (ts: TermSetEntry[]): TermEdit[] => ts.map((e) => ({ term: e.term, tier: e.tier }));
   const saveEdits = (next: TermSetEntry[]) =>
     editTerms.mutate(toEdits(next), { onSuccess: adopt });
-  const onProduce = () => produceTerms.mutate(undefined, { onSuccess: adopt });
+  // Produce/Regenerate replaces the set wholesale -> old recs are stale; clear recs + adopted (NOT on edits,
+  // which the auto-flip + the adopted trace rely on `recs`/`adopted` surviving).
+  const onProduce = () =>
+    produceTerms.mutate(undefined, {
+      onSuccess: (t) => {
+        adopt(t);
+        setRecs({});
+        setAdopted(new Set());
+      },
+    });
+  const onRecommend = () =>
+    recommendTiers.mutate(undefined, {
+      onSuccess: (rs) =>
+        setRecs(
+          Object.fromEntries(
+            (rs ?? []).map((r) => [norm(r.term), { tier: r.recommended_tier, reason: r.reason }]),
+          ),
+        ),
+    });
 
   const addSeed = () => {
     const term = newSeed.trim();
@@ -95,12 +123,45 @@ export function ChainEditor({ thesis, onDone }: Props) {
     }
     saveEdits(next);
   };
-  const toggleTier = (term: string) =>
+  const toggleTier = (term: string) => {
+    const entry = termSet.find((e) => e.term === term);
+    const rec = recs[norm(term)];
+    // OFFENSE adoption: a BROAD term the model recommended SIGNAL, toggled toward SIGNAL -> keep a v1 trace.
+    if (entry && entry.tier === "broad" && rec?.tier === "signal") {
+      setAdopted((prev) => new Set(prev).add(norm(term)));
+    }
     saveEdits(
       termSet.map((e) =>
         e.term === term ? { ...e, tier: e.tier === "signal" ? "broad" : "signal" } : e,
       ),
     );
+  };
+
+  // The per-chip tier recommendation (INVARIANT #10) — DISPLAY-ONLY. Loud for a disagreement (DEFENSE: a SIGNAL
+  // term recommended BROAD / OFFENSE: a BROAD term recommended SIGNAL — the existing toggle IS the confirm);
+  // quiet-but-present for an agreement (a faint ✓, reason on hover), so v1 can judge the engine fired + concurred.
+  // An adopted offense keeps a "✦ adopted" trace even after it auto-flips to agreement.
+  const recTag = (e: TermSetEntry) => {
+    const rec = recs[norm(e.term)];
+    if (!rec) return null;
+    if (rec.tier === e.tier) {
+      const adoptedTrace = adopted.has(norm(e.term));
+      return (
+        <span
+          className={`wb-rec wb-rec-agree${adoptedTrace ? " wb-rec-adopted" : ""}`}
+          title={rec.reason}
+        >
+          {adoptedTrace ? "✦ adopted" : `✓ ${rec.tier}`}
+        </span>
+      );
+    }
+    const offense = rec.tier === "signal"; // current is broad -> recommend SIGNAL (the value cell)
+    return (
+      <span className={`wb-rec wb-rec-disagree wb-rec-${offense ? "offense" : "defense"}`}>
+        {offense ? "↑ recommend SIGNAL" : "↓ recommend BROAD"} — {rec.reason}
+      </span>
+    );
+  };
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
@@ -255,10 +316,21 @@ export function ChainEditor({ thesis, onDone }: Props) {
                 ? "↻ Regenerate term set"
                 : "⚙ Produce term set"}
           </button>
+          {termSet.length > 0 && (
+            <button
+              type="button"
+              className="wb-edit-btn"
+              onClick={onRecommend}
+              disabled={recommendTiers.isPending}
+              title="Haiku recommends a tier + reason per term — you confirm via the ↑/↓ toggles (#10)"
+            >
+              {recommendTiers.isPending ? "Recommending…" : "✦ Recommend tiers"}
+            </button>
+          )}
           <span className="note">
             The discovery term set the draft reads — your <b>seeds</b> are the only <b>SIGNAL</b> (a hit
             PLACES); keyword-gen proposes the <b>BROAD</b> terms (corroboration → VERIFY). Seed and curate
-            below; Regenerate re-rolls the proposed BROAD terms while preserving every edit.
+            below; <b>Recommend tiers</b> has the model flag each term (you confirm via the ↑/↓ toggles).
           </span>
         </div>
         {produceTerms.isError && (
@@ -266,6 +338,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
         )}
         {editTerms.isError && (
           <ErrorToast>Couldn't save the term edit — {errText(editTerms.error)}.</ErrorToast>
+        )}
+        {recommendTiers.isError && (
+          <ErrorToast>Couldn't recommend tiers — {errText(recommendTiers.error)}.</ErrorToast>
         )}
 
         {/* Add a seed — works on an empty set (how a NEW thesis gets seeded). Lands SIGNAL / operator_set. */}
@@ -318,6 +393,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     >
                       ×
                     </button>
+                    {recTag(e)}
                   </li>
                 ))}
                 {signalTerms.length === 0 && (
@@ -352,6 +428,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     >
                       ×
                     </button>
+                    {recTag(e)}
                   </li>
                 ))}
                 {broadTerms.length === 0 && <li className="muted">none</li>}

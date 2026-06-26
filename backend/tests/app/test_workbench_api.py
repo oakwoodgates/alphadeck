@@ -415,6 +415,101 @@ def test_produce_terms_preserves_operator_edited_on_regenerate(client, db):
     assert "ibogaine" not in e  # the dropped system_drafted term did not resurface this roll
 
 
+# --- the tier RECOMMENDER (INVARIANT #10): the LLM recommends, the operator decides ---
+
+
+def _seeded_term_thesis(client, db) -> str:
+    """A thesis with a produced term set (psilocybin SIGNAL seed + ketamine/ibogaine system_drafted BROAD)."""
+    from app.deps import get_keyword_client
+
+    tid = client.post(
+        "/workbench/theses",
+        json={
+            "name": "psy",
+            "narrative": "psychedelic therapy",
+            "ticker": None,
+            "segments": [],
+            "basket": [],
+        },
+    ).json()["id"]
+    app.dependency_overrides[get_keyword_client] = lambda: _FakeLLM(
+        returns={"signal": [], "broad": ["ketamine", "ibogaine"]}
+    )
+    client.post(f"/workbench/theses/{tid}/terms", json={"seeds": ["psilocybin"]})
+    return tid
+
+
+def test_recommend_tiers_returns_recs_aligned_to_the_stored_set(client, db):
+    """The recommender returns a tier + reason per term, aligned to the stored set (only terms the model
+    returned, in the set's order). DISPLAY-ONLY — a separate wire type, never on ThesisDetail.term_set.
+    """
+    from app.deps import get_tier_rec_client
+
+    tid = _seeded_term_thesis(client, db)
+    app.dependency_overrides[get_tier_rec_client] = lambda: _FakeLLM(
+        returns={
+            "recommendations": [
+                {
+                    "term": "psilocybin",
+                    "tier": "signal",
+                    "reason": "a specific psychedelic compound",
+                },
+                {
+                    "term": "ketamine",
+                    "tier": "signal",
+                    "reason": "discriminating dissociative compound",
+                },
+                {"term": "zzz-not-in-set", "tier": "broad", "reason": "ignored — not in the set"},
+            ]
+        }
+    )
+    r = client.post(f"/workbench/theses/{tid}/recommend-tiers")
+    assert r.status_code == 200
+    by = {x["term"]: x for x in r.json()}
+    assert by["psilocybin"]["recommended_tier"] == "signal"
+    assert (
+        by["ketamine"]["recommended_tier"] == "signal"
+    )  # OFFENSE: a BROAD term recommended SIGNAL
+    assert by["ketamine"]["reason"] == "discriminating dissociative compound"
+    assert "zzz-not-in-set" not in by  # only terms present in the stored set are returned
+
+
+def test_recommend_tiers_persists_nothing(client, db):
+    """THE #10 STRUCTURAL BOUND, test-enforced (like test_draft_endpoint_writes_nothing): a recommendation can
+    NEVER become a persisted tier — the stored term_set is byte-identical before/after, and no authored_by
+    moves. The endpoint calls no writer."""
+    from app.deps import get_tier_rec_client
+
+    tid = _seeded_term_thesis(client, db)
+    before = client.get(f"/theses/{tid}").json()["term_set"]
+    # the model recommends the OPPOSITE tier for every term — yet nothing is applied
+    app.dependency_overrides[get_tier_rec_client] = lambda: _FakeLLM(
+        returns={
+            "recommendations": [
+                {"term": "psilocybin", "tier": "broad", "reason": "x"},  # DEFENSE rec — NOT applied
+                {"term": "ketamine", "tier": "signal", "reason": "y"},  # OFFENSE rec — NOT applied
+                {"term": "ibogaine", "tier": "signal", "reason": "z"},
+            ]
+        }
+    )
+    assert client.post(f"/workbench/theses/{tid}/recommend-tiers").status_code == 200
+    after = client.get(f"/theses/{tid}").json()["term_set"]
+    assert after == before  # byte-identical: tiers + authored_by + source all unchanged
+
+
+def test_recommend_tiers_failopen_no_key(client, db, monkeypatch):
+    """No key: the real client's offline gate is caught inside recommend_tiers -> the endpoint returns 200 []
+    (the chips render with no recommendation), never a 5xx."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    tid = _seeded_term_thesis(client, db)
+    r = client.post(f"/workbench/theses/{tid}/recommend-tiers")
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_recommend_tiers_404_for_unknown_thesis(client):
+    assert client.post(f"/workbench/theses/{uuid.uuid4()}/recommend-tiers").status_code == 404
+
+
 def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:

@@ -95,3 +95,17 @@ def get_keyword_client() -> LLMClient:
         max_tokens=_s.llm_keyword_max_tokens,
         timeout_s=_s.llm_keyword_timeout_s,
     )
+
+
+def get_tier_rec_client() -> LLMClient:
+    """The live LLM client for the tier RECOMMENDER (INVARIANT #10) — on its OWN cheap Haiku dials
+    (``llm_tier_rec_*``, no web search) so the keyword / flag / decompose seams are undisturbed. Overridden in
+    tests with a fake; fail-open by contract (no ``ANTHROPIC_API_KEY`` -> ``recommend_tiers`` returns ``[]`` ->
+    the chips render with no recommendation, exactly as today)."""
+    _s = get_settings()
+    return LLMClient(
+        allow_live=True,
+        model=_s.llm_tier_rec_model,
+        max_tokens=_s.llm_tier_rec_max_tokens,
+        timeout_s=_s.llm_tier_rec_timeout_s,
+    )

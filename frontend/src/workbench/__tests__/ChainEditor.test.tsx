@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   start: vi.fn(),
   produce: vi.fn(),
   edit: vi.fn(),
+  recommend: vi.fn(),
   produceData: undefined as any,
   jobData: undefined as any,
   jobIsError: false,
@@ -42,6 +43,8 @@ vi.mock("../../api/hooks", () => ({
   }),
   // the manual term-set save (no LLM): mutate records the PUT body (the full edited set)
   useEditTerms: () => ({ mutate: h.edit, isPending: false, isError: false, error: null }),
+  // the tier RECOMMENDER (#10): mutate(undefined, {onSuccess}) — the test drives onSuccess with canned recs
+  useRecommendTiers: () => ({ mutate: h.recommend, isPending: false, isError: false, error: null }),
 }));
 
 import { ChainEditor } from "../ChainEditor";
@@ -110,6 +113,7 @@ beforeEach(() => {
   h.start.mockReset();
   h.produce.mockReset();
   h.edit.mockReset();
+  h.recommend.mockReset();
   h.produceData = undefined;
   h.jobData = undefined;
   h.jobIsError = false;
@@ -449,5 +453,73 @@ describe("ChainEditor — term set produce + edit", () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(h.edit).not.toHaveBeenCalled(); // cancelled → no save, the set is preserved
     confirmSpy.mockRestore();
+  });
+});
+
+describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
+  it("the Recommend button is absent on an empty set and fires once when present", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // empty set
+    expect(screen.queryByRole("button", { name: /Recommend tiers/ })).not.toBeInTheDocument();
+    unmount();
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
+    expect(h.recommend).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows LOUD DEFENSE + OFFENSE recommendations with their reasons", async () => {
+    const user = userEvent.setup();
+    h.recommend.mockImplementation((_u: unknown, opts?: { onSuccess?: (rs: unknown) => void }) =>
+      opts?.onSuccess?.([
+        { term: "psilocybin", recommended_tier: "broad", reason: "marketed comparator, not unique" }, // DEFENSE
+        { term: "ketamine", recommended_tier: "signal", reason: "discriminating dissociative" }, // OFFENSE
+      ]),
+    );
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
+    // DEFENSE on the operator's SIGNAL seed; OFFENSE on the system_drafted BROAD term — both loud, with reasons
+    expect(screen.getByText(/↓ recommend BROAD — marketed comparator/)).toBeInTheDocument();
+    expect(screen.getByText(/↑ recommend SIGNAL — discriminating dissociative/)).toBeInTheDocument();
+  });
+
+  it("shows a QUIET ✓ marker for an agreement (engine fired + concurred), reason on hover", async () => {
+    const user = userEvent.setup();
+    h.recommend.mockImplementation((_u: unknown, opts?: { onSuccess?: (rs: unknown) => void }) =>
+      opts?.onSuccess?.([
+        { term: "psilocybin", recommended_tier: "signal", reason: "a specific compound" }, // agrees with the seed
+      ]),
+    );
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
+    const marker = screen.getByText("✓ signal");
+    expect(marker).toBeInTheDocument(); // present, not hidden in v1
+    expect(marker).toHaveAttribute("title", "a specific compound"); // reason quiet (on hover)
+  });
+
+  it("adopting an OFFENSE rec via the existing toggle fires editTerms AND keeps a '✦ adopted' trace", async () => {
+    const user = userEvent.setup();
+    h.recommend.mockImplementation((_u: unknown, opts?: { onSuccess?: (rs: unknown) => void }) =>
+      opts?.onSuccess?.([
+        { term: "ketamine", recommended_tier: "signal", reason: "discriminating dissociative" },
+      ]),
+    );
+    // the confirm IS the existing toggle: editTerms.mutate(onSuccess: adopt) — simulate the server flipping it
+    h.edit.mockImplementation((terms: unknown, opts?: { onSuccess?: (t: unknown) => void }) =>
+      opts?.onSuccess?.({
+        ...thesisWithTerms,
+        term_set: [
+          { term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" },
+          { term: "ketamine", tier: "signal", authored_by: "operator_edited", source: "keyword_gen" },
+        ],
+      }),
+    );
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
+    expect(screen.getByText(/↑ recommend SIGNAL/)).toBeInTheDocument(); // loud OFFENSE before adoption
+    await user.click(screen.getByRole("button", { name: /↑ signal/ })); // confirm via the EXISTING toggle
+    expect(h.edit).toHaveBeenCalledTimes(1); // the operator's click is the only writer (operator_edited)
+    // ketamine flipped SIGNAL (now agrees) but keeps the adopted trace; the disagreement resolved
+    expect(await screen.findByText("✦ adopted")).toBeInTheDocument();
+    expect(screen.queryByText(/recommend SIGNAL/)).not.toBeInTheDocument();
   });
 });

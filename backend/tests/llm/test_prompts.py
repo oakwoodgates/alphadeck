@@ -74,6 +74,15 @@ def test_explain_prompt_keeps_the_grounding_and_direction_only_guards():
     assert "flag_explanation tool" in p
 
 
+def test_tier_recommend_prompt_keeps_the_recommend_only_and_no_number_guards():
+    """INVARIANT #10/#3: the tier recommender RECOMMENDS (never decides) and sources NO number — externalizing
+    the prompt must not drop either guard, nor the forced-tool call."""
+    p = load_prompt("tier_recommend")
+    assert "RECOMMEND" in p and "the operator decides" in p  # #10 — pending, not a decision
+    assert "NEVER include a number" in p  # #3 — no number in the reason
+    assert "tier_recommendations tool" in p  # the forced structured-tool call
+
+
 # --- the loader contract ---
 
 

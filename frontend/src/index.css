@@ -454,7 +454,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-terms-tier-h { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); margin-bottom: 8px; }
 .wb-terms-tier-h small { font-weight: 600; letter-spacing: 0.04em; text-transform: none; color: var(--txt-4); }
 .wb-terms-tier ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.wb-terms-tier li { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 7px; background: var(--panel); font-size: 11px; color: var(--txt-2); }
+.wb-terms-tier li { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 7px; background: var(--panel); font-size: 11px; color: var(--txt-2); }
+.wb-terms-tier li:has(.wb-rec-disagree) { min-width: 220px; }  /* give a recommendation's reason room to read */
 .wb-terms-tier li.muted { border-style: dashed; color: var(--txt-4); background: none; }
 .wb-terms-tier li .wb-author { font-size: 8px; padding: 1px 4px; }
 .wb-term-btn { font-size: 9px; letter-spacing: 0.03em; color: var(--txt-4); background: none; border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 5px; cursor: pointer; }
@@ -462,6 +463,15 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-term-x { font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: none; padding: 0 2px; cursor: pointer; }
 .wb-term-x:hover:not(:disabled) { color: var(--danger, #c0392b); }
 .wb-term-btn:disabled, .wb-term-x:disabled { opacity: 0.4; cursor: default; }
+/* the tier RECOMMENDATION (#10) — DISPLAY-ONLY. Loud for a disagreement (the actionable cell, its reason on its
+   own line, inverse-loudness #7); quiet-but-present for an agreement (a faint concurring marker, reason on hover);
+   an adopted offense keeps a "✦ adopted" trace. The existing ↑/↓ toggle is the confirm — these tags only inform. */
+.wb-rec { font-size: 9px; letter-spacing: 0.02em; }
+.wb-rec-agree { color: var(--txt-4); }  /* quiet — the engine fired + concurred */
+.wb-rec-adopted { color: var(--accent, #2d7d46); font-weight: 700; }  /* the model's adopted offense, traced */
+.wb-rec-disagree { flex-basis: 100%; margin-top: 2px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.wb-rec-defense { color: var(--warn, #b8860b); }  /* your SIGNAL seed flagged BROAD — caution */
+.wb-rec-offense { color: var(--accent, #2d7d46); }  /* an unseeded term flagged SIGNAL — the opportunity */
 @media (max-width: 720px) { .wb-terms-split { grid-template-columns: 1fr; } }
 
 /* AMBIGUOUS — the operator-pick list (a non-PLACED name enters the basket only by an explicit pick); and

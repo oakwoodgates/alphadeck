@@ -68,6 +68,18 @@ just READS what the operator ratified. The model MAY **recommend** a tier (for a
 proposal); the operator confirms it, exact membership still decides placement, and the confirmed tier is
 operator-authored (INVARIANTS.md #10).
 
+**The tier RECOMMENDER (INVARIANT #10) — BUILT.** `POST /workbench/theses/{id}/recommend-tiers`
+(`recommend_tiers`, Haiku, own `llm_tier_rec_*` dials) recommends `signal`/`broad` + a one-line reason per term,
+judging each independently of its current tier. It is **DISPLAY-ONLY + RESPONSE-ONLY**: a separate wire type
+(`TierRecommendation`), never on `ThesisDetail.term_set`, the endpoint calls **no writer** (test-enforced byte-
+identical `term_set`), and it is **off `produce_term_set`'s determinism path** (`assign_tier` untouched). The FE
+shows every term's recommendation (the "✦ Recommend tiers" button) — loud for a **disagreement** (DEFENSE: your
+SIGNAL seed flagged BROAD — caught the nuclear flood before it placed junk; OFFENSE: an unseeded term flagged
+SIGNAL — the value cell), quiet for an **agreement** (show-everything in v1 to judge the engine). The **confirm is
+the existing tier toggle** — the operator's click stamps `operator_edited` (`stamp_edited_term_set`), never an
+LLM-authored SIGNAL; an adopted OFFENSE keeps a "✦ adopted" trace in v1. A recommendation changes nothing until
+confirmed → recall stays sacred (#9), no number (#3).
+
 - *War story:* the live draft once placed ~370 junk names (utilities on "substance use disorder", Verisign on
   "MDMA") because keyword-gen put generic/collision terms in its SIGNAL tier and "≥1 signal → PLACED" faithfully
   placed them. The fix took the tiering decision off the LLM entirely.

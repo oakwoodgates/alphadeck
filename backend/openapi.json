@@ -495,6 +495,54 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/recommend-tiers": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Recommend Tiers Endpoint",
+        "description": "Recommend a tier (signal/broad) + a one-line reason per term in the thesis's term set \u2014 the LLM\nRECOMMENDS, the operator DECIDES (INVARIANT #10). DISPLAY-ONLY + RESPONSE-ONLY: no writer is called\n(``set_term_set`` / ``upsert`` never appear), so a recommendation can NEVER become a persisted tier \u2014 it\nrides on its OWN wire type (``list[TierRecommendation]``), never on ``ThesisDetail.term_set``, and the\noperator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where ``stamp_edited_term_set``\nstamps ``operator_edited`` (never an LLM-authored SIGNAL). The model judges each term INDEPENDENTLY of its\ncurrent tier; the FE does the agree/disagree compare. OFF ``produce_term_set``'s determinism path (advisory\nmetadata, never a tier the producer applies \u2014 recall stays sacred, #9). Fail-open: no key / model trouble ->\n``[]`` (the chips render with no recommendation). Sources NO number (#3) \u2014 a tier label + a reason string.",
+        "operationId": "recommend_tiers_endpoint_workbench_theses__thesis_id__recommend_tiers_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TierRecommendation"
+                  },
+                  "title": "Response Recommend Tiers Endpoint Workbench Theses  Thesis Id  Recommend Tiers Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/draft-chain": {
       "post": {
         "tags": [
@@ -2393,6 +2441,29 @@
           "human"
         ],
         "title": "Tier"
+      },
+      "TierRecommendation": {
+        "properties": {
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "recommended_tier": {
+            "$ref": "#/components/schemas/TermTier"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "term",
+          "recommended_tier",
+          "reason"
+        ],
+        "title": "TierRecommendation",
+        "description": "An advisory tier recommendation for ONE term (INVARIANT #10 \u2014 the LLM recommends, the operator decides).\nDISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating\n``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where\n``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type \u2014 it never rides on\n``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).\nCarries NO number (#3): a tier label + a one-line reason."
       },
       "TriggerRefOut": {
         "properties": {
