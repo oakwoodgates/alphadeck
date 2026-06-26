@@ -30,6 +30,7 @@ export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
 export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
 export type TermSetEntry = components["schemas"]["TermSetEntry"];
 export type TermEdit = components["schemas"]["TermEdit"];
+export type TierRecommendation = components["schemas"]["TierRecommendation"];
 
 export function useTheses() {
   return useQuery({
@@ -173,6 +174,23 @@ export function useEditTerms(thesisId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+    },
+  });
+}
+
+// The tier RECOMMENDER (INVARIANT #10): the LLM recommends signal/broad + a one-line reason per term; the
+// operator confirms via the EXISTING tier toggle. An explicit operator action (the "Recommend tiers" button) —
+// DISPLAY-ONLY: the result is stashed in component state, never persisted, never invalidates the thesis
+// (a recommendation changes nothing). retry:false — a Haiku one-shot, re-click on failure.
+export function useRecommendTiers(thesisId: string) {
+  return useMutation({
+    retry: false,
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/workbench/theses/{thesis_id}/recommend-tiers", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data; // TierRecommendation[]
     },
   });
 }

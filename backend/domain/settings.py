@@ -129,6 +129,20 @@ class Settings(BaseSettings):
     llm_keyword_max_tokens: int = 512  # two short keyword lists, not prose
     llm_keyword_timeout_s: float = 20.0
 
+    # --- LLM seam (the tier RECOMMENDER, INVARIANT #10) — operational dials ---
+    # Haiku recommends signal/broad + a one-line reason per term in the operator's term set — VISIBLE + PENDING,
+    # the operator confirms via the existing tier toggle. Cheap + bounded (a tier label + a short reason per term,
+    # NO web search), its OWN dials so the seams stay independent. Higher max_tokens than keyword-gen: the output
+    # is a row PER term (reason included), not two short lists. Fail-open: no key -> [] -> chips render with no
+    # recommendation. If a term set ever exceeds this budget, adopt narrate_placements's batch+parallel pattern.
+    llm_tier_rec_model: str = (
+        "claude-haiku-4-5-20251001"  # cheap; a tier label + a short reason, not reasoning
+    )
+    llm_tier_rec_max_tokens: int = (
+        2048  # the whole bounded term set + one-line reasons in a single call
+    )
+    llm_tier_rec_timeout_s: float = 30.0
+
     # --- EDGAR-first discovery (the EFTS enumerator) — operational dials ---
     # The per-keyword pagination cap. NOT a recall limiter — a BACKSTOP against a pathological keyword: a low
     # cap silently drops real on-thesis names that surface deep (the Slice-1 gate measured 25 dropped at 200).

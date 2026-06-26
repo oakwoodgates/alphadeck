@@ -367,6 +367,19 @@ class EditTermsRequest(BaseModel):
     terms: list[TermEdit] = []
 
 
+class TierRecommendation(BaseModel):
+    """An advisory tier recommendation for ONE term (INVARIANT #10 — the LLM recommends, the operator decides).
+    DISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating
+    ``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where
+    ``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type — it never rides on
+    ``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).
+    Carries NO number (#3): a tier label + a one-line reason."""
+
+    term: str
+    recommended_tier: TermTier
+    reason: str
+
+
 # --- Ratify (hybrid-2a) — the first fact-WRITE: confirm an extracted candidate -> the existing ingest_* ---
 
 

@@ -16,6 +16,7 @@ from app.deps import (
     get_llm_client,
     get_research_client,
     get_thesis_or_404,
+    get_tier_rec_client,
 )
 from app.schemas_api import (
     ChainDraftOut,
@@ -30,10 +31,11 @@ from app.schemas_api import (
     ScoredMemberOut,
     SecurityMatchOut,
     ThesisDetail,
+    TierRecommendation,
     WorkbenchScored,
 )
 from db.session import connect
-from domain.enums import Authorship
+from domain.enums import Authorship, TermTier
 from domain.extraction import ExtractedFact
 from domain.settings import get_settings
 from domain.thesis import Thesis
@@ -46,6 +48,7 @@ from ingest.shares import ingest_shares_outstanding
 from llm.chain_decomposition import decompose_narrative, narrate_placements, research_tail_sweep
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
+from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -260,6 +263,39 @@ def edit_terms(
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
     return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+
+
+@router.post("/theses/{thesis_id}/recommend-tiers", response_model=list[TierRecommendation])
+def recommend_tiers_endpoint(
+    tier_rec_llm: LLMClient = Depends(get_tier_rec_client),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> list[TierRecommendation]:
+    """Recommend a tier (signal/broad) + a one-line reason per term in the thesis's term set — the LLM
+    RECOMMENDS, the operator DECIDES (INVARIANT #10). DISPLAY-ONLY + RESPONSE-ONLY: no writer is called
+    (``set_term_set`` / ``upsert`` never appear), so a recommendation can NEVER become a persisted tier — it
+    rides on its OWN wire type (``list[TierRecommendation]``), never on ``ThesisDetail.term_set``, and the
+    operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where ``stamp_edited_term_set``
+    stamps ``operator_edited`` (never an LLM-authored SIGNAL). The model judges each term INDEPENDENTLY of its
+    current tier; the FE does the agree/disagree compare. OFF ``produce_term_set``'s determinism path (advisory
+    metadata, never a tier the producer applies — recall stays sacred, #9). Fail-open: no key / model trouble ->
+    ``[]`` (the chips render with no recommendation). Sources NO number (#3) — a tier label + a reason string.
+    """
+    recs = recommend_tiers(tier_rec_llm, thesis.narrative, [e.term for e in thesis.term_set])
+    by_key = {r["term"].strip().lower(): r for r in recs}
+    out: list[TierRecommendation] = []
+    for (
+        e
+    ) in (
+        thesis.term_set
+    ):  # align to the stored set, preserving its order; only terms the model returned
+        r = by_key.get(e.term.strip().lower())
+        if r is not None:
+            out.append(
+                TierRecommendation(
+                    term=e.term, recommended_tier=TermTier(r["tier"]), reason=r["reason"]
+                )
+            )
+    return out
 
 
 def execute_draft(

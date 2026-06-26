@@ -253,6 +253,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/recommend-tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recommend Tiers Endpoint
+         * @description Recommend a tier (signal/broad) + a one-line reason per term in the thesis's term set — the LLM
+         *     RECOMMENDS, the operator DECIDES (INVARIANT #10). DISPLAY-ONLY + RESPONSE-ONLY: no writer is called
+         *     (``set_term_set`` / ``upsert`` never appear), so a recommendation can NEVER become a persisted tier — it
+         *     rides on its OWN wire type (``list[TierRecommendation]``), never on ``ThesisDetail.term_set``, and the
+         *     operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where ``stamp_edited_term_set``
+         *     stamps ``operator_edited`` (never an LLM-authored SIGNAL). The model judges each term INDEPENDENTLY of its
+         *     current tier; the FE does the agree/disagree compare. OFF ``produce_term_set``'s determinism path (advisory
+         *     metadata, never a tier the producer applies — recall stays sacred, #9). Fail-open: no key / model trouble ->
+         *     ``[]`` (the chips render with no recommendation). Sources NO number (#3) — a tier label + a reason string.
+         */
+        post: operations["recommend_tiers_endpoint_workbench_theses__thesis_id__recommend_tiers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/draft-chain": {
         parameters: {
             query?: never;
@@ -1128,6 +1156,22 @@ export interface components {
          * @enum {string}
          */
         Tier: "auto" | "flag" | "human";
+        /**
+         * TierRecommendation
+         * @description An advisory tier recommendation for ONE term (INVARIANT #10 — the LLM recommends, the operator decides).
+         *     DISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating
+         *     ``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where
+         *     ``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type — it never rides on
+         *     ``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).
+         *     Carries NO number (#3): a tier label + a one-line reason.
+         */
+        TierRecommendation: {
+            /** Term */
+            term: string;
+            recommended_tier: components["schemas"]["TermTier"];
+            /** Reason */
+            reason: string;
+        };
         /** TriggerRefOut */
         TriggerRefOut: {
             /** Label */
@@ -1502,6 +1546,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recommend_tiers_endpoint_workbench_theses__thesis_id__recommend_tiers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TierRecommendation"][];
                 };
             };
             /** @description Validation Error */
