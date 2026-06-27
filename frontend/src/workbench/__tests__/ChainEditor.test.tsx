@@ -120,7 +120,7 @@ beforeEach(() => {
 });
 
 describe("ChainEditor — authoring", () => {
-  it("decomposes a flat basket: add a link, place a name, then save the full draft", async () => {
+  it("decomposes a flat basket: add a link, then save the full draft", async () => {
     const user = userEvent.setup();
     const onDone = vi.fn();
     h.mutate.mockImplementation((_body: unknown, opts?: { onSuccess?: () => void }) =>
@@ -132,9 +132,9 @@ describe("ChainEditor — authoring", () => {
     await user.type(screen.getByLabelText("new link label"), "reactors");
     await user.click(screen.getByRole("button", { name: "+ link" }));
     expect(screen.getByLabelText("link 1 label")).toHaveValue("reactors");
-
-    await user.selectOptions(screen.getByLabelText("place OKLO"), "reactors");
-    expect(screen.getByLabelText("place OKLO")).toHaveValue("reactors");
+    // the seg dropdown now lists the new link (the seg control is UI-only — placement lands when the backend
+    // emits segments; only "— remove —" is wired)
+    expect(screen.getByLabelText("segment for OKLO")).toHaveTextContent("reactors");
 
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     expect(h.mutate).toHaveBeenCalledTimes(1);
@@ -144,7 +144,7 @@ describe("ChainEditor — authoring", () => {
     };
     expect(body.segments).toEqual([{ label: "reactors", descriptor: null }]);
     expect(body.basket).toHaveLength(1);
-    expect(body.basket[0]).toMatchObject({ ticker: "OKLO", segment: "reactors" });
+    expect(body.basket[0]).toMatchObject({ ticker: "OKLO" });
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
@@ -159,14 +159,14 @@ describe("ChainEditor — authoring", () => {
     await user.type(screen.getByLabelText("role"), "the uranium anchor");
     await user.click(screen.getByRole("button", { name: "add to basket" }));
 
-    expect(screen.getByLabelText("place CCJ")).toBeInTheDocument();
+    expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument(); // landed in the PLACED bucket
   });
 
-  it("removes a name", async () => {
+  it("removes a name via the seg dropdown's '— remove —' (the prune path)", async () => {
     const user = userEvent.setup();
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.getByText("OKLO")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "remove OKLO" }));
+    await user.selectOptions(screen.getByLabelText("segment for OKLO"), "__remove__");
     expect(screen.queryByText("OKLO")).not.toBeInTheDocument();
   });
 
@@ -188,50 +188,49 @@ describe("ChainEditor — authoring", () => {
     ).toEqual(["b", "a"]);
 
     await user.click(screen.getByRole("button", { name: "remove a" }));
-    expect(screen.getByLabelText("place OKLO")).toHaveValue("");
+    expect(screen.getByLabelText("segment for OKLO")).toHaveValue(""); // un-placed -> "— segment —"
   });
 });
 
 describe("ChainEditor — draft from narrative (S5 5c)", () => {
-  it("loads a PLACED name as a drafted, badged placement with its prose", async () => {
+  it("loads a PLACED name as a drafted, accept-able placement with its prose", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
-    expect(await screen.findByLabelText("place SMR")).toBeInTheDocument(); // auto-placed
-    expect(screen.getByText("drafted")).toBeInTheDocument(); // badged drafted
+    expect(await screen.findByLabelText("segment for SMR")).toBeInTheDocument(); // landed in PLACED
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted -> accept-able
     expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue(
       "the only NRC-approved SMR designer",
     );
   });
 
-  it("accepting a drafted name flips it to operator_set", async () => {
+  it("accepting a drafted name flips it to operator_set (the accept button disappears)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    await screen.findByLabelText("place SMR");
-    expect(screen.getByText("drafted")).toBeInTheDocument();
+    await screen.findByLabelText("segment for SMR");
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
 
     await user.click(screen.getByRole("button", { name: "accept SMR" }));
-    expect(screen.queryByText("drafted")).not.toBeInTheDocument(); // no longer drafted
-    expect(screen.getAllByText("operator").length).toBeGreaterThanOrEqual(2); // SMR + OKLO
+    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_set now
   });
 
-  it("editing a drafted name's prose flips it to operator_edited", async () => {
+  it("editing a drafted name's prose flips it to operator_edited (the accept button disappears)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     const prose = await screen.findByLabelText("thesis-fit for SMR");
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
     await user.type(prose, " — refined");
 
-    expect(screen.getByText("edited")).toBeInTheDocument(); // operator_edited
-    expect(screen.queryByText("drafted")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_edited now
   });
 
   it("an AMBIGUOUS name enters the basket ONLY by an explicit pick (with the picked security_id + CIK)", async () => {
@@ -260,13 +259,14 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    // NOT auto-placed — it's a pick candidate (with its CIK), not a member row yet
-    expect(screen.queryByLabelText("place LEU")).not.toBeInTheDocument();
-    const pick = await screen.findByRole("button", { name: /LEU/ });
+    // NOT auto-placed — it sits in the COULDN'T RESOLVE drawer behind a "pick CIK…" affordance
+    expect(screen.queryByLabelText("segment for LEU")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /pick CIK for Centrus/ }));
+    const pick = await screen.findByRole("button", { name: /LEU/ }); // the candidate (with its CIK) appears
     expect(pick).toHaveTextContent("CIK 0001065059");
 
     await user.click(pick); // the explicit pick commits the exact security_id
-    expect(screen.getByLabelText("place LEU")).toBeInTheDocument();
+    expect(screen.getByLabelText("segment for LEU")).toBeInTheDocument(); // now a placed member
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
     expect(body.basket.find((m) => m.ticker === "LEU")).toMatchObject({ security_id: "s-leu" });
@@ -283,12 +283,12 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    // NOT auto-placed (single broad keyword -> lower confidence) — shown, not yet a member row
-    expect(screen.queryByLabelText("place ALKS")).not.toBeInTheDocument();
+    // NOT auto-placed (single broad keyword -> lower confidence) — in the TO REVIEW bucket, not yet a member
+    expect(screen.queryByLabelText("segment for ALKS")).not.toBeInTheDocument();
     expect(await screen.findByText("Alkermes plc")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "add ALKS" })); // the explicit confirm
-    expect(screen.getByLabelText("place ALKS")).toBeInTheDocument(); // now a placed member
+    expect(screen.getByLabelText("segment for ALKS")).toBeInTheDocument(); // now a placed member
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
     expect(body.basket.find((m) => m.ticker === "ALKS")).toMatchObject({
@@ -318,8 +318,8 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    expect(await screen.findByText("Kairos Power")).toBeInTheDocument(); // shown…
-    expect(screen.queryByLabelText("place KAIROS")).not.toBeInTheDocument(); // …never placed
+    expect(await screen.findByText("Kairos Power")).toBeInTheDocument(); // shown in COULDN'T RESOLVE…
+    expect(screen.queryByLabelText("segment for KAIROS")).not.toBeInTheDocument(); // …never placed
   });
 
   it("surfaces the matched discovery term(s) on a placed row AND a verify row (provenance, #9)", async () => {
@@ -336,9 +336,9 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    await screen.findByLabelText("place SMR");
-    expect(screen.getByText("← psilocybin")).toBeInTheDocument(); // placed row (from the display-only stash)
-    expect(screen.getByText("← ketamine")).toBeInTheDocument(); // verify row (from p.matched_terms)
+    await screen.findByLabelText("segment for SMR");
+    expect(screen.getByText("← psilocybin")).toBeInTheDocument(); // placed row prov (from the display-only stash)
+    expect(screen.getByText(/matched ketamine/)).toBeInTheDocument(); // to-review row prov (p.matched_terms)
   });
 
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {

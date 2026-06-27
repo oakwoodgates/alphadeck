@@ -417,23 +417,7 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-seg-chip .wb-input { width: 130px; }
 .wb-seg-add { display: flex; gap: 6px; align-items: center; }
 
-.wb-mem-edit { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
-.wb-mem-row { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--panel); }
-.wb-mem-row .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
-.wb-mem-row > .wb-input { min-width: 130px; }
-.wb-mem-row .wb-arch { min-width: 104px; }
-.wb-mem-row .wb-author { margin-left: auto; } /* push the badge + accept/drop to the right */
-
-/* discovery provenance — the term(s) a placed/verify name matched (makes a colliding seed visible at a glance,
-   #9). Quiet, monospace, low-energy, fully LEGIBLE — it must be readable to be prunable. On a placed member it
-   is its OWN line below the controls (wraps freely, never truncated); on a verify row it sits inline + wraps. */
-.wb-matched { font-family: var(--mono); font-size: 9.5px; line-height: 1.4; letter-spacing: 0.01em; color: var(--txt-4); white-space: normal; overflow-wrap: anywhere; }
-.wb-mem .wb-matched { margin: 1px 0 0; } /* the placed-member provenance line (between the row and the prose) */
-
-/* S5 5c — the draft/ratify surface. A drafted member is a block (the row + its thesis-fit prose); inverse
-   loudness — quiet provenance, a faint leader-blue tint, never loud. */
-.wb-mem { display: flex; flex-direction: column; gap: 5px; }
-.wb-mem.is-drafted .wb-mem-row { border-color: rgba(138, 180, 255, 0.3); background: rgba(138, 180, 255, 0.05); }
+/* the thesis-fit prose textarea (kept; lives inside the new .wb-results placed rows) */
 .wb-prose { font: inherit; font-size: 11px; line-height: 1.5; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; resize: vertical; color-scheme: dark; }
 .wb-prose:focus { outline: none; border-color: var(--leader); }
 .wb-prose::placeholder { color: var(--txt-4); font-style: italic; }
@@ -474,20 +458,75 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-rec-offense { color: var(--accent, #2d7d46); }  /* an unseeded term flagged SIGNAL — the opportunity */
 @media (max-width: 720px) { .wb-terms-split { grid-template-columns: 1fr; } }
 
-/* AMBIGUOUS — the operator-pick list (a non-PLACED name enters the basket only by an explicit pick); and
-   ABSENT — shown, never placed. */
-.wb-suggest, .wb-verify, .wb-absent { display: flex; flex-direction: column; gap: 9px; margin-bottom: 16px; }
-.wb-suggest-row { display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(224, 162, 60, 0.3); border-radius: 9px; padding: 9px 11px; background: var(--panel); }
-.wb-suggest-h { display: flex; align-items: baseline; gap: 8px; }
-.wb-suggest-h b { font-size: 12.5px; }
-.wb-suggest-h small { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
-.wb-absent-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border: 1px dashed var(--line-2); border-radius: 8px; padding: 7px 10px; background: var(--bg-2); color: var(--txt-3); }
-.wb-absent-row b { font-size: 12px; color: var(--txt-2); }
-.wb-verify-row { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 9px 11px; background: var(--bg-2); }
-.wb-verify-row > .wb-mini { align-self: flex-start; }
-.wb-verify-row .co { color: var(--txt-3); font-size: 11px; }
+/* ===========================================================================
+   Workbench RESULTS surface (post-draft) — three buckets: PLACED · TO REVIEW · COULDN'T RESOLVE.
+   Built against docs/mockups/mockup_workbench_results.html. SCOPED under .wb-results so the mock's class
+   names (.nmrow / .fit / .prov / .pill / ...) match the mock WITHOUT colliding with ScoredRow's .nmrow/.fit
+   or DDRail's .prov (those screens aren't inside .wb-results). Reuses .sect-h + the lifecycle palette.
+   =========================================================================== */
+.wb-results .sect { margin-bottom: 26px; }
+.wb-results .sect-h em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
+.wb-results .sect-h .ct { font-family: var(--mono); color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
 
-/* the CIK chip — the homonym tell, surfaced in the resolver matches + the pick list */
+/* name row (override the global .nmrow — a clickable card in ScoredRow — to a static results card) */
+.wb-results .nmrow { display: block; width: auto; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 11px 13px; margin-bottom: 9px; cursor: default; transition: none; }
+.wb-results .nmrow:hover { border-color: var(--line); background: var(--panel); }
+.wb-results .nmrow .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 0; }
+.wb-results .nmrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
+.wb-results .nmrow .co { font-size: 12px; color: var(--txt-2); }
+
+/* the two side-by-side controls (arch wired · seg UI-only) */
+.wb-results .ctls { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.wb-results .ctl { display: flex; align-items: center; gap: 6px; }
+.wb-results .ctl .lab { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-results .ctl select { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 7px; color-scheme: dark; cursor: pointer; }
+.wb-results .ctl select.lead { color: var(--leader); }
+.wb-results .ctl select.mng { color: var(--manage); }
+.wb-results .ctl select.hb { color: var(--armed); }
+.wb-results .ctl select.lot { color: var(--warm); }
+
+.wb-results .fit { font-size: 11.5px; color: var(--txt-2); line-height: 1.55; margin-top: 7px; }
+/* the matched-term / recommendation provenance line (override the global .prov chip-container) */
+.wb-results .prov { display: block; font-family: var(--mono); font-size: 10px; color: var(--txt-4); margin-top: 6px; letter-spacing: 0.02em; }
+.wb-results .prov.lead { color: var(--leader); }
+.wb-results .prov.warm { color: var(--warm); }
+.wb-results .wb-prose { margin-top: 7px; }
+
+/* off-thesis FLAG + flagged-row tint — built, DORMANT (never rendered until an off_thesis signal exists) */
+.wb-results .nmrow.flagged { border-color: rgba(224, 162, 60, 0.4); background: linear-gradient(180deg, rgba(224, 162, 60, 0.06), var(--panel)); }
+.wb-results .flag { font-size: 10px; color: var(--warm); margin-top: 7px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.02em; }
+.wb-results .rm { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warm); border: 1px solid rgba(224, 162, 60, 0.4); background: var(--panel); border-radius: 5px; padding: 3px 8px; cursor: pointer; }
+
+/* to-review pills + actions */
+.wb-results .pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
+.wb-results .pill.add { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
+.wb-results .pill.sweep { color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.3); }
+.wb-results .pill.low { color: var(--txt-3); background: rgba(90, 100, 116, 0.12); border: 1px solid var(--line-2); }
+.wb-results .act { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; border-radius: 5px; padding: 3px 9px; cursor: pointer; background: transparent; }
+.wb-results .act.addbtn { color: var(--leader); border: 1px solid rgba(138, 180, 255, 0.3); }
+.wb-results .act.skip { color: var(--txt-4); border: 1px solid var(--line); }
+.wb-results .act:disabled { opacity: 0.5; cursor: default; }
+.wb-results .showmore { text-align: center; margin: 2px 0 4px; }
+
+/* couldn't-resolve drawer */
+.wb-results .resolve { border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg-2); overflow: hidden; }
+.wb-results .resolve-h { display: flex; width: 100%; align-items: center; gap: 9px; padding: 10px 14px; border: none; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb-results .resolve-h .chev { color: var(--txt-3); font-size: 13px; }
+.wb-results .resolve-h .rt { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); }
+.wb-results .resolve-h .rm-meta { font-family: var(--mono); font-size: 10px; color: var(--txt-4); letter-spacing: 0.02em; }
+.wb-results .resolve-body { padding: 6px 14px 12px; }
+.wb-results .rrow { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.wb-results .rrow:first-child { border-top: none; }
+.wb-results .rrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12px; }
+.wb-results .rrow .co { font-size: 11.5px; color: var(--txt-3); }
+.wb-results .rpill { margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; }
+.wb-results .rpill.amb { color: var(--txt-3); background: rgba(90, 100, 116, 0.12); border: 1px solid var(--line-2); }
+.wb-results .rpill.abs { color: var(--txt-4); background: rgba(90, 100, 116, 0.07); border: 1px solid var(--line); }
+.wb-results .rnote { font-size: 10.5px; color: var(--txt-4); line-height: 1.5; margin: -2px 0 6px; padding-left: 1px; }
+.wb-results .rbtn { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 9px; background: transparent; cursor: pointer; }
+.wb-results .rtag { font-size: 10px; color: var(--txt-4); letter-spacing: 0.03em; }
+
+/* the CIK chip — the homonym tell, surfaced in the resolver matches + the couldn't-resolve pick list */
 .cik { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); }
 
 .wb-addname { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 11px 13px; background: var(--bg-2); }
