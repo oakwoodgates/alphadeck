@@ -21,6 +21,7 @@ operator's promote (which re-checks membership — `app/routers/workbench.py`); 
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 import psycopg
@@ -90,6 +91,14 @@ class ResolvedPlacement(DomainModel):
     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
     name resolved by the master rather than discovered by a term. Never a number (#3 — a keyword string).
+
+    ``discovery_source`` records WHERE the name came from (provenance — INVARIANT #6): ``"edgar"`` = matched a
+    CIK in the EDGAR-discovered universe; ``"off_universe"`` = resolved OUTSIDE that universe, via the
+    sweep-augmented context. **It is NOT a hard claim the tail-sweep's web-search sourced the name** (``decompose``
+    may surface an off-universe name from its own knowledge) — it means only "off the deterministic universe,"
+    never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
+    ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
+    exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
     """
 
     name: str
@@ -100,6 +109,7 @@ class ResolvedPlacement(DomainModel):
     security_id: UUID | None = None
     candidates: list[SecurityCandidate] = []
     matched_terms: list[str] = []
+    discovery_source: Literal["edgar", "off_universe"] = "edgar"
 
 
 class ResolvedSegment(DomainModel):
@@ -138,9 +148,23 @@ def _conflict_candidates(
 
 
 def _resolve_one(
-    conn: psycopg.Connection, p: ProposedPlacement, segment: str, *, tenant_id: UUID
+    conn: psycopg.Connection,
+    p: ProposedPlacement,
+    segment: str,
+    *,
+    tenant_id: UUID,
+    discovery_source: Literal["edgar", "off_universe"] = "edgar",
 ) -> ResolvedPlacement:
-    base = {"name": p.name, "ticker": p.ticker, "prose": p.prose, "segment": segment}
+    # `discovery_source` rides in `base`, so every return below (PLACED / AMBIGUOUS / ABSENT) carries it — an
+    # off-universe name is tagged regardless of how it resolved. Defaults "edgar" (the conservative no-pill
+    # state); the discovered-chain's off-universe fork passes "off_universe" explicitly.
+    base = {
+        "name": p.name,
+        "ticker": p.ticker,
+        "prose": p.prose,
+        "segment": segment,
+        "discovery_source": discovery_source,
+    }
     ticker = (p.ticker or "").strip().upper()
     name = p.name.strip()
 
@@ -267,7 +291,13 @@ def resolve_discovered_chain(
         for p in s.placements:
             cik = _match_discovered_cik(p, by_ticker, by_name)
             if cik is None:
-                placements.append(_resolve_one(conn, p, s.label, tenant_id=tenant_id))
+                # No CIK in the EDGAR-discovered universe → off-universe (came via the sweep-augmented context).
+                # Tag it so the master resolver's placement (PLACED / AMBIGUOUS / ABSENT) carries the origin.
+                placements.append(
+                    _resolve_one(
+                        conn, p, s.label, tenant_id=tenant_id, discovery_source="off_universe"
+                    )
+                )
                 continue
             emitted.add(cik)
             in_placed = cik in universe.placed
@@ -283,6 +313,7 @@ def resolve_discovered_chain(
                     matched_terms=(
                         sorted(f.keywords) if f else []
                     ),  # the term(s) that surfaced it (#9 tell)
+                    discovery_source="edgar",  # matched an EDGAR-discovered CIK
                 )
             )
 
@@ -310,6 +341,7 @@ def resolve_discovered_chain(
                     matched_terms=(
                         sorted(f.keywords) if f else []
                     ),  # the term(s) that surfaced it (#9 tell)
+                    discovery_source="edgar",  # an EDGAR-discovered CIK, by construction
                 )
             )
     return ResolvedChain(segments=out_segments, placements=placements)

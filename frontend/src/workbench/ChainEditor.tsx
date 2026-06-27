@@ -42,6 +42,18 @@ const termAuthor = (a: string): string =>
 const authorLabel = (a: string): string =>
   a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
 
+// The off-universe provenance pill (the dormant `.pill.sweep` slot, now data-backed): the name resolved OUTSIDE
+// the EDGAR-discovered universe (via the sweep-augmented context). The label names the OBSERVATION ("off the
+// deterministic universe"), never the mechanism — it is NOT a claim the tail-sweep's web-search sourced it.
+const OffUniversePill = () => (
+  <span
+    className="pill sweep"
+    title="off the deterministic universe — EDGAR term-search didn't surface it"
+  >
+    off-universe
+  </span>
+);
+
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
  *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
  *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
@@ -171,6 +183,10 @@ export function ChainEditor({ thesis, onDone }: Props) {
   // Display-only provenance: security_id -> the discovery term(s) that surfaced it. Set on a draft, NOT a
   // field on BasketMember (it's draft-time discovery provenance, not a thesis fact — never promoted).
   const [matched, setMatched] = useState<Record<string, string[]>>({});
+  // Display-only provenance: the security_ids of PLACED names whose discovery_source is "off_universe" (resolved
+  // outside the EDGAR-discovered universe, via the sweep-augmented context). The PLACED bucket renders
+  // BasketMembers, not placements, so it bridges by security_id — same shape as `matched`. NEVER promoted.
+  const [offUniverse, setOffUniverse] = useState<Set<string>>(new Set());
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
@@ -211,6 +227,13 @@ export function ChainEditor({ thesis, onDone }: Props) {
         data.placements
           .filter((p) => p.security_id)
           .map((p) => [p.security_id as string, p.matched_terms]),
+      ),
+    );
+    setOffUniverse(
+      new Set(
+        data.placements
+          .filter((p) => p.security_id && p.discovery_source === "off_universe")
+          .map((p) => p.security_id as string),
       ),
     );
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
@@ -595,6 +618,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   <span className={`wb-pauthor ${m.authored_by}`} title="who owns this placement">
                     {authorLabel(m.authored_by)}
                   </span>
+                  {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
                   <span className="ctls">
                     {offThesis && (
                       <button type="button" className="rm" onClick={() => d.removeMember(k)}>
@@ -698,6 +722,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     <span className="tk">{p.ticker || "—"}</span>
                     <span className="co">{p.name}</span>
                     <span className="ctls">
+                      {p.discovery_source === "off_universe" && <OffUniversePill />}
                       <span className="pill add">recommend add</span>
                       <button
                         type="button"
@@ -757,6 +782,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                       <div className="rrow">
                         <span className="tk">{p.ticker || "—"}</span>
                         <span className="co">{p.name}</span>
+                        {p.discovery_source === "off_universe" && <OffUniversePill />}
                         <span className="rpill amb">ambiguous</span>
                         <button
                           type="button"
@@ -799,6 +825,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                       <div className="rrow">
                         <span className="tk">{p.ticker || "—"}</span>
                         <span className="co">{p.name}</span>
+                        {p.discovery_source === "off_universe" && <OffUniversePill />}
                         <span className="rpill abs">absent</span>
                         <span className="rtag">no SEC filer</span>
                       </div>

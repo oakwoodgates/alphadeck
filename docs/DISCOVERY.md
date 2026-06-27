@@ -142,6 +142,14 @@ Each surfaced name carries two display layers, both value-free (#3):
   promotable tiers.
 - **Matched terms** — `ResolvedPlacement.matched_terms`, the discovery keyword(s) the name's CIK hit, surfaced
   as a quiet tag (`KAYS ← esketamine, psilocin`). It makes a colliding seed visible at a glance (#6/#9).
+- **Discovery source** — `ResolvedPlacement.discovery_source` (`"edgar"` | `"off_universe"`), the ORIGIN of a
+  placed name (#6): `"edgar"` = matched a CIK in the EDGAR-discovered universe; `"off_universe"` = resolved
+  OUTSIDE it (via the sweep-augmented context — see §6). Set in exactly ONE place, the `_match_discovered_cik`
+  fork (matched CIK → `"edgar"`, `None` → `"off_universe"` threaded through `_resolve_one`), so it is
+  **orthogonal to status** — an off-universe name can be PLACED / AMBIGUOUS / ABSENT. The FE lights a quiet
+  "off-universe" pill from it. It records "off the deterministic universe," **never** the hard claim "the
+  tail-sweep sourced this" (`decompose` may surface an off-universe name from its own knowledge); display-only
+  like `matched_terms`, never a number (#3), never promoted onto a `BasketMember` (#2).
 
 - *War story:* this seam shipped green on 388 fake-client tests yet produced EMPTY prose for every name live —
   two faults a 1-name fake can't surface (token-ceiling truncation; a name-as-join-key the model formatted as
@@ -159,8 +167,16 @@ Each surfaced name carries two display layers, both value-free (#3):
 listing names with no US filing yet. Framed as a directed sweep, never a bare exclusion (which makes the model
 re-list the core and stop early). Fail-open to `None`; additive, never the universe.
 
+Its contribution is made **visible (and so validatable)** by `discovery_source` (§5): a name the sweep-augmented
+context surfaced resolves outside the EDGAR universe → `"off_universe"` → the quiet "off-universe" pill. The
+signal to watch is *off_universe + PLACED* (a real US-tradeable name EDGAR's term-search missed — the sweep
+earning its keep) vs *off_universe + ABSENT* (something with no US listing). The tag records the off-universe
+ORIGIN, **not** a hard claim the web-search sourced the name — `decompose` may surface one from its own knowledge.
+
 - *Enforced by:* `llm/chain_decomposition.py` (`research_tail_sweep`); `workbench/research_runner.py` (the
-  in-flight guard); `tests/llm/test_chain_decomposition.py`.
+  in-flight guard); `workbench/chain_draft.py` (`discovery_source`, set at the `_match_discovered_cik` fork);
+  `tests/llm/test_chain_decomposition.py`; `tests/workbench/test_chain_draft.py` +
+  `tests/app/test_workbench_api.py` (the provenance assertions).
 
 **The end-to-end front door** (`POST /workbench/theses/{id}/draft-chain`): read the stored term set →
 `run_discovery` (EFTS → classify) → `research_tail_sweep` → organize (decompose) → `resolve_discovered_chain`

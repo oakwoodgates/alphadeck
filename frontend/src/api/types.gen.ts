@@ -912,6 +912,14 @@ export interface components {
          *     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
          *     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
          *     name resolved by the master rather than discovered by a term. Never a number (#3 — a keyword string).
+         *
+         *     ``discovery_source`` records WHERE the name came from (provenance — INVARIANT #6): ``"edgar"`` = matched a
+         *     CIK in the EDGAR-discovered universe; ``"off_universe"`` = resolved OUTSIDE that universe, via the
+         *     sweep-augmented context. **It is NOT a hard claim the tail-sweep's web-search sourced the name** (``decompose``
+         *     may surface an off-universe name from its own knowledge) — it means only "off the deterministic universe,"
+         *     never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
+         *     ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
+         *     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
          */
         ResolvedPlacement: {
             /** Name */
@@ -935,6 +943,12 @@ export interface components {
              * @default []
              */
             matched_terms: string[];
+            /**
+             * Discovery Source
+             * @default edgar
+             * @enum {string}
+             */
+            discovery_source: "edgar" | "off_universe";
         };
         /** ResolvedSegment */
         ResolvedSegment: {
