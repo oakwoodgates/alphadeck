@@ -37,6 +37,11 @@ interface Props {
 const termAuthor = (a: string): string =>
   a === "operator_set" ? "seed" : a === "operator_edited" ? "edited" : "auto";
 
+// A placed name's authorship — a QUIET tell (inverse loudness): who owns this placement. "drafted" is the LLM's
+// (still has an accept button); "operator" is yours; "edited" is a draft you tweaked.
+const authorLabel = (a: string): string =>
+  a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
+
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
  *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
  *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
@@ -582,6 +587,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     {m.ticker}
                   </span>
                   {m.role && m.role !== "—" ? <span className="co">{m.role}</span> : null}
+                  <span className={`wb-pauthor ${m.authored_by}`} title="who owns this placement">
+                    {authorLabel(m.authored_by)}
+                  </span>
                   <span className="ctls">
                     {offThesis && (
                       <button type="button" className="rm" onClick={() => d.removeMember(k)}>

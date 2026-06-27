@@ -202,6 +202,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     expect(await screen.findByLabelText("segment for SMR")).toBeInTheDocument(); // landed in PLACED
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted -> accept-able
+    expect(screen.getByText("drafted")).toBeInTheDocument(); // the quiet authorship badge
     expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue(
       "the only NRC-approved SMR designer",
     );
@@ -218,6 +219,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     await user.click(screen.getByRole("button", { name: "accept SMR" }));
     expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_set now
+    expect(screen.queryByText("drafted")).not.toBeInTheDocument(); // badge flipped drafted -> operator
   });
 
   it("editing a drafted name's prose flips it to operator_edited (the accept button disappears)", async () => {
@@ -231,6 +233,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await user.type(prose, " — refined");
 
     expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_edited now
+    expect(screen.getByText("edited")).toBeInTheDocument(); // badge flipped drafted -> edited
   });
 
   it("an AMBIGUOUS name enters the basket ONLY by an explicit pick (with the picked security_id + CIK)", async () => {

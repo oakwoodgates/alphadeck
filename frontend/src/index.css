@@ -480,6 +480,11 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .nmrow .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 0; }
 .wb-results .nmrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
 .wb-results .nmrow .co { font-size: 12px; color: var(--txt-2); }
+/* placed-name authorship — a QUIET tell (inverse loudness): borderless, tiny, low-energy. "drafted" gets a faint
+   leader-blue nudge (still unratified); operator / edited are muted. */
+.wb-results .wb-pauthor { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-results .wb-pauthor.system_drafted { color: var(--leader); opacity: 0.75; }
+.wb-results .wb-pauthor.operator_edited { color: var(--txt-3); }
 
 /* the two side-by-side controls (arch wired · seg UI-only) */
 .wb-results .ctls { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
