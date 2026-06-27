@@ -402,6 +402,17 @@ describe("ChainEditor — term set produce + edit", () => {
     expect(h.produce).toHaveBeenCalledTimes(1);
   });
 
+  it("the term-set drawer is open by default and collapses on click (counts stay in the header)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Regenerate term set/ })).toBeInTheDocument(); // open by default
+    expect(screen.getByText("1 signal · 1 broad")).toBeInTheDocument(); // psilocybin signal + ketamine broad
+    await user.click(screen.getByRole("button", { name: /Term set/ })); // collapse
+    expect(screen.queryByRole("button", { name: /Regenerate term set/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("psilocybin")).not.toBeInTheDocument(); // body hidden
+    expect(screen.getByText("1 signal · 1 broad")).toBeInTheDocument(); // …but the header counts remain
+  });
+
   it("displays the stored SIGNAL/BROAD split with provenance + per-term edit controls", () => {
     render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
     expect(screen.getByText("psilocybin")).toBeInTheDocument(); // SIGNAL (a seed)

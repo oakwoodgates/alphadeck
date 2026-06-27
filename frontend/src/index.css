@@ -429,6 +429,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 /* the term-set producer + EDITOR — seed / curate the SIGNAL/BROAD split the draft reads. A control surface now
    (add / remove / promote / demote), still quiet + low-energy (inverse loudness) — edits auto-save. */
 .wb-terms { margin-bottom: 16px; }
+/* the term-set collapsible drawer header (open by default; click to collapse the produce/recommend + the split) */
+.wb-drawer-h { display: flex; width: 100%; align-items: center; gap: 10px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; padding: 0 0 12px; cursor: pointer; }
+.wb-drawer-h .chev { color: var(--txt-4); font-size: 13px; }
+.wb-drawer-h .dlabel { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); }
+.wb-drawer-h .dmeta { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); letter-spacing: 0.02em; }
+.wb-drawer-h:hover .dlabel { color: var(--txt-2); }
 .wb-terms .wb-draft-gap { margin-bottom: 0; }
 .wb-seed-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
 .wb-seed-input { flex: 1; min-width: 0; padding: 5px 9px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-1); }

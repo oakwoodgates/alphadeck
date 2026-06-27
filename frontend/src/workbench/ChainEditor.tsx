@@ -64,6 +64,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const [termSet, setTermSet] = useState<TermSetEntry[]>(thesis.term_set);
   const signalTerms = termSet.filter((e) => e.tier === "signal");
   const broadTerms = termSet.filter((e) => e.tier === "broad");
+  const [termsOpen, setTermsOpen] = useState(true); // the term-set drawer — open by default
   const [newSeed, setNewSeed] = useState("");
   const [newSeg, setNewSeg] = useState("");
 
@@ -323,6 +324,20 @@ export function ChainEditor({ thesis, onDone }: Props) {
       )}
 
       <div className="wb-terms">
+        <button
+          type="button"
+          className="wb-drawer-h"
+          aria-expanded={termsOpen}
+          onClick={() => setTermsOpen((o) => !o)}
+        >
+          <span className="chev">{termsOpen ? "▾" : "▸"}</span>
+          <span className="dlabel">Term set</span>
+          <span className="dmeta">
+            {signalTerms.length} signal · {broadTerms.length} broad
+          </span>
+        </button>
+        {termsOpen && (
+          <>
         <div className="wb-draft-gap">
           <button
             type="button"
@@ -462,6 +477,8 @@ export function ChainEditor({ thesis, onDone }: Props) {
               “term set is empty”.
             </div>
           )
+        )}
+          </>
         )}
       </div>
 
