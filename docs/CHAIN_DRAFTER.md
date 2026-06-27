@@ -161,19 +161,30 @@ never the stored company-reference facts (layer a) the LLM does not narrate (`RO
 - **"Draft from narrative"** (`ChainEditor`) calls the endpoint on an EXPLICIT click (never on render) and
   **MERGES** the draft into the local chain draft (`useChainDraft.loadDraft`) — never replaces: new segments
   append, PLACED names are added, deduped by `security_id`, so the operator's existing work is never clobbered.
-- **"Produce term set"** (the writer for `DISCOVERY.md`'s term set) produces + DISPLAYS the SIGNAL/BROAD split
-  read-only, so the operator inspects what discovery will read before drafting (a draft with no term set 503s).
-- **PLACED** names auto-load as `system_drafted` (badged, prunable). **VERIFY** names (in-universe by CIK,
-  broad-only, lower-confidence) sit in a quiet "Verify" section — shown not auto-placed, one-click **add**
-  commits the known `security_id` (the same #2 discipline as AMBIGUOUS); they are **promotable**, so they carry
-  thesis-fit prose too. **AMBIGUOUS** names are a **pick list** (ticker + CIK) — a non-PLACED name enters the
-  basket **ONLY by an explicit operator pick**. **ABSENT** names are shown, never placeable.
+- **The term set** (a collapsible drawer, open by default) is the writer for `DISCOVERY.md`'s term set:
+  **Produce / Regenerate** (keyword-gen), **✦ Recommend tiers** (the #10 recommender), and per-term **edit**
+  (seed / remove / promote / demote) — the operator curates the SIGNAL/BROAD split discovery reads before
+  drafting (a draft with no term set 503s).
+- The draft result is organized into **three buckets** (the post-draft IA — `mockup_workbench_results.html`):
+  - **PLACED** — a flat list (the operator owns segment; not pre-grouped). Each name carries an **archetype**
+    dropdown (wired) + a **segment** dropdown (**UI-only** until the chain-draft emits segments; only
+    "— remove —" prunes) + a quiet **authorship** badge. The archetype color shows only once the name is
+    operator-owned / enrichment-derived (an unconfirmed `system_drafted` default reads neutral, not a wall of
+    red). An **off-thesis FLAG** slot (amber row + promoted remove + ⚑ line) is built but **dormant** until a
+    backend `off_thesis` signal drives it (never rendered on invented data).
+  - **TO REVIEW** — **VERIFY** (in-universe by CIK, broad-only) + tail-sweep names merged, one action
+    (**add / skip**); a one-click add commits the known `security_id` (the same #2 discipline as AMBIGUOUS);
+    they're **promotable**, so they carry thesis-fit prose. A rec pill + the recommended segment ride the
+    provenance line.
+  - **COULDN'T RESOLVE** — a quiet drawer ("identity, not thesis-fit"): **AMBIGUOUS** names are a **pick list**
+    (ticker + CIK, behind "pick CIK…") — a non-PLACED name enters the basket **ONLY by an explicit operator
+    pick**; **ABSENT** names are shown, never placeable. (Retired the old "discovered / unplaced" dropdown.)
 - Each PLACED/VERIFY name shows its **matched-term tag** (`← psilocybin` — the discovery keyword(s) that
   surfaced it), display-only provenance, never promoted as a fact.
-- **The authorship transitions:** load → `system_drafted`; **accept** → `operator_set`; **edit** any field
-  (segment / prose / archetype) → `operator_edited`. A drafted member shows its prose in an editable box with
-  an accept / drop affordance; a placed-but-unratified name reads **unscored ("—")** until extract → ratify
-  brings the facts in (the editor shows no meters; the scored view is fact-derived).
+- **The authorship transitions:** load → `system_drafted`; **accept** → `operator_set`; **edit** a field
+  (prose / archetype) → `operator_edited`. A drafted member shows an **accept** affordance + its prose in an
+  editable box; a placed-but-unratified name reads **unscored ("—")** until extract → ratify brings the facts
+  in (the editor shows no meters; the scored view is fact-derived).
 - **CIK is surfaced** in the resolver matches (`AddName`) + the pick list — the homonym tell, by sight.
 - In-memory React state only (no browser storage); the full draft persists only on **promote** (the
   full-replace `POST /workbench/theses`, which honors authorship + stores `thesis_fit`).
