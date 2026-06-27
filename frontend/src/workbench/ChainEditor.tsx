@@ -33,13 +33,14 @@ interface Props {
   onDone: () => void; // exit edit mode (the parent unmounts this, re-snapshotting on the next edit)
 }
 
-// The authorship seam, in words: who placed each name. Quiet provenance (inverse loudness), never loud.
-const authorLabel = (a: string): string =>
-  a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
-
 // A term's provenance: an operator seed vs an LLM-proposed (guard-tiered) term. The data already carries it.
 const termAuthor = (a: string): string =>
   a === "operator_set" ? "seed" : a === "operator_edited" ? "edited" : "auto";
+
+// A placed name's authorship — a QUIET tell (inverse loudness): who owns this placement. "drafted" is the LLM's
+// (still has an accept button); "operator" is yours; "edited" is a draft you tweaked.
+const authorLabel = (a: string): string =>
+  a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
 
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
  *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
@@ -68,6 +69,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
   const [termSet, setTermSet] = useState<TermSetEntry[]>(thesis.term_set);
   const signalTerms = termSet.filter((e) => e.tier === "signal");
   const broadTerms = termSet.filter((e) => e.tier === "broad");
+  const [termsOpen, setTermsOpen] = useState(true); // the term-set drawer — open by default
   const [newSeed, setNewSeed] = useState("");
   const [newSeg, setNewSeg] = useState("");
 
@@ -172,6 +174,30 @@ export function ChainEditor({ thesis, onDone }: Props) {
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
+
+  // --- post-draft results buckets (the IA reorg) ---
+  const PLACED_PREVIEW = 12; // a large draft (hundreds of names) collapses to a preview + "show more"
+  const [showAllPlaced, setShowAllPlaced] = useState(false);
+  const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
+  const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
+  const placedShown = showAllPlaced ? d.draft.basket : d.draft.basket.slice(0, PLACED_PREVIEW);
+  const skipVerify = (p: ResolvedPlacement) => setVerify((prev) => prev.filter((x) => x !== p));
+  const togglePick = (name: string) =>
+    setPickOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  // The archetype palette (matches .arch.* / the lifecycle tokens) applied to the ticker + the arch select.
+  const ARCH_COLOR: Record<string, string> = {
+    leader: "var(--leader)",
+    high_beta: "var(--armed)",
+    lotto: "var(--warm)",
+    shovel: "var(--manage)",
+  };
+  const archSelClass = (a: string): string =>
+    a === "leader" ? "lead" : a === "shovel" ? "mng" : a === "high_beta" ? "hb" : a === "lotto" ? "lot" : "";
 
   // Load a completed draft into the editor (MERGE, not replace). Fail-open: an empty draft (no key / the model
   // declined) loads nothing and shows the quiet "returned nothing" note.
@@ -303,6 +329,20 @@ export function ChainEditor({ thesis, onDone }: Props) {
       )}
 
       <div className="wb-terms">
+        <button
+          type="button"
+          className="wb-drawer-h"
+          aria-expanded={termsOpen}
+          onClick={() => setTermsOpen((o) => !o)}
+        >
+          <span className="chev">{termsOpen ? "▾" : "▸"}</span>
+          <span className="dlabel">Term set</span>
+          <span className="dmeta">
+            {signalTerms.length} signal · {broadTerms.length} broad
+          </span>
+        </button>
+        {termsOpen && (
+          <>
         <div className="wb-draft-gap">
           <button
             type="button"
@@ -443,6 +483,8 @@ export function ChainEditor({ thesis, onDone }: Props) {
             </div>
           )
         )}
+          </>
+        )}
       </div>
 
       <div className="wb-draft-gap">
@@ -521,173 +563,256 @@ export function ChainEditor({ thesis, onDone }: Props) {
         </div>
       </div>
 
-      <div className="wb-mem-edit">
-        {d.draft.basket.map((m) => {
-          const k = memberKey(m);
-          const drafted = m.authored_by === "system_drafted";
-          const mt = m.security_id ? matched[m.security_id] : undefined; // discovery provenance (display-only)
-          return (
-            <div className={`wb-mem${drafted ? " is-drafted" : ""}`} key={k}>
-              <div className="wb-mem-row">
-                <span className="tk">{m.ticker}</span>
-                <select
-                  className="wb-input wb-arch"
-                  value={m.archetype}
-                  aria-label={`archetype for ${m.ticker}`}
-                  onChange={(e) =>
-                    d.editArchetype(k, e.target.value as BasketMember["archetype"])
-                  }
-                >
-                  {ARCHETYPES.map((a) => (
-                    <option key={a} value={a}>
-                      {archLabel(a)}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="wb-input"
-                  value={m.segment ?? ""}
-                  aria-label={`place ${m.ticker}`}
-                  onChange={(e) => d.placeMember(k, e.target.value || null)}
-                >
-                  <option value="">— unplaced —</option>
-                  {segLabels.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-                <span className="wb-author">{authorLabel(m.authored_by)}</span>
-                {drafted && (
-                  <button
-                    type="button"
-                    className="wb-mini"
-                    aria-label={`accept ${m.ticker}`}
-                    onClick={() => d.acceptMember(k)}
-                  >
-                    ✓ accept
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="wb-mini ghost"
-                  aria-label={`remove ${m.ticker}`}
-                  onClick={() => d.removeMember(k)}
-                >
-                  ×
-                </button>
-              </div>
-              {mt && mt.length > 0 && (
-                <div className="wb-matched" title={`discovery match: ${mt.join(", ")}`}>
-                  ← {mt.join(", ")}
-                </div>
-              )}
-              <textarea
-                className="wb-prose"
-                rows={2}
-                aria-label={`thesis-fit for ${m.ticker}`}
-                placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
-                value={m.thesis_fit ?? ""}
-                onChange={(e) => d.editProse(k, e.target.value)}
-              />
-            </div>
-          );
-        })}
-        {d.draft.basket.length === 0 && (
-          <div className="note">No names yet — draft from the narrative, or add one below.</div>
-        )}
-      </div>
-
-      {ambiguous.length > 0 && (
-        <div className="wb-suggest">
-          <div className="note">
-            Ambiguous — the drafter found several matches; <b>pick the exact security</b> (ticker + CIK
-            disambiguate a homonym). Nothing is placed until you pick.
+      {/* ===== Results buckets (post-draft IA): PLACED · TO REVIEW · COULDN'T RESOLVE. Three distinct
+              questions, never conflated (see docs/mockups/mockup_workbench_results.html). Scoped under
+              .wb-results so the mock's class names don't collide with ScoredRow's .nmrow/.fit etc. ===== */}
+      <div className="wb-results">
+        {/* PLACED — flat list; arch (wired) + seg (UI-only; only "— remove —" acts). The off-thesis FLAG slot
+            is built (the .flagged tint + .flag line + promoted remove) but DORMANT — there's no off_thesis
+            signal in the data yet, so it never renders (kept honest; a later backend piece drives it). */}
+        <div className="sect">
+          <div className="sect-h">
+            Placed <em>· archetype derived · segment drafted · both overridable</em>
+            {d.draft.basket.length > 0 && <span className="ct">· {d.draft.basket.length}</span>}
           </div>
-          {ambiguous.map((p, i) => (
-            <div className="wb-suggest-row" key={i}>
-              <div className="wb-suggest-h">
-                <b>{p.name}</b>
-                {p.segment ? <small>{p.segment}</small> : null}
-              </div>
-              {p.prose ? <div className="drafted muted">{p.prose}</div> : null}
-              <ul className="wb-matches">
-                {p.candidates.map((c) => {
-                  const inBasket = keys.has(c.security_id);
-                  return (
-                    <li key={c.security_id}>
+          {placedShown.map((m) => {
+            const k = memberKey(m);
+            const drafted = m.authored_by === "system_drafted";
+            const mt = m.security_id ? matched[m.security_id] : undefined;
+            const offThesis = false; // DORMANT — no off_thesis signal exists yet; never flag a name on invented data
+            return (
+              <div className={`nmrow${offThesis ? " flagged" : ""}`} key={k}>
+                <div className="top">
+                  {/* the archetype color (incl. red high-beta) only shows once the name is operator-owned or
+                      enrichment-derived; an UNCONFIRMED draft default renders neutral, not a wall of red. */}
+                  <span
+                    className="tk"
+                    style={drafted ? undefined : { color: ARCH_COLOR[m.archetype] }}
+                  >
+                    {m.ticker}
+                  </span>
+                  {m.role && m.role !== "—" ? <span className="co">{m.role}</span> : null}
+                  <span className={`wb-pauthor ${m.authored_by}`} title="who owns this placement">
+                    {authorLabel(m.authored_by)}
+                  </span>
+                  <span className="ctls">
+                    {offThesis && (
+                      <button type="button" className="rm" onClick={() => d.removeMember(k)}>
+                        remove
+                      </button>
+                    )}
+                    <span className="ctl">
+                      <span className="lab">arch</span>
+                      <select
+                        className={drafted ? "" : archSelClass(m.archetype)}
+                        value={m.archetype}
+                        aria-label={`archetype for ${m.ticker}`}
+                        onChange={(e) =>
+                          d.editArchetype(k, e.target.value as BasketMember["archetype"])
+                        }
+                      >
+                        {ARCHETYPES.map((a) => (
+                          <option key={a} value={a}>
+                            {archLabel(a)}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    <span className="ctl">
+                      <span className="lab">seg</span>
+                      {/* UI-only: segment-label options are inert (the real recommendation pre-fill lands when
+                          the chain-draft emits segments); only "— remove —" is wired (the prune path). */}
+                      <select
+                        value={m.segment ?? ""}
+                        aria-label={`segment for ${m.ticker}`}
+                        onChange={(e) => {
+                          if (e.target.value === "__remove__") d.removeMember(k);
+                        }}
+                      >
+                        {!m.segment && <option value="">— segment —</option>}
+                        {segLabels.map((l) => (
+                          <option key={l} value={l}>
+                            {l}
+                          </option>
+                        ))}
+                        <option value="__remove__">— remove —</option>
+                      </select>
+                    </span>
+                    {drafted && (
                       <button
                         type="button"
-                        disabled={inBasket}
-                        onClick={() => pickAmbiguous(p, c)}
+                        className="wb-mini"
+                        aria-label={`accept ${m.ticker}`}
+                        onClick={() => d.acceptMember(k)}
                       >
-                        <b>{c.ticker}</b>
-                        {c.cik ? <span className="cik">CIK {c.cik}</span> : null}
-                        {c.name ? <span className="co">{c.name}</span> : null}
-                        {inBasket ? <span className="muted"> · in basket</span> : null}
+                        ✓ accept
                       </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {verify.length > 0 && (
-        <div className="wb-verify">
-          <div className="note">
-            Verify — in your universe, but matched on a single broad keyword (lower confidence). Each is
-            resolved by CIK; <b>add</b> the ones that fit. An added name is drafted (still unscored).
-          </div>
-          {verify.map((p, i) => {
-            const inBasket = p.security_id ? keys.has(p.security_id) : false;
-            return (
-              <div className="wb-verify-row" key={i}>
-                <div className="wb-suggest-h">
-                  <b>{p.name}</b>
-                  {p.ticker ? <span className="co">{p.ticker}</span> : null}
-                  {p.segment ? <small>{p.segment}</small> : null}
-                  {p.matched_terms.length > 0 ? (
-                    <span
-                      className="wb-matched"
-                      title={`discovery match: ${p.matched_terms.join(", ")}`}
-                    >
-                      ← {p.matched_terms.join(", ")}
-                    </span>
-                  ) : null}
+                    )}
+                  </span>
                 </div>
-                {p.prose ? <div className="drafted muted">{p.prose}</div> : null}
-                <button
-                  type="button"
-                  className="wb-mini"
-                  disabled={inBasket || !p.security_id}
-                  aria-label={`add ${p.ticker || p.name}`}
-                  onClick={() => addVerify(p)}
-                >
-                  {inBasket ? "· in basket" : "+ add"}
-                </button>
+                <textarea
+                  className="wb-prose"
+                  rows={3}
+                  aria-label={`thesis-fit for ${m.ticker}`}
+                  placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
+                  value={m.thesis_fit ?? ""}
+                  onChange={(e) => d.editProse(k, e.target.value)}
+                />
+                {mt && mt.length > 0 && (
+                  <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
+                    ← {mt.join(" · ")}
+                  </div>
+                )}
+                {offThesis && (
+                  <div className="flag">⚑ model thinks off-thesis — surfaced, never silently dropped</div>
+                )}
               </div>
             );
           })}
-        </div>
-      )}
-
-      {absent.length > 0 && (
-        <div className="wb-absent">
-          <div className="note">
-            Suggested, not in your universe — shown, never placed (ingest the name to make it pickable).
-          </div>
-          {absent.map((p, i) => (
-            <div className="wb-absent-row" key={i}>
-              <b>{p.name}</b>
-              {p.ticker ? <span className="co">{p.ticker}?</span> : null}
-              {p.prose ? <span className="drafted muted">{p.prose}</span> : null}
+          {d.draft.basket.length === 0 && (
+            <div className="note">No names yet — draft from the narrative, or add one below.</div>
+          )}
+          {d.draft.basket.length > PLACED_PREVIEW && !showAllPlaced && (
+            <div className="showmore">
+              <button type="button" className="wb-mini" onClick={() => setShowAllPlaced(true)}>
+                show {d.draft.basket.length - PLACED_PREVIEW} more placed
+              </button>
             </div>
-          ))}
+          )}
         </div>
-      )}
+
+        {/* TO REVIEW — resolved, lower confidence: VERIFY + tail-sweep, one bucket, one action (add / skip).
+            The rec pill renders against the real status today (verify -> "recommend add"); the sweep / low
+            pill classes are built but unused until the backend carries that confidence. */}
+        {verify.length > 0 && (
+          <div className="sect">
+            <div className="sect-h">
+              To review <em>· in your universe, lower confidence — confirm or dismiss</em>
+              <span className="ct">· {verify.length}</span>
+            </div>
+            {verify.map((p, i) => {
+              const inBasket = p.security_id ? keys.has(p.security_id) : false;
+              return (
+                <div className="nmrow" key={i}>
+                  <div className="top">
+                    <span className="tk">{p.ticker || "—"}</span>
+                    <span className="co">{p.name}</span>
+                    <span className="ctls">
+                      <span className="pill add">recommend add</span>
+                      <button
+                        type="button"
+                        className="act addbtn"
+                        disabled={inBasket || !p.security_id}
+                        aria-label={`add ${p.ticker || p.name}`}
+                        onClick={() => addVerify(p)}
+                      >
+                        {inBasket ? "added" : "add"}
+                      </button>
+                      <button
+                        type="button"
+                        className="act skip"
+                        aria-label={`skip ${p.ticker || p.name}`}
+                        onClick={() => skipVerify(p)}
+                      >
+                        skip
+                      </button>
+                    </span>
+                  </div>
+                  {p.prose ? <div className="fit">{p.prose}</div> : null}
+                  {(p.segment || p.matched_terms.length > 0) && (
+                    <div className="prov lead">
+                      {p.segment ? `recommend → ${p.segment}` : null}
+                      {p.segment && p.matched_terms.length > 0 ? " · " : null}
+                      {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* COULDN'T RESOLVE — identity-resolution failures, ORTHOGONAL to thesis-fit. A quiet drawer; never
+            confused with to-review (which is all resolved names). Ambiguous gets a CIK picker; absent is
+            display-only. */}
+        {(ambiguous.length > 0 || absent.length > 0) && (
+          <div className="sect" style={{ marginBottom: 0 }}>
+            <div className="resolve">
+              <button
+                type="button"
+                className="resolve-h"
+                aria-expanded={couldntOpen}
+                onClick={() => setCouldntOpen((o) => !o)}
+              >
+                <span className="chev">{couldntOpen ? "▾" : "▸"}</span>
+                <span className="rt">Couldn't resolve</span>
+                <span className="rm-meta">
+                  identity, not thesis-fit · {ambiguous.length} ambiguous · {absent.length} absent
+                </span>
+              </button>
+              {couldntOpen && (
+                <div className="resolve-body">
+                  {ambiguous.map((p, i) => (
+                    <div key={`amb-${i}`}>
+                      <div className="rrow">
+                        <span className="tk">{p.ticker || "—"}</span>
+                        <span className="co">{p.name}</span>
+                        <span className="rpill amb">ambiguous</span>
+                        <button
+                          type="button"
+                          className="rbtn"
+                          aria-label={`pick CIK for ${p.name}`}
+                          onClick={() => togglePick(p.name)}
+                        >
+                          pick CIK…
+                        </button>
+                      </div>
+                      <div className="rnote">
+                        matched several CIKs (e.g. a redomicile) — choose which entity is the real one before
+                        it can place
+                      </div>
+                      {pickOpen.has(p.name) && (
+                        <ul className="wb-matches">
+                          {p.candidates.map((c) => {
+                            const inBasket = keys.has(c.security_id);
+                            return (
+                              <li key={c.security_id}>
+                                <button
+                                  type="button"
+                                  disabled={inBasket}
+                                  onClick={() => pickAmbiguous(p, c)}
+                                >
+                                  <b>{c.ticker}</b>
+                                  {c.cik ? <span className="cik">CIK {c.cik}</span> : null}
+                                  {c.name ? <span className="co">{c.name}</span> : null}
+                                  {inBasket ? <span className="muted"> · in basket</span> : null}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                  {absent.map((p, i) => (
+                    <div key={`abs-${i}`}>
+                      <div className="rrow">
+                        <span className="tk">{p.ticker || "—"}</span>
+                        <span className="co">{p.name}</span>
+                        <span className="rpill abs">absent</span>
+                        <span className="rtag">no SEC filer</span>
+                      </div>
+                      <div className="rnote">
+                        named in filings but has no master row — private, not yet an SEC registrant
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <AddName existingKeys={keys} onAdd={d.addMember} />
     </div>

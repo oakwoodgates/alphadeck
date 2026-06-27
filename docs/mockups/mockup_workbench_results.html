@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Deck — Workbench Results Mockup</title>
+<!--
+  WORKBENCH RESULTS (post-draft) — COMPONENT mockup, output of the design pass.
+  Companion to mockup_workbench_nuclear.html (the pre-draft / chain view).
+  This file mocks the RESULTS surface only — the screen AFTER "draft from narrative" returns.
+  It is a COMPONENT mock, not a full page: the header, the draft-from-narrative box, the
+  add-a-link / add-a-name controls, and the term-set INTERNALS are intentionally omitted or
+  abbreviated — the agent fits these blocks into the existing page (see the accompanying
+  instructions). Illustrative data throughout.
+
+  THE THREE BUCKETS — three different questions, never conflated:
+    PLACED          — resolved + matched. Each name carries TWO orthogonal labels:
+                      ARCHETYPE (leader/high-beta/lotto/shovel) = closed, cross-thesis CATEGORY,
+                        eventually DERIVED from enrichment (cap/purity/runway); a dropdown today
+                        only because enrichment isn't built — becomes a derived+overridable value.
+                      SEGMENT (reactor developers / fuel / ...) = open, per-thesis TAG, DRAFTED
+                        from the narrative chain, LLM-recommended + pre-filled, operator-overridable.
+                      Neither is forced: pre-fill is a recommendation, not a commitment (INVARIANT #10).
+                      A name the narrator judges off-thesis stays PLACED (membership is deterministic,
+                        INVARIANT #2/#9 — never silently dropped) but carries a quiet ⚑ off-thesis FLAG
+                        surfacing the narrator's own prose judgment (the recommend-don't-remove cell).
+    TO REVIEW       — resolved, lower confidence. Same operator action (confirm/dismiss) for both
+                      VERIFY names (matched one broad term) AND tail-sweep names (foreign/ADR/new —
+                      EDGAR full-text can't see them). Same 2x2 rec language as the seed UI:
+                      recommend-add / tail-sweep / low-confidence, each with a recommended segment.
+    COULDN'T RESOLVE— NOT resolved. Identity-resolution failures, ORTHOGONAL to thesis-fit:
+                      AMBIGUOUS (matched >1 CIK — e.g. a redomicile; can't place until operator picks)
+                      ABSENT (named in filings but no master row — private, not an SEC registrant).
+                      Quiet drawer; never confused with to-review (which is all resolved names).
+
+  RETIRED: the old "discovered / unplaced" dropdown — a pre-discovery manual-placement vestige.
+  The discovery pipeline (placed/verify/ambiguous/absent) replaced it; "unplaced" is now to-review.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090b;--bg-2:#0c0e12;--panel:#101318;--panel-2:#141821;
+    --line:#1e232c;--line-2:#2a313c;--txt:#e7eaef;--txt-2:#9aa3b0;--txt-3:#5a6470;--txt-4:#3c4450;
+    --incub:#586374;--warm:#e0a23c;--armed:#ff5733;--manage:#34c2a0;--pos:#46d07f;--neg:#ff5a6a;
+    --leader:#8ab4ff;
+    --mono:"JetBrains Mono",ui-monospace,monospace;--sans:"Archivo",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,87,51,.05), transparent 60%),
+      radial-gradient(900px 500px at -5% 110%, rgba(52,194,160,.04), transparent 60%),
+      var(--bg);
+    color:var(--txt);font-family:var(--sans);font-size:13px;-webkit-font-smoothing:antialiased;
+  }
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.012) 1px,transparent 1px);
+    background-size:42px 42px;mask-image:radial-gradient(circle at 50% 40%,#000,transparent 90%);}
+
+  .wrap{position:relative;z-index:1;max-width:860px;margin:0 auto;padding:30px 26px 70px}
+
+  /* component banner — mockup chrome, not part of the UI */
+  .mockbanner{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-4);
+    border:1px dashed var(--line-2);border-radius:8px;padding:8px 12px;margin-bottom:22px;line-height:1.6}
+  .mockbanner b{color:var(--txt-3);font-weight:700}
+
+  .wb-top{display:flex;align-items:center;gap:13px;margin-bottom:20px}
+  .wb-top .dot{width:9px;height:9px;border-radius:2px;background:var(--armed);box-shadow:0 0 10px var(--armed);transform:rotate(45deg)}
+  .wb-top h1{font-size:16px;font-weight:700;letter-spacing:.03em}
+  .wb-badge{font-size:9.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:3px 9px;border-radius:6px;color:var(--leader);background:rgba(138,180,255,.1);border:1px solid rgba(138,180,255,.28)}
+  .wb-top .meta{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--txt-3);letter-spacing:.03em}
+
+  /* collapsed term-set drawer */
+  .drawer{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg-2);padding:10px 14px;margin-bottom:22px}
+  .drawer .chev{color:var(--txt-4);font-size:13px}
+  .drawer .dlabel{font-size:12.5px;font-weight:600}
+  .drawer .dmeta{font-family:var(--mono);font-size:10.5px;color:var(--txt-3)}
+  .drawer .dact{margin-left:auto;display:flex;gap:7px}
+  .mini{font-size:10.5px;font-weight:600;letter-spacing:.03em;color:var(--txt-2);border:1px solid var(--line-2);border-radius:6px;background:transparent;padding:5px 10px;cursor:pointer}
+  .mini:hover{border-color:var(--txt-4);color:var(--txt)}
+
+  /* section headers */
+  .sect{margin-bottom:26px}
+  .sect-h{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--txt-3);margin-bottom:13px;display:flex;align-items:center;gap:9px}
+  .sect-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .sect-h em{font-style:normal;color:var(--txt-4);letter-spacing:.04em;text-transform:none;font-size:10.5px}
+  .sect-h .ct{font-family:var(--mono);color:var(--txt-2);font-size:10px;letter-spacing:.02em}
+
+  /* name row */
+  .nmrow{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:11px 13px;margin-bottom:9px}
+  .nmrow .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .nmrow .tk{font-family:var(--mono);font-weight:700;font-size:12.5px}
+  .nmrow .co{font-size:12px;color:var(--txt-2)}
+  .nmrow .co .for{color:var(--txt-4);font-size:10px;letter-spacing:.04em}
+  .ctls{margin-left:auto;display:flex;align-items:center;gap:14px}
+  .ctl{display:flex;align-items:center;gap:6px}
+  .ctl .lab{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-4)}
+  .ctl select{font-family:var(--mono);font-size:10.5px;color:var(--txt-2);background:var(--panel-2);border:1px solid var(--line-2);border-radius:6px;padding:4px 7px;color-scheme:dark;cursor:pointer}
+  .ctl select.lead{color:var(--leader)}
+  .ctl select.mng{color:var(--manage)}
+
+  .fit{font-size:11.5px;color:var(--txt-2);line-height:1.55;margin-top:7px}
+  .prov{font-family:var(--mono);font-size:10px;color:var(--txt-4);margin-top:6px;letter-spacing:.02em}
+  .prov.lead{color:var(--leader)}
+  .prov.warm{color:var(--warm)}
+
+  /* off-thesis flag + flagged row tint */
+  .nmrow.flagged{border-color:rgba(224,162,60,.4);background:linear-gradient(180deg,rgba(224,162,60,.06),var(--panel))}
+  .flag{font-size:10px;color:var(--warm);margin-top:7px;display:flex;align-items:center;gap:6px;letter-spacing:.02em}
+  .rm{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warm);border:1px solid rgba(224,162,60,.4);background:var(--panel);border-radius:5px;padding:3px 8px;cursor:pointer}
+
+  /* pills + review actions */
+  .pill{font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 7px;border-radius:5px;text-transform:uppercase;white-space:nowrap}
+  .pill.add{color:var(--leader);background:rgba(138,180,255,.1);border:1px solid rgba(138,180,255,.28)}
+  .pill.sweep{color:var(--warm);background:rgba(224,162,60,.1);border:1px solid rgba(224,162,60,.3)}
+  .pill.low{color:var(--txt-3);background:rgba(90,100,116,.12);border:1px solid var(--line-2)}
+  .act{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 9px;cursor:pointer;background:transparent}
+  .act.addbtn{color:var(--leader);border:1px solid rgba(138,180,255,.3)}
+  .act.skip{color:var(--txt-4);border:1px solid var(--line)}
+
+  .showmore{text-align:center;margin:2px 0 4px}
+
+  /* couldn't-resolve drawer */
+  .resolve{border:1px solid var(--line-2);border-radius:9px;background:var(--bg-2);overflow:hidden}
+  .resolve-h{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .resolve-h .chev{color:var(--txt-3);font-size:13px}
+  .resolve-h .rt{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3)}
+  .resolve-h .rm-meta{font-family:var(--mono);font-size:10px;color:var(--txt-4);letter-spacing:.02em}
+  .resolve-body{padding:6px 14px 12px}
+  .rrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+  .rrow:first-child{border-top:none}
+  .rrow .tk{font-family:var(--mono);font-weight:700;font-size:12px}
+  .rrow .co{font-size:11.5px;color:var(--txt-3)}
+  .rpill{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+  .rpill.amb{color:var(--txt-3);background:rgba(90,100,116,.12);border:1px solid var(--line-2)}
+  .rpill.abs{color:var(--txt-4);background:rgba(90,100,116,.07);border:1px solid var(--line)}
+  .rnote{font-size:10.5px;color:var(--txt-4);line-height:1.5;margin:-2px 0 2px;padding-left:1px}
+  .rbtn{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3);border:1px solid var(--line-2);border-radius:5px;padding:3px 9px;background:transparent;cursor:pointer}
+  .rtag{font-size:10px;color:var(--txt-4);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mockbanner">
+    <b>component mockup</b> — the workbench RESULTS surface, after “draft from narrative” returns.
+    header / draft-from-narrative box / add-link / add-name are omitted; the agent fits these blocks
+    into the existing page. illustrative data.
+  </div>
+
+  <div class="wb-top">
+    <span class="dot"></span>
+    <h1>Nuclear renaissance — SMR &amp; advanced fission</h1>
+    <span class="wb-badge">workbench</span>
+    <span class="meta">draft complete · 24 placed · 5 to review</span>
+  </div>
+
+  <!-- TERM SET — collapsed drawer. Internals unchanged from today; just lives behind this toggle. -->
+  <div class="drawer">
+    <span class="chev">▸</span>
+    <span class="dlabel">Term set</span>
+    <span class="dmeta">9 signal · 7 broad</span>
+    <span class="dact">
+      <button class="mini">✦ recommend tiers</button>
+      <button class="mini">re-draft</button>
+    </span>
+  </div>
+
+  <!-- PLACED -->
+  <div class="sect">
+    <div class="sect-h">Placed <em>· archetype derived · segment drafted · both overridable</em> <span class="ct">· 3 flagged off-thesis</span></div>
+
+    <div class="nmrow">
+      <div class="top">
+        <span class="tk" style="color:var(--leader)">SMR</span>
+        <span class="co">NuScale Power</span>
+        <span class="ctls">
+          <span class="ctl"><span class="lab">arch</span>
+            <select class="lead"><option selected>leader</option><option>high-beta</option><option>lotto</option><option>shovel</option></select>
+          </span>
+          <span class="ctl"><span class="lab">seg</span>
+            <select><option selected>Reactor developers</option><option>Fuel &amp; enrichment</option><option>Components</option><option>Utilities</option><option>— remove —</option></select>
+          </span>
+        </span>
+      </div>
+      <div class="fit">Holds the only NRC-approved small modular reactor design in the US; the reference name for the thesis.</div>
+      <div class="prov">← HALEU · advanced reactor · microreactor</div>
+    </div>
+
+    <div class="nmrow">
+      <div class="top">
+        <span class="tk" style="color:var(--manage)">LEU</span>
+        <span class="co">Centrus Energy</span>
+        <span class="ctls">
+          <span class="ctl"><span class="lab">arch</span>
+            <select class="mng"><option>leader</option><option>high-beta</option><option>lotto</option><option selected>shovel</option></select>
+          </span>
+          <span class="ctl"><span class="lab">seg</span>
+            <select><option>Reactor developers</option><option selected>Fuel &amp; enrichment</option><option>Components</option><option>Utilities</option><option>— remove —</option></select>
+          </span>
+        </span>
+      </div>
+      <div class="fit">America's premier uranium enrichment and HALEU supplier; critical to fueling advanced reactors.</div>
+      <div class="prov">← HALEU · enriched uranium · molten salt reactor</div>
+    </div>
+
+    <div class="nmrow flagged">
+      <div class="top">
+        <span class="tk">KR</span>
+        <span class="co">Kroger</span>
+        <span class="ctls">
+          <button class="rm">remove</button>
+          <span class="ctl"><span class="lab">arch</span>
+            <select><option>leader</option><option>high-beta</option><option>lotto</option><option selected>shovel</option></select>
+          </span>
+          <span class="ctl"><span class="lab">seg</span>
+            <select><option selected>Utilities</option><option>Reactor developers</option><option>— remove —</option></select>
+          </span>
+        </span>
+      </div>
+      <div class="fit">Grocery retailer whose store-network energy use could one day be served by distributed SMR power.</div>
+      <div class="prov">← SMR</div>
+      <div class="flag">⚑ model thinks off-thesis — single boilerplate “SMR” mention, no real nuclear program</div>
+    </div>
+
+    <div class="showmore"><button class="mini">show 21 more placed</button></div>
+  </div>
+
+  <!-- TO REVIEW -->
+  <div class="sect">
+    <div class="sect-h">To review <em>· in your universe, lower confidence — confirm or dismiss</em></div>
+
+    <div class="nmrow">
+      <div class="top">
+        <span class="tk">BWXT</span>
+        <span class="co">BWX Technologies</span>
+        <span class="ctls">
+          <span class="pill add">recommend add</span>
+          <button class="act addbtn">add</button>
+          <button class="act skip">skip</button>
+        </span>
+      </div>
+      <div class="fit">Storied nuclear engineering firm pivoting toward SMR fabrication and reactor services.</div>
+      <div class="prov lead">recommend → Components · matched integral pressurized water reactor</div>
+    </div>
+
+    <div class="nmrow">
+      <div class="top">
+        <span class="tk">KEP</span>
+        <span class="co">KEPCO <span class="for">· foreign</span></span>
+        <span class="ctls">
+          <span class="pill sweep">tail-sweep</span>
+          <button class="act addbtn">add</button>
+          <button class="act skip">skip</button>
+        </span>
+      </div>
+      <div class="fit">South Korean state utility with APR reactor technology exportable to SMR build-outs.</div>
+      <div class="prov warm">found by tail-sweep (EDGAR can't see it) · recommend → Utilities</div>
+    </div>
+
+    <div class="nmrow">
+      <div class="top">
+        <span class="tk">—</span>
+        <span class="co">Hitachi <span class="for">· foreign / ADR</span></span>
+        <span class="ctls">
+          <span class="pill low">low confidence</span>
+          <button class="act addbtn">add</button>
+          <button class="act skip">skip</button>
+        </span>
+      </div>
+      <div class="fit">GE-Hitachi partner developing the BWRX-300 SMR; large conglomerate, mostly off-thesis.</div>
+      <div class="prov">found by tail-sweep · matched next-generation nuclear only</div>
+    </div>
+  </div>
+
+  <!-- COULDN'T RESOLVE -->
+  <div class="sect" style="margin-bottom:0">
+    <div class="resolve">
+      <div class="resolve-h">
+        <span class="chev">▾</span>
+        <span class="rt">Couldn't resolve</span>
+        <span class="rm-meta">identity, not thesis-fit · 2 ambiguous · 4 absent</span>
+      </div>
+      <div class="resolve-body">
+        <div class="rrow">
+          <span class="tk" style="color:var(--txt-3)">ATAI</span>
+          <span class="co">ATAI Life Sciences</span>
+          <span class="rpill amb">ambiguous</span>
+          <button class="rbtn">pick CIK…</button>
+        </div>
+        <div class="rnote">matched two CIKs (redomicile) — choose which entity is the real one before it can place</div>
+
+        <div class="rrow">
+          <span class="tk" style="color:var(--txt-4)">—</span>
+          <span class="co">“TerraPower”</span>
+          <span class="rpill abs">absent</span>
+          <span class="rtag">no SEC filer</span>
+        </div>
+        <div class="rnote">named in filings but has no master row — private, not yet an SEC registrant</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
