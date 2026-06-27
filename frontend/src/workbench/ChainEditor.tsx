@@ -583,7 +583,12 @@ export function ChainEditor({ thesis, onDone }: Props) {
             return (
               <div className={`nmrow${offThesis ? " flagged" : ""}`} key={k}>
                 <div className="top">
-                  <span className="tk" style={{ color: ARCH_COLOR[m.archetype] }}>
+                  {/* the archetype color (incl. red high-beta) only shows once the name is operator-owned or
+                      enrichment-derived; an UNCONFIRMED draft default renders neutral, not a wall of red. */}
+                  <span
+                    className="tk"
+                    style={drafted ? undefined : { color: ARCH_COLOR[m.archetype] }}
+                  >
                     {m.ticker}
                   </span>
                   {m.role && m.role !== "—" ? <span className="co">{m.role}</span> : null}
@@ -599,7 +604,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     <span className="ctl">
                       <span className="lab">arch</span>
                       <select
-                        className={archSelClass(m.archetype)}
+                        className={drafted ? "" : archSelClass(m.archetype)}
                         value={m.archetype}
                         aria-label={`archetype for ${m.ticker}`}
                         onChange={(e) =>
@@ -647,7 +652,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                 </div>
                 <textarea
                   className="wb-prose"
-                  rows={2}
+                  rows={3}
                   aria-label={`thesis-fit for ${m.ticker}`}
                   placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
                   value={m.thesis_fit ?? ""}

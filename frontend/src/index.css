@@ -501,7 +501,7 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .prov { display: block; font-family: var(--mono); font-size: 10px; color: var(--txt-4); margin-top: 6px; letter-spacing: 0.02em; }
 .wb-results .prov.lead { color: var(--leader); }
 .wb-results .prov.warm { color: var(--warm); }
-.wb-results .wb-prose { margin-top: 7px; }
+.wb-results .wb-prose { width: 100%; box-sizing: border-box; min-height: 58px; margin-top: 7px; }
 
 /* off-thesis FLAG + flagged-row tint — built, DORMANT (never rendered until an off_thesis signal exists) */
 .wb-results .nmrow.flagged { border-color: rgba(224, 162, 60, 0.4); background: linear-gradient(180deg, rgba(224, 162, 60, 0.06), var(--panel)); }
