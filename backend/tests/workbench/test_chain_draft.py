@@ -201,6 +201,9 @@ def test_discovered_chain_places_matched_by_cik(db):
     assert by_t["OKLO"].prose == "reactor dev"  # the organizer's layout prose is carried
     assert by_t["ALKS"].status is PlacementStatus.VERIFY  # single-BROAD stays lower-confidence
     assert by_t["ALKS"].security_id == u.verify["0000000002"]
+    # both matched a discovered CIK → "edgar" provenance (display-only; the FE shows no off-universe pill)
+    assert by_t["OKLO"].discovery_source == "edgar"
+    assert by_t["ALKS"].discovery_source == "edgar"
     assert all(s.label != "Discovered" for s in chain.segments)
 
 
@@ -226,12 +229,19 @@ def test_dropped_discovered_cik_surfaces_in_discovered_bucket(db):
     disc = [p for p in chain.placements if p.segment == "Discovered"]
     assert {p.ticker for p in disc} == {"SMR", "ALKS"}  # exactly the two the organizer dropped
     assert {p.status for p in disc} == {PlacementStatus.PLACED, PlacementStatus.VERIFY}  # tier kept
+    assert all(
+        p.discovery_source == "edgar" for p in disc
+    )  # reconciler-appended → edgar by construction
     assert any(s.label == "Discovered" for s in chain.segments)  # the fallback segment exists
 
 
 def test_unmatched_name_falls_to_master_resolver_and_empty_universe_adds_no_bucket(db):
     """A name EFTS did NOT discover (a tail-sweep / off-universe name) resolves via the existing master resolver
     (PLACED by exact ticker / ABSENT) — not the CIK path. An empty discovery adds no 'Discovered' bucket.
+
+    It also pins ``discovery_source`` as ORTHOGONAL to status: both names match NO discovered CIK, so BOTH carry
+    ``"off_universe"`` regardless of how they then resolved — LEU off_universe + PLACED (a real US-tradeable name
+    EDGAR's term-search missed, the sweep earning its keep), ZZZZ off_universe + ABSENT (no master row).
     """
     leu = _insert(db, "LEU", name="Centrus Energy Corp.")
     segs = [
@@ -245,4 +255,7 @@ def test_unmatched_name_falls_to_master_resolver_and_empty_universe_adds_no_buck
     by_t = {p.ticker: p for p in chain.placements}
     assert by_t["LEU"].status is PlacementStatus.PLACED and by_t["LEU"].security_id == leu
     assert by_t["ZZZZ"].status is PlacementStatus.ABSENT
+    # orthogonal to status: no discovered CIK → "off_universe" on BOTH the PLACED and the ABSENT placement
+    assert by_t["LEU"].discovery_source == "off_universe"
+    assert by_t["ZZZZ"].discovery_source == "off_universe"
     assert all(s.label != "Discovered" for s in chain.segments)  # nothing discovered -> no bucket

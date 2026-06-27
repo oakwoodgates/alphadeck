@@ -344,6 +344,49 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     expect(screen.getByText(/matched ketamine/)).toBeInTheDocument(); // to-review row prov (p.matched_terms)
   });
 
+  it("renders the off-universe pill on off_universe names (PLACED + ABSENT, orthogonal to status), never on an edgar name", async () => {
+    const user = userEvent.setup();
+    const PLACED_OFF = {
+      name: "Korea Electric Power",
+      ticker: "KEP",
+      prose: "the utility building the reactors",
+      segment: "reactors",
+      status: "placed",
+      security_id: "s-kep",
+      candidates: [],
+      matched_terms: [], // off-universe → no discovery term surfaced it
+      discovery_source: "off_universe",
+    };
+    const ABSENT_OFF = {
+      name: "Some Foreign GmbH",
+      ticker: "ZZZZ",
+      prose: "no US listing",
+      segment: "reactors",
+      status: "absent",
+      security_id: null,
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "off_universe",
+    };
+    // PLACED_SMR matched an EDGAR CIK (discovery_source defaults "edgar") → it must show NO pill.
+    mockDraft(draft([PLACED_SMR, PLACED_OFF, ABSENT_OFF]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for KEP"); // the off_universe name landed in PLACED (the win-signal)
+
+    // the pill rides BOTH the PLACED (KEP) and the absent (ZZZZ) buckets — orthogonal to placement status
+    expect(screen.getAllByText("off-universe")).toHaveLength(2);
+    // honest label: it names the observation ("off the deterministic universe"), never the mechanism
+    expect(screen.getAllByText("off-universe")[0]).toHaveAttribute(
+      "title",
+      expect.stringContaining("off the deterministic universe"),
+    );
+    // the edgar name (SMR) shows no pill — provenance never over-claims a sweep contribution
+    const smrRow = screen.getByLabelText("segment for SMR").closest(".nmrow") as HTMLElement;
+    expect(within(smrRow).queryByText("off-universe")).not.toBeInTheDocument();
+  });
+
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {
     const user = userEvent.setup();
     mockDraft(draft([], []));

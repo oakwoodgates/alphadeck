@@ -1036,8 +1036,11 @@ def test_draft_endpoint_resolves_via_discovery(client, db):
     assert by_name["Oklo Inc."]["matched_terms"] == [
         "nuclear"
     ]  # provenance: the term that surfaced it (#9)
+    assert by_name["Oklo Inc."]["discovery_source"] == "edgar"  # matched an EDGAR-discovered CIK
     assert by_name["Ghost Co"]["status"] == "absent"  # off-universe -> master resolver
     assert by_name["Ghost Co"]["matched_terms"] == []  # off-universe -> no discovery term
+    # the tail-sweep provenance rides the response: a name matching no discovered CIK is "off_universe"
+    assert by_name["Ghost Co"]["discovery_source"] == "off_universe"
 
 
 def test_draft_endpoint_writes_nothing(client, db):
