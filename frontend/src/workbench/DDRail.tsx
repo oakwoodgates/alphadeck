@@ -52,6 +52,13 @@ function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigur
 
 interface Props {
   member: ScoredMemberOut | null;
+  // #10 apply: confirm the derived archetype recommendation -> persists as operator_edited (the operator
+  // decides). Omitted (read-only) when there's no write path. The recommendation shows pending regardless.
+  onApplyArchetype?: (
+    securityId: string,
+    archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
+  ) => void;
+  applying?: boolean;
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -59,7 +66,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member }: Props) {
+export function DDRail({ member, onApplyArchetype, applying }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -69,11 +76,35 @@ export function DDRail({ member }: Props) {
       </div>
     );
   }
+  // The #10 recommendation: a derived default (market cap + purity) that DIFFERS from the current archetype.
+  // Pending + display-only — the operator confirms it (apply -> operator_edited) or ignores it. No chip when
+  // the rule abstains (hint null) or already agrees (quiet agreement) — only loud disagreement shows.
+  const hint = member.archetype_hint;
+  const recommends = hint != null && hint !== member.archetype;
   return (
     <div className="ddcard">
       <div className="dd-head">
         <span className="tk">{member.ticker ?? "◇"}</span>
         <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        {recommends && (
+          <span
+            className="arch-rec"
+            title="derived from the figures (market cap + purity) — a recommendation, not a verdict; you decide"
+          >
+            ✦ suggests {archLabel(hint)}
+            {onApplyArchetype && (
+              <button
+                type="button"
+                className="arch-apply"
+                disabled={applying}
+                aria-label={`apply ${archLabel(hint)} to ${member.ticker ?? "this name"}`}
+                onClick={() => onApplyArchetype(member.security_id, hint)}
+              >
+                {applying ? "applying…" : "apply"}
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <div className="dd-body">
         <div className="dd-facts">
