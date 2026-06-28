@@ -387,6 +387,66 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     expect(within(smrRow).queryByText("off-universe")).not.toBeInTheDocument();
   });
 
+  it("renders machine-parsed sector / exchange chips on a placed name (Slice 2 enrichment, display-only)", async () => {
+    const user = userEvent.setup();
+    const PLACED_ENRICHED = {
+      name: "Cameco",
+      ticker: "CCJ",
+      prose: "uranium miner",
+      segment: "reactors",
+      status: "placed",
+      security_id: "s-ccj-x",
+      candidates: [],
+      matched_terms: ["nuclear"],
+      discovery_source: "edgar",
+      sector: "Metal Mining",
+      exchange: "NYSE",
+      listing_status: "active",
+    };
+    mockDraft(draft([PLACED_ENRICHED]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for CCJ");
+    expect(screen.getByText("Metal Mining")).toBeInTheDocument(); // sector chip (bridged by security_id)
+    expect(screen.getByText("NYSE")).toBeInTheDocument(); // exchange chip
+    // an actively-listed name shows NO not-listed flag
+    expect(screen.queryByText(/no current listing found in EDGAR/)).not.toBeInTheDocument();
+  });
+
+  it("a name gated for no current listing reads as a hedged 'not listed' pick, never 'delisted' (Slice 2 gate)", async () => {
+    const user = userEvent.setup();
+    const AMBIGUOUS_UNLISTED = {
+      name: "Defunct Reactors Inc.",
+      ticker: "DEAD",
+      prose: "",
+      segment: "reactors",
+      status: "ambiguous", // the gate downgraded an inactive PLACED name to a frictionless pick
+      security_id: null,
+      candidates: [
+        { security_id: "s-dead", ticker: "DEAD", name: "Defunct Reactors Inc.", cik: "0000000001" },
+      ],
+      matched_terms: [],
+      discovery_source: "edgar",
+      sector: "Electric Services",
+      exchange: null,
+      listing_status: "inactive",
+    };
+    mockDraft(draft([AMBIGUOUS_UNLISTED]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    expect(await screen.findByText("Defunct Reactors Inc.")).toBeInTheDocument();
+    // the hedged pill + note — a GUESS, never a "delisted" verdict (#9); the redomicile note is suppressed
+    expect(screen.getByText("not listed")).toBeInTheDocument();
+    expect(screen.getByText(/no current listing found in EDGAR/)).toBeInTheDocument();
+    expect(screen.queryByText(/delisted/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/redomicile/)).not.toBeInTheDocument();
+    // the frictionless rescue: a "place anyway…" action (not "pick CIK…")
+    expect(screen.getByRole("button", { name: /place Defunct Reactors/ })).toBeInTheDocument();
+    expect(screen.getByText("Electric Services")).toBeInTheDocument(); // sector chip still rides the row
+  });
+
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {
     const user = userEvent.setup();
     mockDraft(draft([], []));

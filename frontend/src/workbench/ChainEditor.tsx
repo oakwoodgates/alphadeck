@@ -54,6 +54,39 @@ const OffUniversePill = () => (
   </span>
 );
 
+// Machine-parsed IDENTITY (Slice 2 enrichment) — quiet sector / exchange chips. Display-only (parsed from the
+// name's EDGAR submissions onto the master), never promoted onto a BasketMember. Renders nothing when absent
+// (an un-enriched / off-universe name — the honest fallback).
+const IdentityChips = ({
+  sector,
+  exchange,
+}: {
+  sector?: string | null;
+  exchange?: string | null;
+}) => (
+  <>
+    {sector && (
+      <span className="idchip" title="sector (SEC SIC) — machine-parsed from EDGAR submissions">
+        {sector}
+      </span>
+    )}
+    {exchange && (
+      <span className="idchip" title="exchange — machine-parsed from EDGAR submissions">
+        {exchange}
+      </span>
+    )}
+  </>
+);
+
+// The hedged listing flag: the name's master row shows NO current SEC listing. A GUESS (a listing-presence
+// heuristic), NEVER a "delisted" verdict — the name is still one pick away from placing (the frictionless
+// rescue). Surfaced, never silently dropped (#9).
+const NotListedFlag = () => (
+  <div className="flag">
+    ⚑ no current listing found in EDGAR — a guess, not a delisting; pick it to place anyway
+  </div>
+);
+
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
  *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
  *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
@@ -187,6 +220,12 @@ export function ChainEditor({ thesis, onDone }: Props) {
   // outside the EDGAR-discovered universe, via the sweep-augmented context). The PLACED bucket renders
   // BasketMembers, not placements, so it bridges by security_id — same shape as `matched`. NEVER promoted.
   const [offUniverse, setOffUniverse] = useState<Set<string>>(new Set());
+  // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange (machine-parsed from EDGAR
+  // submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
+  // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
+  const [identity, setIdentity] = useState<
+    Record<string, { sector?: string | null; exchange?: string | null }>
+  >({});
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
@@ -234,6 +273,13 @@ export function ChainEditor({ thesis, onDone }: Props) {
         data.placements
           .filter((p) => p.security_id && p.discovery_source === "off_universe")
           .map((p) => p.security_id as string),
+      ),
+    );
+    setIdentity(
+      Object.fromEntries(
+        data.placements
+          .filter((p) => p.security_id)
+          .map((p) => [p.security_id as string, { sector: p.sector, exchange: p.exchange }]),
       ),
     );
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
@@ -619,6 +665,9 @@ export function ChainEditor({ thesis, onDone }: Props) {
                     {authorLabel(m.authored_by)}
                   </span>
                   {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
+                  {m.security_id && identity[m.security_id] && (
+                    <IdentityChips {...identity[m.security_id]} />
+                  )}
                   <span className="ctls">
                     {offThesis && (
                       <button type="button" className="rm" onClick={() => d.removeMember(k)}>
@@ -721,6 +770,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   <div className="top">
                     <span className="tk">{p.ticker || "—"}</span>
                     <span className="co">{p.name}</span>
+                    <IdentityChips sector={p.sector} exchange={p.exchange} />
                     <span className="ctls">
                       {p.discovery_source === "off_universe" && <OffUniversePill />}
                       <span className="pill add">recommend add</span>
@@ -751,6 +801,7 @@ export function ChainEditor({ thesis, onDone }: Props) {
                       {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
                     </div>
                   )}
+                  {p.listing_status === "inactive" && <NotListedFlag />}
                 </div>
               );
             })}
@@ -777,25 +828,36 @@ export function ChainEditor({ thesis, onDone }: Props) {
               </button>
               {couldntOpen && (
                 <div className="resolve-body">
-                  {ambiguous.map((p, i) => (
+                  {ambiguous.map((p, i) => {
+                    // A name gated for NO CURRENT LISTING (Slice 2) lands here too — but it's not a redomicile
+                    // collision, so it reads with a hedged "not listed" pill + note + a "place anyway" action
+                    // (the frictionless rescue; the candidate is its own row). A guess, never a verdict (#9).
+                    const unlisted = p.listing_status === "inactive";
+                    return (
                     <div key={`amb-${i}`}>
                       <div className="rrow">
                         <span className="tk">{p.ticker || "—"}</span>
                         <span className="co">{p.name}</span>
                         {p.discovery_source === "off_universe" && <OffUniversePill />}
-                        <span className="rpill amb">ambiguous</span>
+                        <IdentityChips sector={p.sector} exchange={p.exchange} />
+                        {unlisted ? (
+                          <span className="rpill unlisted">not listed</span>
+                        ) : (
+                          <span className="rpill amb">ambiguous</span>
+                        )}
                         <button
                           type="button"
                           className="rbtn"
-                          aria-label={`pick CIK for ${p.name}`}
+                          aria-label={`${unlisted ? "place" : "pick CIK for"} ${p.name}`}
                           onClick={() => togglePick(p.name)}
                         >
-                          pick CIK…
+                          {unlisted ? "place anyway…" : "pick CIK…"}
                         </button>
                       </div>
                       <div className="rnote">
-                        matched several CIKs (e.g. a redomicile) — choose which entity is the real one before
-                        it can place
+                        {unlisted
+                          ? "no current listing found in EDGAR — a guess (listing-presence heuristic), not a delisting; place it anyway if it's real"
+                          : "matched several CIKs (e.g. a redomicile) — choose which entity is the real one before it can place"}
                       </div>
                       {pickOpen.has(p.name) && (
                         <ul className="wb-matches">
@@ -819,7 +881,8 @@ export function ChainEditor({ thesis, onDone }: Props) {
                         </ul>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {absent.map((p, i) => (
                     <div key={`abs-${i}`}>
                       <div className="rrow">
