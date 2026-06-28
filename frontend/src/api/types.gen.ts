@@ -920,6 +920,14 @@ export interface components {
          *     never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
          *     ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
          *     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
+         *
+         *     ``sector`` / ``exchange`` / ``listing_status`` are machine-parsed IDENTITY carried from the master (enriched
+         *     just-in-time from EDGAR submissions before resolution) — display-only like ``matched_terms``: never a number
+         *     (#3), never promoted onto a ``BasketMember`` (#2). ``listing_status`` is a LISTING-PRESENCE heuristic
+         *     (``"active"`` / ``"inactive"``), NOT a delisting verdict: a PLACED name whose master row reads ``"inactive"``
+         *     is DOWNGRADED to AMBIGUOUS (never auto-placed) with its own row as the single pick — a frictionless rescue,
+         *     surfaced with a HEDGED flag ("no current listing found in EDGAR"), so a false-inactive costs one extra click,
+         *     never a silent drop (#9). ``None`` when the row is un-enriched (the honest fallback — no flag, no gate).
          */
         ResolvedPlacement: {
             /** Name */
@@ -949,6 +957,12 @@ export interface components {
              * @enum {string}
              */
             discovery_source: "edgar" | "off_universe";
+            /** Sector */
+            sector?: string | null;
+            /** Exchange */
+            exchange?: string | null;
+            /** Listing Status */
+            listing_status?: string | null;
         };
         /** ResolvedSegment */
         ResolvedSegment: {

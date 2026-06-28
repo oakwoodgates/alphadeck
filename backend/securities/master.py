@@ -352,3 +352,23 @@ def get(
         )
         row = cur.fetchone()
     return _row_to_security(row) if row else None
+
+
+def get_many(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, Security]:
+    """The batch form of ``get`` — fetch many securities by id within THIS tenant in one query (ids with no
+    row omitted). The chain reconciler uses it to carry machine-parsed identity (sector / exchange / status)
+    onto resolved placements + apply the listing-status gate, without a per-placement round-trip."""
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, ids),
+        )
+        return {row["id"]: _row_to_security(row) for row in cur.fetchall()}
