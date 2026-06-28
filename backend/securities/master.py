@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
-from domain.security import Security
+from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
 
 
@@ -22,6 +22,9 @@ def _row_to_security(row: dict) -> Security:
         cik=row.get("cik"),
         cusip=row.get("cusip"),
         figi=row.get("figi"),
+        sector=row.get("sector"),
+        exchange=row.get("exchange"),
+        status=row.get("status"),
     )
 
 
@@ -165,6 +168,36 @@ def populate_universe(
         "updated": len(updates),
         "skipped": len(seen) - len(inserts) - len(updates),
     }
+
+
+def enrich(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    identity: SecurityIdentity,
+    *,
+    source: str,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Enrich one master row with machine-parsed IDENTITY (sector/exchange/status) from EDGAR submissions —
+    UPDATE-in-place, the same identity-mutable pattern as ``populate_universe``'s name-update. The id stays
+    stable (the fact tables that FK ``security_id`` never orphan); nothing reads the master as-of, so
+    overwriting a stale value leaks into no point-in-time read. Idempotent — a re-run overwrites, never appends.
+
+    ``source`` is the ENRICHMENT BASIS stored alongside (e.g. ``submissions:CIK0001849056``). Identity carries
+    a basis, NEVER the facts' ``ratified_by`` — so machine-parsed identity can't masquerade as an
+    operator-vouched fact (#1/#3: identity is not a number on a call card). ``identity.former_names`` is NOT
+    persisted here — the identity-bridge slice owns that.
+
+    Returns whether a row was updated: a foreign/unknown id under this tenant updates nothing (fail-closed, the
+    same write-side tenant boundary as ``exists``). The caller commits (so an enrichment pass can batch).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET sector = %s, exchange = %s, status = %s, "
+            "enriched_source = %s, enriched_at = now() WHERE tenant_id = %s AND id = %s",
+            (identity.sector, identity.exchange, identity.status, source, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
 
 
 def ciks_for(
