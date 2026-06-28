@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain.security import SecurityIdentity
 from ingest import CacheMiss
 from securities import master
 
@@ -142,3 +143,47 @@ def test_ids_for_ciks_empty_and_blank_input(db):
     same ``WHERE tenant_id`` pattern as ``ids_for_tickers``/``search``."""
     assert master.ids_for_ciks(db, []) == {}
     assert master.ids_for_ciks(db, ["", None]) == {}
+
+
+# --- enrich: machine-parsed identity onto the master, UPDATE-in-place (Workbench enrichment, Slice 1) ---
+
+
+def test_enrich_sets_identity_and_reads_back(db):
+    sid = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
+    updated = master.enrich(
+        db,
+        sid,
+        SecurityIdentity(sector="Electric Services", exchange="NYSE", status="active"),
+        source="submissions:CIK0001849056",
+    )
+    db.commit()
+    assert updated is True
+    sec = master.get(db, sid)
+    assert (sec.sector, sec.exchange, sec.status) == ("Electric Services", "NYSE", "active")
+
+
+def test_enrich_is_update_in_place_not_append(db):
+    """Re-enrichment UPDATEs in place (the master is identity-mutable) — the row COUNT never grows (count the
+    table, not the read), the id is stable (FK'd facts never orphan), and the latest values win."""
+    sid = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        before = cur.fetchone()["n"]
+    master.enrich(
+        db, sid, SecurityIdentity(sector="A", exchange="NYSE", status="active"), source="s1"
+    )
+    master.enrich(
+        db, sid, SecurityIdentity(sector="B", exchange="Nasdaq", status="inactive"), source="s2"
+    )
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before  # UPDATE-in-place, never appended
+    sec = master.get(db, sid)
+    assert (sec.sector, sec.exchange, sec.status) == ("B", "Nasdaq", "inactive")  # latest wins
+
+
+def test_enrich_unknown_id_updates_nothing(db):
+    """A foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary as
+    ``exists``) — never conjures a row."""
+    assert master.enrich(db, uuid.uuid4(), SecurityIdentity(sector="X"), source="s") is False
