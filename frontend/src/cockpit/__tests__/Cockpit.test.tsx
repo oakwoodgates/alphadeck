@@ -25,11 +25,14 @@ const fx = vi.hoisted(() => ({
     kill_criteria: [],
     position: null,
   },
+  // the Workbench scored read (Slice 3): computed market cap bridged by security_id onto the basket rows
+  scored: { members: [{ security_id: "s-ura", market_cap: { value: 3.2e9 } }] },
 }));
 
 vi.mock("../../api/hooks", () => ({
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
   useCall: () => ({ data: undefined, isLoading: false, error: null }),
+  useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
 }));
 
 import { Cockpit } from "../Cockpit";
@@ -47,5 +50,11 @@ describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", 
     expect(screen.getByText("ETF sleeve")).toBeInTheDocument();
     // The old incomplete-map fallback (`ARCH_LABEL[x] ?? x`) would have rendered the raw key "fund".
     expect(screen.queryByText("fund")).toBeNull();
+  });
+
+  it("surfaces computed market cap per basket row, bridged by security_id (Slice 3)", () => {
+    render(<Cockpit thesisId="t-etf" asof="2026-06-20" onAsofChange={() => {}} onBack={() => {}} />);
+    expect(screen.getByText("Mkt cap")).toBeInTheDocument(); // the new column header
+    expect(screen.getByText("$3.2B")).toBeInTheDocument(); // URA's computed cap (formatMarketCap(3.2e9))
   });
 });

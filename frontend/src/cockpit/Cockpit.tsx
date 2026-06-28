@@ -1,4 +1,4 @@
-import { useCall, useThesis } from "../api/hooks";
+import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -10,6 +10,7 @@ import {
   STATE_LABEL,
   tickerLabel,
 } from "../util/format";
+import { formatMarketCap } from "../workbench/format";
 
 interface Props {
   thesisId: string;
@@ -21,8 +22,14 @@ interface Props {
 export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
+  const scoredQ = useWorkbenchScored(thesisId, asof);
   const thesis = thesisQ.data;
   const card = callQ.data;
+  // Computed market cap (the scoring engine, re-derived on read) bridged by security_id — surfaced read-only
+  // beside the manual `detail`, not in place of it. "—" when a name is un-scored / has no price+shares facts.
+  const capBySid = new Map<string, number | null>(
+    (scoredQ.data?.members ?? []).map((m) => [m.security_id, m.market_cap.value ?? null]),
+  );
 
   const state = card?.state ?? "incubating";
   const sc = STATE_CLASS[state] ?? "incub";
@@ -92,6 +99,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                       <th>Ticker</th>
                       <th>Role</th>
                       <th>Archetype</th>
+                      <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Detail</th>
                     </tr>
                   </thead>
@@ -104,6 +112,9 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                           <span className={`arch ${b.archetype}`}>
                             {archLabel(b.archetype)}
                           </span>
+                        </td>
+                        <td className="met">
+                          {formatMarketCap(b.security_id ? capBySid.get(b.security_id) : null)}
                         </td>
                         <td className="met">{b.detail ?? "—"}</td>
                       </tr>
