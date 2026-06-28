@@ -2100,6 +2100,16 @@
           "archetype": {
             "$ref": "#/components/schemas/Archetype"
           },
+          "archetype_hint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Archetype"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "segment": {
             "anyOf": [
               {

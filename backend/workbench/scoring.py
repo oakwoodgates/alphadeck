@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from domain.config import DEFAULT_CONFIG, CallConfig
-from domain.enums import Grade
+from domain.enums import Archetype, Grade
 from domain.signal import Provenance
 from domain.thesis import BasketMember, Thesis
 from domain.workbench import ScoredFigure, ScoredMember
@@ -142,6 +142,29 @@ def _fit(purity_pips: int | None, runway_pips: int | None, dilution_pips: int | 
     return base + (" · " + " · ".join(mods) if mods else "")
 
 
+def _archetype_hint(
+    market_cap: ScoredFigure, purity: ScoredFigure, cfg: CallConfig
+) -> Archetype | None:
+    """A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10) — display-only, the operator
+    overrides; changes nothing until confirmed. Deterministic, from the figures the scorer already computed
+    (no model, no new number — #1/#3): a SIZE + PURITY read. ABSTAINS (``None``) when there's nothing to stand
+    on — no market cap yet (the honest fallback; the operator's default stands) — and it NEVER guesses the
+    RELATIONAL archetypes (``shovel`` = a value-chain role, ``fund`` = an ETF — those stay the operator's).
+    It RECOMMENDS, never decides."""
+    cap = market_cap.value
+    if cap is None:
+        return None  # no facts yet -> abstain (no recommendation; the operator's default stands)
+    if purity.pips is not None and purity.pips <= cfg.archetype_adjacent_max_purity_pip:
+        return Archetype.ADJACENT  # off-thesis / peripheral exposure (the _fit "off-thesis" read)
+    if cap >= cfg.archetype_leader_min_cap_usd:
+        return (
+            Archetype.LEADER
+        )  # large-cap bellwether (ABSOLUTE, not relative-to-basket — see CallConfig)
+    if cap >= cfg.archetype_high_beta_min_cap_usd:
+        return Archetype.HIGH_BETA  # small / mid amplifier
+    return Archetype.LOTTO  # micro / nano — the small-size, binary lotto
+
+
 def score_member(
     pit: PointInTimeData, member: BasketMember, cfg: CallConfig = DEFAULT_CONFIG
 ) -> ScoredMember:
@@ -152,15 +175,17 @@ def score_member(
     runway = _runway(pit, sid, cfg)
     catalysts = _catalysts(pit, sid, cfg)
     dilution = _dilution(pit, sid, cfg)
+    market_cap = _market_cap(pit, sid)
     return ScoredMember(
         security_id=sid,
         archetype=member.archetype,
+        archetype_hint=_archetype_hint(market_cap, purity, cfg),
         segment=member.segment,
         purity=purity,
         runway=runway,
         catalysts=catalysts,
         dilution=dilution,
-        market_cap=_market_cap(pit, sid),
+        market_cap=market_cap,
         fit=_fit(purity.pips, runway.pips, dilution.pips),
     )
 

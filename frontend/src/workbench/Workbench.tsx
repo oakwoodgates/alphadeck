@@ -1,6 +1,12 @@
 import { Fragment, useState } from "react";
 
-import { usePromoteThesis, useTheses, useThesis, useWorkbenchScored } from "../api/hooks";
+import {
+  type ScoredMemberOut,
+  usePromoteThesis,
+  useTheses,
+  useThesis,
+  useWorkbenchScored,
+} from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
@@ -134,6 +140,28 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
       narrative: thesis.narrative,
       ticker: thesis.ticker ?? null,
       basket: thesis.basket,
+      segments: thesis.segments,
+    });
+  };
+
+  // #10 apply: the operator confirms the derived archetype recommendation for ONE name. Persists via the
+  // existing promote writer (one member's archetype changed -> operator_edited; the rest of the chain is
+  // resent untouched, the wipe-trap guard); the scored read re-derives, clearing the chip. Never auto-applied.
+  const applyArchetype = (
+    securityId: string,
+    archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
+  ) => {
+    if (!thesis) return;
+    promote.mutate({
+      id: thesis.id,
+      name: thesis.name,
+      narrative: thesis.narrative,
+      ticker: thesis.ticker ?? null,
+      basket: thesis.basket.map((b) =>
+        b.security_id === securityId
+          ? { ...b, archetype, authored_by: "operator_edited" as const }
+          : b,
+      ),
       segments: thesis.segments,
     });
   };
@@ -440,7 +468,11 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
             </main>
 
             <aside className="wb-rail">
-              <DDRail member={selectedMember} />
+              <DDRail
+                member={selectedMember}
+                onApplyArchetype={applyArchetype}
+                applying={promote.isPending}
+              />
             </aside>
           </>
         )}

@@ -34,6 +34,11 @@ class ScoredMember(DomainModel):
 
     security_id: UUID
     archetype: Archetype
+    # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
+    # purity. Display-only — the operator confirms/overrides; it is NEVER auto-applied to ``archetype`` and
+    # never promoted onto a ``BasketMember``. ``None`` = abstain (no facts yet, or a relational role the rule
+    # won't guess — shovel / fund). The LLM does not touch this (no model, no number — #1/#3).
+    archetype_hint: Archetype | None = None
     segment: str | None = None
     purity: ScoredFigure
     runway: ScoredFigure

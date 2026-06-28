@@ -17,6 +17,14 @@ export function ScoredRow({ member, selected, onSelect }: Props) {
       <div className="top">
         <span className="tk">{member.ticker ?? "◇"}</span>
         <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        {member.archetype_hint && member.archetype_hint !== member.archetype && (
+          <span
+            className="arch-rec-dot"
+            title={`figures suggest ${archLabel(member.archetype_hint)} — open the name to apply`}
+          >
+            ✦
+          </span>
+        )}
         <span className="cap">
           <small>mkt cap</small>
           {formatMarketCap(member.market_cap.value)}

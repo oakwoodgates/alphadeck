@@ -263,6 +263,10 @@ class ScoredMemberOut(BaseModel):
     security_id: UUID
     ticker: str | None = None
     archetype: Archetype
+    # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
+    # purity. Display-only — the operator confirms/overrides; NEVER auto-applied to ``archetype``, never
+    # promoted. ``None`` = abstain (no facts yet, or a relational role — shovel/fund — the rule won't guess).
+    archetype_hint: Archetype | None = None
     segment: str | None = None
     purity: ScoredFigureOut
     runway: ScoredFigureOut
@@ -291,6 +295,7 @@ class ScoredMemberOut(BaseModel):
             security_id=m.security_id,
             ticker=tickers.get(m.security_id),
             archetype=m.archetype,
+            archetype_hint=m.archetype_hint,
             segment=m.segment,
             purity=fig(m.purity),
             runway=fig(m.runway),

@@ -375,6 +375,11 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .ddcard { border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel); overflow: hidden; }
 .dd-head { padding: 12px 14px; background: rgba(138, 180, 255, 0.08); display: flex; align-items: center; gap: 8px; }
 .dd-head .tk { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--leader); }
+/* the #10 archetype recommendation (Slice 4): a quiet pending chip in the DD head + a tiny ✦ on the scored row */
+.dd-head .arch-rec { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 9.5px; color: var(--leader); letter-spacing: 0.02em; }
+.dd-head .arch-apply { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--leader); border: 1px solid rgba(138, 180, 255, 0.4); background: transparent; border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+.dd-head .arch-apply:disabled { opacity: 0.5; cursor: default; }
+.arch-rec-dot { color: var(--leader); font-size: 10px; }
 .dd-body { padding: 15px; }
 .dd-facts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
 .dd-facts span { font-size: 11.5px; color: var(--txt-2); display: flex; gap: 9px; }

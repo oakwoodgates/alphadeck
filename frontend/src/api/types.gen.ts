@@ -1000,6 +1000,7 @@ export interface components {
             /** Ticker */
             ticker?: string | null;
             archetype: components["schemas"]["Archetype"];
+            archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */
             segment?: string | null;
             purity: components["schemas"]["ScoredFigureOut"];

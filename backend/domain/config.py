@@ -168,6 +168,24 @@ class CallConfig(DomainModel):
         15.0,
     )  # 1/2/3-pip; 4-pip = the severe dial
     #
+    # ARCHETYPE recommendation (Slice 4, #10) — a DERIVED DEFAULT the operator overrides, never auto-applied.
+    # The role a name plays is largely a SIZE + PURITY read: a large-cap bellwether LEADS; a small/mid name
+    # AMPLIFIES (high beta); a micro/nano name is the binary LOTTO; an off-thesis (low-purity) name is ADJACENT
+    # regardless of size. `shovel` (a picks-and-shovels value-chain role) and `fund` (an ETF) are RELATIONAL /
+    # structural — NOT derivable from these figures — so the rule ABSTAINS on them (the operator's call), and
+    # it abstains entirely when there's no market cap yet (no facts → the operator's default stands). Cutoffs
+    # are conventional cap tiers, grounded in what they MEAN, NOT fit to the seed. NOTE the limitation: "leader"
+    # is ABSOLUTE here (a large-cap), not relative-to-the-basket — a small-cap theme gets no derived leader, the
+    # operator sets it (consistent with abstention-as-a-feature; a relative-leader refinement is the operator's
+    # to call). The operator's edge — tune here.
+    archetype_adjacent_max_purity_pip: int = (
+        1  # purity pips <= this (off-thesis / peripheral) -> adjacent
+    )
+    archetype_leader_min_cap_usd: float = 10e9  # >= large-cap -> leader (the bellwether)
+    archetype_high_beta_min_cap_usd: float = (
+        5e8  # >= this -> high_beta; below -> lotto (micro / nano)
+    )
+    #
     # The uniform CASH-RUNWAY basis is a RATIFY-TIME convention (applied when cash_usd is ratified), NOT
     # enforced in the scorer (which trusts cash_usd as ratified). Documented here as the single canonical
     # statement the ratify CLIs + docs reference.
