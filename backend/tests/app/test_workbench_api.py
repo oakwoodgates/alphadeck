@@ -1062,6 +1062,74 @@ def test_draft_endpoint_writes_nothing(client, db):
             assert cur.fetchone()["n"] == 0  # and no scoring fact
 
 
+def _subs(cik, *, sic="Electric Services", exchanges=("Nasdaq",), tickers=("OKLO",)) -> dict:
+    """A genuine-shaped submissions doc (echoes a top-level ``cik`` like the real SEC payload)."""
+    return {
+        "cik": cik,
+        "sicDescription": sic,
+        "exchanges": list(exchanges),
+        "tickers": list(tickers),
+        "formerNames": [],
+    }
+
+
+def test_draft_endpoint_status_gates_an_unlisted_name(client, db):
+    """End-to-end (Slice 2): discovery places OKLO by CIK, the lazy enrich pass reads its submissions (NO current
+    listing → 'inactive'), and the chain reconciler's status-gate DOWNGRADES it to a frictionless AMBIGUOUS pick
+    with a hedged listing_status — never auto-placed. The draft still writes nothing to the spine.
+    """
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)")
+            ),
+            # the enrich pass fetches THIS; no current ticker/exchange -> 'inactive'
+            "submissions/CIK0001849056.json": _subs("1849056", exchanges=(), tickers=()),
+        }
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft(client, tid)
+    assert body["status"] == "done"
+    p = {x["name"]: x for x in body["result"]["placements"]}["Oklo Inc."]
+    assert p["status"] == "ambiguous"  # downgraded by the status-gate, never auto-placed
+    assert p["security_id"] is None
+    assert p["listing_status"] == "inactive"  # the hedged flag rides the response
+    assert [c["security_id"] for c in p["candidates"]] == [str(oklo)]  # the one-click rescue
+    with (
+        db.cursor() as cur
+    ):  # the spine is still untouched (enrich writes only master identity columns)
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert cur.fetchone()["n"] == 0
+
+
+def test_draft_endpoint_carries_identity_for_a_listed_name(client, db):
+    """A currently-listed name stays PLACED and the enrich pass carries sector / exchange / listing_status onto
+    the placement (display-only, never promoted)."""
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)")
+            ),
+            "submissions/CIK0001849056.json": _subs(
+                "1849056", exchanges=("Nasdaq",), tickers=("OKLO",)
+            ),
+        }
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft(client, tid)
+    p = {x["name"]: x for x in body["result"]["placements"]}["Oklo Inc."]
+    assert p["status"] == "placed" and p["security_id"] == str(oklo)
+    assert (p["sector"], p["exchange"], p["listing_status"]) == (
+        "Electric Services",
+        "Nasdaq",
+        "active",
+    )
+
+
 def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
     """No key: the LLM seams' offline gates fail open — tail-sweep -> None, decompose (LLMUnavailable) -> empty
     layout — yet discovery is FREE + deterministic (it reads the stored term set + a faked EFTS), so the draft

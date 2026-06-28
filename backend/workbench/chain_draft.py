@@ -99,6 +99,14 @@ class ResolvedPlacement(DomainModel):
     never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
     ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
+
+    ``sector`` / ``exchange`` / ``listing_status`` are machine-parsed IDENTITY carried from the master (enriched
+    just-in-time from EDGAR submissions before resolution) — display-only like ``matched_terms``: never a number
+    (#3), never promoted onto a ``BasketMember`` (#2). ``listing_status`` is a LISTING-PRESENCE heuristic
+    (``"active"`` / ``"inactive"``), NOT a delisting verdict: a PLACED name whose master row reads ``"inactive"``
+    is DOWNGRADED to AMBIGUOUS (never auto-placed) with its own row as the single pick — a frictionless rescue,
+    surfaced with a HEDGED flag ("no current listing found in EDGAR"), so a false-inactive costs one extra click,
+    never a silent drop (#9). ``None`` when the row is un-enriched (the honest fallback — no flag, no gate).
     """
 
     name: str
@@ -110,6 +118,9 @@ class ResolvedPlacement(DomainModel):
     candidates: list[SecurityCandidate] = []
     matched_terms: list[str] = []
     discovery_source: Literal["edgar", "off_universe"] = "edgar"
+    sector: str | None = None
+    exchange: str | None = None
+    listing_status: str | None = None
 
 
 class ResolvedSegment(DomainModel):
@@ -145,6 +156,30 @@ def _conflict_candidates(
     for c in name_rows:
         rows.setdefault(c.id, c)
     return [_candidate(s) for s in rows.values()]
+
+
+def _carry_identity_and_gate(
+    conn: psycopg.Connection, placements: list[ResolvedPlacement], *, tenant_id: UUID
+) -> None:
+    """Carry machine-parsed IDENTITY (sector / exchange / listing status) from the master onto each resolved
+    placement (display-only), and apply the STATUS-GATE: a PLACED name whose master row reads ``"inactive"``
+    (no current listing found in EDGAR) is DOWNGRADED to AMBIGUOUS — never auto-placed — with its own row as the
+    single pick (a frictionless rescue; one click re-places it). ``listing_status`` rides the placement so the
+    FE shows a HEDGED flag, never a hard "delisted" verdict — precision is the operator deleting a visible flag,
+    never a silent drop (#9). DB-only (no network — the resolver stays pure); a placement whose row is
+    un-enriched or absent keeps ``listing_status=None`` (no flag, no gate — the honest fallback)."""
+    secs = master.get_many(
+        conn, [p.security_id for p in placements if p.security_id is not None], tenant_id=tenant_id
+    )
+    for p in placements:
+        s = secs.get(p.security_id) if p.security_id is not None else None
+        if s is None:
+            continue
+        p.sector, p.exchange, p.listing_status = s.sector, s.exchange, s.status
+        if p.status is PlacementStatus.PLACED and s.status == "inactive":
+            p.status = PlacementStatus.AMBIGUOUS
+            p.candidates = [_candidate(s)]
+            p.security_id = None  # PLACED invariant: security_id set IFF placed
 
 
 def _resolve_one(
@@ -344,6 +379,11 @@ def resolve_discovered_chain(
                     discovery_source="edgar",  # an EDGAR-discovered CIK, by construction
                 )
             )
+
+    # Carry machine-parsed identity onto every placed row + apply the listing-status gate (DB-only; the network
+    # enrichment ran before this in execute_draft, so the resolver stays pure). An inactive PLACED name is
+    # downgraded to a frictionless AMBIGUOUS pick, never silently dropped (#9).
+    _carry_identity_and_gate(conn, placements, tenant_id=tenant_id)
     return ResolvedChain(segments=out_segments, placements=placements)
 
 

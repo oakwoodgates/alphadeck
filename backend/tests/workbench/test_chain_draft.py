@@ -259,3 +259,76 @@ def test_unmatched_name_falls_to_master_resolver_and_empty_universe_adds_no_buck
     assert by_t["LEU"].discovery_source == "off_universe"
     assert by_t["ZZZZ"].discovery_source == "off_universe"
     assert all(s.label != "Discovered" for s in chain.segments)  # nothing discovered -> no bucket
+
+
+# --- Slice 2: the listing-status gate + identity carry (a real master row, enriched, drives the gate) ---
+
+
+def _insert_id(db, ticker, *, name, cik, status=None, sector=None, exchange=None) -> uuid.UUID:
+    """Insert a real master row with machine-parsed identity columns set (the gate/carry read THESE)."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master "
+            "(id, tenant_id, ticker, name, cik, status, sector, exchange, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, name, cik, status, sector, exchange, date(2026, 1, 1)),
+        )
+    db.commit()
+    return sid
+
+
+def _universe_one(cik, sid, *, ticker, name) -> DiscoveredUniverse:
+    """A one-name discovered universe whose placed CIK maps to a REAL master id (so get_many finds the row and
+    the gate/carry fire — unlike ``_universe``, which fabricates ids)."""
+    u = DiscoveredUniverse()
+    u.placed[cik] = sid
+    u.filers[cik] = Filer(cik=cik, name=name, ticker=ticker, keywords={"kw"})
+    return u
+
+
+def test_inactive_placed_name_is_downgraded_to_a_frictionless_pick(db):
+    """The status-gate: a discovered name whose master row reads 'inactive' (no current listing) is NEVER
+    auto-placed — it's downgraded to AMBIGUOUS with its OWN row as the single pick (one click re-places it), and
+    listing_status rides the placement so the FE shows a hedged flag. Never a silent drop (#9)."""
+    sid = _insert_id(db, "DEAD", name="Defunct Reactors Inc.", cik="0000000001", status="inactive")
+    u = _universe_one("0000000001", sid, ticker="DEAD", name="Defunct Reactors Inc.")
+    segs = [
+        _seg(
+            ProposedPlacement(name="Defunct Reactors Inc.", ticker="DEAD", prose="x"), label="Devs"
+        )
+    ]
+    (p,) = resolve_discovered_chain(db, segs, u).placements
+    assert p.status is PlacementStatus.AMBIGUOUS  # downgraded, never auto-placed
+    assert p.security_id is None
+    assert p.listing_status == "inactive"  # the hedged flag rides the placement
+    assert [c.security_id for c in p.candidates] == [sid]  # its own row = the one-click rescue
+
+
+def test_active_placed_name_keeps_placed_and_carries_identity(db):
+    """An 'active' row stays PLACED and carries sector / exchange / listing_status (display-only) onto it."""
+    sid = _insert_id(
+        db,
+        "OKLO",
+        name="Oklo Inc.",
+        cik="0000000001",
+        status="active",
+        sector="Electric Services",
+        exchange="NYSE",
+    )
+    u = _universe_one("0000000001", sid, ticker="OKLO", name="Oklo Inc.")
+    segs = [_seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO", prose="reactor"), label="Devs")]
+    (p,) = resolve_discovered_chain(db, segs, u).placements
+    assert p.status is PlacementStatus.PLACED and p.security_id == sid
+    assert (p.sector, p.exchange, p.listing_status) == ("Electric Services", "NYSE", "active")
+
+
+def test_un_enriched_placed_name_abstains_no_flag_no_gate(db):
+    """The honest fallback: a placed name whose row was never enriched (status NULL) keeps listing_status=None —
+    no flag, no gate — and stays PLACED."""
+    sid = _insert_id(db, "OKLO", name="Oklo Inc.", cik="0000000001")  # no status/sector/exchange
+    u = _universe_one("0000000001", sid, ticker="OKLO", name="Oklo Inc.")
+    segs = [_seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO", prose="reactor"), label="Devs")]
+    (p,) = resolve_discovered_chain(db, segs, u).placements
+    assert p.status is PlacementStatus.PLACED and p.security_id == sid
+    assert (p.sector, p.exchange, p.listing_status) == (None, None, None)

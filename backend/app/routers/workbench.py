@@ -64,6 +64,7 @@ from workbench.discovery import (
     run_discovery,
 )
 from workbench.draft_jobs import DraftError, DraftInFlight, get_job, start_draft_job
+from workbench.enrichment import enrich_for_ciks
 from workbench.research_runner import run_research
 from workbench.scoring import score_thesis
 from workbench.term_set import produce_term_set, stamp_edited_term_set
@@ -329,13 +330,23 @@ def execute_draft(
     (no guard needed). (The in-flight 409 guard now lives at the JOB layer — one running draft per thesis —
     ``start_draft_chain``; ``run_research``'s own guard is harmless defense-in-depth and owns the TTL cache.)
 
-    RESPONSE-ONLY: it returns a draft and persists NOTHING (the operator's promote is the only writer; it sources
-    NO number — INVARIANT #2/#3). DISCOVERY IS COMPLETENESS-OR-FAIL: every not-ready / can't-enumerate state
+    RESPONSE-ONLY for the THESIS SPINE: it returns a draft and persists no basket member / fact / number — the
+    operator's promote is the only spine writer (INVARIANT #2/#3). It DOES enrich the discovered names' MASTER
+    identity columns (sector / exchange / status, machine-parsed from submissions with an enrichment basis,
+    Slice 2) — an operational universe write that touches no spine, no fact, and no number, and lets the chain
+    reconciler's status-gate read a fresh listing status. DISCOVERY IS COMPLETENESS-OR-FAIL: every not-ready /
+    can't-enumerate state
     RAISES (``DiscoveryNoTerms`` / the ``DiscoveryUnavailable`` base = Degraded/Empty) — the JOB RUNNER maps these
     to a VISIBLE failed job (never a silent recall draft, #9). The tail-sweep still fails-open to None (an
     additive corner), and a failed DECOMPOSE yields an EMPTY draft (a done-but-empty job, today's benign note).
     """
     universe = run_discovery(conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id)
+    # Lazy IDENTITY enrichment (Slice 2): fill sector / exchange / status onto the discovered names' master rows
+    # from their submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing
+    # status. Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the
+    # pure resolver. Writes only the master's identity columns (machine-parsed, an enrichment basis) — no thesis
+    # spine, no fact, no number (#1/#3); the operator's promote remains the only spine writer.
+    enrich_for_ciks(conn, edgar, {**universe.placed, **universe.verify}, tenant_id=thesis.tenant_id)
     sweep = (
         run_research(  # fail-open -> None; TTL cache; the job layer owns the in-flight 409 guard
             thesis.id,
