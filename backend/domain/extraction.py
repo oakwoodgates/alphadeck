@@ -58,3 +58,9 @@ class ExtractedFact(DomainModel):
         default_factory=list
     )  # "ytd-derived" | "possible-one-time" | "dual-class" | "verify-marketable-securities"
     located_passages: list[LocatedPassage] = Field(default_factory=list)
+    # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the
+    # grounded purity seam), and — as the surface grows — "computed" / "parsed". None = no estimate value
+    # (a plain located-only HUMAN candidate, or the deterministic AUTO/FLAG value whose tier already says how).
+    # Display-only provenance so the operator (and the UI) can see WHERE a proposed number came from before
+    # they confirm/override; it never makes the value a fact (only the operator's ratify does).
+    estimate_source: str | None = None

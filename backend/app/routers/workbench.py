@@ -15,6 +15,7 @@ from app.deps import (
     get_edgar_client,
     get_keyword_client,
     get_llm_client,
+    get_purity_client,
     get_research_client,
     get_thesis_or_404,
     get_tier_rec_client,
@@ -49,6 +50,7 @@ from ingest.shares import ingest_shares_outstanding
 from llm.chain_decomposition import decompose_narrative, narrate_placements, research_tail_sweep
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
+from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import master
@@ -116,24 +118,54 @@ def search_securities(
 @router.get("/securities/{security_id}/extract", response_model=list[ExtractedFact])
 def extract_scoring_facts(
     security_id: UUID,
+    thesis_id: UUID | None = Query(
+        None,
+        description="if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
+    purity_llm: LLMClient = Depends(get_purity_client),
 ) -> list[ExtractedFact]:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) —
     the three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the
     located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
     auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
     never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+
+    PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
+    on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis
+    narrative selecting the segment. It attaches ``value`` + ``estimate_source="llm_proposed"`` (the passage
+    stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
+    other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
     """
     cik = master.ciks_for(conn, {security_id}, tenant_id=tenant_id).get(security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
     try:
-        return extract_for_security(EdgarClient(allow_live=True), cik)
+        cands = extract_for_security(EdgarClient(allow_live=True), cik)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
         raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
+
+    # Thesis-aware purity ESTIMATE — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
+    # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
+    # today's HUMAN. The proposal is UNVERIFIED and carries its passage; it becomes a fact only on the operator's
+    # ratify (never here — this endpoint writes nothing).
+    thesis = thesis_repo.get(conn, thesis_id) if thesis_id is not None else None
+    if thesis is not None:
+        for c in cands:
+            if c.fact_type != "revenue_mix":
+                continue
+            prop = propose_purity(purity_llm, thesis.narrative, c)
+            if prop is not None:
+                c.value = prop.pct
+                c.estimate_source = "llm_proposed"
+                c.note = (
+                    f"LLM-PROPOSED purity (UNVERIFIED — confirm or override): {prop.reason} "
+                    f"[on-thesis segment: {prop.segment}]. Grounded in the located segment passage."
+                )
+    return cands
 
 
 @router.post("/facts/explain", response_model=FlagExplanationOut)

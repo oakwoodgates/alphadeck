@@ -336,6 +336,12 @@ _REVENUE = [
     ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
 ]
 
+# The purity passage is WIDE (vs the default ±110): the grounded purity-estimate seam (SURFACE 1b) proposes a %
+# ONLY from segment $ / total $ figures in the passage, so the located window must be big enough to carry the
+# segment revenue TABLE, not just the heading. A retrieval window (not a scoring cutoff); a too-narrow window
+# just means the seam can't ground it and honestly declines (fail-open to HUMAN) — never a wrong number.
+_PURITY_WINDOW = 1500
+
 
 def _has_annual_revenue(facts: dict) -> bool:
     rows = _first(facts, _REVENUE, "USD")
@@ -348,7 +354,11 @@ def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> Extracte
     """
     if _has_annual_revenue(facts):
         passage = _locate(
-            tenk_text, ref, "segment", ["reportable segment", "segment", "revenue by"]
+            tenk_text,
+            ref,
+            "segment",
+            ["reportable segment", "segment", "revenue by"],
+            window=_PURITY_WINDOW,
         )
         source, why = (
             "10-k-segment",
@@ -356,7 +366,11 @@ def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> Extracte
         )
     else:
         passage = _locate(
-            tenk_text, ref, "business-description", ["Item 1.", "Business", "We are", "Overview"]
+            tenk_text,
+            ref,
+            "business-description",
+            ["Item 1.", "Business", "We are", "Overview"],
+            window=_PURITY_WINDOW,
         )
         source, why = (
             "10-k-business-description",
