@@ -523,6 +523,15 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .fund-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; padding: 2px 7px; border-radius: 5px; color: var(--txt-4); background: rgba(90, 100, 116, 0.12); border: 1px dashed var(--line-2); }
 .wb-results .fund-badge.on { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
 
+/* TRIAGE (the find) — the sort/filter control bar over the placed cards. VIEW-only; never changes what Save
+   persists. `compact` + toggle chips light up when active (aria-pressed). */
+.wb-triage-find { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin: 0 0 11px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); }
+.wb-find-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-find-ctl select { font: inherit; font-size: 11px; font-weight: 500; letter-spacing: normal; text-transform: none; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 6px; }
+.wb-triage-find .wb-mini.ghost.on { color: var(--leader); border-color: rgba(138, 180, 255, 0.4); background: rgba(138, 180, 255, 0.1); }
+.wb-triage-find .note { margin: 0; margin-left: auto; }
+.wb-linkbtn { font: inherit; color: var(--leader); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+
 /* to-review pills + actions */
 .wb-results .pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
 .wb-results .pill.add { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
