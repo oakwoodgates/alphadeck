@@ -35,6 +35,7 @@ export function AddName({ existingKeys, onAdd }: Props) {
       archetype: archetype as BasketMember["archetype"],
       security_id: picked.security_id,
       segment: null, // starts unplaced; the operator places it via the row's segment select
+      conviction: null, // unset until the operator weights it in the row
       authored_by: "operator_set",
     });
     reset();

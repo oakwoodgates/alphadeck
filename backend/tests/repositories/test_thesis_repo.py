@@ -214,3 +214,53 @@ def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     assert len(got.evidence) == 1
     assert len(got.catalysts) == 1
     assert len(got.kill_criteria) == 1
+
+
+# --- TRIAGE: the per-member conviction/size weight ---
+
+
+def test_conviction_roundtrips(db, security_id):
+    """The operator's per-name weight (1–5) persists through the full-replace promote."""
+    t = _thesis(security_id)
+    t.basket[0].conviction = 4
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert thesis_repo.get(db, t.id).basket[0].conviction == 4
+
+
+def test_unset_conviction_stays_none_never_zero(db, security_id):
+    """Honest confidence (#6): an unweighted name reads back NULL ("operator hasn't said"), never coerced to 0
+    — so future size-weighted attribution can't silently treat unset as zero-weight."""
+    t = _thesis(security_id)
+    assert t.basket[0].conviction is None  # the default is unset
+    thesis_repo.upsert(db, t)
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    assert got.basket[0].conviction is None  # NOT 0
+
+
+@pytest.mark.parametrize("bad", [0, 6, -1])
+def test_conviction_out_of_range_rejected(bad):
+    """The 1–5 scale is validated at the model (no DB): 0 is not "unset" — unset is NULL."""
+    with pytest.raises(ValidationError):
+        BasketMember(ticker="X", role="r", archetype=Archetype.HIGH_BETA, conviction=bad)
+
+
+def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
+    """THE WIPE-TRAP guard: every promote reads the basket THROUGH _row_to_basket_member before DELETE+reinsert,
+    so an UNMAPPED field is silently wiped on any unrelated resave (a narrative edit, the archetype-apply). Set
+    conviction, then resave the READ-BACK thesis with only the narrative changed — conviction must survive.
+    """
+    t = _thesis(security_id)
+    t.basket[0].conviction = 3
+    thesis_repo.upsert(db, t)
+    db.commit()
+
+    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    assert got.basket[0].conviction == 3
+    # an unrelated edit that resends the read-back basket verbatim (mimics the narrative-edit / archetype-apply)
+    got.narrative = "edited narrative — the basket is resent verbatim"
+    thesis_repo.upsert(db, got)
+    db.commit()
+
+    assert thesis_repo.get(db, t.id).basket[0].conviction == 3  # not wiped — the mapper carried it

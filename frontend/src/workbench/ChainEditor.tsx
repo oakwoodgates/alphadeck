@@ -410,6 +410,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       security_id: c.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
+      conviction: null,
       authored_by: "system_drafted",
     });
     setAmbiguous((prev) => prev.filter((x) => x !== p));
@@ -428,6 +429,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       security_id: p.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
+      conviction: null,
       authored_by: "system_drafted",
     });
     setVerify((prev) => prev.filter((x) => x !== p));
@@ -953,6 +955,28 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                           </option>
                         ))}
                         <option value="__remove__">— remove —</option>
+                      </select>
+                    </span>
+                    {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
+                        input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
+                    <span className="ctl">
+                      <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
+                        conv
+                      </span>
+                      <select
+                        className="wb-conv"
+                        value={m.conviction ?? ""}
+                        aria-label={`conviction for ${m.ticker}`}
+                        onChange={(e) =>
+                          d.editConviction(k, e.target.value ? Number(e.target.value) : null)
+                        }
+                      >
+                        <option value="">—</option>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
                       </select>
                     </span>
                     {drafted && (

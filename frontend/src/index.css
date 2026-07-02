@@ -531,6 +531,7 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-triage-find .wb-mini.ghost.on { color: var(--leader); border-color: rgba(138, 180, 255, 0.4); background: rgba(138, 180, 255, 0.1); }
 .wb-triage-find .note { margin: 0; margin-left: auto; }
 .wb-linkbtn { font: inherit; color: var(--leader); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+.wb-results .wb-conv { min-width: 46px; }
 
 /* to-review pills + actions */
 .wb-results .pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }

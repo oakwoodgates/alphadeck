@@ -829,6 +829,19 @@
             ],
             "title": "Thesis Fit"
           },
+          "conviction": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conviction"
+          },
           "authored_by": {
             "$ref": "#/components/schemas/Authorship",
             "default": "operator_set"
