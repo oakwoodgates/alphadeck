@@ -154,6 +154,7 @@ export function useChainDraft(thesis: ThesisDetail) {
           security_id: p.security_id,
           segment: p.segment,
           thesis_fit: p.prose || null,
+          conviction: null, // the drafter never weights — the operator sets conviction in the row
           authored_by: "system_drafted",
         }));
       return { segments, basket: [...d.basket, ...additions] };
@@ -186,6 +187,16 @@ export function useChainDraft(thesis: ThesisDetail) {
       ),
     }));
 
+  // The operator's per-name conviction/size (1–5; null = unset). ORTHOGONAL to authorship — unlike archetype/
+  // prose (drafted CONTENT the operator overrides), conviction is a fresh operator axis the drafter never sets,
+  // so weighting a still-drafted name does NOT consume its "accept" (same orthogonality as include). Stored
+  // metadata: it never feeds the meters/verdict/grade (#4).
+  const editConviction = (key: string, conviction: number | null) =>
+    setDraft((d) => ({
+      ...d,
+      basket: d.basket.map((m) => (memberKey(m) === key ? { ...m, conviction } : m)),
+    }));
+
   return {
     draft,
     dirty,
@@ -200,6 +211,7 @@ export function useChainDraft(thesis: ThesisDetail) {
     acceptMember,
     editProse,
     editArchetype,
+    editConviction,
     // TRIAGE (the prune): include-state + the included subset Save persists
     excluded,
     isIncluded,

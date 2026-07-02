@@ -47,6 +47,11 @@ class BasketMember(DomainModel):
     thesis_fit: str | None = (
         None  # WHY it sits in that link — the drafted/edited thesis-fit reasoning (S5); never a fact/number
     )
+    conviction: int | None = Field(
+        default=None, ge=1, le=5
+    )  # the operator's per-name weight (1=starter … 5=full); NULL = unset (never 0). Stored METADATA — it
+    # never feeds the meters/verdict/grade (#4: the system sizes from signals, it doesn't judge the idea);
+    # carried to the Board / SCORE later. Operator-authored by definition (no LLM recommendation).
     authored_by: Authorship = (
         Authorship.OPERATOR_SET
     )  # who placed it (the Workbench authorship seam)

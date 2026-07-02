@@ -421,6 +421,8 @@ export interface components {
             segment?: string | null;
             /** Thesis Fit */
             thesis_fit?: string | null;
+            /** Conviction */
+            conviction?: number | null;
             /** @default operator_set */
             authored_by: components["schemas"]["Authorship"];
         };

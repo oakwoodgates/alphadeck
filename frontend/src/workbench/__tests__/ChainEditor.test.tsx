@@ -62,6 +62,7 @@ const flatThesis = {
       archetype: "high_beta",
       security_id: "s-oklo",
       segment: null,
+      conviction: null, // the API returns null for an unweighted member (unset ≠ 0)
       authored_by: "operator_set",
     },
   ],
@@ -593,6 +594,50 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
 
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // no scored join
     expect(screen.getByText("needs SURFACE")).toBeInTheDocument();
+  });
+});
+
+describe("ChainEditor — TRIAGE conviction/size", () => {
+  const saveBody = () => h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+
+  it("sets a per-name conviction (1–5); Save carries the number", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    const conv = screen.getByLabelText("conviction for OKLO") as HTMLSelectElement;
+    expect(conv.value).toBe(""); // unset by default
+    await user.selectOptions(conv, "4");
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket[0]).toMatchObject({ ticker: "OKLO", conviction: 4 });
+  });
+
+  it("unset stays NULL (never 0) — an unweighted name reads '—' and saves null", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    // leave conviction untouched → the option shows the "—" placeholder, and Save carries null (not 0)
+    expect((screen.getByLabelText("conviction for OKLO") as HTMLSelectElement).value).toBe("");
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket[0].conviction).toBeNull();
+  });
+
+  it("setting conviction is ORTHOGONAL to authorship — a drafted name keeps its accept", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
+
+    await user.selectOptions(screen.getByLabelText("conviction for SMR"), "5");
+    // weighting a drafted name does NOT consume its accept (unlike editing archetype/prose)
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+    expect(screen.getByText("drafted", { selector: ".wb-pauthor" })).toBeInTheDocument();
   });
 });
 

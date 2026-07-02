@@ -84,6 +84,9 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
         detail=b["detail"],
         segment=b["segment"],
         thesis_fit=b["thesis_fit"],
+        conviction=b.get(
+            "conviction"
+        ),  # load-bearing: unmapped → silently wiped on any resave (the wipe-trap)
         authored_by=Authorship(b["authored_by"]),
     )
 
