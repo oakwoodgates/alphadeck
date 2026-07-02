@@ -128,6 +128,8 @@ def test_score_member_golden(db, security_id):
     )  # purity 3; runway 4 (no funding risk); dilution 1 (no dilution risk)
     # archetype recommendation (#10): $2.5B (>= $500M, < $10B) + purity 3 (not off-thesis) -> high_beta
     assert sm.archetype_hint is Archetype.HIGH_BETA
+    # all three fact-backed meters (purity / runway / market cap) are confirmed -> nothing unconfirmed
+    assert sm.unconfirmed_estimates == 0
 
 
 def test_no_data_reads_dash_not_zero(db, security_id):
@@ -142,6 +144,58 @@ def test_no_data_reads_dash_not_zero(db, security_id):
     assert (
         sm.archetype_hint is None
     )  # no market cap -> the recommendation abstains (the operator's default stands)
+    # all three fact-backed meters blank -> "rests on 3 unconfirmed"
+    assert sm.unconfirmed_estimates == 3
+
+
+def test_vouched_is_provenance_not_a_scoring_input(db, security_id):
+    """The guardrail: a vouched='overridden' fact scores EXACTLY like any other — the as-of read never branches
+    on `vouched`. Together with the golden (a vouched=NULL fact scoring 4 pips), this proves NULL / confirmed /
+    overridden all score identically, so no legacy NULL-vouched fact regresses."""
+    ingest_revenue_mix(
+        db,
+        security_id,
+        segment_label="nuclear",
+        mix_pct=100,
+        source="10-k-segment",
+        source_ref="ref",
+        event_date=date(2025, 12, 31),
+        ratified_by="operator",
+        vouched="overridden",
+    )
+    db.commit()
+    sm = score_member(PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id))
+    assert (
+        sm.purity.pips == 4
+    )  # 100% -> 4, whatever the vouched provenance; vouched never gates scoring
+
+
+def test_unconfirmed_estimates_counts_blank_fact_backed_meters(db, security_id):
+    """The 'rests on N unconfirmed' flag counts the fact-backed meters (purity / runway / market cap) with no
+    confirmed value; confirming one drops the count. A readiness signal, never a scoring input."""
+    assert (
+        score_member(
+            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id)
+        ).unconfirmed_estimates
+        == 3
+    )
+    ingest_revenue_mix(
+        db,
+        security_id,
+        segment_label="nuclear",
+        mix_pct=100,
+        source="10-k-segment",
+        source_ref="ref",
+        event_date=date(2025, 12, 31),
+    )
+    db.commit()
+    # purity now confirmed -> runway + market cap still unconfirmed
+    assert (
+        score_member(
+            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id)
+        ).unconfirmed_estimates
+        == 2
+    )
 
 
 def test_no_lookahead(db, security_id):

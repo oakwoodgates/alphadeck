@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import date
 from uuid import UUID, uuid4
 
@@ -456,6 +457,18 @@ def get_draft_chain_job(thesis_id: UUID, job_id: str) -> DraftJobStatus:
     return DraftJobStatus(job_id=job.job_id, status=job.status, result=job.result, error=job.error)
 
 
+def _vouched(estimate: float | None, value: float) -> str | None:
+    """The confirm/override PROVENANCE for a ratify: did the operator accept the shown estimate as-is, or change
+    it? ``'confirmed'`` (ratified value == the estimate), ``'overridden'`` (differs), or ``None`` (no estimate
+    was shown — a manual/legacy ratify). PROVENANCE only — the scoring read never branches on it; a NULL-vouched
+    fact scores identically to a fresh confirm."""
+    if estimate is None:
+        return None
+    return (
+        "confirmed" if math.isclose(estimate, value, rel_tol=1e-9, abs_tol=1e-9) else "overridden"
+    )
+
+
 @router.post("/facts", response_model=RatifiedFactOut)
 def ratify_fact(
     req: RatifyFactRequest,
@@ -470,6 +483,9 @@ def ratify_fact(
     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
     ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+
+    ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
+    for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
     """
     if not master.exists(conn, req.security_id, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
@@ -483,16 +499,28 @@ def ratify_fact(
     )
     if req.fact_type == "revenue_mix":
         fid = ingest_revenue_mix(
-            conn, req.security_id, segment_label=req.segment_label, mix_pct=req.mix_pct, **common
+            conn,
+            req.security_id,
+            segment_label=req.segment_label,
+            mix_pct=req.mix_pct,
+            vouched=_vouched(req.estimate, req.mix_pct),
+            **common,
         )
     elif req.fact_type == "shares_outstanding":
-        fid = ingest_shares_outstanding(conn, req.security_id, shares=req.shares, **common)
+        fid = ingest_shares_outstanding(
+            conn,
+            req.security_id,
+            shares=req.shares,
+            vouched=_vouched(req.estimate, req.shares),
+            **common,
+        )
     else:  # cash_burn
         fid = ingest_cash_burn(
             conn,
             req.security_id,
             cash_usd=req.cash_usd,
             quarterly_burn_usd=req.quarterly_burn_usd,
+            vouched=_vouched(req.estimate, req.quarterly_burn_usd),
             **common,
         )
     conn.commit()

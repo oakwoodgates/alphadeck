@@ -353,6 +353,9 @@ export interface paths {
          *     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
          *     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
          *     ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+         *
+         *     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
+         *     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
          */
         post: operations["ratify_fact_workbench_facts_post"];
         delete?: never;
@@ -839,6 +842,8 @@ export interface components {
             event_date: string;
             /** Note */
             note?: string | null;
+            /** Estimate */
+            estimate?: number | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -867,6 +872,8 @@ export interface components {
             event_date: string;
             /** Note */
             note?: string | null;
+            /** Estimate */
+            estimate?: number | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -895,6 +902,8 @@ export interface components {
             event_date: string;
             /** Note */
             note?: string | null;
+            /** Estimate */
+            estimate?: number | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1010,6 +1019,11 @@ export interface components {
             market_cap: components["schemas"]["ScoredFigureOut"];
             /** Fit */
             fit: string;
+            /**
+             * Unconfirmed Estimates
+             * @default 0
+             */
+            unconfirmed_estimates: number;
         };
         /**
          * SecurityCandidate

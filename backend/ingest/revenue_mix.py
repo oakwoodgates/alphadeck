@@ -27,6 +27,7 @@ def ingest_revenue_mix(
     event_date: date,
     note: str | None = None,
     ratified_by: str | None = None,
+    vouched: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> UUID:
@@ -35,6 +36,7 @@ def ingest_revenue_mix(
     ``segment_label`` is the revenue line (e.g. "nuclear"); ``mix_pct`` is its share of revenue (0..100).
     ``source_ref`` is the 10-K segment (URL/accession) — provenance and the fact's natural identity, so a
     later restatement is a NEW row with a later ``recorded_at`` (latest-version-wins on the as-of read).
+    ``vouched`` is confirm/override PROVENANCE ('confirmed' | 'overridden' | None) — never a scoring input.
     Returns the new fact id.
     """
     values = {
@@ -46,6 +48,7 @@ def ingest_revenue_mix(
         "source_ref": source_ref,
         "note": note,
         "ratified_by": ratified_by,
+        "vouched": vouched,
         "valid_from": event_date,
     }
     if recorded_at is not None:

@@ -29,13 +29,15 @@ def ingest_shares_outstanding(
     event_date: date,
     note: str | None = None,
     ratified_by: str | None = None,
+    vouched: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> UUID:
     """Append a shares-outstanding fact (append-only; the caller owns the txn — no commit here).
 
     ``source_ref`` is the 10-Q cover / XBRL fact (provenance + identity); a restatement is a NEW row with a
-    later ``recorded_at`` (latest-version-wins on the as-of read). Returns the new fact id.
+    later ``recorded_at`` (latest-version-wins on the as-of read). ``vouched`` is confirm/override PROVENANCE
+    ('confirmed' | 'overridden' | None) — never a scoring input. Returns the new fact id.
     """
     values = {
         "tenant_id": tenant_id,
@@ -45,6 +47,7 @@ def ingest_shares_outstanding(
         "source_ref": source_ref,
         "note": note,
         "ratified_by": ratified_by,
+        "vouched": vouched,
         "valid_from": event_date,
     }
     if recorded_at is not None:

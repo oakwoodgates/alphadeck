@@ -46,3 +46,8 @@ class ScoredMember(DomainModel):
     dilution: ScoredFigure
     market_cap: ScoredFigure
     fit: str  # deterministic label derived from the pips (the auto-drafted fit PROSE is the LLM's job, Slice 5)
+    # HONEST CONFIDENCE (SURFACE Slice 1a): how many of the fact-backed meters (purity / runway / market cap)
+    # have NO operator-confirmed value yet — each has an on-demand estimate the operator can confirm/override.
+    # A readiness signal ("rests on N unconfirmed"), NEVER a scoring input: the meters themselves stay
+    # confirmed-only (blank until ratified); this just counts the blanks so the surface can flag them honestly.
+    unconfirmed_estimates: int = 0
