@@ -513,6 +513,16 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .flag { font-size: 10px; color: var(--warm); margin-top: 7px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.02em; }
 .wb-results .rm { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warm); border: 1px solid rgba(224, 162, 60, 0.4); background: var(--panel); border-radius: 5px; padding: 3px 8px; cursor: pointer; }
 
+/* TRIAGE (the prune) — the include checkbox, the excluded (greyed) row, the bulk-action bar, the fundamentals
+   badge. Include is orthogonal to accept; an excluded name stays visible (#9), one click from re-inclusion. */
+.wb-results .wb-inc { accent-color: var(--leader); width: 14px; height: 14px; cursor: pointer; flex: none; }
+.wb-results .nmrow.excluded { opacity: 0.42; }
+.wb-results .nmrow.excluded .tk { text-decoration: line-through; }
+.wb-triage-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 9px; }
+.wb-triage-bulk .note { margin: 0; margin-right: auto; }
+.wb-results .fund-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; padding: 2px 7px; border-radius: 5px; color: var(--txt-4); background: rgba(90, 100, 116, 0.12); border: 1px dashed var(--line-2); }
+.wb-results .fund-badge.on { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
+
 /* to-review pills + actions */
 .wb-results .pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
 .wb-results .pill.add { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
