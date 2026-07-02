@@ -202,7 +202,8 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     expect(await screen.findByLabelText("segment for SMR")).toBeInTheDocument(); // landed in PLACED
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted -> accept-able
-    expect(screen.getByText("drafted")).toBeInTheDocument(); // the quiet authorship badge
+    // the quiet authorship badge (scoped to the badge — "drafted" also appears as a find-bar filter option)
+    expect(screen.getByText("drafted", { selector: ".wb-pauthor" })).toBeInTheDocument();
     expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue(
       "the only NRC-approved SMR designer",
     );
@@ -219,7 +220,8 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     await user.click(screen.getByRole("button", { name: "accept SMR" }));
     expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_set now
-    expect(screen.queryByText("drafted")).not.toBeInTheDocument(); // badge flipped drafted -> operator
+    // badge flipped drafted -> operator (scoped to the badge, not the find-bar "drafted" filter option)
+    expect(screen.queryByText("drafted", { selector: ".wb-pauthor" })).not.toBeInTheDocument();
   });
 
   it("editing a drafted name's prose flips it to operator_edited (the accept button disappears)", async () => {
@@ -376,9 +378,10 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await screen.findByLabelText("segment for KEP"); // the off_universe name landed in PLACED (the win-signal)
 
     // the pill rides BOTH the PLACED (KEP) and the absent (ZZZZ) buckets — orthogonal to placement status
-    expect(screen.getAllByText("off-universe")).toHaveLength(2);
+    // (scoped to `.pill` — "off-universe" is also a find-bar filter toggle button)
+    expect(screen.getAllByText("off-universe", { selector: ".pill" })).toHaveLength(2);
     // honest label: it names the observation ("off the deterministic universe"), never the mechanism
-    expect(screen.getAllByText("off-universe")[0]).toHaveAttribute(
+    expect(screen.getAllByText("off-universe", { selector: ".pill" })[0]).toHaveAttribute(
       "title",
       expect.stringContaining("off the deterministic universe"),
     );
@@ -590,6 +593,75 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
 
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // no scored join
     expect(screen.getByText("needs SURFACE")).toBeInTheDocument();
+  });
+});
+
+describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
+  // a 3-name basket spanning archetypes / segments / authorship — enough to sort + filter (the bar shows for >1)
+  const triageThesis = {
+    ...flatThesis,
+    segments: [
+      { label: "reactors", descriptor: null },
+      { label: "fuel", descriptor: null },
+    ],
+    basket: [
+      { ticker: "OKLO", role: "—", archetype: "high_beta", security_id: "s-oklo", segment: "reactors", authored_by: "operator_set" },
+      { ticker: "CCJ", role: "—", archetype: "leader", security_id: "s-ccj", segment: "fuel", authored_by: "system_drafted" },
+      { ticker: "BWXT", role: "—", archetype: "shovel", security_id: "s-bwxt", segment: "reactors", authored_by: "operator_set" },
+    ],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+  const tickerOrder = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll(".wb-results .nmrow .tk")).map((e) => e.textContent);
+
+  it("sorts the placed list by name (a view-only reorder)", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    expect(tickerOrder(container)).toEqual(["OKLO", "CCJ", "BWXT"]); // draft order
+    await user.selectOptions(screen.getByLabelText("sort placed names"), "name");
+    expect(tickerOrder(container)).toEqual(["BWXT", "CCJ", "OKLO"]); // A→Z
+  });
+
+  it("filters the view by archetype and reports the shown count", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
+    expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // hidden
+    expect(screen.getByText("showing 1 of 3")).toBeInTheDocument();
+  });
+
+  it("THE #9 SPINE: the VIEW never changes what Save persists — a filtered-out, included name still saves", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader"); // hides OKLO + BWXT
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+    // all three persist — the filter hides, only exclude drops (basket − excluded, over the whole draft)
+    expect(body.basket.map((m) => m.ticker).sort()).toEqual(["BWXT", "CCJ", "OKLO"]);
+  });
+
+  it("clear filters restores the full view (#9 — a hidden name is one click from visible)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
+    expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(screen.getByLabelText("segment for OKLO")).toBeInTheDocument();
+    expect(screen.getByText("showing 3 of 3")).toBeInTheDocument();
+  });
+
+  it("compact collapses the thesis-fit prose editors (they return when toggled off)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    expect(screen.getByLabelText("thesis-fit for OKLO")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "compact" }));
+    expect(screen.queryByLabelText("thesis-fit for OKLO")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "compact" }));
+    expect(screen.getByLabelText("thesis-fit for OKLO")).toBeInTheDocument();
   });
 });
 

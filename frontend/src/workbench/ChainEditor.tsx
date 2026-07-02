@@ -253,7 +253,58 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const [showAllPlaced, setShowAllPlaced] = useState(false);
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
-  const placedShown = showAllPlaced ? d.draft.basket : d.draft.basket.slice(0, PLACED_PREVIEW);
+
+  // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
+  // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
+  // draft, not this view — the #9 spine, test-guarded). `compact` collapses the prose for a scannable, table-like
+  // read without losing the inline editors.
+  const [sortBy, setSortBy] = useState<"draft" | "name" | "archetype" | "segment" | "sector">("draft");
+  const [fArch, setFArch] = useState("");
+  const [fSeg, setFSeg] = useState("");
+  const [fFund, setFFund] = useState<"" | "loaded" | "needs">("");
+  const [fAuth, setFAuth] = useState<"" | "accepted" | "drafted">("");
+  const [fInc, setFInc] = useState<"" | "included" | "excluded">("");
+  const [fOffUniv, setFOffUniv] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const filtersActive =
+    sortBy !== "draft" || !!fArch || !!fSeg || !!fFund || !!fAuth || !!fInc || fOffUniv;
+  const clearFilters = () => {
+    setSortBy("draft");
+    setFArch("");
+    setFSeg("");
+    setFFund("");
+    setFAuth("");
+    setFInc("");
+    setFOffUniv(false);
+  };
+  const sec = (m: BasketMember) => (m.security_id ? identity[m.security_id]?.sector : null) ?? "";
+  const archsPresent = Array.from(new Set(d.draft.basket.map((m) => m.archetype)));
+  const matchesFilters = (m: BasketMember): boolean => {
+    const k = memberKey(m);
+    const loaded = hasFundamentals(m.security_id, scoredById);
+    if (fArch && m.archetype !== fArch) return false;
+    if (fSeg && (fSeg === "__unplaced__" ? !!m.segment : m.segment !== fSeg)) return false;
+    if (fFund && (fFund === "loaded" ? !loaded : loaded)) return false;
+    if (fAuth === "accepted" && m.authored_by === "system_drafted") return false;
+    if (fAuth === "drafted" && m.authored_by !== "system_drafted") return false;
+    if (fInc === "included" && !d.isIncluded(k)) return false;
+    if (fInc === "excluded" && d.isIncluded(k)) return false;
+    if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
+    return true;
+  };
+  const sorted = (list: BasketMember[]): BasketMember[] => {
+    if (sortBy === "draft") return list;
+    const cmp = (a: BasketMember, b: BasketMember): number => {
+      if (sortBy === "name") return (a.ticker || "").localeCompare(b.ticker || "");
+      if (sortBy === "archetype") return a.archetype.localeCompare(b.archetype);
+      if (sortBy === "segment") return (a.segment || "￿").localeCompare(b.segment || "￿");
+      return (sec(a) || "￿").localeCompare(sec(b) || "￿"); // sector; blanks sort last
+    };
+    return [...list].sort(cmp);
+  };
+  // filter → sort → preview-collapse (the collapse counts the FILTERED set, not the whole basket)
+  const triaged = sorted(d.draft.basket.filter(matchesFilters));
+  const placedShown = showAllPlaced ? triaged : triaged.slice(0, PLACED_PREVIEW);
   const skipVerify = (p: ResolvedPlacement) => setVerify((prev) => prev.filter((x) => x !== p));
   const togglePick = (name: string) =>
     setPickOpen((prev) => {
@@ -699,6 +750,119 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </button>
             </div>
           )}
+          {/* TRIAGE PR-2 (the find) — sort + filter the placed list. VIEW-ONLY: it never changes what Save
+              persists (that's basket − excluded, over the whole draft). Clear-filters is always one click away
+              so a hidden-but-included name is never lost (#9). */}
+          {d.draft.basket.length > 1 && (
+            <div className="wb-triage-find">
+              <label className="wb-find-ctl">
+                sort
+                <select
+                  aria-label="sort placed names"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                >
+                  <option value="draft">draft order</option>
+                  <option value="name">name</option>
+                  <option value="archetype">archetype</option>
+                  <option value="segment">segment</option>
+                  <option value="sector">sector</option>
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                archetype
+                <select
+                  aria-label="filter by archetype"
+                  value={fArch}
+                  onChange={(e) => setFArch(e.target.value)}
+                >
+                  <option value="">all</option>
+                  {archsPresent.map((a) => (
+                    <option key={a} value={a}>
+                      {archLabel(a)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                segment
+                <select
+                  aria-label="filter by segment"
+                  value={fSeg}
+                  onChange={(e) => setFSeg(e.target.value)}
+                >
+                  <option value="">all</option>
+                  {segLabels.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                  <option value="__unplaced__">— unplaced —</option>
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                fundamentals
+                <select
+                  aria-label="filter by fundamentals"
+                  value={fFund}
+                  onChange={(e) => setFFund(e.target.value as typeof fFund)}
+                >
+                  <option value="">all</option>
+                  <option value="loaded">loaded</option>
+                  <option value="needs">not loaded</option>
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                authorship
+                <select
+                  aria-label="filter by authorship"
+                  value={fAuth}
+                  onChange={(e) => setFAuth(e.target.value as typeof fAuth)}
+                >
+                  <option value="">all</option>
+                  <option value="accepted">accepted</option>
+                  <option value="drafted">drafted</option>
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                include
+                <select
+                  aria-label="filter by include"
+                  value={fInc}
+                  onChange={(e) => setFInc(e.target.value as typeof fInc)}
+                >
+                  <option value="">all</option>
+                  <option value="included">included</option>
+                  <option value="excluded">excluded</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className={`wb-mini ghost${fOffUniv ? " on" : ""}`}
+                aria-pressed={fOffUniv}
+                onClick={() => setFOffUniv((v) => !v)}
+              >
+                off-universe
+              </button>
+              <button
+                type="button"
+                className={`wb-mini ghost${compact ? " on" : ""}`}
+                aria-pressed={compact}
+                title="collapse the thesis-fit prose for a scannable read"
+                onClick={() => setCompact((v) => !v)}
+              >
+                compact
+              </button>
+              {filtersActive && (
+                <button type="button" className="wb-mini" onClick={clearFilters}>
+                  clear filters
+                </button>
+              )}
+              <span className="note">
+                showing {triaged.length} of {d.draft.basket.length}
+              </span>
+            </div>
+          )}
           {placedShown.map((m) => {
             const k = memberKey(m);
             const drafted = m.authored_by === "system_drafted";
@@ -803,14 +967,18 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     )}
                   </span>
                 </div>
-                <textarea
-                  className="wb-prose"
-                  rows={3}
-                  aria-label={`thesis-fit for ${m.ticker}`}
-                  placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
-                  value={m.thesis_fit ?? ""}
-                  onChange={(e) => d.editProse(k, e.target.value)}
-                />
+                {/* compact mode collapses the prose editor for a scannable, table-like read (the inline editor
+                    returns the moment you toggle compact off — nothing is lost). */}
+                {!compact && (
+                  <textarea
+                    className="wb-prose"
+                    rows={3}
+                    aria-label={`thesis-fit for ${m.ticker}`}
+                    placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
+                    value={m.thesis_fit ?? ""}
+                    onChange={(e) => d.editProse(k, e.target.value)}
+                  />
+                )}
                 {mt && mt.length > 0 && (
                   <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
                     ← {mt.join(" · ")}
@@ -825,10 +993,15 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           {d.draft.basket.length === 0 && (
             <div className="note">No names yet — draft from the narrative, or add one below.</div>
           )}
-          {d.draft.basket.length > PLACED_PREVIEW && !showAllPlaced && (
+          {d.draft.basket.length > 0 && triaged.length === 0 && (
+            <div className="note">
+              No names match the filter — <button type="button" className="wb-linkbtn" onClick={clearFilters}>clear filters</button> to see all {d.draft.basket.length}.
+            </div>
+          )}
+          {triaged.length > PLACED_PREVIEW && !showAllPlaced && (
             <div className="showmore">
               <button type="button" className="wb-mini" onClick={() => setShowAllPlaced(true)}>
-                show {d.draft.basket.length - PLACED_PREVIEW} more placed
+                show {triaged.length - PLACED_PREVIEW} more
               </button>
             </div>
           )}
