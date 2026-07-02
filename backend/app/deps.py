@@ -109,3 +109,17 @@ def get_tier_rec_client() -> LLMClient:
         max_tokens=_s.llm_tier_rec_max_tokens,
         timeout_s=_s.llm_tier_rec_timeout_s,
     )
+
+
+def get_purity_client() -> LLMClient:
+    """The live LLM client for the PURITY-ESTIMATE drafter (SURFACE 1b) — on its OWN cheap Haiku dials
+    (``llm_purity_*``, no web search) so the other seams are undisturbed. Overridden in tests with a fake;
+    fail-open by contract (no ``ANTHROPIC_API_KEY`` -> ``propose_purity`` returns ``None`` -> the purity
+    candidate stays today's HUMAN: located, no value, the operator authors it)."""
+    _s = get_settings()
+    return LLMClient(
+        allow_live=True,
+        model=_s.llm_purity_model,
+        max_tokens=_s.llm_purity_max_tokens,
+        timeout_s=_s.llm_purity_timeout_s,
+    )

@@ -143,6 +143,18 @@ class Settings(BaseSettings):
     )
     llm_tier_rec_timeout_s: float = 30.0
 
+    # --- LLM seam (the PURITY-ESTIMATE drafter, SURFACE 1b) — operational dials ---
+    # A grounded proposal of the on-thesis revenue % — reads the located segment-footnote passage + the thesis
+    # narrative, proposes the segment + its % of total revenue (from figures IN the passage), fail-open to
+    # today's HUMAN. Its OWN dials so the seams stay independent. Haiku by default (grounded extraction +
+    # a ratio, not deep reasoning); Sonnet is the ADHERENCE LEVER (as with the flag drafter) if the live gate-2
+    # shows the arithmetic / grounding slipping. One on-demand call per name; no web search.
+    llm_purity_model: str = (
+        "claude-haiku-4-5-20251001"  # grounded extraction + a ratio, not reasoning
+    )
+    llm_purity_max_tokens: int = 512  # a segment + a % + a one-line reason, not prose
+    llm_purity_timeout_s: float = 30.0
+
     # --- EDGAR-first discovery (the EFTS enumerator) — operational dials ---
     # The per-keyword pagination cap. NOT a recall limiter — a BACKSTOP against a pathological keyword: a low
     # cap silently drops real on-thesis names that surface deep (the Slice-1 gate measured 25 dropped at 200).

@@ -92,6 +92,48 @@ def _locate(
     return None
 
 
+# A FINANCIAL figure — either $-prefixed ("$ 2,350,090") or comma-grouped ("853,070"). Used to RANK candidate
+# segment passages toward the actual revenue TABLE. CRUCIALLY it does NOT match bare integers — years (2024),
+# CIKs (0001921865), or dates — because the filing text carries a huge inline-XBRL context block (dimension
+# members + dates + CIK) that a plain digit-run regex scores as ultra-dense, burying the real table (this is
+# exactly why ASPI declined: all top windows were XBRL noise). A revenue table uses thousands separators / $;
+# the XBRL dump does not — so requiring one of those is the discriminator. Fail-open unchanged: no financial
+# window -> the earliest hit -> the seam honestly declines.
+_SEG_NUM_RE = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+
+
+def _segment_passages(
+    text: str, source_ref: str, anchors: list[str], window: int, keep: int = 3
+) -> list[LocatedPassage]:
+    """The segment passages MOST LIKELY to carry the revenue table — windows around segment anchors, RANKED by
+    how many revenue figures each contains (a table is number-dense; the intro's 'segment' mentions are not).
+    Returns up to ``keep`` numeric windows so the grounded purity seam sees the real segment $ / total $, even
+    though 'segment' first appears in boilerplate. FAIL-OPEN: if no window has figures, return the earliest hit
+    (the seam then honestly declines). Deterministic retrieval — never a reading."""
+    low = text.lower()
+    scored: list[tuple[int, int, str, str]] = []
+    taken: list[int] = []
+    for a in anchors:
+        al, s = a.lower(), 0
+        while (i := low.find(al, s)) >= 0:
+            s = i + len(al)
+            if any(abs(i - j) < window for j in taken):
+                continue  # overlaps a window already taken — skip the near-duplicate
+            taken.append(i)
+            excerpt = re.sub(r"\s+", " ", text[max(0, i - window) : i + window]).strip()
+            scored.append((len(_SEG_NUM_RE.findall(excerpt)), i, excerpt, a))
+    if not scored:
+        return []
+    scored.sort(key=lambda t: (-t[0], t[1]))  # most figures first, then earliest
+    top = [t for t in scored if t[0] > 0][:keep] or scored[
+        :1
+    ]  # numeric windows, else the earliest hit
+    return [
+        LocatedPassage(kind="segment", source_ref=source_ref, anchor=a, excerpt=f"… {e} …")
+        for _, _, e, a in top
+    ]
+
+
 # ---------------------------------------------------------------------------------------------------------
 # shares (market cap)
 # ---------------------------------------------------------------------------------------------------------
@@ -336,6 +378,12 @@ _REVENUE = [
     ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
 ]
 
+# The purity passage is WIDE (vs the default ±110): the grounded purity-estimate seam (SURFACE 1b) proposes a %
+# ONLY from segment $ / total $ figures in the passage, so the located window must be big enough to carry the
+# segment revenue TABLE, not just the heading. A retrieval window (not a scoring cutoff); a too-narrow window
+# just means the seam can't ground it and honestly declines (fail-open to HUMAN) — never a wrong number.
+_PURITY_WINDOW = 1500
+
 
 def _has_annual_revenue(facts: dict) -> bool:
     rows = _first(facts, _REVENUE, "USD")
@@ -347,8 +395,10 @@ def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> Extracte
     Revenue names: the segment footnote; pre-revenue names: the Item-1 business description. Never valued.
     """
     if _has_annual_revenue(facts):
-        passage = _locate(
-            tenk_text, ref, "segment", ["reportable segment", "segment", "revenue by"]
+        # RANK segment windows by revenue-figure density (not first-match) so the actual segment TABLE — not
+        # the intro's "segment" boilerplate — is what the grounded purity seam reads.
+        passages = _segment_passages(
+            tenk_text, ref, ["reportable segment", "segment", "revenue by"], _PURITY_WINDOW
         )
         source, why = (
             "10-k-segment",
@@ -356,8 +406,13 @@ def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> Extracte
         )
     else:
         passage = _locate(
-            tenk_text, ref, "business-description", ["Item 1.", "Business", "We are", "Overview"]
+            tenk_text,
+            ref,
+            "business-description",
+            ["Item 1.", "Business", "We are", "Overview"],
+            window=_PURITY_WINDOW,
         )
+        passages = [passage] if passage else []
         source, why = (
             "10-k-business-description",
             "Pre-revenue — purity is a business-description read (Item-1 located).",
@@ -369,7 +424,7 @@ def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> Extracte
         source=source,
         source_ref=ref,
         event_date=period_end,
-        located_passages=[p for p in [passage] if p],
+        located_passages=passages,
         note=why
         + " The extractor never proposes a purity number — the operator authors it from the evidence.",
     )

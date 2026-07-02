@@ -569,6 +569,61 @@ def test_extract_endpoint_serves_candidates(client, security_id, monkeypatch):
     assert f["located_passages"][0]["anchor"] == "264,195"
 
 
+def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security_id, monkeypatch):
+    """SURFACE 1b: with ``thesis_id``, the grounded purity seam attaches an UNVERIFIED value + `estimate_source`
+    to the revenue_mix candidate (carrying its passage) — PURITY-ONLY; without ``thesis_id`` it stays today's
+    HUMAN (located, no value). The estimate never persists (the endpoint writes nothing)."""
+    from app.deps import get_purity_client
+    from app.routers import workbench as wb
+    from domain.extraction import ExtractedFact, LocatedPassage, Tier
+
+    purity = ExtractedFact(
+        fact_type="revenue_mix",
+        tier=Tier.HUMAN,
+        source="10-k-segment",
+        source_ref="https://sec.gov/leu#seg",
+        event_date=date(2025, 12, 31),
+        located_passages=[
+            LocatedPassage(
+                kind="segment",
+                source_ref="https://sec.gov/leu#seg",
+                anchor="reportable segment",
+                excerpt="LEU segment revenue of $346.2M of $448.7M total, FY2025.",
+            )
+        ],
+    )
+    # a FRESH candidate per call — the endpoint mutates the purity candidate in place
+    monkeypatch.setattr(
+        wb, "extract_for_security", lambda client, cik: [purity.model_copy(deep=True)]
+    )
+
+    class _FakePurity:
+        def draft_structured(self, *, system, user, tool):
+            return {
+                "segment": "LEU (enrichment)",
+                "pct": 77.0,
+                "reason": "Enrichment $346.2M of $448.7M total from the passage.",
+                "grounded": True,
+            }
+
+    app.dependency_overrides[get_purity_client] = lambda: _FakePurity()
+    tid = _thesis_with(db, security_id)
+
+    # WITH thesis_id -> the grounded estimate attaches (value + tag), still carrying the passage it read
+    f = client.get(
+        f"/workbench/securities/{security_id}/extract", params={"thesis_id": str(tid)}
+    ).json()[0]
+    assert f["fact_type"] == "revenue_mix"
+    assert f["value"] == 77.0 and f["estimate_source"] == "llm_proposed"
+    assert (
+        "$346.2M of $448.7M" in f["located_passages"][0]["excerpt"]
+    )  # the estimate carries its passage
+
+    # WITHOUT thesis_id -> purity stays HUMAN (located, no value); the seam is never consulted
+    g = client.get(f"/workbench/securities/{security_id}/extract").json()[0]
+    assert g["value"] is None and g["estimate_source"] is None
+
+
 def test_extract_endpoint_404_without_cik(client, db):
     sid = uuid.uuid4()
     with db.cursor() as cur:

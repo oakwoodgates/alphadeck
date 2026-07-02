@@ -120,6 +120,12 @@ export interface paths {
          *     located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
          *     auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
          *     never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+         *
+         *     PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
+         *     on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis
+         *     narrative selecting the segment. It attaches ``value`` + ``estimate_source="llm_proposed"`` (the passage
+         *     stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
+         *     other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
          */
         get: operations["extract_scoring_facts_workbench_securities__security_id__extract_get"];
         put?: never;
@@ -632,6 +638,8 @@ export interface components {
             flags?: string[];
             /** Located Passages */
             located_passages?: components["schemas"]["LocatedPassage"][];
+            /** Estimate Source */
+            estimate_source?: string | null;
         };
         /**
          * FlagExplanationOut
@@ -1437,7 +1445,10 @@ export interface operations {
     };
     extract_scoring_facts_workbench_securities__security_id__extract_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only */
+                thesis_id?: string | null;
+            };
             header?: never;
             path: {
                 security_id: string;

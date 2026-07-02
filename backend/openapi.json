@@ -254,7 +254,7 @@
           "workbench"
         ],
         "summary": "Extract Scoring Facts",
-        "description": "Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) \u2014\nthe three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the\nlocated passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never\nauto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor\nnever DECIDES \u2014 the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).",
+        "description": "Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) \u2014\nthe three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the\nlocated passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never\nauto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor\nnever DECIDES \u2014 the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).\n\nPURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED\non-thesis % for the revenue_mix candidate \u2014 read ONLY from its located segment passage, with the thesis\nnarrative selecting the segment. It attaches ``value`` + ``estimate_source=\"llm_proposed\"`` (the passage\nstays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no\nother candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).",
         "operationId": "extract_scoring_facts_workbench_securities__security_id__extract_get",
         "parameters": [
           {
@@ -266,6 +266,25 @@
               "format": "uuid",
               "title": "Security Id"
             }
+          },
+          {
+            "name": "thesis_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only",
+              "title": "Thesis Id"
+            },
+            "description": "if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only"
           }
         ],
         "responses": {
@@ -1291,6 +1310,17 @@
             },
             "type": "array",
             "title": "Located Passages"
+          },
+          "estimate_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Source"
           }
         },
         "additionalProperties": false,
