@@ -52,6 +52,9 @@ class BasketMember(DomainModel):
     )  # the operator's per-name weight (1=starter … 5=full); NULL = unset (never 0). Stored METADATA — it
     # never feeds the meters/verdict/grade (#4: the system sizes from signals, it doesn't judge the idea);
     # carried to the Board / SCORE later. Operator-authored by definition (no LLM recommendation).
+    # NAMING GUARD: this OPERATOR conviction (a size weight, stored metadata) is DISTINCT from SIGNAL
+    # conviction in `calls/` (conviction_kinds / conviction_grade / key_conviction — deterministic call
+    # triggers). They must NEVER cross: wiring operator conviction into the call is a #4 violation.
     authored_by: Authorship = (
         Authorship.OPERATOR_SET
     )  # who placed it (the Workbench authorship seam)
