@@ -31,6 +31,7 @@ def ingest_cash_burn(
     event_date: date,
     note: str | None = None,
     ratified_by: str | None = None,
+    vouched: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> UUID:
@@ -38,7 +39,8 @@ def ingest_cash_burn(
 
     ``cash_usd`` is cash + equivalents on hand; ``quarterly_burn_usd`` is net cash used in operations per
     quarter (``<= 0`` = cash-positive). ``source_ref`` is the 10-Q (provenance + identity); a restatement is
-    a NEW row with a later ``recorded_at`` (latest-version-wins on the as-of read). Returns the new fact id.
+    a NEW row with a later ``recorded_at`` (latest-version-wins on the as-of read). ``vouched`` is confirm/
+    override PROVENANCE ('confirmed' | 'overridden' | None) — never a scoring input. Returns the new fact id.
     """
     values = {
         "tenant_id": tenant_id,
@@ -49,6 +51,7 @@ def ingest_cash_burn(
         "source_ref": source_ref,
         "note": note,
         "ratified_by": ratified_by,
+        "vouched": vouched,
         "valid_from": event_date,
     }
     if recorded_at is not None:

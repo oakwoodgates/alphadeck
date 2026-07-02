@@ -646,7 +646,7 @@
           "workbench"
         ],
         "summary": "Ratify Fact",
-        "description": "Ratify an extracted candidate -> write the scoring fact (hybrid-2a) \u2014 the app's first fact-WRITE. The\noperator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this\npersists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.\n\nWRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) \u2014 the\ntenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id\nmust not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);\n``ratified_by`` is stamped \"operator\"; the fact is append-only (a re-ratify is a new row, latest-wins).",
+        "description": "Ratify an extracted candidate -> write the scoring fact (hybrid-2a) \u2014 the app's first fact-WRITE. The\noperator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this\npersists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.\n\nWRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) \u2014 the\ntenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id\nmust not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);\n``ratified_by`` is stamped \"operator\"; the fact is append-only (a re-ratify is a new row, latest-wins).\n\n``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it \u2014 PROVENANCE\nfor the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).",
         "operationId": "ratify_fact_workbench_facts_post",
         "requestBody": {
           "content": {
@@ -1771,6 +1771,17 @@
             ],
             "title": "Note"
           },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
+          },
           "fact_type": {
             "type": "string",
             "const": "cash_burn",
@@ -1828,6 +1839,17 @@
             ],
             "title": "Note"
           },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
+          },
           "fact_type": {
             "type": "string",
             "const": "revenue_mix",
@@ -1884,6 +1906,17 @@
               }
             ],
             "title": "Note"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
           },
           "fact_type": {
             "type": "string",
@@ -2139,6 +2172,11 @@
           "fit": {
             "type": "string",
             "title": "Fit"
+          },
+          "unconfirmed_estimates": {
+            "type": "integer",
+            "title": "Unconfirmed Estimates",
+            "default": 0
           }
         },
         "type": "object",

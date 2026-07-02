@@ -750,6 +750,40 @@ def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
 
 
+def test_ratify_stamps_vouched_confirmed_overridden_or_null(client, db, security_id):
+    """`vouched` is confirm/override PROVENANCE (SURFACE 1a): the estimate the operator was shown, compared to
+    the ratified value -> 'confirmed' (as-is), 'overridden' (changed), or NULL (no estimate shown). Never a
+    scoring input — just recorded on the row for the drift-cron + the agree/disagree signal."""
+
+    def _ratify(source_ref, mix_pct, estimate):
+        body = {
+            "fact_type": "revenue_mix",
+            "security_id": str(security_id),
+            "source": "10-k-segment",
+            "source_ref": source_ref,
+            "event_date": "2025-12-31",
+            "segment_label": "nuclear",
+            "mix_pct": mix_pct,
+        }
+        if estimate is not None:
+            body["estimate"] = estimate
+        assert client.post("/workbench/facts", json=body).status_code == 200
+
+    _ratify("ref-confirm", 20, 20)  # accepted the estimate as-is
+    _ratify("ref-override", 25, 20)  # operator changed the estimate 20 -> 25
+    _ratify("ref-manual", 30, None)  # no estimate shown (manual/legacy)
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT source_ref, vouched FROM fact_revenue_mix WHERE security_id=%s", (security_id,)
+        )
+        got = {r["source_ref"]: r["vouched"] for r in cur.fetchall()}
+    assert got == {
+        "ref-confirm": "confirmed",
+        "ref-override": "overridden",
+        "ref-manual": None,
+    }
+
+
 def test_ratify_rejects_security_not_in_tenant(client):
     """Write-side tenant discipline: a security_id not in THIS tenant's master fails closed (no junk fact)."""
     r = client.post(

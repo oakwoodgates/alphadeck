@@ -274,6 +274,9 @@ class ScoredMemberOut(BaseModel):
     dilution: ScoredFigureOut
     market_cap: ScoredFigureOut
     fit: str
+    # HONEST CONFIDENCE (SURFACE Slice 1a): how many fact-backed meters (purity/runway/market cap) have no
+    # operator-confirmed value yet. A "rests on N unconfirmed" readiness signal; never a scoring input.
+    unconfirmed_estimates: int = 0
 
     @classmethod
     def from_scored(
@@ -303,6 +306,7 @@ class ScoredMemberOut(BaseModel):
             dilution=fig(m.dilution),
             market_cap=fig(m.market_cap),
             fit=m.fit,
+            unconfirmed_estimates=m.unconfirmed_estimates,
         )
 
 
@@ -400,6 +404,10 @@ class _RatifyBase(BaseModel):
     source_ref: str
     event_date: date
     note: str | None = None
+    # The system estimate the operator was shown (the fact-type's primary value: mix_pct / shares /
+    # quarterly_burn). The server compares the ratified value to it -> stamps `vouched` confirmed/overridden
+    # PROVENANCE. None = a manual ratify with no estimate shown (vouched stays NULL). Never a scoring input.
+    estimate: float | None = None
 
 
 class RatifyRevenueMix(_RatifyBase):

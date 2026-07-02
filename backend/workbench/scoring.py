@@ -176,6 +176,11 @@ def score_member(
     catalysts = _catalysts(pit, sid, cfg)
     dilution = _dilution(pit, sid, cfg)
     market_cap = _market_cap(pit, sid)
+    # The fact-backed meters (purity / runway / market cap) each rest on an extract->ratify scoring fact; a BLANK
+    # one (no pip AND no value) has no operator-confirmed fact yet — an unconfirmed estimate the operator can
+    # confirm. Count the blanks so the surface flags "rests on N unconfirmed" honestly. Confidence signal only;
+    # the score is unchanged (still confirmed-only). (catalysts/dilution ride other feeds, not this loop.)
+    unconfirmed = sum(1 for f in (purity, runway, market_cap) if f.pips is None and f.value is None)
     return ScoredMember(
         security_id=sid,
         archetype=member.archetype,
@@ -187,6 +192,7 @@ def score_member(
         dilution=dilution,
         market_cap=market_cap,
         fit=_fit(purity.pips, runway.pips, dilution.pips),
+        unconfirmed_estimates=unconfirmed,
     )
 
 
