@@ -214,3 +214,61 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
     expect(h.mutate).toHaveBeenCalledTimes(1); // the panel works exactly as today
   });
 });
+
+const PURITY_EST = {
+  fact_type: "revenue_mix",
+  tier: "human",
+  source: "10-k-segment",
+  source_ref: "https://sec.gov/bwxt-10k#seg",
+  event_date: "2025-12-31",
+  note: "LLM-PROPOSED purity (UNVERIFIED — confirm or override): Commercial Operations $853,070 of $3,198,425 total. [on-thesis segment: Commercial Operations]. Grounded in the located segment passage.",
+  value: 26.7,
+  estimate_source: "llm_proposed",
+  flags: [],
+  located_passages: [
+    {
+      kind: "segment",
+      source_ref: "https://sec.gov/bwxt-10k#seg",
+      anchor: "reportable segment",
+      excerpt: "… Commercial Operations 853,070 … $ 3,198,425 …",
+    },
+  ],
+};
+
+describe("FactsPanel — the grounded purity estimate (SURFACE 1b)", () => {
+  it("renders the estimate (unverified tag, % + segment pre-filled) and confirms it as-is WITH the estimate", async () => {
+    h.extract.data = [PURITY_EST];
+    const user = userEvent.setup();
+    render(<FactsPanel securityId={SID} thesisId="t-nuke" />);
+
+    expect(screen.getByText(/estimate 26\.7% · llm-proposed · unverified/)).toBeInTheDocument();
+    expect((screen.getByLabelText("purity percent") as HTMLInputElement).value).toBe("26.7");
+    expect((screen.getByLabelText("segment") as HTMLInputElement).value).toBe(
+      "Commercial Operations",
+    );
+    // the grounded passage rides alongside (the operator eyeballs the $ figures)
+    expect(screen.getByText(/Commercial Operations 853,070/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    // confirm-as-is: the shown estimate rides the body (→ vouched=confirmed) and matches the ratified %
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "revenue_mix",
+      segment_label: "Commercial Operations",
+      mix_pct: 26.7,
+      estimate: 26.7,
+    });
+  });
+
+  it("an override sends the shown estimate but a different % (→ vouched=overridden)", async () => {
+    h.extract.data = [PURITY_EST];
+    const user = userEvent.setup();
+    render(<FactsPanel securityId={SID} thesisId="t-nuke" />);
+
+    const pct = screen.getByLabelText("purity percent");
+    await user.clear(pct);
+    await user.type(pct, "100");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    // the estimate the operator was shown still rides the body; the server derives 'overridden' from the diff
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({ mix_pct: 100, estimate: 26.7 });
+  });
+});

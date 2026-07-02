@@ -472,6 +472,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                 member={selectedMember}
                 onApplyArchetype={applyArchetype}
                 applying={promote.isPending}
+                thesisId={thesisId}
               />
             </aside>
           </>

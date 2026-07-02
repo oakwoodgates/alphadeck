@@ -573,6 +573,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .rtier.flag { color: var(--warm); background: rgba(224, 162, 60, 0.1); border-color: rgba(224, 162, 60, 0.32); }
 .rtier.human { color: var(--leader); background: rgba(138, 180, 255, 0.08); border-color: rgba(138, 180, 255, 0.28); }
 .rflag { font-size: 9.5px; color: var(--warm); }
+/* the grounded purity ESTIMATE tag (SURFACE 1b) — a quiet, UNVERIFIED pre-fill the operator confirms/overrides */
+.est-tag { font-size: 10px; color: var(--leader); letter-spacing: 0.02em; background: rgba(138, 180, 255, 0.08); border: 1px solid rgba(138, 180, 255, 0.28); border-radius: 6px; padding: 4px 8px; }
 .located { display: flex; flex-direction: column; gap: 4px; padding-left: 9px; border-left: 2px solid var(--line-2); }
 .located .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; text-decoration: none; align-self: flex-start; }
 .located .chip:hover { border-color: var(--leader); color: var(--txt-2); }

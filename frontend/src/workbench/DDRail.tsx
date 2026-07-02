@@ -59,6 +59,9 @@ interface Props {
     archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
   ) => void;
   applying?: boolean;
+  // the active thesis — passed to the facts panel so the extract can request the GROUNDED purity estimate
+  // (SURFACE 1b; purity's on-thesis segment depends on the narrative). Optional: no thesis -> no purity estimate.
+  thesisId?: string;
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -66,7 +69,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, onApplyArchetype, applying }: Props) {
+export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -128,7 +131,7 @@ export function DDRail({ member, onApplyArchetype, applying }: Props) {
         ))}
 
         <div className="dd-sub">Extract &amp; ratify the facts</div>
-        <FactsPanel securityId={member.security_id} />
+        <FactsPanel securityId={member.security_id} thesisId={thesisId} />
 
         <div className="dd-sub deferred">
           Thesis fit <em>· auto-drafted prose — Slice 5 (the LLM drafter)</em>
