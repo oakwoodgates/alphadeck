@@ -92,11 +92,14 @@ def _locate(
     return None
 
 
-# A segment-REVENUE figure — a 4+ digit number (segment $ are millions / thousands), optionally $-prefixed.
-# Used to RANK candidate segment passages: the segment note / MD&A revenue table is dense with these; the word
-# "segment" FIRST appears in the 10-K's forward-looking / business-general boilerplate, which has none — so
-# first-match retrieval lands on numberless prose and the grounded purity seam has nothing to stand on.
-_SEG_NUM_RE = re.compile(r"\$?\s?\d[\d,]{3,}(?:\.\d+)?")
+# A FINANCIAL figure — either $-prefixed ("$ 2,350,090") or comma-grouped ("853,070"). Used to RANK candidate
+# segment passages toward the actual revenue TABLE. CRUCIALLY it does NOT match bare integers — years (2024),
+# CIKs (0001921865), or dates — because the filing text carries a huge inline-XBRL context block (dimension
+# members + dates + CIK) that a plain digit-run regex scores as ultra-dense, burying the real table (this is
+# exactly why ASPI declined: all top windows were XBRL noise). A revenue table uses thousands separators / $;
+# the XBRL dump does not — so requiring one of those is the discriminator. Fail-open unchanged: no financial
+# window -> the earliest hit -> the seam honestly declines.
+_SEG_NUM_RE = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 
 
 def _segment_passages(
