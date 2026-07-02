@@ -197,14 +197,19 @@ export function useRecommendTiers(thesisId: string) {
 
 // Auto-extract candidate scoring facts from a security's latest 10-Q/10-K (hybrid-1). An EXPLICIT operator
 // action: `enabled: false` so it NEVER fires on a render — the facts panel triggers it via `refetch()`.
-export function useExtract(securityId: string) {
+export function useExtract(securityId: string, thesisId?: string) {
   return useQuery({
-    queryKey: ["workbench-extract", securityId] as const,
+    queryKey: ["workbench-extract", securityId, thesisId ?? null] as const,
     enabled: false,
     retry: false, // an explicit one-shot operator action — never auto-retry (same pattern as the draft query)
     queryFn: async () => {
+      // thesis_id is OPTIONAL + purity-only (SURFACE 1b): with it, the revenue_mix candidate carries a
+      // GROUNDED purity ESTIMATE; without it (or when the seam declines) purity is today's located-only HUMAN.
       const { data, error } = await api.GET("/workbench/securities/{security_id}/extract", {
-        params: { path: { security_id: securityId } },
+        params: {
+          path: { security_id: securityId },
+          query: thesisId ? { thesis_id: thesisId } : {},
+        },
       });
       if (error) throw error;
       return data;

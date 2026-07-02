@@ -14,8 +14,15 @@ const METER_LABEL: Record<string, string> = {
  *  the composition, HUMAN purity authored); on confirm the fact is written and the meter re-derives. The
  *  extract is an EXPLICIT click (cache-first), never on a render. The LOCATED PASSAGE is the evidence —
  *  shown readable inline (not a tooltip), because reading it IS the FLAG ratification decision. */
-export function FactsPanel({ securityId }: { securityId: string }) {
-  const extract = useExtract(securityId);
+export function FactsPanel({
+  securityId,
+  thesisId,
+}: {
+  securityId: string;
+  thesisId?: string;
+}) {
+  // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
+  const extract = useExtract(securityId, thesisId);
   return (
     <div className="facts-panel">
       <button
@@ -49,13 +56,21 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
   const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
   const auto = candidate.tier === "auto";
   const isFlag = candidate.tier === "flag";
+  // SURFACE 1b — the GROUNDED purity estimate (llm-proposed, UNVERIFIED): pre-fill the % + the proposed
+  // segment (parsed from the note the endpoint wrote) so "confirm as-is" is one action; the operator can
+  // override either. Sending the estimate on ratify lets the server stamp `vouched` (confirmed vs overridden).
+  const purityEstimate =
+    candidate.fact_type === "revenue_mix" && candidate.estimate_source === "llm_proposed"
+      ? candidate.value
+      : null;
+  const proposedSegment = (candidate.note ?? "").match(/on-thesis segment:\s*(.+?)\s*\]/)?.[1] ?? "";
   const [shares, setShares] = useState(candidate.value != null ? String(candidate.value) : "");
   const [cash, setCash] = useState(candidate.cash_usd != null ? String(candidate.cash_usd) : "");
   const [burn, setBurn] = useState(
     candidate.quarterly_burn_usd != null ? String(candidate.quarterly_burn_usd) : "",
   );
-  const [segment, setSegment] = useState("");
-  const [pct, setPct] = useState("");
+  const [segment, setSegment] = useState(purityEstimate != null ? proposedSegment : "");
+  const [pct, setPct] = useState(purityEstimate != null ? String(purityEstimate) : "");
   const [note, setNote] = useState(candidate.note ?? "");
 
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
@@ -74,6 +89,8 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
         fact_type: "revenue_mix",
         segment_label: segment,
         mix_pct: Number(pct),
+        // the shown estimate (if any) → the server stamps vouched confirmed (unchanged) / overridden (changed)
+        estimate: purityEstimate ?? undefined,
       });
     else if (candidate.fact_type === "shares_outstanding")
       ratify.mutate({ ...common, fact_type: "shares_outstanding", shares: Number(shares) });
@@ -86,12 +103,23 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
       });
   };
 
-  // purity (HUMAN) is operator-authored — never pre-filled, never confirmable until entered
+  // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator authors them.
   const confirmDisabled =
     ratify.isPending || (candidate.fact_type === "revenue_mix" && (!pct || !segment));
 
   if (ratify.isSuccess) {
-    return <div className="ratify-row done">✓ {label} ratified — the meter re-derives.</div>;
+    // show the vouched outcome for a purity estimate: confirmed-as-is vs overridden (client-derived from the %)
+    const vouched =
+      purityEstimate == null
+        ? ""
+        : Number(pct) === purityEstimate
+          ? " (confirmed as estimated)"
+          : ` (overridden from ${purityEstimate}%)`;
+    return (
+      <div className="ratify-row done">
+        ✓ {label} ratified{vouched} — the meter re-derives.
+      </div>
+    );
   }
 
   return (
@@ -188,6 +216,11 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
       )}
       {candidate.fact_type === "revenue_mix" && (
         <>
+          {purityEstimate != null && (
+            <div className="est-tag">
+              ✦ estimate {purityEstimate}% · llm-proposed · unverified — confirm as-is, or override
+            </div>
+          )}
           <label className="rf">
             segment
             <input
@@ -203,7 +236,7 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
               type="number"
               aria-label="purity percent"
               value={pct}
-              placeholder="you author it"
+              placeholder={purityEstimate != null ? "" : "you author it"}
               onChange={(e) => setPct(e.target.value)}
             />
           </label>
