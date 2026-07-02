@@ -4,6 +4,7 @@ import type {
   BasketMember,
   ChainDraftOut,
   ResolvedPlacement,
+  ScoredMemberOut,
   SecurityCandidate,
   TermEdit,
   TermSetEntry,
@@ -31,7 +32,24 @@ const DRAFT_POLL_TIMEOUT_MS = 600_000;
 interface Props {
   thesis: ThesisDetail;
   onDone: () => void; // exit edit mode (the parent unmounts this, re-snapshotting on the next edit)
+  // TRIAGE: the parent's scored members, keyed by security_id — a cheap read-time join (no fetch) that drives
+  // the per-row "fundamentals loaded vs not" badge. Reflects the LAST SAVED state, so a freshly-drafted (unsaved)
+  // name reads "needs SURFACE" — exactly the shortlist signal. Optional (an un-scored / test render omits it).
+  scoredById?: Record<string, ScoredMemberOut>;
 }
+
+// "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact (purity / runway /
+// market-cap). Catalysts + dilution come from the feeds/converts, not a SURFACE extract, so they don't count —
+// this badge answers "does this survivor still need an extract → ratify?", nothing more.
+const hasFundamentals = (
+  sid: string | null | undefined,
+  scoredById?: Record<string, ScoredMemberOut>,
+): boolean => {
+  if (!sid) return false;
+  const sm = scoredById?.[sid];
+  if (!sm) return false;
+  return sm.purity?.pips != null || sm.runway?.pips != null || sm.market_cap?.value != null;
+};
 
 // A term's provenance: an operator seed vs an LLM-proposed (guard-tiered) term. The data already carries it.
 const termAuthor = (a: string): string =>
@@ -94,7 +112,7 @@ const NotListedFlag = () => (
  *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
  *  which honors each member's authorship and stores the thesis-fit prose). */
-export function ChainEditor({ thesis, onDone }: Props) {
+export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
   // The draft is a KICK-OFF + POLL job now (it takes minutes; held open it 504'd). Start it, stash the job_id,
@@ -364,18 +382,29 @@ export function ChainEditor({ thesis, onDone }: Props) {
     setVerify((prev) => prev.filter((x) => x !== p));
   };
 
-  const onSave = () =>
+  // Save persists ONLY the INCLUDED subset (the prune) — the promote full-replaces, so excluded names simply
+  // aren't sent. The current sort/filter VIEW never affects this: it's the whole basket minus `excluded`,
+  // regardless of what's visible (#9 — the view hides, only include decides what persists).
+  const onSave = () => {
+    const basket = d.includedBasket;
+    if (basket.length === 0 && d.draft.basket.length > 0) {
+      const ok = window.confirm(
+        "Save an empty basket? Every name is excluded — the thesis will have no basket to score. Include at least one, or confirm the wipe.",
+      );
+      if (!ok) return;
+    }
     save.mutate(
       {
         id: thesis.id,
         name: thesis.name,
         narrative: thesis.narrative,
         ticker: thesis.ticker ?? null,
-        basket: d.draft.basket,
+        basket,
         segments: d.draft.segments,
       },
       { onSuccess: () => onDone() },
     );
+  };
 
   return (
     <div className="wb-editor">
@@ -642,16 +671,56 @@ export function ChainEditor({ thesis, onDone }: Props) {
         <div className="sect">
           <div className="sect-h">
             Placed <em>· archetype derived · segment drafted · both overridable</em>
-            {d.draft.basket.length > 0 && <span className="ct">· {d.draft.basket.length}</span>}
+            {d.draft.basket.length > 0 && (
+              <span className="ct">
+                · {d.includedBasket.length} of {d.draft.basket.length} included
+              </span>
+            )}
           </div>
+          {/* TRIAGE bulk actions (the prune) — include is default-on (#9); these are visible bulk excludes, never
+              a silent filter. "Clear un-accepted" excludes still-drafted names (the fast path to just-my-vouched
+              names) without touching authorship. */}
+          {d.draft.basket.length > 0 && (
+            <div className="wb-triage-bulk">
+              <span className="note">Only included names are saved.</span>
+              <button type="button" className="wb-mini ghost" onClick={d.includeAll}>
+                include all
+              </button>
+              <button type="button" className="wb-mini ghost" onClick={d.excludeAll}>
+                exclude all
+              </button>
+              <button
+                type="button"
+                className="wb-mini ghost"
+                title="exclude every still-drafted name — keep only the ones you've accepted or edited"
+                onClick={d.excludeUnaccepted}
+              >
+                clear un-accepted
+              </button>
+            </div>
+          )}
           {placedShown.map((m) => {
             const k = memberKey(m);
             const drafted = m.authored_by === "system_drafted";
             const mt = m.security_id ? matched[m.security_id] : undefined;
             const offThesis = false; // DORMANT — no off_thesis signal exists yet; never flag a name on invented data
+            const included = d.isIncluded(k);
+            const loaded = hasFundamentals(m.security_id, scoredById);
             return (
-              <div className={`nmrow${offThesis ? " flagged" : ""}`} key={k}>
+              <div
+                className={`nmrow${offThesis ? " flagged" : ""}${included ? "" : " excluded"}`}
+                key={k}
+              >
                 <div className="top">
+                  {/* TRIAGE include toggle (default-on, #9): unchecking EXCLUDES the name from Save; the row stays
+                      visible (greyed), one click from re-including. Orthogonal to accept — never touches authorship. */}
+                  <input
+                    type="checkbox"
+                    className="wb-inc"
+                    aria-label={`include ${m.ticker}`}
+                    checked={included}
+                    onChange={() => d.toggleInclude(k)}
+                  />
                   {/* the archetype color (incl. red high-beta) only shows once the name is operator-owned or
                       enrichment-derived; an UNCONFIRMED draft default renders neutral, not a wall of red. */}
                   <span
@@ -667,6 +736,17 @@ export function ChainEditor({ thesis, onDone }: Props) {
                   {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
                   {m.security_id && identity[m.security_id] && (
                     <IdentityChips {...identity[m.security_id]} />
+                  )}
+                  {/* TRIAGE: fundamentals loaded vs not — which survivors still need a SURFACE extract → ratify.
+                      "loaded" = a confirmed purity/runway/market-cap fact exists (a cheap read-time join). */}
+                  {loaded ? (
+                    <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
+                      ✓ fundamentals
+                    </span>
+                  ) : (
+                    <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
+                      needs SURFACE
+                    </span>
                   )}
                   <span className="ctls">
                     {offThesis && (

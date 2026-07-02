@@ -33,7 +33,39 @@ export function useChainDraft(thesis: ThesisDetail) {
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
   const [draft, setDraft] = useState<ChainDraft>(base);
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(base);
+  // TRIAGE (the prune) — include is a NEW, FE-only concept ORTHOGONAL to accept/authorship. A member starts
+  // INCLUDED (#9: nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys the
+  // operator has chosen to leave OUT of the saved basket. It is never persisted — Save sends `includedBasket`,
+  // and the promote full-replace simply doesn't receive the excluded names (the draft is reproducible by
+  // re-drafting). Include NEVER touches `authored_by` — a name can be accepted-but-excluded or the reverse.
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+
+  // An exclusion is an unsaved intent even when the draft structure is untouched (Save would persist fewer names).
+  const dirty = JSON.stringify(draft) !== JSON.stringify(base) || excluded.size > 0;
+
+  const isIncluded = (key: string) => !excluded.has(key);
+  const includedBasket = draft.basket.filter((m) => !excluded.has(memberKey(m)));
+
+  const toggleInclude = (key: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const includeAll = () => setExcluded(new Set());
+  const excludeAll = () => setExcluded(new Set(draft.basket.map(memberKey)));
+  // "Clear un-accepted" — exclude every still-drafted (system_drafted) name, the fast path to just-my-vouched
+  // names. ADDITIVE (union) so a manually-excluded accepted name stays excluded; sets exclude only, never
+  // touches authorship (accept stays the separate act).
+  const excludeUnaccepted = () =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const m of draft.basket) {
+        if (m.authored_by === "system_drafted") next.add(memberKey(m));
+      }
+      return next;
+    });
 
   const addSegment = (label: string, descriptor?: string) =>
     setDraft((d) => {
@@ -86,8 +118,16 @@ export function useChainDraft(thesis: ThesisDetail) {
       d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : { ...d, basket: [...d.basket, m] },
     );
 
-  const removeMember = (key: string) =>
+  const removeMember = (key: string) => {
     setDraft((d) => ({ ...d, basket: d.basket.filter((m) => memberKey(m) !== key) }));
+    // a hard-removed name leaves the draft entirely — drop any stale exclude marker so `dirty` doesn't linger.
+    setExcluded((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
 
   // --- S5 5c: draft from the narrative, then ratify per member ---
 
@@ -160,5 +200,13 @@ export function useChainDraft(thesis: ThesisDetail) {
     acceptMember,
     editProse,
     editArchetype,
+    // TRIAGE (the prune): include-state + the included subset Save persists
+    excluded,
+    isIncluded,
+    includedBasket,
+    toggleInclude,
+    includeAll,
+    excludeAll,
+    excludeUnaccepted,
   };
 }

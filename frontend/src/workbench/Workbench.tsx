@@ -51,6 +51,9 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const scored = scoredQ.data;
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
+  // TRIAGE: the scored members keyed by security_id — passed to the editor for the "fundamentals loaded" badge
+  // (a cheap read-time join, no fetch; reflects the last saved state).
+  const scoredById = Object.fromEntries(members.map((m) => [m.security_id, m]));
 
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
@@ -287,7 +290,12 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
         ) : editing && thesis ? (
           <>
             <main className="wb-main">
-              <ChainEditor key={thesis.id} thesis={thesis} onDone={() => setEditing(false)} />
+              <ChainEditor
+                key={thesis.id}
+                thesis={thesis}
+                onDone={() => setEditing(false)}
+                scoredById={scoredById}
+              />
             </main>
             <aside className="wb-rail">
               <div className="ddcard">

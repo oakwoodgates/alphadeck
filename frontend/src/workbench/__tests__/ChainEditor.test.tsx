@@ -500,6 +500,99 @@ const thesisWithTerms = {
   ],
 };
 
+describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
+  // a drafted SMR added alongside the operator-owned OKLO → a two-name basket to prune
+  const saveBody = () => h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+  const withOnSuccess = () =>
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+
+  it("every name is INCLUDED by default (#9): Save sends the whole basket", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    expect(screen.getByLabelText("include OKLO")).toBeChecked();
+    expect(screen.getByLabelText("include SMR")).toBeChecked();
+    expect(screen.getByText("· 2 of 2 included")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket).toHaveLength(2);
+  });
+
+  it("unchecking a name EXCLUDES it from Save, but leaves it visible (re-includable)", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    await user.click(screen.getByLabelText("include SMR")); // exclude SMR
+    expect(screen.getByLabelText("include SMR")).not.toBeChecked();
+    expect(screen.getByText("· 1 of 2 included")).toBeInTheDocument();
+    // still VISIBLE (#9 — never a silent drop): the row and its accept affordance remain
+    expect(screen.getByLabelText("segment for SMR")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const b = saveBody().basket;
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ ticker: "OKLO" });
+  });
+
+  it("'clear un-accepted' excludes drafted names, keeps operator-owned, and never touches authorship", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([PLACED_SMR])); // SMR loads system_drafted; OKLO is operator_set
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    await user.click(screen.getByRole("button", { name: /clear un-accepted/ }));
+    expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // drafted → excluded
+    expect(screen.getByLabelText("include OKLO")).toBeChecked(); // operator-owned → kept
+    // authorship is UNTOUCHED — SMR is still drafted (its accept button remains), only its include changed
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO"]);
+  });
+
+  it("exclude-all then Save confirms the empty-basket wipe; include-all restores", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false); // operator cancels the wipe
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "exclude all" }));
+    expect(screen.getByText("· 0 of 1 included")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(h.mutate).not.toHaveBeenCalled(); // cancelled → nothing persisted
+
+    await user.click(screen.getByRole("button", { name: "include all" }));
+    expect(screen.getByText("· 1 of 1 included")).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("the fundamentals badge reads the scored join: '✓ fundamentals' when a fact is on file, else 'needs SURFACE'", async () => {
+    // OKLO has a confirmed purity fact; a bare render (no scored member) reads needs-SURFACE
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scored: any = { "s-oklo": { purity: { pips: 3, value: 80, provenance: [] } } };
+    const { unmount } = render(
+      <ChainEditor thesis={flatThesis} onDone={vi.fn()} scoredById={scored} />,
+    );
+    expect(screen.getByText("✓ fundamentals")).toBeInTheDocument();
+    unmount();
+
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // no scored join
+    expect(screen.getByText("needs SURFACE")).toBeInTheDocument();
+  });
+});
+
 describe("ChainEditor — term set produce + edit", () => {
   it("the Produce button POSTs /terms (the LLM writer seam the operator triggers)", async () => {
     const user = userEvent.setup();
