@@ -60,6 +60,11 @@ const termAuthor = (a: string): string =>
 const authorLabel = (a: string): string =>
   a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
 
+// The reconciler's catch-all segment (backend `_DISCOVERED_LABEL`): names EDGAR-discovered but NOT arranged into a
+// real value-chain link. It's a SORTING QUEUE, not an economic link — the editor de-links it visually and the
+// (now-wired) seg dropdown is how the operator sorts keepers OUT of it into a link.
+const DISCOVERED = "Discovered";
+
 // The off-universe provenance pill (the dormant `.pill.sweep` slot, now data-backed): the name resolved OUTSIDE
 // the EDGAR-discovered universe (via the sweep-augmented context). The label names the OBSERVATION ("off the
 // deterministic universe"), never the mechanism — it is NOT a claim the tail-sweep's web-search sourced it.
@@ -78,9 +83,11 @@ const OffUniversePill = () => (
 const IdentityChips = ({
   sector,
   exchange,
+  category,
 }: {
   sector?: string | null;
   exchange?: string | null;
+  category?: string | null;
 }) => (
   <>
     {sector && (
@@ -91,6 +98,13 @@ const IdentityChips = ({
     {exchange && (
       <span className="idchip" title="exchange — machine-parsed from EDGAR submissions">
         {exchange}
+      </span>
+    )}
+    {/* SEC filer category — a maturity/size tell. IDENTITY (sits with sector/exchange), NOT a re-classification
+        of the archetype. Machine-parsed from EDGAR submissions, display-only. */}
+    {category && (
+      <span className="idchip" title="SEC filer category — a maturity/size tell (EDGAR submissions)">
+        {category}
       </span>
     )}
   </>
@@ -242,20 +256,33 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // term-collision). Same bridge-by-security_id shape as `offUniverse`. A RECOMMENDATION only (#10) — the name
   // STAYS placed (#9); the reason is its prose, shown in the thesis-fit note below. NEVER promoted.
   const [offThesisSet, setOffThesisSet] = useState<Set<string>>(new Set());
-  // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange (machine-parsed from EDGAR
-  // submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
+  // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange / category (machine-parsed from
+  // EDGAR submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
   // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
   const [identity, setIdentity] = useState<
-    Record<string, { sector?: string | null; exchange?: string | null }>
+    Record<string, { sector?: string | null; exchange?: string | null; category?: string | null }>
   >({});
+  // Display-only: security_id -> the company NAME. The PLACED bucket renders BasketMembers (which carry no name),
+  // so — like `matched`/`identity` — the name is bridged by security_id from the draft placements (and captured on
+  // a manual add). NEVER promoted onto a BasketMember.
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
+  // Item 1 (inverse loudness): the per-row fundamentals badge only earns its place once it DISCRIMINATES — i.e.
+  // once ≥1 name in the basket has confirmed fundamentals. Before any surfacing it's true of every row (pure
+  // noise), so we show a single quiet header hint instead of stamping "needs SURFACE" on all of them.
+  const anyFundamentals = d.draft.basket.some((m) => hasFundamentals(m.security_id, scoredById));
+  // Item 6(c): how many placed names are still in the "Discovered" holding pen (unsorted into a real link).
+  const discoveredCount = d.draft.basket.filter((m) => m.segment === DISCOVERED).length;
+  const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
 
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large draft (hundreds of names) collapses to a preview + "show more"
   const [showAllPlaced, setShowAllPlaced] = useState(false);
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
+  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the off-thesis To-Review noise (collapsed)
+  const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less To-Review names (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
@@ -359,9 +386,20 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       Object.fromEntries(
         data.placements
           .filter((p) => p.security_id)
-          .map((p) => [p.security_id as string, { sector: p.sector, exchange: p.exchange }]),
+          .map((p) => [
+            p.security_id as string,
+            { sector: p.sector, exchange: p.exchange, category: p.category },
+          ]),
       ),
     );
+    setNames((prev) => ({
+      ...prev, // keep any names captured from manual adds
+      ...Object.fromEntries(
+        data.placements
+          .filter((p) => p.security_id && p.name)
+          .map((p) => [p.security_id as string, p.name]),
+      ),
+    }));
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
   };
 
@@ -467,6 +505,57 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
         segments: d.draft.segments,
       },
       { onSuccess: () => onDone() },
+    );
+  };
+
+  // Items 4 + 5 — the To-Review triage partition. Precedence off-thesis > ticker-less > keeper: the model's
+  // off-thesis names are the majority NOISE (quiet, collapsed — never yellow-flagged, that's inverse loudness);
+  // the ticker-less names are likely subs/holdcos (quiet, collapsed); what remains are the KEEPERS — the rare
+  // signal, surfaced up top with the positive "recommend add". Every group stays PROMOTABLE (#9 — nothing dropped).
+  const vOffThesis = verify.filter((p) => p.off_thesis);
+  const vNoTicker = verify.filter((p) => !p.off_thesis && !p.ticker);
+  const vKeepers = verify.filter((p) => !p.off_thesis && p.ticker);
+  const verifyRow = (p: ResolvedPlacement, key: string, isKeeper: boolean) => {
+    const inBasket = p.security_id ? keys.has(p.security_id) : false;
+    return (
+      <div className="nmrow" key={key}>
+        <div className="top">
+          <span className="tk">{p.ticker || "—"}</span>
+          <span className="co">{p.name}</span>
+          <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
+          <span className="ctls">
+            {p.discovery_source === "off_universe" && <OffUniversePill />}
+            {/* the honest recommend rides `off_thesis` (#117): only KEEPERS get the loud "recommend add" */}
+            {isKeeper && <span className="pill add">recommend add</span>}
+            <button
+              type="button"
+              className="act addbtn"
+              disabled={inBasket || !p.security_id}
+              aria-label={`add ${p.ticker || p.name}`}
+              onClick={() => addVerify(p)}
+            >
+              {inBasket ? "added" : "add"}
+            </button>
+            <button
+              type="button"
+              className="act skip"
+              aria-label={`skip ${p.ticker || p.name}`}
+              onClick={() => skipVerify(p)}
+            >
+              skip
+            </button>
+          </span>
+        </div>
+        {p.prose ? <div className="fit">{p.prose}</div> : null}
+        {(p.segment || p.matched_terms.length > 0) && (
+          <div className="prov lead">
+            {p.segment ? `recommend → ${p.segment}` : null}
+            {p.segment && p.matched_terms.length > 0 ? " · " : null}
+            {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
+          </div>
+        )}
+        {p.listing_status === "inactive" && <NotListedFlag />}
+      </div>
     );
   };
 
@@ -669,13 +758,19 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
 
       <div className="wb-seg-edit">
         {d.draft.segments.map((s, i) => (
-          <div className="wb-seg-chip" key={i}>
+          // Item 6: "Discovered" is the reconciler's holding pen, NOT a value-chain link — de-link it visually
+          // (muted + an "unsorted" tag) so it doesn't read as a peer economic segment.
+          <div
+            className={`wb-seg-chip${s.label === DISCOVERED ? " discovered" : ""}`}
+            key={i}
+          >
             <input
               className="wb-input"
               value={s.label}
               aria-label={`link ${i + 1} label`}
               onChange={(e) => d.renameSegment(s.label, e.target.value)}
             />
+            {s.label === DISCOVERED && <span className="seg-tag">unsorted — not a link</span>}
             <button
               type="button"
               className="wb-mini"
@@ -724,6 +819,14 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           </button>
         </div>
       </div>
+      {/* Item 6(c): a quiet nudge — sort keepers out of the "Discovered" holding pen into a real link (via each
+          row's now-wired seg dropdown). Only when there's a real link to move them into. */}
+      {discoveredCount > 0 && hasRealLink && (
+        <div className="note">
+          {discoveredCount} {discoveredCount === 1 ? "name is" : "names are"} still <b>unsorted</b> (in
+          “Discovered”, not a value-chain link) — sort keepers into a link with each row's <b>seg</b> dropdown.
+        </div>
+      )}
 
       {/* ===== Results buckets (post-draft IA): PLACED · TO REVIEW · COULDN'T RESOLVE. Three distinct
               questions, never conflated (see docs/mockups/mockup_workbench_results.html). Scoped under
@@ -761,6 +864,13 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               >
                 clear un-accepted
               </button>
+            </div>
+          )}
+          {/* Item 1: the clean pre-surfacing state — one quiet hint instead of "needs SURFACE" on every row. */}
+          {d.draft.basket.length > 0 && !anyFundamentals && (
+            <div className="note">
+              Surface your shortlist — open a name and extract → ratify in the facts panel — to see per-name
+              fundamentals here.
             </div>
           )}
           {/* TRIAGE PR-2 (the find) — sort + filter the placed list. VIEW-ONLY: it never changes what Save
@@ -908,7 +1018,11 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   >
                     {m.ticker}
                   </span>
-                  {m.role && m.role !== "—" ? <span className="co">{m.role}</span> : null}
+                  {/* the company name (bridged by security_id — BasketMember carries no name), like To Review */}
+                  {m.security_id && names[m.security_id] ? (
+                    <span className="co">{names[m.security_id]}</span>
+                  ) : null}
+                  {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
                   <span className={`wb-pauthor ${m.authored_by}`} title="who owns this placement">
                     {authorLabel(m.authored_by)}
                   </span>
@@ -916,23 +1030,20 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   {m.security_id && identity[m.security_id] && (
                     <IdentityChips {...identity[m.security_id]} />
                   )}
-                  {/* TRIAGE: fundamentals loaded vs not — which survivors still need a SURFACE extract → ratify.
-                      "loaded" = a confirmed purity/runway/market-cap fact exists (a cheap read-time join). */}
-                  {loaded ? (
-                    <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
-                      ✓ fundamentals
-                    </span>
-                  ) : (
-                    <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
-                      needs SURFACE
-                    </span>
-                  )}
+                  {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in the
+                      basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE", which is
+                      pure noise, so the per-row badge is suppressed (a single header hint carries it instead). */}
+                  {anyFundamentals &&
+                    (loaded ? (
+                      <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
+                        ✓ fundamentals
+                      </span>
+                    ) : (
+                      <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
+                        needs SURFACE
+                      </span>
+                    ))}
                   <span className="ctls">
-                    {offThesis && (
-                      <button type="button" className="rm" onClick={() => d.removeMember(k)}>
-                        remove
-                      </button>
-                    )}
                     <span className="ctl">
                       <span className="lab">arch</span>
                       <select
@@ -952,22 +1063,20 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     </span>
                     <span className="ctl">
                       <span className="lab">seg</span>
-                      {/* UI-only: segment-label options are inert (the real recommendation pre-fill lands when
-                          the chain-draft emits segments); only "— remove —" is wired (the prune path). */}
+                      {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
+                          here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
+                          thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
                       <select
                         value={m.segment ?? ""}
                         aria-label={`segment for ${m.ticker}`}
-                        onChange={(e) => {
-                          if (e.target.value === "__remove__") d.removeMember(k);
-                        }}
+                        onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
                       >
                         {!m.segment && <option value="">— segment —</option>}
                         {segLabels.map((l) => (
                           <option key={l} value={l}>
-                            {l}
+                            {l === DISCOVERED ? "Discovered (unsorted)" : l}
                           </option>
                         ))}
-                        <option value="__remove__">— remove —</option>
                       </select>
                     </span>
                     {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
@@ -1022,9 +1131,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   </div>
                 )}
                 {offThesis && (
-                  <div className="flag">
-                    ⚑ model thinks off-thesis — see the fit note; stays placed, remove if you disagree
-                  </div>
+                  <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
                 )}
               </div>
             );
@@ -1046,57 +1153,77 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           )}
         </div>
 
-        {/* TO REVIEW — resolved, lower confidence: VERIFY + tail-sweep, one bucket, one action (add / skip).
-            The rec pill renders against the real status today (verify -> "recommend add"); the sweep / low
-            pill classes are built but unused until the backend carries that confidence. */}
+        {/* TO REVIEW — resolved, lower confidence. Items 4 + 5: highlight the KEEPERS (the rare signal), and let
+            the off-thesis majority + the ticker-less names go QUIET in collapsed drawers. Inverse loudness (#7):
+            point at what to ADD, don't flag what to skip. Nothing dropped — every group stays promotable (#9). */}
         {verify.length > 0 && (
           <div className="sect">
             <div className="sect-h">
               To review <em>· in your universe, lower confidence — confirm or dismiss</em>
               <span className="ct">· {verify.length}</span>
             </div>
-            {verify.map((p, i) => {
-              const inBasket = p.security_id ? keys.has(p.security_id) : false;
-              return (
-                <div className="nmrow" key={i}>
-                  <div className="top">
-                    <span className="tk">{p.ticker || "—"}</span>
-                    <span className="co">{p.name}</span>
-                    <IdentityChips sector={p.sector} exchange={p.exchange} />
-                    <span className="ctls">
-                      {p.discovery_source === "off_universe" && <OffUniversePill />}
-                      <span className="pill add">recommend add</span>
-                      <button
-                        type="button"
-                        className="act addbtn"
-                        disabled={inBasket || !p.security_id}
-                        aria-label={`add ${p.ticker || p.name}`}
-                        onClick={() => addVerify(p)}
-                      >
-                        {inBasket ? "added" : "add"}
-                      </button>
-                      <button
-                        type="button"
-                        className="act skip"
-                        aria-label={`skip ${p.ticker || p.name}`}
-                        onClick={() => skipVerify(p)}
-                      >
-                        skip
-                      </button>
-                    </span>
+
+            {/* the keepers — the signal, surfaced */}
+            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`, true))}
+            {vKeepers.length === 0 && (
+              <div className="note">
+                No clear keepers — the model didn't flag any of these as a strong fit. Expand the groups below to
+                review.
+              </div>
+            )}
+
+            {/* the lower-priority groups — visually separated from the keepers above (a gap + a divider), even
+                though they're still part of To Review. Quiet + collapsed; nothing dropped (#9). */}
+            {(vOffThesis.length > 0 || vNoTicker.length > 0) && (
+              <div className="wb-review-lower">
+            {/* off-thesis noise — quiet + collapsed, NO yellow (the majority; highlight keepers, not this) */}
+            {vOffThesis.length > 0 && (
+              <div className="resolve">
+                <button
+                  type="button"
+                  className="resolve-h"
+                  aria-expanded={lowSignalOpen}
+                  onClick={() => setLowSignalOpen((o) => !o)}
+                >
+                  <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
+                  <span className="rt">Low signal</span>
+                  <span className="rm-meta">
+                    model sees no clear thesis fit · {vOffThesis.length} hidden
+                  </span>
+                </button>
+                {lowSignalOpen && (
+                  <div className="resolve-body">
+                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`, false))}
                   </div>
-                  {p.prose ? <div className="fit">{p.prose}</div> : null}
-                  {(p.segment || p.matched_terms.length > 0) && (
-                    <div className="prov lead">
-                      {p.segment ? `recommend → ${p.segment}` : null}
-                      {p.segment && p.matched_terms.length > 0 ? " · " : null}
-                      {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
-                    </div>
-                  )}
-                  {p.listing_status === "inactive" && <NotListedFlag />}
-                </div>
-              );
-            })}
+                )}
+              </div>
+            )}
+
+            {/* ticker-less — quiet + collapsed (likely subs/holdcos/debt; probably not directly investable) */}
+            {vNoTicker.length > 0 && (
+              <div className="resolve">
+                <button
+                  type="button"
+                  className="resolve-h"
+                  aria-expanded={noTickerOpen}
+                  onClick={() => setNoTickerOpen((o) => !o)}
+                >
+                  <span className="chev">{noTickerOpen ? "▾" : "▸"}</span>
+                  <span className="rt">No listed ticker</span>
+                  <span className="rm-meta">
+                    likely a sub / holdco / debt issuer — probably not directly investable ·{" "}
+                    {vNoTicker.length}
+                  </span>
+                </button>
+                {noTickerOpen && (
+                  <div className="resolve-body">
+                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`, false))}
+                  </div>
+                )}
+              </div>
+            )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1131,7 +1258,11 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                         <span className="tk">{p.ticker || "—"}</span>
                         <span className="co">{p.name}</span>
                         {p.discovery_source === "off_universe" && <OffUniversePill />}
-                        <IdentityChips sector={p.sector} exchange={p.exchange} />
+                        <IdentityChips
+                          sector={p.sector}
+                          exchange={p.exchange}
+                          category={p.category}
+                        />
                         {unlisted ? (
                           <span className="rpill unlisted">not listed</span>
                         ) : (
@@ -1196,7 +1327,13 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
         )}
       </div>
 
-      <AddName existingKeys={keys} onAdd={d.addMember} />
+      <AddName
+        existingKeys={keys}
+        onAdd={(m, name) => {
+          d.addMember(m);
+          if (m.security_id && name) setNames((prev) => ({ ...prev, [m.security_id as string]: name }));
+        }}
+      />
     </div>
   );
 }

@@ -11,10 +11,11 @@ class Security(DomainModel):
     Everything resolves to the master at ingest; ``id`` is the security_master row id that facts
     reference. ``cusip`` stays optional (OpenFIGI ticker-mapping doesn't return it).
 
-    ``sector`` / ``exchange`` / ``status`` are machine-parsed IDENTITY (from EDGAR submissions), enriched
-    onto the master — descriptive, NEVER a fact: they never enter a fact_* table or feed a number on a call
-    card (#1/#3 govern NUMBERS, not identity strings). ``status`` is a listing-presence heuristic, not a
-    delisting feed. All optional — an un-enriched row reads ``None`` (the honest fallback).
+    ``sector`` / ``exchange`` / ``status`` / ``category`` are machine-parsed IDENTITY (from EDGAR submissions),
+    enriched onto the master — descriptive, NEVER a fact: they never enter a fact_* table or feed a number on a
+    call card (#1/#3 govern NUMBERS, not identity strings). ``status`` is a listing-presence heuristic, not a
+    delisting feed; ``category`` is EDGAR's filer-status string (a maturity/size tell, e.g. "Large accelerated
+    filer" vs "Smaller reporting company"). All optional — an un-enriched row reads ``None`` (the honest fallback).
     """
 
     id: UUID
@@ -28,6 +29,9 @@ class Security(DomainModel):
     exchange: str | None = None
     status: str | None = (
         None  # 'active' | 'inactive' — a listing-presence heuristic, never "delisted"
+    )
+    category: str | None = (
+        None  # EDGAR filer category (maturity/size tell) — identity, never a number
     )
 
 
@@ -45,4 +49,7 @@ class SecurityIdentity(DomainModel):
     sector: str | None = None
     exchange: str | None = None
     status: str = "active"
+    category: str | None = (
+        None  # EDGAR filer category (e.g. "Large accelerated filer") — identity, not a number
+    )
     former_names: list[dict[str, str]] = []  # [{name, from, to}] from submissions.formerNames

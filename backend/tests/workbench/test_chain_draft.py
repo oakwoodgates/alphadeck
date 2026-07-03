@@ -264,15 +264,28 @@ def test_unmatched_name_falls_to_master_resolver_and_empty_universe_adds_no_buck
 # --- Slice 2: the listing-status gate + identity carry (a real master row, enriched, drives the gate) ---
 
 
-def _insert_id(db, ticker, *, name, cik, status=None, sector=None, exchange=None) -> uuid.UUID:
+def _insert_id(
+    db, ticker, *, name, cik, status=None, sector=None, exchange=None, category=None
+) -> uuid.UUID:
     """Insert a real master row with machine-parsed identity columns set (the gate/carry read THESE)."""
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
             "INSERT INTO security_master "
-            "(id, tenant_id, ticker, name, cik, status, sector, exchange, valid_from) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (sid, DEFAULT_TENANT_ID, ticker, name, cik, status, sector, exchange, date(2026, 1, 1)),
+            "(id, tenant_id, ticker, name, cik, status, sector, exchange, category, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                sid,
+                DEFAULT_TENANT_ID,
+                ticker,
+                name,
+                cik,
+                status,
+                sector,
+                exchange,
+                category,
+                date(2026, 1, 1),
+            ),
         )
     db.commit()
     return sid
@@ -306,7 +319,7 @@ def test_inactive_placed_name_is_downgraded_to_a_frictionless_pick(db):
 
 
 def test_active_placed_name_keeps_placed_and_carries_identity(db):
-    """An 'active' row stays PLACED and carries sector / exchange / listing_status (display-only) onto it."""
+    """An 'active' row stays PLACED and carries sector / exchange / listing_status / category (display-only)."""
     sid = _insert_id(
         db,
         "OKLO",
@@ -315,12 +328,18 @@ def test_active_placed_name_keeps_placed_and_carries_identity(db):
         status="active",
         sector="Electric Services",
         exchange="NYSE",
+        category="Large accelerated filer",
     )
     u = _universe_one("0000000001", sid, ticker="OKLO", name="Oklo Inc.")
     segs = [_seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO", prose="reactor"), label="Devs")]
     (p,) = resolve_discovered_chain(db, segs, u).placements
     assert p.status is PlacementStatus.PLACED and p.security_id == sid
-    assert (p.sector, p.exchange, p.listing_status) == ("Electric Services", "NYSE", "active")
+    assert (p.sector, p.exchange, p.listing_status, p.category) == (
+        "Electric Services",
+        "NYSE",
+        "active",
+        "Large accelerated filer",  # the filer-category tell rides the placement (display-only)
+    )
 
 
 def test_un_enriched_placed_name_abstains_no_flag_no_gate(db):

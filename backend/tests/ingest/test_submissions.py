@@ -46,6 +46,31 @@ def test_parse_identity_active_reads_sector_and_exchange():
     assert ident.former_names == []
 
 
+def test_parse_identity_reads_filer_category():
+    """The SEC filer `category` (a maturity/size tell) is surfaced; absent -> None (never invented). EDGAR joins
+    multiple attributes with a literal "<br>" — those tags are stripped to a clean " · "-joined string (no raw
+    markup ever reaches the chip)."""
+    ident = parse_identity(
+        {
+            "sicDescription": "Semiconductors",
+            "category": "Large accelerated filer",
+            "tickers": ["MU"],
+        }
+    )
+    assert ident.category == "Large accelerated filer"
+    # the <br>-joined form (the live bug) → tags stripped, joined with " · "
+    assert (
+        parse_identity({"category": "Non-accelerated filer<br>Smaller reporting company"}).category
+        == "Non-accelerated filer · Smaller reporting company"
+    )
+    # a leading <br> (the SCHMID/GOWell case) → no stray separator
+    assert (
+        parse_identity({"category": "<br>Emerging growth company"}).category
+        == "Emerging growth company"
+    )
+    assert parse_identity({"sicDescription": "Semiconductors"}).category is None  # absent -> None
+
+
 def test_parse_identity_no_listing_is_inactive():
     """No current ticker / exchange -> a listing-presence 'inactive' (a HEURISTIC, never a delisting verdict)."""
     ident = parse_identity({"sicDescription": "Blank Checks", "exchanges": [], "tickers": []})
