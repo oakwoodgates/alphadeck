@@ -732,7 +732,7 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
     off_thesis: true, // the narrator's opinion: a boilerplate term-collision
   };
 
-  it("flags an off-thesis placement — it STAYS placed (#9), shows the ⚑ + the promoted remove", async () => {
+  it("flags an off-thesis placement — it STAYS placed (#9), shows the ⚑ (no hard remove; uncheck to exclude)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_OFFTHESIS]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
@@ -742,7 +742,9 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
     const seg = await screen.findByLabelText("segment for KR");
     expect(screen.getByText(/model thinks off-thesis/)).toBeInTheDocument();
     expect(seg.closest(".nmrow")).toHaveClass("flagged"); // the amber tint lights up
-    expect(screen.getByRole("button", { name: "remove" })).toBeInTheDocument(); // the operator's one-click
+    // no hard-remove button — the prune is the (reversible) include checkbox
+    expect(screen.queryByRole("button", { name: "remove" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("include KR")).toBeChecked();
   });
 
   it("does NOT flag an on-thesis placement — fail-open, no off_thesis → no flag", async () => {

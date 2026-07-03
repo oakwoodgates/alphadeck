@@ -1044,11 +1044,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                       </span>
                     ))}
                   <span className="ctls">
-                    {offThesis && (
-                      <button type="button" className="rm" onClick={() => d.removeMember(k)}>
-                        remove
-                      </button>
-                    )}
                     <span className="ctl">
                       <span className="lab">arch</span>
                       <select
@@ -1136,9 +1131,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   </div>
                 )}
                 {offThesis && (
-                  <div className="flag">
-                    ⚑ model thinks off-thesis — see the fit note; stays placed, remove if you disagree
-                  </div>
+                  <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
                 )}
               </div>
             );
