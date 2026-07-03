@@ -9,6 +9,10 @@
 >
 > **Status: BUILT** — hybrid-1 extractor (PR #55), hybrid-2a ratify endpoint (#56), hybrid-2b facts panel
 > (#57), the flag-explanation drafter (#59). The narrative→chain drafter (S5, the SECOND LLM seam) is now BUILT — see `CHAIN_DRAFTER.md`.
+> **The SURFACE shift (#109/#110/#111) then flipped the default** — facts went from blank-until-extracted to
+> **recommended-until-confirmed** (the section below), adding computed-on-read estimates, the `vouched` provenance
+> marker, and the **grounded purity-estimate seam** (the THIRD grounded LLM seam). This doc is the **SURFACE**
+> stage's scoring-fact side; identity enrichment is its sibling, `WORKBENCH_ENRICHMENT.md` (see `STAGE_MODEL.md`).
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]` deferred.
 
@@ -31,6 +35,36 @@ INVARIANT #3 (the LLM/automation never sources a number; `INVARIANTS.md` #1) at 
 stored scoring fact is always either a deterministic parse the operator confirmed or a value the operator
 authored — never a guess the system made.
 
+## The SURFACE shift — recommended-until-confirmed (#109/#110/#111)
+
+The philosophy flip that defines the **SURFACE** stage: a scoring fact went from **blank-until-the-operator-
+extracts** to **recommended-until-the-operator-confirms** — same invariants, opposite default. The operator's job
+becomes JUDGMENT over a populated draft (confirm / override), not SEC data entry. **Three fact states** replace two:
+
+- **system-estimated** — a machine-derived, UNVERIFIED value, visibly tagged with its source (`computed` /
+  `llm_proposed`). **Never presented as a verified fact, never stored as one** (see the constraint below).
+- **operator-confirmed** — the operator vouched for the estimate as-is (a ratified fact, stamped `vouched=confirmed`).
+- **operator-overridden** — the operator changed the value (a ratified fact, stamped `vouched=overridden`).
+
+`vouched` (the marker column, #109) is **PROVENANCE, never a trust tier** — a NULL (legacy manual ratify) /
+`confirmed` / `overridden` fact all score **identically**; the scoring read never filters or branches on it. The
+three states are **DERIVED per read** by comparing the computed estimate to the latest ratified fact — no ratified
+fact → estimated; ratified == the shown estimate → confirmed; ratified differs → overridden. A
+**`unconfirmed_estimates` count** on the scored member surfaces "rests on N unconfirmed" — honest confidence (#6).
+
+> **⚠ ARCHITECTURAL CONSTRAINT — a SURFACE estimate is COMPUTED-ON-READ, NEVER a `fact_*` row.**
+>
+> **Not "should not" — MUST NOT.** The bitemporal as-of scoring read (`db/bitemporal.as_of`) has **no
+> `ratified_by` filter**, and its `PointInTimeData` is the **shared** read for the Armed-call detectors. So **any**
+> estimate written to a `fact_*` table would immediately, silently leak an **unverified number** into BOTH the
+> Workbench score AND the back-half Armed call — a **#1/#3 violation that throws no error**; it just quietly
+> corrupts the call. Therefore estimates live **only** in the extract endpoint's computed-on-read response; the
+> **only** writer of a `fact_*` row is the operator's confirm/override (`POST /workbench/facts`,
+> `ratified_by="operator"`). **The trap for a future author:** "cache the estimate for perf" or "persist it so the
+> meter shows it pre-confirm" reintroduces exactly this leak — if you need it faster, cache OUTSIDE the `fact_*`
+> tables / the as-of read, never inside. *(Same callout in `STAGE_MODEL.md`, on purpose — it must be impossible to
+> miss.)*
+
 ## The three tiers
 
 `extract_for_security` (the live cache-first wrapper) → `extract_facts` (pure, deterministic) returns exactly
@@ -43,9 +77,14 @@ three candidates — one per meter: `revenue_mix` (purity), `shares_outstanding`
 - **FLAG — a raw value + a DETECTED risk + a LOCATED passage → the operator ratifies the composition.** The
   value is editable, pre-filled with the raw figure; the detected flag(s) and the filing passage backing them
   are shown inline. *Reading the passage IS the ratification decision.*
-- **HUMAN — interpretation-bound (purity) → LOCATED only, NEVER auto-valued.** The extractor locates the
-  evidence (the segment footnote or Item-1) but proposes no number; the operator authors the % from it.
-  Purity is the operator's exposure-concentration edge — the model never nudges it.
+- **HUMAN — interpretation-bound (purity).** The extractor locates the evidence (the segment footnote or Item-1).
+  Base behavior: LOCATED only, the operator authors the % from it. **SURFACE upgrade (#110):** when the extract is
+  thesis-scoped, the **grounded purity-estimate seam** now PROPOSES an on-thesis % — *grounded in the fetched
+  segment-footnote passage it carries* (never recalled from memory — a #1 violation would be inventing the number)
+  — for the operator to **confirm or override**. It is a recommendation (#10), tagged `llm_proposed` + unverified,
+  **fail-open to today's HUMAN** (no key / not-grounded → no value, the operator types it). Purity stays the
+  operator's exposure-concentration edge; the model proposes a grounded starting point, the operator decides. The
+  full seam is documented below.
 
 ## The detectors — what trips a FLAG (category, not size)
 
@@ -154,3 +193,36 @@ does not stop the model *stating* a computed value the operator might rubber-sta
 - A deterministic post-filter (reject any number in the prose absent from the passage) *would* make it
   structural, but it's fuzzy on rounding ("$264M" vs "264,195") — **not built in v1**; noted as the path if
   prompt-adherence proves unreliable in use.
+
+---
+
+## The third LLM seam — the grounded purity estimate `[BUILT #110]`
+
+On the same `backend/llm` plumbing, the SURFACE shift added a **grounded purity-estimate** seam — where the
+flag-explanation drafter *explains* a FLAG, this one *proposes a value* for the HUMAN purity tier, so a discovered
+name arrives with an on-thesis % to confirm instead of a blank. `backend/llm/purity_estimate.py:propose_purity`
+(mirrors `flag_explanation`): given the thesis narrative + the fetched segment-footnote passage, it returns
+`{segment, pct, reason, grounded}`.
+
+- **Grounded ONLY in the located passage.** The operator's hard requirement: "the LLM read this footnote and
+  proposes 20%" is fine; "the LLM knows the company is ~20% nuclear" is a **#1 violation**. So a non-grounded
+  proposal (or a % out of `[0,100]`, or an empty segment) is **discarded, never surfaced as a number** — the
+  estimate ALWAYS carries the passage it read, enforced by construction. To ground on real figures the purity path
+  retrieves a **widened, financial-figure-ranked** segment window (`_segment_passages` in
+  `ingest/edgar/extract.py`), not the ±110-char excerpt the other tiers use.
+- **Thesis-scoped, optional.** Only the purity branch is thesis-aware (the on-thesis segment depends on the
+  narrative); `thesis_id` is optional on extract — with no thesis context purity degrades to today's HUMAN.
+- **Fail-open + response-only.** No key / not-grounded / parse fail → `None` → HUMAN (the operator types it). It is
+  an estimate in the computed-on-read response, **never a fact row** (the architectural constraint above).
+- **Confirm/override IS the decision (#10).** The operator confirms as-is (`vouched=confirmed`) or changes it
+  (`vouched=overridden`); the shown estimate rides the ratify body so the server stamps `vouched` by comparison.
+- **Gate-2 is a LIVE run.** A fake-client test proves the tag/rail plumbs; only a live extract on a real filing
+  proves the proposal is *grounded* (reads the footnote, doesn't recall) — that is the seam's real test.
+
+## The market-cap best-effort estimate `[BUILT #110]`
+
+`_market_cap` (the confirmed figure = shares × price) blanks on messy / dual-class shares. The SURFACE layer
+surfaces a **best-effort market-cap estimate** (from the FLAG-tier best-effort shares × latest price), tagged
+unverified in the estimate layer — the confirmed meter keeps blanking, the estimate is a parallel display. Same
+computed-on-read discipline: never a fact row. *(On a fresh thesis with no back-half price ingest, the estimate is
+naturally absent — market cap is derived, not a directly-stored fact.)*

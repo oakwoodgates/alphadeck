@@ -155,6 +155,16 @@ fact tables) and M2b (the calls log): `test_rerun_appends_zero_rows_count_the_ta
   **source-strategy decision** (keep Yahoo + re-version, vs move to a raw+splits source and own the adjustment
   at read time — which dissolves it). Safe for the MVP: the seeded names have no splits, and a fresh thesis
   pulls a continuous whole-history-adjusted series. Detail + the two paths: `DATA_SOURCES.md`.
+  - *The build spec, when it lands (generic — no split math):* on each pull, compare the fresh value for each
+    already-stored date against the latest stored version; **if it differs beyond a stable float tolerance, append
+    the fresh value as a NEW version** (`append_fact`, `recorded_at=now`) — idempotent when nothing differs. This
+    is the same bitemporal shape as any restatement: a past as-of read (`known_at` < the re-version time) still
+    sees the ORIGINAL bars (the new version's `recorded_at` is filtered out), the live read sees the corrected
+    series via `recorded_at DESC` — **no backward leak.** **Two load-bearing traps:** (1) it must **override the
+    `d > last` skip** for the differing stored dates, or they never refresh; (2) it must override that skip **only
+    when the value differs** — else a no-split re-run re-appends the same bars daily and the table grows forever
+    (the count-the-table failure on this path). Compare at a stable precision so a re-pull's float noise doesn't
+    fake a difference. No `fact_price_eod` schema change; the replay/Parquet PIT's split fidelity is separate.
 - **The Scoreboard** `[PARKED]` — the forward trust loop. The daily call-of-record is its forward record;
   building it is the post-MVP step that earns forward trust (and drives the second, out-of-sample
   recalibration). `ROADMAP.md`.

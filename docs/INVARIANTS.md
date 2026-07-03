@@ -34,6 +34,13 @@ a trigger, set a state / verdict / grade, or invent a number. Every trigger and 
   (`POST /workbench/theses/{id}/draft-chain`) is **RESPONSE-ONLY + test-enforced** — it holds a read-only conn
   (so NOT structural-by-absence like the flag seam) and writes nothing (`test_draft_endpoint_writes_nothing`:
   zero `fact_*` AND `basket_member`); the operator's promote is the only writer. See `CHAIN_DRAFTER.md`.
+- *Also enforced by (the third grounded seam — the purity estimate, `backend/llm/purity_estimate.py`):* it PROPOSES
+  a purity %, but **grounded ONLY in the fetched segment-footnote passage it carries** — a non-grounded proposal
+  (or a % out of range) is discarded, never surfaced as a number; the estimate is **computed-on-read, never a
+  `fact_*` row** (the leak-proof SURFACE constraint — `WORKBENCH_EXTRACTION.md`), and the operator's
+  confirm/override is the only writer. Fail-open to HUMAN. The narrator's **`off_thesis` bool** rides the same
+  discipline — a display-only opinion on `ResolvedPlacement`, never a number, never on the call path
+  (`CHAIN_DRAFTER.md`).
 
 ## 2. Entity resolution is an exact-membership ALLOWLIST, never fuzzy, never a denylist
 
@@ -207,12 +214,19 @@ When this conflicts with tightness, determinism, cost, or convenience: **recall 
 surfaced to the operator, not silently resolved in code.**
 
 - *Enforced by:* the answer-key recall re-score on every discovery-touching change (currently 31/32; the
-  one miss, ATAI, is the documented dual-CIK redomicile deferred to the identity bridge, not a drop); the
+  one miss, ATAI, is the documented dual-CIK redomicile deferred to the identity bridge, not a drop) — the ground
+  truth is the committed fixture `backend/tests/fixtures/recall_answer_key.py` (seeds + 32 acceptable-ticker groups
+  + the collision-junk set), so the gate is re-runnable; the
   reliability raises (`DiscoveryDegraded` / `DiscoveryEmpty` / `DiscoveryNoTerms` → 503, never a recall
   fallback — `workbench/discovery.py`); the per-CIK reconciler that set-difference-guarantees every
   discovered in-master CIK reaches the draft (`workbench/chain_draft.resolve_discovered_chain`); the VERIFY
   tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`). The
   full discovery system this invariant governs: `docs/DISCOVERY.md`.
+- *Also honored by (SURFACE/TRIAGE):* the **off-thesis flag** RECOMMENDS removal but the name **STAYS PLACED** —
+  a flagged name is never a silent drop, the operator prunes it (`CHAIN_DRAFTER.md`). In **TRIAGE**, every "hide"
+  is a visible, reversible, still-promotable collapse (excluded rows, the To-Review "Low signal" / "No listed
+  ticker" drawers) and the sort/filter VIEW never changes what Save persists — precision is the operator pruning
+  visible names, never a filter that silently eats one (`TRIAGE.md`).
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 
@@ -249,6 +263,11 @@ them coexist.
   diff-stamp `stamp_edited_term_set`, `tests/workbench/test_term_set.py`); the chain drafter's
   propose-then-ratify seam (`workbench/chain_draft.resolve_placements`); the rule that no recommendation
   is persisted as a tier or auto-applied (a recommendation rides display-only, like the `matched_terms`
-  provenance tags, never mutating `authored_by` until the operator acts). Recommendation surfaces this
-  invariant governs as they ship: tier recommendation (`docs/DISCOVERY.md`), and — same shape — any
-  later flag/archetype recommendation.
+  provenance tags, never mutating `authored_by` until the operator acts).
+
+**The #10 family — the shipped recommend→confirm seams** (the pattern the frame calls out, `STAGE_MODEL.md`): the
+**tier recommendation** (SIGNAL/BROAD per term — `DISCOVERY.md`), the **off-thesis flag** (the narrator's opinion —
+`CHAIN_DRAFTER.md`), the **grounded purity estimate** + the **market-cap estimate** (SURFACE values —
+`WORKBENCH_EXTRACTION.md`), and the **derived archetype** (`WORKBENCH_ENRICHMENT.md`). Each is the same shape: a
+visible, pending recommendation that changes nothing until the operator confirms, on which authorship transfers to
+the operator (`system_drafted` → `operator_edited`). Every stage boundary is one of these handoffs.

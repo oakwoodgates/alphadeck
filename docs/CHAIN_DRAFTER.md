@@ -78,7 +78,18 @@ second focused call NARRATES:
   → `None`.
 - **`narrate_placements(client, narrative, items)`** + **`NARRATE_TOOL`** — fills thesis-fit prose for the
   PLACED + VERIFY names the organizer didn't narrate (BATCHED, numbered-`ref` join, per-batch fail-open + logged
-  — the mechanism + its live war story are in `DISCOVERY.md`). `{ref, prose}` only — no number.
+  — the mechanism + its live war story are in `DISCOVERY.md`). `{ref, prose, off_thesis}` — no number.
+- **The off-thesis flag (#117).** `narrate_placements` also emits a per-name **`off_thesis` bool** — surfacing the
+  "doesn't fit the thesis" judgment the narrator already makes in its prose (a boilerplate term-collision) as a
+  structured bit. It is set at the narration MERGE (`execute_draft`) onto `ResolvedPlacement.off_thesis`, **display-
+  only** like `matched_terms` / `discovery_source` (never a number #3, **never promoted onto a `BasketMember` #2**,
+  never on the call path). It **RECOMMENDS (#10), the name STAYS PLACED (#9)** — membership is deterministic
+  exact-CIK, so a flagged name is never a silent drop; the operator prunes it (the TRIAGE include-uncheck).
+  **Coverage = reconciler-appended collision names by design** (the organizer's own picks carry prose and aren't
+  re-judged — an unflagged organizer pick reads as scope, not a bug). Conservative: "when unsure, leave false."
+  Fail-open: absent `off_thesis` → False (never flag on missing narration). The prompt makes the prose STATE the
+  reason so it supports the flag. How the buckets consume it (inverse loudness — highlight keepers, quiet the
+  noise): `TRIAGE.md`.
 - The system prompts **FORBID any number** (price / % / share count / runway / market cap). Drafted reasoning,
   not fact — Sonnet is the adherence lever, the gate-2 manual no-number check its real test.
 - Dials in `CallConfig`: `llm_decompose_model = "claude-sonnet-4-6"`, `llm_decompose_max_tokens = 2000`,
@@ -167,11 +178,14 @@ never the stored company-reference facts (layer a) the LLM does not narrate (`RO
   drafting (a draft with no term set 503s).
 - The draft result is organized into **three buckets** (the post-draft IA — `mockup_workbench_results.html`):
   - **PLACED** — a flat list (the operator owns segment; not pre-grouped). Each name carries an **archetype**
-    dropdown (wired) + a **segment** dropdown (**UI-only** until the chain-draft emits segments; only
-    "— remove —" prunes) + a quiet **authorship** badge. The archetype color shows only once the name is
-    operator-owned / enrichment-derived (an unconfirmed `system_drafted` default reads neutral, not a wall of
-    red). An **off-thesis FLAG** slot (amber row + promoted remove + ⚑ line) is built but **dormant** until a
-    backend `off_thesis` signal drives it (never rendered on invented data).
+    dropdown (wired) + a **segment** dropdown (now **WIRED** to re-segment via `placeMember` — selecting a link
+    moves the name into it, flipping `authored_by → operator_edited` so the choice survives a re-roll; no
+    "— remove —", pruning is the TRIAGE include-uncheck) + a quiet **authorship** badge + the company **name** +
+    the SURFACE identity chips (sector / exchange / filer-category — `WORKBENCH_ENRICHMENT.md`). The archetype
+    color shows only once the name is operator-owned / enrichment-derived (an unconfirmed `system_drafted` default
+    reads neutral, not a wall of red). The **off-thesis FLAG is now LIVE (#117)** — the narrator emits a structured
+    `off_thesis` bool (below); a flagged row shows the ⚑ + reason and **stays placed** (the operator unchecks to
+    exclude). TRIAGE/basket crafting over these buckets is `TRIAGE.md`.
   - **TO REVIEW** — **VERIFY** (in-universe by CIK, broad-only) + tail-sweep names merged, one action
     (**add / skip**); a one-click add commits the known `security_id` (the same #2 discipline as AMBIGUOUS);
     they're **promotable**, so they carry thesis-fit prose. A rec pill + the recommended segment ride the
