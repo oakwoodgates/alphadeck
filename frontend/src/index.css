@@ -420,6 +420,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-seg-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
 .wb-seg-chip { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 6px; background: var(--panel); }
 .wb-seg-chip .wb-input { width: 130px; }
+/* Item 6: the "Discovered" holding pen — de-linked from the real value-chain segments (muted, dashed, tagged). */
+.wb-seg-chip.discovered { border-style: dashed; border-color: var(--line); background: var(--bg-2); opacity: 0.72; }
+.wb-seg-chip.discovered .wb-input { color: var(--txt-3); }
+.wb-seg-chip .seg-tag { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }
 .wb-seg-add { display: flex; gap: 6px; align-items: center; }
 
 /* the thesis-fit prose textarea (kept; lives inside the new .wb-results placed rows) */

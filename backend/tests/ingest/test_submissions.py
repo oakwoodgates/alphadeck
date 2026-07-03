@@ -46,6 +46,19 @@ def test_parse_identity_active_reads_sector_and_exchange():
     assert ident.former_names == []
 
 
+def test_parse_identity_reads_filer_category():
+    """The SEC filer `category` (a maturity/size tell) is surfaced verbatim; absent -> None (never invented)."""
+    ident = parse_identity(
+        {
+            "sicDescription": "Semiconductors",
+            "category": "Large accelerated filer",
+            "tickers": ["MU"],
+        }
+    )
+    assert ident.category == "Large accelerated filer"
+    assert parse_identity({"sicDescription": "Semiconductors"}).category is None  # absent -> None
+
+
 def test_parse_identity_no_listing_is_inactive():
     """No current ticker / exchange -> a listing-presence 'inactive' (a HEURISTIC, never a delisting verdict)."""
     ident = parse_identity({"sicDescription": "Blank Checks", "exchanges": [], "tickers": []})

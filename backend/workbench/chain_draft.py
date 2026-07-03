@@ -100,7 +100,7 @@ class ResolvedPlacement(DomainModel):
     ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
 
-    ``sector`` / ``exchange`` / ``listing_status`` are machine-parsed IDENTITY carried from the master (enriched
+    ``sector`` / ``exchange`` / ``listing_status`` / ``category`` are machine-parsed IDENTITY carried from the master (enriched
     just-in-time from EDGAR submissions before resolution) — display-only like ``matched_terms``: never a number
     (#3), never promoted onto a ``BasketMember`` (#2). ``listing_status`` is a LISTING-PRESENCE heuristic
     (``"active"`` / ``"inactive"``), NOT a delisting verdict: a PLACED name whose master row reads ``"inactive"``
@@ -131,6 +131,9 @@ class ResolvedPlacement(DomainModel):
     sector: str | None = None
     exchange: str | None = None
     listing_status: str | None = None
+    category: str | None = (
+        None  # EDGAR filer category (maturity/size tell) — machine-parsed identity, #1/#3
+    )
     off_thesis: bool = (
         False  # the narrator's on/off-thesis opinion (display-only; set at the narration merge)
     )
@@ -189,6 +192,7 @@ def _carry_identity_and_gate(
         if s is None:
             continue
         p.sector, p.exchange, p.listing_status = s.sector, s.exchange, s.status
+        p.category = s.category
         if p.status is PlacementStatus.PLACED and s.status == "inactive":
             p.status = PlacementStatus.AMBIGUOUS
             p.candidates = [_candidate(s)]

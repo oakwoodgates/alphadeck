@@ -6,7 +6,7 @@ import { ARCHETYPES, archLabel } from "./format";
 
 interface Props {
   existingKeys: Set<string>; // security_ids already in the basket (disable re-adding)
-  onAdd: (m: BasketMember) => void;
+  onAdd: (m: BasketMember, name?: string | null) => void; // name → the display-only security_id→name bridge
 }
 
 /** Add a name to the basket via the resolver typeahead (Slice 4b): search the master (a discovery net),
@@ -29,15 +29,18 @@ export function AddName({ existingKeys, onAdd }: Props) {
 
   const add = () => {
     if (!picked) return;
-    onAdd({
-      ticker: picked.ticker,
-      role: role.trim() || "—",
-      archetype: archetype as BasketMember["archetype"],
-      security_id: picked.security_id,
-      segment: null, // starts unplaced; the operator places it via the row's segment select
-      conviction: null, // unset until the operator weights it in the row
-      authored_by: "operator_set",
-    });
+    onAdd(
+      {
+        ticker: picked.ticker,
+        role: role.trim() || "—",
+        archetype: archetype as BasketMember["archetype"],
+        security_id: picked.security_id,
+        segment: null, // starts unplaced; the operator places it via the row's segment select
+        conviction: null, // unset until the operator weights it in the row
+        authored_by: "operator_set",
+      },
+      picked.name, // feed the name bridge so the placed row shows it (BasketMember carries no name)
+    );
     reset();
   };
 

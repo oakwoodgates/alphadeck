@@ -153,13 +153,23 @@ def test_enrich_sets_identity_and_reads_back(db):
     updated = master.enrich(
         db,
         sid,
-        SecurityIdentity(sector="Electric Services", exchange="NYSE", status="active"),
+        SecurityIdentity(
+            sector="Electric Services",
+            exchange="NYSE",
+            status="active",
+            category="Large accelerated filer",
+        ),
         source="submissions:CIK0001849056",
     )
     db.commit()
     assert updated is True
     sec = master.get(db, sid)
-    assert (sec.sector, sec.exchange, sec.status) == ("Electric Services", "NYSE", "active")
+    assert (sec.sector, sec.exchange, sec.status, sec.category) == (
+        "Electric Services",
+        "NYSE",
+        "active",
+        "Large accelerated filer",  # the filer-category tell round-trips
+    )
 
 
 def test_enrich_is_update_in_place_not_append(db):

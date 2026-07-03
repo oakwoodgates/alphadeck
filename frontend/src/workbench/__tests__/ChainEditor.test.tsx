@@ -163,12 +163,20 @@ describe("ChainEditor — authoring", () => {
     expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument(); // landed in the PLACED bucket
   });
 
-  it("removes a name via the seg dropdown's '— remove —' (the prune path)", async () => {
+  it("re-segments a name via the wired seg dropdown (item 7: placeMember, no '— remove —')", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
-    expect(screen.getByText("OKLO")).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("segment for OKLO"), "__remove__");
-    expect(screen.queryByText("OKLO")).not.toBeInTheDocument();
+    const withSegs = {
+      ...flatThesis,
+      segments: [
+        { label: "reactors", descriptor: null },
+        { label: "fuel", descriptor: null },
+      ],
+    };
+    render(<ChainEditor thesis={withSegs} onDone={vi.fn()} />);
+    const seg = screen.getByLabelText("segment for OKLO") as HTMLSelectElement;
+    await user.selectOptions(seg, "fuel"); // selecting a link re-places the name
+    expect((screen.getByLabelText("segment for OKLO") as HTMLSelectElement).value).toBe("fuel");
+    expect(screen.queryByText("— remove —")).not.toBeInTheDocument(); // remove dropped from the dropdown
   });
 
   it("reorders links and un-places a name when its link is removed", async () => {
@@ -582,18 +590,132 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     confirmSpy.mockRestore();
   });
 
-  it("the fundamentals badge reads the scored join: '✓ fundamentals' when a fact is on file, else 'needs SURFACE'", async () => {
-    // OKLO has a confirmed purity fact; a bare render (no scored member) reads needs-SURFACE
+  it("item 1: the fundamentals badge shows only once it DISCRIMINATES; else a clean header hint", () => {
+    // ≥1 name has confirmed fundamentals → the per-row badge earns its place (it now discriminates)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const scored: any = { "s-oklo": { purity: { pips: 3, value: 80, provenance: [] } } };
     const { unmount } = render(
       <ChainEditor thesis={flatThesis} onDone={vi.fn()} scoredById={scored} />,
     );
     expect(screen.getByText("✓ fundamentals")).toBeInTheDocument();
+    expect(screen.queryByText(/Surface your shortlist/)).not.toBeInTheDocument();
     unmount();
 
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // no scored join
-    expect(screen.getByText("needs SURFACE")).toBeInTheDocument();
+    // nothing surfaced → NO per-row badge (it'd be true of every row = noise), just the quiet header hint
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    expect(screen.queryByText("needs SURFACE")).not.toBeInTheDocument();
+    expect(screen.queryByText("✓ fundamentals")).not.toBeInTheDocument();
+    expect(screen.getByText(/Surface your shortlist/)).toBeInTheDocument();
+  });
+});
+
+describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
+  it("items 2+3: a placed row shows the company name (bridged) + the SEC filer-category chip", async () => {
+    const user = userEvent.setup();
+    const PLACED_ENRICHED = {
+      name: "Micron Technology",
+      ticker: "MU",
+      prose: "DRAM / HBM maker",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-mu",
+      candidates: [],
+      matched_terms: ["HBM"],
+      sector: "Semiconductors",
+      exchange: "NASDAQ",
+      category: "Large accelerated filer",
+    };
+    mockDraft(draft([PLACED_ENRICHED], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+    expect(screen.getByText("Micron Technology")).toBeInTheDocument(); // item 2 — name bridged onto the row
+    expect(screen.getByText("Large accelerated filer")).toBeInTheDocument(); // item 3 — category chip
+  });
+
+  const VKEEP = {
+    name: "Micron",
+    ticker: "MU",
+    prose: "HBM/DRAM",
+    segment: "memory",
+    status: "verify",
+    security_id: "s-mu",
+    candidates: [],
+    matched_terms: ["HBM"],
+    off_thesis: false,
+  };
+  const VOFF = {
+    name: "Kroger",
+    ticker: "KR",
+    prose: "no memory tie — boilerplate",
+    segment: "Discovered",
+    status: "verify",
+    security_id: "s-kr",
+    candidates: [],
+    matched_terms: ["memory"],
+    off_thesis: true,
+  };
+  const VNOTICK = {
+    name: "Some Holdco LLC",
+    ticker: null,
+    prose: "financing sub",
+    segment: "Discovered",
+    status: "verify",
+    security_id: "s-hc",
+    candidates: [],
+    matched_terms: ["storage"],
+    off_thesis: false,
+  };
+
+  it("items 4+5: To Review surfaces keepers, collapses off-thesis (Low signal) + ticker-less (No listed ticker)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // the keeper is SURFACED with the positive recommend
+    await screen.findByText("Micron");
+    expect(screen.getByRole("button", { name: "add MU" })).toBeInTheDocument();
+    expect(screen.getByText("recommend add")).toBeInTheDocument();
+    // the off-thesis majority + the ticker-less names are QUIET + collapsed (not visible until expanded, #7/#9)
+    expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
+    expect(screen.queryByText("Some Holdco LLC")).not.toBeInTheDocument();
+    expect(screen.getByText("Low signal")).toBeInTheDocument();
+    expect(screen.getByText("No listed ticker")).toBeInTheDocument();
+    // expand Low signal → the off-thesis name appears, still promotable (never dropped)
+    await user.click(screen.getByText("Low signal"));
+    expect(screen.getByText("Kroger")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "add KR" })).toBeInTheDocument();
+  });
+
+  it("item 6: 'Discovered' is de-linked (unsorted tag) and the nudge prompts sorting", async () => {
+    const user = userEvent.setup();
+    const PLACED_DISC = {
+      name: "Foo Corp",
+      ticker: "FOO",
+      prose: "x",
+      segment: "Discovered",
+      status: "placed",
+      security_id: "s-foo",
+      candidates: [],
+      matched_terms: ["x"],
+    };
+    mockDraft(
+      draft(
+        [PLACED_DISC],
+        [
+          { label: "memory", descriptor: null },
+          { label: "Discovered", descriptor: null },
+        ],
+      ),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for FOO");
+    expect(screen.getByText("unsorted — not a link")).toBeInTheDocument(); // the de-link tag on the chip
+    expect(screen.getByText(/sort keepers into a link/)).toBeInTheDocument(); // the nudge (1 name in Discovered)
+    // the seg dropdown offers the real link "memory" so the operator can sort FOO out of Discovered
+    expect(screen.getByLabelText("segment for FOO")).toHaveTextContent("memory");
   });
 });
 

@@ -25,6 +25,7 @@ def _row_to_security(row: dict) -> Security:
         sector=row.get("sector"),
         exchange=row.get("exchange"),
         status=row.get("status"),
+        category=row.get("category"),
     )
 
 
@@ -193,9 +194,17 @@ def enrich(
     """
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE security_master SET sector = %s, exchange = %s, status = %s, "
+            "UPDATE security_master SET sector = %s, exchange = %s, status = %s, category = %s, "
             "enriched_source = %s, enriched_at = now() WHERE tenant_id = %s AND id = %s",
-            (identity.sector, identity.exchange, identity.status, source, tenant_id, security_id),
+            (
+                identity.sector,
+                identity.exchange,
+                identity.status,
+                identity.category,
+                source,
+                tenant_id,
+                security_id,
+            ),
         )
         return cur.rowcount > 0
 
