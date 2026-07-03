@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
+
+# EDGAR joins multiple filer-category attributes with a literal "<br>" (e.g. "Accelerated filer<br>Emerging
+# growth company"). Strip any HTML tag → a clean " · "-joined string so the identity chip never shows raw markup.
+_HTML_TAG = re.compile(r"<[^>]+>")
 
 
 def submissions_url(cik: str | int) -> str:
@@ -29,7 +34,10 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     tickers = [str(t).strip() for t in (submissions.get("tickers") or []) if t]
     exchange = exchanges[0] if exchanges else None
     status = "active" if (tickers and exchanges) else "inactive"
-    category = (submissions.get("category") or "").strip() or None
+    # EDGAR uses "<br>" to join multiple category attributes — strip HTML tags to a clean " · "-joined string
+    # (never surface raw markup). e.g. "Non-accelerated filer<br>Smaller reporting company".
+    category = _HTML_TAG.sub(" · ", submissions.get("category") or "")
+    category = re.sub(r"\s+", " ", category).strip(" ·") or None
     former_names = [
         {"name": name, "from": fn.get("from") or "", "to": fn.get("to") or ""}
         for fn in (submissions.get("formerNames") or [])

@@ -550,6 +550,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .act:disabled { opacity: 0.5; cursor: default; }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
+/* the lower-priority To-Review groups (Low signal + No listed ticker) — separated from the keepers by a gap + a
+   dashed divider, and spaced from each other. */
+.wb-results .wb-review-lower { margin-top: 14px; padding-top: 13px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 9px; }
+
 /* couldn't-resolve drawer */
 .wb-results .resolve { border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg-2); overflow: hidden; }
 .wb-results .resolve-h { display: flex; width: 100%; align-items: center; gap: 9px; padding: 10px 14px; border: none; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

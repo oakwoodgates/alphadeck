@@ -1172,6 +1172,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </div>
             )}
 
+            {/* the lower-priority groups — visually separated from the keepers above (a gap + a divider), even
+                though they're still part of To Review. Quiet + collapsed; nothing dropped (#9). */}
+            {(vOffThesis.length > 0 || vNoTicker.length > 0) && (
+              <div className="wb-review-lower">
             {/* off-thesis noise — quiet + collapsed, NO yellow (the majority; highlight keepers, not this) */}
             {vOffThesis.length > 0 && (
               <div className="resolve">
@@ -1216,6 +1220,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`, false))}
                   </div>
                 )}
+              </div>
+            )}
               </div>
             )}
           </div>
