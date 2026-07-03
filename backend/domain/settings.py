@@ -67,7 +67,13 @@ class Settings(BaseSettings):
     # single call underperforms (a logged trigger, not a default).
     llm_decompose_model: str = "claude-sonnet-4-6"  # reasoning-heavy; the chain IS the product
     llm_decompose_max_tokens: int = (
-        2000  # a whole value chain (segments + names + prose), not a sentence
+        # A whole value chain (segments + names + prose), not a sentence. 2000 TRUNCATED a rich, discovery-
+        # grounded organize (a memory-supercycle thesis: ~6 segments / ~40 names needs ~2700 output tokens) —
+        # `stop_reason=max_tokens` cut the tool JSON off empty → 0 segments → EVERY discovered name fell to the
+        # 'Discovered' catch-all. 4000 covers the observed need with padding; the model stops on its own at
+        # ~2700 (a bigger ceiling costs nothing — you pay only for tokens generated). The `draft_structured`
+        # max_tokens guard (llm/client.py) now makes any remaining truncation LOUD instead of silent.
+        4000
     )
     llm_decompose_timeout_s: float = (
         # Measured ~13s fast-path for a 3-segment chain (a 2000-token reasoning call); 20s overran on tail
