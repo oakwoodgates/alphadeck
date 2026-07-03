@@ -24,12 +24,29 @@ class _Resp:
         self.content = content
 
 
+class _FakeStream:
+    """Mimics the SDK's messages.stream(...) context manager — draft_structured STREAMS now (long generations
+    get server-dropped non-streaming); get_final_message() returns the accumulated Message."""
+
+    def __init__(self, resp: _Resp) -> None:
+        self._resp = resp
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+    def get_final_message(self):
+        return self._resp
+
+
 class _FakeMessages:
     def __init__(self, resp: _Resp) -> None:
         self._resp = resp
 
-    def create(self, **_kw):
-        return self._resp
+    def stream(self, **_kw):
+        return _FakeStream(self._resp)
 
 
 class _FakeAnthropic:

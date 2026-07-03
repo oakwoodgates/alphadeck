@@ -138,10 +138,27 @@ def decompose_narrative(
         )
     try:
         out = client.draft_structured(system=system, user=user, tool=DECOMPOSE_TOOL)
-    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
+        # LOUD (#9): a swallowed failure here yields an EMPTY chain — every discovered name falls to the
+        # 'Discovered' catch-all with no visible cause (a timeout on a broad organize looked exactly like "the
+        # narrative has no chain"). Log it so the operator/dev can see WHY, never a silent all-Discovered.
+        _log.warning(
+            "decompose FAILED (%s: %s) — the draft chain will be EMPTY (all discovered names → 'Discovered'); "
+            "if this is a timeout on a broad thesis, raise llm_decompose_timeout_s / max_tokens.",
+            type(exc).__name__,
+            exc,
+        )
         return None
     if not isinstance(out, dict):
         return None
+    if not out.get("segments"):
+        # A dict with no segments (e.g. a max_tokens-truncated tool call → {}) is the OTHER silent all-Discovered
+        # path — the client already WARNs on max_tokens, but log here too so the empty-chain outcome is explicit.
+        _log.warning(
+            "decompose returned NO segments — the draft chain will be EMPTY (all discovered names → 'Discovered')."
+        )
     return out
 
 
