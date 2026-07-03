@@ -13,4 +13,10 @@ RULES:
 - Identify each company by its **`ref`** (the list number) — NOT by re-typing its name. Narrate EVERY company
   in the list; if you genuinely don't recognize one, give your best one-line characterization from its name +
   segment — never skip it.
+- **`off_thesis`**: set it `true` ONLY when the company has **no discernible connection** to the thesis — an
+  incidental or boilerplate term-collision (e.g. a big unrelated company whose filing mentions the theme once in
+  passing), NOT a real fit. When `true`, the prose MUST state the reason ("no operational tie — a single
+  boilerplate mention," etc.), grounded in the narrative — the prose is the "why" behind the flag. Default
+  `false`. This is a RECOMMENDATION the operator can overrule; a flagged name stays in the basket. When unsure,
+  leave it `false` — a false flag on a name that belongs is worse than an unflagged tangent.
 - This is a drafting aid the operator ratifies, never a decision and never a source of truth.

@@ -205,10 +205,13 @@ def test_narrate_maps_ref_to_name_and_threads_inputs():
             {"name": "GH Research"},
         ],
     )
-    # ref 1/2 -> the items' exact names (the stable join key), so the prose attaches to the right name
+    # ref 1/2 -> the items' exact names (the stable join key); each carries prose + the off_thesis opinion
     assert out == {
-        "Compass Pathways": "lead psilocybin developer",
-        "GH Research": "5-MeO-DMT for treatment-resistant depression",
+        "Compass Pathways": {"prose": "lead psilocybin developer", "off_thesis": False},
+        "GH Research": {
+            "prose": "5-MeO-DMT for treatment-resistant depression",
+            "off_thesis": False,
+        },
     }
     assert len(fake.calls) == 1
     user = fake.calls[0]["user"]
@@ -217,6 +220,29 @@ def test_narrate_maps_ref_to_name_and_threads_inputs():
         "1. Compass Pathways (CMPS)" in user and "segment: developers" in user
     )  # NUMBERED line + ticker + segment threaded
     assert fake.calls[0]["tool"] is NARRATE_TOOL  # the narrate structured contract (value-free)
+
+
+def test_narrate_carries_off_thesis_opinion_and_defaults_false():
+    """off_thesis rides each name's narration (the narrator's already-made opinion, surfaced as a bit); ABSENT or
+    non-bool defaults False — never flag on missing data (#9 fail-open)."""
+    fake = _FakeClient(
+        returns={
+            "placements": [
+                {
+                    "ref": 1,
+                    "prose": "boilerplate-only mention, no operational tie",
+                    "off_thesis": True,
+                },
+                {"ref": 2, "prose": "lead developer"},  # no off_thesis -> default False
+            ]
+        }
+    )
+    out = narrate_placements(fake, "n", [{"name": "Kroger"}, {"name": "Compass"}])
+    assert out["Kroger"] == {
+        "prose": "boilerplate-only mention, no operational tie",
+        "off_thesis": True,
+    }
+    assert out["Compass"] == {"prose": "lead developer", "off_thesis": False}
 
 
 def test_narrate_failopen_returns_empty():
@@ -237,6 +263,12 @@ def test_narrate_no_items_or_blank_narrative_does_not_call_the_model():
 def test_narrate_prompt_forbids_numbers():
     """The no-number bound (#3) rests on the prompt — a fake can't exercise it; pin the contract text."""
     assert "NEVER a number" in load_prompt("chain_narrate")
+
+
+def test_narrate_prompt_documents_off_thesis():
+    """The off_thesis judgment rests on the prompt (grounded, prose-must-state-the-reason) — pin the contract."""
+    p = load_prompt("chain_narrate")
+    assert "off_thesis" in p and "no discernible connection" in p
 
 
 class _BatchEcho:
@@ -273,7 +305,7 @@ def test_narrate_batches_a_large_list_so_one_call_cannot_truncate_to_nothing():
     fake = _BatchEcho()
     out = narrate_placements(fake, "a narrative", items)
     assert len(out) == len(items)  # EVERY name narrated — none lost to truncation
-    assert out["Co0"] == "why Co0 fits"
+    assert out["Co0"]["prose"] == "why Co0 fits"
     assert fake.calls == math.ceil(
         len(items) / _NARRATE_BATCH
     )  # split into batches, not one giant call

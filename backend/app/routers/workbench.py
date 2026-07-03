@@ -418,11 +418,20 @@ def execute_draft(
     ]
     placements = chain.placements
     if needs:
+        # narrate_placements returns {name: {"prose", "off_thesis"}} — the display prose AND the narrator's
+        # on/off-thesis opinion (a display recommendation, #10; the flagged name stays placed). This merge is the
+        # ONE seam narration lands on placements: off_thesis is set here (not at resolution) and defaults False
+        # everywhere else. Fail-open: a narration miss leaves prose empty + off_thesis False (never flag on a miss).
         narrated = narrate_placements(decompose_llm, thesis.narrative, needs)
         if narrated:
             placements = [
                 (
-                    p.model_copy(update={"prose": narrated[p.name]})
+                    p.model_copy(
+                        update={
+                            "prose": narrated[p.name].get("prose", ""),
+                            "off_thesis": bool(narrated[p.name].get("off_thesis")),
+                        }
+                    )
                     if (_needs_prose(p) and p.name in narrated)
                     else p
                 )

@@ -597,6 +597,43 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
   });
 });
 
+describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
+  const PLACED_OFFTHESIS = {
+    name: "Kroger",
+    ticker: "KR",
+    prose: "no operational tie to the thesis — a single boilerplate mention of the theme",
+    segment: "reactors",
+    status: "placed",
+    security_id: "s-kr",
+    candidates: [],
+    matched_terms: ["SMR"],
+    off_thesis: true, // the narrator's opinion: a boilerplate term-collision
+  };
+
+  it("flags an off-thesis placement — it STAYS placed (#9), shows the ⚑ + the promoted remove", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_OFFTHESIS]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // NEVER dropped — the flagged name is a placed member (membership is deterministic, #2)
+    const seg = await screen.findByLabelText("segment for KR");
+    expect(screen.getByText(/model thinks off-thesis/)).toBeInTheDocument();
+    expect(seg.closest(".nmrow")).toHaveClass("flagged"); // the amber tint lights up
+    expect(screen.getByRole("button", { name: "remove" })).toBeInTheDocument(); // the operator's one-click
+  });
+
+  it("does NOT flag an on-thesis placement — fail-open, no off_thesis → no flag", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR])); // no off_thesis field on the placement
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+    expect(screen.queryByText(/model thinks off-thesis/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "remove" })).not.toBeInTheDocument();
+  });
+});
+
 describe("ChainEditor — TRIAGE conviction/size", () => {
   const saveBody = () => h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
 
