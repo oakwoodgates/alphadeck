@@ -182,6 +182,14 @@ NARRATE_TOOL: dict[str, Any] = {
                                 "numbers, prices, %, share counts, cash, or valuations."
                             ),
                         },
+                        "off_thesis": {
+                            "type": "boolean",
+                            "description": (
+                                "TRUE only if this company has NO discernible connection to the thesis — an "
+                                "incidental / boilerplate term-collision, not a real fit. When true, the prose "
+                                "MUST state why it's off-thesis. Default false (a genuine fit)."
+                            ),
+                        },
                     },
                     "required": ["ref", "prose"],
                 },
@@ -192,11 +200,21 @@ NARRATE_TOOL: dict[str, Any] = {
 }
 
 
-def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]]) -> dict[str, str]:
+def narrate_placements(
+    client: Any, narrative: str, items: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
     """Draft a per-name thesis-fit sentence for each placement in ``items`` (``{name, ticker?, segment?}``),
-    returning ``{name: prose}``. The deterministic EDGAR reconciler appends discovered CIKs the organizer never
-    narrated (``prose=""``); this fills that gap so EVERY placed/verify name carries reasoning — without the
-    organizer (the reconciler stays deterministic + completeness-owning; this only adds DISPLAY prose).
+    returning ``{name: {"prose": str, "off_thesis": bool}}``. The deterministic EDGAR reconciler appends
+    discovered CIKs the organizer never narrated (``prose=""``); this fills that gap so EVERY placed/verify name
+    carries reasoning — without the organizer (the reconciler stays deterministic + completeness-owning; this only
+    adds DISPLAY prose + the narrator's on/off-thesis OPINION).
+
+    ``off_thesis`` surfaces the model's already-made "this doesn't fit" judgment as a bit (the prose is the why) —
+    a display recommendation, never a decision (#10): a flagged name STAYS placed (membership is deterministic,
+    #2) with a ``remove`` the operator clicks. Fail-open: an absent ``off_thesis`` defaults ``False`` — never flag
+    on missing data. COVERAGE = reconciler-appended collisions (the names narrated here); the organizer's OWN
+    placements carry prose and aren't re-judged, so an organizer-placed off-thesis name reading unflagged is scope,
+    not a bug (the boilerplate-collision flood IS the reconciler-appended population — the flag catches what matters).
 
     BATCHED (``_NARRATE_BATCH``) so a large universe can't truncate the tool output to nothing (the live failure
     mode). FAIL-OPEN PER BATCH + #9-safe: a batch that errors / returns no tool call is LOGGED (with the reason)
@@ -215,7 +233,7 @@ def narrate_placements(client: Any, narrative: str, items: list[dict[str, Any]])
         return {}
 
     batches = [clean[s : s + _NARRATE_BATCH] for s in range(0, len(clean), _NARRATE_BATCH)]
-    result: dict[str, str] = {}
+    result: dict[str, dict[str, Any]] = {}
     if len(batches) == 1:
         result.update(_narrate_one_batch(client, system, narrative, batches[0], 0, len(clean)))
     else:
@@ -247,9 +265,10 @@ def _narrate_one_batch(
     batch: list[dict[str, Any]],
     start: int,
     total: int,
-) -> dict[str, str]:
-    """Narrate ONE batch -> ``{name: prose}`` (a partial of the whole). FAIL-OPEN + #9-LOUD: a batch that errors /
-    returns no tool call is LOGGED and yields ``{}`` (its names keep empty prose), never raising."""
+) -> dict[str, dict[str, Any]]:
+    """Narrate ONE batch -> ``{name: {"prose": str, "off_thesis": bool}}`` (a partial of the whole). FAIL-OPEN +
+    #9-LOUD: a batch that errors / returns no tool call is LOGGED and yields ``{}`` (its names keep empty prose +
+    default off_thesis False), never raising."""
     # NUMBER each line and join the model's reply by that ref — NOT by a re-typed name. (Live gate-2 showed the
     # model copies "Name (TICKER)" into a name field, so name-keying lost the join; a ref can't drift.)
     lines = [
@@ -285,12 +304,15 @@ def _narrate_one_batch(
             total,
         )
         return {}
-    res: dict[str, str] = {}
+    res: dict[str, dict[str, Any]] = {}
     for p in out.get("placements", []) or []:
         ref = p.get("ref") if isinstance(p, dict) else None
         prose = p.get("prose") if isinstance(p, dict) else None
+        # off_thesis defaults False (non-bool / absent → False): never flag on missing / malformed data.
+        off_thesis = bool(p.get("off_thesis")) if isinstance(p, dict) else False
         if isinstance(ref, int) and 1 <= ref <= len(batch) and isinstance(prose, str):
-            res[batch[ref - 1]["name"]] = prose  # ref -> the batch item's exact name (stable key)
+            # ref -> the batch item's exact name (stable key); carries prose + the on/off-thesis opinion
+            res[batch[ref - 1]["name"]] = {"prose": prose, "off_thesis": off_thesis}
     return res
 
 

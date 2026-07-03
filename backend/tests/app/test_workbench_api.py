@@ -1377,6 +1377,45 @@ def test_draft_endpoint_narrates_verify_names_too(client, db):
     assert genco["matched_terms"] == ["reactor"]
 
 
+def test_draft_endpoint_carries_the_off_thesis_flag(client, db):
+    """The narrator's off_thesis OPINION rides onto the reconciler-appended placement at the narration merge
+    (display-only, #10). A flagged name STAYS placed (#9 — membership is deterministic); the organizer's OWN
+    placement isn't re-judged and defaults off_thesis False (the coverage-by-design line)."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "KR", name="Kroger Co", cik="0000056873")
+    tid = _thesis_for_draft(db, terms=("nuclear",))
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0000056873", "Kroger Co  (KR)  (CIK 0000056873)"),  # a boilerplate collision
+            )
+        }
+    )
+    _override_draft(
+        edgar=edgar,
+        decompose=_FakeLLM(
+            returns=_decomp(("Oklo Inc.", "OKLO")),  # Kroger dropped by the organizer -> reconciled
+            narrate_returns={
+                "placements": [
+                    {
+                        "ref": 1,
+                        "prose": "no operational tie — a single boilerplate mention of the theme",
+                        "off_thesis": True,
+                    }
+                ]
+            },
+        ),
+    )
+    by_name = {p["name"]: p for p in _draft(client, tid)["result"]["placements"]}
+    kroger = by_name["Kroger Co"]
+    assert kroger["status"] == "placed"  # STAYS placed (#9) — the flag recommends, never drops
+    assert kroger["off_thesis"] is True  # the narrator's opinion rode onto the placement
+    assert (
+        by_name["Oklo Inc."]["off_thesis"] is False
+    )  # organizer-placed -> not re-judged (default False)
+
+
 def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
     """#9-safe fail-open: if the prose-fill narration RAISES, the reconciler-appended name keeps prose="" (never
     dropped, never a 5xx) — completeness is the deterministic layer's, prose is a best-effort display add.

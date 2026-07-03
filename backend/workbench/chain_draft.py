@@ -107,6 +107,16 @@ class ResolvedPlacement(DomainModel):
     is DOWNGRADED to AMBIGUOUS (never auto-placed) with its own row as the single pick — a frictionless rescue,
     surfaced with a HEDGED flag ("no current listing found in EDGAR"), so a false-inactive costs one extra click,
     never a silent drop (#9). ``None`` when the row is un-enriched (the honest fallback — no flag, no gate).
+
+    ``off_thesis`` surfaces the NARRATOR's already-made "this name doesn't fit the thesis" opinion as a bit (the
+    ``prose`` is the why) — display-only like ``matched_terms`` / ``discovery_source``: never a number (#3), never
+    promoted onto a ``BasketMember`` (#2), never on the call path. It RECOMMENDS, never removes: a flagged name
+    STAYS placed (membership is deterministic exact-CIK, #2 / #9 — never a silent drop) with a ``remove`` the
+    OPERATOR clicks (#10). Set at the narration MERGE (``app.routers.workbench.execute_draft``), not at resolution
+    — so it defaults ``False`` on every construction path here. COVERAGE = reconciler-appended collisions (the
+    unnarrated PLACED/VERIFY names the narration pass fills): the boilerplate-collision flood the flag exists to
+    catch. The organizer's OWN placements carry prose and aren't re-judged — an organizer-placed off-thesis name
+    reading unflagged is SCOPE, not a bug. Fail-open: no narration → ``False`` (never flag on missing data).
     """
 
     name: str
@@ -121,6 +131,9 @@ class ResolvedPlacement(DomainModel):
     sector: str | None = None
     exchange: str | None = None
     listing_status: str | None = None
+    off_thesis: bool = (
+        False  # the narrator's on/off-thesis opinion (display-only; set at the narration merge)
+    )
 
 
 class ResolvedSegment(DomainModel):

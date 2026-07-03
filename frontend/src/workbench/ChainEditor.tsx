@@ -238,6 +238,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // outside the EDGAR-discovered universe, via the sweep-augmented context). The PLACED bucket renders
   // BasketMembers, not placements, so it bridges by security_id — same shape as `matched`. NEVER promoted.
   const [offUniverse, setOffUniverse] = useState<Set<string>>(new Set());
+  // Display-only OPINION: the security_ids of PLACED names the NARRATOR judged off-thesis (a boilerplate
+  // term-collision). Same bridge-by-security_id shape as `offUniverse`. A RECOMMENDATION only (#10) — the name
+  // STAYS placed (#9); the reason is its prose, shown in the thesis-fit note below. NEVER promoted.
+  const [offThesisSet, setOffThesisSet] = useState<Set<string>>(new Set());
   // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange (machine-parsed from EDGAR
   // submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
   // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
@@ -341,6 +345,13 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       new Set(
         data.placements
           .filter((p) => p.security_id && p.discovery_source === "off_universe")
+          .map((p) => p.security_id as string),
+      ),
+    );
+    setOffThesisSet(
+      new Set(
+        data.placements
+          .filter((p) => p.security_id && p.off_thesis)
           .map((p) => p.security_id as string),
       ),
     );
@@ -869,7 +880,9 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             const k = memberKey(m);
             const drafted = m.authored_by === "system_drafted";
             const mt = m.security_id ? matched[m.security_id] : undefined;
-            const offThesis = false; // DORMANT — no off_thesis signal exists yet; never flag a name on invented data
+            // the narrator's off-thesis OPINION (bridged by security_id). RECOMMENDS only (#10): the name stays
+            // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
+            const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
             const included = d.isIncluded(k);
             const loaded = hasFundamentals(m.security_id, scoredById);
             return (
@@ -1009,7 +1022,9 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   </div>
                 )}
                 {offThesis && (
-                  <div className="flag">⚑ model thinks off-thesis — surfaced, never silently dropped</div>
+                  <div className="flag">
+                    ⚑ model thinks off-thesis — see the fit note; stays placed, remove if you disagree
+                  </div>
                 )}
               </div>
             );
