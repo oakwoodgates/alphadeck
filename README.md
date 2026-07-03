@@ -4,6 +4,7 @@
 A "DD engine" that helps a discretionary trader turn early narrative convictions into *well-timed* trades — decision-support, not execution.
 
 > Working codename: **Alpha Deck**. US equities first; commodities / crypto / prediction markets later.
+> **The organizing frame — the pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE): [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md) (read first).**
 > The live plan: [`docs/ROADMAP.md`](docs/ROADMAP.md). Design rationale: [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements: [`CLAUDE.md`](CLAUDE.md). The decision logic: [`docs/CALL_LOGIC.md`](docs/CALL_LOGIC.md). The catalyst conviction key: [`docs/CATALYST_CONVICTION.md`](docs/CATALYST_CONVICTION.md). Data sourcing: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md). Implementation invariants: [`docs/INVARIANTS.md`](docs/INVARIANTS.md). The post-MVP tuning agenda: [`docs/RECALIBRATION.md`](docs/RECALIBRATION.md). UI mockups in [`docs/mockups/`](docs/mockups/).
 
 ---
@@ -133,7 +134,11 @@ harness + recalibration + the production-tenant cut); the Board + Cockpit UI; an
 (the four meters), authoring, the extract → ratify hybrid, the SEC-universe broadener, the two LLM seams
 (FLAG-explanation + the narrative → chain drafter), and the create-thesis front door. The **M2 feed loop** —
 the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
-sidecar — makes it feed itself. Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
+sidecar — makes it feed itself. On top, the **front half is now framed as stages** (the Workbench = three of
+them): **SURFACE** (recommended-until-confirmed facts + identity enrichment + the derived archetype +
+the grounded purity estimate) and **TRIAGE** (basket crafting — include-controls, sort/filter, the conviction
+weight) shipped, plus EDGAR-first **DISCOVER** and the off-thesis flag — see [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md).
+Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
 [`docs/FEED_LOOP.md`](docs/FEED_LOOP.md). Build/run/test commands: [`CLAUDE.md`](CLAUDE.md).
 
 **Trust state (kept honest):** the calls are tuned **in-sample** (n=19; see `docs/ROADMAP.md`'s trust box).

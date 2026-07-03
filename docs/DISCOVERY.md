@@ -30,13 +30,16 @@ be tuned away**:
   identity** (MindMed → renamed Definium/DFTX, already in the master).
 - **`high_beta` on everything** — a non-answer wearing a classification's clothes.
 
-**Completeness is a METHOD problem, not a phrasing problem.** A discovery bake-off (psychedelic thesis, live)
-made it concrete: an LLM web-search pass sampled a **different tail each run** (~6 core stable, ~6–7 tail
-varying, ~$3.60 / 3 runs), while **EDGAR full-text search returned the same 404 CIKs every time, deterministic,
-for $0** (ibogaine re-query: 31 = 31, identical). The LLM spend buys variance; EDGAR buys determinism. So the
-LLM was **demoted** off the enumeration job entirely — it keeps only the two roles it is good at (proposing
-candidate keywords, and a directed tail-sweep for names EDGAR structurally can't see). This is `INVARIANT #9`
-in its origin: recall is the point, and a stochastic method silently drops real names.
+**Completeness is a METHOD problem, not a phrasing problem.** A discovery bake-off (psychedelic thesis, live) put
+three methods head-to-head — **A** EDGAR full-text (EFTS), **B** LLM parallel-union, **C** LLM exclude-extend — and
+made it concrete: the LLM methods sampled a **different tail each run** (~6 core stable, ~6–7 tail varying, ~$3.60 /
+3 runs, plus free-text-parsing fragility + identity hallucination), while **EDGAR full-text returned the same 404
+CIKs every time, deterministic, for $0** (ibogaine re-query: 31 = 31, identical). The LLM spend buys variance;
+EDGAR buys determinism, and **CIK-keying dissolves the identity + variance problems at once.** Verdict: **method A
+as the foundation; kill B** (parallel-union dominated on every axis); the LLM **demoted** off enumeration to the two
+roles it is good at — proposing candidate keywords, and a directed tail-sweep (C-style) for names EDGAR
+structurally can't see. This is `INVARIANT #9` in its origin: recall is the point, and a stochastic method silently
+drops real names.
 
 ---
 
@@ -224,9 +227,11 @@ a silent fall back to model recall (#9).
   them; the per-CIK reconciler guarantees no discovered name is lost to the organizer; the `503`s fail LOUD
   rather than silently degrade (rule 3); the matched-term tags make a tier-change visible (rule 2); the
   narration fail-open keeps a name even when its prose breaks. *Enforced by:* the answer-key recall re-score on
-  every discovery-touching change (31/32; the one miss, ATAI, is the documented dual-CIK redomicile);
-  `workbench/discovery.py` (the `503`s); `fulltext.classify` (VERIFY); `chain_draft.resolve_discovered_chain`
-  (per-CIK completeness). See `INVARIANTS.md` #9.
+  every discovery-touching change (31/32; the one miss, ATAI, is the documented dual-CIK redomicile) — the
+  ground truth is the **committed fixture `backend/tests/fixtures/recall_answer_key.py`** (the operator seeds +
+  the 32 acceptable-ticker groups + the collision-junk set that must stay OUT of PLACED; previously it lived only
+  in gitignored scripts, so the gate wasn't re-runnable); `workbench/discovery.py` (the `503`s); `fulltext.classify`
+  (VERIFY); `chain_draft.resolve_discovered_chain` (per-CIK completeness). See `INVARIANTS.md` #9.
 
 ---
 
@@ -237,7 +242,14 @@ a silent fall back to model recall (#9).
   currently unusable without it.
 - **Tail-sweep live validation** — `research_tail_sweep` is built + guarded but not yet validated live for the
   foreign/ADR tail it targets.
-- **The identity bridge** — the ATAI dual-CIK redomicile (two CIKs, …904 pre / …043 post) is the one answer-key
-  miss; surface both as a pick, never auto-place.
-- **Enrichment** — status / size-band / suggested-archetype to replace the blanket `high_beta` (the old
-  RESEARCH_ENRICH pieces 3–5), and to kill "high-beta on everything".
+- **The identity bridge** — for the **LLM-proposed tail** only (the EFTS/CIK path already dissolves identity; see
+  "CIK-keying dissolves the identity problem" above). The model's training cutoff makes it propose a **stale
+  name/ticker**, which exact-match misses even when the company IS in the universe under its new identity — a
+  **false ABSENT.** The discriminator: **a kept ticker rescues a rename** (atai→AtaiBeckley kept `ATAI` → PLACED),
+  but a **rename + ticker change defeats both signals** (MindMed→Definium, MNMD→DFTX → ABSENT even though DFTX/CIK
+  …814 is in the master). The bridge: a `formerNames`/current-ticker-aware second pass on ABSENT names (carefully —
+  the homonym trap), or a hint ("this name may have changed — search its current identity"). The **ATAI dual-CIK
+  redomicile** (…904 pre / …043 post) is the one answer-key miss — surface **both as a pick, never auto-place.**
+- **Enrichment `[SHIPPED — #105–108, #118]`** — identity (sector / exchange / listing-status gate / filer
+  category) + the deterministic **derived archetype** killed the blanket `high_beta` default. Home:
+  `WORKBENCH_ENRICHMENT.md`. *(No longer deferred — moved out of this list.)*

@@ -4,10 +4,12 @@
 > (which predates the catalyst subsystem and the through-line refactor, describes the insider-only model, and
 > whose "M5" is not the M5 we now mean — treat it as a historical artifact, not the live plan).
 >
-> Siblings: `CALL_LOGIC.md` (the brain), `CATALYST_CONVICTION.md` (the catalyst key), `INVARIANTS.md` (the
-> load-bearing rules), `WORKBENCH_SCORING.md` (the four meters) + `WORKBENCH_EXTRACTION.md` (the extract →
-> ratify hybrid + the first LLM seam) + `DISCOVERY.md` (EDGAR-first name discovery) + `CHAIN_DRAFTER.md` (the
-> narrative → chain authoring surface, the second LLM seam), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
+> Siblings: **`STAGE_MODEL.md` (the organizing frame — read first: SEED → DISCOVER → SURFACE → TRIAGE → MONITOR →
+> SCORE)**, `CALL_LOGIC.md` (the brain), `CATALYST_CONVICTION.md` (the catalyst key), `INVARIANTS.md` (the
+> load-bearing rules), `WORKBENCH_SCORING.md` (the four meters) + `WORKBENCH_EXTRACTION.md` (SURFACE — extract →
+> estimate → ratify) + `WORKBENCH_ENRICHMENT.md` (SURFACE — identity + derived archetype) + `TRIAGE.md` (basket
+> crafting) + `DISCOVERY.md` (EDGAR-first name discovery) + `CHAIN_DRAFTER.md` (the narrative → chain authoring
+> surface, the second LLM seam), `RECALIBRATION.md` (the post-MVP tuning agenda — the dials live there,
 > not here), `PROJECT_OVERVIEW.md` (design rationale). This doc is **sequencing**; it references the others,
 > never duplicates them.
 
@@ -55,6 +57,26 @@ the tail-sweep. Deterministic ~57 PLACED + a VERIFY tier, every name carrying pr
 31/32. The two follow-on cleanup passes are done too: the seed-precision/junk-visibility pass (the term set +
 tags) and the prose/legibility pass. Full home: **`DISCOVERY.md`**. *(This supersedes the old "research-not-
 recall web-search" plan — that road was not taken.)*
+
+**The SURFACE + TRIAGE arc then shipped — the front half is now framed as STAGES, not "the Workbench."** The new
+**`STAGE_MODEL.md`** is the organizing frame (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE); "the Workbench"
+turned out to be **three stages in one UI** (the tail of DISCOVER + SURFACE + TRIAGE), and naming them separately
+is what made the scope tractable. Shipped:
+- **SURFACE — "recommended-until-confirmed"** (#109/#110/#111): scoring facts flipped from blank-until-extracted to
+  system-estimated → operator-confirmed/overridden (the `vouched` marker; estimates **computed-on-read, never a
+  fact row**); the **grounded purity-estimate** seam (the third LLM seam) + a market-cap estimate + the
+  `unconfirmed_estimates` honest-confidence flag. `WORKBENCH_EXTRACTION.md`.
+- **Enrichment** (#105–108, #118): identity auto-enrich (sector / exchange / listing-status **gate** / filer
+  **category**) + the **derived archetype** recommendation that killed "high-beta on everything." `WORKBENCH_ENRICHMENT.md`.
+- **The off-thesis flag** (#117): the narrator's structured `off_thesis` opinion — recommends removal (#10), the
+  name stays placed (#9). `CHAIN_DRAFTER.md`.
+- **TRIAGE — basket crafting** (#113/#114/#115/#116): include-controls (default-included, the view never changes
+  what Save persists), the sortable/filterable view, and the 1–5 conviction weight (null≠0, never fed to the call).
+- **The tier recommendation** (#102, the first #10 seam) + the **Workbench FE-polish pass** (#118 — company name,
+  the category chip, the To-Review inverted triage, the "Discovered" holding pen, the wired re-segment dropdown).
+  `TRIAGE.md`.
+
+Every stage boundary is a **recommend → confirm** handoff — the **#10 family** now shipped (`INVARIANTS.md` #10).
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE; **"the forward trust loop is closed" is NOT** — that is the **Scoreboard**, still parked. The first
@@ -354,8 +376,10 @@ validated-forward — see "Where we are" + Parked.)*
   foreign / ADR / brand-new tail it targets.
 - **The identity bridge** — the ATAI dual-CIK redomicile (CIK …904 pre / …043 post) is the one answer-key
   recall miss; surface both as a pick, never auto-place.
-- **Enrichment (the old RESEARCH_ENRICH pieces 3–5)** — status / size-band / a *suggested* archetype with its
-  basis, to replace the blanket `high_beta` default and **kill "high-beta on everything."**
+- **Enrichment `[SHIPPED — #105–108, #118]`** — identity (sector / exchange / listing-status gate / filer
+  category) + the deterministic **derived archetype** recommendation replaced the blanket `high_beta` default and
+  **killed "high-beta on everything."** Full home: `WORKBENCH_ENRICHMENT.md`. *(Moved out of "what's next" — it's
+  done.)* The one remaining enrichment thread is the **identity bridge** (the ATAI dual-CIK redomicile, above).
 
 **The rest of the post-MVP chapter:**
 - **The live North-Star walkthrough** — the operator's manual proof on a real thesis (create → ingest → an
@@ -416,6 +440,10 @@ validated-forward — see "Where we are" + Parked.)*
 
 ## Parked — deliberate non-goals
 - **Execution / brokerage — permanently out.** Advisory-only is the product's identity.
+- **Position sizing / portfolio construction, MNPI/compliance, quant/chart signals — out by design, not gaps.**
+  TRIAGE captures a per-name conviction *weight* but does no allocation/sizing math (the operator's external
+  tools); only *evaluation* math enters, at SCORE. The platform is EDGAR-only (no private-data surface → no MNPI
+  vector). TA/price-pattern prediction is parked. Recorded as conscious decisions in `STAGE_MODEL.md`.
 - **Deferred** (scope, not principle): intraday / streaming data; options-gamma; borrow + squeeze radar;
   crypto / commodities / prediction markets; runtime auth / multi-tenant serving; Dagster; Neo4j.
 - **The live Scoreboard is the one parked item clearly coming** — the **forward twin of the replay harness**.

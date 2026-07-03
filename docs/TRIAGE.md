@@ -1,0 +1,101 @@
+# TRIAGE.md — basket crafting (the ~90 → ~15 stage)
+
+> Repo path: `docs/TRIAGE.md`. The **TRIAGE** stage (`STAGE_MODEL.md`): after DISCOVER finds the names and SURFACE
+> populates them, the operator turns a ~90-name discovered draft into a **chosen, ordered, weighted basket** — in
+> minutes, not by scrolling a flat list. This is the "construction" stage of the buy-side funnel. Mostly a
+> frontend + wiring stage (no new spine): the promote endpoint already **full-replaces** the basket from a
+> client-sent list, so crafting is a matter of sending the right subset. Surface:
+> `frontend/src/workbench/ChainEditor.tsx` + `useChainDraft.ts`; the writer:
+> `POST /workbench/theses` (`app/routers/workbench.py`).
+>
+> **Status: BUILT** — include-controls (#113), the sortable/filterable view (#114), the conviction field (#115) +
+> the naming-collision guard (#116), the To-Review triage ruleset + the "Discovered" holding pen + the wired seg
+> dropdown (#118).
+
+---
+
+## The prune — include-controls (#113)
+
+A per-name **include toggle** on every placed row. **Save persists ONLY the included subset** (the promote
+full-replaces, so excluded names simply aren't sent; the draft is reproducible by re-drafting, so nothing is truly
+lost).
+
+- **Default-INCLUDED (#9):** a discovered name starts IN; the operator *unchecks* to exclude. Nothing is silently
+  dropped — an excluded row stays **visible** (greyed), one click from re-inclusion.
+- **Orthogonal to accept / authorship.** Include ≠ accept. Accept is the authorship flip (`system_drafted →
+  operator_set/operator_edited`, the re-roll survivor); include is "goes in the saved basket." A name can be
+  **accepted-but-excluded** or **included-but-not-yet-accepted**. `include` is FE-only state (`excluded: Set` in
+  `useChainDraft`), never persisted, never touches `authored_by`.
+- **Bulk actions:** include all / exclude all / **clear un-accepted** (exclude every still-`system_drafted` name —
+  the fast path to just-my-vouched names — without touching authorship).
+
+## The find — the sortable / filterable view (#114)
+
+The placed list becomes a triage instrument: **sort** by name / archetype / segment / sector, **filter** by
+archetype / segment / fundamentals / authorship / include / off-universe, and a **compact** toggle that collapses
+the thesis-fit prose for a scannable read. This is how pruning 90 names stays fast.
+
+> **THE #9 SPINE (test-guarded): the VIEW never changes what Save persists.** Save is `basket − excluded` computed
+> over the **whole draft**, regardless of the current sort/filter — a filtered-out but *included* name still saves.
+> Filtering hides; only the include toggle decides what persists. A `clear filters` affordance is always one click
+> away so a hidden-but-included name is never lost.
+
+**The fundamentals badge** (a cheap read-time join, no fetch) shows which survivors still need a SURFACE extract —
+but only once it **discriminates**: before any name in the basket has confirmed fundamentals the badge is
+suppressed (it'd be true of every row = noise, inverse loudness), replaced by one quiet header hint. See
+`WORKBENCH_EXTRACTION.md` for what "fundamentals loaded" means.
+
+## The weight — the conviction field (#115)
+
+A nullable **1–5** integer per name (`BasketMember.conviction`) — the operator's intended size weight (1 = starter
+… 5 = full). Set in the crafting row (TRIAGE / ChainEditor only; the Board is read-only monitoring — re-weighting
+while watching is a later MONITOR-stage feature). A number, so future size-weighted attribution can derive relative
+weights directly; soft enough to set fast; and it dodges the sum-to-100 portfolio-construction trap a target-% would
+drag in (position sizing is out of scope — `STAGE_MODEL.md`).
+
+- **`NULL` ≠ 0.** Unset means "the operator hasn't said," **never** "zero size" — so attribution can't silently
+  treat unset as zero-weight (the same estimate-vs-confirmed honesty, #6). Renders `—`.
+- **Stored metadata, NEVER fed to the call (#4).** Conviction rides ON the member (persists through the
+  full-replace promote, mirrors `thesis_fit`); it never touches the meters / verdict / grade / exit-by. The entry
+  grade stays **signal-derived + deterministic** — the system sizes from the triggers, it does not judge the idea.
+  Operator-authored by definition (no LLM recommendation).
+
+> **NAMING GUARD (#116) — two unrelated "convictions", they must never cross.** **Operator conviction** =
+> `BasketMember.conviction`, this 1–5 size weight (stored TRIAGE metadata). **Signal conviction** = the
+> deterministic call machinery in `calls/` (`conviction_kinds` / `conviction_grade` / `key_conviction` — warm/arm
+> triggers). Wiring operator conviction into the call is a **#4 violation**. Also stated on the field in
+> `CLAUDE.md` and `domain/thesis.py`.
+
+## The To-Review triage ruleset (#118) — inverse loudness (#7)
+
+The reconciler-appended names (the term-matches the organizer didn't place into a link) are mostly noise. The
+ruleset **highlights the signal, doesn't flag the noise** — the exact inverse of the Placed bucket:
+
+- **Keepers** (on-thesis, has ticker) → **surfaced at top** with the positive "recommend add" (the loud,
+  actionable thing).
+- **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed** into a "Low
+  signal" drawer. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
+  exception, which in To-Review is the *keeper*, not the junk.
+- **Ticker-less** (a resolved filer with no listed ticker — likely a sub / holdco / debt issuer) → collapsed into a
+  "No listed ticker" drawer, visually separated from the keepers. Probably not directly investable, but **still
+  promotable** (`add` uses `security_id`, not ticker) — grouped-and-quiet, **never dropped** (#9).
+- **Precedence:** off-thesis > ticker-less > keeper.
+
+**The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
+"Discovered". It is a **sorting queue, not a value-chain link** — de-linked visually (muted, "unsorted — not a
+link"), with a quiet "N unsorted" nudge. The placed-row **seg dropdown is wired** to `d.placeMember` — selecting a
+real link **re-segments** the name (which flips `authored_by → operator_edited`, so the choice survives a re-roll);
+there is no "remove" in the dropdown (pruning is the include-uncheck). Together these turn a dead catch-all into a
+triage queue. Each placed row also shows the **company name** (bridged by `security_id`) and the SURFACE identity
+chips incl. the **filer-category** maturity tell (`WORKBENCH_ENRICHMENT.md`).
+
+## Invariant fit
+
+- **#9 (recall sacred):** default-included; every "hide" is a visible, reversible, still-promotable collapse
+  (excluded rows, the To-Review drawers, filtered-out names) — never a silent drop; the VIEW never changes what
+  Save persists.
+- **#7 (inverse loudness):** a badge true of every row doesn't render (the fundamentals gate); loudness marks the
+  minority/exception per bucket — Placed flags rare junk, To-Review highlights rare keepers.
+- **#10 (recommends, operator decides):** sort/filter/include/accept/re-segment are all operator acts; the
+  off-thesis flag and the recommend-add pill change nothing on their own.
+- **#4 (deferential on thesis):** conviction is the operator's weight, never an input to the call.
