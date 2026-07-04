@@ -211,29 +211,34 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     expect(await screen.findByLabelText("segment for SMR")).toBeInTheDocument(); // landed in PLACED
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted -> accept-able
-    // the quiet authorship badge (scoped to the badge — "drafted" also appears as a find-bar filter option)
-    expect(screen.getByText("drafted", { selector: ".wb-pauthor" })).toBeInTheDocument();
     expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue(
       "the only NRC-approved SMR designer",
     );
   });
 
-  it("accepting a drafted name flips it to operator_set (the accept button disappears)", async () => {
+  it("accept ⇄ un-accept is a reversible toggle (#1): accept relabels, un-accept relabels back, values kept", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
+    // set a field BEFORE accepting so we can prove un-accept keeps values (doesn't undo edits)
+    await user.selectOptions(screen.getByLabelText("conviction for SMR"), "4");
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
 
-    await user.click(screen.getByRole("button", { name: "accept SMR" }));
-    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_set now
-    // badge flipped drafted -> operator (scoped to the badge, not the find-bar "drafted" filter option)
-    expect(screen.queryByText("drafted", { selector: ".wb-pauthor" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "accept SMR" })); // → operator_set
+    // the button does NOT disappear — it relabels to its visible inverse
+    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "un-accept SMR" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "un-accept SMR" })); // → back to system_drafted
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // round-tripped
+    // un-accept flips authorship only — the conviction set earlier survives
+    expect((screen.getByLabelText("conviction for SMR") as HTMLSelectElement).value).toBe("4");
   });
 
-  it("editing a drafted name's prose flips it to operator_edited (the accept button disappears)", async () => {
+  it("editing a drafted name's prose flips it to operator_edited, and it can still be un-accepted (edits kept)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
@@ -241,10 +246,18 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     const prose = await screen.findByLabelText("thesis-fit for SMR");
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
-    await user.type(prose, " — refined");
+    await user.type(prose, " — refined"); // → operator_edited
 
-    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument(); // operator_edited now
-    expect(screen.getByText("edited")).toBeInTheDocument(); // badge flipped drafted -> edited
+    // an edited name is owned → the toggle offers un-accept (not accept)
+    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "un-accept SMR" })).toBeInTheDocument();
+
+    // un-accepting hands it back to the drafter (re-rollable) but KEEPS the edited prose
+    await user.click(screen.getByRole("button", { name: "un-accept SMR" }));
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+    expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue(
+      "the only NRC-approved SMR designer — refined",
+    );
   });
 
   it("an AMBIGUOUS name enters the basket ONLY by an explicit pick (with the picked security_id + CIK)", async () => {
@@ -500,6 +513,108 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText(/already running/)).toBeInTheDocument();
     expect(h.start).toHaveBeenCalledTimes(1); // no auto-retry of the expensive kick-off
+  });
+});
+
+describe("ChainEditor — reversibility (Workbench interaction principles)", () => {
+  it("add ⇄ send-back round-trips a To-Review name (#2); a draft-placed name has NO send-back", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    mockDraft(
+      draft(
+        [PLACED_SMR, VERIFY_ALKS],
+        [
+          { label: "reactors", descriptor: null },
+          { label: "therapeutics", descriptor: null },
+        ],
+      ),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // ALKS sits in To-Review; add it → it leaves To-Review and lands in PLACED
+    await user.click(await screen.findByRole("button", { name: "add ALKS" }));
+    expect(screen.getByLabelText("segment for ALKS")).toBeInTheDocument();
+
+    // a draft-PLACED name (SMR) never came from To-Review → it gets no send-back (the control marks the exception)
+    expect(
+      screen.queryByRole("button", { name: "send SMR back to review" }),
+    ).not.toBeInTheDocument();
+
+    // the visible inverse of add: send ALKS back → removed from the basket, reappears in To-Review (re-addable)
+    await user.click(screen.getByRole("button", { name: "send ALKS back to review" }));
+    expect(screen.queryByLabelText("segment for ALKS")).not.toBeInTheDocument(); // gone from PLACED
+    expect(screen.getByRole("button", { name: "add ALKS" })).toBeInTheDocument(); // back in To-Review
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+    expect(body.basket.find((m) => m.ticker === "ALKS")).toBeUndefined(); // Save no longer carries it
+  });
+
+  it("a re-draft preserves operator-authored names, re-rolls drafted, orphans-to-Discovered, adds new (#3)", async () => {
+    const user = userEvent.setup();
+    const placed = (
+      ticker: string,
+      security_id: string,
+      segment: string,
+      prose: string,
+    ) => ({ name: ticker, ticker, prose, segment, status: "placed", security_id, candidates: [], matched_terms: [] });
+    const D1 = draft(
+      [
+        placed("SMR", "s-smr", "reactors", "P1"),
+        placed("GEV", "s-gev", "turbines", "G1"),
+        placed("LOTTO", "s-lotto", "lotto", "L1"),
+      ],
+      [
+        { label: "reactors", descriptor: null },
+        { label: "turbines", descriptor: null },
+        { label: "lotto", descriptor: null },
+      ],
+    );
+    // draft 2: SMR moves segment, GEV would move (but is accepted), LOTTO is gone, CCJ is new
+    const D2 = draft(
+      [
+        placed("SMR", "s-smr", "smr-reactors", "P2"),
+        placed("GEV", "s-gev", "power", "G2"),
+        placed("CCJ", "s-ccj-new", "mining", "C1"),
+      ],
+      [
+        { label: "smr-reactors", descriptor: null },
+        { label: "power", descriptor: null },
+        { label: "mining", descriptor: null },
+      ],
+    );
+
+    mockDraft(D1);
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    // accept GEV → operator_set; the re-roll must NOT clobber it
+    await user.click(screen.getByRole("button", { name: "accept GEV" }));
+
+    // re-draft with the different result (swap the polled job result, then click Draft again)
+    h.jobData = { job_id: "j1", status: "done", result: D2, error: null };
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for CCJ"); // the brand-new name appeared
+
+    // operator_set is untouched — GEV keeps its accepted segment (not draft-2's "power") and stays owned
+    expect((screen.getByLabelText("segment for GEV") as HTMLSelectElement).value).toBe("turbines");
+    expect(screen.getByRole("button", { name: "un-accept GEV" })).toBeInTheDocument();
+    // a still-placed drafted name is RE-ROLLED to the fresh segment
+    expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe(
+      "smr-reactors",
+    );
+    // a drafted name the new draft no longer places is parked in Discovered (no stale segment)
+    expect((screen.getByLabelText("segment for LOTTO") as HTMLSelectElement).value).toBe(
+      "Discovered",
+    );
+    // the new name landed as a drafted, accept-able placement
+    expect(screen.getByRole("button", { name: "accept CCJ" })).toBeInTheDocument();
+    // OKLO (pre-existing operator_set, in neither draft) is untouched and still owned
+    expect(screen.getByRole("button", { name: "un-accept OKLO" })).toBeInTheDocument();
   });
 });
 
@@ -796,9 +911,8 @@ describe("ChainEditor — TRIAGE conviction/size", () => {
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
 
     await user.selectOptions(screen.getByLabelText("conviction for SMR"), "5");
-    // weighting a drafted name does NOT consume its accept (unlike editing archetype/prose)
+    // weighting a drafted name does NOT consume its accept (unlike editing archetype/prose) — still "accept"
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
-    expect(screen.getByText("drafted", { selector: ".wb-pauthor" })).toBeInTheDocument();
   });
 });
 

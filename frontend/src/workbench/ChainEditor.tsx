@@ -21,7 +21,7 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { ARCHETYPES, archLabel, errText } from "./format";
-import { memberKey, useChainDraft } from "./useChainDraft";
+import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
 // tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
@@ -55,15 +55,9 @@ const hasFundamentals = (
 const termAuthor = (a: string): string =>
   a === "operator_set" ? "seed" : a === "operator_edited" ? "edited" : "auto";
 
-// A placed name's authorship — a QUIET tell (inverse loudness): who owns this placement. "drafted" is the LLM's
-// (still has an accept button); "operator" is yours; "edited" is a draft you tweaked.
-const authorLabel = (a: string): string =>
-  a === "operator_set" ? "operator" : a === "system_drafted" ? "drafted" : "edited";
-
-// The reconciler's catch-all segment (backend `_DISCOVERED_LABEL`): names EDGAR-discovered but NOT arranged into a
-// real value-chain link. It's a SORTING QUEUE, not an economic link — the editor de-links it visually and the
-// (now-wired) seg dropdown is how the operator sorts keepers OUT of it into a link.
-const DISCOVERED = "Discovered";
+// The reconciler's catch-all segment (backend `_DISCOVERED_LABEL`, shared via useChainDraft): names
+// EDGAR-discovered but NOT arranged into a real value-chain link. It's a SORTING QUEUE, not an economic link —
+// the editor de-links it visually and the (wired) seg dropdown is how the operator sorts keepers OUT of it.
 
 // The off-universe provenance pill (the dormant `.pill.sweep` slot, now data-backed): the name resolved OUTSIDE
 // the EDGAR-discovered universe (via the sweep-augmented context). The label names the OBSERVATION ("off the
@@ -244,6 +238,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
+  // Reversibility (principle #1): the origin placement of a name PULLED from To-Review into Placed, keyed by
+  // security_id. It lets a Placed row that CAME from To-Review offer a "send back" — the visible inverse of add
+  // (add ⇄ send-back). Only these names get the control (others were never in To-Review). Never persisted.
+  const [verifyOrigin, setVerifyOrigin] = useState<Record<string, ResolvedPlacement>>({});
   const [draftEmpty, setDraftEmpty] = useState(false);
   // Display-only provenance: security_id -> the discovery term(s) that surfaced it. Set on a draft, NOT a
   // field on BasketMember (it's draft-time discovery provenance, not a thesis fact — never promoted).
@@ -481,7 +479,24 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       conviction: null,
       authored_by: "system_drafted",
     });
+    // stash the origin so the Placed row can offer the inverse (send back to To-Review)
+    setVerifyOrigin((prev) => ({ ...prev, [p.security_id as string]: p }));
     setVerify((prev) => prev.filter((x) => x !== p));
+  };
+
+  // The inverse of addVerify (reversibility): return a Placed name to the To-Review list exactly as it was,
+  // and drop it from the basket. Offered ONLY on rows whose security_id is in `verifyOrigin` (i.e. names that
+  // came from To-Review) — a draft-placed / hand-added name is reversed by exclude/remove, not this.
+  const sendBackToVerify = (sid: string) => {
+    const origin = verifyOrigin[sid];
+    if (!origin) return;
+    d.removeMember(sid); // memberKey === security_id for a resolved name
+    setVerify((prev) => [...prev, origin]);
+    setVerifyOrigin((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
   };
 
   // Save persists ONLY the INCLUDED subset (the prune) — the promote full-replaces, so excluded names simply
@@ -1023,9 +1038,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     <span className="co">{names[m.security_id]}</span>
                   ) : null}
                   {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
-                  <span className={`wb-pauthor ${m.authored_by}`} title="who owns this placement">
-                    {authorLabel(m.authored_by)}
-                  </span>
                   {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
                   {m.security_id && identity[m.security_id] && (
                     <IdentityChips {...identity[m.security_id]} />
@@ -1101,14 +1113,32 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                         ))}
                       </select>
                     </span>
-                    {drafted && (
+                    {/* Reversibility (#1): accept ⇄ un-accept is one TOGGLE — the state carries authorship (the
+                        separate "drafted" badge is gone). Un-accept flips back to system_drafted, keeping every
+                        field value (so a re-draft re-rolls the name; nothing is undone). */}
+                    <button
+                      type="button"
+                      className="wb-mini"
+                      aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
+                      title={
+                        drafted
+                          ? "ratify this drafted placement — you own it"
+                          : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
+                      }
+                      onClick={() => d.toggleAccept(k)}
+                    >
+                      {drafted ? "✓ accept" : "✕ un-accept"}
+                    </button>
+                    {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
+                    {m.security_id && verifyOrigin[m.security_id] && (
                       <button
                         type="button"
-                        className="wb-mini"
-                        aria-label={`accept ${m.ticker}`}
-                        onClick={() => d.acceptMember(k)}
+                        className="wb-mini ghost"
+                        aria-label={`send ${m.ticker} back to review`}
+                        title="send this name back to To-Review (the inverse of add)"
+                        onClick={() => sendBackToVerify(m.security_id as string)}
                       >
-                        ✓ accept
+                        ↩ to review
                       </button>
                     )}
                   </span>

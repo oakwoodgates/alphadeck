@@ -7,6 +7,11 @@ import type { BasketMember, ChainDraftOut, Segment, ThesisDetail } from "../api/
 export const memberKey = (m: { security_id?: string | null; ticker: string }): string =>
   m.security_id ?? m.ticker;
 
+// The reconciler's catch-all segment (backend `_DISCOVERED_LABEL`): names discovered but not arranged into a
+// real value-chain link. A re-draft parks a superseded drafted name here (an honest holding pen) rather than
+// leaving it in a stale segment. One home for the label (ChainEditor imports it).
+export const DISCOVERED = "Discovered";
+
 // Editing a DRAFTED placement (system_drafted) is the operator taking it over → operator_edited; the
 // operator's own placement (operator_set / operator_edited) is unchanged by a further edit.
 const touched = (m: BasketMember): BasketMember["authored_by"] =>
@@ -131,19 +136,32 @@ export function useChainDraft(thesis: ThesisDetail) {
 
   // --- S5 5c: draft from the narrative, then ratify per member ---
 
-  // MERGE a drafted chain in (never replace): append any NEW segments, and add the PLACED names as
-  // `system_drafted` placements, deduped by security_id (a name already in the basket is skipped — the
-  // operator's existing work is never clobbered). AMBIGUOUS / ABSENT names are NOT added here: the operator
-  // picks an AMBIGUOUS one explicitly (the editor surfaces the pick list), an ABSENT one is shown-not-placed.
+  // Load a drafted chain — a RE-ROLL, not a blind merge. Its one narrow job: KEEP operator-authored names
+  // exactly (operator_set / operator_edited — never clobbered, absolute), RE-ROLL every system_drafted name
+  // (fresh segment + prose from the new decomposition), and SURFACE genuinely new placed names. A
+  // system_drafted name the new draft no longer places is parked in "Discovered" (a stale segment is a lie;
+  // Discovered is honest — #9, still visible, re-sortable), NOT left in its superseded segment. AMBIGUOUS /
+  // ABSENT names are NOT added here (the editor surfaces those for an explicit pick / shown-not-placed).
   const loadDraft = (chain: ChainDraftOut) =>
     setDraft((d) => {
-      const haveSeg = new Set(d.segments.map((s) => s.label));
-      const segments = [
-        ...d.segments,
-        ...chain.segments
-          .filter((s) => !haveSeg.has(s.label))
-          .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
-      ];
+      // the new draft's PLACED names, by security_id → their fresh segment/prose
+      const placed = new Map<string, { segment: string | null; prose: string | null }>();
+      for (const p of chain.placements) {
+        if (p.status === "placed" && p.security_id) {
+          placed.set(p.security_id, { segment: p.segment, prose: p.prose || null });
+        }
+      }
+      let orphaned = false; // did any drafted name fall out of the new draft → reset to Discovered?
+      const basket = d.basket.map((m) => {
+        // operator-authored → untouched (never clobber operator work)
+        if (m.authored_by === "operator_set" || m.authored_by === "operator_edited") return m;
+        // system_drafted: re-roll if still placed, else park in Discovered (drop the stale segment)
+        const fresh = m.security_id ? placed.get(m.security_id) : undefined;
+        if (fresh) return { ...m, segment: fresh.segment, thesis_fit: fresh.prose };
+        orphaned = true;
+        return { ...m, segment: DISCOVERED };
+      });
+      // append genuinely NEW placed names (not already in the basket), deduped by security_id
       const have = new Set(d.basket.map(memberKey));
       const additions: BasketMember[] = chain.placements
         .filter((p) => p.status === "placed" && p.security_id && !have.has(p.security_id))
@@ -157,15 +175,33 @@ export function useChainDraft(thesis: ThesisDetail) {
           conviction: null, // the drafter never weights — the operator sets conviction in the row
           authored_by: "system_drafted",
         }));
-      return { segments, basket: [...d.basket, ...additions] };
+      // append NEW segments; ensure Discovered exists if we parked an orphan there (else Save orphans it)
+      const haveSeg = new Set(d.segments.map((s) => s.label));
+      const segments = [
+        ...d.segments,
+        ...chain.segments
+          .filter((s) => !haveSeg.has(s.label))
+          .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
+      ];
+      if (orphaned && !segments.some((s) => s.label === DISCOVERED)) {
+        segments.push({ label: DISCOVERED, descriptor: null });
+      }
+      return { segments, basket: [...basket, ...additions] };
     });
 
-  // Ratify a drafted placement as-is — the operator owns it now.
-  const acceptMember = (key: string) =>
+  // Accept ⇄ un-accept (reversibility, principle #1) — a TOGGLE. Accept ratifies a drafted placement
+  // (system_drafted → operator_set, the operator owns it now). Un-accept is the visible inverse: it flips
+  // authorship back to system_drafted and KEEPS every field value (segment / prose / conviction / archetype)
+  // untouched — "I don't vouch anymore, let it re-roll next draft", NOT "undo my edits". Uniform across all
+  // three states (operator_set / operator_edited both → system_drafted, edits intact). Composes with a
+  // re-draft (loadDraft): a name back at system_drafted is re-rolled, which is the whole point.
+  const toggleAccept = (key: string) =>
     setDraft((d) => ({
       ...d,
       basket: d.basket.map((m) =>
-        memberKey(m) === key ? { ...m, authored_by: "operator_set" } : m,
+        memberKey(m) === key
+          ? { ...m, authored_by: m.authored_by === "system_drafted" ? "operator_set" : "system_drafted" }
+          : m,
       ),
     }));
 
@@ -208,7 +244,7 @@ export function useChainDraft(thesis: ThesisDetail) {
     addMember,
     removeMember,
     loadDraft,
-    acceptMember,
+    toggleAccept,
     editProse,
     editArchetype,
     editConviction,
