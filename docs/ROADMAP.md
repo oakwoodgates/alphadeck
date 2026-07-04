@@ -401,6 +401,15 @@ validated-forward — see "Where we are" + Parked.)*
   underlying data has changed since acceptance ("data changed since you accepted — re-confirm?") rather than
   silently keeping it stale. This is confirmed-vs-live drift: it shares the exact machinery the **MONITOR / Board**
   stage will use, so build it **with the Board**, not in the Workbench. Jotted so the use case doesn't evaporate.
+- **Excluded-name permanence + rejection reason (newly tracked — one post-MVP feature):** today `include` is
+  **FE-only** state (`useChainDraft`'s `excluded: Set`, never persisted; `TRIAGE.md`). An excluded name is
+  "reproducible by re-drafting" — the flip side of which is that a re-draft **re-surfaces** a name you already
+  set aside, and there's nowhere to record *why*. The feature: **persist excluded names so they don't re-surface
+  on a re-draft, with an optional operator "rejected because X" reason** (an edit currently survives re-rolls as
+  `operator_edited`, but only persists past a Save if the name is *included* — a full-replace promote drops
+  excluded names, note and all). These are the **same** capability (persistent exclusion + its reason) and touch
+  **persistence/schema**, not the editor view — build them together, **post-MVP**. Cross-ref the exclusion model
+  in `TRIAGE.md`.
 
 ---
 

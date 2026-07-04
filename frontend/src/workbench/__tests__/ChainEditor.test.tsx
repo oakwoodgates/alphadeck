@@ -618,6 +618,53 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
   });
 });
 
+describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
+  it("R1: the accept toggle pins in the top-right action group; the ARCH/SEG/CONV controls sit in their own row", () => {
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO is operator_set → an "un-accept" toggle
+    const acceptBtn = screen.getByRole("button", { name: "un-accept OKLO" });
+    const archSel = screen.getByLabelText("archetype for OKLO");
+    // the action lives in the line-1 action group, NOT in the controls row (the two-line split)
+    expect(acceptBtn.closest(".rowactions")).not.toBeNull();
+    expect(acceptBtn.closest(".ctls")).toBeNull();
+    // the controls live in the (line-2) .ctls row
+    expect(archSel.closest(".ctls")).not.toBeNull();
+  });
+
+  it("R2: the thesis-fit box auto-sizes (rows=1, not a fixed 3) and still edits", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    const ta = screen.getByLabelText("thesis-fit for OKLO") as HTMLTextAreaElement;
+    expect(ta.tagName).toBe("TEXTAREA");
+    expect(ta).toHaveAttribute("rows", "1"); // auto-sizing min (was a fixed rows=3)
+    await user.type(ta, "one of the majors");
+    expect(ta.value).toBe("one of the majors"); // edits round-trip through editProse
+  });
+
+  it("R3: excluding a name collapses its detail to a stub; re-including restores it, authorship untouched", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+    // baseline: the drafted SMR shows its full detail
+    expect(screen.getByLabelText("thesis-fit for SMR")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+
+    // exclude SMR → its prose, controls, and accept collapse; the checkbox + an "excluded" stub remain (#9)
+    await user.click(screen.getByLabelText("include SMR"));
+    expect(screen.queryByLabelText("thesis-fit for SMR")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "accept SMR" })).not.toBeInTheDocument();
+    expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
+    expect(screen.getByLabelText("include SMR")).toBeInTheDocument(); // re-includable in one click
+
+    // re-check restores everything, and authorship was NEVER touched (still drafted → "accept", not "un-accept")
+    await user.click(screen.getByLabelText("include SMR"));
+    expect(screen.getByLabelText("thesis-fit for SMR")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+  });
+});
+
 // A thesis carrying a stored term set (the editor seeds its working set from the prop on load).
 const thesisWithTerms = {
   ...flatThesis,
@@ -662,8 +709,14 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     await user.click(screen.getByLabelText("include SMR")); // exclude SMR
     expect(screen.getByLabelText("include SMR")).not.toBeChecked();
     expect(screen.getByText("· 1 of 2 included")).toBeInTheDocument();
-    // still VISIBLE (#9 — never a silent drop): the row and its accept affordance remain
+    // still VISIBLE (#9 — never a silent drop): the checkbox stays + an "excluded" stub shows, but the
+    // DETAIL collapses (R3) — its controls hide, the row recedes
+    expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument(); // detail hidden while excluded
+    // re-check restores the full detail — nothing lost
+    await user.click(screen.getByLabelText("include SMR"));
     expect(screen.getByLabelText("segment for SMR")).toBeInTheDocument();
+    await user.click(screen.getByLabelText("include SMR")); // exclude again for the save assertion
 
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const b = saveBody().basket;
@@ -682,8 +735,11 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     await user.click(screen.getByRole("button", { name: /clear un-accepted/ }));
     expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // drafted → excluded
     expect(screen.getByLabelText("include OKLO")).toBeChecked(); // operator-owned → kept
-    // authorship is UNTOUCHED — SMR is still drafted (its accept button remains), only its include changed
+    // authorship is UNTOUCHED — R3 hides the accept affordance while excluded, so re-include to inspect: SMR is
+    // still drafted (its accept, not un-accept, remains); only its include changed
+    await user.click(screen.getByLabelText("include SMR")); // re-include to inspect authorship
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("include SMR")); // exclude again for the save assertion
 
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO"]);
