@@ -43,6 +43,39 @@ Do not violate these. If a request seems to require violating one, stop and flag
 6. **Explainability is a feature.** Every call, score, and signal carries its evidence and provenance (source filing/data + the computation). No black-box outputs. If you can't show the work, don't surface the result.
 7. **Inverse loudness.** Quietness scales with how early it is. Incubating must not nag (no alerts, low visual energy); loudness is reserved for Armed. This applies to notifications, not just CSS.
 
+## Workbench interaction principles
+
+These are UX/interaction rules for the operator-facing editor. They are DISTINCT from the
+non-negotiable invariants above: invariants protect *trust* (the system must never lie, drop, or
+auto-decide — violating one corrupts a decision). These protect *workflow* (the editor must be
+reversible, honest, and non-vanishing — violating one is friction, not corruption). Backend code
+checks against the invariants; frontend work checks against these.
+
+**1. Reversibility — every operator action has a visible inverse.**
+Every state change the operator makes in the Workbench (accept, add, place/segment, include, exclude)
+must have a visible way back. No action strands the operator in a state they can't leave without a
+re-roll (which costs API credits) or a full restart. Reversibility is achieved by returning to the
+*prior* state, never by destroying data. Concretely: accept ⇄ un-accept, add (To-Review → Placed) ⇄
+send-back (Placed → To-Review), include ⇄ exclude. If a new action can't be undone, it isn't done.
+
+**2. Keep it visible — pruning hides, it never vanishes.**
+Excluding, skipping, or de-selecting a name greys it and keeps it on screen, reversible in one click —
+it does not delete the row. The operator is judging a universe; they need to *see* what they set aside,
+not have it disappear. (This is the same instinct as invariant #9 "recall is sacred," applied to the
+UI: #9 keeps the system from dropping names; this keeps the *interface* from dropping them.) A true
+hide-from-view is only ever an explicit, reversible filter — never the default, and never a delete.
+
+**3. Honest loudness — loudness marks the exception, not the rule.**
+A badge or flag true of *every* row carries no information and is noise; loudness is reserved for the
+minority that needs action. Surface the rare keeper, quietly collapse the common noise (and vice-versa
+per bucket). A control that doesn't yet discriminate shouldn't render. (This is the UI reading of
+invariant #7, inverse-loudness.)
+
+**The test for new editor work:** does this action have an inverse (1), does it hide rather than
+destroy (2), and does its loudness mark the exception rather than the rule (3)? If a change fails one
+of these, it's friction — fix it before shipping, the same way a backend change that fails an invariant
+is a bug before it ships.
+
 ## Domain vocabulary
 
 Use these terms precisely; they are the ubiquitous language of the codebase.
