@@ -395,6 +395,12 @@ validated-forward — see "Where we are" + Parked.)*
 - **Cron scaling refinement (newly tracked):** decouple the cron's "record ALL theses" (cheap — keep) from
   "ingest ALL theses daily" (expensive — live pulls). As theses accumulate, ingest **active** theses daily and
   dormant ones less often. Fine at today's scale; jotted so it doesn't evaporate.
+- **Re-draft drift-detection (newly tracked — the FIRST concrete drift-detection use case):** the Workbench
+  re-draft (the reversibility pass) currently **preserves accepted names frozen** — an `operator_set` /
+  `operator_edited` name is never re-rolled. The eventual upgrade is to **flag** an accepted name when the
+  underlying data has changed since acceptance ("data changed since you accepted — re-confirm?") rather than
+  silently keeping it stale. This is confirmed-vs-live drift: it shares the exact machinery the **MONITOR / Board**
+  stage will use, so build it **with the Board**, not in the Workbench. Jotted so the use case doesn't evaporate.
 
 ---
 
