@@ -482,6 +482,11 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .sect { margin-bottom: 26px; }
 .wb-results .sect-h em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
 .wb-results .sect-h .ct { font-family: var(--mono); color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
+/* the Placed / To-Review section headers collapse (open by default) — a button reset over .sect-h that keeps
+   its type styling + the trailing divider (::after); the chevron shows state. Click to jump to the next section. */
+.wb-results .sect-h.wb-sect-toggle { border: none; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; padding: 0; width: 100%; }
+.wb-results .sect-h.wb-sect-toggle:hover { color: var(--txt-2); }
+.wb-results .sect-h .chev { color: var(--txt-4); font-size: 12px; }
 
 /* name row (override the global .nmrow — a clickable card in ScoredRow — to a static results card) */
 .wb-results .nmrow { display: block; width: auto; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 11px 13px; margin-bottom: 9px; cursor: default; transition: none; }

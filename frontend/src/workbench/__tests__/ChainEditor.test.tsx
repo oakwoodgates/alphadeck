@@ -663,6 +663,35 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
     expect(screen.getByLabelText("thesis-fit for SMR")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
   });
+
+  it("R5: the Placed and To Review sections collapse (open by default), the header + count stay", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draft(
+        [PLACED_SMR, VERIFY_ALKS],
+        [
+          { label: "reactors", descriptor: null },
+          { label: "therapeutics", descriptor: null },
+        ],
+      ),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR"); // Placed is open by default
+
+    // collapse Placed → its rows hide, but the header (a button, with its count) stays for re-expand
+    await user.click(screen.getByRole("button", { name: /Placed/ }));
+    expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Placed/ })).toBeInTheDocument();
+    // re-open restores the list
+    await user.click(screen.getByRole("button", { name: /Placed/ }));
+    expect(screen.getByLabelText("segment for SMR")).toBeInTheDocument();
+
+    // To Review collapses independently (its keeper hides)
+    expect(screen.getByText("Alkermes plc")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /To review/ }));
+    expect(screen.queryByText("Alkermes plc")).not.toBeInTheDocument();
+  });
 });
 
 // A thesis carrying a stored term set (the editor seeds its working set from the prop on load).

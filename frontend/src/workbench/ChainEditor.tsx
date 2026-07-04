@@ -279,6 +279,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large draft (hundreds of names) collapses to a preview + "show more"
   const [showAllPlaced, setShowAllPlaced] = useState(false);
+  // The two big result sections collapse (open by default) — a long Placed list is a lot to scroll past to
+  // reach To Review / Couldn't resolve, so the header is a click-to-collapse (the counts stay visible).
+  const [placedOpen, setPlacedOpen] = useState(true);
+  const [reviewOpen, setReviewOpen] = useState(true);
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the off-thesis To-Review noise (collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less To-Review names (collapsed)
@@ -852,14 +856,22 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             is built (the .flagged tint + .flag line + promoted remove) but DORMANT — there's no off_thesis
             signal in the data yet, so it never renders (kept honest; a later backend piece drives it). */}
         <div className="sect">
-          <div className="sect-h">
+          <button
+            type="button"
+            className="sect-h wb-sect-toggle"
+            aria-expanded={placedOpen}
+            onClick={() => setPlacedOpen((o) => !o)}
+          >
+            <span className="chev">{placedOpen ? "▾" : "▸"}</span>
             Placed <em>· archetype derived · segment drafted · both overridable</em>
             {d.draft.basket.length > 0 && (
               <span className="ct">
                 · {d.includedBasket.length} of {d.draft.basket.length} included
               </span>
             )}
-          </div>
+          </button>
+          {placedOpen && (
+            <>
           {/* TRIAGE bulk actions (the prune) — include is default-on (#9); these are visible bulk excludes, never
               a silent filter. "Clear un-accepted" excludes still-drafted names (the fast path to just-my-vouched
               names) without touching authorship. */}
@@ -1198,6 +1210,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </button>
             </div>
           )}
+            </>
+          )}
         </div>
 
         {/* TO REVIEW — resolved, lower confidence. Items 4 + 5: highlight the KEEPERS (the rare signal), and let
@@ -1205,10 +1219,18 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             point at what to ADD, don't flag what to skip. Nothing dropped — every group stays promotable (#9). */}
         {verify.length > 0 && (
           <div className="sect">
-            <div className="sect-h">
+            <button
+              type="button"
+              className="sect-h wb-sect-toggle"
+              aria-expanded={reviewOpen}
+              onClick={() => setReviewOpen((o) => !o)}
+            >
+              <span className="chev">{reviewOpen ? "▾" : "▸"}</span>
               To review <em>· in your universe, lower confidence — confirm or dismiss</em>
               <span className="ct">· {verify.length}</span>
-            </div>
+            </button>
+            {reviewOpen && (
+              <>
 
             {/* the keepers — the signal, surfaced */}
             {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`, true))}
@@ -1270,6 +1292,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </div>
             )}
               </div>
+            )}
+              </>
             )}
           </div>
         )}
