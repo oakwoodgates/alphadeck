@@ -67,13 +67,20 @@ class Settings(BaseSettings):
     # single call underperforms (a logged trigger, not a default).
     llm_decompose_model: str = "claude-sonnet-4-6"  # reasoning-heavy; the chain IS the product
     llm_decompose_max_tokens: int = (
-        2000  # a whole value chain (segments + names + prose), not a sentence
+        # A whole value chain (segments + names + prose), not a sentence. 2000 TRUNCATED a rich, discovery-
+        # grounded organize (memory thesis ~2700 out tokens; a BROAD nuclear thesis: 6 segments / ~79 names /
+        # ~3700-4000 out tokens) — `stop_reason=max_tokens` cut the tool JSON off empty → 0 segments → EVERY
+        # discovered name fell to the 'Discovered' catch-all. 8000 covers the broad case with headroom; the model
+        # stops on its own (~3700) — a bigger ceiling costs nothing (you pay only for tokens generated). The
+        # `draft_structured` max_tokens guard (llm/client.py) makes any remaining truncation LOUD, not silent.
+        8000
     )
     llm_decompose_timeout_s: float = (
-        # Measured ~13s fast-path for a 3-segment chain (a 2000-token reasoning call); 20s overran on tail
-        # latency and failed OPEN (an empty draft), so the seam looked broken to the operator. 60s gives
-        # ~4.5x headroom for this on-demand action — the rare slow wait beats a silently lost draft.
-        60.0
+        # A broad organize is a LONG generation — measured ~70-80s for the nuclear thesis (6 segments / ~79
+        # names). 60s TIMED OUT it (fail-open → empty draft → all-Discovered), so 180s gives real headroom for
+        # the on-demand action. (The call now STREAMS — llm/client.py — so a long request isn't dropped
+        # server-side; the timeout is the client-side ceiling, the rare slow wait beating a silently lost draft.)
+        180.0
     )
 
     # --- LLM seam (research upgrade — the narrative→chain RESEARCH pass, Slice 1) — operational dials ---

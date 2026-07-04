@@ -14,10 +14,15 @@ schemas live with the feature module (``llm/flag_explanation.py``, ``llm/chain_d
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from domain.settings import get_settings
+
+# Scoped to the LLM seams; WARNINGs propagate to uvicorn's root handler so a truncated structured call is VISIBLE
+# in `docker compose logs` (the #9 discipline — a degraded result must be loud, never a silent empty).
+_log = logging.getLogger("alphadeck.llm")
 
 
 class LLMUnavailable(RuntimeError):
@@ -85,14 +90,32 @@ class LLMClient:
         Raises ``LLMUnavailable`` when no live call is possible (offline gate / no key). Returns ``None`` if
         the model returned no tool call."""
         client = self._live_client()
-        resp = client.messages.create(
+        # STREAM (not create): a large structured call is a LONG generation — the decompose organizer runs
+        # ~70-80s / ~4k tokens on a broad thesis, and a non-streaming request that long is dropped server-side
+        # ("Server disconnected without sending a response") REGARDLESS of the client timeout. Streaming keeps the
+        # connection alive incrementally, so the long organize completes instead of failing open to all-Discovered.
+        # `get_final_message()` returns the same accumulated Message (content / stop_reason / usage) `create` did,
+        # so everything below is unchanged. Harmless for the small Haiku seams (flag / purity / tier-rec).
+        with client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
             tools=[tool],
             tool_choice={"type": "tool", "name": tool["name"]},  # must call our tool
-        )
+        ) as stream:
+            resp = stream.get_final_message()
+        # LOUD truncation guard (#9): a forced tool call that hits max_tokens has its JSON cut off — often to an
+        # EMPTY input `{}` — which every caller then reads as "the model produced nothing" with no error. That is
+        # exactly how a rich decompose silently collapsed to an empty chain. Warn (with the dial to raise) so the
+        # failure is visible, never a mystery. Behavior is unchanged — this only logs.
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            _log.warning(
+                "LLM tool call '%s' hit max_tokens=%d (output truncated — the tool JSON may be empty/partial); "
+                "raise the caller's max_tokens dial if this recurs.",
+                tool["name"],
+                self.max_tokens,
+            )
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and block.name == tool["name"]:
                 return dict(block.input)
@@ -109,7 +132,9 @@ class LLMClient:
         to the recall-only decompose.
         """
         client = self._live_client()
-        resp = client.messages.create(
+        # STREAM (not create): the web-search pass is also a LONG Opus generation (multiple searches + synthesis),
+        # the same server-disconnect risk as the decompose seam above — streaming keeps it alive to completion.
+        with client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system,
@@ -118,7 +143,8 @@ class LLMClient:
             tool_choice={
                 "type": "auto"
             },  # the model MAY search (vs draft_structured's forced tool)
-        )
+        ) as stream:
+            resp = stream.get_final_message()
         parts = [getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text"]
         text = "\n".join(p for p in parts if p).strip()
         return text or None

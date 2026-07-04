@@ -60,8 +60,8 @@ def test_llm_dial_defaults_match_the_old_callconfig_values_and_types(monkeypatch
     assert s.llm_max_tokens == 256 and isinstance(s.llm_max_tokens, int)
     assert s.llm_timeout_s == 10.0 and isinstance(s.llm_timeout_s, float)
     assert s.llm_decompose_model == "claude-sonnet-4-6"
-    assert s.llm_decompose_max_tokens == 2000 and isinstance(s.llm_decompose_max_tokens, int)
-    assert s.llm_decompose_timeout_s == 60.0 and isinstance(s.llm_decompose_timeout_s, float)
+    assert s.llm_decompose_max_tokens == 8000 and isinstance(s.llm_decompose_max_tokens, int)
+    assert s.llm_decompose_timeout_s == 180.0 and isinstance(s.llm_decompose_timeout_s, float)
     assert s.anthropic_base_url is None  # D7: None => the SDK default
 
 
