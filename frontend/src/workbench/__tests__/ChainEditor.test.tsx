@@ -873,10 +873,10 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
-    // the keeper is SURFACED with the positive recommend
+    // the keeper is SURFACED at the top (no per-row "recommend add" badge — it'd be true of every visible keeper)
     await screen.findByText("Micron");
     expect(screen.getByRole("button", { name: "add MU" })).toBeInTheDocument();
-    expect(screen.getByText("recommend add")).toBeInTheDocument();
+    expect(screen.queryByText("recommend add")).not.toBeInTheDocument();
     // the off-thesis majority + the ticker-less names are QUIET + collapsed (not visible until expanded, #7/#9)
     expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
     expect(screen.queryByText("Some Holdco LLC")).not.toBeInTheDocument();

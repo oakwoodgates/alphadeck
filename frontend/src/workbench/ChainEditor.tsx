@@ -531,11 +531,13 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // Items 4 + 5 — the To-Review triage partition. Precedence off-thesis > ticker-less > keeper: the model's
   // off-thesis names are the majority NOISE (quiet, collapsed — never yellow-flagged, that's inverse loudness);
   // the ticker-less names are likely subs/holdcos (quiet, collapsed); what remains are the KEEPERS — the rare
-  // signal, surfaced up top with the positive "recommend add". Every group stays PROMOTABLE (#9 — nothing dropped).
+  // signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
+  // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
+  // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
   const vOffThesis = verify.filter((p) => p.off_thesis);
   const vNoTicker = verify.filter((p) => !p.off_thesis && !p.ticker);
   const vKeepers = verify.filter((p) => !p.off_thesis && p.ticker);
-  const verifyRow = (p: ResolvedPlacement, key: string, isKeeper: boolean) => {
+  const verifyRow = (p: ResolvedPlacement, key: string) => {
     const inBasket = p.security_id ? keys.has(p.security_id) : false;
     return (
       <div className="nmrow" key={key}>
@@ -545,8 +547,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
           <span className="ctls">
             {p.discovery_source === "off_universe" && <OffUniversePill />}
-            {/* the honest recommend rides `off_thesis` (#117): only KEEPERS get the loud "recommend add" */}
-            {isKeeper && <span className="pill add">recommend add</span>}
             <button
               type="button"
               className="act addbtn"
@@ -1234,7 +1234,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               <>
 
             {/* the keepers — the signal, surfaced */}
-            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`, true))}
+            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`))}
             {vKeepers.length === 0 && (
               <div className="note">
                 No clear keepers — the model didn't flag any of these as a strong fit. Expand the groups below to
@@ -1263,7 +1263,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 </button>
                 {lowSignalOpen && (
                   <div className="resolve-body">
-                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`, false))}
+                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
                   </div>
                 )}
               </div>
@@ -1287,7 +1287,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 </button>
                 {noTickerOpen && (
                   <div className="resolve-body">
-                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`, false))}
+                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
                   </div>
                 )}
               </div>

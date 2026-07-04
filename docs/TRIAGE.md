@@ -71,8 +71,9 @@ drag in (position sizing is out of scope — `STAGE_MODEL.md`).
 The reconciler-appended names (the term-matches the organizer didn't place into a link) are mostly noise. The
 ruleset **highlights the signal, doesn't flag the noise** — the exact inverse of the Placed bucket:
 
-- **Keepers** (on-thesis, has ticker) → **surfaced at top** with the positive "recommend add" (the loud,
-  actionable thing).
+- **Keepers** (on-thesis, has ticker) → **surfaced at top** (the keepers block). The top position **is** the
+  recommendation — there is no per-row "recommend add" badge (it would be true of *every* visible keeper, which
+  is noise; honest loudness #7). The `add` button is the action.
 - **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed** into a "Low
   signal" drawer. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
   exception, which in To-Review is the *keeper*, not the junk.
