@@ -619,15 +619,15 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
 });
 
 describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
-  it("R1: the accept toggle pins in the top-right action group; the ARCH/SEG/CONV controls sit in their own row", () => {
+  it("R1: the accept toggle right-aligns at the END of the controls row, sharing it with ARCH/SEG/CONV", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO is operator_set → an "un-accept" toggle
     const acceptBtn = screen.getByRole("button", { name: "un-accept OKLO" });
     const archSel = screen.getByLabelText("archetype for OKLO");
-    // the action lives in the line-1 action group, NOT in the controls row (the two-line split)
+    // the action lives in the row-actions group…
     expect(acceptBtn.closest(".rowactions")).not.toBeNull();
-    expect(acceptBtn.closest(".ctls")).toBeNull();
-    // the controls live in the (line-2) .ctls row
-    expect(archSel.closest(".ctls")).not.toBeNull();
+    // …which sits INSIDE the same controls (.ctls) row as ARCH/SEG/CONV (the second line)
+    expect(acceptBtn.closest(".ctls")).not.toBeNull();
+    expect(acceptBtn.closest(".ctls")).toBe(archSel.closest(".ctls"));
   });
 
   it("R2: the thesis-fit box auto-sizes (rows=1, not a fixed 3) and still edits", async () => {

@@ -1078,38 +1078,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                             needs SURFACE
                           </span>
                         ))}
-                      {/* R1: the row-level actions pin TOP-RIGHT on line 1 (accept toggle + the To-Review send-back). */}
-                      <span className="rowactions">
-                        {/* Reversibility (#1): accept ⇄ un-accept is one TOGGLE — the state carries authorship (the
-                            separate "drafted" badge is gone). Un-accept flips back to system_drafted, keeping every
-                            field value (so a re-draft re-rolls the name; nothing is undone). */}
-                        <button
-                          type="button"
-                          className="wb-mini"
-                          aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
-                          title={
-                            drafted
-                              ? "ratify this drafted placement — you own it"
-                              : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
-                          }
-                          onClick={() => d.toggleAccept(k)}
-                        >
-                          {drafted ? "✓ accept" : "✕ un-accept"}
-                        </button>
-                        {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
-                        {m.security_id && verifyOrigin[m.security_id] && (
-                          <button
-                            type="button"
-                            className="wb-mini ghost"
-                            aria-label={`send ${m.ticker} back to review`}
-                            title="send this name back to To-Review (the inverse of add)"
-                            onClick={() => sendBackToVerify(m.security_id as string)}
-                          >
-                            ↩ to review
-                          </button>
-                        )}
-                      </span>
-                      {/* R1: the ARCH / SEG / CONV controls drop to their own left-aligned line (line 2). */}
+                      {/* R1: the ARCH / SEG / CONV controls sit on their own line; the row actions (accept +
+                          send-back) right-align at the END of this row (moved off the top-right slot). */}
                       <span className="ctls">
                         <span className="ctl">
                           <span className="lab">arch</span>
@@ -1167,6 +1137,37 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                               </option>
                             ))}
                           </select>
+                        </span>
+                        {/* the row actions right-align at the END of the controls row (accept ⇄ un-accept · the
+                            To-Review send-back) — chosen over the top-right slot to de-orphan them and group the
+                            knobs. Reversibility (#1): accept is a TOGGLE (the state carries authorship, no badge);
+                            un-accept flips back to system_drafted keeping every field value (a re-draft re-rolls it). */}
+                        <span className="rowactions">
+                          <button
+                            type="button"
+                            className="wb-mini"
+                            aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
+                            title={
+                              drafted
+                                ? "ratify this drafted placement — you own it"
+                                : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
+                            }
+                            onClick={() => d.toggleAccept(k)}
+                          >
+                            {drafted ? "✓ accept" : "✕ un-accept"}
+                          </button>
+                          {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
+                          {m.security_id && verifyOrigin[m.security_id] && (
+                            <button
+                              type="button"
+                              className="wb-mini ghost"
+                              aria-label={`send ${m.ticker} back to review`}
+                              title="send this name back to To-Review (the inverse of add)"
+                              onClick={() => sendBackToVerify(m.security_id as string)}
+                            >
+                              ↩ to review
+                            </button>
+                          )}
                         </span>
                       </span>
                     </>
