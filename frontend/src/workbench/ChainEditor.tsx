@@ -339,7 +339,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // filter → sort → preview-collapse (the collapse counts the FILTERED set, not the whole basket)
   const triaged = sorted(d.draft.basket.filter(matchesFilters));
   const placedShown = showAllPlaced ? triaged : triaged.slice(0, PLACED_PREVIEW);
-  const skipVerify = (p: ResolvedPlacement) => setVerify((prev) => prev.filter((x) => x !== p));
   const togglePick = (name: string) =>
     setPickOpen((prev) => {
       const next = new Set(prev);
@@ -539,6 +538,17 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const vKeepers = verify.filter((p) => !p.off_thesis && p.ticker);
   const verifyRow = (p: ResolvedPlacement, key: string) => {
     const inBasket = p.security_id ? keys.has(p.security_id) : false;
+    // "add" is a checkbox styled affordance (model A): checking it promotes the candidate → the row MOVES up to
+    // Placed (the basket's single home). That move IS the honest signal of the state change ("haven't decided" →
+    // "in the basket"); the reverse is the Placed row's send-back / exclude (#121/#122). No "skip" — a candidate
+    // is never discarded, only added or left in the queue. Disabled + explained for un-addable names (no filer
+    // id, or no listed ticker → not directly investable; still reachable via the name search below).
+    const canAdd = !inBasket && !!p.security_id && !!p.ticker;
+    const addWhy = !p.security_id
+      ? "can't resolve to a filer — not addable here"
+      : !p.ticker
+        ? "no listed ticker — not directly investable (add via the name search below if you need it)"
+        : "check to add — moves it up to Placed (the basket)";
     return (
       <div className="nmrow" key={key}>
         <div className="top">
@@ -547,23 +557,16 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
           <span className="ctls">
             {p.discovery_source === "off_universe" && <OffUniversePill />}
-            <button
-              type="button"
-              className="act addbtn"
-              disabled={inBasket || !p.security_id}
-              aria-label={`add ${p.ticker || p.name}`}
-              onClick={() => addVerify(p)}
-            >
-              {inBasket ? "added" : "add"}
-            </button>
-            <button
-              type="button"
-              className="act skip"
-              aria-label={`skip ${p.ticker || p.name}`}
-              onClick={() => skipVerify(p)}
-            >
-              skip
-            </button>
+            <label className={`wb-addchk${canAdd ? "" : " disabled"}`} title={addWhy}>
+              <input
+                type="checkbox"
+                checked={false}
+                disabled={!canAdd}
+                aria-label={`add ${p.ticker || p.name}`}
+                onChange={() => canAdd && addVerify(p)}
+              />
+              <span className="hint">check to add</span>
+            </label>
           </span>
         </div>
         {p.prose ? <div className="fit">{p.prose}</div> : null}

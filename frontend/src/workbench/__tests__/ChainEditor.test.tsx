@@ -314,7 +314,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     expect(screen.queryByLabelText("segment for ALKS")).not.toBeInTheDocument();
     expect(await screen.findByText("Alkermes plc")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "add ALKS" })); // the explicit confirm
+    await user.click(screen.getByRole("checkbox", { name: "add ALKS" })); // check-to-add promotes it
     expect(screen.getByLabelText("segment for ALKS")).toBeInTheDocument(); // now a placed member
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
@@ -534,8 +534,8 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
-    // ALKS sits in To-Review; add it → it leaves To-Review and lands in PLACED
-    await user.click(await screen.findByRole("button", { name: "add ALKS" }));
+    // ALKS sits in To-Review; check-to-add → it leaves To-Review and lands in PLACED
+    await user.click(await screen.findByRole("checkbox", { name: "add ALKS" }));
     expect(screen.getByLabelText("segment for ALKS")).toBeInTheDocument();
 
     // a draft-PLACED name (SMR) never came from To-Review → it gets no send-back (the control marks the exception)
@@ -546,7 +546,7 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
     // the visible inverse of add: send ALKS back → removed from the basket, reappears in To-Review (re-addable)
     await user.click(screen.getByRole("button", { name: "send ALKS back to review" }));
     expect(screen.queryByLabelText("segment for ALKS")).not.toBeInTheDocument(); // gone from PLACED
-    expect(screen.getByRole("button", { name: "add ALKS" })).toBeInTheDocument(); // back in To-Review
+    expect(screen.getByRole("checkbox", { name: "add ALKS" })).toBeInTheDocument(); // back in To-Review
 
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
@@ -875,7 +875,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
 
     // the keeper is SURFACED at the top (no per-row "recommend add" badge — it'd be true of every visible keeper)
     await screen.findByText("Micron");
-    expect(screen.getByRole("button", { name: "add MU" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add MU" })).toBeEnabled(); // check-to-add is live for a keeper
     expect(screen.queryByText("recommend add")).not.toBeInTheDocument();
     // the off-thesis majority + the ticker-less names are QUIET + collapsed (not visible until expanded, #7/#9)
     expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
@@ -885,7 +885,10 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     // expand Low signal → the off-thesis name appears, still promotable (never dropped)
     await user.click(screen.getByText("Low signal"));
     expect(screen.getByText("Kroger")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "add KR" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add KR" })).toBeInTheDocument();
+    // expand No listed ticker → the ticker-less name shows, but its add is DISABLED (not directly investable)
+    await user.click(screen.getByText("No listed ticker"));
+    expect(screen.getByRole("checkbox", { name: "add Some Holdco LLC" })).toBeDisabled();
   });
 
   it("item 6: 'Discovered' is de-linked (unsorted tag) and the nudge prompts sorting", async () => {

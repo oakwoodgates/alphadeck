@@ -73,13 +73,19 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
 
 - **Keepers** (on-thesis, has ticker) → **surfaced at top** (the keepers block). The top position **is** the
   recommendation — there is no per-row "recommend add" badge (it would be true of *every* visible keeper, which
-  is noise; honest loudness #7). The `add` button is the action.
+  is noise; honest loudness #7). The action is a **"check to add" checkbox**: checking it promotes the candidate
+  and the **row moves up to Placed** (the basket's single home) — the move is the honest signal of the state change
+  ("haven't decided" → "in the basket"). The reverse is the Placed row's **send-back / exclude** (#121/#122).
+  **There is no "skip"** — a candidate is never discarded, only added or left in the queue (a skip that dropped the
+  row was a silent #1/#2 violation).
 - **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed** into a "Low
   signal" drawer. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
   exception, which in To-Review is the *keeper*, not the junk.
 - **Ticker-less** (a resolved filer with no listed ticker — likely a sub / holdco / debt issuer) → collapsed into a
-  "No listed ticker" drawer, visually separated from the keepers. Probably not directly investable, but **still
-  promotable** (`add` uses `security_id`, not ticker) — grouped-and-quiet, **never dropped** (#9).
+  "No listed ticker" drawer, visually separated from the keepers. Probably not directly investable, so its
+  **check-to-add is disabled** (it never enters the basket by a stray click). Still **not dropped** (#9 — the row
+  is surfaced, and a name that genuinely belongs is reachable via the master **name search**, which promotes by
+  `security_id`).
 - **Precedence:** off-thesis > ticker-less > keeper.
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
