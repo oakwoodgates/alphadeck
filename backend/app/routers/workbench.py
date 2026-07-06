@@ -73,7 +73,8 @@ from workbench.discovery import (
     discovery_context,
     run_discovery,
 )
-from workbench.draft_jobs import DraftError, DraftInFlight, get_job, start_draft_job
+from workbench.draft_jobs import DraftError, DraftInFlight, DraftJob, get_job, start_draft_job
+from workbench.draft_run_log import write_draft_run_log
 from workbench.enrichment import enrich_for_ciks
 from workbench.research_runner import run_research
 from workbench.scoring import score_thesis
@@ -496,7 +497,10 @@ def start_draft_chain(
     its OWN DB connection (it OUTLIVES this request — the ``get_thesis_or_404`` conn is closed once the 202 is
     sent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty
     draft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY
-    (the job writes only its in-memory result — no fact, no promote)."""
+    (the job writes only its in-memory result — no fact, no promote). A completed job additionally dumps a
+    WRITE-ONLY run-of-record artifact (``data/draft_runs/`` — the DISCOVER stage's ``calls``-log analogue:
+    the term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is
+    logged + swallowed, never a failed draft."""
 
     def _run() -> ChainDraftOut:
         own = connect()  # the job outlives the request; the request-scoped conn is already closed
@@ -514,8 +518,14 @@ def start_draft_chain(
         finally:
             own.close()
 
+    def _record_run(job: DraftJob, result: ChainDraftOut) -> None:
+        # The DISCOVER run-of-record: dump the completed draft + its inputs (write-only, fail-open — see
+        # workbench/draft_run_log.py). The thesis captured here is the SAME object execute_draft read, so
+        # the artifact's term set is the set the run actually used.
+        write_draft_run_log(thesis, result, job_id=job.job_id)
+
     try:
-        job_id = start_draft_job(thesis.id, _run)
+        job_id = start_draft_job(thesis.id, _run, on_success=_record_run)
     except DraftInFlight as exc:
         raise HTTPException(
             status_code=409, detail="a draft is already running for this thesis"

@@ -42,6 +42,13 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000" # the API direct (and Swagger docs at /docs)
+    volumes:
+      # The runtime-data home. The image puts the app at /app, so the code's `<repo-root>/data/...` cache
+      # paths (ingest/edgar, ingest/prices, ingest/doe, securities) resolve to /data/... in the container.
+      # Without this volume every `docker compose up --build` WIPED the EDGAR cache, so each Workbench draft
+      # re-enumerated EFTS fully live — politeness cost + run-to-run index drift at the hit-cap boundary.
+      # Also the home of the draft run log (/data/draft_runs — the DISCOVER run-of-record artifacts).
+      - appdata:/data
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -65,6 +72,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy # the API migrates + seeds on start; the cron needs the ready DB
+    volumes:
+      - appdata:/data # the SAME runtime-data home as the backend — the daily ingest shares the caches
     command: ["sh", "/app/scripts/daily_cron.sh"]
     restart: unless-stopped
 
@@ -78,3 +87,4 @@ services:
 
 volumes:
   pgdata:
+  appdata: # /data in backend + cron: the EDGAR/price/DOE/FIGI/SEC caches + draft_runs, kept across rebuilds

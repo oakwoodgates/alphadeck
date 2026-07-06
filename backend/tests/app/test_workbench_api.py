@@ -1151,6 +1151,60 @@ def test_draft_endpoint_writes_nothing(client, db):
             assert cur.fetchone()["n"] == 0  # and no scoring fact
 
 
+def test_completed_draft_job_writes_the_run_log_artifact(client, db, draft_runs_dir):
+    """The DISCOVER run-of-record (the ``calls``-log analogue, at the JOB layer): a COMPLETED draft dumps ONE
+    write-only JSON artifact — the thesis + the term set AS USED + the dials + the full draft — and the
+    ``draft`` key round-trips the ``ChainDraftOut`` wire shape, equal to the very result the poll delivered.
+    A FILE, not a fact: the writes-nothing proof above is untouched and stays load-bearing."""
+    import json
+
+    from app.schemas_api import ChainDraftOut
+    from domain.settings import get_settings
+
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)  # stored SIGNAL term "nuclear" -> EFTS places OKLO by CIK
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft(client, tid)
+    assert body["status"] == "done"
+    files = list((draft_runs_dir / str(tid)).glob("*.json"))
+    assert len(files) == 1  # one completed run, one record
+    assert files[0].name.endswith(f"-{body['job_id']}.json")  # named by the job that produced it
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert payload["job_id"] == body["job_id"]
+    assert payload["thesis"] == {  # the identity + narrative the draft ran against
+        "id": str(tid),
+        "name": "nuclear",
+        "narrative": "small modular nuclear is about to rip",
+    }
+    # the term set AS USED: the exact entries discovery read, with tier + authorship provenance
+    assert [(e["term"], e["tier"], e["authored_by"]) for e in payload["term_set"]] == [
+        ("nuclear", "signal", "system_drafted")
+    ]
+    s = get_settings()  # the dials in effect (run-to-run drift lives at these knobs)
+    assert payload["dials"] == {
+        "discovery_hit_cap": s.discovery_hit_cap,
+        "research_model": s.llm_research_model,
+        "decompose_model": s.llm_decompose_model,
+    }
+    # the round-trip: the artifact's draft re-validates as a ChainDraftOut EQUAL to the polled result
+    assert ChainDraftOut.model_validate(payload["draft"]) == ChainDraftOut.model_validate(
+        body["result"]
+    )
+
+
+def test_failed_draft_job_writes_no_run_log_artifact(client, db, draft_runs_dir):
+    """A FAILED job (here: no term set -> DiscoveryNoTerms -> a visible failed job) records nothing — the
+    artifact is the run-of-record for what a draft SURFACED, and a failed run surfaced nothing."""
+    tid = _thesis_for_draft(db, terms=())  # no term set: the not-ready state
+    _override_draft()
+    body = _draft(client, tid)
+    assert body["status"] == "failed"
+    assert not (draft_runs_dir / str(tid)).exists()
+
+
 def _subs(cik, *, sic="Electric Services", exchanges=("Nasdaq",), tickers=("OKLO",)) -> dict:
     """A genuine-shaped submissions doc (echoes a top-level ``cik`` like the real SEC payload)."""
     return {

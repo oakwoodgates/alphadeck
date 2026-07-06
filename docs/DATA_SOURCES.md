@@ -42,6 +42,12 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
 - Respect the documented **rate limit** (token-bucket gate in the client).
 - **Cache-first** on disk (`data/edgar_cache/`); the test transport raises on cache miss so tests never hit the network.
 - Live pulls are explicit opt-in (env flag) and write only to the cache.
+- **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
+  backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
+  caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
+  each Workbench draft re-enumerated EFTS fully live — a politeness cost, and run-to-run index drift at the
+  hit-cap boundary of mega-terms (three same-day drafts each re-fetched ~87 pages and saw slightly different
+  universes as the live index moved). Cache etiquette only works if the cache survives the deploy loop.
 
 ## USASpending (DOE awards) — the automated catalyst feed `[BUILT, #37]`
 
