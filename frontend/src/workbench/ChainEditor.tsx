@@ -20,6 +20,7 @@ import {
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
+import { AutoTextarea } from "./AutoTextarea";
 import { ARCHETYPES, archLabel, errText } from "./format";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
@@ -278,6 +279,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large draft (hundreds of names) collapses to a preview + "show more"
   const [showAllPlaced, setShowAllPlaced] = useState(false);
+  // The two big result sections collapse (open by default) — a long Placed list is a lot to scroll past to
+  // reach To Review / Couldn't resolve, so the header is a click-to-collapse (the counts stay visible).
+  const [placedOpen, setPlacedOpen] = useState(true);
+  const [reviewOpen, setReviewOpen] = useState(true);
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the off-thesis To-Review noise (collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less To-Review names (collapsed)
@@ -334,7 +339,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // filter → sort → preview-collapse (the collapse counts the FILTERED set, not the whole basket)
   const triaged = sorted(d.draft.basket.filter(matchesFilters));
   const placedShown = showAllPlaced ? triaged : triaged.slice(0, PLACED_PREVIEW);
-  const skipVerify = (p: ResolvedPlacement) => setVerify((prev) => prev.filter((x) => x !== p));
   const togglePick = (name: string) =>
     setPickOpen((prev) => {
       const next = new Set(prev);
@@ -526,49 +530,61 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // Items 4 + 5 — the To-Review triage partition. Precedence off-thesis > ticker-less > keeper: the model's
   // off-thesis names are the majority NOISE (quiet, collapsed — never yellow-flagged, that's inverse loudness);
   // the ticker-less names are likely subs/holdcos (quiet, collapsed); what remains are the KEEPERS — the rare
-  // signal, surfaced up top with the positive "recommend add". Every group stays PROMOTABLE (#9 — nothing dropped).
+  // signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
+  // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
+  // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
   const vOffThesis = verify.filter((p) => p.off_thesis);
   const vNoTicker = verify.filter((p) => !p.off_thesis && !p.ticker);
   const vKeepers = verify.filter((p) => !p.off_thesis && p.ticker);
-  const verifyRow = (p: ResolvedPlacement, key: string, isKeeper: boolean) => {
+  const verifyRow = (p: ResolvedPlacement, key: string) => {
     const inBasket = p.security_id ? keys.has(p.security_id) : false;
+    // "add" is a checkbox styled affordance (model A): checking it promotes the candidate → the row MOVES up to
+    // Placed (the basket's single home). That move IS the honest signal of the state change ("haven't decided" →
+    // "in the basket"); the reverse is the Placed row's send-back / exclude (#121/#122). No "skip" — a candidate
+    // is never discarded, only added or left in the queue. Disabled + explained for un-addable names (no filer
+    // id, or no listed ticker → not directly investable; still reachable via the name search below).
+    const canAdd = !inBasket && !!p.security_id && !!p.ticker;
+    const addWhy = !p.security_id
+      ? "can't resolve to a filer — not addable here"
+      : !p.ticker
+        ? "no listed ticker — not directly investable (add via the name search below if you need it)"
+        : "check to add — moves it up to Placed (the basket)";
     return (
       <div className="nmrow" key={key}>
         <div className="top">
+          {/* the "add" checkbox sits LEFT of the name — the same spot as the Placed include checkbox (consistency).
+              Checking it promotes the candidate → the row moves up to Placed. Disabled + titled for un-addable names. */}
+          <input
+            type="checkbox"
+            className="wb-inc"
+            checked={false}
+            disabled={!canAdd}
+            aria-label={`add ${p.ticker || p.name}`}
+            title={addWhy}
+            onChange={() => canAdd && addVerify(p)}
+          />
           <span className="tk">{p.ticker || "—"}</span>
           <span className="co">{p.name}</span>
           <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
-          <span className="ctls">
-            {p.discovery_source === "off_universe" && <OffUniversePill />}
-            {/* the honest recommend rides `off_thesis` (#117): only KEEPERS get the loud "recommend add" */}
-            {isKeeper && <span className="pill add">recommend add</span>}
-            <button
-              type="button"
-              className="act addbtn"
-              disabled={inBasket || !p.security_id}
-              aria-label={`add ${p.ticker || p.name}`}
-              onClick={() => addVerify(p)}
-            >
-              {inBasket ? "added" : "add"}
-            </button>
-            <button
-              type="button"
-              className="act skip"
-              aria-label={`skip ${p.ticker || p.name}`}
-              onClick={() => skipVerify(p)}
-            >
-              skip
-            </button>
-          </span>
+          {p.discovery_source === "off_universe" && <OffUniversePill />}
         </div>
         {p.prose ? <div className="fit">{p.prose}</div> : null}
-        {(p.segment || p.matched_terms.length > 0) && (
-          <div className="prov lead">
-            {p.segment ? `recommend → ${p.segment}` : null}
-            {p.segment && p.matched_terms.length > 0 ? " · " : null}
-            {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
-          </div>
-        )}
+        {(() => {
+          // Only surface "recommend → {segment}" when it's a REAL link. "Discovered" is the unsorted holding pen
+          // (not a link), so "recommend → Discovered" is a contradiction — it's exactly where the low-signal /
+          // ticker-less names land, i.e. the system is NOT recommending a link. Keep the `matched …` provenance
+          // (why it surfaced) either way.
+          const recSeg = p.segment && p.segment !== DISCOVERED ? p.segment : null;
+          const matched = p.matched_terms.length > 0 ? p.matched_terms.join(", ") : null;
+          if (!recSeg && !matched) return null;
+          return (
+            <div className="prov lead">
+              {recSeg ? `recommend → ${recSeg}` : null}
+              {recSeg && matched ? " · " : null}
+              {matched ? `matched ${matched}` : null}
+            </div>
+          );
+        })()}
         {p.listing_status === "inactive" && <NotListedFlag />}
       </div>
     );
@@ -851,14 +867,22 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             is built (the .flagged tint + .flag line + promoted remove) but DORMANT — there's no off_thesis
             signal in the data yet, so it never renders (kept honest; a later backend piece drives it). */}
         <div className="sect">
-          <div className="sect-h">
+          <button
+            type="button"
+            className="sect-h wb-sect-toggle"
+            aria-expanded={placedOpen}
+            onClick={() => setPlacedOpen((o) => !o)}
+          >
+            <span className="chev">{placedOpen ? "▾" : "▸"}</span>
             Placed <em>· archetype derived · segment drafted · both overridable</em>
             {d.draft.basket.length > 0 && (
               <span className="ct">
                 · {d.includedBasket.length} of {d.draft.basket.length} included
               </span>
             )}
-          </div>
+          </button>
+          {placedOpen && (
+            <>
           {/* TRIAGE bulk actions (the prune) — include is default-on (#9); these are visible bulk excludes, never
               a silent filter. "Clear un-accepted" excludes still-drafted names (the fast path to just-my-vouched
               names) without touching authorship. */}
@@ -1038,129 +1062,146 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     <span className="co">{names[m.security_id]}</span>
                   ) : null}
                   {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
-                  {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
-                  {m.security_id && identity[m.security_id] && (
-                    <IdentityChips {...identity[m.security_id]} />
+                  {/* R3: an EXCLUDED (set-aside) row collapses to a quiet stub — checkbox + ticker + name + an
+                      "excluded" tag stay visible (#9, re-check to restore); its chips, controls, and prose are
+                      hidden so the noise recedes (inverse loudness). Exclude is VIEW-only here — it never touches
+                      authorship (orthogonal A: an edited note stays operator_edited, safe from the next re-roll). */}
+                  {!included ? (
+                    <span className="wb-exc-tag" title="excluded from Save — re-check to restore its detail">
+                      excluded
+                    </span>
+                  ) : (
+                    <>
+                      {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
+                      {m.security_id && identity[m.security_id] && (
+                        <IdentityChips {...identity[m.security_id]} />
+                      )}
+                      {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in
+                          the basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE",
+                          which is pure noise, so the per-row badge is suppressed (a single header hint carries it). */}
+                      {anyFundamentals &&
+                        (loaded ? (
+                          <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
+                            ✓ fundamentals
+                          </span>
+                        ) : (
+                          <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
+                            needs SURFACE
+                          </span>
+                        ))}
+                      {/* R1: the ARCH / SEG / CONV controls sit on their own line; the row actions (accept +
+                          send-back) right-align at the END of this row (moved off the top-right slot). */}
+                      <span className="ctls">
+                        <span className="ctl">
+                          <span className="lab">arch</span>
+                          <select
+                            className={drafted ? "" : archSelClass(m.archetype)}
+                            value={m.archetype}
+                            aria-label={`archetype for ${m.ticker}`}
+                            onChange={(e) =>
+                              d.editArchetype(k, e.target.value as BasketMember["archetype"])
+                            }
+                          >
+                            {ARCHETYPES.map((a) => (
+                              <option key={a} value={a}>
+                                {archLabel(a)}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                        <span className="ctl">
+                          <span className="lab">seg</span>
+                          {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
+                              here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
+                              thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
+                          <select
+                            value={m.segment ?? ""}
+                            aria-label={`segment for ${m.ticker}`}
+                            onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
+                          >
+                            {!m.segment && <option value="">— segment —</option>}
+                            {segLabels.map((l) => (
+                              <option key={l} value={l}>
+                                {l === DISCOVERED ? "Discovered (unsorted)" : l}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                        {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
+                            input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
+                        <span className="ctl">
+                          <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
+                            conv
+                          </span>
+                          <select
+                            className="wb-conv"
+                            value={m.conviction ?? ""}
+                            aria-label={`conviction for ${m.ticker}`}
+                            onChange={(e) =>
+                              d.editConviction(k, e.target.value ? Number(e.target.value) : null)
+                            }
+                          >
+                            <option value="">—</option>
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                        {/* the row actions right-align at the END of the controls row (accept ⇄ un-accept · the
+                            To-Review send-back) — chosen over the top-right slot to de-orphan them and group the
+                            knobs. Reversibility (#1): accept is a TOGGLE (the state carries authorship, no badge);
+                            un-accept flips back to system_drafted keeping every field value (a re-draft re-rolls it). */}
+                        <span className="rowactions">
+                          <button
+                            type="button"
+                            className="wb-mini"
+                            aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
+                            title={
+                              drafted
+                                ? "ratify this drafted placement — you own it"
+                                : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
+                            }
+                            onClick={() => d.toggleAccept(k)}
+                          >
+                            {drafted ? "✓ accept" : "✕ un-accept"}
+                          </button>
+                          {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
+                          {m.security_id && verifyOrigin[m.security_id] && (
+                            <button
+                              type="button"
+                              className="wb-mini ghost"
+                              aria-label={`send ${m.ticker} back to review`}
+                              title="send this name back to To-Review (the inverse of add)"
+                              onClick={() => sendBackToVerify(m.security_id as string)}
+                            >
+                              ↩ to review
+                            </button>
+                          )}
+                        </span>
+                      </span>
+                    </>
                   )}
-                  {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in the
-                      basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE", which is
-                      pure noise, so the per-row badge is suppressed (a single header hint carries it instead). */}
-                  {anyFundamentals &&
-                    (loaded ? (
-                      <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
-                        ✓ fundamentals
-                      </span>
-                    ) : (
-                      <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
-                        needs SURFACE
-                      </span>
-                    ))}
-                  <span className="ctls">
-                    <span className="ctl">
-                      <span className="lab">arch</span>
-                      <select
-                        className={drafted ? "" : archSelClass(m.archetype)}
-                        value={m.archetype}
-                        aria-label={`archetype for ${m.ticker}`}
-                        onChange={(e) =>
-                          d.editArchetype(k, e.target.value as BasketMember["archetype"])
-                        }
-                      >
-                        {ARCHETYPES.map((a) => (
-                          <option key={a} value={a}>
-                            {archLabel(a)}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                    <span className="ctl">
-                      <span className="lab">seg</span>
-                      {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
-                          here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
-                          thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
-                      <select
-                        value={m.segment ?? ""}
-                        aria-label={`segment for ${m.ticker}`}
-                        onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
-                      >
-                        {!m.segment && <option value="">— segment —</option>}
-                        {segLabels.map((l) => (
-                          <option key={l} value={l}>
-                            {l === DISCOVERED ? "Discovered (unsorted)" : l}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                    {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
-                        input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
-                    <span className="ctl">
-                      <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
-                        conv
-                      </span>
-                      <select
-                        className="wb-conv"
-                        value={m.conviction ?? ""}
-                        aria-label={`conviction for ${m.ticker}`}
-                        onChange={(e) =>
-                          d.editConviction(k, e.target.value ? Number(e.target.value) : null)
-                        }
-                      >
-                        <option value="">—</option>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                    {/* Reversibility (#1): accept ⇄ un-accept is one TOGGLE — the state carries authorship (the
-                        separate "drafted" badge is gone). Un-accept flips back to system_drafted, keeping every
-                        field value (so a re-draft re-rolls the name; nothing is undone). */}
-                    <button
-                      type="button"
-                      className="wb-mini"
-                      aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
-                      title={
-                        drafted
-                          ? "ratify this drafted placement — you own it"
-                          : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
-                      }
-                      onClick={() => d.toggleAccept(k)}
-                    >
-                      {drafted ? "✓ accept" : "✕ un-accept"}
-                    </button>
-                    {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
-                    {m.security_id && verifyOrigin[m.security_id] && (
-                      <button
-                        type="button"
-                        className="wb-mini ghost"
-                        aria-label={`send ${m.ticker} back to review`}
-                        title="send this name back to To-Review (the inverse of add)"
-                        onClick={() => sendBackToVerify(m.security_id as string)}
-                      >
-                        ↩ to review
-                      </button>
-                    )}
-                  </span>
                 </div>
-                {/* compact mode collapses the prose editor for a scannable, table-like read (the inline editor
-                    returns the moment you toggle compact off — nothing is lost). */}
-                {!compact && (
-                  <textarea
+                {/* the row's detail (prose · provenance · off-thesis flag) is hidden while EXCLUDED (R3 collapse)
+                    and while COMPACT (the scannable read). The prose auto-sizes to its content, capped at 3 rows
+                    then scrolling (R2). */}
+                {included && !compact && (
+                  <AutoTextarea
                     className="wb-prose"
-                    rows={3}
-                    aria-label={`thesis-fit for ${m.ticker}`}
+                    ariaLabel={`thesis-fit for ${m.ticker}`}
                     placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
                     value={m.thesis_fit ?? ""}
-                    onChange={(e) => d.editProse(k, e.target.value)}
+                    onChange={(v) => d.editProse(k, v)}
                   />
                 )}
-                {mt && mt.length > 0 && (
+                {included && mt && mt.length > 0 && (
                   <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
                     ← {mt.join(" · ")}
                   </div>
                 )}
-                {offThesis && (
+                {included && offThesis && (
                   <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
                 )}
               </div>
@@ -1181,6 +1222,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </button>
             </div>
           )}
+            </>
+          )}
         </div>
 
         {/* TO REVIEW — resolved, lower confidence. Items 4 + 5: highlight the KEEPERS (the rare signal), and let
@@ -1188,13 +1231,21 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             point at what to ADD, don't flag what to skip. Nothing dropped — every group stays promotable (#9). */}
         {verify.length > 0 && (
           <div className="sect">
-            <div className="sect-h">
+            <button
+              type="button"
+              className="sect-h wb-sect-toggle"
+              aria-expanded={reviewOpen}
+              onClick={() => setReviewOpen((o) => !o)}
+            >
+              <span className="chev">{reviewOpen ? "▾" : "▸"}</span>
               To review <em>· in your universe, lower confidence — confirm or dismiss</em>
               <span className="ct">· {verify.length}</span>
-            </div>
+            </button>
+            {reviewOpen && (
+              <>
 
             {/* the keepers — the signal, surfaced */}
-            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`, true))}
+            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`))}
             {vKeepers.length === 0 && (
               <div className="note">
                 No clear keepers — the model didn't flag any of these as a strong fit. Expand the groups below to
@@ -1223,7 +1274,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 </button>
                 {lowSignalOpen && (
                   <div className="resolve-body">
-                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`, false))}
+                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
                   </div>
                 )}
               </div>
@@ -1247,12 +1298,14 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 </button>
                 {noTickerOpen && (
                   <div className="resolve-body">
-                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`, false))}
+                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
                   </div>
                 )}
               </div>
             )}
               </div>
+            )}
+              </>
             )}
           </div>
         )}

@@ -482,6 +482,11 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .sect { margin-bottom: 26px; }
 .wb-results .sect-h em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
 .wb-results .sect-h .ct { font-family: var(--mono); color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
+/* the Placed / To-Review section headers collapse (open by default) — a button reset over .sect-h that keeps
+   its type styling + the trailing divider (::after); the chevron shows state. Click to jump to the next section. */
+.wb-results .sect-h.wb-sect-toggle { border: none; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; padding: 0; width: 100%; }
+.wb-results .sect-h.wb-sect-toggle:hover { color: var(--txt-2); }
+.wb-results .sect-h .chev { color: var(--txt-4); font-size: 12px; }
 
 /* name row (override the global .nmrow — a clickable card in ScoredRow — to a static results card) */
 .wb-results .nmrow { display: block; width: auto; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 11px 13px; margin-bottom: 9px; cursor: default; transition: none; }
@@ -490,8 +495,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .nmrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
 .wb-results .nmrow .co { font-size: 12px; color: var(--txt-2); }
 
-/* the two side-by-side controls (arch wired · seg UI-only) */
-.wb-results .ctls { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* R1: the row-level actions (accept toggle · To-Review send-back) right-align at the END of the controls
+   row (margin-left:auto pushes them right of ARCH/SEG/CONV; they wrap to their own right-aligned line if tight). */
+.wb-results .rowactions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* R1: the ARCH/SEG/CONV controls always drop to their OWN line, left-aligned (width:100% forces the wrap;
+   the row actions ride at its right end). */
+.wb-results .ctls { width: 100%; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
 .wb-results .ctl { display: flex; align-items: center; gap: 6px; }
 .wb-results .ctl .lab { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
 .wb-results .ctl select { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 7px; color-scheme: dark; cursor: pointer; }
@@ -505,7 +514,9 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .prov { display: block; font-family: var(--mono); font-size: 10px; color: var(--txt-4); margin-top: 6px; letter-spacing: 0.02em; }
 .wb-results .prov.lead { color: var(--leader); }
 .wb-results .prov.warm { color: var(--warm); }
-.wb-results .wb-prose { width: 100%; box-sizing: border-box; min-height: 58px; margin-top: 7px; }
+/* R2: the prose auto-sizes to content (min ~1 row, capped at 3 then scrolls — height is set inline by
+   AutoTextarea). No fixed min-height (that would block shrinking); no manual resize handle (auto-size owns it). */
+.wb-results .wb-prose { width: 100%; box-sizing: border-box; margin-top: 7px; resize: none; }
 
 /* off-thesis FLAG + flagged-row tint — built, DORMANT (never rendered until an off_thesis signal exists) */
 .wb-results .nmrow.flagged { border-color: rgba(224, 162, 60, 0.4); background: linear-gradient(180deg, rgba(224, 162, 60, 0.06), var(--panel)); }
@@ -517,6 +528,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .wb-inc { accent-color: var(--leader); width: 14px; height: 14px; cursor: pointer; flex: none; }
 .wb-results .nmrow.excluded { opacity: 0.42; }
 .wb-results .nmrow.excluded .tk { text-decoration: line-through; }
+/* R3: the collapsed-stub tag on an excluded row (chips/controls/prose are hidden; re-check restores them). */
+.wb-results .wb-exc-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); margin-left: auto; }
 .wb-triage-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 9px; }
 .wb-triage-bulk .note { margin: 0; margin-right: auto; }
 .wb-results .fund-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; padding: 2px 7px; border-radius: 5px; color: var(--txt-4); background: rgba(90, 100, 116, 0.12); border: 1px dashed var(--line-2); }
@@ -534,15 +547,13 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 
 /* to-review pills + actions */
 .wb-results .pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
-.wb-results .pill.add { color: var(--leader); background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.28); }
 .wb-results .pill.sweep { color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.3); }
 .wb-results .pill.low { color: var(--txt-3); background: rgba(90, 100, 116, 0.12); border: 1px solid var(--line-2); }
 /* machine-parsed identity chips (Slice 2 enrichment): quiet sector / exchange metadata — not a pill shout */
 .wb-results .idchip { font-family: var(--mono); font-size: 9px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
-.wb-results .act { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; border-radius: 5px; padding: 3px 9px; cursor: pointer; background: transparent; }
-.wb-results .act.addbtn { color: var(--leader); border: 1px solid rgba(138, 180, 255, 0.3); }
-.wb-results .act.skip { color: var(--txt-4); border: 1px solid var(--line); }
-.wb-results .act:disabled { opacity: 0.5; cursor: default; }
+/* To-Review "add" reuses the Placed include checkbox (.wb-inc), sitting LEFT of the name — check to promote
+   (the row moves up to Placed). Disabled (greyed) for un-addable names (no filer id / no listed ticker). */
+.wb-results .wb-inc:disabled { opacity: 0.4; cursor: default; }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
 /* the lower-priority To-Review groups (Low signal + No listed ticker) — separated from the keepers by a gap + a

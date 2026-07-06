@@ -186,10 +186,11 @@ never the stored company-reference facts (layer a) the LLM does not narrate (`RO
     reads neutral, not a wall of red). The **off-thesis FLAG is now LIVE (#117)** — the narrator emits a structured
     `off_thesis` bool (below); a flagged row shows the ⚑ + reason and **stays placed** (the operator unchecks to
     exclude). TRIAGE/basket crafting over these buckets is `TRIAGE.md`.
-  - **TO REVIEW** — **VERIFY** (in-universe by CIK, broad-only) + tail-sweep names merged, one action
-    (**add / skip**); a one-click add commits the known `security_id` (the same #2 discipline as AMBIGUOUS);
-    they're **promotable**, so they carry thesis-fit prose. A rec pill + the recommended segment ride the
-    provenance line.
+  - **TO REVIEW** — **VERIFY** (in-universe by CIK, broad-only) + tail-sweep names merged, one action: a
+    **"check to add" checkbox** that commits the known `security_id` (the same #2 discipline as AMBIGUOUS) and
+    **moves the row up to Placed** (no "skip" — a candidate is only added or left in the queue). They're
+    **promotable**, so they carry thesis-fit prose; the recommended segment rides the provenance line. See
+    `TRIAGE.md` for the keeper / off-thesis / ticker-less partition.
   - **COULDN'T RESOLVE** — a quiet drawer ("identity, not thesis-fit"): **AMBIGUOUS** names are a **pick list**
     (ticker + CIK, behind "pick CIK…") — a non-PLACED name enters the basket **ONLY by an explicit operator
     pick**; **ABSENT** names are shown, never placeable. (Retired the old "discovered / unplaced" dropdown.)
