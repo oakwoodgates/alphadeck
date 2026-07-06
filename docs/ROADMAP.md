@@ -366,20 +366,23 @@ validated-forward — see "Where we are" + Parked.)*
 
 ### What's next (post-MVP, by appetite — the next chapter, made legible)
 
-**The discovery fork (sequence together — not yet prioritized).** With EDGAR-first discovery shipped
-(`DISCOVERY.md`), four open threads extend it:
-- **The seed-edit UI** — *load-bearing, not polish.* A draft needs a produced term set or it 503s, and seed
-  quality (e.g. demote a marketed-drug seed) is an operator judgment with no UI yet — so **every
-  non-pre-seeded thesis is currently unusable without it.** The data model already carries `authored_by` /
-  `source` for it; the producer should also warn when a seed is a short collision-prone token.
-- **Tail-sweep live validation** — `research_tail_sweep` is built + cost-guarded but unvalidated live for the
-  foreign / ADR / brand-new tail it targets.
-- **The identity bridge** — the ATAI dual-CIK redomicile (CIK …904 pre / …043 post) is the one answer-key
-  recall miss; surface both as a pick, never auto-place.
+**The discovery fork `[CLOSED — all four threads resolved]`.** With EDGAR-first discovery shipped
+(`DISCOVERY.md`), four threads extended it; as of 2026-07-06 every one is shipped, validated, or consciously
+dropped:
+- **The seed-edit UI `[SHIPPED — #100]`** — the term-set editor (add/remove/promote/demote,
+  regenerate-preserve) in the Workbench term-set drawer.
+- **Tail-sweep live validation `[VALIDATED — 2026-07-06, PASSED]`** — run against the psychedelic thesis's
+  real found list: the foreign/OTC/ADR tail came back (PharmAla PMBHF / Universal Ibogaine IBOGF / Bionomics
+  BNOX), zero found-list re-listing, honest empty corners, no financial figure. The dated record:
+  `DISCOVERY.md` §6.
+- **The identity bridge `[DROPPED — operator decision, 2026-07-06]`** — the gap closed from both ends: clean
+  renames work via `formerNames` (MNMD→Definium), and the ATAI dual-CIK redomicile already SURFACES live (both
+  CIKs, off-universe) — recall satisfied. A bridge would only collapse the duplicate row: identity-MERGE logic
+  (subtle-bug-prone) for cosmetic value. Dropped, not deferred; reasoning recorded in `DISCOVERY.md`.
 - **Enrichment `[SHIPPED — #105–108, #118]`** — identity (sector / exchange / listing-status gate / filer
   category) + the deterministic **derived archetype** recommendation replaced the blanket `high_beta` default and
   **killed "high-beta on everything."** Full home: `WORKBENCH_ENRICHMENT.md`. *(Moved out of "what's next" — it's
-  done.)* The one remaining enrichment thread is the **identity bridge** (the ATAI dual-CIK redomicile, above).
+  done, and with the identity bridge dropped no enrichment thread remains open.)*
 
 **The rest of the post-MVP chapter:**
 - **The live North-Star walkthrough** — the operator's manual proof on a real thesis (create → ingest → an

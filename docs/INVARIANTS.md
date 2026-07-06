@@ -213,8 +213,11 @@ Rules this imposes on any change touching discovery / classify / filters / caps 
 When this conflicts with tightness, determinism, cost, or convenience: **recall wins, and the trade-off is
 surfaced to the operator, not silently resolved in code.**
 
-- *Enforced by:* the answer-key recall re-score on every discovery-touching change (currently 31/32; the
-  one miss, ATAI, is the documented dual-CIK redomicile deferred to the identity bridge, not a drop) — the ground
+- *Enforced by:* the answer-key recall re-score on every discovery-touching change (2026-07 live re-score:
+  **31/32 holds** — ATAI, the historical miss, is now RECALLED, and the one non-placeable name is PRTG, which
+  DELISTED out of SEC `company_tickers`: structurally unplaceable but SURFACED shown-not-placed → counted
+  recalled by operator ruling, since #9 tests silent drops, not placeability; the full record is in the
+  fixture's header) — the ground
   truth is the committed fixture `backend/tests/fixtures/recall_answer_key.py` (seeds + 32 acceptable-ticker groups
   + the collision-junk set), so the gate is re-runnable; the
   reliability raises (`DiscoveryDegraded` / `DiscoveryEmpty` / `DiscoveryNoTerms` → 503, never a recall
