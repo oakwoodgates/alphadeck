@@ -112,6 +112,52 @@ def test_get_job_unknown_returns_none():
     assert draft_jobs.get_job("does-not-exist") is None
 
 
+# --- the completed-run hook (the run-of-record artifact seam) ---
+
+
+def test_on_success_hook_fires_with_the_job_and_result():
+    seen: list[tuple[str, object]] = []
+    sentinel = object()
+    jid = draft_jobs.start_draft_job(
+        uuid4(),
+        lambda: sentinel,
+        executor=_inline,
+        on_success=lambda job, result: seen.append((job.job_id, result)),
+    )
+    assert seen == [(jid, sentinel)]  # fired once, with THIS job + the published result
+    assert draft_jobs.get_job(jid).status == "done"
+
+
+def test_on_success_hook_failure_never_fails_the_draft():
+    """The invariant-grade guardrail: an artifact-write fault is fail-open — the job stays DONE with its
+    result (the hook fires after publish, structurally unable to flip it) and the thesis slot stays freed.
+    """
+
+    def boom_hook(job, result):
+        raise RuntimeError("disk full")
+
+    tid = uuid4()
+    sentinel = object()
+    jid = draft_jobs.start_draft_job(tid, lambda: sentinel, executor=_inline, on_success=boom_hook)
+    job = draft_jobs.get_job(jid)
+    assert job.status == "done" and job.result is sentinel and job.error is None
+    # the slot was freed -> a new draft can start (the failing hook didn't brick the thesis either)
+    jid2 = draft_jobs.start_draft_job(tid, lambda: object(), executor=_inline)
+    assert draft_jobs.get_job(jid2).status == "done"
+
+
+def test_on_success_hook_not_fired_on_a_failed_job():
+    seen: list[object] = []
+
+    def boom():
+        raise RuntimeError("x")
+
+    draft_jobs.start_draft_job(
+        uuid4(), boom, executor=_inline, on_success=lambda job, result: seen.append(result)
+    )
+    assert seen == []  # a failed run writes no run-of-record
+
+
 # --- the single-worker startup guard (the honest-discovery slice fold) ---
 
 

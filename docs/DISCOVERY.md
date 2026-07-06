@@ -236,6 +236,18 @@ tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
 `tests/llm/test_chain_decomposition.py::test_tail_sweep_failopen_names_the_outcome`), and the FE strip tests
 (`frontend/src/workbench/__tests__/ChainEditor.test.tsx`).
 
+**And every COMPLETED run leaves a run-of-record** — one WRITE-ONLY JSON artifact per finished draft job
+(`data/draft_runs/<thesis_id>/<utc-timestamp>-<job_id>.json`; `workbench/draft_run_log.py`, fired by the job
+layer on success): the thesis + narrative, the **term set as used**, the dials in effect (hit cap + models),
+and the full draft (segments, placements, the report above). The `calls`-log pattern applied to DISCOVER: the
+report tells the operator the run's honesty *live*; the artifact preserves it *after* the draft is pruned and
+promoted, so "what did that run surface, under which dials?" stays answerable (run-to-run drift at the hit-cap
+boundary is now diffable, not folklore). **Never a read path** — nothing in the app loads it (a file is not a
+fact; promote stays the only spine writer), and a failed write is logged + swallowed, never a failed draft.
+*Enforced by:* `tests/app/test_workbench_api.py::test_completed_draft_job_writes_the_run_log_artifact` (+ the
+untouched `…writes_nothing`), the fail-open units in `tests/workbench/test_draft_run_log.py`, and the hook
+tests in `tests/workbench/test_draft_jobs.py`. Persistence: the compose `appdata:/data` volume.
+
 ---
 
 ## The key decisions, and why  *(do not relitigate)*

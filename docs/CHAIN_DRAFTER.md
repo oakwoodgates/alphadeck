@@ -131,6 +131,16 @@ term set → `run_discovery` (EFTS → classify) → `research_tail_sweep` → `
 - **Writes NOTHING.** The job returns a draft (in memory) and persists nothing — the operator's promote is the
   only writer. The job thread opens its OWN read-only conn (it outlives the request); "writes nothing" is
   guaranteed by **`test_draft_endpoint_writes_nothing`** (zero `fact_*` AND zero `basket_member`) — load-bearing.
+- **…except the run-of-record artifact, which is deliberately NOT a write in that sense (a file is not a
+  fact).** A COMPLETED job dumps one WRITE-ONLY JSON per run —
+  `data/draft_runs/<thesis_id>/<utc-timestamp>-<job_id>.json` (`workbench/draft_run_log.py`, fired by the job
+  layer's `on_success` hook AFTER the result is published) — carrying the thesis + narrative, the **term set
+  as used** (term/tier/authorship), the dials in effect (hit cap + the two draft models), and the full draft
+  (segments, placements with provenance, the honesty report). It is the DISCOVER stage's `calls`-log analogue:
+  an accountability record ("what did the 2026-07-06 draft see, and under which dials?"), **never a read
+  path** — nothing in the app loads it, promote stays the only spine writer, and `…writes_nothing` stays green
+  untouched. A failed artifact write is logged + swallowed (fail-open — it can never cost the operator the
+  draft); a failed JOB records nothing. Persists across rebuilds via the compose `appdata:/data` volume.
 - **Discovery is completeness-or-fail (#9), surfaced as a VISIBLE failed job, not silently fail-open.** A thesis
   with no produced term set, or a universe EFTS can't enumerate, ends the job **`failed`** with the cause
   (`DiscoveryNoTerms` → "term set is empty…"; `DiscoveryDegraded`/`DiscoveryEmpty` → "discovery unavailable — …",

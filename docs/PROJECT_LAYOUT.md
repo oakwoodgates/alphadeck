@@ -77,7 +77,9 @@ alphadeck/
     │   ├── term_set.py             #   the discovery term-set producer: keyword-gen PROPOSES, the deterministic guard TIERS (seeds=SIGNAL)
     │   ├── discovery.py            #   run_discovery: read the stored term set → EFTS enumerate → classify → DiscoveredUniverse (DiscoveryNoTerms/Empty/Degraded → 503)
     │   ├── research_runner.py      #   the tail-sweep cost-safety wrapper (in-flight 409 guard + TTL cache)
-    │   └── chain_draft.py          #   resolve_discovered_chain: the per-CIK RECONCILER (PLACED/VERIFY by CIK + matched_terms; _resolve_one for off-universe names)
+    │   ├── chain_draft.py          #   resolve_discovered_chain: the per-CIK RECONCILER (PLACED/VERIFY by CIK + matched_terms; _resolve_one for off-universe names)
+    │   ├── draft_jobs.py           #   the async draft-job registry (kick-off → poll; 409 in-flight guard; reaper; single-worker guard)
+    │   └── draft_run_log.py        #   the DISCOVER run-of-record: one WRITE-ONLY JSON per completed draft job (data/draft_runs/; fail-open, never a read path)
     ├── calls/                      # THE CALL-ASSEMBLER (the product) — pure + golden-tested
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None

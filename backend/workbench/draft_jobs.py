@@ -17,8 +17,11 @@ worker, SILENTLY. (If >1 worker is ever truly needed, this needs a shared store 
 table — the same caveat as ``research_runner``.)
 
 The result (a ``ChainDraftOut``) lives ONLY in memory and is RESPONSE-ONLY: the draft writes no fact and no
-promote (INVARIANT #2/#3). A restart wipes the registry — an in-flight poll then 404s, which the FE shows as a
-visible "draft was lost" failure (never an infinite spinner). The reaper bounds the registry: a finished job is
+promote (INVARIANT #2/#3). The one exception is deliberately NOT a fact: a successful job fires the caller's
+``on_success`` hook (the route passes ``write_draft_run_log`` — the write-only run-of-record artifact,
+``workbench/draft_run_log.py``), AFTER the result is published and structurally unable to fail the draft. A
+restart wipes the registry — an in-flight poll then 404s, which the FE shows as a visible "draft was lost"
+failure (never an infinite spinner). The reaper bounds the registry: a finished job is
 dropped after its TTL, and a still-running job past the running TTL is flipped to ``failed`` (the abandoned-job
 backstop — the real cost bound is the Opus client's ``max_retries=0`` + 300s SDK timeout, one bounded pass).
 """
@@ -47,7 +50,9 @@ _active_by_thesis: dict[str, str] = {}  # thesis_id -> the RUNNING job_id (the 4
 @dataclass
 class DraftJob:
     """One draft job's state. ``result`` is the ``run()`` return value (a ``ChainDraftOut``) — typed ``Any`` so
-    this workbench module never imports the ``app`` wire schema (the layering stays one-way)."""
+    this workbench module never imports the ``app`` wire schema (the layering stays one-way). ``on_success``
+    is the caller's completed-run hook (the run-of-record artifact write) — fired by ``_run_job`` on a done
+    job only, AFTER the result is published, and fail-open (see there)."""
 
     job_id: str
     thesis_id: str
@@ -57,6 +62,9 @@ class DraftJob:
     created_at: float = field(default_factory=monotonic)
     finished_at: float | None = None
     last_polled_at: float | None = None
+    on_success: Callable[["DraftJob", Any], None] | None = (
+        None  # (job, result) — never fails the draft
+    )
 
 
 class DraftInFlight(RuntimeError):
@@ -145,13 +153,15 @@ def start_draft_job(
     run: Callable[[], Any],
     *,
     executor: _Executor | None = None,
+    on_success: Callable[[DraftJob, Any], None] | None = None,
 ) -> str:
     """Claim the thesis's draft slot ATOMICALLY and start the job; return its ``job_id``. Raises ``DraftInFlight``
     if a draft for this thesis is already running. ``run`` (the slow pipeline) executes in the executor — a daemon
     thread in prod, inline under tests — OUTSIDE the lock (the inline executor re-enters ``_run_job`` → ``_lock``,
-    so the executor must never be called while holding it)."""
+    so the executor must never be called while holding it). ``on_success`` is the completed-run hook (see
+    ``_run_job``): called with ``(job, result)`` on a done job only, fail-open."""
     tid = str(thesis_id)
-    job = DraftJob(job_id=uuid4().hex, thesis_id=tid)
+    job = DraftJob(job_id=uuid4().hex, thesis_id=tid, on_success=on_success)
     with _lock:
         _reap_locked()
         if tid in _active_by_thesis:
@@ -191,6 +201,18 @@ def _run_job(job: DraftJob, run: Callable[[], Any]) -> None:
             # newer job claimed the thesis; never delete the newer job's slot.
             if _active_by_thesis.get(job.thesis_id) == job.job_id:
                 del _active_by_thesis[job.thesis_id]
+    # The completed-run hook (the run-of-record artifact write) fires AFTER the publish above, outside the
+    # lock — the job is already visible as done, so nothing the hook does (raise, hang) can fail or delay the
+    # draft's delivery: STRUCTURALLY fail-open, with the belt of a logged catch (an accountability record must
+    # never cost the operator the draft it records).
+    if status == "done" and job.on_success is not None:
+        try:
+            job.on_success(job, result)
+        except Exception:  # noqa: BLE001 — the hook is best-effort by contract
+            _log.exception(
+                "on_success hook failed for draft job %s (fail-open — the draft is unaffected)",
+                job.job_id,
+            )
 
 
 def get_job(job_id: str) -> DraftJob | None:
