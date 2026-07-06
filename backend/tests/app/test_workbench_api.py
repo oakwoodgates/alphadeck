@@ -1240,6 +1240,8 @@ def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
     assert result["thesis_id"] == str(tid)
     by_name = {p["name"]: p for p in result["placements"]}
     assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # discovered + placed despite no LLM
+    # the report NAMES the no-key sweep as the operator's own off switch — skipped, not a fault
+    assert result["report"]["tail_sweep"] == "skipped"
 
 
 def test_draft_endpoint_404_for_unknown_thesis(client):
@@ -1292,6 +1294,62 @@ def test_draft_endpoint_tail_sweep_failure_still_drafts_on_edgar_context(client,
     assert by_name["Oklo Inc."]["status"] == "placed" and by_name["Oklo Inc."][
         "security_id"
     ] == str(oklo)
+    # ...but the LOST sweep is ON THE RECORD (#9 rule 2): a transient fault reads "failed", so the operator
+    # can tell "the foreign/ADR tail wasn't searched" from "it was searched and found nothing"
+    assert body["result"]["report"]["tail_sweep"] == "failed"
+
+
+def test_draft_report_rides_the_response(client, db):
+    """The run's honesty report rides EVERY draft (#9 rules 2/3 on the wire): a healthy run reads full
+    coverage (pages_ok == pages_attempted, no failed term), no capped term, the sweep outcome ("ran" — the
+    default research fake completed and found nothing, an honest empty), and the narration fill. The quiet
+    input the Workbench strip renders as one muted line."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft(client, tid)
+    assert body["status"] == "done"
+    rep = body["result"]["report"]
+    assert rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 1
+    assert rep["coverage"]["failed_terms"] == []
+    assert rep["capped_terms"] == []
+    assert (
+        rep["tail_sweep"] == "ran"
+    )  # the fake research COMPLETED (returned nothing) — ran, not skipped
+    # the organizer narrated its own placement (prose in _decomp) -> nothing needed the fill step
+    assert rep["narration_needed"] == 0 and rep["narration_filled"] == 0
+
+
+def test_draft_report_carries_capped_term(client, db, monkeypatch):
+    """A term whose EFTS total exceeds the hit-cap lands in the report's ``capped_terms`` (#9 rule 4: the cap
+    is a backstop, and HITTING it is on the record — the FE marks the term chip). Cap forced to 1 via the env
+    dial; the page reports total=2 -> capped, enumeration stops at page-0."""
+    from domain.settings import get_settings
+
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0009999998", "Deep Hit Co  (DEEP)  (CIK 0009999998)"),
+            )
+        }
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_HIT_CAP", "1")
+    get_settings.cache_clear()  # re-read the env (the singleton may have been built at the default)
+    try:
+        body = _draft(client, tid)
+    finally:
+        get_settings.cache_clear()  # drop the capped=1 singleton; monkeypatch restores the env after
+    assert body["status"] == "done"
+    rep = body["result"]["report"]
+    assert rep["capped_terms"] == ["nuclear"]  # the truncation is ON THE RECORD, never silent
+    assert rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 1
 
 
 def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
@@ -1476,6 +1534,9 @@ def test_draft_failed_job_when_discovery_degraded(client, db):
     body = _draft(client, tid)
     assert body["status"] == "failed" and body["result"] is None
     assert "discovery unavailable" in body["error"]
+    # the operator-facing error names the POST-RETRY COUNTS (#9 rule 3 — loud AND specific): one keyword,
+    # its page-0 failed both passes -> "1/1 EFTS pages failed"
+    assert "1/1 EFTS pages failed" in body["error"]
 
 
 def test_draft_failed_job_when_empty_despite_terms(client, db):

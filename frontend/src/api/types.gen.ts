@@ -520,7 +520,9 @@ export interface components {
          *     RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
          *     placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only
          *     writer. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the
-         *     resolver's output).
+         *     resolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /
+         *     narration — ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader
+         *     handles its absence.
          */
         ChainDraftOut: {
             /**
@@ -538,6 +540,25 @@ export interface components {
              * @default []
              */
             placements: components["schemas"]["ResolvedPlacement"][];
+            report?: components["schemas"]["DraftReportOut"] | null;
+        };
+        /**
+         * DraftCoverageOut
+         * @description How much of the universe the draft's EFTS enumeration actually covered (the #9 rule-2/3 instrument on
+         *     the wire): a sub-threshold gap used to pass looking complete (logged only); now the pages fetched vs
+         *     attempted — and the TERMS whose pages are still missing — ride every draft to the operator. RUN state,
+         *     display-only, never persisted.
+         */
+        DraftCoverageOut: {
+            /** Pages Ok */
+            pages_ok: number;
+            /** Pages Attempted */
+            pages_attempted: number;
+            /**
+             * Failed Terms
+             * @default []
+             */
+            failed_terms: string[];
         };
         /**
          * DraftJobRef
@@ -571,6 +592,32 @@ export interface components {
             result?: components["schemas"]["ChainDraftOut"] | null;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * DraftReportOut
+         * @description The draft run's honesty report — every formerly-silent recall-loss mode, named per run (#9 rules 2/3):
+         *     EFTS coverage, the hit-capped terms (enumeration truncated at the cap — deep hits not searched), the
+         *     tail-sweep outcome (``ran`` / ``failed`` / ``skipped`` — a failed sweep is no longer indistinguishable from
+         *     "no foreign names exist"), and the narration fill (M of N placed/verify names carrying thesis-fit prose).
+         *     Value-free (#3) and RESPONSE-ONLY — display run state, never a fact, never persisted; the Workbench strip
+         *     renders it quiet at 100% healthy, loud on any gap (inverse loudness).
+         */
+        DraftReportOut: {
+            coverage: components["schemas"]["DraftCoverageOut"];
+            /**
+             * Capped Terms
+             * @default []
+             */
+            capped_terms: string[];
+            /**
+             * Tail Sweep
+             * @enum {string}
+             */
+            tail_sweep: "ran" | "failed" | "skipped";
+            /** Narration Needed */
+            narration_needed: number;
+            /** Narration Filled */
+            narration_filled: number;
         };
         /**
          * EditTermsRequest

@@ -101,8 +101,30 @@ fetch funnels through the ONE shared `EdgarClient` → the ONE `RateLimiter` (th
 concurrency removes serialization without exceeding the limit; `ThreadPoolExecutor.map` yields in input order so
 the merge is identical to the sequential walk.
 
-- *Enforced by:* `ingest/edgar/fulltext.py` (`discover`, `Filer`; determinism + parallel-==-sequential tests in
-  `tests/ingest/test_fulltext.py`).
+**The run reports its own honesty** (`DiscoveryRun` — the honest-discovery slice, #9 rules 2/3/4 made
+structural, not log-only):
+
+- **Coverage + one retry pass.** A page that fails after `polite_get`'s retries is skipped and counted; when
+  the fan-out completes, the failed subset gets **ONE retry pass** through the same client → the same rate
+  limiter (the same global politeness budget — no new dial). A retry-recovered **page-0 also owes its deep
+  pages** (they were never enumerated — recovering page 0 alone would be a silent partial), fetched inside the
+  same pass and counted in `pages_attempted`. The **post-retry** failed fraction drives the existing
+  `DiscoveryDegraded` raise (the failure MODE stays loud; only its frequency drops — #9 rule 5), and its
+  message carries the counts (`"N/M EFTS pages failed"`). A **within-tolerance gap is no longer only a log
+  line**: `DiscoveryCoverage` (pages ok/attempted, the failed TERMS, retried/recovered) rides the draft report
+  to the operator.
+- **The hit-cap is on the record.** `hit_cap` (default 1000, `ALPHADECK_DISCOVERY_HIT_CAP`) is a
+  pathological-keyword backstop, not a recall limiter — and HITTING it now flags: the term lands in
+  `capped_terms` (+ a WARNING log), rides the draft report, and the FE marks the term chip (`⚠ capped`). Pages
+  beyond the cap are genuinely not searched, so a capped term says "deep hits for this term may be missing" —
+  visible, never silent (#9 rule 4).
+
+- *Enforced by:* `ingest/edgar/fulltext.py` (`discover` → `DiscoveryRun`/`DiscoveryCoverage`, `Filer`;
+  determinism + parallel-==-sequential tests in `tests/ingest/test_fulltext.py`; the coverage/retry/capped
+  gates there — `test_discover_retry_recovers_a_transient_page`,
+  `test_discover_retry_recovered_page0_fetches_its_deep_pages` (the silent-partial nuance pinned),
+  `test_discover_reports_capped_term`, `test_discover_clean_run_coverage`, and the post-retry count asserts on
+  the degraded tests).
 
 ### 3. classify — PLACED / VERIFY (seeds-only-place)
 
@@ -185,7 +207,22 @@ ORIGIN, **not** a hard claim the web-search sourced the name — `decompose` may
 `run_discovery` (EFTS → classify) → `research_tail_sweep` → organize (decompose) → `resolve_discovered_chain`
 (per-CIK reconcile) → fill prose + tags → `ChainDraftOut`. If the thesis has no term set, or EFTS can't
 enumerate the universe, the draft **503s** (`DiscoveryNoTerms` / `DiscoveryDegraded` / `DiscoveryEmpty`) — never
-a silent fall back to model recall (#9).
+a silent fall back to model recall (#9) — and the failed job's operator-facing message **carries the counts**
+(`"discovery unavailable — discovery degraded: N/M EFTS pages failed (X%) after retries"`).
+
+**Every draft carries its run report** (`ChainDraftOut.report`, the honest-discovery slice): EFTS coverage
+(pages ok/attempted + the failed terms), the `capped_terms`, the **tail-sweep tri-state** (`ran | failed |
+skipped` — `research_tail_sweep` returns a `TailSweep`, so a transiently-LOST sweep is no longer
+indistinguishable from "no foreign names exist"; `skipped` = the operator's own no-key/live-disabled config,
+rendered quiet), and the **narration fill** (M of N names that needed prose got it — a partial narration was a
+log line only). The Workbench renders it as a **status strip**: one muted line at 100% healthy, a loud
+flag-block on any gap (inverse loudness), which also disambiguates *done-but-empty* from *failed*. Display-only
+RUN state — value-free (#3), never persisted (the draft stays response-only). *Enforced by:*
+`app/schemas_api.py` (`DraftReportOut`), the report assembly in `execute_draft`
+(`tests/app/test_workbench_api.py::test_draft_report_rides_the_response` / `…_carries_capped_term` / the
+tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
+`tests/llm/test_chain_decomposition.py::test_tail_sweep_failopen_names_the_outcome`), and the FE strip tests
+(`frontend/src/workbench/__tests__/ChainEditor.test.tsx`).
 
 ---
 

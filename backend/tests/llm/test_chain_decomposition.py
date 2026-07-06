@@ -138,10 +138,12 @@ def test_research_offline_gate_raises_when_live_disabled():
 
 def test_real_client_research_offline_gate_fails_open(monkeypatch):
     """The real ``LLMClient.research`` raises ``LLMUnavailable`` with no key -> ``research_tail_sweep`` degrades
-    to None (no network); the draft then runs the decompose on the EDGAR context alone (or recall-only).
+    to a no-synthesis SKIPPED result (no network) — the operator's own off switch, named as such on the draft
+    report, never conflated with a fault; the draft then runs on the EDGAR context alone (or recall-only).
     """
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert research_tail_sweep(LLMClient(allow_live=True), "a real narrative", ["X"]) is None
+    out = research_tail_sweep(LLMClient(allow_live=True), "a real narrative", ["X"])
+    assert out.synthesis is None and out.status == "skipped"
 
 
 # --- Slice 3: the directed tail-sweep (the foreign/brand-new names EFTS can't see) ---
@@ -150,7 +152,7 @@ def test_real_client_research_offline_gate_fails_open(monkeypatch):
 def test_tail_sweep_returns_synthesis_and_threads_the_found_list():
     fake = _FakeClient(research_returns="New foreign name: PharmAla Biotech.")
     out = research_tail_sweep(fake, "psychedelic therapy", ["Compass Pathways", "GH Research"])
-    assert out == "New foreign name: PharmAla Biotech."
+    assert out.synthesis == "New foreign name: PharmAla Biotech." and out.status == "ran"
     assert len(fake.research_calls) == 1
     user = fake.research_calls[0]["user"]
     assert "psychedelic therapy" in user  # the narrative
@@ -161,19 +163,28 @@ def test_tail_sweep_returns_synthesis_and_threads_the_found_list():
 
 def test_tail_sweep_empty_found_list_still_runs():
     fake = _FakeClient(research_returns="x")
-    assert research_tail_sweep(fake, "a narrative", []) == "x"
+    assert research_tail_sweep(fake, "a narrative", []).synthesis == "x"
     assert "(none yet)" in fake.research_calls[0]["user"]
 
 
-def test_tail_sweep_failopen():
-    for exc in (LLMUnavailable("no key"), TimeoutError("hung"), RuntimeError("boom")):
-        assert research_tail_sweep(_FakeClient(research_raises=exc), "a narrative", ["X"]) is None
-    assert research_tail_sweep(_FakeClient(research_returns=None), "a narrative", ["X"]) is None
+def test_tail_sweep_failopen_names_the_outcome():
+    """Every failure path stays FAIL-OPEN (no synthesis, the draft proceeds) but the OUTCOME is now named —
+    the tri-state the draft report renders: the operator's own off switch (LLMUnavailable) is ``skipped``
+    (quiet), a transient fault is ``failed`` (loud), and a sweep that completed empty is honestly ``ran``.
+    """
+    skipped = research_tail_sweep(_FakeClient(research_raises=LLMUnavailable("no key")), "n", ["X"])
+    assert skipped.synthesis is None and skipped.status == "skipped"
+    for exc in (TimeoutError("hung"), RuntimeError("boom")):
+        out = research_tail_sweep(_FakeClient(research_raises=exc), "a narrative", ["X"])
+        assert out.synthesis is None and out.status == "failed"  # lost, and ON THE RECORD
+    ran_empty = research_tail_sweep(_FakeClient(research_returns=None), "a narrative", ["X"])
+    assert ran_empty.synthesis is None and ran_empty.status == "ran"  # completed, found nothing
 
 
 def test_tail_sweep_blank_narrative_does_not_call_the_model():
     fake = _FakeClient(research_returns="x")
-    assert research_tail_sweep(fake, "   ", ["X"]) is None
+    out = research_tail_sweep(fake, "   ", ["X"])
+    assert out.synthesis is None and out.status == "skipped"
     assert fake.research_calls == []  # nothing to sweep -> never consult the model
 
 

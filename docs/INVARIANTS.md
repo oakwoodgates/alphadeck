@@ -218,10 +218,22 @@ surfaced to the operator, not silently resolved in code.**
   truth is the committed fixture `backend/tests/fixtures/recall_answer_key.py` (seeds + 32 acceptable-ticker groups
   + the collision-junk set), so the gate is re-runnable; the
   reliability raises (`DiscoveryDegraded` / `DiscoveryEmpty` / `DiscoveryNoTerms` → 503, never a recall
-  fallback — `workbench/discovery.py`); the per-CIK reconciler that set-difference-guarantees every
+  fallback — `workbench/discovery.py`), with the degraded raise on **post-retry** counts that ride the
+  operator-facing message; the per-CIK reconciler that set-difference-guarantees every
   discovered in-master CIK reaches the draft (`workbench/chain_draft.resolve_discovered_chain`); the VERIFY
   tier that surfaces low-confidence adjacents rather than dropping them (`ingest/edgar/fulltext.classify`). The
   full discovery system this invariant governs: `docs/DISCOVERY.md`.
+- *Also enforced by (the honest-discovery slice — rules 2/3/4 made structural, not log-only):* the per-run
+  **coverage report** (`DiscoveryRun.coverage` → `ChainDraftOut.report` → the Workbench **status strip**) — a
+  sub-threshold EFTS gap used to pass looking complete (a log line the operator never reads); now pages
+  ok/attempted + the failed TERMS ride every draft, after **one politeness-budgeted retry pass** over the
+  failed subset (a recovered page-0 also fetches the deep pages it owed — the silent-partial trap, pinned by
+  `test_discover_retry_recovered_page0_fetches_its_deep_pages`); the **hit-cap flag** (`capped_terms` + the
+  `⚠ capped` chip — rule 4's "hitting the backstop goes on the record", `test_discover_reports_capped_term`);
+  the **tail-sweep tri-state** (`TailSweep.status` — a LOST sweep reads `failed`, never conflated with
+  "ran-and-found-nothing" or the deliberate no-key `skipped`); the **narration fill count** (M of N on the
+  report); and the **single-worker startup guard** (`draft_jobs.assert_single_worker`, the app lifespan +
+  the Dockerfile's explicit `--workers 1` — >1 worker silently broke the 409 guard and job polls).
 - *Also honored by (SURFACE/TRIAGE):* the **off-thesis flag** RECOMMENDS removal but the name **STAYS PLACED** —
   a flagged name is never a silent drop, the operator prunes it (`CHAIN_DRAFTER.md`). In **TRIAGE**, every "hide"
   is a visible, reversible, still-promotable collapse (excluded rows, the To-Review "Low signal" / "No listed

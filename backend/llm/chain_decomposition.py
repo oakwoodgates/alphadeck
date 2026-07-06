@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from domain.settings import get_settings
+from llm.client import LLMUnavailable
 from llm.prompt_loader import load_prompt
 
 # Scoped to the LLM seams; WARNINGs propagate to uvicorn's root handler so a narration failure is VISIBLE in
@@ -345,12 +347,34 @@ def _web_search_tool() -> dict[str, Any]:
     }
 
 
-def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> str | None:
+TailSweepStatus = Literal["ran", "failed", "skipped"]
+
+
+@dataclass(frozen=True)
+class TailSweep:
+    """The tail-sweep's result WITH its outcome named — so the caller (and the draft report) can tell "ran and
+    found nothing" from "failed" from "deliberately off". A bare ``None`` conflated all three (#9 rule 2: the
+    foreign/ADR tail losing its sweep SILENTLY was indistinguishable from the tail not existing).
+
+    - ``ran`` — the research call completed; ``synthesis`` is its text, or ``None`` when it found nothing (an
+      honest empty, not a failure).
+    - ``failed`` — a transient fault (timeout / SDK / transport) lost the sweep; still fail-open, but ON THE
+      RECORD (the draft report renders it loud).
+    - ``skipped`` — the operator's own configuration (no key / live disabled / a blank narrative): deliberate,
+      shown quietly, never alarmed.
+    """
+
+    synthesis: str | None
+    status: TailSweepStatus
+
+
+def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> TailSweep:
     """The DIRECTED tail-sweep (discovery Slice 3) — the LLM's SECOND bounded job in the EDGAR-first
     architecture. Given the names the EDGAR full-text enumerator already found, web-search the corners EFTS
     STRUCTURALLY can't see — foreign-with-US-listing (ADR/dual) / brand-new IPOs / DBA-or-very-recent-rebrand /
-    no-US-filing — for on-thesis, US-tradeable names NOT in the found list. Returns a plain-text synthesis (the
-    NEW names + tickers + roles), or ``None`` on any failure (fail-open).
+    no-US-filing — for on-thesis, US-tradeable names NOT in the found list. Returns a ``TailSweep``: the
+    plain-text synthesis (the NEW names + tickers + roles) plus the run's status — every failure path stays
+    FAIL-OPEN (the draft proceeds on the EDGAR context alone) but is now NAMED, never a silent ``None``.
 
     Framed as a directed sweep, NOT a bare "ignore these" (a bare exclusion makes the model re-list the core and
     stop early). The found list is threaded into the user message. ``client`` only needs a
@@ -358,7 +382,7 @@ def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> 
     resolver + the secondary name/ticker bridges decide membership, never auto-place).
     """
     if not narrative or not narrative.strip():
-        return None
+        return TailSweep(None, "skipped")
     system = load_prompt("tail_sweep")  # fail-loud on a missing prompt, outside the fail-open try
     found = ", ".join(n for n in found_names if n and n.strip()) or "(none yet)"
     user = (
@@ -366,6 +390,9 @@ def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> 
         f"Already-found names (do NOT re-list these — find what's MISSING):\n{found}"
     )
     try:
-        return client.research(system=system, user=user, tool=_web_search_tool())
-    except Exception:  # noqa: BLE001 — no key / live disabled / timeout / SDK error -> fail-open
-        return None
+        return TailSweep(client.research(system=system, user=user, tool=_web_search_tool()), "ran")
+    except LLMUnavailable:  # no key / live disabled — the deliberate off switch, not a fault
+        return TailSweep(None, "skipped")
+    except Exception:  # noqa: BLE001 — timeout / SDK / transport -> fail-open, but ON THE RECORD
+        _log.warning("tail-sweep failed (fail-open; the draft proceeds on EDGAR context alone)")
+        return TailSweep(None, "failed")

@@ -1115,6 +1115,16 @@
             "type": "array",
             "title": "Placements",
             "default": []
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftReportOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1122,7 +1132,34 @@
           "thesis_id"
         ],
         "title": "ChainDraftOut",
-        "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output)."
+        "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /\nnarration \u2014 ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader\nhandles its absence."
+      },
+      "DraftCoverageOut": {
+        "properties": {
+          "pages_ok": {
+            "type": "integer",
+            "title": "Pages Ok"
+          },
+          "pages_attempted": {
+            "type": "integer",
+            "title": "Pages Attempted"
+          },
+          "failed_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failed Terms",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "pages_ok",
+          "pages_attempted"
+        ],
+        "title": "DraftCoverageOut",
+        "description": "How much of the universe the draft's EFTS enumeration actually covered (the #9 rule-2/3 instrument on\nthe wire): a sub-threshold gap used to pass looking complete (logged only); now the pages fetched vs\nattempted \u2014 and the TERMS whose pages are still missing \u2014 ride every draft to the operator. RUN state,\ndisplay-only, never persisted."
       },
       "DraftJobRef": {
         "properties": {
@@ -1192,6 +1229,47 @@
         ],
         "title": "DraftJobStatus",
         "description": "The poll body. ``done`` carries the ``result`` (the ChainDraftOut); ``failed`` carries an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, never a silent empty draft, #9).\nA benign fail-open (no key / the model declined) is ``done`` with an EMPTY draft, not a failure."
+      },
+      "DraftReportOut": {
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/DraftCoverageOut"
+          },
+          "capped_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capped Terms",
+            "default": []
+          },
+          "tail_sweep": {
+            "type": "string",
+            "enum": [
+              "ran",
+              "failed",
+              "skipped"
+            ],
+            "title": "Tail Sweep"
+          },
+          "narration_needed": {
+            "type": "integer",
+            "title": "Narration Needed"
+          },
+          "narration_filled": {
+            "type": "integer",
+            "title": "Narration Filled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "coverage",
+          "tail_sweep",
+          "narration_needed",
+          "narration_filled"
+        ],
+        "title": "DraftReportOut",
+        "description": "The draft run's honesty report \u2014 every formerly-silent recall-loss mode, named per run (#9 rules 2/3):\nEFTS coverage, the hit-capped terms (enumeration truncated at the cap \u2014 deep hits not searched), the\ntail-sweep outcome (``ran`` / ``failed`` / ``skipped`` \u2014 a failed sweep is no longer indistinguishable from\n\"no foreign names exist\"), and the narration fill (M of N placed/verify names carrying thesis-fit prose).\nValue-free (#3) and RESPONSE-ONLY \u2014 display run state, never a fact, never persisted; the Workbench strip\nrenders it quiet at 100% healthy, loud on any gap (inverse loudness)."
       },
       "EditTermsRequest": {
         "properties": {

@@ -456,6 +456,32 @@ class FlagExplanationOut(BaseModel):
 # --- S5: the narrative→chain DECOMPOSE drafter (the SECOND LLM seam) — a DISPLAY draft, never a fact ---
 
 
+class DraftCoverageOut(BaseModel):
+    """How much of the universe the draft's EFTS enumeration actually covered (the #9 rule-2/3 instrument on
+    the wire): a sub-threshold gap used to pass looking complete (logged only); now the pages fetched vs
+    attempted — and the TERMS whose pages are still missing — ride every draft to the operator. RUN state,
+    display-only, never persisted."""
+
+    pages_ok: int
+    pages_attempted: int
+    failed_terms: list[str] = []
+
+
+class DraftReportOut(BaseModel):
+    """The draft run's honesty report — every formerly-silent recall-loss mode, named per run (#9 rules 2/3):
+    EFTS coverage, the hit-capped terms (enumeration truncated at the cap — deep hits not searched), the
+    tail-sweep outcome (``ran`` / ``failed`` / ``skipped`` — a failed sweep is no longer indistinguishable from
+    "no foreign names exist"), and the narration fill (M of N placed/verify names carrying thesis-fit prose).
+    Value-free (#3) and RESPONSE-ONLY — display run state, never a fact, never persisted; the Workbench strip
+    renders it quiet at 100% healthy, loud on any gap (inverse loudness)."""
+
+    coverage: DraftCoverageOut
+    capped_terms: list[str] = []
+    tail_sweep: Literal["ran", "failed", "skipped"]
+    narration_needed: int
+    narration_filled: int
+
+
 class ChainDraftOut(BaseModel):
     """The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
     resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
@@ -463,11 +489,14 @@ class ChainDraftOut(BaseModel):
     RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
     placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only
     writer. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the
-    resolver's output)."""
+    resolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /
+    narration — ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader
+    handles its absence."""
 
     thesis_id: UUID
     segments: list[ResolvedSegment] = []
     placements: list[ResolvedPlacement] = []
+    report: DraftReportOut | None = None
 
 
 # --- Async draft delivery (kick-off → poll): the draft is a JOB, not a held-open request ---

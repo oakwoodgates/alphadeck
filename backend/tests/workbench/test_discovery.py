@@ -92,6 +92,10 @@ def test_run_discovery_places_and_verifies(db):
     assert set(uni.filers) == {_A, _C, _B}  # the raw enumerated set, for the layout match-back
     assert uni.signal == ["psilocybin", "ibogaine"] and uni.broad == ["ketamine"]
     assert not uni.is_empty
+    # the run's honesty report threads through: full coverage (3 keywords, page-0 each), nothing capped
+    assert uni.coverage is not None
+    assert uni.coverage.pages_ok == uni.coverage.pages_attempted == 3
+    assert uni.coverage.failed_terms == [] and uni.capped_terms == []
 
 
 def test_run_discovery_omits_not_in_master(db):

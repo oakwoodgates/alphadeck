@@ -471,7 +471,14 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-rec-disagree { flex-basis: 100%; margin-top: 2px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .wb-rec-defense { color: var(--warn, #b8860b); }  /* your SIGNAL seed flagged BROAD — caution */
 .wb-rec-offense { color: var(--accent, #2d7d46); }  /* an unseeded term flagged SIGNAL — the opportunity */
+.wb-capped { color: var(--warm); font-weight: 700; }  /* the last draft hit-capped this term — deep hits unsearched (#9) */
 @media (max-width: 720px) { .wb-terms-split { grid-template-columns: 1fr; } }
+
+/* The draft-run status strip (the honesty report, #9 rules 2/3): quiet ONE muted line at 100% healthy, a loud
+   warm flag-block naming only the failing dimensions on any gap (inverse loudness #7). Run state, never persisted. */
+.wb-draft-strip { margin-top: 6px; }
+.wb-draft-strip.loud { margin-top: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: var(--warm); background: rgba(224, 162, 60, 0.08); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 6px; }
+.wb-draft-strip.loud ul { margin: 4px 0 0 16px; padding: 0; color: var(--txt-2); }
 
 /* ===========================================================================
    Workbench RESULTS surface (post-draft) — three buckets: PLACED · TO REVIEW · COULDN'T RESOLVE.

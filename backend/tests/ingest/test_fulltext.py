@@ -21,18 +21,29 @@ from ingest.edgar.fulltext import (
 
 class _FakeEfts:
     """Returns canned EFTS JSON by cache_key; an unknown key -> an empty page (terminates pagination). A
-    cache_key in ``fail`` RAISES (simulating a page that failed even after ``polite_get``'s retries).
+    cache_key in ``fail`` RAISES on every call (a persistent outage, failed even after ``polite_get``'s
+    retries); one in ``fail_once`` raises on its FIRST call only (a transient blip the retry pass recovers).
     """
 
-    def __init__(self, pages: dict[str, dict], *, fail: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        pages: dict[str, dict],
+        *,
+        fail: set[str] | None = None,
+        fail_once: set[str] | None = None,
+    ) -> None:
         self.pages = pages
         self.fail = set(fail or ())
+        self.fail_once = set(fail_once or ())
         self.calls: list[str] = []
 
     def get_json(self, url, cache_key):
         self.calls.append(cache_key)
         if cache_key in self.fail:
             raise RuntimeError(f"EFTS {cache_key} unreachable")
+        if cache_key in self.fail_once:
+            self.fail_once.discard(cache_key)
+            raise RuntimeError(f"EFTS {cache_key} transient")
         return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
 
 
@@ -89,7 +100,7 @@ def test_discover_unions_keyword_hits():
             ("0001999999", "NoiseCo  (NOIS)  (CIK 0001999999)"),
         ),
     }
-    uni = discover(_FakeEfts(pages), ["psilocybin", "ibogaine"])
+    uni = discover(_FakeEfts(pages), ["psilocybin", "ibogaine"]).filers
     assert uni["0001816590"].keywords == {"psilocybin", "ibogaine"}  # union across keywords
     assert uni["0001999999"].keywords == {"ibogaine"}
     assert uni["0001816590"].ticker == "CMPS"
@@ -113,8 +124,8 @@ def test_discover_is_deterministic():
             1, ("0001816590", "COMPASS Pathways plc  (CMPS)  (CIK 0001816590)")
         )
     }
-    a = discover(_FakeEfts(pages), ["psilocybin"])
-    b = discover(_FakeEfts(pages), ["psilocybin"])
+    a = discover(_FakeEfts(pages), ["psilocybin"]).filers
+    b = discover(_FakeEfts(pages), ["psilocybin"]).filers
     assert {k: v.keywords for k, v in a.items()} == {k: v.keywords for k, v in b.items()}
 
 
@@ -136,7 +147,7 @@ def test_discover_parallel_matches_the_sequential_reference():
         "efts/ibogaine_0.json": _page(2, *_rows(5, 99)),  # cik 5 overlaps psilocybin; 99 is new
     }
     kws = ["psilocybin", "ibogaine"]
-    par = discover(_FakeEfts(pages), kws, max_workers=8)
+    par = discover(_FakeEfts(pages), kws, max_workers=8).filers
 
     ref: dict[str, set[str]] = {}  # the sequential union, keyword-by-keyword
     for kw in kws:
@@ -167,38 +178,105 @@ def _pages_3() -> dict[str, dict]:
 
 
 def test_discover_skips_a_failed_page_below_threshold_and_keeps_the_rest():
-    """A single page that fails after retries does NOT nuke the universe (the silent-degradation bug): it is
-    skipped, the surrounding pages still union, and below ``degraded_ratio`` the run returns (the skip is logged
-    elsewhere). The failed page's CIKs are simply absent — never a wholesale empty."""
+    """A single page that fails PERSISTENTLY (both the first pass and the retry pass) does NOT nuke the
+    universe: it is skipped, the surrounding pages still union, and below ``degraded_ratio`` the run returns —
+    with the gap on the record (coverage: 2/3 pages, the term named, retried-but-not-recovered). The failed
+    page's CIKs are simply absent — never a wholesale empty."""
     fake = _FakeEfts(_pages_3(), fail={"efts/kw_2.json"})  # the middle (offset-2) page fails
-    uni = discover(
+    run = discover(
         fake, ["kw"], max_workers=4, degraded_ratio=0.5
     )  # 1 of 3 pages = 33% < 50% -> returns
-    assert set(uni) == {
+    assert set(run.filers) == {
         "0000000001",
         "0000000002",
         "0000000005",
         "0000000006",
     }  # page-0 + page-4 survive
     assert (
-        "0000000003" not in uni and "0000000004" not in uni
+        "0000000003" not in run.filers and "0000000004" not in run.filers
     )  # the failed page's CIKs, skipped not faked
+    cov = run.coverage
+    assert (cov.pages_ok, cov.pages_attempted) == (2, 3)  # the gap is ON THE RECORD (#9 rule 2)
+    assert cov.failed_terms == ["kw"]  # ...and the term is NAMED
+    assert (cov.retried, cov.recovered) == (
+        1,
+        0,
+    )  # retried once, persistent failure -> not recovered
+    assert run.capped_terms == []
 
 
 def test_discover_raises_DiscoveryDegraded_past_threshold():
     """Past the threshold the run is DEGRADED -> it RAISES rather than return a partial universe as if whole
-    (completeness-or-fail). Same single failure, a stricter ratio."""
+    (completeness-or-fail). Same single persistent failure, a stricter ratio; the exception carries the
+    POST-RETRY counts (the operator-facing 503 message names them)."""
     fake = _FakeEfts(_pages_3(), fail={"efts/kw_2.json"})  # 1 of 3 = 33%
-    with pytest.raises(DiscoveryDegraded):
+    with pytest.raises(DiscoveryDegraded) as exc:
         discover(fake, ["kw"], max_workers=4, degraded_ratio=0.10)  # 33% > 10% -> degraded
+    assert (exc.value.failed, exc.value.attempted) == (1, 3)  # post-retry counts
 
 
 def test_discover_pervasive_failure_raises_not_returns_empty():
     """A pervasive failure (SEC down / a parse bug failing EVERY page) blows the ratio and surfaces LOUDLY as
     DiscoveryDegraded — never the silent empty universe that masqueraded as 'found nothing'."""
     fake = _FakeEfts(_pages_3(), fail=set(_pages_3()))  # every page fails
-    with pytest.raises(DiscoveryDegraded):
+    with pytest.raises(DiscoveryDegraded) as exc:
         discover(fake, ["kw"], max_workers=4, degraded_ratio=0.05)
+    # only page-0 is ever attemptable (its failure hides the offsets), and the retry didn't save it
+    assert (exc.value.failed, exc.value.attempted) == (1, 1)
+
+
+def test_discover_clean_run_coverage():
+    """A clean run's coverage is the FULL-ENUMERATION statement: every page fetched, nothing retried, no term
+    capped — the quiet baseline the Workbench strip renders as one muted line."""
+    run = discover(_FakeEfts(_pages_3()), ["kw"], max_workers=4)
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}
+    cov = run.coverage
+    assert cov.pages_ok == cov.pages_attempted == 3
+    assert (cov.retried, cov.recovered, cov.failed_terms) == (0, 0, [])
+    assert run.capped_terms == []
+
+
+def test_discover_retry_recovers_a_transient_page():
+    """A TRANSIENT page failure (fails once, succeeds on the retry pass) costs NOTHING: the universe is
+    complete, coverage reads full, and — the point of the pass — a blip that would have blown the 5% default
+    threshold no longer 503s the whole draft. The failure MODE (the degraded raise) is untouched; only its
+    frequency drops."""
+    fake = _FakeEfts(_pages_3(), fail_once={"efts/kw_2.json"})
+    run = discover(
+        fake, ["kw"], max_workers=4
+    )  # default 5% ratio: pre-retry this WOULD have raised
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}  # nothing lost
+    cov = run.coverage
+    assert cov.pages_ok == cov.pages_attempted == 3
+    assert (cov.retried, cov.recovered) == (1, 1)
+    assert cov.failed_terms == []
+
+
+def test_discover_retry_recovered_page0_fetches_its_deep_pages():
+    """The silent-partial trap, pinned: a keyword whose PAGE-0 failed had NO offsets enumerated, so recovering
+    page-0 on the retry pass must also fetch the deep pages the run still OWES — and count them in
+    ``pages_attempted``. Recovering only page 0 would masquerade a 1/3 enumeration as complete."""
+    fake = _FakeEfts(_pages_3(), fail_once={"efts/kw_0.json"})  # page-0 transiently fails
+    run = discover(fake, ["kw"], max_workers=4)
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}  # deep pages fetched too
+    cov = run.coverage
+    assert cov.pages_attempted == 3  # page-0 + the 2 LATE offsets it owed
+    assert cov.pages_ok == 3
+    assert (cov.retried, cov.recovered) == (1, 1)
+    assert "efts/kw_4.json" in fake.calls  # the deepest page really was fetched
+
+
+def test_discover_reports_capped_term():
+    """A keyword whose EFTS total exceeds the hit-cap is enumerated only to the cap — and that truncation is
+    ON THE RECORD (#9 rule 4): the term lands in ``capped_terms`` (the draft report + the term-chip marker),
+    and pages beyond the cap are genuinely not fetched."""
+    fake = _FakeEfts(_pages_3())  # total=6 across 3 pages
+    run = discover(fake, ["kw"], max_workers=4, hit_cap=4)  # cap below the total
+    assert run.capped_terms == ["kw"]
+    assert "efts/kw_4.json" not in fake.calls  # beyond-cap page NOT fetched
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 5)}  # pages 0 + 2 only
+    cov = run.coverage
+    assert cov.pages_ok == cov.pages_attempted == 2  # the capped enumeration itself was clean
 
 
 # --- classify: the PLACED / VERIFY tiers (Slice 2b) ---

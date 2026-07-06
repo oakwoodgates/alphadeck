@@ -9,9 +9,12 @@ POLLS a status endpoint. The draft LOGIC is unchanged — only the delivery.
 This mirrors ``workbench.research_runner`` EXACTLY: a module-level registry + a ``threading.Lock``, an ATOMIC
 check-and-claim (one running job per thesis → ``DraftInFlight`` → HTTP 409), and a ``finally``-release so a
 failed/timed-out job never strands a thesis permanently in-flight. Single-process is authoritative: uvicorn runs
-ONE worker (``Dockerfile`` CMD, no ``--workers``) and the job runs in a daemon thread in that process, so a
-module-level dict + a ``threading.Lock`` is correct. (If ``--workers>1`` is ever added, this needs a shared store
-— a DB-backed ``draft_jobs`` table — the same caveat as ``research_runner``.)
+ONE worker (the ``Dockerfile`` CMD pins an explicit ``--workers 1``) and the job runs in a daemon thread in that
+process, so a module-level dict + a ``threading.Lock`` is correct. The assumption is GUARDED at startup:
+``assert_single_worker`` (below, called from the app lifespan) refuses to boot when ``WEB_CONCURRENCY`` /
+``UVICORN_WORKERS`` asks for >1 — with multiple workers the 409 guard evaporates and polls 404 on the wrong
+worker, SILENTLY. (If >1 worker is ever truly needed, this needs a shared store — a DB-backed ``draft_jobs``
+table — the same caveat as ``research_runner``.)
 
 The result (a ``ChainDraftOut``) lives ONLY in memory and is RESPONSE-ONLY: the draft writes no fact and no
 promote (INVARIANT #2/#3). A restart wipes the registry — an in-flight poll then 404s, which the FE shows as a
@@ -24,7 +27,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any, Literal
@@ -65,6 +68,35 @@ class DraftError(Exception):
     """A draft failed with an OPERATOR-FACING message (e.g. discovery not ready). ``str(exc)`` is shown to the
     operator verbatim on the poll, so the kick-off thunk raises it with the curated text (NOT a stack-leak). Any
     OTHER exception becomes a generic failed message + a logged traceback."""
+
+
+def assert_single_worker(env: Mapping[str, str]) -> None:
+    """REFUSE to boot with >1 web worker — the in-process registries (this module + ``research_runner``) are
+    per-process, so at ``--workers>1`` the 409 in-flight guard evaporates and job polls 404 on whichever worker
+    didn't run the draft, SILENTLY. Called from the app lifespan with ``os.environ``.
+
+    Checks the env-driven scaling knobs (``WEB_CONCURRENCY`` — the PaaS convention — and ``UVICORN_WORKERS``);
+    an unparseable value only WARNS (uvicorn ignores it under the Dockerfile's explicit ``--workers 1`` anyway).
+    HONEST LIMITATION: a hand-typed CLI ``--workers 2`` with no env var is invisible here (each worker's
+    lifespan runs but cannot see the flag) — the explicit ``--workers 1`` pinned in the Dockerfile CMD is the
+    production mitigation, and this guard catches the env-driven platforms. Takes a mapping (deploy vars, not
+    an ``ALPHADECK_`` setting) so the check is pure and directly testable."""
+    for var in ("WEB_CONCURRENCY", "UVICORN_WORKERS"):
+        raw = env.get(var)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            workers = int(raw.strip())
+        except ValueError:
+            _log.warning("%s=%r is not an integer — ignoring (uvicorn would too)", var, raw)
+            continue
+        if workers > 1:
+            raise RuntimeError(
+                f"{var}={workers}: alphadeck runs SINGLE-WORKER by design — the in-process draft-job and "
+                "research registries (workbench/draft_jobs, workbench/research_runner) are per-process, so "
+                ">1 worker silently breaks the 409 in-flight guard and job polls. Unset the variable, or "
+                "build the DB-backed job store first."
+            )
 
 
 # The executor seam (the testability hinge): prod spawns a daemon thread; tests monkeypatch ``_DEFAULT_EXECUTOR``

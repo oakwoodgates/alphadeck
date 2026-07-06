@@ -15,9 +15,11 @@ re-launch impossible and a re-draft free:
   SAME narrative doesn't re-spend. ``ttl_s == 0`` disables it (always fresh — the convergence gate-2 mode). Only a
   NON-None result is cached, so a failed/empty research isn't stranded on recall-only for the whole TTL.
 
-Single-process is authoritative: uvicorn runs ONE worker (``Dockerfile`` CMD, no ``--workers``) and the draft
-endpoint is a sync ``def`` (Starlette threadpool), so concurrent drafts are THREADS in one process — a module-level
-registry + a ``threading.Lock`` is correct. (If ``--workers>1`` is ever added, this needs a shared store.)
+Single-process is authoritative: uvicorn runs ONE worker (the ``Dockerfile`` CMD pins an explicit ``--workers 1``)
+and the draft endpoint is a sync ``def`` (Starlette threadpool), so concurrent drafts are THREADS in one process —
+a module-level registry + a ``threading.Lock`` is correct. The assumption is GUARDED at startup:
+``draft_jobs.assert_single_worker`` (the app lifespan) refuses env-driven ``WEB_CONCURRENCY``/``UVICORN_WORKERS``
+scaling. (If >1 worker is ever truly needed, this needs a shared store.)
 
 The cached text is discovery CONTEXT, not a fact or signal — it never enters the spine, is never scored, and
 re-derives after the TTL. It is NOT the read-serving signal/score cache that Option B forbids.
