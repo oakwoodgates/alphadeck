@@ -569,13 +569,22 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           {p.discovery_source === "off_universe" && <OffUniversePill />}
         </div>
         {p.prose ? <div className="fit">{p.prose}</div> : null}
-        {(p.segment || p.matched_terms.length > 0) && (
-          <div className="prov lead">
-            {p.segment ? `recommend → ${p.segment}` : null}
-            {p.segment && p.matched_terms.length > 0 ? " · " : null}
-            {p.matched_terms.length > 0 ? `matched ${p.matched_terms.join(", ")}` : null}
-          </div>
-        )}
+        {(() => {
+          // Only surface "recommend → {segment}" when it's a REAL link. "Discovered" is the unsorted holding pen
+          // (not a link), so "recommend → Discovered" is a contradiction — it's exactly where the low-signal /
+          // ticker-less names land, i.e. the system is NOT recommending a link. Keep the `matched …` provenance
+          // (why it surfaced) either way.
+          const recSeg = p.segment && p.segment !== DISCOVERED ? p.segment : null;
+          const matched = p.matched_terms.length > 0 ? p.matched_terms.join(", ") : null;
+          if (!recSeg && !matched) return null;
+          return (
+            <div className="prov lead">
+              {recSeg ? `recommend → ${recSeg}` : null}
+              {recSeg && matched ? " · " : null}
+              {matched ? `matched ${matched}` : null}
+            </div>
+          );
+        })()}
         {p.listing_status === "inactive" && <NotListedFlag />}
       </div>
     );

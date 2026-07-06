@@ -889,6 +889,9 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     // expand No listed ticker → the ticker-less name shows, but its add is DISABLED (not directly investable)
     await user.click(screen.getByText("No listed ticker"));
     expect(screen.getByRole("checkbox", { name: "add Some Holdco LLC" })).toBeDisabled();
+    // the Discovered-segment rows never read "recommend → Discovered" (a non-recommendation), but keep `matched`
+    expect(screen.queryByText(/recommend → Discovered/)).not.toBeInTheDocument();
+    expect(screen.getByText(/matched memory/)).toBeInTheDocument(); // Kroger's provenance still shows
   });
 
   it("item 6: 'Discovered' is de-linked (unsorted tag) and the nudge prompts sorting", async () => {
