@@ -551,13 +551,9 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .pill.low { color: var(--txt-3); background: rgba(90, 100, 116, 0.12); border: 1px solid var(--line-2); }
 /* machine-parsed identity chips (Slice 2 enrichment): quiet sector / exchange metadata — not a pill shout */
 .wb-results .idchip { font-family: var(--mono); font-size: 9px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
-/* To-Review "add" is a checkbox styled affordance (model A): check → the candidate promotes and the row moves
-   up to Placed. A faint "check to add" hint keeps an empty box reading as "add", never "excluded". */
-.wb-results .wb-addchk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.wb-results .wb-addchk input { accent-color: var(--leader); width: 14px; height: 14px; cursor: pointer; flex: none; }
-.wb-results .wb-addchk .hint { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
-.wb-results .wb-addchk.disabled { cursor: default; opacity: 0.5; }
-.wb-results .wb-addchk.disabled input { cursor: default; }
+/* To-Review "add" reuses the Placed include checkbox (.wb-inc), sitting LEFT of the name — check to promote
+   (the row moves up to Placed). Disabled (greyed) for un-addable names (no filer id / no listed ticker). */
+.wb-results .wb-inc:disabled { opacity: 0.4; cursor: default; }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
 /* the lower-priority To-Review groups (Low signal + No listed ticker) — separated from the keepers by a gap + a

@@ -552,22 +552,21 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     return (
       <div className="nmrow" key={key}>
         <div className="top">
+          {/* the "add" checkbox sits LEFT of the name — the same spot as the Placed include checkbox (consistency).
+              Checking it promotes the candidate → the row moves up to Placed. Disabled + titled for un-addable names. */}
+          <input
+            type="checkbox"
+            className="wb-inc"
+            checked={false}
+            disabled={!canAdd}
+            aria-label={`add ${p.ticker || p.name}`}
+            title={addWhy}
+            onChange={() => canAdd && addVerify(p)}
+          />
           <span className="tk">{p.ticker || "—"}</span>
           <span className="co">{p.name}</span>
           <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
-          <span className="ctls">
-            {p.discovery_source === "off_universe" && <OffUniversePill />}
-            <label className={`wb-addchk${canAdd ? "" : " disabled"}`} title={addWhy}>
-              <input
-                type="checkbox"
-                checked={false}
-                disabled={!canAdd}
-                aria-label={`add ${p.ticker || p.name}`}
-                onChange={() => canAdd && addVerify(p)}
-              />
-              <span className="hint">check to add</span>
-            </label>
-          </span>
+          {p.discovery_source === "off_universe" && <OffUniversePill />}
         </div>
         {p.prose ? <div className="fit">{p.prose}</div> : null}
         {(p.segment || p.matched_terms.length > 0) && (
