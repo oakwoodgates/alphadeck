@@ -65,6 +65,34 @@ class Filer:
     keywords: set[str] = field(default_factory=set)
 
 
+@dataclass(frozen=True)
+class DiscoveryCoverage:
+    """How much of the universe one ``discover`` run actually enumerated — the #9 rule-2/3 instrument. Every
+    run carries it (a clean run reads ``pages_ok == pages_attempted``, ``retried == 0``), and the draft
+    surfaces it to the operator, so a sub-threshold gap is VISIBLE on the surface, not just in a log line.
+    """
+
+    pages_ok: int  # pages fetched = attempted − still-failed (post-retry)
+    pages_attempted: int  # phase A + phase B + the late offsets a retry-recovered page-0 owed
+    failed_terms: list[
+        str
+    ]  # distinct keywords with >=1 page still failed after the retry pass (input order)
+    retried: int  # pages given the second sweep (0 on a clean run)
+    recovered: int  # of those, how many succeeded
+
+
+@dataclass
+class DiscoveryRun:
+    """``discover``'s result: the enumerated universe + the run's own honesty report. ``capped_terms`` names
+    every keyword whose EFTS total exceeded the hit-cap — pages beyond the cap were NOT enumerated, so a name
+    surfacing only that deep is invisible this run (#9 rule 4: the cap is a pathology backstop, and hitting
+    it goes on the record, never silent)."""
+
+    filers: dict[str, Filer]
+    coverage: DiscoveryCoverage
+    capped_terms: list[str] = field(default_factory=list)
+
+
 # "NAME  (TICKER[, TICKER2])  (CIK 000...)" — capture the ticker group that immediately precedes the CIK group.
 _TICKER_RE = re.compile(r"\(([A-Z0-9]{1,6}(?:,\s?[A-Z0-9]{1,6})*)\)\s*\(CIK")
 
@@ -150,9 +178,10 @@ def discover(
     hit_cap: int = 1000,
     max_workers: int = 8,
     degraded_ratio: float = 0.05,
-) -> dict[str, Filer]:
+) -> DiscoveryRun:
     """Run EFTS over the keyword set and union the distinct CIKs, each tagged with which keywords hit it — the
-    RAW universe (high recall, PRE-filter; call ``precision_filter`` / ``classify`` next).
+    RAW universe (high recall, PRE-filter; call ``precision_filter`` / ``classify`` on ``.filers`` next) plus
+    the run's own honesty report (``.coverage`` + ``.capped_terms``).
 
     PARALLEL but rate-bounded: the per-keyword pages fan out over a ``max_workers`` thread pool, yet every
     ``get_json`` funnels through the ONE shared ``EdgarClient`` -> the ONE ``RateLimiter`` (the SEC fair-access
@@ -160,22 +189,22 @@ def discover(
     exceeding the limit. Two phases: (A) page 0 of every keyword -> read ``total`` + the real ``page_size``;
     (B) fan out all remaining offsets. ``ThreadPoolExecutor.map`` yields in INPUT order, so the merge order is
     fixed run-to-run; the CIK set + keyword tagging are order-independent -> identical to the sequential walk
-    (``ciks_for_keyword``, the gate's determinism reference). ``hit_cap`` is the per-keyword backstop.
+    (``ciks_for_keyword``, the gate's determinism reference). ``hit_cap`` is the per-keyword backstop, and
+    HITTING it is recorded (``capped_terms`` + a WARNING), never silent.
 
-    COMPLETENESS-OR-FAIL (the reliability contract): a single page that fails AFTER ``polite_get``'s retries no
-    longer raises out of the fan-out and wipes the whole universe (the silent-degradation bug). Instead the
-    failure is logged (keyword + offset) and the page is skipped — but if the failed fraction exceeds
-    ``degraded_ratio`` the run is DEGRADED and raises ``DiscoveryDegraded``, so a run that couldn't fetch part of
-    the universe NEVER presents itself as the whole. (A pervasive failure — SEC down, a parse bug — fails every
-    page, blows the ratio, and surfaces loudly rather than returning empty.)
+    COMPLETENESS-OR-FAIL (the reliability contract): a page that fails AFTER ``polite_get``'s retries is
+    logged (keyword + offset) and skipped, then given ONE retry pass at the end — same client, same rate
+    limiter, the same global politeness budget (a recovered page-0 also owes its never-enumerated deep pages;
+    they are fetched inside the same pass). The retry reduces the failure FREQUENCY only; the failure MODE
+    stays loud (#9 rule 5): if the still-failed fraction exceeds ``degraded_ratio`` the run raises
+    ``DiscoveryDegraded`` (with post-retry counts), and a within-tolerance gap rides ``coverage`` onto the
+    draft report — a run that couldn't fetch part of the universe NEVER presents itself as the whole.
     """
     kws = list(dict.fromkeys(k for k in keywords if k))  # de-dup, preserve order, drop blanks
     if not kws:
-        return {}
+        return DiscoveryRun(filers={}, coverage=DiscoveryCoverage(0, 0, [], 0, 0))
 
-    failed: list[tuple[str, int]] = []
-
-    def _safe(keyword: str, frm: int):
+    def _safe(keyword: str, frm: int, sink: list[tuple[str, int]]):
         try:
             return _fetch_page(client, keyword, frm)
         except (
@@ -188,44 +217,102 @@ def discover(
                 frm,
                 exc,
             )
-            failed.append((keyword, frm))
+            sink.append((keyword, frm))
             return None
 
+    capped: set[str] = set()
+
+    def _offsets_for(kw: str, total: int, page_size: int) -> list[tuple[str, int]]:
+        # The keyword's remaining pages after a successful page-0 — the ONE site the cap applies, so the
+        # capped flag is detected here (no extra fetch: EFTS already reported ``total``).
+        if total > hit_cap:
+            capped.add(kw)
+            _log.warning(
+                "discovery: keyword %r hit-capped: total=%d > hit_cap=%d — pages beyond the cap NOT enumerated",
+                kw,
+                total,
+                hit_cap,
+            )
+        limit = min(total, hit_cap)
+        return [(kw, frm) for frm in range(page_size, limit, page_size)]
+
+    failed: list[tuple[str, int]] = []
     uni: dict[str, Filer] = {}
     # Phase A: page 0 of every keyword, concurrently (map preserves keyword order in its output).
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        page0 = list(ex.map(lambda kw: (kw, _safe(kw, 0)), kws))
+        page0 = list(ex.map(lambda kw: (kw, _safe(kw, 0, failed)), kws))
     offsets: list[tuple[str, int]] = []
     for kw, res in page0:
-        if (
-            res is None
-        ):  # page-0 failed -> the keyword is unenumerable this run (no total, no deep pages)
+        if res is None:  # page-0 failed -> the keyword is unenumerable until the retry pass below
             continue
         rows, total, page_size = res
         _merge_rows(uni, kw, rows)
         if page_size == 0:
             continue
-        limit = min(total, hit_cap)
-        offsets.extend((kw, frm) for frm in range(page_size, limit, page_size))
+        offsets.extend(_offsets_for(kw, total, page_size))
     # Phase B: every remaining page, concurrently (map preserves offsets order -> deterministic merge).
     if offsets:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            for kw, res in ex.map(lambda o: (o[0], _safe(o[0], o[1])), offsets):
+            for kw, res in ex.map(lambda o: (o[0], _safe(o[0], o[1], failed)), offsets):
                 if res is not None:
                     _merge_rows(uni, kw, res[0])
 
-    attempted = len(kws) + len(offsets)
-    if attempted and len(failed) / attempted > degraded_ratio:
-        raise DiscoveryDegraded(len(failed), attempted)
-    if failed:  # within tolerance, but NEVER silent — the gap is on the record
+    base_attempted = len(kws) + len(offsets)
+    retried = len(failed)
+    recovered = 0
+    still_failed: list[tuple[str, int]] = []
+    late_offsets: list[tuple[str, int]] = []
+    if failed:
+        # ONE retry pass over the failed subset — the same client -> the same RateLimiter -> polite_get's own
+        # per-request retries, so the pass spends the same global politeness budget (no new dial). It reduces
+        # the failure FREQUENCY only; the failure MODE stays loud (the post-retry degraded raise below).
+        _log.warning("discovery: retrying %d failed EFTS pages (one pass)", retried)
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            retry = list(ex.map(lambda o: (o[0], o[1], _safe(o[0], o[1], still_failed)), failed))
+        for kw, frm, res in retry:
+            if res is None:
+                continue
+            recovered += 1
+            rows, total, page_size = res
+            _merge_rows(uni, kw, rows)
+            if frm == 0 and page_size > 0:
+                # A recovered page-0's deep pages were never enumerated in Phase B — the run still OWES them
+                # (recovering only page 0 would be a silent partial). Fetch them inside the same pass; they
+                # are first attempts (each still gets polite_get's internal retries), never a further pass.
+                late_offsets.extend(_offsets_for(kw, total, page_size))
+        if late_offsets:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                for kw, res in ex.map(
+                    lambda o: (o[0], _safe(o[0], o[1], still_failed)), late_offsets
+                ):
+                    if res is not None:
+                        _merge_rows(uni, kw, res[0])
+
+    attempted = base_attempted + len(late_offsets)
+    if attempted and len(still_failed) / attempted > degraded_ratio:
+        raise DiscoveryDegraded(len(still_failed), attempted)
+    if (
+        still_failed
+    ):  # within tolerance, but NEVER silent — the gap rides coverage onto the draft report
         _log.warning(
-            "discovery: completed with %d/%d pages skipped (within the %.0f%% tolerance): %s",
-            len(failed),
+            "discovery: completed with %d/%d pages skipped after the retry pass (within the %.0f%% tolerance): %s",
+            len(still_failed),
             attempted,
             degraded_ratio * 100,
-            failed[:20],
+            still_failed[:20],
         )
-    return uni
+    failed_kws = {kw for kw, _ in still_failed}
+    return DiscoveryRun(
+        filers=uni,
+        coverage=DiscoveryCoverage(
+            pages_ok=attempted - len(still_failed),
+            pages_attempted=attempted,
+            failed_terms=[k for k in kws if k in failed_kws],
+            retried=retried,
+            recovered=recovered,
+        ),
+        capped_terms=[k for k in kws if k in capped],
+    )
 
 
 def precision_filter(filers: dict[str, Filer], *, signal: Iterable[str]) -> dict[str, Filer]:

@@ -110,3 +110,28 @@ def test_reaper_drops_a_finished_job_past_its_ttl(monkeypatch):
 
 def test_get_job_unknown_returns_none():
     assert draft_jobs.get_job("does-not-exist") is None
+
+
+# --- the single-worker startup guard (the honest-discovery slice fold) ---
+
+
+def test_assert_single_worker_passes_on_empty_env_and_one():
+    """The normal states boot: no scaling vars at all, an explicit '1', and blank/whitespace values."""
+    draft_jobs.assert_single_worker({})
+    draft_jobs.assert_single_worker({"WEB_CONCURRENCY": "1", "UVICORN_WORKERS": "1"})
+    draft_jobs.assert_single_worker({"WEB_CONCURRENCY": "  "})  # blank -> ignored
+
+
+def test_assert_single_worker_refuses_env_driven_scaling():
+    """>1 worker via either env knob REFUSES to boot, naming the per-process registries — with multiple
+    workers the 409 in-flight guard evaporates and job polls 404 on the wrong worker, SILENTLY (the exact
+    failure shape the guard exists to make impossible-or-loud)."""
+    for env in ({"WEB_CONCURRENCY": "4"}, {"UVICORN_WORKERS": "2"}):
+        with pytest.raises(RuntimeError, match="SINGLE-WORKER by design"):
+            draft_jobs.assert_single_worker(env)
+
+
+def test_assert_single_worker_warns_not_raises_on_garbage():
+    """An unparseable value only warns (uvicorn ignores it under the Dockerfile's explicit --workers 1) —
+    a typo'd deploy var must not brick the boot when the effective worker count is still one."""
+    draft_jobs.assert_single_worker({"WEB_CONCURRENCY": "lots"})  # no raise

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   BasketMember,
   ChainDraftOut,
+  DraftReportOut,
   ResolvedPlacement,
   ScoredMemberOut,
   SecurityCandidate,
@@ -21,6 +22,7 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
+import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
 import { ARCHETYPES, archLabel, errText } from "./format";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
@@ -236,9 +238,30 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       </span>
     );
   };
+
+  // The ⚠ capped marker (#9 rule 4 made visible): on the LAST draft this term matched more filings than the
+  // enumeration cap, so pages beyond the cap were not searched — deep hits for it may be missing. RUN state
+  // from the draft report (display-only, cleared on re-draft) — never persisted onto the term set.
+  const cappedTag = (e: TermSetEntry) =>
+    cappedTerms.has(norm(e.term)) ? (
+      <span
+        className="wb-rec wb-capped"
+        title="On the last draft this term matched more filings than the enumeration cap — pages beyond the cap were not searched, so names surfacing only that deep may be missing."
+      >
+        ⚠ capped
+      </span>
+    ) : null;
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
   const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
+  // The last draft's honesty report + bucket counts (the status strip's input) and the hit-capped terms (the
+  // ⚠ marker on a term chip). RUN state from the LAST completed draft — cleared on a re-draft, absent until a
+  // draft carries a report, never persisted (#9 rules 2/3 made visible; the strip is quiet at 100% healthy).
+  const [draftStatus, setDraftStatus] = useState<{
+    counts: DraftCounts;
+    report: DraftReportOut;
+  } | null>(null);
+  const [cappedTerms, setCappedTerms] = useState<Set<string>>(new Set());
   // Reversibility (principle #1): the origin placement of a name PULLED from To-Review into Placed, keyed by
   // security_id. It lets a Placed row that CAME from To-Review offer a "send back" — the visible inverse of add
   // (add ⇄ send-back). Only these names get the control (others were never in To-Review). Never persisted.
@@ -403,6 +426,23 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       ),
     }));
     setDraftEmpty(data.placements.length === 0 && data.segments.length === 0);
+    // The run's honesty report -> the status strip + the ⚠ capped chip markers. A pre-slice result (no
+    // report) renders no strip. Counts are client-derived from the placements' own statuses.
+    const byStatus = (s: string) => data.placements.filter((p) => p.status === s).length;
+    setDraftStatus(
+      data.report
+        ? {
+            counts: {
+              placed: byStatus("placed"),
+              verify: byStatus("verify"),
+              ambiguous: byStatus("ambiguous"),
+              absent: byStatus("absent"),
+            },
+            report: data.report,
+          }
+        : null,
+    );
+    setCappedTerms(new Set((data.report?.capped_terms ?? []).map(norm)));
   };
 
   const clearPollTimeout = () => {
@@ -415,6 +455,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const onDraft = async () => {
     setDraftError(null);
     setDraftEmpty(false);
+    setDraftStatus(null); // the strip + capped markers describe the LAST run — stale once a new one starts
+    setCappedTerms(new Set());
     try {
       const ref = await startDraft.mutateAsync();
       setJobId(ref.job_id);
@@ -716,6 +758,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                       ×
                     </button>
                     {recTag(e)}
+                    {cappedTag(e)}
                   </li>
                 ))}
                 {signalTerms.length === 0 && (
@@ -751,6 +794,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                       ×
                     </button>
                     {recTag(e)}
+                    {cappedTag(e)}
                   </li>
                 ))}
                 {broadTerms.length === 0 && <li className="muted">none</li>}
@@ -785,6 +829,9 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           The drafter returned nothing — no <code>ANTHROPIC_API_KEY</code> in the stack, or the model
           declined. Hand-authoring below is unaffected.
         </div>
+      )}
+      {draftStatus && (
+        <DraftStatusStrip counts={draftStatus.counts} report={draftStatus.report} />
       )}
 
       <div className="wb-seg-edit">

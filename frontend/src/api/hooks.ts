@@ -25,6 +25,9 @@ export type RatifyFactBody =
   | components["schemas"]["RatifyCashBurn"];
 // the narrative -> chain draft (S5): segments + each proposed name resolved to placed/ambiguous/absent
 export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
+// the draft run's honesty report (the honest-discovery slice): EFTS coverage + capped terms + the tail-sweep
+// tri-state + the narration fill — display-only RUN state the status strip renders, never persisted
+export type DraftReportOut = components["schemas"]["DraftReportOut"];
 export type ResolvedPlacement = components["schemas"]["ResolvedPlacement"];
 export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
 export type SecurityCandidate = components["schemas"]["SecurityCandidate"];

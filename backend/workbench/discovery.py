@@ -36,7 +36,13 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
 from domain.settings import get_settings
 from domain.thesis import TermSetEntry
-from ingest.edgar.fulltext import DiscoveryUnavailable, Filer, classify, discover
+from ingest.edgar.fulltext import (
+    DiscoveryCoverage,
+    DiscoveryUnavailable,
+    Filer,
+    classify,
+    discover,
+)
 from securities import master
 
 _log = logging.getLogger("alphadeck.discovery")
@@ -76,6 +82,11 @@ class DiscoveredUniverse:
     filers: dict[str, Filer] = field(default_factory=dict)
     signal: list[str] = field(default_factory=list)
     broad: list[str] = field(default_factory=list)
+    # The run's honesty report (#9 rules 2/3): how much of the universe the EFTS enumeration actually covered
+    # + which terms hit the cap. ``run_discovery`` ALWAYS sets coverage; ``None`` exists only for bare test
+    # constructions. Both ride the draft report to the operator — display-only run state, never persisted.
+    coverage: DiscoveryCoverage | None = None
+    capped_terms: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -149,17 +160,24 @@ def run_discovery(
     # skip-one) and raises DiscoveryDegraded only when it couldn't enumerate the universe — let that PROPAGATE
     # so the draft surfaces it; an unexpected error (DB fault / bug) likewise propagates, never masquerades as
     # an empty universe.
-    filers = discover(
+    run = discover(
         edgar,
         [*signal, *broad],
         hit_cap=cap,
         max_workers=settings.discovery_max_workers,
         degraded_ratio=settings.discovery_degraded_ratio,
     )
+    filers = run.filers
     in_master = master.ids_for_ciks(conn, filers.keys(), tenant_id=tenant_id)
     disc = classify(filers, in_master_ids=in_master, signal=signal, broad=broad)
     universe = DiscoveredUniverse(
-        placed=disc.placed, verify=disc.verify, filers=filers, signal=signal, broad=broad
+        placed=disc.placed,
+        verify=disc.verify,
+        filers=filers,
+        signal=signal,
+        broad=broad,
+        coverage=run.coverage,
+        capped_terms=run.capped_terms,
     )
     if universe.is_empty:
         # Keyword-gen produced real keywords but NOTHING placeable came back — against the full master that

@@ -18,4 +18,8 @@ EXPOSE 8000
 
 # Apply migrations (idempotent) -> seed the HIMS demo (idempotent) -> serve. `exec` hands signals
 # (docker compose down / Ctrl-C) straight to uvicorn for a clean shutdown.
-CMD ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# `--workers 1` is DELIBERATE, not a default: the in-process draft-job + research registries
+# (workbench/draft_jobs, workbench/research_runner) are per-process — >1 worker silently breaks the 409
+# in-flight guard and job polls. The app lifespan also refuses env-driven scaling (assert_single_worker);
+# do NOT raise this without building the DB-backed job store first.
+CMD ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

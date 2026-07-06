@@ -22,8 +22,10 @@ from app.deps import (
 )
 from app.schemas_api import (
     ChainDraftOut,
+    DraftCoverageOut,
     DraftJobRef,
     DraftJobStatus,
+    DraftReportOut,
     EditTermsRequest,
     FlagExplanationOut,
     ProduceTermsRequest,
@@ -47,7 +49,12 @@ from ingest.edgar.extract import extract_for_security
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
-from llm.chain_decomposition import decompose_narrative, narrate_placements, research_tail_sweep
+from llm.chain_decomposition import (
+    TailSweepStatus,
+    decompose_narrative,
+    narrate_placements,
+    research_tail_sweep,
+)
 from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
@@ -380,16 +387,26 @@ def execute_draft(
     # pure resolver. Writes only the master's identity columns (machine-parsed, an enrichment basis) — no thesis
     # spine, no fact, no number (#1/#3); the operator's promote remains the only spine writer.
     enrich_for_ciks(conn, edgar, {**universe.placed, **universe.verify}, tenant_id=thesis.tenant_id)
+    # The sweep's OUTCOME rides the draft report (the tri-state — a lost foreign/ADR tail is no longer
+    # indistinguishable from "no foreign names exist"). run_research's Callable contract stays str|None (its
+    # cache-only-non-None property is load-bearing), so the status travels via a cell the thunk writes; a TTL
+    # cache HIT never runs the thunk but IS a prior successful run -> "ran".
+    sweep_status: list[TailSweepStatus] = ["skipped"]
+
+    def _sweep() -> str | None:
+        ts = research_tail_sweep(research_llm, thesis.narrative, discovered_names(universe))
+        sweep_status[0] = ts.status
+        return ts.synthesis
+
     sweep = (
         run_research(  # fail-open -> None; TTL cache; the job layer owns the in-flight 409 guard
             thesis.id,
             thesis.narrative,
             ttl_s=get_settings().llm_research_cache_ttl_s,
-            run=lambda: research_tail_sweep(
-                research_llm, thesis.narrative, discovered_names(universe)
-            ),
+            run=_sweep,
         )
     )
+    tail_status: TailSweepStatus = "ran" if sweep is not None else sweep_status[0]
     context = discovery_context(universe, sweep)
     segments = proposed_from_decomposition(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
@@ -417,6 +434,7 @@ def execute_draft(
         if _needs_prose(p)
     ]
     placements = chain.placements
+    narration_filled = 0
     if needs:
         # narrate_placements returns {name: {"prose", "off_thesis"}} — the display prose AND the narrator's
         # on/off-thesis opinion (a display recommendation, #10; the flagged name stays placed). This merge is the
@@ -437,7 +455,28 @@ def execute_draft(
                 )
                 for p in chain.placements
             ]
-    return ChainDraftOut(thesis_id=thesis.id, segments=chain.segments, placements=placements)
+        # The fill count (M of N) rides the report — a partial narration was a log line only (#9 rule 2).
+        narration_filled = sum(
+            1 for n in needs if (narrated.get(n["name"], {}).get("prose") or "").strip()
+        )
+
+    # The run's honesty report: every formerly-silent recall-loss mode, named (#9 rules 2/3). Display-only RUN
+    # state riding the response — value-free (#3), never persisted (response-only stays intact).
+    cov = universe.coverage
+    report = DraftReportOut(
+        coverage=DraftCoverageOut(
+            pages_ok=cov.pages_ok if cov else 0,
+            pages_attempted=cov.pages_attempted if cov else 0,
+            failed_terms=list(cov.failed_terms) if cov else [],
+        ),
+        capped_terms=list(universe.capped_terms),
+        tail_sweep=tail_status,
+        narration_needed=len(needs),
+        narration_filled=narration_filled,
+    )
+    return ChainDraftOut(
+        thesis_id=thesis.id, segments=chain.segments, placements=placements, report=report
+    )
 
 
 @router.post("/theses/{thesis_id}/draft-chain", status_code=202, response_model=DraftJobRef)
@@ -468,9 +507,10 @@ def start_draft_chain(
                 "term set is empty — produce or seed it first (POST .../terms or the edit UI)"
             ) from exc
         except DiscoveryUnavailable as exc:  # Degraded / Empty / enumerate fault
-            raise DraftError(
-                "discovery unavailable — couldn't enumerate the universe; please retry"
-            ) from exc
+            # The exception's own message carries the COUNTS (DiscoveryDegraded: "N/M EFTS pages failed
+            # (X%) after retries"; DiscoveryEmpty: the term counts) — the operator-facing error names the
+            # numbers, never just "unavailable" (#9 rule 3: degradation is loud AND specific).
+            raise DraftError(f"discovery unavailable — {exc}; please retry") from exc
         finally:
             own.close()
 

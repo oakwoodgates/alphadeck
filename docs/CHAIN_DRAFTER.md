@@ -133,15 +133,29 @@ term set → `run_discovery` (EFTS → classify) → `research_tail_sweep` → `
   guaranteed by **`test_draft_endpoint_writes_nothing`** (zero `fact_*` AND zero `basket_member`) — load-bearing.
 - **Discovery is completeness-or-fail (#9), surfaced as a VISIBLE failed job, not silently fail-open.** A thesis
   with no produced term set, or a universe EFTS can't enumerate, ends the job **`failed`** with the cause
-  (`DiscoveryNoTerms` → "term set is empty…"; `DiscoveryDegraded`/`DiscoveryEmpty` → "discovery unavailable…"),
+  (`DiscoveryNoTerms` → "term set is empty…"; `DiscoveryDegraded`/`DiscoveryEmpty` → "discovery unavailable — …",
+  **carrying the post-retry counts**, e.g. "12/180 EFTS pages failed (7%) after retries"),
   shown on the poll — never a quiet fall back to model recall. (This moved from a synchronous 503 to a failed
   job in the async-draft slice.) The LLM seams (tail-sweep / organize / narrate) still fail-open: their trouble
   degrades prose, never drops a name, and a failed organize is a **done** job with an empty draft. With no
   `ANTHROPIC_API_KEY` the prose/organize degrade and hand-authoring is untouched.
+- **Every draft carries its run report** (`ChainDraftOut.report` — the honest-discovery slice; full semantics in
+  `DISCOVERY.md`): EFTS coverage (pages ok/attempted + failed terms, after one politeness-budgeted retry pass),
+  the hit-`capped_terms`, the tail-sweep tri-state (`ran | failed | skipped` — a lost sweep is no longer
+  indistinguishable from "no foreign names exist"; `skipped` = the operator's own no-key config), and the
+  narration fill (M of N). The FE renders it as a **status strip** under the draft controls — one muted line at
+  100% healthy, a loud `⚑` block on any gap (inverse loudness) — which also disambiguates *done-but-empty*
+  (strip: `0 placed · coverage N/N`) from *failed* (error toast, no strip). Display-only RUN state, value-free
+  (#3), never persisted; the `⚠ capped` marker on a term chip is the same run state, never written to
+  `term_set`.
 - **Cost stays bounded.** One job per thesis (the 409 guard) + the Opus client's `max_retries=0` + 300s SDK
   timeout → an abandoned job (the FE stopped polling) bills at most one bounded pass; a registry reaper
   (`draft_job_running_ttl_s` / `draft_job_finished_ttl_s`) flips a stuck job to failed and bounds the registry.
-  **Single-worker is load-bearing** (mirrors `research_runner`'s caveat) — `--workers>1` would need a shared store.
+  **Single-worker is load-bearing AND now guarded** (mirrors `research_runner`'s caveat):
+  `draft_jobs.assert_single_worker` (the app lifespan) refuses to boot on env-driven
+  `WEB_CONCURRENCY`/`UVICORN_WORKERS` > 1, and the Dockerfile CMD pins an explicit `--workers 1` (a hand-typed
+  CLI `--workers 2` with no env var is the guard's stated blind spot — the pinned CMD is the production
+  mitigation). `--workers>1` would need a shared (DB-backed) job store first.
 
 ## The promote guard — bound #2 at the single writer
 

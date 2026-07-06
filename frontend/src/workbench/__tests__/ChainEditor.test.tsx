@@ -1216,3 +1216,126 @@ describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
     expect(screen.queryByText(/recommend SIGNAL/)).not.toBeInTheDocument();
   });
 });
+
+// --- the honest-discovery slice: the draft status strip + the ⚠ capped chip marker ---
+
+// The run's honesty report (ChainDraftOut.report). Healthy defaults; a test overrides one dimension.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const healthyReport = (over: Record<string, unknown> = {}): any => ({
+  coverage: { pages_ok: 40, pages_attempted: 40, failed_terms: [] as string[] },
+  capped_terms: [] as string[],
+  tail_sweep: "ran",
+  narration_needed: 5,
+  narration_filled: 5,
+  ...over,
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const draftWithReport = (placements: unknown[], report: unknown, segments?: unknown[]): any => ({
+  ...(segments === undefined ? draft(placements) : draft(placements, segments)),
+  report,
+});
+
+describe("ChainEditor — the draft status strip (the run's honesty report)", () => {
+  it("a healthy report renders ONE quiet line — counts, coverage, sweep, narration — and NO loud block", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport()));
+    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    const strip = await screen.findByText(/Draft complete —/);
+    expect(strip).toHaveTextContent("1 placed");
+    expect(strip).toHaveTextContent("coverage 40/40");
+    expect(strip).toHaveTextContent("sweep ran");
+    expect(strip).toHaveTextContent("narration 5/5");
+    expect(container.querySelector(".wb-draft-strip.loud")).toBeNull(); // quiet at 100% healthy
+    expect(screen.queryByText(/completed with gaps/)).not.toBeInTheDocument();
+  });
+
+  it("missing EFTS pages render LOUD and NAME the failed terms (#9 rule 2 — the gap is on screen)", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport(
+        [PLACED_SMR],
+        healthyReport({
+          coverage: { pages_ok: 37, pages_attempted: 40, failed_terms: ["esketamine", "ibogaine"] },
+        }),
+      ),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/);
+    expect(screen.getByText(/EFTS coverage 37\/40/)).toBeInTheDocument();
+    expect(screen.getByText(/esketamine, ibogaine/)).toBeInTheDocument(); // the terms are NAMED
+  });
+
+  it("a FAILED tail-sweep is loud (a lost foreign/ADR tail, no longer indistinguishable from none)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "failed" })));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/);
+    expect(screen.getByText(/Tail-sweep failed/)).toBeInTheDocument();
+  });
+
+  it("a SKIPPED sweep stays QUIET with the no-key label (the operator's own config, never alarmed)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "skipped" })));
+    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    const strip = await screen.findByText(/Draft complete —/);
+    expect(strip).toHaveTextContent("sweep skipped (no key)");
+    expect(container.querySelector(".wb-draft-strip.loud")).toBeNull();
+  });
+
+  it("a narration shortfall is loud with the M-of-N count", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ narration_filled: 3 })));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/);
+    expect(screen.getByText(/Narration 3 of 5/)).toBeInTheDocument();
+  });
+
+  it("no report -> no strip (a pre-slice result renders exactly as before)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR])); // no report field
+    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByLabelText("segment for SMR"); // the draft itself loaded
+    expect(screen.queryByText(/Draft complete —/)).not.toBeInTheDocument();
+    expect(container.querySelector(".wb-draft-strip")).toBeNull();
+  });
+
+  it("done-but-EMPTY shows BOTH the returned-nothing note AND the strip — the ambiguity resolved", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport([], healthyReport({ narration_needed: 0, narration_filled: 0 }), []),
+    );
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    const strip = await screen.findByText(/Draft complete —/);
+    expect(strip).toHaveTextContent("0 placed");
+    expect(strip).toHaveTextContent("coverage 40/40"); // enumeration was FINE — the theme is just empty
+    expect(screen.getByText(/The drafter returned nothing/)).toBeInTheDocument();
+  });
+
+  it("the ⚠ capped marker lands on the MATCHING term chip only, and the strip names the term", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ capped_terms: ["psilocybin"] })));
+    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/); // a capped term IS a gap -> loud
+    expect(screen.getByText(/Hit-capped: psilocybin/)).toBeInTheDocument();
+    const capped = screen.getAllByText("⚠ capped");
+    expect(capped).toHaveLength(1); // psilocybin's chip only — ketamine carries no marker
+    expect(capped[0].closest("li")).toHaveTextContent("psilocybin");
+  });
+});
