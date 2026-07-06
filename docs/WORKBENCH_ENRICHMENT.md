@@ -39,8 +39,11 @@ judgment over a populated row, not data entry.
   tags to a clean `·`-joined string, so **no raw markup reaches the chip** (e.g. `Non-accelerated filer · Smaller
   reporting company`). Presented as **IDENTITY** — it sits next to sector/exchange, **NOT** near the archetype (it
   is a filing-status fact, not a competing classification).
-- **`former_names`** — parsed now (the rebrand history the identity-bridge slice will use); **unused today**
-  (`master.enrich` doesn't persist it). The ATAI dual-CIK redomicile is the one recall miss it will address.
+- **`former_names`** — parsed, **unused** (`master.enrich` doesn't persist it). Its planned consumer — the
+  identity-bridge slice — was **DROPPED** (operator decision, 2026-07-06: renames are already handled by
+  CIK-keying, the ATAI dual-CIK redomicile surfaces live, and a merge would be subtle-bug-prone for cosmetic
+  value; the record is in `DISCOVERY.md`). Kept parsed: it is cheap, tested, and the natural data shape if a
+  real false-ABSENT ever motivates revisiting.
 
 All optional — an un-enriched row reads `None` (the honest fallback: no chip, no gate).
 

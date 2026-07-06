@@ -4,9 +4,24 @@
 # score discovery recall for INVARIANT #9 ("recall is sacred"). It was the
 # hand-verified set of companies that SHOULD be discovered for the psychedelic
 # thesis, established during the discovery bake-off — the reference the EDGAR-
-# first discovery re-score is measured against (last result: 31/32, the single
-# miss being ATAI's dual-CIK redomicile, which the deferred identity bridge
-# addresses).
+# first discovery re-score is measured against.
+#
+# CURRENT RESULT (2026-07-06 live re-score — the honest-discovery slice, PR
+# #123 gate-2): RECALL HOLDS 31/32. The composition SHIFTED vs the bake-off:
+# ATAI — the historical miss (the dual-CIK redomicile) — is now RECALLED
+# (both CIKs surface, off-universe; the identity bridge was therefore DROPPED
+# by operator decision: identity-MERGE logic is subtle-bug-prone and the
+# remaining value — collapsing a duplicate row — is cosmetic; see
+# DISCOVERY.md). The one non-placeable name is now PRTG (Portage Biotech),
+# which DELISTED and dropped out of SEC company_tickers entirely — no master
+# row, so structurally unplaceable; it still SURFACES on the draft
+# (shown-not-placed, via the organizer/sweep context, NOT the deterministic
+# layer — a re-score must CHECK it surfaced, not assume).
+#
+# THE PRTG RULING (operator, 2026-07-06): a delisted name with no
+# company_tickers row counts RECALLED if it SURFACES shown-not-placed — #9
+# tests SILENT DROPS, not placeability. A name the operator can see and
+# judge was never dropped.
 #
 # WHY IT'S COMMITTED: #9 is a standing invariant. Its guarantee ("no name
 # silently dropped") is only testable if this ground truth is committed — it
@@ -15,8 +30,13 @@
 # #9 recall re-score reproducible.
 #
 # HOW TO USE: run the discovery pipeline against the psychedelic thesis and
-# score placed+verify names against this set. A name in this set that does NOT
-# appear in discovery output is a #9 failure (a silent drop) and must be
+# score placed+verify names against this set — AT CIK LEVEL (a CIK carries
+# several master ticker rows — common + warrants, e.g. KTTAW/PBMWW — and
+# ids_for_ciks resolves to one of them arbitrarily; compare a company's
+# ticker GROUP against ALL tickers of each surfaced CIK, or ticker-string
+# scoring miscounts). A delisted, no-master-row name (PRTG) counts recalled
+# iff it SURFACES shown-not-placed. A name in this set that does NOT appear
+# in discovery output is a #9 failure (a silent drop) and must be
 # investigated, never waved through.
 #
 # MAINTENANCE: this is a reference fixture, not a live-data snapshot. It changes

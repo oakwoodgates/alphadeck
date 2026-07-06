@@ -198,6 +198,18 @@ signal to watch is *off_universe + PLACED* (a real US-tradeable name EDGAR's ter
 earning its keep) vs *off_universe + ABSENT* (something with no US listing). The tag records the off-universe
 ORIGIN, **not** a hard claim the web-search sourced the name — `decompose` may surface one from its own knowledge.
 
+**LIVE VALIDATION (2026-07-06 — P0 finalize item 6, PASSED).** Run against the psychedelic thesis's REAL
+found list (~123 placed+verify names; one bounded Opus pass, status `ran`). The sweep returned **exactly the
+tail it was built for**: PharmAla Biotech (PMBHF), Universal Ibogaine (IBOGF), Bionomics (BNOX) — foreign /
+OTC / ADR filers EFTS structurally can't see, each flagged US-tradeable. Discipline held on every contract:
+**zero found-list names re-listed** (the directed framing works — it hunted what was MISSING); empty corners
+declared honestly ("nothing new confirmed rather than padding", corners 2/3); non-tradeable names labeled
+rather than dropped or oversold (Mindbloom *PRIVATE*, Awakn *ACQUIRED → Solvonis*, Solvonis *foreign-listed
+only*); and **no financial figure in the prose** (numerals appeared only inside drug-candidate identifiers —
+SVN-001/-002/-015 — a trial phase, and a founding year; the #3 no-number bound held live). Known limitation
+unchanged: `max_retries=0` (the deliberate cost guard) means one transient fault loses the pass — now VISIBLE
+as `tail_sweep: "failed"` on the draft report rather than silent (the honest-discovery slice).
+
 - *Enforced by:* `llm/chain_decomposition.py` (`research_tail_sweep`); `workbench/research_runner.py` (the
   in-flight guard); `workbench/chain_draft.py` (`discovery_source`, set at the `_match_discovered_cik` fork);
   `tests/llm/test_chain_decomposition.py`; `tests/workbench/test_chain_draft.py` +
@@ -264,7 +276,9 @@ tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
   them; the per-CIK reconciler guarantees no discovered name is lost to the organizer; the `503`s fail LOUD
   rather than silently degrade (rule 3); the matched-term tags make a tier-change visible (rule 2); the
   narration fail-open keeps a name even when its prose breaks. *Enforced by:* the answer-key recall re-score on
-  every discovery-touching change (31/32; the one miss, ATAI, is the documented dual-CIK redomicile) — the
+  every discovery-touching change (2026-07 live re-score: **31/32 holds** — ATAI, the historical miss, now
+  RECALLED; the one non-placeable is PRTG, delisted out of `company_tickers`, surfaced shown-not-placed →
+  counted recalled by operator ruling; details in the fixture header) — the
   ground truth is the **committed fixture `backend/tests/fixtures/recall_answer_key.py`** (the operator seeds +
   the 32 acceptable-ticker groups + the collision-junk set that must stay OUT of PLACED; previously it lived only
   in gitignored scripts, so the gate wasn't re-runnable); `workbench/discovery.py` (the `503`s); `fulltext.classify`
@@ -274,19 +288,23 @@ tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
 
 ## Known deferred gaps  *(pointers — sequenced together in `ROADMAP.md`, not here)*
 
-- **The seed-edit UI** — load-bearing: a thesis with no produced term set 503s on draft, and seed quality
-  (e.g. demote a marketed-drug seed) is an operator judgment with no UI yet. Every non-pre-seeded thesis is
-  currently unusable without it.
-- **Tail-sweep live validation** — `research_tail_sweep` is built + guarded but not yet validated live for the
-  foreign/ADR tail it targets.
-- **The identity bridge** — for the **LLM-proposed tail** only (the EFTS/CIK path already dissolves identity; see
-  "CIK-keying dissolves the identity problem" above). The model's training cutoff makes it propose a **stale
-  name/ticker**, which exact-match misses even when the company IS in the universe under its new identity — a
-  **false ABSENT.** The discriminator: **a kept ticker rescues a rename** (atai→AtaiBeckley kept `ATAI` → PLACED),
-  but a **rename + ticker change defeats both signals** (MindMed→Definium, MNMD→DFTX → ABSENT even though DFTX/CIK
-  …814 is in the master). The bridge: a `formerNames`/current-ticker-aware second pass on ABSENT names (carefully —
-  the homonym trap), or a hint ("this name may have changed — search its current identity"). The **ATAI dual-CIK
-  redomicile** (…904 pre / …043 post) is the one answer-key miss — surface **both as a pick, never auto-place.**
+- **The seed-edit UI `[SHIPPED — #100]`** — the term-set editor (add/remove/promote/demote, regenerate-preserve)
+  lives in the Workbench term-set drawer; no longer a gap.
+- **Tail-sweep live validation `[VALIDATED — 2026-07-06, PASSED]`** — the dated record is in §6 above
+  (PharmAla/Universal Ibogaine/Bionomics returned; zero re-listing; honest empty corners; no financial figure).
+- **The identity bridge — DROPPED (operator decision, 2026-07-06, PR #123 gate-2).** The gap it targeted has
+  closed from both ends: **clean renames are handled** — the deterministic path is **CIK-keyed**, so a renamed
+  filer surfaces under its CURRENT identity regardless of what it used to be called (MNMD→Definium arrives as
+  DFTX by its CIK through EFTS; and on the LLM-proposed tail, a kept ticker rescues a rename —
+  atai→AtaiBeckley kept `ATAI` → PLACED). And the one hard case — the **ATAI dual-CIK redomicile** (…904 pre /
+  …043 post) — **already SURFACES** on a live draft (both CIKs, one ticker-less, both off-universe), so recall
+  is satisfied. What a bridge would still buy is collapsing the duplicate row — **identity-MERGE logic,
+  subtle-bug-prone (the homonym trap), for cosmetic value** — so it is dropped, not deferred. `former_names`
+  stays parsed-but-unused (cheap, tested; its planned consumer was this bridge). *(The analysis kept for the
+  record: the LLM-proposed tail can carry a stale name/ticker from the model's training cutoff; a rename +
+  ticker change defeats both exact-match signals — MindMed→Definium was that shape before EDGAR-first
+  discovery made the deterministic CIK path the source of names. If a real false-ABSENT ever reappears, that
+  is the shape to look for.)*
 - **Enrichment `[SHIPPED — #105–108, #118]`** — identity (sector / exchange / listing-status gate / filer
   category) + the deterministic **derived archetype** killed the blanket `high_beta` default. Home:
   `WORKBENCH_ENRICHMENT.md`. *(No longer deferred — moved out of this list.)*
