@@ -147,6 +147,16 @@ describe("ChainEditor — authoring", () => {
     expect(body.basket).toHaveLength(1);
     expect(body.basket[0]).toMatchObject({ ticker: "OKLO" });
     expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(true); // D — a saved exit tells the parent to surface the re-entry note
+  });
+
+  it("D: Done exits WITHOUT the saved signal (onDone(false)) — only a successful Save sends true", async () => {
+    const user = userEvent.setup();
+    const onDone = vi.fn();
+    render(<ChainEditor thesis={flatThesis} onDone={onDone} />);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onDone).toHaveBeenCalledWith(false);
+    expect(h.mutate).not.toHaveBeenCalled();
   });
 
   it("adds a name via the resolver typeahead (search → pick → classify → add), CIK shown", async () => {
@@ -882,6 +892,8 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.queryByText("Some Holdco LLC")).not.toBeInTheDocument();
     expect(screen.getByText("Low signal")).toBeInTheDocument();
     expect(screen.getByText("No listed ticker")).toBeInTheDocument();
+    // C-A: the To review count is KEEPERS-ONLY — the two noise buckets are top-level sections of their own
+    expect(screen.getByRole("button", { name: /To review/ })).toHaveTextContent("· 1");
     // expand Low signal → the off-thesis name appears, still promotable (never dropped)
     await user.click(screen.getByText("Low signal"));
     expect(screen.getByText("Kroger")).toBeInTheDocument();
@@ -961,6 +973,130 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
     await screen.findByLabelText("segment for SMR");
     expect(screen.queryByText(/model thinks off-thesis/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "remove" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ChainEditor — the placed board partitions (C-B + G)", () => {
+  const saveBody = () => h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+  const withOnSuccess = () =>
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+  // a thesis whose SIGNAL set carries a collision-prone acronym (HBM) next to a broad corroborator
+  const hbmThesis = {
+    ...flatThesis,
+    term_set: [
+      { term: "HBM", tier: "signal", authored_by: "operator_set", source: "seed" },
+      { term: "memory", tier: "broad", authored_by: "system_drafted", source: "keyword_gen" },
+    ],
+  };
+  const P_CLEAN = {
+    name: "Micron Technology",
+    ticker: "MU",
+    prose: "HBM + DRAM maker",
+    segment: "memory",
+    status: "placed",
+    security_id: "s-mu",
+    candidates: [],
+    matched_terms: ["HBM", "memory"], // the acronym PLUS a corroborator → a real name, never clustered
+  };
+  const P_FLAGGED = {
+    name: "Kroger",
+    ticker: "KR",
+    prose: "boilerplate mention",
+    segment: "memory",
+    status: "placed",
+    security_id: "s-kr",
+    candidates: [],
+    matched_terms: ["memory"], // a sole match but a BROAD term → not the acronym lens
+    off_thesis: true,
+  };
+  const P_COLLISION = {
+    name: "Hudbay Minerals",
+    ticker: "HBM",
+    prose: "a copper miner — the ticker collided with the term",
+    segment: "memory",
+    status: "placed",
+    security_id: "s-hbm",
+    candidates: [],
+    matched_terms: ["HBM"], // the letters, none of the words
+  };
+  const MEM_SEG = [{ label: "memory", descriptor: null }];
+
+  it("stays FLAT when the partition doesn't discriminate (no flags, no collisions)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([P_CLEAN], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+    expect(screen.queryByLabelText("toggle Placed")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("toggle Placed, flagged")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("toggle Placed, acronym-only")).not.toBeInTheDocument();
+  });
+
+  it("C-B: partitions flagged names into 'Placed, flagged' — independent collapse, ONE membership on Save", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([P_CLEAN, P_FLAGGED], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+
+    // both groups render, open by default — nothing hidden by the split itself
+    expect(screen.getByLabelText("toggle Placed")).toBeInTheDocument();
+    expect(screen.getByLabelText("toggle Placed, flagged")).toBeInTheDocument();
+    expect(screen.getByText("Kroger")).toBeInTheDocument();
+
+    // the flagged group collapses INDEPENDENTLY — Kroger hides, Micron stays
+    await user.click(screen.getByLabelText("toggle Placed, flagged"));
+    expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
+    expect(screen.getByText("Micron Technology")).toBeInTheDocument();
+    await user.click(screen.getByLabelText("toggle Placed, flagged")); // re-open
+
+    // ONE membership: excluding inside the flagged group is the same include state Save reads
+    await user.click(screen.getByLabelText("include KR"));
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
+  });
+
+  it("G: a sole-acronym match clusters into 'Placed, acronym-only' (collapsed); exclude-all clears reversibly", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([P_CLEAN, P_COLLISION], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+
+    // clustered + COLLAPSED by default: the header shows, the row doesn't (a cluster to visit, not a wall)
+    expect(screen.getByLabelText("toggle Placed, acronym-only")).toBeInTheDocument();
+    expect(screen.queryByText("Hudbay Minerals")).not.toBeInTheDocument();
+    // Micron matched the acronym PLUS a corroborator → never clustered (visible in Placed)
+    expect(screen.getByText("Micron Technology")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("toggle Placed, acronym-only"));
+    expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument();
+
+    // exclude-all: greyed in place (visible + re-includable, #9); Save never sees it
+    await user.click(screen.getByRole("button", { name: /exclude all 1/ }));
+    expect(screen.getByLabelText("include HBM")).not.toBeChecked();
+    expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument(); // set aside ≠ vanished
+    expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("include HBM")); // the visible inverse
+    expect(screen.getByLabelText("include HBM")).toBeChecked();
+    await user.click(screen.getByLabelText("include HBM")); // exclude again for the save assertion
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
+  });
+
+  it("G precedence: an off-thesis sole-acronym row lands in the collision group, not flagged", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([P_CLEAN, { ...P_COLLISION, off_thesis: true }], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+    expect(screen.getByLabelText("toggle Placed, acronym-only")).toBeInTheDocument();
+    expect(screen.queryByLabelText("toggle Placed, flagged")).not.toBeInTheDocument();
   });
 });
 

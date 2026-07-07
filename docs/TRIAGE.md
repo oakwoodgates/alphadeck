@@ -10,7 +10,8 @@
 >
 > **Status: BUILT** — include-controls (#113), the sortable/filterable view (#114), the conviction field (#115) +
 > the naming-collision guard (#116), the To-Review triage ruleset + the "Discovered" holding pen + the wired seg
-> dropdown (#118).
+> dropdown (#118), and the cheap-cut board relief (the placed-board display partitions incl. the acronym-collision
+> lens, the hoisted noise sections, and the Save re-entry note — PR-A of the three-gate TRIAGE round).
 
 ---
 
@@ -79,14 +80,17 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
   **There is no "skip"** — a candidate is never discarded, only added or left in the queue (a skip that dropped the
   row was a silent #1/#2 violation).
 - **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed** into a "Low
-  signal" drawer. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
+  signal" section. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
   exception, which in To-Review is the *keeper*, not the junk.
 - **Ticker-less** (a resolved filer with no listed ticker — likely a sub / holdco / debt issuer) → collapsed into a
-  "No listed ticker" drawer, visually separated from the keepers. Probably not directly investable, so its
+  "No listed ticker" section. Probably not directly investable, so its
   **check-to-add is disabled** (it never enters the basket by a stray click). Still **not dropped** (#9 — the row
   is surfaced, and a name that genuinely belongs is reachable via the master **name search**, which promotes by
   `security_id`).
 - **Precedence:** off-thesis > ticker-less > keeper.
+- **The two noise buckets are TOP-LEVEL collapsible sections** (siblings *after* To review, not children inside
+  it — the C-A hoist): they're distinct buckets, each independently collapsible, so a big draft's To-review block
+  stays keeper-sized. The To-review header count is **keepers-only**.
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
 "Discovered". It is a **sorting queue, not a value-chain link** — de-linked visually (muted, "unsorted — not a
@@ -96,6 +100,37 @@ there is no "remove" in the dropdown (pruning is the include-uncheck). Together 
 triage queue. Each placed row also shows the **company name** (bridged by `security_id`) and the SURFACE identity
 chips incl. the **filer-category** maturity tell (`WORKBENCH_ENRICHMENT.md`).
 
+## The placed-board partitions (C-B + G) — one membership, display groups
+
+The Placed board renders the **ONE basket** flat until a partition discriminates, then as up to three
+independently-collapsible **display groups** (same first word = same membership; the modifier is the lens):
+
+- **"Placed"** / **"Placed, flagged"** (C-B) — a VISUAL partition by the narrator's off-thesis opinion, **not a
+  second basket**: a flagged name is still in the basket and still saves; the split just lets the operator collapse
+  the junk-heavy pile in one click. Both groups start open (the split itself hides nothing).
+- **"Placed, acronym-only"** (G) — the collision lens, a **cheap-cut accelerant**: a name whose ONLY discovery
+  match is a single collision-prone SIGNAL term clusters here for one scan-and-clear pass. *Collision-prone* =
+  a single all-caps token (`isAcronymTerm` in `workbench/format.ts` — HBM ✓, DRAM ✓, "high-bandwidth memory" ✗;
+  NAND-style real words cluster **by design**, the v1 rule is deliberately simple and gets tweaked on live
+  behavior). A genuine name matches the acronym PLUS the spelled-out phrases, so it never clusters. Fully
+  mechanical — derived from the row's `matched_terms` + the working term set; **no model, no authoring step**.
+  Starts **collapsed** (a cluster to visit, not a wall), with a group-level **"exclude all N"** (visible bulk;
+  every row stays greyed-in-place and re-includable — `excludeKeys`, the same additive contract as
+  clear-un-accepted).
+- **Precedence:** collision > flagged > clean (the To-Review precedence idiom). Grouping renders **only when it
+  discriminates** — everything-in-one-group is just the flat list (a partition that doesn't discriminate is
+  noise, #7).
+- **Run-state caveat (by design):** `matched_terms` and the off-thesis flag are draft-run provenance, never
+  promoted — so these lenses exist during a draft session, not on re-entry of a saved thesis. They serve the
+  cheap cut, which is when the run state is live.
+- **The #9 spine is untouched:** membership, include, and Save are computed over the whole draft regardless of
+  grouping (test-guarded, same as the sort/filter view).
+
+**Save legibility (D).** A saved exit from the editor surfaces a note on the scored view: the thesis is
+re-openable with **✎ Edit the chain**. Honest scope: re-entry restores the **saved basket** — not the draft-time
+discovery context (matched terms, flags, To-Review queues are run state; re-discovering is a re-draft). The
+visible inverse of Save (reversibility principle #1); cleared on any navigation that changes what it refers to.
+
 ## Invariant fit
 
 - **#9 (recall sacred):** default-included; every "hide" is a visible, reversible, still-promotable collapse
@@ -104,5 +139,6 @@ chips incl. the **filer-category** maturity tell (`WORKBENCH_ENRICHMENT.md`).
 - **#7 (inverse loudness):** a badge true of every row doesn't render (the fundamentals gate); loudness marks the
   minority/exception per bucket — Placed flags rare junk, To-Review highlights rare keepers.
 - **#10 (recommends, operator decides):** sort/filter/include/accept/re-segment are all operator acts; the
-  off-thesis flag and the recommend-add pill change nothing on their own.
+  off-thesis flag and the acronym-collision cluster change nothing on their own (grouping is a lens — the
+  exclude is still the operator's click).
 - **#4 (deferential on thesis):** conviction is the operator's weight, never an input to the call.

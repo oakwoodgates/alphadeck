@@ -10,6 +10,12 @@ export { archLabel } from "../util/format";
 /** The basket-member archetypes the operator classifies a name as (the add-a-name form). */
 export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;
 
+/** The collision-lens predicate: a term that is a single all-caps token (letters+digits, ≥2 chars — HBM,
+ *  DRAM) is collision-prone: it matches tickers, fund names, and boilerplate that carry the LETTERS without
+ *  any of the words that would confirm the meaning. Deliberately the simple v1 rule (NAND-style real-word
+ *  acronyms count too) — judged on live data, tweaked after. */
+export const isAcronymTerm = (term: string): boolean => /^[A-Z][A-Z0-9]{1,9}$/.test(term.trim());
+
 /** A human message from a thrown API error (FastAPI `{detail}`); a safe fallback otherwise. */
 export function errText(e: unknown): string {
   const d = (e as { detail?: unknown } | null)?.detail;

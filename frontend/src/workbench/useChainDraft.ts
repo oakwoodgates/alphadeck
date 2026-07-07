@@ -71,6 +71,15 @@ export function useChainDraft(thesis: ThesisDetail) {
       }
       return next;
     });
+  // Bulk-exclude a specific set of names — the group-level "exclude all" on a display lens (the acronym-
+  // collision cluster). Same contract as excludeUnaccepted: ADDITIVE, exclude-only, never touches authorship;
+  // every row stays visible (greyed) and re-includable in one click (#9).
+  const excludeKeys = (keys: string[]) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.add(k);
+      return next;
+    });
 
   const addSegment = (label: string, descriptor?: string) =>
     setDraft((d) => {
@@ -256,5 +265,6 @@ export function useChainDraft(thesis: ThesisDetail) {
     includeAll,
     excludeAll,
     excludeUnaccepted,
+    excludeKeys,
   };
 }
