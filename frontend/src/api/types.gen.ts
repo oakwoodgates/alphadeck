@@ -182,12 +182,16 @@ export interface paths {
          *     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
          *     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
          *
-         *     Two write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
+         *     Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
          *     ``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``
-         *     (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. And
-         *     every placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a
-         *     caller-supplied id is never trusted), the single point where bound #2 is enforced now that the S5 drafter
-         *     returns a draft and writes nothing itself.
+         *     (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. Every
+         *     placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
+         *     id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
+         *     and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
+         *     ordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary
+         *     instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
+         *     the basket stores the instrument the operator actually trades; the response carries the canonical
+         *     ticker.
          */
         post: operations["promote_workbench_theses_post"];
         delete?: never;

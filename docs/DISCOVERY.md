@@ -139,9 +139,28 @@ then `classify` splits the in-master set by tier:
 The OLD rule was "≥2 distinct keywords OR ≥1 signal → PLACED". The `≥2-broad → PLACED` clause was dropped — see
 *SIGNAL = seeds only* below.
 
+**A multi-sibling CIK resolves to its CANONICAL instrument** (the canonical-primary slice). A CIK often
+carries several master rows (dual-class, US-ADR vs foreign-ordinary, warrants/units, preferred);
+`ids_for_ciks` picks the `is_primary` row — flagged at populate by the **composite rank** in
+`securities/sec_tickers.py` (instrument class > exchange > F-ordinary demotion > SEC file order; the pure
+"SEC-first-row" rule was EMPIRICALLY REJECTED — validated against all 1,476 multi-row CIKs, 51 violations
+including DEVSF/OTC listed before DEVS/Nasdaq and warrants/units listed first). The old bare
+`recorded_at DESC` pick tied on byte-identical timestamps and returned an ARBITRARY sibling — a re-draft
+could resolve a DIFFERENT instrument than the operator confirmed (the FE's security_id dedup then
+duplicated the row), and the shown ticker / price cache / MONITOR position anchored to whichever sibling
+luck picked. **Promote re-asserts the same pick** (`master.canonicalize_ids` — coerce-all, operator-ratified),
+so the spine stores the instrument the operator actually trades regardless of which sibling a draft
+surfaced. Deploy note: the migration (0017) + a `populate_master` run backfill the flag;
+`pipeline.repoint_canonical` is the one-time fix for pre-slice baskets (duplicate sibling pairs are skipped
+loudly — the operator prunes, a script never merges visible rows).
+
 - *Enforced by:* `ingest/edgar/fulltext.py` (`classify`, `Discovery`; `tests/ingest/test_fulltext.py` —
   `test_classify_*`). `precision_filter` (the older `≥2-OR-signal` raw pre-filter) is retained for reference but
-  is NOT the live path; `classify` is.
+  is NOT the live path; `classify` is. The canonical pick: `securities/sec_tickers.py`
+  (`canonical_sort_key`/`flag_primaries` — every violation class found live is pinned in
+  `tests/securities/test_canonical_primary.py`), `master.ids_for_ciks`/`canonicalize_ids` (+ the promote
+  guard test `test_promote_canonicalizes_a_non_primary_sibling`), `pipeline.repoint_canonical`
+  (`tests/pipeline/test_repoint_canonical.py`).
 
 ### 4. The per-CIK reconciler — completeness is the deterministic layer's, never the organizer's to lose
 

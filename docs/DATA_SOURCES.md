@@ -88,17 +88,25 @@ cache miss so the suite never hits the network.
 
 Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENCH_EXTRACTION.md`):
 
-- **The universe (`company_tickers.json`).** One SEC file (~12k rows: `cik_str` / `ticker` / `title`).
+- **The universe (`company_tickers_exchange.json`).** One SEC file (~10k rows, `{fields, data}` shape:
+  `cik` / `name` / `ticker` / **`exchange`** — the PER-INSTRUMENT venue, Nasdaq/NYSE/CBOE/OTC/None).
   `pipeline.populate_master` (the broadener) loads it into `security_master` — **(cik, ticker)-keyed,
   idempotent, additive, per-tenant** — so the operator can resolve *any* US filer, not just the seed. **Keyed
   on `(cik, ticker)`, NOT cik-alone:** dual-class issuers share one CIK (GOOGL/GOOG, BRK-A/B), so cik-alone
   keying would collapse them into a single row — a permanent systematic gap; the ticker in the key keeps both
-  pickable. Identity only (CIK + ticker + name; `figi` / `cusip` left NULL — nothing in the live path reads
-  them). The master is
-  **mutable identity metadata**: a new (cik, ticker) inserts, a changed name UPDATEs in place (the id stays
-  stable, so the fact FKs don't orphan), unchanged skips. It coexists with `master.resolve()` (the other live
-  writer, ticker-keyed): both set `cik`, so neither duplicates the other's rows (tested both orders) — and
-  post-broadener, `resolve()`'s OpenFIGI calls fall to ~zero (the universe is already loaded).
+  pickable. *(Switched from the plain `company_tickers.json` in the canonical-primary slice: the exchange
+  variant carries the per-instrument venue the canonical rank needs — ASML=Nasdaq vs ASMLF=OTC.)*
+  **Canonical primary:** each CIK's ONE tradeable instrument is flagged `is_primary` at populate
+  (`sec_tickers.flag_primaries` — instrument class > exchange > F-ordinary demotion > SEC file order).
+  **The file's own per-CIK row order is primary-first only USUALLY** — validated 2026-07-07 against all
+  1,476 multi-row CIKs: 51 violations (OTC foreign-ordinaries, warrants/units, and preferred lines listed
+  first), so file order is the rank's final TIEBREAK, never the rule. Identity only (CIK + ticker + name +
+  exchange + is_primary; `figi` / `cusip` left NULL — nothing in the live path reads them). The master is
+  **mutable identity metadata**: a new (cik, ticker) inserts, a changed name/exchange/is_primary UPDATEs in
+  place (the id stays stable, so the fact FKs don't orphan), unchanged skips. It coexists with
+  `master.resolve()` (the other live writer, ticker-keyed): both set `cik`, so neither duplicates the other's
+  rows (tested both orders) — and post-broadener, `resolve()`'s OpenFIGI calls fall to ~zero (the universe is
+  already loaded).
 - **Filing extraction (10-Q/10-K).** The three-tier extractor pulls a resolved name's latest 10-Q + 10-K (via
   the same cache-first `EdgarClient` + declared UA + rate-limit gate) and produces *candidate* scoring facts
   the operator ratifies — the extractor LOCATES, the operator RATIFIES. Detail in `WORKBENCH_EXTRACTION.md`;

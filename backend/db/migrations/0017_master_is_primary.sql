@@ -1,0 +1,21 @@
+-- 0017 — the canonical-primary flag on the security master (the multi-sibling CIK fix).
+--
+-- A CIK often carries SEVERAL master rows (dual-class, US-ADR vs foreign-ordinary, warrants/units,
+-- preferred). `ids_for_ciks` used to collapse them with a bare DISTINCT ON whose ORDER BY tied on a
+-- byte-identical recorded_at (one populate transaction) — an ARBITRARY sibling, varying run to run, so a
+-- re-draft could resolve a DIFFERENT instrument than the one the operator confirmed (duplicate rows via the
+-- security_id dedup), and everything downstream (shown ticker, price cache, the position MONITOR tracks)
+-- anchored to whichever sibling luck picked.
+--
+-- `is_primary` marks the CIK's canonical instrument — computed by `sec_tickers.flag_primaries` (the composite
+-- rank: instrument class > exchange > F-ordinary demotion > SEC file order; the rule was validated against
+-- all 1,476 multi-row CIKs, see sec_tickers.py) and written by `populate_universe`. NULLABLE by design:
+-- a row the SEC file no longer carries (delisted) or a resolve()-inserted row stays NULL, and the readers
+-- order `is_primary DESC NULLS LAST` so a flagged sibling always wins while an unflagged universe (the
+-- window between this migration and the next `pipeline.populate_master` run) falls back to the stable
+-- deterministic tail (`recorded_at DESC, id`).
+--
+-- Identity metadata, mutable-in-place like name/exchange — NOT a bitemporal fact (nothing reads the master
+-- as-of), never on a call card (#1/#3), never promoted onto a BasketMember (#2).
+
+ALTER TABLE security_master ADD COLUMN IF NOT EXISTS is_primary boolean;

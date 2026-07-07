@@ -510,13 +510,13 @@ def test_recommend_tiers_404_for_unknown_thesis(client):
     assert client.post(f"/workbench/theses/{uuid.uuid4()}/recommend-tiers").status_code == 404
 
 
-def _insert_security(db, ticker, *, name=None, cik=None) -> uuid.UUID:
+def _insert_security(db, ticker, *, name=None, cik=None, is_primary=None) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
-            "INSERT INTO security_master (id, tenant_id, ticker, name, cik, valid_from) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (sid, DEFAULT_TENANT_ID, ticker, name, cik, date(2026, 1, 1)),
+            "INSERT INTO security_master (id, tenant_id, ticker, name, cik, is_primary, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, name, cik, is_primary, date(2026, 1, 1)),
         )
     db.commit()
     return sid
@@ -691,6 +691,69 @@ def test_promote_rejects_a_security_not_in_this_tenants_master(client):
     r = client.post("/workbench/theses", json=payload)
     assert r.status_code == 404
     assert "not in this tenant's master" in r.json()["detail"]
+
+
+def test_promote_canonicalizes_a_non_primary_sibling(client, db):
+    """The write-guard's second half (the canonical-primary slice, operator-ratified coerce-all): a basket
+    member posted with a NON-primary sibling id (the foreign ordinary the draft happened to surface) is
+    re-pointed to the CIK's PRIMARY instrument — id AND ticker — before the spine write, and the response
+    carries the canonical ticker (visible, never silent). The spine never stores the sibling (COUNT the
+    stored row, not the response)."""
+    asmlf = _insert_security(
+        db, "ASMLF", name="ASML HOLDING NV", cik="0000937966", is_primary=False
+    )
+    asml = _insert_security(db, "ASML", name="ASML HOLDING NV", cik="0000937966", is_primary=True)
+    payload = {
+        "name": "AI memory",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "equipment"}],
+        "basket": [
+            {
+                "ticker": "ASMLF",  # the draft surfaced the foreign ordinary
+                "role": "r",
+                "archetype": "leader",
+                "security_id": str(asmlf),
+                "segment": "equipment",
+                "authored_by": "system_drafted",
+            }
+        ],
+    }
+    r = client.post("/workbench/theses", json=payload)
+    assert r.status_code == 200
+    member = r.json()["basket"][0]
+    assert member["security_id"] == str(asml) and member["ticker"] == "ASML"  # canonical, visibly
+    assert member["authored_by"] == "system_drafted"  # coercion touches identity, never authorship
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT security_id, ticker FROM basket_member WHERE thesis_id = %s", (r.json()["id"],)
+        )
+        rows = cur.fetchall()
+    assert [(str(x["security_id"]), x["ticker"]) for x in rows] == [(str(asml), "ASML")]
+
+
+def test_promote_stores_the_primary_as_is(client, db):
+    """Posting the primary itself (or any single-row CIK) is a no-op for the canonicalizer — nothing is
+    rewritten, the operator's row round-trips untouched."""
+    asml = _insert_security(db, "ASML", name="ASML HOLDING NV", cik="0000937966", is_primary=True)
+    _insert_security(db, "ASMLF", name="ASML HOLDING NV", cik="0000937966", is_primary=False)
+    payload = {
+        "name": "AI memory",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "equipment"}],
+        "basket": [
+            {
+                "ticker": "ASML",
+                "role": "r",
+                "archetype": "leader",
+                "security_id": str(asml),
+                "segment": "equipment",
+            }
+        ],
+    }
+    member = client.post("/workbench/theses", json=payload).json()["basket"][0]
+    assert member["security_id"] == str(asml) and member["ticker"] == "ASML"
 
 
 def test_promote_persists_thesis_fit(client, security_id):

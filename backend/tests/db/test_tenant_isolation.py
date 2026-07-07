@@ -441,7 +441,7 @@ def test_master_population_is_tenant_isolated(db):
     neither creates nor mutates the other's. Grows the poison-row proof to the master-population path.
     """
     provision_tenant(db, "prod-master", tenant_id=PROD_TENANT_ID)
-    rows = [("0001822966", "SMR", "NuScale Power")]
+    rows = [("0001822966", "SMR", "NuScale Power", "NYSE")]
 
     master.populate_universe(db, rows, tenant_id=DEFAULT_TENANT_ID)
     master.populate_universe(db, rows, tenant_id=PROD_TENANT_ID)
