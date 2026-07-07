@@ -33,7 +33,9 @@ class ScoredMember(DomainModel):
     ``security_id`` are scored (no facts to read otherwise)."""
 
     security_id: UUID
-    archetype: Archetype
+    # The member's archetype, carried verbatim. ``None`` = not yet characterized (item F: placement never
+    # stamps a default) — the hint below is then the finalize screen's starting recommendation.
+    archetype: Archetype | None = None
     # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
     # purity. Display-only — the operator confirms/overrides; it is NEVER auto-applied to ``archetype`` and
     # never promoted onto a ``BasketMember``. ``None`` = abstain (no facts yet, or a relational role the rule

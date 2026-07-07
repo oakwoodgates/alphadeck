@@ -342,6 +342,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
 .arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
 .arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
+/* item F — not-yet-characterized (the rail's "unclassified"): quiet, dashed, no risk-class color */
+.arch.unset { color: var(--txt-4); background: transparent; border: 1px dashed var(--line-2); }
 
 /* the four meters — purity/runway/catalysts cluster; dilution is the ember RISK axis, set apart */
 .wb-meters { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
@@ -379,6 +381,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .dd-head .arch-rec { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 9.5px; color: var(--leader); letter-spacing: 0.02em; }
 .dd-head .arch-apply { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--leader); border: 1px solid rgba(138, 180, 255, 0.4); background: transparent; border-radius: 5px; padding: 2px 8px; cursor: pointer; }
 .dd-head .arch-apply:disabled { opacity: 0.5; cursor: default; }
+/* item F — the rail's manual archetype set/override (the single decision point next to the hint) */
+.dd-head .arch-set { font-size: 10px; color: var(--txt-2); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 5px; }
 .arch-rec-dot { color: var(--leader); font-size: 10px; }
 .dd-body { padding: 15px; }
 .dd-facts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }

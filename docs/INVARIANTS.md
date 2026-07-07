@@ -296,3 +296,14 @@ them coexist.
 `WORKBENCH_EXTRACTION.md`), and the **derived archetype** (`WORKBENCH_ENRICHMENT.md`). Each is the same shape: a
 visible, pending recommendation that changes nothing until the operator confirms, on which authorship transfers to
 the operator (`system_drafted` → `operator_edited`). Every stage boundary is one of these handoffs.
+
+**The archetype's single home (item F, the three-gate round).** The recommend→confirm seam only reads cleanly when
+"my decision" and "the system's suggestion" can't blur — so the archetype is **decided ONCE, on the finalize rail**
+(the DDRail hint → the operator applies it or picks manually; either way `operator_edited`). Placement **never
+stamps a default**: a placed-but-not-finalized member carries `archetype = NULL` end-to-end (nullable column,
+optional on the models, never coerced on save) — the old hardcoded `high_beta` placement default asserted the most
+aggressive risk class before anyone decided, and once saved it read as an operator decision that never happened.
+Un-decided is un-decided all the way through the spine. *Enforced by:* migration `0018_archetype_nullable`;
+`tests/repositories/test_thesis_repo.py` (null round-trip, never-coerced resave) +
+`tests/app/test_workbench_api.py::test_promote_and_scored_carry_a_null_archetype`; the editor/AddName carry no
+archetype control (FE tests).

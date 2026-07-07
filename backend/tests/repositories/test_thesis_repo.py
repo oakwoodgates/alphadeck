@@ -246,6 +246,44 @@ def test_conviction_out_of_range_rejected(bad):
         BasketMember(ticker="X", role="r", archetype=Archetype.HIGH_BETA, conviction=bad)
 
 
+# --- item F (PR-B): the nullable archetype — un-decided is un-decided through the spine ---
+
+
+def test_archetype_default_is_unset():
+    """Placement never stamps an archetype (item F): the model default is None — the risk class is
+    decided ONCE, on the finalize screen (the DDRail hint → apply/override, #10)."""
+    m = BasketMember(ticker="X", role="r")
+    assert m.archetype is None
+
+
+def test_null_archetype_roundtrips_and_is_never_coerced(db, security_id):
+    """A placed-but-not-finalized name has NO archetype: None stores as NULL and reads back None —
+    never coerced to a default on save (a defaulted archetype on a saved member would read as an
+    operator decision that never happened)."""
+    t = _thesis(security_id)
+    t.basket[0].archetype = None
+    thesis_repo.upsert(db, t)
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    assert (
+        got.basket[0].archetype is None
+    )  # not high_beta (the old placement default), not anything
+
+
+def test_null_archetype_survives_a_resave_through_the_mapper(db, security_id):
+    """The wipe-trap guard, F-flavored: a resave of the READ-BACK basket (a narrative edit resends it
+    verbatim) must keep NULL as NULL — no default resurrected through the mapper/upsert path."""
+    t = _thesis(security_id)
+    t.basket[0].archetype = None
+    thesis_repo.upsert(db, t)
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    got.narrative = "edited — the basket is resent verbatim"
+    thesis_repo.upsert(db, got)
+    db.commit()
+    assert thesis_repo.get(db, t.id).basket[0].archetype is None
+
+
 def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
     """THE WIPE-TRAP guard: every promote reads the basket THROUGH _row_to_basket_member before DELETE+reinsert,
     so an UNMAPPED field is silently wiped on any unrelated resave (a narrative edit, the archetype-apply). Set

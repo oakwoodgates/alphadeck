@@ -96,7 +96,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     i,
                     m.ticker,
                     m.role,
-                    m.archetype.value,
+                    m.archetype.value if m.archetype else None,
                     m.security_id,
                     m.detail,
                     m.segment,

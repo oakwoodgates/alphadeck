@@ -782,7 +782,14 @@
             "title": "Role"
           },
           "archetype": {
-            "$ref": "#/components/schemas/Archetype"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Archetype"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "security_id": {
             "anyOf": [
@@ -851,8 +858,7 @@
         "type": "object",
         "required": [
           "ticker",
-          "role",
-          "archetype"
+          "role"
         ],
         "title": "BasketMember"
       },
@@ -2268,7 +2274,14 @@
             "title": "Ticker"
           },
           "archetype": {
-            "$ref": "#/components/schemas/Archetype"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Archetype"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "archetype_hint": {
             "anyOf": [
@@ -2319,7 +2332,6 @@
         "type": "object",
         "required": [
           "security_id",
-          "archetype",
           "purity",
           "runway",
           "catalysts",

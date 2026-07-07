@@ -48,9 +48,11 @@ const ARCH_LABEL: Record<string, string> = {
 };
 
 /** Basket-member archetype → its display label (the `.arch` chip; CSS uppercases it visually). The single
- *  source of archetype labels, shared by the Cockpit board, the Workbench chips, and the ChainEditor picker. */
-export function archLabel(archetype: string): string {
-  return ARCH_LABEL[archetype] ?? archetype;
+ *  source of archetype labels, shared by the Cockpit board, the Workbench chips, and the DDRail picker.
+ *  Null/undefined = not yet characterized (item F — placement never stamps a default) → "unset"; render
+ *  sites usually guard and show nothing, this is the defensive fallback so "null" never reaches the UI. */
+export function archLabel(archetype: string | null | undefined): string {
+  return archetype ? (ARCH_LABEL[archetype] ?? archetype) : "unset";
 }
 
 /** A single-name thesis shows its ticker; a multi-name theme shows a basket marker (never a bare "—",

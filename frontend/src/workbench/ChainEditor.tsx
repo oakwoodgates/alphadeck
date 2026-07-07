@@ -23,7 +23,7 @@ import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
-import { ARCHETYPES, archLabel, errText, isAcronymTerm } from "./format";
+import { archLabel, errText, isAcronymTerm } from "./format";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
@@ -345,11 +345,18 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     setFOffUniv(false);
   };
   const sec = (m: BasketMember) => (m.security_id ? identity[m.security_id]?.sector : null) ?? "";
-  const archsPresent = Array.from(new Set(d.draft.basket.map((m) => m.archetype)));
+  // the archetype filter offers the values PRESENT (+ "— unset —" for the un-characterized, item F)
+  const archsPresent = Array.from(
+    new Set(
+      d.draft.basket
+        .map((m) => m.archetype)
+        .filter((a): a is NonNullable<BasketMember["archetype"]> => a != null),
+    ),
+  );
   const matchesFilters = (m: BasketMember): boolean => {
     const k = memberKey(m);
     const loaded = hasFundamentals(m.security_id, scoredById);
-    if (fArch && m.archetype !== fArch) return false;
+    if (fArch && (fArch === "__unset__" ? m.archetype != null : m.archetype !== fArch)) return false;
     if (fSeg && (fSeg === "__unplaced__" ? !!m.segment : m.segment !== fSeg)) return false;
     if (fFund && (fFund === "loaded" ? !loaded : loaded)) return false;
     if (fAuth === "accepted" && m.authored_by === "system_drafted") return false;
@@ -363,7 +370,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     if (sortBy === "draft") return list;
     const cmp = (a: BasketMember, b: BasketMember): number => {
       if (sortBy === "name") return (a.ticker || "").localeCompare(b.ticker || "");
-      if (sortBy === "archetype") return a.archetype.localeCompare(b.archetype);
+      if (sortBy === "archetype")
+        return (a.archetype ?? "￿").localeCompare(b.archetype ?? "￿"); // unset sorts last (item F)
       if (sortBy === "segment") return (a.segment || "￿").localeCompare(b.segment || "￿");
       return (sec(a) || "￿").localeCompare(sec(b) || "￿"); // sector; blanks sort last
     };
@@ -419,15 +427,14 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       else next.add(name);
       return next;
     });
-  // The archetype palette (matches .arch.* / the lifecycle tokens) applied to the ticker + the arch select.
+  // The archetype palette (matches .arch.* / the lifecycle tokens) — the ticker tint for a SET archetype.
+  // (No arch select here anymore: the archetype is decided on the finalize rail, item F.)
   const ARCH_COLOR: Record<string, string> = {
     leader: "var(--leader)",
     high_beta: "var(--armed)",
     lotto: "var(--warm)",
     shovel: "var(--manage)",
   };
-  const archSelClass = (a: string): string =>
-    a === "leader" ? "lead" : a === "shovel" ? "mng" : a === "high_beta" ? "hb" : a === "lotto" ? "lot" : "";
 
   // Load a completed draft into the editor (MERGE, not replace). Fail-open: an empty draft (no key / the model
   // declined) loads nothing and shows the quiet "returned nothing" note.
@@ -544,12 +551,12 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
 
   // An AMBIGUOUS name enters the basket ONLY here, by an explicit pick — the operator commits the exact
   // security_id (the membership decision, INVARIANT #2). It lands `system_drafted` (the prose is still
-  // drafted) for the operator to accept / edit, like any drafted placement.
+  // drafted) for the operator to accept / edit, like any drafted placement. Archetype stays UNSET (item F).
   const pickAmbiguous = (p: ResolvedPlacement, c: SecurityCandidate) => {
     d.addMember({
       ticker: c.ticker,
       role: "—",
-      archetype: "high_beta",
+      archetype: null,
       security_id: c.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
@@ -568,7 +575,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     d.addMember({
       ticker: p.ticker || p.name,
       role: "—",
-      archetype: "high_beta",
+      archetype: null, // un-decided (item F) — the finalize rail sets it
       security_id: p.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
@@ -972,7 +979,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             onClick={() => setPlacedOpen((o) => !o)}
           >
             <span className="chev">{placedOpen ? "▾" : "▸"}</span>
-            Placed <em>· archetype derived · segment drafted · both overridable</em>
+            Placed <em>· segment drafted, overridable · archetype decided later, on the scored rail</em>
             {d.draft.basket.length > 0 && (
               <span className="ct">
                 · {d.includedBasket.length} of {d.draft.basket.length} included
@@ -1042,6 +1049,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                       {archLabel(a)}
                     </option>
                   ))}
+                  <option value="__unset__">— unset —</option>
                 </select>
               </label>
               <label className="wb-find-ctl">
@@ -1150,11 +1158,13 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                     checked={included}
                     onChange={() => d.toggleInclude(k)}
                   />
-                  {/* the archetype color (incl. red high-beta) only shows once the name is operator-owned or
-                      enrichment-derived; an UNCONFIRMED draft default renders neutral, not a wall of red. */}
+                  {/* the archetype color (incl. red high-beta) only shows on an operator-owned name whose
+                      archetype IS set (a finalize-rail decision) — unset renders neutral, not a wall of red. */}
                   <span
                     className="tk"
-                    style={drafted ? undefined : { color: ARCH_COLOR[m.archetype] }}
+                    style={
+                      !drafted && m.archetype ? { color: ARCH_COLOR[m.archetype] } : undefined
+                    }
                   >
                     {m.ticker}
                   </span>
@@ -1190,26 +1200,22 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                             needs SURFACE
                           </span>
                         ))}
-                      {/* R1: the ARCH / SEG / CONV controls sit on their own line; the row actions (accept +
-                          send-back) right-align at the END of this row (moved off the top-right slot). */}
+                      {/* R1: the SEG / CONV controls sit on their own line; the row actions (accept +
+                          send-back) right-align at the END of this row. NO archetype control here (item F):
+                          the archetype is decided ONCE, on the finalize rail — a set value shows read-only
+                          (a re-opened finalized basket), an unset one shows nothing. */}
                       <span className="ctls">
-                        <span className="ctl">
-                          <span className="lab">arch</span>
-                          <select
-                            className={drafted ? "" : archSelClass(m.archetype)}
-                            value={m.archetype}
-                            aria-label={`archetype for ${m.ticker}`}
-                            onChange={(e) =>
-                              d.editArchetype(k, e.target.value as BasketMember["archetype"])
-                            }
-                          >
-                            {ARCHETYPES.map((a) => (
-                              <option key={a} value={a}>
-                                {archLabel(a)}
-                              </option>
-                            ))}
-                          </select>
-                        </span>
+                        {m.archetype && (
+                          <span className="ctl">
+                            <span className="lab">arch</span>
+                            <span
+                              className={`arch ${m.archetype}`}
+                              title="set on the scored view's rail (the finalize step) — not editable at placement"
+                            >
+                              {archLabel(m.archetype)}
+                            </span>
+                          </span>
+                        )}
                         <span className="ctl">
                           <span className="lab">seg</span>
                           {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"

@@ -79,7 +79,7 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
     return BasketMember(
         ticker=b["ticker"],
         role=b["role"],
-        archetype=Archetype(b["archetype"]),
+        archetype=Archetype(b["archetype"]) if b["archetype"] is not None else None,
         security_id=b["security_id"],
         detail=b["detail"],
         segment=b["segment"],

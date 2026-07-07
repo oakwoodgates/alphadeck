@@ -16,7 +16,11 @@ export function ScoredRow({ member, selected, onSelect }: Props) {
     <button type="button" className={`nmrow${selected ? " sel" : ""}`} onClick={onSelect}>
       <div className="top">
         <span className="tk">{member.ticker ?? "◇"}</span>
-        <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        {/* archetype chip only when DECIDED (item F: unset renders nothing here — quiet; the ✦ dot +
+            the rail carry the pending decision, so an all-unset fresh basket isn't a wall of chips) */}
+        {member.archetype && (
+          <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        )}
         {member.archetype_hint && member.archetype_hint !== member.archetype && (
           <span
             className="arch-rec-dot"

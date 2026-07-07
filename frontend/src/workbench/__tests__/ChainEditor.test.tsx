@@ -167,6 +167,8 @@ describe("ChainEditor — authoring", () => {
     const match = await screen.findByRole("button", { name: /CCJ/ });
     expect(match).toHaveTextContent("CIK 0001"); // the homonym tell is surfaced
     await user.click(match);
+    // item F: NO archetype control at placement — the pick is ticker + role only (the rail decides later)
+    expect(screen.queryByLabelText("archetype")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("role"), "the uranium anchor");
     await user.click(screen.getByRole("button", { name: "add to basket" }));
 
@@ -629,15 +631,23 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
 });
 
 describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
-  it("R1: the accept toggle right-aligns at the END of the controls row, sharing it with ARCH/SEG/CONV", () => {
+  it("R1: the accept toggle right-aligns at the END of the controls row, sharing it with SEG/CONV", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO is operator_set → an "un-accept" toggle
     const acceptBtn = screen.getByRole("button", { name: "un-accept OKLO" });
-    const archSel = screen.getByLabelText("archetype for OKLO");
+    const segSel = screen.getByLabelText("segment for OKLO");
     // the action lives in the row-actions group…
     expect(acceptBtn.closest(".rowactions")).not.toBeNull();
-    // …which sits INSIDE the same controls (.ctls) row as ARCH/SEG/CONV (the second line)
+    // …which sits INSIDE the same controls (.ctls) row as SEG/CONV (the second line)
     expect(acceptBtn.closest(".ctls")).not.toBeNull();
-    expect(acceptBtn.closest(".ctls")).toBe(archSel.closest(".ctls"));
+    expect(acceptBtn.closest(".ctls")).toBe(segSel.closest(".ctls"));
+  });
+
+  it("item F: the row has NO archetype editor — a SET archetype shows as a read-only chip", () => {
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO carries a stored "high_beta"
+    // no select — the archetype is decided ONCE, on the finalize rail, never at placement
+    expect(screen.queryByLabelText("archetype for OKLO")).not.toBeInTheDocument();
+    // the stored value still SHOWS (read-only chip) — a re-opened finalized basket keeps its context
+    expect(screen.getByText("high-beta")).toBeInTheDocument();
   });
 
   it("R2: the thesis-fit box auto-sizes (rows=1, not a fixed 3) and still edits", async () => {
@@ -1087,6 +1097,18 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
 
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
+  });
+
+  it("item F: a drafted name carries NO archetype through Save (null — never a placement default)", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([P_CLEAN], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const mu = saveBody().basket.find((b) => b.ticker === "MU");
+    expect(mu?.archetype).toBeNull(); // un-decided rides the wire as null — the finalize rail decides later
   });
 
   it("G precedence: an off-thesis sole-acronym row lands in the collision group, not flagged", async () => {

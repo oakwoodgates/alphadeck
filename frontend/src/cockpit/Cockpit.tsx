@@ -109,9 +109,13 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                         <td className="tk">{b.ticker}</td>
                         <td className="role">{b.role}</td>
                         <td>
-                          <span className={`arch ${b.archetype}`}>
-                            {archLabel(b.archetype)}
-                          </span>
+                          {/* a DECIDED archetype only (item F): an unset one renders a quiet "—",
+                              never the string "null" (the decision lives on the Workbench rail) */}
+                          {b.archetype ? (
+                            <span className={`arch ${b.archetype}`}>{archLabel(b.archetype)}</span>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
                         </td>
                         <td className="met">
                           {formatMarketCap(b.security_id ? capBySid.get(b.security_id) : null)}

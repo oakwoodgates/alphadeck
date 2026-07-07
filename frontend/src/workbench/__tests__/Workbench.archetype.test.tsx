@@ -11,6 +11,8 @@ const fx = vi.hoisted(() => {
     { ticker: "OKLO", role: "r", archetype: "high_beta", security_id: "s-oklo", segment: null, authored_by: "operator_set", thesis_fit: null },
     { ticker: "LEU", role: "r", archetype: "shovel", security_id: "s-leu", segment: null, authored_by: "operator_set", thesis_fit: null },
     { ticker: "CCJ", role: "r", archetype: "leader", security_id: "s-ccj", segment: null, authored_by: "operator_set", thesis_fit: null },
+    // item F: a placed-but-not-finalized name — NO archetype (placement never characterizes)
+    { ticker: "QMEM", role: "r", archetype: null, security_id: "s-qmem", segment: null, authored_by: "system_drafted", thesis_fit: null },
   ];
   const members = [
     // disagreement: high_beta now, the figures suggest leader -> a pending chip + a ✦ dot
@@ -19,6 +21,8 @@ const fx = vi.hoisted(() => {
     { security_id: "s-leu", ticker: "LEU", archetype: "shovel", archetype_hint: null, segment: null, purity: fig(3, 77), runway: fig(4, 160), catalysts: fig(2, 1), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "core exposure" },
     // agreement: hint == archetype -> quiet (no chip, no dot)
     { security_id: "s-ccj", ticker: "CCJ", archetype: "leader", archetype_hint: "leader", segment: null, purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 5e10), fit: "pure-play" },
+    // item F: un-decided (null) with a computed hint — a PENDING decision (dot + rail set control)
+    { security_id: "s-qmem", ticker: "QMEM", archetype: null, archetype_hint: "lotto", segment: null, purity: fig(2, 40), runway: fig(1, 6), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 2e8), fit: "adjacent" },
   ];
   const thesis = {
     id: "t-nuke",
@@ -79,7 +83,7 @@ describe("Workbench — the #10 archetype recommendation (Slice 4)", () => {
     expect(h.mutate).toHaveBeenCalledTimes(1);
     const payload = h.mutate.mock.calls[0][0];
     expect(payload.id).toBe("t-nuke"); // the same thesis, resent (the rest of the chain untouched)
-    expect(payload.basket).toHaveLength(3);
+    expect(payload.basket).toHaveLength(4);
     const oklo = payload.basket.find((b: { security_id: string }) => b.security_id === "s-oklo");
     expect(oklo.archetype).toBe("leader"); // the recommendation applied
     expect(oklo.authored_by).toBe("operator_edited"); // operator authority — never auto-applied (#10)
@@ -88,9 +92,36 @@ describe("Workbench — the #10 archetype recommendation (Slice 4)", () => {
     expect(leu.archetype).toBe("shovel");
   });
 
-  it("only the disagreeing name carries the ✦ indicator — abstain (no hint) and agreement (hint == archetype) stay quiet", () => {
+  it("only names with a PENDING decision carry the ✦ indicator — abstain and agreement stay quiet", () => {
     renderWb();
-    // three scored names, but only OKLO (high_beta vs suggested leader) shows the ✦ dot; LEU abstains, CCJ agrees
-    expect(screen.getAllByText("✦")).toHaveLength(1);
+    // four scored names: OKLO (disagreement) + QMEM (unset-with-hint — item F's pending decision) show the
+    // ✦ dot; LEU abstains (no hint), CCJ agrees (hint == archetype)
+    expect(screen.getAllByText("✦")).toHaveLength(2);
+  });
+
+  it("item F: an unclassified member — the rail says so, the list stays quiet, the manual set decides", async () => {
+    const user = userEvent.setup();
+    renderWb();
+    // the list row renders NO archetype chip for the unset name (quiet — the ✦ dot carries "pending"),
+    // and the literal string "null"/"unset" never reaches the UI
+    expect(screen.queryByText("null")).not.toBeInTheDocument();
+    expect(screen.queryByText("unset")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /QMEM/ })); // select the un-decided member
+    expect(screen.getByText("unclassified")).toBeInTheDocument(); // the rail states it honestly
+    // the hint still recommends against an unset value (any non-null hint is a pending decision)…
+    expect(screen.getByRole("button", { name: /apply lotto to QMEM/i })).toBeInTheDocument();
+    // …and the manual set is the SAME single decision point — pick shovel (a relational call the
+    // hint never guesses); it persists through the promote writer as operator_edited (#10)
+    await user.selectOptions(screen.getByLabelText("set archetype for QMEM"), "shovel");
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    const payload = h.mutate.mock.calls[0][0];
+    const qmem = payload.basket.find((b: { security_id: string }) => b.security_id === "s-qmem");
+    expect(qmem.archetype).toBe("shovel");
+    expect(qmem.authored_by).toBe("operator_edited");
+    // the rest of the chain rides verbatim — including OKLO's stored archetype
+    expect(payload.basket.find((b: { security_id: string }) => b.security_id === "s-oklo").archetype).toBe(
+      "high_beta",
+    );
   });
 });
