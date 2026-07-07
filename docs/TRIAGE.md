@@ -126,6 +126,11 @@ independently-collapsible **display groups** (same first word = same membership;
 - **The #9 spine is untouched:** membership, include, and Save are computed over the whole draft regardless of
   grouping (test-guarded, same as the sort/filter view).
 
+**No archetype at placement (item F).** The placed row carries **no archetype editor** — a stored value shows as
+a read-only chip; an unset one shows nothing. The archetype is decided ONCE, on the scored view's rail (the
+`archetype_hint` → apply, or the rail's manual set — both `operator_edited`, #10); a placed-but-not-finalized
+member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `INVARIANTS.md` #10.
+
 **Save legibility (D).** A saved exit from the editor surfaces a note on the scored view: the thesis is
 re-openable with **✎ Edit the chain**. Honest scope: re-entry restores the **saved basket** — not the draft-time
 discovery context (matched terms, flags, To-Review queues are run state; re-discovering is a re-draft). The

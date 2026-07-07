@@ -1,6 +1,6 @@
 import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
 import { FactsPanel } from "./FactsPanel";
-import { archLabel, formatMarketCap, meterValueLabel, provChip, provNotes } from "./format";
+import { ARCHETYPES, archLabel, formatMarketCap, meterValueLabel, provChip, provNotes } from "./format";
 
 const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[] = [
   { key: "purity", figure: (m) => m.purity },
@@ -52,8 +52,9 @@ function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigur
 
 interface Props {
   member: ScoredMemberOut | null;
-  // #10 apply: confirm the derived archetype recommendation -> persists as operator_edited (the operator
-  // decides). Omitted (read-only) when there's no write path. The recommendation shows pending regardless.
+  // The rail is the archetype's SINGLE home (item F): this callback persists a decision — confirming the
+  // derived hint OR a manual pick from the select — as operator_edited (#10, the operator decides).
+  // Omitted (read-only) when there's no write path. The recommendation shows pending regardless.
   onApplyArchetype?: (
     securityId: string,
     archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
@@ -81,14 +82,22 @@ export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) 
   }
   // The #10 recommendation: a derived default (market cap + purity) that DIFFERS from the current archetype.
   // Pending + display-only — the operator confirms it (apply -> operator_edited) or ignores it. No chip when
-  // the rule abstains (hint null) or already agrees (quiet agreement) — only loud disagreement shows.
+  // the rule abstains (hint null) or already agrees (quiet agreement) — only pending disagreement shows.
+  // With a NULL archetype (item F: placement never characterizes) any non-null hint is pending — the rail is
+  // where the un-decided become decided, by the hint's apply or the manual set below.
   const hint = member.archetype_hint;
   const recommends = hint != null && hint !== member.archetype;
   return (
     <div className="ddcard">
       <div className="dd-head">
         <span className="tk">{member.ticker ?? "◇"}</span>
-        <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        {member.archetype ? (
+          <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        ) : (
+          <span className="arch unset" title="not yet characterized — decide it here (the hint recommends; you pick)">
+            unclassified
+          </span>
+        )}
         {recommends && (
           <span
             className="arch-rec"
@@ -107,6 +116,31 @@ export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) 
               </button>
             )}
           </span>
+        )}
+        {/* the manual set/override — the SAME single decision point as the hint's apply (one home, one
+            authorship: operator_edited). Offered whenever there's a write path; a pick is a decision even
+            where the rule abstained (shovel / fund are relational calls the hint never guesses). */}
+        {onApplyArchetype && (
+          <select
+            className="arch-set"
+            value={member.archetype ?? ""}
+            disabled={applying}
+            aria-label={`set archetype for ${member.ticker ?? "this name"}`}
+            onChange={(e) =>
+              e.target.value &&
+              onApplyArchetype(
+                member.security_id,
+                e.target.value as NonNullable<ScoredMemberOut["archetype_hint"]>,
+              )
+            }
+          >
+            {!member.archetype && <option value="">— set —</option>}
+            {ARCHETYPES.map((a) => (
+              <option key={a} value={a}>
+                {archLabel(a)}
+              </option>
+            ))}
+          </select>
         )}
       </div>
       <div className="dd-body">

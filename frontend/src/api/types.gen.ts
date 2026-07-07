@@ -419,7 +419,7 @@ export interface components {
             ticker: string;
             /** Role */
             role: string;
-            archetype: components["schemas"]["Archetype"];
+            archetype?: components["schemas"]["Archetype"] | null;
             /** Security Id */
             security_id?: string | null;
             /** Detail */
@@ -1089,7 +1089,7 @@ export interface components {
             security_id: string;
             /** Ticker */
             ticker?: string | null;
-            archetype: components["schemas"]["Archetype"];
+            archetype?: components["schemas"]["Archetype"] | null;
             archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */
             segment?: string | null;

@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import type { BasketMember, SecurityMatchOut } from "../api/hooks";
 import { useResolveSecurities } from "../api/hooks";
-import { ARCHETYPES, archLabel } from "./format";
 
 interface Props {
   existingKeys: Set<string>; // security_ids already in the basket (disable re-adding)
@@ -10,12 +9,13 @@ interface Props {
 }
 
 /** Add a name to the basket via the resolver typeahead (Slice 4b): search the master (a discovery net),
- *  pick an EXACT row, classify it (archetype + role), and add it as an `operator_set` placement (the
- *  server re-stamps `operator_set` on save). No match → the honest "ingest first" note; never a guess. */
+ *  pick an EXACT row, give it a role, and add it as an `operator_set` placement (the server re-stamps
+ *  `operator_set` on save). No match → the honest "ingest first" note; never a guess. NO archetype here
+ *  (item F): placement never characterizes — the archetype is decided ONCE, on the finalize rail (the
+ *  DDRail hint → apply/override), so the name lands unset (null). */
 export function AddName({ existingKeys, onAdd }: Props) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<SecurityMatchOut | null>(null);
-  const [archetype, setArchetype] = useState<string>("high_beta");
   const [role, setRole] = useState("");
   const results = useResolveSecurities(picked ? "" : q);
   const matches = results.data ?? [];
@@ -24,7 +24,6 @@ export function AddName({ existingKeys, onAdd }: Props) {
     setQ("");
     setPicked(null);
     setRole("");
-    setArchetype("high_beta");
   };
 
   const add = () => {
@@ -33,7 +32,7 @@ export function AddName({ existingKeys, onAdd }: Props) {
       {
         ticker: picked.ticker,
         role: role.trim() || "—",
-        archetype: archetype as BasketMember["archetype"],
+        archetype: null, // un-decided — the finalize rail is the archetype's single home (item F, #10)
         security_id: picked.security_id,
         segment: null, // starts unplaced; the operator places it via the row's segment select
         conviction: null, // unset until the operator weights it in the row
@@ -48,18 +47,6 @@ export function AddName({ existingKeys, onAdd }: Props) {
     return (
       <div className="wb-addname picked">
         <span className="tk">{picked.ticker}</span>
-        <select
-          className="wb-input"
-          value={archetype}
-          aria-label="archetype"
-          onChange={(e) => setArchetype(e.target.value)}
-        >
-          {ARCHETYPES.map((a) => (
-            <option key={a} value={a}>
-              {archLabel(a)}
-            </option>
-          ))}
-        </select>
         <input
           className="wb-input"
           placeholder="role in the thesis"

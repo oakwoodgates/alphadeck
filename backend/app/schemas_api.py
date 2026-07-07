@@ -262,7 +262,9 @@ class ScoredMemberOut(BaseModel):
 
     security_id: UUID
     ticker: str | None = None
-    archetype: Archetype
+    # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
+    # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
+    archetype: Archetype | None = None
     # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
     # purity. Display-only — the operator confirms/overrides; NEVER auto-applied to ``archetype``, never
     # promoted. ``None`` = abstain (no facts yet, or a relational role — shovel/fund — the rule won't guess).

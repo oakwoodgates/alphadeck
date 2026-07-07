@@ -177,7 +177,7 @@ export function useChainDraft(thesis: ThesisDetail) {
         .map((p) => ({
           ticker: p.ticker || p.name,
           role: "—",
-          archetype: "high_beta",
+          archetype: null, // un-decided (item F) — the finalize rail sets it; never a placement default
           security_id: p.security_id,
           segment: p.segment,
           thesis_fit: p.prose || null,
@@ -223,14 +223,8 @@ export function useChainDraft(thesis: ThesisDetail) {
       ),
     }));
 
-  // Re-classify the basket role; editing a drafted member takes it over (→ operator_edited).
-  const editArchetype = (key: string, archetype: BasketMember["archetype"]) =>
-    setDraft((d) => ({
-      ...d,
-      basket: d.basket.map((m) =>
-        memberKey(m) === key ? { ...m, archetype, authored_by: touched(m) } : m,
-      ),
-    }));
+  // (item F: there is NO editArchetype here — the archetype is decided ONCE, on the finalize rail
+  // (DDRail hint → apply/override through the promote writer); the editor never sets or defaults it.)
 
   // The operator's per-name conviction/size (1–5; null = unset). ORTHOGONAL to authorship — unlike archetype/
   // prose (drafted CONTENT the operator overrides), conviction is a fresh operator axis the drafter never sets,
@@ -255,7 +249,6 @@ export function useChainDraft(thesis: ThesisDetail) {
     loadDraft,
     toggleAccept,
     editProse,
-    editArchetype,
     editConviction,
     // TRIAGE (the prune): include-state + the included subset Save persists
     excluded,

@@ -459,7 +459,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                       return (
                         <span className="bchip" key={m.security_id}>
                           <b>{m.ticker ?? "◇"}</b>
-                          <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
+                          {/* only a DECIDED archetype renders (item F) — unset is quiet, not "null" */}
+                          {m.archetype && (
+                            <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
+                          )}
                           {m.segment ? <small>{m.segment}</small> : null}
                           {auth ? (
                             <span className="wb-author">

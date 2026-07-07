@@ -1,0 +1,13 @@
+-- 0018 — basket_member.archetype becomes NULLABLE (the three-gate TRIAGE round, PR-B / item F).
+--
+-- NULL = "not yet characterized": a placed-but-not-finalized name carries NO archetype. The old
+-- placement-time default ("high_beta", hardcoded in the FE) stamped the MOST AGGRESSIVE risk class on
+-- every name before the operator decided or the system computed its hint — a #10 violation once saved
+-- (a defaulted archetype on a member reads as if the operator chose it). Archetype is now decided ONCE,
+-- on the finalize screen (the DDRail hint → apply / override); un-decided stays un-decided all the way
+-- through the spine — never coerced back to a default on save.
+--
+-- NO backfill (operator-ratified): existing stored values stand — a pre-F "high_beta" that rode through
+-- an accept is indistinguishable from a chosen one, and the rail is where either gets corrected.
+-- (DROP NOT NULL is naturally idempotent — re-running is a no-op.)
+ALTER TABLE basket_member ALTER COLUMN archetype DROP NOT NULL;

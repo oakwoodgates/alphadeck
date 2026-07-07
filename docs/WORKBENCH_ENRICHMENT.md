@@ -73,15 +73,20 @@ guess surfaces for the operator to ratify, it never decides.
 
 ## The derived archetype — a #10 recommendation the operator confirms
 
-The blanket `high_beta` default is replaced by a **deterministic** archetype recommendation computed from the
-name's **market cap + purity** (not the LLM — a pure derivation). It is surfaced as **`archetype_hint`** on
+The blanket `high_beta` default is **gone entirely** (item F, the three-gate round): a placed-but-not-finalized
+member carries **`archetype = NULL`** — placement never characterizes, and save never coerces a default (nullable
+end-to-end since migration `0018`). What replaces it is a **deterministic** archetype recommendation computed from
+the name's **market cap + purity** (not the LLM — a pure derivation), surfaced as **`archetype_hint`** on
 `ScoredMemberOut`, distinct from the placed `archetype` the operator owns:
 
 - **Abstention is a feature.** When cap or purity is missing, or the signal is ambiguous, the derivation **declines
   to recommend** (no hint) rather than guessing — the honest fallback, matching the enrichment discipline.
-- **It RECOMMENDS, the operator DECIDES (#10).** The hint rides display-only; the operator confirms it via the
-  existing archetype control, which stamps `authored_by → operator_edited` — so a confirmed recommendation is
-  operator-authored and stable across a re-roll. Nothing auto-applies.
+- **It RECOMMENDS, the operator DECIDES (#10) — on the rail, the archetype's SINGLE home.** The hint rides
+  display-only; the operator applies it (or picks manually from the rail's set control — the same decision point;
+  relational calls like `shovel`/`fund` the rule never guesses) and either act stamps
+  `authored_by → operator_edited` — so a confirmed recommendation is operator-authored and stable across a
+  re-roll. Nothing auto-applies, and no other surface (placement rows, AddName, the editor) offers the field —
+  one decision point, one moment, one provenance.
 - **It never feeds the call.** Archetype is basket-member role metadata; the back-half grade/size still flow from
   the signals (`INVARIANTS.md` #7 — never an `if kind ==` branch).
 

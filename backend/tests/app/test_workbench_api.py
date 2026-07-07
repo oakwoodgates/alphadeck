@@ -102,6 +102,37 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     assert detail["basket"][0]["authored_by"] == "operator_set"
 
 
+def test_promote_and_scored_carry_a_null_archetype(client, security_id):
+    """Item F (PR-B): promote accepts a member with NO archetype (un-decided — placement doesn't
+    characterize; the finalize screen does), stores NULL, reads it back null on the thesis detail, and
+    the scored view carries it verbatim while the archetype HINT (the finalize screen's recommendation
+    seam, #10) still computes independently of the missing value."""
+    payload = {
+        "name": "Null-arch",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "reactors"}],
+        "basket": [
+            {
+                "ticker": "DEVCO",
+                "role": "r",
+                # archetype OMITTED — un-decided is un-decided all the way through the spine
+                "security_id": str(security_id),
+                "segment": "reactors",
+                "authored_by": "operator_set",
+            }
+        ],
+    }
+    r = client.post("/workbench/theses", json=payload)
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert client.get(f"/theses/{tid}").json()["basket"][0]["archetype"] is None
+    scored = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()
+    m = scored["members"][0]
+    assert m["archetype"] is None  # carried verbatim — no crash, no resurrected default
+    assert "archetype_hint" in m  # the hint seam still rides (None = abstain without facts)
+
+
 def test_promote_rejects_orphan_segment_placement(client, security_id):
     """A name placed in a link that isn't in the chain -> 422 (the Slice-1 validator, surfaced by the API)."""
     payload = {
