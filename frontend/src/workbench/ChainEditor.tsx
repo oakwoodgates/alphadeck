@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type {
   BasketMember,
@@ -23,7 +23,7 @@ import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
-import { ARCHETYPES, archLabel, errText } from "./format";
+import { ARCHETYPES, archLabel, errText, isAcronymTerm } from "./format";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
@@ -34,7 +34,9 @@ const DRAFT_POLL_TIMEOUT_MS = 600_000;
 
 interface Props {
   thesis: ThesisDetail;
-  onDone: () => void; // exit edit mode (the parent unmounts this, re-snapshotting on the next edit)
+  // Exit edit mode (the parent unmounts this, re-snapshotting on the next edit). `saved` = the exit
+  // FOLLOWED a successful Save — it drives the parent's "your saved basket is editable on return" note (D).
+  onDone: (saved: boolean) => void;
   // TRIAGE: the parent's scored members, keyed by security_id — a cheap read-time join (no fetch) that drives
   // the per-row "fundamentals loaded vs not" badge. Reflects the LAST SAVED state, so a freshly-drafted (unsaved)
   // name reads "needs SURFACE" — exactly the shortlist signal. Optional (an un-scored / test render omits it).
@@ -300,15 +302,23 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
 
   // --- post-draft results buckets (the IA reorg) ---
-  const PLACED_PREVIEW = 12; // a large draft (hundreds of names) collapses to a preview + "show more"
-  const [showAllPlaced, setShowAllPlaced] = useState(false);
+  const PLACED_PREVIEW = 12; // a large group (hundreds of names) collapses to a preview + "show more"
+  // per-group "show more" state, keyed by group ("placed" | "flagged" | "collision"; flat mode uses "placed")
+  const [showAllGroups, setShowAllGroups] = useState<Set<string>>(new Set());
   // The two big result sections collapse (open by default) — a long Placed list is a lot to scroll past to
   // reach To Review / Couldn't resolve, so the header is a click-to-collapse (the counts stay visible).
   const [placedOpen, setPlacedOpen] = useState(true);
+  // C-B + G — the placed board's DISPLAY partitions (up to three groups of the ONE membership), each
+  // independently collapsible. The two Placed groups start OPEN (nothing hidden by default); the acronym-
+  // collision group starts COLLAPSED (a junk cluster to visit for a scan-and-clear pass, not a wall to
+  // scroll past). Grouping only renders when it discriminates — see `groupingActive` below.
+  const [cleanOpen, setCleanOpen] = useState(true);
+  const [flaggedOpen, setFlaggedOpen] = useState(true);
+  const [collisionOpen, setCollisionOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(true);
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
-  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the off-thesis To-Review noise (collapsed)
-  const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less To-Review names (collapsed)
+  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise section (collapsed)
+  const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names section (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
@@ -359,9 +369,49 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     };
     return [...list].sort(cmp);
   };
-  // filter → sort → preview-collapse (the collapse counts the FILTERED set, not the whole basket)
+  // filter → sort → partition → per-group preview-collapse (counts are of the FILTERED set)
   const triaged = sorted(d.draft.basket.filter(matchesFilters));
-  const placedShown = showAllPlaced ? triaged : triaged.slice(0, PLACED_PREVIEW);
+
+  // G — the acronym-collision lens (a cheap-cut accelerant): a SIGNAL term that is a single all-caps token
+  // (HBM, DRAM) is collision-prone — the letters match tickers/fund names/boilerplate without any of the
+  // spelled-out words that would confirm the meaning. A placed name whose ONLY discovery match is one such
+  // term is almost always a string collision (a genuine name matches the acronym PLUS the phrases), so it's
+  // grouped for one fast scan-and-clear pass. A LENS, never a bucket: membership / include / Save are
+  // untouched (#9 — grouped for scanning, nothing dropped). Derived from the WORKING term set + the run's
+  // `matched` provenance, so like both, it's draft-session state.
+  const collisionTerms = new Set(
+    termSet.filter((e) => e.tier === "signal" && isAcronymTerm(e.term)).map((e) => norm(e.term)),
+  );
+  const soleAcronymMatch = (m: BasketMember): boolean => {
+    const mt = m.security_id ? matched[m.security_id] : undefined;
+    return !!mt && mt.length === 1 && collisionTerms.has(norm(mt[0]));
+  };
+  // C-B + G — ONE membership in up to three DISPLAY partitions, precedence collision > flagged > clean (the
+  // To-Review precedence idiom). Grouping renders ONLY when it discriminates (everything in one group is
+  // just today's flat list — a partition that doesn't discriminate is noise, honest-loudness #3).
+  const gClean: BasketMember[] = [];
+  const gFlagged: BasketMember[] = [];
+  const gCollision: BasketMember[] = [];
+  for (const m of triaged) {
+    if (soleAcronymMatch(m)) gCollision.push(m);
+    else if (m.security_id && offThesisSet.has(m.security_id)) gFlagged.push(m);
+    else gClean.push(m);
+  }
+  const groupingActive = gFlagged.length > 0 || gCollision.length > 0;
+  const shownRows = (gkey: string, rows: BasketMember[]) =>
+    showAllGroups.has(gkey) ? rows : rows.slice(0, PLACED_PREVIEW);
+  const showMoreBtn = (gkey: string, rows: BasketMember[]) =>
+    rows.length > PLACED_PREVIEW && !showAllGroups.has(gkey) ? (
+      <div className="showmore">
+        <button
+          type="button"
+          className="wb-mini"
+          onClick={() => setShowAllGroups((prev) => new Set(prev).add(gkey))}
+        >
+          show {rows.length - PLACED_PREVIEW} more
+        </button>
+      </div>
+    ) : null;
   const togglePick = (name: string) =>
     setPickOpen((prev) => {
       const next = new Set(prev);
@@ -565,7 +615,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
         basket,
         segments: d.draft.segments,
       },
-      { onSuccess: () => onDone() },
+      { onSuccess: () => onDone(true) },
     );
   };
 
@@ -643,7 +693,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           <button type="button" className="promote" disabled={save.isPending} onClick={onSave}>
             {save.isPending ? "Saving…" : "Save chain"}
           </button>
-          <button type="button" className="wb-mini ghost" onClick={onDone}>
+          <button type="button" className="wb-mini ghost" onClick={() => onDone(false)}>
             {d.dirty ? "Discard" : "Done"}
           </button>
         </div>
@@ -910,9 +960,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               questions, never conflated (see docs/mockups/mockup_workbench_results.html). Scoped under
               .wb-results so the mock's class names don't collide with ScoredRow's .nmrow/.fit etc. ===== */}
       <div className="wb-results">
-        {/* PLACED — flat list; arch (wired) + seg (UI-only; only "— remove —" acts). The off-thesis FLAG slot
-            is built (the .flagged tint + .flag line + promoted remove) but DORMANT — there's no off_thesis
-            signal in the data yet, so it never renders (kept honest; a later backend piece drives it). */}
+        {/* PLACED — the ONE basket, shown flat until a partition discriminates, then as up to three display
+            groups (C-B: "Placed" / "Placed, flagged" by the narrator's off-thesis opinion; G: "Placed,
+            acronym-only" for sole-acronym term collisions). Groups are VIEWS — membership, include, and
+            Save are computed over the whole draft regardless of grouping (#9, test-guarded). */}
         <div className="sect">
           <button
             type="button"
@@ -1072,7 +1123,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               </span>
             </div>
           )}
-          {placedShown.map((m) => {
+          {(() => {
+            // ONE row renderer shared by the flat list and the C-B/G display groups (it closes over the
+            // editor's run-state — matched/identity/names/offThesisSet — so it stays a local, not a component).
+            const placedRow = (m: BasketMember) => {
             const k = memberKey(m);
             const drafted = m.authored_by === "system_drafted";
             const mt = m.security_id ? matched[m.security_id] : undefined;
@@ -1253,7 +1307,89 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 )}
               </div>
             );
-          })}
+            };
+            // A display group over the ONE placed membership (C-B/G): a quiet drawer with its own collapse
+            // + per-group preview. Renders nothing when empty — an empty partition is noise.
+            const group = (
+              gkey: string,
+              title: string,
+              meta: string,
+              rows: BasketMember[],
+              open: boolean,
+              toggle: () => void,
+              extra?: ReactNode,
+            ) =>
+              rows.length === 0 ? null : (
+                <div className="resolve wb-placed-group">
+                  <button
+                    type="button"
+                    className="resolve-h"
+                    aria-expanded={open}
+                    aria-label={`toggle ${title}`}
+                    onClick={toggle}
+                  >
+                    <span className="chev">{open ? "▾" : "▸"}</span>
+                    <span className="rt">{title}</span>
+                    <span className="rm-meta">
+                      {meta ? `${meta} · ` : ""}
+                      {rows.length}
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="resolve-body">
+                      {extra}
+                      {shownRows(gkey, rows).map(placedRow)}
+                      {showMoreBtn(gkey, rows)}
+                    </div>
+                  )}
+                </div>
+              );
+            // Flat when the partition doesn't discriminate (no flags, no collisions) — today's single list.
+            if (!groupingActive) {
+              return (
+                <>
+                  {shownRows("placed", triaged).map(placedRow)}
+                  {showMoreBtn("placed", triaged)}
+                </>
+              );
+            }
+            return (
+              <div className="wb-placed-groups">
+                {group("placed", "Placed", "", gClean, cleanOpen, () => setCleanOpen((o) => !o))}
+                {group(
+                  "flagged",
+                  "Placed, flagged",
+                  "model-flagged off-thesis — still saved unless excluded",
+                  gFlagged,
+                  flaggedOpen,
+                  () => setFlaggedOpen((o) => !o),
+                )}
+                {group(
+                  "collision",
+                  "Placed, acronym-only",
+                  "matched ONE acronym signal term — likely collisions",
+                  gCollision,
+                  collisionOpen,
+                  () => setCollisionOpen((o) => !o),
+                  <div className="wb-triage-bulk">
+                    <span className="note">
+                      Each name here matched ONLY one acronym-style signal term — usually a string
+                      collision (a ticker or fund name carrying the letters, none of the words). Scan for
+                      real names, then clear the rest.
+                    </span>
+                    <button
+                      type="button"
+                      className="wb-mini ghost"
+                      title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
+                      onClick={() => d.excludeKeys(gCollision.map(memberKey))}
+                    >
+                      exclude all {gCollision.length}
+                    </button>
+                  </div>,
+                )}
+              </div>
+            );
+          })()}
           {d.draft.basket.length === 0 && (
             <div className="note">No names yet — draft from the narrative, or add one below.</div>
           )}
@@ -1262,20 +1398,14 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               No names match the filter — <button type="button" className="wb-linkbtn" onClick={clearFilters}>clear filters</button> to see all {d.draft.basket.length}.
             </div>
           )}
-          {triaged.length > PLACED_PREVIEW && !showAllPlaced && (
-            <div className="showmore">
-              <button type="button" className="wb-mini" onClick={() => setShowAllPlaced(true)}>
-                show {triaged.length - PLACED_PREVIEW} more
-              </button>
-            </div>
-          )}
             </>
           )}
         </div>
 
-        {/* TO REVIEW — resolved, lower confidence. Items 4 + 5: highlight the KEEPERS (the rare signal), and let
-            the off-thesis majority + the ticker-less names go QUIET in collapsed drawers. Inverse loudness (#7):
-            point at what to ADD, don't flag what to skip. Nothing dropped — every group stays promotable (#9). */}
+        {/* TO REVIEW — resolved, lower confidence: the KEEPERS only (the rare signal, surfaced). C-A hoisted
+            the two noise buckets (Low signal / No listed ticker) out of this section into their own top-level
+            collapsibles below — distinct buckets, not children. Inverse loudness (#7): point at what to ADD.
+            Nothing dropped — every bucket stays promotable (#9). */}
         {verify.length > 0 && (
           <div className="sect">
             <button
@@ -1286,7 +1416,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             >
               <span className="chev">{reviewOpen ? "▾" : "▸"}</span>
               To review <em>· in your universe, lower confidence — confirm or dismiss</em>
-              <span className="ct">· {verify.length}</span>
+              <span className="ct">· {vKeepers.length}</span>
             </button>
             {reviewOpen && (
               <>
@@ -1295,65 +1425,65 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`))}
             {vKeepers.length === 0 && (
               <div className="note">
-                No clear keepers — the model didn't flag any of these as a strong fit. Expand the groups below to
-                review.
-              </div>
-            )}
-
-            {/* the lower-priority groups — visually separated from the keepers above (a gap + a divider), even
-                though they're still part of To Review. Quiet + collapsed; nothing dropped (#9). */}
-            {(vOffThesis.length > 0 || vNoTicker.length > 0) && (
-              <div className="wb-review-lower">
-            {/* off-thesis noise — quiet + collapsed, NO yellow (the majority; highlight keepers, not this) */}
-            {vOffThesis.length > 0 && (
-              <div className="resolve">
-                <button
-                  type="button"
-                  className="resolve-h"
-                  aria-expanded={lowSignalOpen}
-                  onClick={() => setLowSignalOpen((o) => !o)}
-                >
-                  <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
-                  <span className="rt">Low signal</span>
-                  <span className="rm-meta">
-                    model sees no clear thesis fit · {vOffThesis.length} hidden
-                  </span>
-                </button>
-                {lowSignalOpen && (
-                  <div className="resolve-body">
-                    {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ticker-less — quiet + collapsed (likely subs/holdcos/debt; probably not directly investable) */}
-            {vNoTicker.length > 0 && (
-              <div className="resolve">
-                <button
-                  type="button"
-                  className="resolve-h"
-                  aria-expanded={noTickerOpen}
-                  onClick={() => setNoTickerOpen((o) => !o)}
-                >
-                  <span className="chev">{noTickerOpen ? "▾" : "▸"}</span>
-                  <span className="rt">No listed ticker</span>
-                  <span className="rm-meta">
-                    likely a sub / holdco / debt issuer — probably not directly investable ·{" "}
-                    {vNoTicker.length}
-                  </span>
-                </button>
-                {noTickerOpen && (
-                  <div className="resolve-body">
-                    {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
-                  </div>
-                )}
-              </div>
-            )}
+                No clear keepers — the model didn't flag any of these as a strong fit. The Low signal /
+                No listed ticker sections below hold the rest.
               </div>
             )}
               </>
             )}
+          </div>
+        )}
+
+        {/* C-A — the two To-Review noise buckets, hoisted to TOP-LEVEL siblings (they were nested inside
+            To review; they're distinct buckets, not children). Quiet + collapsed; nothing dropped (#9) —
+            every row stays promotable via the same check-to-add. */}
+        {vOffThesis.length > 0 && (
+          <div className="sect">
+            {/* off-thesis noise — quiet, NO yellow (the majority; highlight keepers, not this) */}
+            <div className="resolve">
+              <button
+                type="button"
+                className="resolve-h"
+                aria-expanded={lowSignalOpen}
+                onClick={() => setLowSignalOpen((o) => !o)}
+              >
+                <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
+                <span className="rt">Low signal</span>
+                <span className="rm-meta">
+                  model sees no clear thesis fit · {vOffThesis.length} hidden
+                </span>
+              </button>
+              {lowSignalOpen && (
+                <div className="resolve-body">
+                  {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {vNoTicker.length > 0 && (
+          <div className="sect">
+            {/* ticker-less — quiet (likely subs/holdcos/debt; probably not directly investable) */}
+            <div className="resolve">
+              <button
+                type="button"
+                className="resolve-h"
+                aria-expanded={noTickerOpen}
+                onClick={() => setNoTickerOpen((o) => !o)}
+              >
+                <span className="chev">{noTickerOpen ? "▾" : "▸"}</span>
+                <span className="rt">No listed ticker</span>
+                <span className="rm-meta">
+                  likely a sub / holdco / debt issuer — probably not directly investable ·{" "}
+                  {vNoTicker.length}
+                </span>
+              </button>
+              {noTickerOpen && (
+                <div className="resolve-body">
+                  {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

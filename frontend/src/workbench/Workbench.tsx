@@ -34,6 +34,11 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const [seg, setSeg] = useState<string | null>(null);
   const [pickedMemberId, setPickedMemberId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // D — Save-Chain re-entry legibility: set when the editor exits via a successful Save, so the scored view
+  // SAYS the thesis is re-openable. Honest copy: re-entry restores the saved BASKET — not the draft-time
+  // discovery context (matched terms / flags are run state; re-discovering is a re-draft). Cleared on any
+  // navigation that changes what the note refers to.
+  const [chainSaved, setChainSaved] = useState(false);
 
   // M1a/M1b — the thesis form, ONE panel with two modes: "create" (a new narrative) or "edit" (an
   // existing thesis's name/narrative). Both go through the single existing promote writer — create =
@@ -75,12 +80,14 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
     setSeg(null);
     setPickedMemberId(null);
     setEditing(false);
+    setChainSaved(false);
     promote.reset();
   };
 
   const startCreate = () => {
     setFormMode("create");
     setEditing(false);
+    setChainSaved(false);
     setFormName("");
     setFormNarrative("");
     promote.reset();
@@ -90,6 +97,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
     if (!thesis) return;
     setFormMode("edit");
     setEditing(false);
+    setChainSaved(false);
     setFormName(thesis.name);
     setFormNarrative(thesis.narrative);
     promote.reset();
@@ -293,7 +301,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
               <ChainEditor
                 key={thesis.id}
                 thesis={thesis}
-                onDone={() => setEditing(false)}
+                onDone={(saved) => {
+                  setEditing(false);
+                  setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
+                }}
                 scoredById={scoredById}
               />
             </main>
@@ -378,7 +389,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                   <button
                     type="button"
                     className="wb-edit-btn"
-                    onClick={() => setEditing(true)}
+                    onClick={() => {
+                      setChainSaved(false);
+                      setEditing(true);
+                    }}
                     disabled={!thesis}
                   >
                     ✎ Edit the chain
@@ -388,6 +402,15 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                     to have the drafter pre-fill the links + names for you to accept, edit, or drop.
                   </span>
                 </div>
+                {/* D — the visible inverse of Save (reversibility #1): say OUT LOUD that Save isn't a door
+                    closing. Honest scope: the saved BASKET is editable on return; the draft-time discovery
+                    context (matched terms, flags, To-Review queues) is run state — a re-draft re-runs it. */}
+                {chainSaved && (
+                  <div className="toast show">
+                    ✓ Chain saved. Reopen it anytime with <b>✎ Edit the chain</b> — you'll be editing your
+                    saved basket (a re-draft is how you re-run discovery).
+                  </div>
+                )}
                 {grouped && (
                   <div className="note">
                     Click a link to see its names. The whole chain is visible so you pick from a map —

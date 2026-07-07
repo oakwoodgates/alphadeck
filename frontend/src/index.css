@@ -563,9 +563,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .wb-inc:disabled { opacity: 0.4; cursor: default; }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
-/* the lower-priority To-Review groups (Low signal + No listed ticker) — separated from the keepers by a gap + a
-   dashed divider, and spaced from each other. */
-.wb-results .wb-review-lower { margin-top: 14px; padding-top: 13px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 9px; }
+/* C-B + G — the placed board's display groups: one membership, up to three quiet drawers (reusing the
+   .resolve drawer idiom). The bulk bar inside the collision group hugs its rows. */
+.wb-results .wb-placed-groups { margin-top: 10px; display: flex; flex-direction: column; gap: 9px; }
+.wb-results .wb-placed-group .wb-triage-bulk { margin: 8px 0 2px; }
 
 /* couldn't-resolve drawer */
 .wb-results .resolve { border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg-2); overflow: hidden; }

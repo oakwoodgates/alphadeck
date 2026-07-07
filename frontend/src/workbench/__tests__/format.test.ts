@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { archLabel, formatMarketCap, meterValueLabel, provChip, provNotes } from "../format";
+import { archLabel, formatMarketCap, isAcronymTerm, meterValueLabel, provChip, provNotes } from "../format";
 
 describe("formatMarketCap", () => {
   it("scales to B/M and renders '—' for missing (no fake $0)", () => {
@@ -34,6 +34,26 @@ describe("archLabel", () => {
     expect(archLabel("high_beta")).toBe("high-beta");
     expect(archLabel("fund")).toBe("ETF sleeve");
     expect(archLabel("leader")).toBe("leader");
+  });
+});
+
+describe("isAcronymTerm (G — the collision-lens predicate)", () => {
+  it("marks single all-caps tokens as collision-prone", () => {
+    expect(isAcronymTerm("HBM")).toBe(true);
+    expect(isAcronymTerm("DRAM")).toBe(true);
+    expect(isAcronymTerm("H100")).toBe(true); // digits allowed after a leading letter
+    expect(isAcronymTerm(" HBM ")).toBe(true); // authored whitespace tolerated
+    // NAND is a real word AND all-caps — it clusters BY DESIGN (the v1 rule is deliberately simple;
+    // judged on live data, tweaked after).
+    expect(isAcronymTerm("NAND")).toBe(true);
+  });
+  it("never marks phrases, mixed case, or single letters", () => {
+    expect(isAcronymTerm("high-bandwidth memory")).toBe(false); // spelled-out phrase
+    expect(isAcronymTerm("NAND flash")).toBe(false); // two words
+    expect(isAcronymTerm("Hbm")).toBe(false); // mixed case
+    expect(isAcronymTerm("psilocybin")).toBe(false); // ordinary word
+    expect(isAcronymTerm("A")).toBe(false); // one letter is not an acronym
+    expect(isAcronymTerm("3PAR")).toBe(false); // must start with a letter (v1)
   });
 });
 
