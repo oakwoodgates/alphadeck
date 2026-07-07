@@ -98,20 +98,29 @@ def resolve(
 
 def populate_universe(
     conn: psycopg.Connection,
-    rows: Iterable[tuple[str, str, str | None]],
+    rows: Iterable[tuple[str, str, str | None, str | None]],
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     effective_date: date | None = None,
 ) -> dict[str, int]:
-    """Populate THIS tenant's master from the SEC ``company_tickers`` universe — idempotent, additive, and
-    keyed on ``(cik, ticker)``. The broadener that lifts the loop from "the seeded basket" to "any name you
+    """Populate THIS tenant's master from the SEC universe — idempotent, additive, and keyed on
+    ``(cik, ticker)``. The broadener that lifts the loop from "the seeded basket" to "any name you
     just thought of". The caller commits.
 
-    Per ``(cik, ticker)`` triple (from ``sec_tickers.load_all``): absent -> INSERT a new row (fresh id);
-    present with a changed ``name`` -> UPDATE the name **in place** (id stable); unchanged -> skip. Returns
-    ``{"inserted", "updated", "skipped"}``.
+    Per ``(cik, ticker, name, exchange)`` quadruple (from ``sec_tickers.load_all``, in FILE ORDER): absent ->
+    INSERT a new row (fresh id); present with a changed ``name`` / ``exchange`` / ``is_primary`` -> UPDATE
+    **in place** (id stable); unchanged -> skip. Returns ``{"inserted", "updated", "skipped"}``.
 
-    INVARIANT #2 by construction: only EXACT ``company_tickers`` mappings are written, never a fuzzy guess
+    Two identity attributes ride the row beyond the mapping itself:
+    - ``exchange`` — the SEC's PER-INSTRUMENT venue (ASML=Nasdaq vs ASMLF=OTC). This is the authoritative
+      value; the submissions enrichment only fills it when NULL (its ``exchanges[0]`` is company-level and
+      stamped the wrong sibling — the ASMLF="Nasdaq" bug).
+    - ``is_primary`` — the CIK's ONE canonical instrument (``sec_tickers.flag_primaries``, the composite rank
+      validated against every multi-row CIK). ``ids_for_ciks`` resolves to it; promote re-asserts it. A row
+      the SEC file no longer carries keeps its last flag (a vanished sibling can't steal primacy — the flag
+      only moves when the file's rank moves it).
+
+    INVARIANT #2 by construction: only EXACT SEC mappings are written, never a fuzzy guess
     (the ``search`` discovery net still only suggests; the operator still picks the exact id). Identity is
     keyed on the stable CIK (the extractor keys on CIK; renames preserve it), with ticker in the key so a
     CIK's several share classes (dual-class) each stay a pickable row. The seeded names reconcile for free —
@@ -123,45 +132,55 @@ def populate_universe(
     the current mapping) leaks into no point-in-time read. Necessary: 8 tables FK ``security_id`` ->
     ``security_master(id)``, so the id MUST stay stable or those facts orphan — an in-place UPDATE keeps it.
     """
-    existing: dict[tuple[str, str], tuple[UUID, str | None]] = {}
+    existing: dict[tuple[str, str], tuple[UUID, str | None, str | None, bool | None]] = {}
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT ON (cik, ticker) cik, ticker, id, name FROM security_master "
+            "SELECT DISTINCT ON (cik, ticker) cik, ticker, id, name, exchange, is_primary "
+            "FROM security_master "
             "WHERE tenant_id = %s AND cik IS NOT NULL AND ticker IS NOT NULL "
             "ORDER BY cik, ticker, recorded_at DESC",
             (tenant_id,),
         )
         for r in cur.fetchall():
-            existing[(r["cik"], r["ticker"])] = (r["id"], r["name"])
+            existing[(r["cik"], r["ticker"])] = (r["id"], r["name"], r["exchange"], r["is_primary"])
+
+    # De-dup defensively (the SEC file shouldn't repeat a (cik, ticker)) BEFORE the primary rank, so a
+    # duplicate row can't split a CIK's rank group; then flag exactly one primary per CIK (file order kept).
+    seen: set[tuple[str, str]] = set()
+    deduped: list[tuple[str, str, str | None, str | None]] = []
+    for cik, ticker, name, exchange in rows:
+        if not cik or not ticker:
+            continue
+        key = (cik, str(ticker).upper())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((cik, str(ticker).upper(), name, exchange))
 
     valid_from = effective_date or date.today()
     inserts: list[tuple] = []
     updates: list[tuple] = []
-    seen: set[tuple[str, str]] = set()
-    for cik, ticker, name in rows:
-        if not cik or not ticker:
-            continue
-        ticker = ticker.upper()
-        key = (cik, ticker)
-        if key in seen:  # company_tickers shouldn't repeat a (cik, ticker); be defensive anyway
-            continue
-        seen.add(key)
-        current = existing.get(key)
+    for cik, ticker, name, exchange, is_primary in sec_tickers.flag_primaries(deduped):
+        current = existing.get((cik, ticker))
         if current is None:
-            inserts.append((uuid4(), tenant_id, cik, ticker, name, valid_from))
-        elif name != current[1]:
-            updates.append((name, current[0]))
+            inserts.append(
+                (uuid4(), tenant_id, cik, ticker, name, exchange, is_primary, valid_from)
+            )
+        elif (name, exchange, is_primary) != (current[1], current[2], current[3]):
+            updates.append((name, exchange, is_primary, current[0]))
 
     with conn.cursor() as cur:
         if inserts:
             cur.executemany(
-                "INSERT INTO security_master (id, tenant_id, cik, ticker, name, valid_from) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO security_master "
+                "(id, tenant_id, cik, ticker, name, exchange, is_primary, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 inserts,
             )
         if updates:
             cur.executemany(
-                "UPDATE security_master SET name = %s, recorded_at = now() WHERE id = %s",
+                "UPDATE security_master SET name = %s, exchange = %s, is_primary = %s, "
+                "recorded_at = now() WHERE id = %s",
                 updates,
             )
     return {
@@ -179,22 +198,29 @@ def enrich(
     source: str,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> bool:
-    """Enrich one master row with machine-parsed IDENTITY (sector/exchange/status) from EDGAR submissions —
-    UPDATE-in-place, the same identity-mutable pattern as ``populate_universe``'s name-update. The id stays
-    stable (the fact tables that FK ``security_id`` never orphan); nothing reads the master as-of, so
-    overwriting a stale value leaks into no point-in-time read. Idempotent — a re-run overwrites, never appends.
+    """Enrich one master row with machine-parsed IDENTITY (sector/status/category, exchange fill-if-null)
+    from EDGAR submissions — UPDATE-in-place, the same identity-mutable pattern as ``populate_universe``'s
+    name-update. The id stays stable (the fact tables that FK ``security_id`` never orphan); nothing reads
+    the master as-of, so overwriting a stale value leaks into no point-in-time read. Idempotent — a re-run
+    overwrites, never appends.
+
+    ``exchange`` only FILLS a NULL, never overwrites: the submissions value is ``exchanges[0]`` — a
+    COMPANY-level attribute — while the populate path writes the SEC table's PER-INSTRUMENT venue, which is
+    authoritative for the row (the company-level overwrite is how the ASMLF foreign ordinary got stamped
+    "Nasdaq" — a wrong tradeable attribute on the exact sibling the canonical rank must demote).
 
     ``source`` is the ENRICHMENT BASIS stored alongside (e.g. ``submissions:CIK0001849056``). Identity carries
     a basis, NEVER the facts' ``ratified_by`` — so machine-parsed identity can't masquerade as an
     operator-vouched fact (#1/#3: identity is not a number on a call card). ``identity.former_names`` is NOT
-    persisted here — the identity-bridge slice owns that.
+    persisted here — its planned consumer (the identity bridge) was dropped.
 
     Returns whether a row was updated: a foreign/unknown id under this tenant updates nothing (fail-closed, the
     same write-side tenant boundary as ``exists``). The caller commits (so an enrichment pass can batch).
     """
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE security_master SET sector = %s, exchange = %s, status = %s, category = %s, "
+            "UPDATE security_master SET sector = %s, exchange = COALESCE(exchange, %s), "
+            "status = %s, category = %s, "
             "enriched_source = %s, enriched_at = now() WHERE tenant_id = %s AND id = %s",
             (
                 identity.sector,
@@ -247,8 +273,10 @@ def ids_for_tickers(
         return {}
     with conn.cursor() as cur:
         cur.execute(
+            # the trailing `id` breaks a recorded_at tie deterministically (rows written in one transaction
+            # share a timestamp) — same discipline as ids_for_ciks
             "SELECT DISTINCT ON (ticker) ticker, id FROM security_master "
-            "WHERE tenant_id = %s AND ticker = ANY(%s) ORDER BY ticker, recorded_at DESC",
+            "WHERE tenant_id = %s AND ticker = ANY(%s) ORDER BY ticker, recorded_at DESC, id",
             (tenant_id, list(wanted)),
         )
         return {row["ticker"]: row["id"] for row in cur.fetchall()}
@@ -260,12 +288,17 @@ def ids_for_ciks(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> dict[str, UUID]:
-    """Map CIKs -> their canonical security id (the inverse of ``ciks_for``). The EDGAR-first discovery path:
+    """Map CIKs -> their CANONICAL security id (the inverse of ``ciks_for``). The EDGAR-first discovery path:
     EFTS returns the CIKs of US filers in a theme; this resolves each to an EXACT master member (INVARIANT #2,
     the cleanest form — CIK is the stable identity, so a rename / DBA / ticker change can't break the match).
 
-    One id per CIK (``DISTINCT ON (cik)``, latest ``recorded_at`` — a CIK's several share classes collapse to
-    its primary row; the operator picks a specific class if it matters). CIKs with no master row are omitted
+    One id per CIK: the ``is_primary`` row (``sec_tickers.flag_primaries`` — the composite rank: instrument
+    class > exchange > F-ordinary demotion > SEC file order), so a multi-sibling CIK (dual-class, ADR vs
+    foreign ordinary, warrants) resolves to the instrument the operator actually trades — ASML never ASMLF,
+    KTTA never KTTAW — and resolves the SAME way every run (the old bare recorded_at ORDER tied on
+    byte-identical timestamps and picked an ARBITRARY sibling, so a re-draft could resolve a different
+    instrument than the one the operator confirmed). ``NULLS LAST`` + the trailing ``id`` keep the pick
+    deterministic even before a populate has flagged the universe. CIKs with no master row are omitted
     (foreign / no US ticker -> the tail-sweep's job, not placeable here).
 
     The master stores CIKs as the EDGAR zero-padded 10-digit string (``sec_tickers`` writes ``f"{int:010d}"``);
@@ -278,10 +311,42 @@ def ids_for_ciks(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (cik) cik, id FROM security_master "
-            "WHERE tenant_id = %s AND cik = ANY(%s) ORDER BY cik, recorded_at DESC",
+            "WHERE tenant_id = %s AND cik = ANY(%s) "
+            "ORDER BY cik, is_primary DESC NULLS LAST, recorded_at DESC, id",
             (tenant_id, list(wanted)),
         )
         return {row["cik"]: row["id"] for row in cur.fetchall()}
+
+
+def canonicalize_ids(
+    conn: psycopg.Connection,
+    ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, tuple[UUID, str]]:
+    """Map each given security id to its CIK's CANONICAL sibling — ``{given_id: (primary_id, primary_ticker)}``,
+    entries ONLY where the canonical row differs from the given one. The promote write-guard's second half:
+    ``exists`` proves the id is *a* master row; this proves the spine stores the *right* sibling (the same
+    ``is_primary DESC NULLS LAST, recorded_at DESC, id`` pick as ``ids_for_ciks``, so draft-time and
+    promote-time resolution can never disagree). Ids with no CIK (a resolve()-era row) or no sibling map to
+    nothing and are stored as-is."""
+    id_list = [i for i in ids if i is not None]
+    if not id_list:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH given AS ("
+            "  SELECT id, cik FROM security_master WHERE tenant_id = %s AND id = ANY(%s) AND cik IS NOT NULL"
+            "), canon AS ("
+            "  SELECT DISTINCT ON (sm.cik) sm.cik, sm.id, sm.ticker FROM security_master sm"
+            "  WHERE sm.tenant_id = %s AND sm.cik IN (SELECT cik FROM given)"
+            "  ORDER BY sm.cik, sm.is_primary DESC NULLS LAST, sm.recorded_at DESC, sm.id"
+            ") "
+            "SELECT g.id AS given_id, c.id AS primary_id, c.ticker AS primary_ticker "
+            "FROM given g JOIN canon c ON c.cik = g.cik WHERE c.id <> g.id",
+            (tenant_id, id_list, tenant_id),
+        )
+        return {r["given_id"]: (r["primary_id"], r["primary_ticker"]) for r in cur.fetchall()}
 
 
 def search(

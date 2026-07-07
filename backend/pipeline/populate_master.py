@@ -1,14 +1,16 @@
-"""Populate the per-tenant security master from the SEC company_tickers universe — the broadener.
+"""Populate the per-tenant security master from the SEC universe — the broadener.
 
 The scoring-fact loop (resolve -> extract -> ratify -> score) can only point at names already in the
 master, and the seed loads a handful. This lifts it to "any name you just thought of": one polite GET of
-SEC's company_tickers.json (~12k names) upserted into THIS tenant's master, idempotent and additive,
-keyed on ``(cik, ticker)``. No read-side change — ``master.search``/``extract``/the scorer already read a
-bigger master. See docs + ``securities.master.populate_universe`` for the keying/convention details.
+SEC's ``company_tickers_exchange.json`` (~10k rows, per-instrument exchange) upserted into THIS tenant's
+master, idempotent and additive, keyed on ``(cik, ticker)`` — and each CIK's ONE canonical instrument
+flagged ``is_primary`` (the composite rank in ``securities.sec_tickers``). Re-running IS the backfill for
+the canonical-primary migration. No read-side change — ``master.search``/``extract``/the scorer already
+read a bigger master. See docs + ``securities.master.populate_universe`` for the keying/convention details.
 
-    # cache-first (uses a cached company_tickers.json under data/sec_cache if present):
+    # cache-first (uses a cached company_tickers_exchange.json under data/sec_cache if present):
     python -m pipeline.populate_master
-    # live fetch (the real ~12k universe) — needs ALPHADECK_USER_AGENT (SEC etiquette):
+    # live fetch (the real ~10k universe) — needs ALPHADECK_USER_AGENT (SEC etiquette):
     python -m pipeline.populate_master --live
     # a non-default tenant (the production cut): pass an explicit id, else the deployment tenant is used
     python -m pipeline.populate_master --live --tenant-id <uuid>

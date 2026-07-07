@@ -201,7 +201,10 @@ class Settings(BaseSettings):
         "https://www.sec.gov/Archives/edgar/data"  # filing docs + the provenance index link
     )
     sec_company_tickers_url: str = (
-        "https://www.sec.gov/files/company_tickers.json"  # the full fixed file URL
+        # The EXCHANGE variant ({fields, data} rows in the SEC's own order) — it carries a PER-INSTRUMENT
+        # exchange for the whole universe (ASML=Nasdaq vs ASMLF=OTC), which the canonical-primary rank needs;
+        # the plain company_tickers.json has no exchange. Same host, same one-GET etiquette.
+        "https://www.sec.gov/files/company_tickers_exchange.json"
     )
     stooq_base: str = "https://stooq.com"
     yahoo_chart_base: str = "https://query1.finance.yahoo.com"

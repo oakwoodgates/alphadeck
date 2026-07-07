@@ -75,9 +75,19 @@ the basket **only by an explicit operator pick**, ABSENT is shown-not-placed. An
 nothing, **promote is the single write-side check** — every placed `security_id` must be an exact master
 member, else `404`.
 
+**Promote also CANONICALIZES the sibling (the canonical-primary slice, operator-ratified coerce-all).** A
+multi-sibling CIK (dual-class / ADR-vs-foreign-ordinary / warrants) has ONE `is_primary` instrument (the
+composite rank in `securities/sec_tickers.py`, empirically validated against every multi-row CIK); `exists`
+proves a posted id is *a* master row, and `master.canonicalize_ids` then re-points a non-primary sibling to
+the CIK's primary (id + ticker) before the spine write — visible in the response, logged, never silent. The
+accepted consequence: a deliberate non-primary line (intentionally trading the foreign ordinary) is
+unrepresentable in v1.
+
 - *Enforced by:* `workbench/chain_draft.resolve_placements` (exact ticker/name → PLACED, else pick / absent;
-  `tests/workbench/test_chain_draft.py`); the promote membership guard + honored-authorship
-  (`app/routers/workbench.py`; `tests/app/test_workbench_api.py`). See `CHAIN_DRAFTER.md`.
+  `tests/workbench/test_chain_draft.py`); the promote membership guard + honored-authorship + the
+  canonicalization (`app/routers/workbench.py`; `tests/app/test_workbench_api.py` —
+  `test_promote_canonicalizes_a_non_primary_sibling`); the rank's pinned violation fixtures
+  (`tests/securities/test_canonical_primary.py`). See `CHAIN_DRAFTER.md` + `DISCOVERY.md` §3.
 
 **The M2 back-half ingest honors the same rule on the WRITE side.** `pipeline.ingest_thesis` targets each
 basket member's already-resolved `security_id` via `master.get` (issuer ticker + CIK) — **never a fresh fuzzy

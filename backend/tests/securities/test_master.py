@@ -174,7 +174,11 @@ def test_enrich_sets_identity_and_reads_back(db):
 
 def test_enrich_is_update_in_place_not_append(db):
     """Re-enrichment UPDATEs in place (the master is identity-mutable) — the row COUNT never grows (count the
-    table, not the read), the id is stable (FK'd facts never orphan), and the latest values win."""
+    table, not the read), the id is stable (FK'd facts never orphan), and the latest values win — EXCEPT
+    ``exchange``, which only FILLS a NULL: the submissions value is COMPANY-level (``exchanges[0]``), while
+    the populate path writes the SEC table's PER-INSTRUMENT venue, which is authoritative (the company-level
+    overwrite is how the ASMLF foreign ordinary got stamped "Nasdaq" — the canonical-primary slice).
+    """
     sid = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM security_master")
@@ -190,7 +194,10 @@ def test_enrich_is_update_in_place_not_append(db):
         cur.execute("SELECT count(*) AS n FROM security_master")
         assert cur.fetchone()["n"] == before  # UPDATE-in-place, never appended
     sec = master.get(db, sid)
-    assert (sec.sector, sec.exchange, sec.status) == ("B", "Nasdaq", "inactive")  # latest wins
+    assert (sec.sector, sec.status) == ("B", "inactive")  # latest wins
+    assert (
+        sec.exchange == "NYSE"
+    )  # fill-if-null: the first fill sticks — never clobbered company-level
 
 
 def test_enrich_unknown_id_updates_nothing(db):

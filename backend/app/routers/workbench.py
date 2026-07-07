@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from datetime import date
 from uuid import UUID, uuid4
@@ -79,6 +80,8 @@ from workbench.enrichment import enrich_for_ciks
 from workbench.research_runner import run_research
 from workbench.scoring import score_thesis
 from workbench.term_set import produce_term_set, stamp_edited_term_set
+
+_log = logging.getLogger("alphadeck.workbench")
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -208,12 +211,16 @@ def promote(
     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
 
-    Two write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
+    Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
     ``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``
-    (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. And
-    every placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a
-    caller-supplied id is never trusted), the single point where bound #2 is enforced now that the S5 drafter
-    returns a draft and writes nothing itself."""
+    (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. Every
+    placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
+    id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
+    and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
+    ordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary
+    instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
+    the basket stores the instrument the operator actually trades; the response carries the canonical
+    ticker."""
     try:
         thesis = Thesis(  # the Slice-1 segment-consistency validator runs here
             id=req.id or uuid4(),
@@ -240,6 +247,33 @@ def promote(
             raise HTTPException(
                 status_code=404,
                 detail=f"basket member {m.ticker!r} references a security not in this tenant's master",
+            )
+    # The guard's second half — CANONICALIZE (the operator-ratified coerce-all rule): the spine stores each
+    # CIK's PRIMARY instrument regardless of which sibling the draft surfaced. ``exists`` proves the id is *a*
+    # master row; this makes it the RIGHT one (ASML never ASMLF, KTTA never KTTAW) — everything downstream
+    # (shown ticker, the price cache, the position MONITOR tracks) anchors to security_id, so a non-primary
+    # sibling here would be a stably-wrong instrument a real trade rides on. Same pick as ``ids_for_ciks``,
+    # so draft-time and promote-time resolution can never disagree. Visible, never silent: each coercion is
+    # logged and the response (the FE re-snapshot) carries the canonical ticker. Accepted consequence
+    # (gate-1): a DELIBERATE non-primary line (e.g. intentionally trading the foreign ordinary) is
+    # unrepresentable in v1.
+    canon = master.canonicalize_ids(
+        conn, [m.security_id for m in thesis.basket if m.security_id], tenant_id=tenant_id
+    )
+    if canon:
+        for i, m in enumerate(thesis.basket):
+            hit = canon.get(m.security_id) if m.security_id else None
+            if hit is None:
+                continue
+            primary_id, primary_ticker = hit
+            _log.info(
+                "promote: canonicalized %s -> %s for thesis %s (non-primary sibling re-pointed)",
+                m.ticker,
+                primary_ticker,
+                thesis.id,
+            )
+            thesis.basket[i] = m.model_copy(
+                update={"security_id": primary_id, "ticker": primary_ticker}
             )
     thesis_repo.upsert(conn, thesis)
     conn.commit()

@@ -111,7 +111,9 @@ def test_fixed_url_and_base_fields_match_pre_refactor_literals():
     s = Settings()
     assert s.sec_data_base == "https://data.sec.gov"
     assert s.sec_archives_base == "https://www.sec.gov/Archives/edgar/data"
-    assert s.sec_company_tickers_url == "https://www.sec.gov/files/company_tickers.json"
+    # the ONE deliberate post-refactor default change: the canonical-primary slice moved the universe to the
+    # EXCHANGE variant (per-instrument venue — the rank's discriminator); the plain file has no exchange
+    assert s.sec_company_tickers_url == "https://www.sec.gov/files/company_tickers_exchange.json"
     assert s.stooq_base == "https://stooq.com"
     assert s.yahoo_chart_base == "https://query1.finance.yahoo.com"
     assert s.openfigi_url == "https://api.openfigi.com/v3/mapping"

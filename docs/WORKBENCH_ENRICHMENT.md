@@ -30,7 +30,10 @@ judgment over a populated row, not data entry.
 `parse_identity(submissions)` (pure, no I/O — `ingest/edgar/submissions.py`) reads:
 
 - **`sector`** — `sicDescription` (the SEC SIC industry description).
-- **`exchange`** — the first of `exchanges`.
+- **`exchange`** — the first of `exchanges` — a **COMPANY-level** value, so `master.enrich` only **fills a
+  NULL, never overwrites**: the populate path writes the SEC table's PER-INSTRUMENT venue (authoritative —
+  ASML=Nasdaq vs ASMLF=OTC), and the company-level overwrite is how the ASMLF foreign ordinary once got
+  stamped "Nasdaq" (the canonical-primary slice killed that class of wrong-tradeable-attribute).
 - **`status`** — a **listing-presence HEURISTIC**, never a delisting feed: a current ticker AND a current exchange
   → `"active"`, else `"inactive"` ("no current listing found in EDGAR"). It **must never** be surfaced as a hard
   "delisted" verdict — the operator-facing label stays a hedged guess.
