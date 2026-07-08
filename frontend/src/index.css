@@ -340,6 +340,14 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .nmrow .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
 .nmrow .cap { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
+/* PR-C — the scored row's split: the row is a DIV (whole-surface click), the ticker block is the real
+   button (no nested buttons), and ⇣ get data is gate 2's per-name opt-in (mark = the click). */
+.nmrow .nmrow-sel { border: none; background: transparent; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 9px; padding: 0; cursor: pointer; }
+.nmrow .wb-getdata { margin-left: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.nmrow button.wb-getdata:hover { color: var(--txt-2); border-color: var(--txt-4); }
+.nmrow .wb-getdata.ready { color: var(--manage); border-color: rgba(52, 194, 160, 0.4); }
+.nmrow .wb-getdata.err { color: var(--warm); border-color: rgba(224, 162, 60, 0.4); }
+.nmrow span.wb-getdata.busy { border-style: dashed; cursor: default; }
 .arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
 .arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
 /* item F — not-yet-characterized (the rail's "unclassified"): quiet, dashed, no risk-class color */
