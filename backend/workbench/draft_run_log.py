@@ -9,10 +9,13 @@ same pattern: an append-only run record, dumped by the JOB layer on every succes
 
 INVARIANT-GRADE BOUNDS (a file is not a fact):
 
-- **Write-only.** Nothing in the app READS or auto-loads an artifact — no route, no repo, no recall path. It
-  exists for the operator (and a future Scoreboard-style review) to open by hand. The operator's promote stays
-  the ONLY spine writer, and ``test_draft_endpoint_writes_nothing`` (zero ``fact_*``, zero ``basket_member``)
-  stays the load-bearing proof — this module never touches a DB connection at all.
+- **Write-only ON THE SPINE PATH.** This module WRITES; nothing here auto-loads an artifact into a fact or a
+  placement. A gated, read-only loader (``workbench/run_loader.py``, behind ``ALPHADECK_RUN_LOADER_ENABLED`` —
+  a dev/test cost-saver) MAY read an artifact back to SEED the editable workbench, but that is a NON-SPINE read:
+  it sets FE draft state only. The operator's promote stays the ONLY spine writer, and
+  ``test_draft_endpoint_writes_nothing`` (zero ``fact_*``, zero ``basket_member``) stays the load-bearing proof
+  — the draft endpoint, this writer, and the run-loader read endpoints all touch zero spine rows (this module
+  never opens a DB connection at all).
 - **Fail-open, logged.** An artifact write that fails (disk full, permissions, a pathological payload) is a
   logged exception and ``None`` — NEVER a failed draft. The record is best-effort by design; the draft the
   operator is waiting on is not.

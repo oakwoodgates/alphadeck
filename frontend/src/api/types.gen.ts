@@ -347,6 +347,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Saved Runs
+         * @description List this thesis's saved draft-run artifacts, newest-first — the run-loader picker's source. Pure file
+         *     read (no compute, no EDGAR). **404** when the run loader is disabled (so the FE picker is absent).
+         */
+        get: operations["list_saved_runs_workbench_theses__thesis_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workbench/theses/{thesis_id}/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Saved Run
+         * @description Load one saved run's inner draft as a ``ChainDraftOut`` — the SAME shape the draft endpoint returns, so
+         *     the FE hands it straight to the editor's ``applyDraft`` (no re-draft, no refetch). **404** when the loader
+         *     is disabled, or for an unknown / traversal ``run_id``; **422** if a stale artifact no longer validates
+         *     against the current schema.
+         */
+        get: operations["get_saved_run_workbench_theses__thesis_id__runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts": {
         parameters: {
             query?: never;
@@ -1062,6 +1106,24 @@ export interface components {
             descriptor?: string | null;
         };
         /**
+         * SavedRunSummary
+         * @description One saved draft-run artifact's summary for the run-loader picker (the cheap label fields — never the
+         *     draft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no
+         *     number (#3). ``run_id`` is the artifact's filename stem (the detail-endpoint path segment).
+         */
+        SavedRunSummary: {
+            /** Run Id */
+            run_id: string;
+            /** Written At */
+            written_at?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            /** Placement Count */
+            placement_count: number;
+            /** Segment Count */
+            segment_count: number;
+        };
+        /**
          * ScoredFigureOut
          * @description One meter/figure on the wire: the 0-4 pip (null = "—"/no data), the raw value, and the provenance
          *     chips ("behind the scores"). market_cap carries `value` only (pips null — a figure, not a meter).
@@ -1767,6 +1829,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_saved_runs_workbench_theses__thesis_id__runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_saved_run_workbench_theses__thesis_id__runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainDraftOut"];
                 };
             };
             /** @description Validation Error */

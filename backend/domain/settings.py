@@ -127,6 +127,15 @@ class Settings(BaseSettings):
     draft_job_running_ttl_s: float = 900.0
     draft_job_finished_ttl_s: float = 1800.0
 
+    # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
+    # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench
+    # instead of paying for a fresh Opus draft. OFF by default (a testing utility, absent in a normal deploy);
+    # the operator flips ALPHADECK_RUN_LOADER_ENABLED=true (compose/.env) to turn it on. THE SINGLE FLAG: it
+    # gates BOTH the two read-only /runs endpoints (404 when off) AND — transitively, via those 404s — the FE
+    # picker (which self-hides on error/empty). Read-only + non-spine (promote stays the only spine writer);
+    # see workbench/draft_run_log.py for the relaxed read bound.
+    run_loader_enabled: bool = False
+
     # --- LLM seam (discovery Slice 2 — the thesis→keyword generator) — operational dials ---
     # The LLM's FIRST bounded job in the EDGAR-first discovery: narrative -> SIGNAL + BROAD search keywords for
     # the EFTS enumerator. Cheap + bounded (a structured keyword list, NO web search) -> the Haiku flag dials'

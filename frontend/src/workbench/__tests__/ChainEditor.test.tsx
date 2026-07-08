@@ -45,6 +45,9 @@ vi.mock("../../api/hooks", () => ({
   useEditTerms: () => ({ mutate: h.edit, isPending: false, isError: false, error: null }),
   // the tier RECOMMENDER (#10): mutate(undefined, {onSuccess}) — the test drives onSuccess with canned recs
   useRecommendTiers: () => ({ mutate: h.recommend, isPending: false, isError: false, error: null }),
+  // the run-loader picker: no saved runs here → RunPicker self-hides (its own suite covers its behavior)
+  useThesisRuns: () => ({ data: [], isError: false }),
+  useLoadThesisRun: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false, error: null }),
 }));
 
 import { ChainEditor } from "../ChainEditor";

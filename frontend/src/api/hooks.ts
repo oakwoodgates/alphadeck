@@ -34,6 +34,8 @@ export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
 export type TermSetEntry = components["schemas"]["TermSetEntry"];
 export type TermEdit = components["schemas"]["TermEdit"];
 export type TierRecommendation = components["schemas"]["TierRecommendation"];
+// the run-loader picker: one saved draft-run's summary (the detail endpoint returns a full ChainDraftOut)
+export type SavedRunSummary = components["schemas"]["SavedRunSummary"];
 
 export function useTheses() {
   return useQuery({
@@ -256,6 +258,41 @@ export function useDraftJobStatus(thesisId: string, jobId: string | null) {
       );
       if (error) throw error;
       return data; // DraftJobStatus { job_id, status, result, error }
+    },
+  });
+}
+
+// --- Run loader (the saved-draft-run picker, a dev/test cost-saver) ---
+// List a thesis's saved draft runs, newest-first. GATED backend-side by ALPHADECK_RUN_LOADER_ENABLED: when the
+// loader is disabled the endpoint 404s -> this query `isError`, and the picker self-hides (the single flag drives
+// both). retry:false so a disabled endpoint isn't hammered; enabled only once a thesis id exists.
+export function useThesisRuns(thesisId: string) {
+  return useQuery({
+    queryKey: ["workbench-runs", thesisId] as const,
+    enabled: Boolean(thesisId),
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/theses/{thesis_id}/runs", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data; // SavedRunSummary[]
+    },
+  });
+}
+
+// Load ONE saved run on demand (the operator picked it): a GET-by-id as a MUTATION so the picker can
+// `mutateAsync(runId)` and hand the returned ChainDraftOut straight to the editor's applyDraft — no refetch
+// dance, no fire-on-render. retry:false — a stale/unknown run surfaces as a visible failure the operator retries.
+export function useLoadThesisRun(thesisId: string) {
+  return useMutation({
+    retry: false,
+    mutationFn: async (runId: string) => {
+      const { data, error } = await api.GET("/workbench/theses/{thesis_id}/runs/{run_id}", {
+        params: { path: { thesis_id: thesisId, run_id: runId } },
+      });
+      if (error) throw error;
+      return data; // ChainDraftOut — the same shape the draft endpoint returns
     },
   });
 }

@@ -523,3 +523,18 @@ class DraftJobStatus(BaseModel):
     status: Literal["running", "done", "failed"]
     result: ChainDraftOut | None = None
     error: str | None = None
+
+
+# --- Run loader (the saved-draft-run picker) — RUN metadata, never a fact ---
+
+
+class SavedRunSummary(BaseModel):
+    """One saved draft-run artifact's summary for the run-loader picker (the cheap label fields — never the
+    draft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no
+    number (#3). ``run_id`` is the artifact's filename stem (the detail-endpoint path segment)."""
+
+    run_id: str
+    written_at: str | None = None
+    job_id: str | None = None
+    placement_count: int
+    segment_count: int

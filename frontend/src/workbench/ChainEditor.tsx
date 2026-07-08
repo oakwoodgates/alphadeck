@@ -24,6 +24,7 @@ import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
 import { archLabel, errText, isAcronymTerm, memberHasFundamentals } from "./format";
+import { RunPicker } from "./RunPicker";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
@@ -884,6 +885,19 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           decides); a placed name is <b>unscored</b> until you extract → ratify it. Nothing is sent until Save.
         </span>
       </div>
+      {/* The run-loader picker (a dev/test cost-saver): load a SAVED draft run into this editor instead of
+          paying for a fresh draft. Self-contained + self-hiding (absent when the loader flag is off or the
+          thesis has no saved runs). onLoad clears the draft error/empty notes, then applyDraft reproduces the
+          full workbench; disabled while a live draft is polling (no load-vs-poll race). */}
+      <RunPicker
+        thesisId={thesis.id}
+        disabled={drafting}
+        onLoad={(d) => {
+          setDraftError(null);
+          setDraftEmpty(false);
+          applyDraft(d);
+        }}
+      />
       {draftError && <ErrorToast>Couldn't draft — {draftError}.</ErrorToast>}
       {draftEmpty && (
         <div className="note">
