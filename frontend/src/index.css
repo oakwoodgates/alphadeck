@@ -460,6 +460,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-draft-gap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .wb-draft-gap .note { margin-top: 0; flex: 1; min-width: 220px; }
 
+/* the run-loader picker — a quiet dashed row (a dev/test tool, absent when the loader flag is off) */
+.wb-run-loader { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; padding: 8px 11px; border: 1px dashed var(--line-2); border-radius: 9px; background: var(--bg-2); }
+.wb-run-loader-lab { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.wb-run-loader select { font-family: var(--mono); font-size: 11px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 7px; color-scheme: dark; cursor: pointer; max-width: 340px; }
+.wb-run-loader .note { margin: 0; }
+
 /* the term-set producer + EDITOR — seed / curate the SIGNAL/BROAD split the draft reads. A control surface now
    (add / remove / promote / demote), still quiet + low-energy (inverse loudness) — edits auto-save. */
 .wb-terms { margin-bottom: 16px; }

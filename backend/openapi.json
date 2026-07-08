@@ -659,6 +659,107 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/runs": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "List Saved Runs",
+        "description": "List this thesis's saved draft-run artifacts, newest-first \u2014 the run-loader picker's source. Pure file\nread (no compute, no EDGAR). **404** when the run loader is disabled (so the FE picker is absent).",
+        "operationId": "list_saved_runs_workbench_theses__thesis_id__runs_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedRunSummary"
+                  },
+                  "title": "Response List Saved Runs Workbench Theses  Thesis Id  Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/theses/{thesis_id}/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Saved Run",
+        "description": "Load one saved run's inner draft as a ``ChainDraftOut`` \u2014 the SAME shape the draft endpoint returns, so\nthe FE hands it straight to the editor's ``applyDraft`` (no re-draft, no refetch). **404** when the loader\nis disabled, or for an unknown / traversal ``run_id``; **422** if a stale artifact no longer validates\nagainst the current schema.",
+        "operationId": "get_saved_run_workbench_theses__thesis_id__runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainDraftOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/facts": {
       "post": {
         "tags": [
@@ -2217,6 +2318,52 @@
           "label"
         ],
         "title": "ResolvedSegment"
+      },
+      "SavedRunSummary": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "written_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Written At"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "placement_count": {
+            "type": "integer",
+            "title": "Placement Count"
+          },
+          "segment_count": {
+            "type": "integer",
+            "title": "Segment Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "placement_count",
+          "segment_count"
+        ],
+        "title": "SavedRunSummary",
+        "description": "One saved draft-run artifact's summary for the run-loader picker (the cheap label fields \u2014 never the\ndraft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no\nnumber (#3). ``run_id`` is the artifact's filename stem (the detail-endpoint path segment)."
       },
       "ScoredFigureOut": {
         "properties": {

@@ -33,6 +33,7 @@ from app.schemas_api import (
     PromoteThesisRequest,
     RatifiedFactOut,
     RatifyFactRequest,
+    SavedRunSummary,
     ScoredMemberOut,
     SecurityMatchOut,
     ThesisDetail,
@@ -63,6 +64,7 @@ from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
+from workbench import run_loader
 from workbench.chain_draft import (
     PlacementStatus,
     proposed_from_decomposition,
@@ -580,6 +582,45 @@ def get_draft_chain_job(thesis_id: UUID, job_id: str) -> DraftJobStatus:
             detail="draft job not found (it may have expired or the server restarted)",
         )
     return DraftJobStatus(job_id=job.job_id, status=job.status, result=job.result, error=job.error)
+
+
+# --- Run loader: seed the editable workbench from a saved draft run (the DISCOVER-stage cost-saver) ---
+# Two READ-ONLY, NON-SPINE endpoints, both GATED behind ``ALPHADECK_RUN_LOADER_ENABLED`` (the single flag → 404
+# when off, so the FE picker self-hides). They read the write-only run-of-record (``data/draft_runs/``) back so
+# a saved run can be LOADED into the editor instead of paying for a fresh Opus draft. Loading seeds FE state
+# only — the operator's promote stays the ONLY spine writer (``test_draft_endpoint_writes_nothing`` intact);
+# ``get_thesis_or_404`` enforces tenant ownership (the runs dir is keyed by thesis_id alone). See
+# ``workbench/draft_run_log.py`` (writer) + ``workbench/run_loader.py`` (reader).
+
+
+@router.get("/theses/{thesis_id}/runs", response_model=list[SavedRunSummary])
+def list_saved_runs(thesis: Thesis = Depends(get_thesis_or_404)) -> list[SavedRunSummary]:
+    """List this thesis's saved draft-run artifacts, newest-first — the run-loader picker's source. Pure file
+    read (no compute, no EDGAR). **404** when the run loader is disabled (so the FE picker is absent).
+    """
+    if not get_settings().run_loader_enabled:
+        raise HTTPException(status_code=404, detail="run loader is disabled")
+    return [SavedRunSummary(**r) for r in run_loader.list_runs(thesis.id)]
+
+
+@router.get("/theses/{thesis_id}/runs/{run_id}", response_model=ChainDraftOut)
+def get_saved_run(run_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> ChainDraftOut:
+    """Load one saved run's inner draft as a ``ChainDraftOut`` — the SAME shape the draft endpoint returns, so
+    the FE hands it straight to the editor's ``applyDraft`` (no re-draft, no refetch). **404** when the loader
+    is disabled, or for an unknown / traversal ``run_id``; **422** if a stale artifact no longer validates
+    against the current schema."""
+    if not get_settings().run_loader_enabled:
+        raise HTTPException(status_code=404, detail="run loader is disabled")
+    draft = run_loader.read_run(thesis.id, run_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="saved run not found")
+    try:
+        return ChainDraftOut.model_validate(draft)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"saved run payload is incompatible with the current schema: {exc}",
+        ) from exc
 
 
 def _vouched(estimate: float | None, value: float) -> str | None:

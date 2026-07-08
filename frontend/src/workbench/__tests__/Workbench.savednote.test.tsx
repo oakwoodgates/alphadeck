@@ -74,6 +74,9 @@ vi.mock("../../api/hooks", () => ({
   useExplainFlag: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useStartDraft: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDraftJobStatus: () => ({ data: undefined, isError: false }),
+  // the run-loader picker (no saved runs here → RunPicker self-hides; its own suite covers it)
+  useThesisRuns: () => ({ data: [], isError: false }),
+  useLoadThesisRun: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false, error: null }),
   useProduceTerms: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   useEditTerms: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   useRecommendTiers: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),

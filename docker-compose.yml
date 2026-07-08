@@ -37,6 +37,12 @@ services:
       # rate limit, never from capping recall. The fallback is 1000 (not empty) because an EMPTY env value
       # can't parse as an int — pydantic-settings treats "" as a value, not "unset", and would crash on boot.
       ALPHADECK_DISCOVERY_HIT_CAP: ${ALPHADECK_DISCOVERY_HIT_CAP:-1000}
+      # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
+      # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
+      # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
+      # Fallback is `false` (NOT empty): an empty env value can't parse as a bool — pydantic-settings would crash
+      # on boot (same trap as the hit-cap above).
+      ALPHADECK_RUN_LOADER_ENABLED: ${ALPHADECK_RUN_LOADER_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy

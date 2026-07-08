@@ -1299,6 +1299,111 @@ def test_failed_draft_job_writes_no_run_log_artifact(client, db, draft_runs_dir)
     assert not (draft_runs_dir / str(tid)).exists()
 
 
+# --- Run loader: the two gated read-only endpoints seed the editor from a saved run ---
+
+
+def _write_saved_run(
+    draft_runs_dir, tid, *, run_id="20260706T120000Z-job9", placements=2, segments=1
+):
+    """Write a saved-run artifact (the writer's shape) into the redirected runs dir, and return (run_id, the
+    inner draft dict) so the detail-endpoint round-trip can be asserted."""
+    import json
+
+    d = draft_runs_dir / str(tid)
+    d.mkdir(parents=True, exist_ok=True)
+    draft = {
+        "thesis_id": str(tid),
+        "segments": [{"label": f"Link {i}", "descriptor": None} for i in range(segments)],
+        "placements": [
+            {
+                "name": f"Co {i}",
+                "ticker": f"T{i}",
+                "prose": "why",
+                "segment": "Link 0",
+                "status": "placed",
+                "security_id": None,
+                "candidates": [],
+                "matched_terms": [],
+                "discovery_source": "edgar",
+                "off_thesis": False,
+            }
+            for i in range(placements)
+        ],
+        "report": None,
+    }
+    payload = {
+        "written_at": "2026-07-06T12:00:00+00:00",
+        "job_id": "job9",
+        "thesis": {"id": str(tid), "name": "n", "narrative": "x"},
+        "term_set": [],
+        "dials": {},
+        "draft": draft,
+    }
+    (d / f"{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    return run_id, draft
+
+
+def _enable_run_loader(monkeypatch):
+    # get_settings() is a cached singleton; monkeypatch the flag ON the instance (auto-reverted after the test)
+    from domain.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "run_loader_enabled", True)
+
+
+def test_run_loader_lists_and_loads_a_saved_run(client, db, draft_runs_dir, monkeypatch):
+    """Flag ON: ``/runs`` lists the saved artifact with its summary fields, and ``/runs/{id}`` returns the inner
+    draft — the SAME ``ChainDraftOut`` shape the draft endpoint returns (so the FE hands it straight to the
+    editor). No draft/EDGAR call, no spine write."""
+    from app.schemas_api import ChainDraftOut
+
+    tid = _thesis_for_draft(db)
+    run_id, draft = _write_saved_run(draft_runs_dir, tid, placements=2, segments=1)
+    _enable_run_loader(monkeypatch)
+
+    r = client.get(f"/workbench/theses/{tid}/runs")
+    assert r.status_code == 200
+    runs = r.json()
+    assert len(runs) == 1
+    assert runs[0]["run_id"] == run_id
+    assert runs[0]["placement_count"] == 2 and runs[0]["segment_count"] == 1
+    assert runs[0]["job_id"] == "job9" and runs[0]["written_at"] == "2026-07-06T12:00:00+00:00"
+
+    r2 = client.get(f"/workbench/theses/{tid}/runs/{run_id}")
+    assert r2.status_code == 200
+    assert ChainDraftOut.model_validate(r2.json()) == ChainDraftOut.model_validate(draft)
+
+    # the loader is NON-SPINE: reading a run writes nothing (the writes-nothing proof stays true)
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert cur.fetchone()["n"] == 0
+
+
+def test_run_loader_endpoints_404_when_disabled(client, db, draft_runs_dir):
+    """Flag OFF (the default): both endpoints are absent (404) even though the artifact exists on disk — the
+    single flag drives the whole feature, so the FE picker self-hides on the error."""
+    tid = _thesis_for_draft(db)
+    run_id, _ = _write_saved_run(draft_runs_dir, tid)
+    assert client.get(f"/workbench/theses/{tid}/runs").status_code == 404
+    assert client.get(f"/workbench/theses/{tid}/runs/{run_id}").status_code == 404
+
+
+def test_run_loader_lists_empty_when_no_runs(client, db, draft_runs_dir, monkeypatch):
+    """Flag ON but no saved runs for this thesis → an empty list (the picker also self-hides on empty)."""
+    tid = _thesis_for_draft(db)
+    _enable_run_loader(monkeypatch)
+    r = client.get(f"/workbench/theses/{tid}/runs")
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_run_loader_unknown_run_id_404s(client, db, draft_runs_dir, monkeypatch):
+    """Flag ON: an unknown ``run_id`` 404s (the membership guard — direct traversal coverage is in
+    ``test_run_loader``)."""
+    tid = _thesis_for_draft(db)
+    _write_saved_run(draft_runs_dir, tid)
+    _enable_run_loader(monkeypatch)
+    assert client.get(f"/workbench/theses/{tid}/runs/not-a-real-run").status_code == 404
+
+
 def _subs(cik, *, sic="Electric Services", exchanges=("Nasdaq",), tickers=("OKLO",)) -> dict:
     """A genuine-shaped submissions doc (echoes a top-level ``cik`` like the real SEC payload)."""
     return {
