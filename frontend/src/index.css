@@ -429,14 +429,27 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-editor-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; }
 .wb-dirty { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warm); }
 
-.wb-seg-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+/* The value-chain LINKS editor — a bordered card with three labeled regions (header/desc · links · pen · add)
+   so the operator can tell the links, the "Discovered" pen, and the add-a-link box apart. */
+.wb-seg-edit { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.wb-seg-head { display: flex; flex-direction: column; gap: 3px; }
+.wb-seg-title { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); }
+.wb-seg-title em { font-style: normal; letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; color: var(--txt-4); }
+.wb-seg-desc { margin: 0; line-height: 1.5; }
+.wb-seg-links { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .wb-seg-chip { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 6px; background: var(--panel); }
-.wb-seg-chip .wb-input { width: 130px; }
-/* Item 6: the "Discovered" holding pen — de-linked from the real value-chain segments (muted, dashed, tagged). */
-.wb-seg-chip.discovered { border-style: dashed; border-color: var(--line); background: var(--bg-2); opacity: 0.72; }
-.wb-seg-chip.discovered .wb-input { color: var(--txt-3); }
+/* auto-width: width:auto lets the input's `size` attr (set to the label length) govern — no fixed truncation */
+.wb-seg-chip .wb-input { width: auto; min-width: 90px; }
+/* Item 6: the "Discovered" holding pen — its own labeled region, de-linked (muted, dashed), read-only label, no arrows. */
+.wb-seg-pen { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wb-seg-pen-lab { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.wb-seg-chip.discovered { border-style: dashed; border-color: var(--line); background: var(--panel); opacity: 0.85; }
+.wb-seg-pen-name { font-size: 12px; color: var(--txt-3); font-style: italic; padding: 0 2px; }
+.wb-seg-pen-nudge { margin: 0; }
 .wb-seg-chip .seg-tag { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }
-.wb-seg-add { display: flex; gap: 6px; align-items: center; }
+/* add a link — its own row under a faint divider so it reads as an add affordance, not another link */
+.wb-seg-add { display: flex; gap: 6px; align-items: center; padding-top: 11px; border-top: 1px solid var(--line); }
+.wb-seg-add .wb-input { width: 200px; }
 
 /* the thesis-fit prose textarea (kept; lives inside the new .wb-results placed rows) */
 .wb-prose { font: inherit; font-size: 11px; line-height: 1.5; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; resize: vertical; color-scheme: dark; }
@@ -488,8 +501,8 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 
 /* The draft-run status strip (the honesty report, #9 rules 2/3): quiet ONE muted line at 100% healthy, a loud
    warm flag-block naming only the failing dimensions on any gap (inverse loudness #7). Run state, never persisted. */
-.wb-draft-strip { margin-top: 6px; }
-.wb-draft-strip.loud { margin-top: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: var(--warm); background: rgba(224, 162, 60, 0.08); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 6px; }
+.wb-draft-strip { margin: 14px 0; }
+.wb-draft-strip.loud { margin: 14px 0; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: var(--warm); background: rgba(224, 162, 60, 0.08); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 6px; }
 .wb-draft-strip.loud ul { margin: 4px 0 0 16px; padding: 0; color: var(--txt-2); }
 
 /* ===========================================================================
@@ -603,7 +616,7 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 /* the CIK chip — the homonym tell, surfaced in the resolver matches + the couldn't-resolve pick list */
 .cik { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); }
 
-.wb-addname { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 11px 13px; background: var(--bg-2); }
+.wb-addname { display: flex; flex-direction: column; gap: 6px; margin-top: 18px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 11px 13px; background: var(--bg-2); }
 .wb-addname.picked { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wb-addname .tk { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
 .wb-matches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }

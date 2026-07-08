@@ -902,7 +902,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.queryByText("Some Holdco LLC")).not.toBeInTheDocument();
     expect(screen.getByText("Low signal")).toBeInTheDocument();
     expect(screen.getByText("No listed ticker")).toBeInTheDocument();
-    // C-A: the To review count is KEEPERS-ONLY — the two noise buckets are top-level sections of their own
+    // the To review count is KEEPERS-ONLY — the two noise buckets are nested sub-drawers with their own counts
     expect(screen.getByRole("button", { name: /To review/ })).toHaveTextContent("· 1");
     // expand Low signal → the off-thesis name appears, still promotable (never dropped)
     await user.click(screen.getByText("Low signal"));
@@ -940,10 +940,45 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for FOO");
-    expect(screen.getByText("unsorted — not a link")).toBeInTheDocument(); // the de-link tag on the chip
+    expect(screen.getByText("not a link")).toBeInTheDocument(); // the de-link tag on the pen chip
+    expect(screen.getByText("Unsorted")).toBeInTheDocument(); // the pen's region label (separate from the links)
     expect(screen.getByText(/sort keepers into a link/)).toBeInTheDocument(); // the nudge (1 name in Discovered)
     // the seg dropdown offers the real link "memory" so the operator can sort FOO out of Discovered
     expect(screen.getByLabelText("segment for FOO")).toHaveTextContent("memory");
+  });
+
+  it("B: the links editor is self-describing — header, description, and auto-width (no truncation)", () => {
+    const withLong = {
+      ...flatThesis,
+      segments: [{ label: "DRAM & HBM Maker", descriptor: null }],
+      basket: [{ ...flatThesis.basket[0], segment: "DRAM & HBM Maker" }],
+    };
+    render(<ChainEditor thesis={withLong} onDone={vi.fn()} />);
+    expect(screen.getByText(/Value chain/)).toBeInTheDocument(); // the section title
+    expect(screen.getByText(/links your basket decomposes into/)).toBeInTheDocument(); // the description
+    // the label input auto-widths to its content (size = label length) — no fixed 130px truncation
+    expect(screen.getByLabelText("link 1 label")).toHaveAttribute("size", "16");
+  });
+
+  it("C: the Placed section header reads 'Placed names'", () => {
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Placed names/ })).toBeInTheDocument();
+  });
+
+  it("D: To Review nests three sub-drawers under one master (collapsing the master hides all three)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    // three nested sub-drawers, mirroring the Placed section: Keepers (open) · Low signal · No listed ticker
+    await screen.findByText("Keepers");
+    expect(screen.getByText("Low signal")).toBeInTheDocument();
+    expect(screen.getByText("No listed ticker")).toBeInTheDocument();
+    // collapsing the MASTER To review hides ALL THREE (they're children now, not top-level siblings)
+    await user.click(screen.getByRole("button", { name: /To review/ }));
+    expect(screen.queryByText("Keepers")).not.toBeInTheDocument();
+    expect(screen.queryByText("Low signal")).not.toBeInTheDocument();
+    expect(screen.queryByText("No listed ticker")).not.toBeInTheDocument();
   });
 });
 
