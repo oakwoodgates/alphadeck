@@ -7,7 +7,7 @@ import type { ProvenanceOut, ScoredFigureOut } from "../api/hooks";
 // here so the Workbench / ChainEditor call sites import it unchanged.
 export { archLabel } from "../util/format";
 
-/** The basket-member archetypes the operator classifies a name as (the add-a-name form). */
+/** The basket-member archetypes the operator classifies a name as (the finalize rail's set control). */
 export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;
 
 /** The collision-lens predicate: a term that is a single all-caps token (letters+digits, ≥2 chars — HBM,
@@ -15,6 +15,16 @@ export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent",
  *  any of the words that would confirm the meaning. Deliberately the simple v1 rule (NAND-style real-word
  *  acronyms count too) — judged on live data, tweaked after. */
 export const isAcronymTerm = (term: string): boolean => /^[A-Z][A-Z0-9]{1,9}$/.test(term.trim());
+
+/** Gate-3 readiness (ONE rule, three surfaces): does the scored member carry ANY confirmed SURFACE fact
+ *  (purity / runway / market cap)? Catalysts + dilution come from the feeds/converts, not the extract, so
+ *  they don't count. Shared by the editor's fundamentals badge, the scored row's "get data" control, and
+ *  the funnel line — so "has data" can never mean three different things. */
+export const memberHasFundamentals = (m: {
+  purity?: { pips?: number | null } | null;
+  runway?: { pips?: number | null } | null;
+  market_cap?: { value?: number | null } | null;
+}): boolean => m.purity?.pips != null || m.runway?.pips != null || m.market_cap?.value != null;
 
 /** A human message from a thrown API error (FastAPI `{detail}`); a safe fallback otherwise. */
 export function errText(e: unknown): string {

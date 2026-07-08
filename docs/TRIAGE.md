@@ -131,6 +131,20 @@ a read-only chip; an unset one shows nothing. The archetype is decided ONCE, on 
 `archetype_hint` → apply, or the rail's manual set — both `operator_edited`, #10); a placed-but-not-finalized
 member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `INVARIANTS.md` #10.
 
+## Mark for data — gate 2's per-name opt-in (the scored view)
+
+The three-gate flow's middle step, shipped as **the control IS the trigger**: a scored row without confirmed
+fundamentals shows **⇣ get data**, which fires **that one name's** extraction through the existing per-name
+endpoint (`GET /workbench/securities/{sid}/extract` — 2–4 EDGAR requests, cache-first, response-only). The mark
+and the spend collapse into one deliberate click — **cost is the operator's to spend, never ambient**: extraction
+never runs on draft, save, promote, or render, and never batches over the basket. Per-name states: fetching →
+**✓ data ready — ratify** (opens the name; the row control and the rail's FactsPanel share ONE query, so the
+candidates render instantly) → per-name, retryable failure. Once any fact is **ratified** the control disappears
+(the meters + the badge take over), and the section header carries the **funnel**: "data confirmed on K of N" —
+one `memberHasFundamentals` rule across the badge, the control, and the funnel. Deliberately NOT built until the
+per-click flow proves annoying at real shortlist sizes: a mark-checkbox state, a "run marked (N)" batch runner,
+marks persistence (the named fallback is checkbox + runner).
+
 **Save legibility (D).** A saved exit from the editor surfaces a note on the scored view: the thesis is
 re-openable with **✎ Edit the chain**. Honest scope: re-entry restores the **saved basket** — not the draft-time
 discovery context (matched terms, flags, To-Review queues are run state; re-discovering is a re-draft). The

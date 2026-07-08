@@ -12,7 +12,7 @@ import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
-import { archLabel, errText } from "./format";
+import { archLabel, errText, memberHasFundamentals } from "./format";
 
 interface Props {
   asof: string;
@@ -425,6 +425,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                     <span>{activeSeg ?? "The basket, scored"}</span>{" "}
                     <em>
                       — {shownMembers.length} {shownMembers.length === 1 ? "name" : "names"}, scored
+                      {/* the FUNNEL, visible (gate 2→3 progress): confirmed-data coverage over the WHOLE
+                          basket (not the segment view) — the same memberHasFundamentals rule everywhere */}
+                      {" · "}data confirmed on {members.filter(memberHasFundamentals).length} of{" "}
+                      {members.length}
                     </em>
                   </div>
                   {shownMembers.map((m) => (
@@ -433,6 +437,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                       member={m}
                       selected={m.security_id === selectedMember?.security_id}
                       onSelect={() => setPickedMemberId(m.security_id)}
+                      thesisId={thesisId}
                     />
                   ))}
                   <div className="note">

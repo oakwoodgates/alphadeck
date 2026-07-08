@@ -23,7 +23,7 @@ import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
-import { archLabel, errText, isAcronymTerm } from "./format";
+import { archLabel, errText, isAcronymTerm, memberHasFundamentals } from "./format";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
@@ -43,17 +43,16 @@ interface Props {
   scoredById?: Record<string, ScoredMemberOut>;
 }
 
-// "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact (purity / runway /
-// market-cap). Catalysts + dilution come from the feeds/converts, not a SURFACE extract, so they don't count —
-// this badge answers "does this survivor still need an extract → ratify?", nothing more.
+// "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact — the shared
+// `memberHasFundamentals` rule (one rule across the badge, the scored row's get-data control, and the
+// funnel line). This badge answers "does this survivor still need an extract → ratify?", nothing more.
 const hasFundamentals = (
   sid: string | null | undefined,
   scoredById?: Record<string, ScoredMemberOut>,
 ): boolean => {
   if (!sid) return false;
   const sm = scoredById?.[sid];
-  if (!sm) return false;
-  return sm.purity?.pips != null || sm.runway?.pips != null || sm.market_cap?.value != null;
+  return sm ? memberHasFundamentals(sm) : false;
 };
 
 // A term's provenance: an operator seed vs an LLM-proposed (guard-tiered) term. The data already carries it.
@@ -1013,8 +1012,8 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           {/* Item 1: the clean pre-surfacing state — one quiet hint instead of "needs SURFACE" on every row. */}
           {d.draft.basket.length > 0 && !anyFundamentals && (
             <div className="note">
-              Surface your shortlist — open a name and extract → ratify in the facts panel — to see per-name
-              fundamentals here.
+              Surface your shortlist — hit <b>⇣ get data</b> on a name in the scored view, then ratify the
+              candidates in its rail — confirmed fundamentals show here.
             </div>
           )}
           {/* TRIAGE PR-2 (the find) — sort + filter the placed list. VIEW-ONLY: it never changes what Save
