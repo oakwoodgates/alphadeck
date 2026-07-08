@@ -88,9 +88,13 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
   is surfaced, and a name that genuinely belongs is reachable via the master **name search**, which promotes by
   `security_id`).
 - **Precedence:** off-thesis > ticker-less > keeper.
-- **The two noise buckets are TOP-LEVEL collapsible sections** (siblings *after* To review, not children inside
-  it — the C-A hoist): they're distinct buckets, each independently collapsible, so a big draft's To-review block
-  stays keeper-sized. The To-review header count is **keepers-only**.
+- **Three nested sub-drawers under one master To-Review collapsible** (#122r3 — mirrors the Placed section's
+  `.wb-placed-groups`): **Keepers** (open by default — the signal), **Low signal**, and **No listed ticker**
+  (both collapsed). Each is independently collapsible so a big draft's To-review block stays keeper-sized, and
+  collapsing the master hides the whole bucket in one click. (This *replaces* the earlier "C-A hoist", which
+  made the two noise buckets top-level siblings *after* To review; the operator asked for the nested structure
+  so To-Review reads the same as Placed.) The master To-review header count is **keepers-only** (the headline is
+  the signal; each sub-drawer carries its own count).
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
 "Discovered". It is a **sorting queue, not a value-chain link** — de-linked visually (muted, "unsorted — not a

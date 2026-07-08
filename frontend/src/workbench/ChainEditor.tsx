@@ -299,6 +299,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // Item 6(c): how many placed names are still in the "Discovered" holding pen (unsorted into a real link).
   const discoveredCount = d.draft.basket.filter((m) => m.segment === DISCOVERED).length;
   const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
+  // The links editor separates the REAL value-chain links (reorderable) from the "Discovered" holding pen (not a
+  // link — no reorder). Rendered as two distinct regions so the editor reads legibly (the arrows apply to links).
+  const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED);
+  const discoveredSeg = d.draft.segments.find((s) => s.label === DISCOVERED);
 
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large group (hundreds of names) collapses to a preview + "show more"
@@ -314,10 +318,11 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const [cleanOpen, setCleanOpen] = useState(true);
   const [flaggedOpen, setFlaggedOpen] = useState(true);
   const [collisionOpen, setCollisionOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(true);
+  const [reviewOpen, setReviewOpen] = useState(true); // the master To-Review section (open by default)
+  const [keepersOpen, setKeepersOpen] = useState(true); // the keepers sub-drawer (the signal — open)
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
-  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise section (collapsed)
-  const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names section (collapsed)
+  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (collapsed)
+  const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
@@ -890,49 +895,97 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
         <DraftStatusStrip counts={draftStatus.counts} report={draftStatus.report} />
       )}
 
+      {/* The value-chain LINKS editor — made self-describing (the operator couldn't tell the links, the
+          "Discovered" holding pen, and the "add a link" box apart). Three labeled regions: real links
+          (reorderable), the unsorted pen (NOT a link — no arrows), and add-a-link on its own row. */}
       <div className="wb-seg-edit">
-        {d.draft.segments.map((s, i) => (
-          // Item 6: "Discovered" is the reconciler's holding pen, NOT a value-chain link — de-link it visually
-          // (muted + an "unsorted" tag) so it doesn't read as a peer economic segment.
-          <div
-            className={`wb-seg-chip${s.label === DISCOVERED ? " discovered" : ""}`}
-            key={i}
-          >
-            <input
-              className="wb-input"
-              value={s.label}
-              aria-label={`link ${i + 1} label`}
-              onChange={(e) => d.renameSegment(s.label, e.target.value)}
-            />
-            {s.label === DISCOVERED && <span className="seg-tag">unsorted — not a link</span>}
-            <button
-              type="button"
-              className="wb-mini"
-              disabled={i === 0}
-              aria-label={`move ${s.label} earlier`}
-              onClick={() => d.moveSegment(s.label, -1)}
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              className="wb-mini"
-              disabled={i === d.draft.segments.length - 1}
-              aria-label={`move ${s.label} later`}
-              onClick={() => d.moveSegment(s.label, 1)}
-            >
-              →
-            </button>
-            <button
-              type="button"
-              className="wb-mini ghost"
-              aria-label={`remove ${s.label}`}
-              onClick={() => d.removeSegment(s.label)}
-            >
-              ×
-            </button>
+        <div className="wb-seg-head">
+          <div className="wb-seg-title">
+            Value chain <em>· the links your basket decomposes into</em>
           </div>
-        ))}
+          <div className="note wb-seg-desc">
+            Each link is a stage in the theme's chain. Reorder with <b>← →</b>, rename inline, <b>×</b> removes
+            it (its names return to the unsorted pen). Sort names into a link on the <b>Placed</b> rows below.
+          </div>
+        </div>
+
+        {/* the real value-chain links — reorderable (← → operate among the links; the pen isn't one) */}
+        <div className="wb-seg-links">
+          {realLinks.map((s, i) => (
+            <div className="wb-seg-chip" key={s.label}>
+              <input
+                className="wb-input"
+                value={s.label}
+                size={Math.max(s.label.length, 12)}
+                aria-label={`link ${i + 1} label`}
+                onChange={(e) => d.renameSegment(s.label, e.target.value)}
+              />
+              <button
+                type="button"
+                className="wb-mini"
+                disabled={i === 0}
+                aria-label={`move ${s.label} earlier`}
+                title="move this link earlier in the chain"
+                onClick={() => d.moveSegment(s.label, -1)}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                className="wb-mini"
+                disabled={i === realLinks.length - 1}
+                aria-label={`move ${s.label} later`}
+                title="move this link later in the chain"
+                onClick={() => d.moveSegment(s.label, 1)}
+              >
+                →
+              </button>
+              <button
+                type="button"
+                className="wb-mini ghost"
+                aria-label={`remove ${s.label}`}
+                title="remove this link — its names return to the unsorted pen"
+                onClick={() => d.removeSegment(s.label)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {realLinks.length === 0 && (
+            <span className="note">No links yet — add one below, or draft from the narrative.</span>
+          )}
+        </div>
+
+        {/* the "Discovered" holding pen — a SORTING QUEUE, not a value-chain link (Item 6). De-linked (muted,
+            dashed), the label is read-only (renaming it would silently turn the pen into a link), and there are
+            NO reorder arrows (order is meaningless for a pen). Keepers get sorted OUT via the Placed rows' seg
+            dropdown; × dismisses an emptied pen. */}
+        {discoveredSeg && (
+          <div className="wb-seg-pen">
+            <span className="wb-seg-pen-lab">Unsorted</span>
+            <div className="wb-seg-chip discovered">
+              <span className="wb-seg-pen-name">{discoveredSeg.label}</span>
+              <span className="seg-tag">not a link</span>
+              <button
+                type="button"
+                className="wb-mini ghost"
+                aria-label="remove the unsorted pen"
+                title="dismiss the unsorted pen (its names become unplaced)"
+                onClick={() => d.removeSegment(discoveredSeg.label)}
+              >
+                ×
+              </button>
+            </div>
+            {discoveredCount > 0 && hasRealLink && (
+              <span className="note wb-seg-pen-nudge">
+                {discoveredCount} {discoveredCount === 1 ? "name is" : "names are"} still unsorted — sort
+                keepers into a link with each row's <b>seg</b> dropdown below.
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* add a link — its own row, clearly an add affordance (not another link) */}
         <div className="wb-seg-add">
           <input
             className="wb-input"
@@ -953,14 +1006,6 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           </button>
         </div>
       </div>
-      {/* Item 6(c): a quiet nudge — sort keepers out of the "Discovered" holding pen into a real link (via each
-          row's now-wired seg dropdown). Only when there's a real link to move them into. */}
-      {discoveredCount > 0 && hasRealLink && (
-        <div className="note">
-          {discoveredCount} {discoveredCount === 1 ? "name is" : "names are"} still <b>unsorted</b> (in
-          “Discovered”, not a value-chain link) — sort keepers into a link with each row's <b>seg</b> dropdown.
-        </div>
-      )}
 
       {/* ===== Results buckets (post-draft IA): PLACED · TO REVIEW · COULDN'T RESOLVE. Three distinct
               questions, never conflated (see docs/mockups/mockup_workbench_results.html). Scoped under
@@ -978,7 +1023,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             onClick={() => setPlacedOpen((o) => !o)}
           >
             <span className="chev">{placedOpen ? "▾" : "▸"}</span>
-            Placed <em>· segment drafted, overridable · archetype decided later, on the scored rail</em>
+            Placed names <em>· segment drafted, overridable · archetype decided later, on the scored rail</em>
             {d.draft.basket.length > 0 && (
               <span className="ct">
                 · {d.includedBasket.length} of {d.draft.basket.length} included
@@ -1407,10 +1452,11 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
           )}
         </div>
 
-        {/* TO REVIEW — resolved, lower confidence: the KEEPERS only (the rare signal, surfaced). C-A hoisted
-            the two noise buckets (Low signal / No listed ticker) out of this section into their own top-level
-            collapsibles below — distinct buckets, not children. Inverse loudness (#7): point at what to ADD.
-            Nothing dropped — every bucket stays promotable (#9). */}
+        {/* TO REVIEW — resolved, lower confidence. ONE master collapsible holding three nested sub-drawers
+            (Keepers · Low signal · No listed ticker), mirroring the Placed section (.wb-placed-groups). Inverse
+            loudness (#7): Keepers are the surfaced signal (open); the two noise buckets stay quiet + collapsed.
+            Nothing dropped (#9) — every bucket stays promotable via the same check-to-add. The master header
+            count stays keepers-only (the headline is the signal; each sub-drawer carries its own count). */}
         {verify.length > 0 && (
           <div className="sect">
             <button
@@ -1424,71 +1470,82 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
               <span className="ct">· {vKeepers.length}</span>
             </button>
             {reviewOpen && (
-              <>
-
-            {/* the keepers — the signal, surfaced */}
-            {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`))}
-            {vKeepers.length === 0 && (
-              <div className="note">
-                No clear keepers — the model didn't flag any of these as a strong fit. The Low signal /
-                No listed ticker sections below hold the rest.
+              <div className="wb-placed-groups">
+                {/* the keepers — the signal, surfaced (its own sub-drawer, open by default) */}
+                {vKeepers.length > 0 ? (
+                  <div className="resolve wb-placed-group">
+                    <button
+                      type="button"
+                      className="resolve-h"
+                      aria-expanded={keepersOpen}
+                      aria-label="toggle Keepers"
+                      onClick={() => setKeepersOpen((o) => !o)}
+                    >
+                      <span className="chev">{keepersOpen ? "▾" : "▸"}</span>
+                      <span className="rt">Keepers</span>
+                      <span className="rm-meta">on-thesis, has a ticker · {vKeepers.length}</span>
+                    </button>
+                    {keepersOpen && (
+                      <div className="resolve-body">
+                        {vKeepers.map((p, i) => verifyRow(p, `keep-${i}`))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="note">
+                    No clear keepers — the model didn't flag any of these as a strong fit. The Low signal /
+                    No listed ticker drawers below hold the rest.
+                  </div>
+                )}
+                {/* off-thesis noise — quiet, NO yellow (the majority; highlight keepers, not this) */}
+                {vOffThesis.length > 0 && (
+                  <div className="resolve wb-placed-group">
+                    <button
+                      type="button"
+                      className="resolve-h"
+                      aria-expanded={lowSignalOpen}
+                      aria-label="toggle Low signal"
+                      onClick={() => setLowSignalOpen((o) => !o)}
+                    >
+                      <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
+                      <span className="rt">Low signal</span>
+                      <span className="rm-meta">
+                        model sees no clear thesis fit · {vOffThesis.length} hidden
+                      </span>
+                    </button>
+                    {lowSignalOpen && (
+                      <div className="resolve-body">
+                        {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* ticker-less — quiet (likely subs/holdcos/debt; probably not directly investable) */}
+                {vNoTicker.length > 0 && (
+                  <div className="resolve wb-placed-group">
+                    <button
+                      type="button"
+                      className="resolve-h"
+                      aria-expanded={noTickerOpen}
+                      aria-label="toggle No listed ticker"
+                      onClick={() => setNoTickerOpen((o) => !o)}
+                    >
+                      <span className="chev">{noTickerOpen ? "▾" : "▸"}</span>
+                      <span className="rt">No listed ticker</span>
+                      <span className="rm-meta">
+                        likely a sub / holdco / debt issuer — probably not directly investable ·{" "}
+                        {vNoTicker.length}
+                      </span>
+                    </button>
+                    {noTickerOpen && (
+                      <div className="resolve-body">
+                        {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* C-A — the two To-Review noise buckets, hoisted to TOP-LEVEL siblings (they were nested inside
-            To review; they're distinct buckets, not children). Quiet + collapsed; nothing dropped (#9) —
-            every row stays promotable via the same check-to-add. */}
-        {vOffThesis.length > 0 && (
-          <div className="sect">
-            {/* off-thesis noise — quiet, NO yellow (the majority; highlight keepers, not this) */}
-            <div className="resolve">
-              <button
-                type="button"
-                className="resolve-h"
-                aria-expanded={lowSignalOpen}
-                onClick={() => setLowSignalOpen((o) => !o)}
-              >
-                <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
-                <span className="rt">Low signal</span>
-                <span className="rm-meta">
-                  model sees no clear thesis fit · {vOffThesis.length} hidden
-                </span>
-              </button>
-              {lowSignalOpen && (
-                <div className="resolve-body">
-                  {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {vNoTicker.length > 0 && (
-          <div className="sect">
-            {/* ticker-less — quiet (likely subs/holdcos/debt; probably not directly investable) */}
-            <div className="resolve">
-              <button
-                type="button"
-                className="resolve-h"
-                aria-expanded={noTickerOpen}
-                onClick={() => setNoTickerOpen((o) => !o)}
-              >
-                <span className="chev">{noTickerOpen ? "▾" : "▸"}</span>
-                <span className="rt">No listed ticker</span>
-                <span className="rm-meta">
-                  likely a sub / holdco / debt issuer — probably not directly investable ·{" "}
-                  {vNoTicker.length}
-                </span>
-              </button>
-              {noTickerOpen && (
-                <div className="resolve-body">
-                  {vNoTicker.map((p, i) => verifyRow(p, `nt-${i}`))}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -1496,7 +1553,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             confused with to-review (which is all resolved names). Ambiguous gets a CIK picker; absent is
             display-only. */}
         {(ambiguous.length > 0 || absent.length > 0) && (
-          <div className="sect" style={{ marginBottom: 0 }}>
+          <div className="sect">
             <div className="resolve">
               <button
                 type="button"
