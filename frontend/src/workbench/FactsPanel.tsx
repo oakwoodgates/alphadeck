@@ -52,8 +52,13 @@ export function FactsPanel({
         </div>
       )}
       {(extract.data ?? []).map((f) => (
+        // Key by securityId TOO (not fact_type alone): RatifyRow seeds its editable inputs from `candidate`
+        // via useState (once, on mount). The rail stays mounted when the operator clicks name→name (only
+        // `securityId` changes), so a fact_type-only key made React REUSE the row and keep the PRIOR name's
+        // values — every name in a section then showed the first-opened name's shares (a wrong-value ratify
+        // risk). The composite key remounts the row per member, re-seeding from the new candidate.
         <RatifyRow
-          key={f.fact_type}
+          key={`${securityId}:${f.fact_type}`}
           candidate={f}
           securityId={securityId}
           onFile={onFile?.[f.fact_type] ?? false}

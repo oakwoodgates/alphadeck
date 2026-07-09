@@ -114,6 +114,23 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
   });
 
+  it("re-seeds the inputs when the selected member changes (no cross-member stale value)", () => {
+    // The section-prefetch flow: the rail stays MOUNTED while the operator clicks name→name (only
+    // `securityId` changes). RatifyRow seeds its inputs from `candidate` via useState, so a fact_type-only
+    // key reused the row and kept the FIRST name's shares on every subsequent name (the reported bug: all
+    // DRAM names showed MU's 1,129,393,151). The composite key (securityId:fact_type) must remount it.
+    const SID_A = "00000000-0000-0000-0000-00000000aaaa";
+    const SID_B = "00000000-0000-0000-0000-00000000bbbb";
+    h.extract.data = [{ ...AUTO_SHARES, value: 1129393151 }]; // MU
+    const { rerender } = render(<FactsPanel securityId={SID_A} />);
+    expect(screen.getByLabelText("shares")).toHaveValue(1129393151);
+
+    // switch to a DIFFERENT member (rail still mounted) — its own cached candidate
+    h.extract = { data: [{ ...AUTO_SHARES, value: 38246573 }], error: null, isFetching: false }; // GSIT
+    rerender(<FactsPanel securityId={SID_B} />);
+    expect(screen.getByLabelText("shares")).toHaveValue(38246573); // B's value, NOT A's stale one
+  });
+
   it("extract fires on the explicit click, NOT on mount", async () => {
     render(<FactsPanel securityId={SID} />);
     expect(h.refetch).not.toHaveBeenCalled();
