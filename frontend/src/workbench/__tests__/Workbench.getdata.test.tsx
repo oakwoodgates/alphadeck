@@ -104,10 +104,19 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
 
   it("fetched candidates flip the control to '✓ data ready — ratify', which OPENS the name", async () => {
     const user = userEvent.setup();
-    h.extract["s-cold"] = { data: [] }; // the shared query holds this name's candidates
+    h.extract["s-cold"] = { data: [{ fact_type: "shares_outstanding" }] }; // the query holds ≥1 candidate
     renderWb();
     await user.click(screen.getByRole("button", { name: /data ready for COLD/ }));
     expect(railTicker()).toBe("COLD"); // ready → open → ratify in the rail
+  });
+
+  it("an EMPTY extract shows the honest '— no 10-K/10-Q' state, never the false 'data ready'", () => {
+    // a foreign 20-F/6-K issuer (e.g. SIMO) returns [] — fetched, but nothing the extractor covers
+    h.extract["s-cold"] = { data: [] };
+    renderWb();
+    expect(screen.getByText(/no 10-K\/10-Q/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /data ready for COLD/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "get data for COLD" })).not.toBeInTheDocument();
   });
 
   it("a per-name failure is visible + retryable, never silent", async () => {

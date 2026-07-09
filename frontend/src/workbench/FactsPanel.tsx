@@ -59,6 +59,17 @@ export function FactsPanel({
           onFile={onFile?.[f.fact_type] ?? false}
         />
       ))}
+      {/* honest-loudness (the SIMO case): an extract that came back EMPTY isn't a silent blank rail — the
+          issuer has no 10-K/10-Q the extractor covers (a foreign 20-F/6-K filer). Name it, don't hide it. */}
+      {extract.data !== undefined &&
+        extract.data.length === 0 &&
+        !extract.isFetching &&
+        !extract.error && (
+          <div className="note">
+            No 10-K/10-Q on file for this name — foreign issuers file <b>20-F / 6-K</b>, which the extractor
+            doesn't cover yet. Nothing to extract or ratify here.
+          </div>
+        )}
     </div>
   );
 }

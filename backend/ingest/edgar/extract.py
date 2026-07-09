@@ -642,8 +642,18 @@ def extract_for_security(
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
 ) -> list[ExtractedFact]:
-    """Live (cache-first) wrapper: CIK -> companyfacts + the latest 10-Q + the latest 10-K -> candidates.
-    An EXPLICIT operator action (the extract endpoint), never auto-fired on a render."""
+    """Live (cache-first) wrapper: CIK -> companyfacts + the latest 10-Q and/or 10-K -> candidates.
+    An EXPLICIT operator action (the extract endpoint), never auto-fired on a render.
+
+    COVERAGE: an empty list means the issuer has NO 10-K/10-Q at all — a foreign private issuer files
+    20-F/6-K, which this extractor doesn't parse — so the caller can surface an honest "not covered"
+    message instead of a silent empty rail (and the FE stops calling an empty result "data ready").
+
+    BOTH-FORMS RELAXATION: it no longer requires BOTH forms. Each role falls back to whichever exists —
+    a 10-K carries a cover-share count (shares) + a cash-flow statement (burn); a 10-Q carries interim
+    segment notes (purity) — so a domestic filer with only one recent form still yields candidates. The
+    both-present case is UNCHANGED (q=10-Q, k=10-K). A fallen-back annual cash-flow column stays honest:
+    the existing detector FLAGs a year-to-date column rather than mislabel it a clean quarter."""
     cik = int(cik)
     cf = client.get_json(
         companyfacts_url(cik),
@@ -651,16 +661,20 @@ def extract_for_security(
     )
     tenq = _latest_filing(client, cik, "10-Q")
     tenk = _latest_filing(client, cik, "10-K")
-    if tenq is None or tenk is None:
-        return []
+    if tenq is None and tenk is None:
+        return (
+            []
+        )  # no domestic periodic filing (foreign 20-F/6-K issuer) — nothing the extractor covers
+    q = tenq or tenk  # shares + cash_burn source (prefer the 10-Q; fall back to the 10-K)
+    k = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
     return extract_facts(
         cf,
-        tenq[1],
-        tenk[1],
-        tenq_ref=tenq[0],
-        tenk_ref=tenk[0],
-        tenq_date=tenq[2],
-        tenk_date=tenk[2],
+        q[1],
+        k[1],
+        tenq_ref=q[0],
+        tenk_ref=k[0],
+        tenq_date=q[2],
+        tenk_date=k[2],
         cfg=cfg,
     )
 
