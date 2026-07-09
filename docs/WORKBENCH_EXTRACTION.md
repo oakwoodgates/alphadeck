@@ -101,14 +101,27 @@ no magic numbers). The judgment calls the operator most needs to make:
   **generic — it never branches on a named item** ("ENTRA1" appears only in a clarifying comment in
   `extract.py`, never in the logic); it locates the flagged AMOUNT (or a corroborating one-time keyword) in
   the cash-flow statement and lets the operator decide whether to back it out. → flag `possible-one-time`.
-- **YTD derivation.** companyfacts' cash-flow column is often year-to-date, not a quarter. When the latest
-  span exceeds `quarterly_span_max_days` (100), the extractor DERIVES the quarter (YTD − the prior YTD of the
-  same fiscal year) and flags it so the operator confirms the period basis. → flag `ytd-derived`.
-- **Cash includes marketable securities — flagged for verification.** `cash_usd = cash + equivalents + ALL
-  marketable securities (current AND noncurrent)` — the uniform cash rule (`WORKBENCH_SCORING.md`). The
-  marketable-securities tags are filer-specific, so when any are present the extractor includes them, flags
-  it, and locates the balance-sheet line — the operator confirms the composition rather than trusting a tag
-  guess. → flag `verify-marketable-securities`.
+- **YTD derivation — and the raw-YTD case it must never be confused with.** companyfacts' cash-flow column
+  is often year-to-date. When the latest span exceeds `quarterly_span_max_days` (100) and a same-start prior
+  exists, the extractor DERIVES the quarter (YTD − prior YTD) → flag `ytd-derived`. When there is **no prior
+  to subtract**, the value goes out as the **raw YTD, labeled `ytd-raw`** with a passage saying it is NOT a
+  quarter (the runway audit: the old single label claimed a derivation that never happened — runway would
+  have read ~3–4× too short, believed).
+- **Cash includes marketable securities — same balance sheet only, flagged for verification.**
+  `cash_usd = cash + equivalents + marketable securities` (the uniform cash rule, `WORKBENCH_SCORING.md`) —
+  but **a balance sheet is ONE date**: a marketable instant dated differently from cash is a *different*
+  balance sheet (usually a discontinued tag — MU's `AvailableForSaleSecurities*` last reported **2018**, and
+  the old composer silently added those balances into current cash) and is **EXCLUDED from the sum**, named
+  in the note. Included-or-excluded, the basis question is raised → flag `verify-marketable-securities`.
+- **Missing inputs are their own labels with None values — never a fake $0.** No cash instant *and* no
+  OCF column → `no-companyfacts` (located-only; the old `or 0.0` coercions sent such filers out AUTO / $0 /
+  $0 / "Clean quarter" — a confirmable fake zero). Cash without an OCF column → `no-cashflow-column` (burn
+  stays None; a $0 burn used to ratify into a fake "cash-generative"). An OCF column without a cash
+  instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0).
+- **Every input's as-of date rides the note** ("cash as of … · burn over … → …"), and a cash balance sheet
+  older than the filing's period end flags `stale-cash` (the shares `stale-cover` rule, applied here).
+  `event_date` = the burn period's own end (else the cash as-of) — the value's own valid-time, never the
+  filing date.
 - **Shares (market cap): three honest FLAG labels, one per OBSERVED condition.** A single-class, **current**
   cover concept → AUTO — where *current* is judged against the filing's **PERIOD OF REPORT** (submissions
   `reportDate`), never the filing date: a cover's "as of" date always falls *between* the period end and the
