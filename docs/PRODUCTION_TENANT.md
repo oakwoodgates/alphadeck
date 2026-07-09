@@ -1,6 +1,6 @@
 # PRODUCTION_TENANT.md — cutting production as a fresh tenant
 
-> Repo path: `docs/PRODUCTION_TENANT.md`. This is **Phase 1, Step 3** of `ROADMAP.md` ("Cut production as a
+> Repo path: `docs/PRODUCTION_TENANT.md`. This is the Phase-1 trust arc's production cut (`ROADMAP.md` shipped log, "Cut production as a
 > fresh tenant"): make the back half live for real use by provisioning an **empty production tenant on the
 > identical code path, alongside the demo** — never a destructive wipe. Siblings: `INVARIANTS.md` (the
 > load-bearing rules; `tenant_id` per row is the data-isolation seam), `ROADMAP.md` (sequencing),

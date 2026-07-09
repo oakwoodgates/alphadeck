@@ -188,7 +188,8 @@ outlives the draft — the operator edits it (`operator_edited`) or hand-authors
 $1.2B", read in the output schemas) and from a segment's own `descriptor`. **Operational** on the thesis spine
 (no bitemporal axes), like the rest of the chain structure. `ChainDraftOut` carries the prose as a response
 field; the UI maps it to `thesis_fit` on promote. This is the auto-drafted **thesis-fit layer (DD layer b)** —
-never the stored company-reference facts (layer a) the LLM does not narrate (`ROADMAP.md` Phase-2 decisions).
+never the stored company-reference facts (layer a) the LLM does not narrate (`ROADMAP.md`, standing design
+decisions).
 
 ## The draft/ratify UI — the discovery net, made VISIBLE
 
