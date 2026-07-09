@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { archLabel, formatMarketCap, isAcronymTerm, meterValueLabel, provChip, provNotes } from "../format";
+import {
+  archLabel,
+  formatMarketCap,
+  isAcronymTerm,
+  memberHasFundamentals,
+  meterValueLabel,
+  provChip,
+  provNotes,
+} from "../format";
 
 describe("formatMarketCap", () => {
   it("scales to B/M and renders '—' for missing (no fake $0)", () => {
@@ -26,6 +34,50 @@ describe("meterValueLabel", () => {
     expect(
       meterValueLabel("market cap", { pips: null, value: 2_500_000_000, provenance: [] }),
     ).toBe("$2.5B");
+  });
+});
+
+describe("meterValueLabel — market cap with one input on file (the gate-3 'no save?' fix)", () => {
+  const prov = (source: string) => ({ source, ref: "r", url: null, detail: {} });
+  it("names the missing half instead of a bare '—'", () => {
+    // a ratified shares fact, no price bars yet (the awaiting-note rides as source "computed")
+    expect(
+      meterValueLabel("market cap", {
+        pips: null,
+        value: null,
+        provenance: [prov("10-q-cover"), prov("computed")],
+      }),
+    ).toBe("shares on file · needs price");
+    // price bars, no ratified shares yet
+    expect(
+      meterValueLabel("market cap", { pips: null, value: null, provenance: [prov("price")] }),
+    ).toBe("price on file · needs shares");
+  });
+  it("stays '—' with nothing on file, and formats normally with a value", () => {
+    expect(meterValueLabel("market cap", { pips: null, value: null, provenance: [] })).toBe("—");
+    expect(
+      meterValueLabel("market cap", { pips: null, value: 2_500_000_000, provenance: [] }),
+    ).toBe("$2.5B");
+  });
+});
+
+describe("memberHasFundamentals — a ratified shares fact counts before a price exists", () => {
+  const fig = (value: number | null = null, provenance: { source: string }[] = []) => ({
+    pips: null,
+    value,
+    provenance,
+  });
+  it("counts the shares-on-file member (the funnel must move on a confirm)", () => {
+    const m = {
+      purity: fig(),
+      runway: fig(),
+      market_cap: fig(null, [{ source: "10-q-cover" }, { source: "computed" }]),
+    };
+    expect(memberHasFundamentals(m)).toBe(true);
+  });
+  it("price bars alone are NOT operator-confirmed data", () => {
+    const m = { purity: fig(), runway: fig(), market_cap: fig(null, [{ source: "price" }]) };
+    expect(memberHasFundamentals(m)).toBe(false);
   });
 });
 

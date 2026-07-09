@@ -262,6 +262,13 @@ class ScoredMemberOut(BaseModel):
 
     security_id: UUID
     ticker: str | None = None
+    # Display identity, joined from the master on read (never promoted onto a BasketMember, #2): the
+    # company NAME rides the scored row (a ticker-only list made the finalize pass a memory quiz), and
+    # the enrichment strings give the rail its who-is-this context.
+    name: str | None = None
+    sector: str | None = None
+    exchange: str | None = None
+    category: str | None = None
     # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
     # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
     archetype: Archetype | None = None
@@ -286,8 +293,10 @@ class ScoredMemberOut(BaseModel):
         m: ScoredMember,
         ciks: Mapping[UUID, str | None],
         tickers: Mapping[UUID, str | None],
+        identity: Mapping[UUID, Mapping[str, str | None]] | None = None,
     ) -> "ScoredMemberOut":
         cik = ciks.get(m.security_id)
+        ident = (identity or {}).get(m.security_id, {})
 
         def fig(f: ScoredFigure) -> ScoredFigureOut:
             return ScoredFigureOut(
@@ -299,6 +308,10 @@ class ScoredMemberOut(BaseModel):
         return cls(
             security_id=m.security_id,
             ticker=tickers.get(m.security_id),
+            name=ident.get("name"),
+            sector=ident.get("sector"),
+            exchange=ident.get("exchange"),
+            category=ident.get("category"),
             archetype=m.archetype,
             archetype_hint=m.archetype_hint,
             segment=m.segment,

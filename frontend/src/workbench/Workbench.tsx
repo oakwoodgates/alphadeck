@@ -509,6 +509,13 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
             <aside className="wb-rail">
               <DDRail
                 member={selectedMember}
+                // the persisted thesis-fit prose, bridged from the thesis basket by security_id
+                thesisFit={
+                  selectedMember
+                    ? (thesis?.basket.find((b) => b.security_id === selectedMember.security_id)
+                        ?.thesis_fit ?? null)
+                    : null
+                }
                 onApplyArchetype={applyArchetype}
                 applying={promote.isPending}
                 thesisId={thesisId}

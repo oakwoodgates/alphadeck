@@ -342,7 +342,9 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
 /* PR-C — the scored row's split: the row is a DIV (whole-surface click), the ticker block is the real
    button (no nested buttons), and ⇣ get data is gate 2's per-name opt-in (mark = the click). */
-.nmrow .nmrow-sel { border: none; background: transparent; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 9px; padding: 0; cursor: pointer; }
+.nmrow .nmrow-sel { border: none; background: transparent; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 9px; padding: 0; cursor: pointer; min-width: 0; }
+/* the company name on the scored row — a ticker-only list is a memory quiz over four-letter codes */
+.nmrow .co { font-size: 11px; color: var(--txt-3); max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nmrow .wb-getdata { margin-left: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
 .nmrow button.wb-getdata:hover { color: var(--txt-2); border-color: var(--txt-4); }
 .nmrow .wb-getdata.ready { color: var(--manage); border-color: rgba(52, 194, 160, 0.4); }
@@ -391,6 +393,11 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .dd-head .arch-apply:disabled { opacity: 0.5; cursor: default; }
 /* item F — the rail's manual archetype set/override (the single decision point next to the hint) */
 .dd-head .arch-set { font-size: 10px; color: var(--txt-2); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 5px; }
+/* the rail's WHO block: company name + machine-parsed identity chips + the persisted thesis-fit prose */
+.dd-ident { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.dd-ident .dd-co { font-size: 12px; color: var(--txt-2); margin-right: 2px; }
+.ddcard .idchip { font-family: var(--mono); font-size: 9px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
+.dd-thesis-fit { font-size: 11px; line-height: 1.55; color: var(--txt-3); font-style: italic; margin: 0 0 10px; padding-left: 9px; border-left: 2px solid var(--line-2); }
 .arch-rec-dot { color: var(--leader); font-size: 10px; }
 .dd-body { padding: 15px; }
 .dd-facts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
@@ -652,6 +659,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .located .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; text-decoration: none; align-self: flex-start; }
 .located .chip:hover { border-color: var(--leader); color: var(--txt-2); }
 .located .excerpt { font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+/* the passage clamp — evidence stays scannable, not a wall; expand is explicit (one click) */
+.located .excerpt.clamped { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent); mask-image: linear-gradient(180deg, #000 72%, transparent); }
+/* "a ratified value is already on file" — quiet, green-ish; a re-confirm appends a new version */
+.ratify-rh .ronfile { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--manage); border: 1px solid rgba(52, 194, 160, 0.35); border-radius: 5px; padding: 1px 6px; }
 .rf { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--txt-3); }
 .rf input { font: inherit; font-family: var(--mono); font-size: 11.5px; text-transform: none; letter-spacing: 0; color: var(--txt); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 8px; color-scheme: dark; flex: 1; min-width: 0; }
 .rf input:focus { outline: none; border-color: var(--leader); }

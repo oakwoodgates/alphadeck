@@ -145,6 +145,15 @@ ratify UI shows it inline (not a tooltip) with a clickable EDGAR link.
   `10-q-cover`) — never flattened to "ratified", so the provenance chip stays honest.
 - `ratified_by` is stamped `"operator"` server-side. The fact is append-only (a re-ratify is a new row,
   latest-wins). The meter re-derives on the next scored read — closing the extract → ratify → score loop.
+- **The ratify must be VISIBLE even when its meter can't move yet** (the gate-3 "no save?" finding: a
+  shares confirm on a price-less fresh name changed nothing on screen — the fact was on file all along).
+  Three surfaces carry it now: `_market_cap` keeps a half-input figure **value-None but provenance'd**
+  (the ratified fact + a note naming the missing half — "shares on file · needs price" /
+  "price on file · needs shares"); the funnel + fundamentals badge count a ratified shares fact as
+  confirmed data **before** a price exists; and the FactsPanel tags a candidate whose fact type already
+  has a ratified value **"✓ on file"** (the extract endpoint is deliberately DB-free, so its candidates
+  can't know — the tag is derived from the meters' provenance). A re-confirm is an append, honestly
+  labeled — never "the first save never happened."
 
 ---
 
