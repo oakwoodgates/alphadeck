@@ -257,6 +257,36 @@ def ciks_for(
         return {row["id"]: row["cik"] for row in cur.fetchall()}
 
 
+def identity_for(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, dict[str, str | None]]:
+    """Map security ids -> display identity (company ``name`` + the enrichment strings ``sector`` /
+    ``exchange`` / ``category``) for READ surfaces — the scored view joins it so a row shows who the
+    company IS, not just its ticker. Display-only (#2): never promoted onto a ``BasketMember``; ids
+    with no master row are omitted."""
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, sector, exchange, category FROM security_master"
+            " WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, ids),
+        )
+        return {
+            row["id"]: {
+                "name": row["name"],
+                "sector": row["sector"],
+                "exchange": row["exchange"],
+                "category": row["category"],
+            }
+            for row in cur.fetchall()
+        }
+
+
 def ids_for_tickers(
     conn: psycopg.Connection,
     tickers: Iterable[str],

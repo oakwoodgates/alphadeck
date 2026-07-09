@@ -52,6 +52,9 @@ function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigur
 
 interface Props {
   member: ScoredMemberOut | null;
+  // the member's persisted thesis-fit prose ("why this name sits in its link"), bridged from the
+  // thesis basket by the parent — display of a stored field, never derived here
+  thesisFit?: string | null;
   // The rail is the archetype's SINGLE home (item F): this callback persists a decision — confirming the
   // derived hint OR a manual pick from the select — as operator_edited (#10, the operator decides).
   // Omitted (read-only) when there's no write path. The recommendation shows pending regardless.
@@ -70,7 +73,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) {
+export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -144,6 +147,19 @@ export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) 
         )}
       </div>
       <div className="dd-body">
+        {/* WHO this is — the company name + the machine-parsed identity (master enrichment; display-only,
+            never promoted, #2). The rail is where the operator decides, so it says who it's deciding about. */}
+        {(member.name || member.sector || member.exchange || member.category) && (
+          <div className="dd-ident">
+            {member.name && <span className="dd-co">{member.name}</span>}
+            {member.sector && <span className="idchip">{member.sector}</span>}
+            {member.exchange && <span className="idchip">{member.exchange}</span>}
+            {member.category && <span className="idchip">{member.category}</span>}
+          </div>
+        )}
+        {/* the persisted thesis-fit prose — the draft-time "why this name sits in its link", ratified at
+            TRIAGE and stored on the member. Absent on a hand-added name = honest blank, not filler. */}
+        {thesisFit && <p className="dd-thesis-fit">{thesisFit}</p>}
         <div className="dd-facts">
           <span>
             <b>fit</b>
@@ -165,11 +181,20 @@ export function DDRail({ member, onApplyArchetype, applying, thesisId }: Props) 
         ))}
 
         <div className="dd-sub">Extract &amp; ratify the facts</div>
-        <FactsPanel securityId={member.security_id} thesisId={thesisId} />
-
-        <div className="dd-sub deferred">
-          Thesis fit <em>· auto-drafted prose — Slice 5 (the LLM drafter)</em>
-        </div>
+        <FactsPanel
+          securityId={member.security_id}
+          thesisId={thesisId}
+          // which fact types already have a RATIFIED value on file (derived from the meters' provenance;
+          // price bars and the awaiting-note are not operator facts) — the panel tags those candidates so
+          // a re-confirm reads as "append a new version", not "the first save never happened"
+          onFile={{
+            revenue_mix: member.purity.provenance.length > 0,
+            shares_outstanding: member.market_cap.provenance.some(
+              (p) => p.source !== "price" && p.source !== "computed",
+            ),
+            cash_burn: member.runway.provenance.length > 0,
+          }}
+        />
       </div>
     </div>
   );

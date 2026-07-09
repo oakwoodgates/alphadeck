@@ -32,6 +32,9 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
       <div className="top">
         <button type="button" className="nmrow-sel" onClick={onSelect}>
           <span className="tk">{member.ticker ?? "◇"}</span>
+          {/* the company NAME rides the row (joined from the master on read) — a ticker-only list made
+              the finalize pass a memory quiz over 68 four-letter codes */}
+          {member.name && <span className="co">{member.name}</span>}
           {/* archetype chip only when DECIDED (item F: unset renders nothing here — quiet; the ✦ dot +
               the rail carry the pending decision, so an all-unset fresh basket isn't a wall of chips) */}
           {member.archetype && (

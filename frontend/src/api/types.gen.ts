@@ -1151,6 +1151,14 @@ export interface components {
             security_id: string;
             /** Ticker */
             ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Exchange */
+            exchange?: string | null;
+            /** Category */
+            category?: string | null;
             archetype?: components["schemas"]["Archetype"] | null;
             archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */

@@ -17,9 +17,15 @@ const METER_LABEL: Record<string, string> = {
 export function FactsPanel({
   securityId,
   thesisId,
+  onFile,
 }: {
   securityId: string;
   thesisId?: string;
+  // per fact-type: a RATIFIED value already exists on file (derived by the parent from the meters'
+  // provenance). The extract endpoint is deliberately DB-free, so its candidates can't know — without
+  // this tag, re-opening a ratified name re-offered the same candidate as if the save never happened
+  // (the gate-3 "no save?" confusion; the store is append-only, latest wins on read).
+  onFile?: Partial<Record<string, boolean>>;
 }) {
   // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
   const extract = useExtract(securityId, thesisId);
@@ -45,13 +51,26 @@ export function FactsPanel({
         </div>
       )}
       {(extract.data ?? []).map((f) => (
-        <RatifyRow key={f.fact_type} candidate={f} securityId={securityId} />
+        <RatifyRow
+          key={f.fact_type}
+          candidate={f}
+          securityId={securityId}
+          onFile={onFile?.[f.fact_type] ?? false}
+        />
       ))}
     </div>
   );
 }
 
-function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securityId: string }) {
+function RatifyRow({
+  candidate,
+  securityId,
+  onFile,
+}: {
+  candidate: ExtractedFact;
+  securityId: string;
+  onFile?: boolean;
+}) {
   const ratify = useRatifyFact();
   const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
   const auto = candidate.tier === "auto";
@@ -72,6 +91,9 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
   const [segment, setSegment] = useState(purityEstimate != null ? proposedSegment : "");
   const [pct, setPct] = useState(purityEstimate != null ? String(purityEstimate) : "");
   const [note, setNote] = useState(candidate.note ?? "");
+  // the located passage is EVIDENCE and must be readable — but a segment table arrives as a wall of
+  // collapsed text, so it renders CLAMPED (a scannable window + fade) with an explicit expand
+  const [expanded, setExpanded] = useState(false);
 
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
   const common = {
@@ -127,6 +149,16 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
       <div className="ratify-rh">
         <span className="rk">{label}</span>
         <span className={`rtier ${candidate.tier}`}>{candidate.tier}</span>
+        {/* a ratified value already exists — confirming APPENDS a new version (latest wins on read);
+            without this tag a re-open read as "the first save never happened" */}
+        {onFile && (
+          <span
+            className="ronfile"
+            title="a ratified value for this fact is already on file (see Behind the scores) — confirming appends a NEW version; latest wins on read"
+          >
+            ✓ on file
+          </span>
+        )}
         {(candidate.flags ?? []).map((fl) => (
           <span className="rflag" key={fl}>
             ⚠ {fl}
@@ -134,7 +166,9 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
         ))}
       </div>
 
-      {/* the located passage — EVIDENCE, readable inline (reading it IS the FLAG decision) */}
+      {/* the located passage — EVIDENCE, readable inline (reading it IS the FLAG decision). Clamped to a
+          scannable window (a raw segment table arrives as a wall of collapsed text); the expand is one
+          click, the filing link one more. */}
       {(candidate.located_passages ?? []).map((p, i) => (
         <div className="located" key={i}>
           <a
@@ -146,9 +180,17 @@ function RatifyRow({ candidate, securityId }: { candidate: ExtractedFact; securi
           >
             {p.kind} · {p.anchor} ↗
           </a>
-          <div className="excerpt">{p.excerpt}</div>
+          {/* clamp only what's actually long — the fade must never eat a short passage */}
+          <div className={`excerpt${!expanded && p.excerpt.length > 420 ? " clamped" : ""}`}>
+            {p.excerpt}
+          </div>
         </div>
       ))}
+      {(candidate.located_passages ?? []).some((p) => p.excerpt.length > 420) && (
+        <button type="button" className="wb-mini ghost" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "− collapse the passage" : "+ show the full passage"}
+        </button>
+      )}
 
       {/* the LLM seam (M4b) — a plain-English read GROUNDED in the passage above; an aid to the ratify, never
           the value (it never touches the inputs). FLAG only; explicit (a click); fail-open (no block when the

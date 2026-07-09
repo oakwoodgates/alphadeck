@@ -113,11 +113,39 @@ def _dilution(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
 
 
 def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
-    """A FIGURE, not a meter: latest close x latest shares (total-economic). "—" if either is missing."""
+    """A FIGURE, not a meter: latest close x latest shares (total-economic). One input alone can't
+    compute a cap — but a RATIFIED input must stay VISIBLE (value None + its provenance + a note naming
+    the missing half). A bare "—" here made a confirm on a price-less fresh name read as a silent no-op
+    (the gate-3 finding: the operator ratified MU's shares three times looking for ANY change — the
+    fact was on file all along; the other input, price, comes from the per-thesis back-half ingest).
+    """
     shares_facts = pit.shares_outstanding_facts(sid)
     prices = pit.price_history(sid)
-    if not shares_facts or not prices:
-        return ScoredFigure()  # "—": no market cap without both inputs
+    if not shares_facts and not prices:
+        return ScoredFigure()  # "—": nothing on file
+    if not prices:
+        sh = max(shares_facts, key=lambda f: f["valid_from"])
+        awaiting = Provenance(
+            source="computed",
+            ref="market-cap:awaiting-price",
+            detail={
+                "note": "No price bars for this name yet — market cap = shares × price; the "
+                "per-thesis ingest (the back half) pulls prices. The ratified shares fact IS on file."
+            },
+        )
+        return ScoredFigure(pips=None, value=None, provenance=[_prov(sh), awaiting])
+    if not shares_facts:
+        latest = prices[-1]
+        awaiting = Provenance(
+            source="price",
+            ref=f"price:{latest['d']}",
+            detail={
+                "close": float(latest["close"]),
+                "note": "Price on file but NO ratified shares yet — extract → ratify the cover count "
+                "to compute the cap.",
+            },
+        )
+        return ScoredFigure(pips=None, value=None, provenance=[awaiting])
     sh = max(shares_facts, key=lambda f: f["valid_from"])
     latest = prices[-1]  # price_history is sorted ascending by date
     cap = float(sh["shares"]) * float(latest["close"])

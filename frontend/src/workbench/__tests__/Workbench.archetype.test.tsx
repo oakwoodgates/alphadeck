@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fx = vi.hoisted(() => {
   const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
   const basket = [
-    { ticker: "OKLO", role: "r", archetype: "high_beta", security_id: "s-oklo", segment: null, authored_by: "operator_set", thesis_fit: null },
+    { ticker: "OKLO", role: "r", archetype: "high_beta", security_id: "s-oklo", segment: null, authored_by: "operator_set", thesis_fit: "the only NRC-approved SMR designer — the pure-play anchor" },
     { ticker: "LEU", role: "r", archetype: "shovel", security_id: "s-leu", segment: null, authored_by: "operator_set", thesis_fit: null },
     { ticker: "CCJ", role: "r", archetype: "leader", security_id: "s-ccj", segment: null, authored_by: "operator_set", thesis_fit: null },
     // item F: a placed-but-not-finalized name — NO archetype (placement never characterizes)
@@ -16,7 +16,8 @@ const fx = vi.hoisted(() => {
   ];
   const members = [
     // disagreement: high_beta now, the figures suggest leader -> a pending chip + a ✦ dot
-    { security_id: "s-oklo", ticker: "OKLO", archetype: "high_beta", archetype_hint: "leader", segment: null, purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1.2e10), fit: "pure-play" },
+    // (also carries the display identity — the name on the row, the chips + prose on the rail)
+    { security_id: "s-oklo", ticker: "OKLO", name: "Oklo Inc.", sector: "Electric Services", exchange: "NYSE", category: "Non-accelerated filer", archetype: "high_beta", archetype_hint: "leader", segment: null, purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1.2e10), fit: "pure-play" },
     // abstain: no hint (relational / no facts) -> no chip, no dot
     { security_id: "s-leu", ticker: "LEU", archetype: "shovel", archetype_hint: null, segment: null, purity: fig(3, 77), runway: fig(4, 160), catalysts: fig(2, 1), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "core exposure" },
     // agreement: hint == archetype -> quiet (no chip, no dot)
@@ -90,6 +91,17 @@ describe("Workbench — the #10 archetype recommendation (Slice 4)", () => {
     // the other names are resent verbatim (a single-member edit, not a chain rewrite)
     const leu = payload.basket.find((b: { security_id: string }) => b.security_id === "s-leu");
     expect(leu.archetype).toBe("shovel");
+  });
+
+  it("the row says WHO (company name), and the rail carries identity chips + the thesis-fit prose", () => {
+    renderWb();
+    // the scored row: ticker + the company name (a ticker-only list is a memory quiz)
+    expect(screen.getByRole("button", { name: /OKLO.*Oklo Inc\./ })).toBeInTheDocument();
+    // the rail (OKLO selected by default): identity chips + the persisted thesis-fit prose
+    expect(screen.getByText("Electric Services")).toBeInTheDocument();
+    expect(screen.getByText("Non-accelerated filer")).toBeInTheDocument();
+    expect(screen.getByText(/the only NRC-approved SMR designer/)).toBeInTheDocument();
+    // a member with NO identity renders no empty chips (LEU carries none in this fixture)
   });
 
   it("only names with a PENDING decision carry the ✦ indicator — abstain and agreement stay quiet", () => {

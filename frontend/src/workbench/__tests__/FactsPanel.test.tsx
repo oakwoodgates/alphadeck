@@ -115,6 +115,46 @@ describe("FactsPanel — extract → ratify", () => {
     expect(h.refetch).toHaveBeenCalledTimes(1);
   });
 
+  it("a candidate whose fact is already ON FILE is tagged (a re-confirm appends, never 'never saved')", () => {
+    h.extract.data = [AUTO_SHARES, FLAG_BURN];
+    render(
+      <FactsPanel securityId={SID} onFile={{ shares_outstanding: true, cash_burn: false }} />,
+    );
+    const tags = screen.getAllByText("✓ on file");
+    expect(tags).toHaveLength(1); // ONLY the shares row — the tag must discriminate
+    expect(tags[0].closest(".ratify-row")).toHaveTextContent(/market cap · shares/);
+  });
+
+  it("a LONG located passage renders CLAMPED with an explicit expand (evidence, not a wall)", async () => {
+    const user = userEvent.setup();
+    const LONG = {
+      ...HUMAN_PURITY,
+      located_passages: [
+        {
+          kind: "segment",
+          source_ref: "https://sec.gov/mu-10k#seg",
+          anchor: "segment",
+          excerpt: "Revenue by segment " + "104 414 176 137 920 restructure ".repeat(30),
+        },
+      ],
+    };
+    h.extract.data = [LONG];
+    render(<FactsPanel securityId={SID} />);
+    const excerpt = screen.getByText(/Revenue by segment/);
+    expect(excerpt).toHaveClass("clamped");
+    await user.click(screen.getByRole("button", { name: /show the full passage/ }));
+    expect(excerpt).not.toHaveClass("clamped");
+    await user.click(screen.getByRole("button", { name: /collapse the passage/ }));
+    expect(excerpt).toHaveClass("clamped");
+  });
+
+  it("a SHORT passage renders unclamped with no expand control (the clamp marks the exception)", () => {
+    h.extract.data = [FLAG_BURN]; // its excerpt is well under the clamp threshold
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Partnership milestone payment/)).not.toHaveClass("clamped");
+    expect(screen.queryByRole("button", { name: /show the full passage/ })).not.toBeInTheDocument();
+  });
+
   it("a FLAG confirm posts the EDITED recurring burn, not the raw value", async () => {
     const user = userEvent.setup();
     h.extract.data = [FLAG_BURN];

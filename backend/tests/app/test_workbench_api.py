@@ -102,6 +102,26 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     assert detail["basket"][0]["authored_by"] == "operator_set"
 
 
+def test_scored_carries_master_identity(client, db, security_id):
+    """The scored view says WHO each row is: company name + the enrichment strings (sector / exchange /
+    category), joined from the master on read via ``identity_for``. Display-only (#2) — never promoted
+    onto a BasketMember; a fresh row without enrichment reads null, never a crash."""
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET name=%s, sector=%s, exchange=%s, category=%s WHERE id=%s",
+            ("DevCo Inc.", "Semiconductors", "Nasdaq", "Large accelerated filer", security_id),
+        )
+    db.commit()
+    tid = _scored_thesis(db, security_id)
+    r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"})
+    assert r.status_code == 200
+    m = r.json()["members"][0]
+    assert m["name"] == "DevCo Inc."
+    assert m["sector"] == "Semiconductors"
+    assert m["exchange"] == "Nasdaq"
+    assert m["category"] == "Large accelerated filer"
+
+
 def test_promote_and_scored_carry_a_null_archetype(client, security_id):
     """Item F (PR-B): promote accepts a member with NO archetype (un-decided — placement doesn't
     characterize; the finalize screen does), stores NULL, reads it back null on the thesis detail, and

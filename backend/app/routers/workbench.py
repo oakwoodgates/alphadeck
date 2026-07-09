@@ -102,11 +102,12 @@ def get_scored(
     sec_ids = {m.security_id for m in scored}
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    ident_for = master.identity_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     return WorkbenchScored(
         thesis_id=thesis.id,
         asof=asof,
         segments=list(thesis.segments),
-        members=[ScoredMemberOut.from_scored(m, cik_for, ticker_for) for m in scored],
+        members=[ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for) for m in scored],
     )
 
 

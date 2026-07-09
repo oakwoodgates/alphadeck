@@ -19,12 +19,19 @@ export const isAcronymTerm = (term: string): boolean => /^[A-Z][A-Z0-9]{1,9}$/.t
 /** Gate-3 readiness (ONE rule, three surfaces): does the scored member carry ANY confirmed SURFACE fact
  *  (purity / runway / market cap)? Catalysts + dilution come from the feeds/converts, not the extract, so
  *  they don't count. Shared by the editor's fundamentals badge, the scored row's "get data" control, and
- *  the funnel line — so "has data" can never mean three different things. */
+ *  the funnel line — so "has data" can never mean three different things. A ratified shares fact COUNTS
+ *  even before a price exists (market_cap.value needs both; a confirmed fact is confirmed data — the
+ *  funnel must move when the operator ratifies, or the confirm reads as a no-op). Non-operator
+ *  provenance (price bars, the awaiting-note) doesn't count. */
 export const memberHasFundamentals = (m: {
   purity?: { pips?: number | null } | null;
   runway?: { pips?: number | null } | null;
-  market_cap?: { value?: number | null } | null;
-}): boolean => m.purity?.pips != null || m.runway?.pips != null || m.market_cap?.value != null;
+  market_cap?: { value?: number | null; provenance?: { source: string }[] | null } | null;
+}): boolean =>
+  m.purity?.pips != null ||
+  m.runway?.pips != null ||
+  m.market_cap?.value != null ||
+  (m.market_cap?.provenance ?? []).some((p) => p.source !== "price" && p.source !== "computed");
 
 /** A human message from a thrown API error (FastAPI `{detail}`); a safe fallback otherwise. */
 export function errText(e: unknown): string {
@@ -44,7 +51,8 @@ export function formatMarketCap(value: number | null | undefined): string {
 
 /** The "behind the scores" value headline for a meter — the real computed figure, honestly. A null
  *  value is meter-specific: runway null = cash-generative (top pip, no months figure); dilution null
- *  = no convert data ("—"). */
+ *  = no convert data ("—"). Market cap with ONE input on file says which half is missing — a bare "—"
+ *  over a ratified shares fact read as "the confirm did nothing" (the gate-3 finding). */
 export function meterValueLabel(meter: string, figure: ScoredFigureOut): string {
   const v = figure.value;
   switch (meter) {
@@ -56,8 +64,17 @@ export function meterValueLabel(meter: string, figure: ScoredFigureOut): string 
       return `${v ?? 0} live`;
     case "dilution":
       return v == null ? "no convert data" : `${v}% overhang`;
-    case "market cap":
+    case "market cap": {
+      if (v == null && figure.provenance.length > 0) {
+        const hasPrice = figure.provenance.some((p) => p.source === "price");
+        const hasShares = figure.provenance.some(
+          (p) => p.source !== "price" && p.source !== "computed",
+        );
+        if (hasShares && !hasPrice) return "shares on file · needs price";
+        if (hasPrice && !hasShares) return "price on file · needs shares";
+      }
       return formatMarketCap(v);
+    }
     default:
       return v == null ? "—" : `${v}`;
   }

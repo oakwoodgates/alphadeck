@@ -56,6 +56,43 @@ def _hims_converts() -> ConvertTerms:
     )
 
 
+def test_market_cap_shares_without_price_stays_visible(db, security_id):
+    """The gate-3 "no save?" fix: a RATIFIED shares fact with no price bars must not vanish into a bare
+    "—" — the figure stays value-None (no cap without both inputs, no fake number) but carries the fact's
+    provenance + a note naming the missing half, so the confirm is visibly ON FILE."""
+    ingest_shares_outstanding(
+        db,
+        security_id,
+        shares=1_129_393_151,
+        source="10-q-cover",
+        source_ref="10-Q",
+        event_date=date(2026, 6, 17),
+        ratified_by="operator",
+    )
+    db.commit()
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
+    assert m.market_cap.value is None  # still no cap — price is genuinely missing
+    assert len(m.market_cap.provenance) == 2  # the ratified fact + the awaiting-price note
+    assert m.market_cap.provenance[0].source == "10-q-cover"  # the fact is VISIBLE
+    notes = " ".join(str(p.detail.get("note", "")) for p in m.market_cap.provenance)
+    assert "No price bars" in notes and "on file" in notes  # the missing half is NAMED
+
+
+def test_market_cap_price_without_shares_stays_visible(db, security_id):
+    """The symmetric half: price bars with no ratified shares — value None, the price provenance rides
+    with a note pointing at the extract → ratify step (never a silent blank)."""
+    _price(db, security_id, date(2026, 6, 20), 100.0)
+    db.commit()
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
+    assert m.market_cap.value is None
+    assert [p.source for p in m.market_cap.provenance] == ["price"]
+    assert any(
+        "NO ratified shares" in str(p.detail.get("note", "")) for p in m.market_cap.provenance
+    )
+
+
 def test_score_member_golden(db, security_id):
     """Fixed facts -> exact pips / values / provenance (deterministic; the magic-number behavioral guard
     below proves the cutoffs are config-driven, not these specific numbers)."""
