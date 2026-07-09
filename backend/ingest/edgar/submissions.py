@@ -58,16 +58,28 @@ def fetch_submissions(client: EdgarClient, cik: str | int) -> dict[str, Any]:
 
 def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
     """List a company's filings of one ``form`` type (newest first) from a submissions JSON:
-    ``{accession, primary_doc, filed}``. The submissions ``recent`` arrays are parallel + reverse-chrono,
+    ``{accession, primary_doc, filed, report_date}``. ``filed`` is the FILING date; ``report_date`` is
+    the PERIOD OF REPORT (the quarter/year end the filing covers) — two different dates ~a month apart
+    on a 10-Q, and the distinction is load-bearing: the shares extractor's staleness gate compares a
+    cover "as of" date (which falls BETWEEN period end and filing date) against the period end, so
+    threading ``filed`` where the period belongs made that gate unreachable live (every single-class
+    name mis-flagged "dual-class"). The submissions ``recent`` arrays are parallel + reverse-chrono,
     so the first match is the latest (e.g. ``filings_of(subs, "10-Q")[0]`` = the most recent 10-Q).
+    ``report_date`` is "" when the row lacks one (defensive — some form types omit it).
     """
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     accns = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
     dates = recent.get("filingDate", [])
+    reports = recent.get("reportDate", [])
     return [
-        {"accession": accns[i], "primary_doc": docs[i], "filed": dates[i]}
+        {
+            "accession": accns[i],
+            "primary_doc": docs[i],
+            "filed": dates[i],
+            "report_date": reports[i] if i < len(reports) else "",
+        }
         for i, f in enumerate(forms)
         if f == form
     ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ingest.edgar.submissions import form4_doc_url, form4_filings, parse_identity
+from ingest.edgar.submissions import filings_of, form4_doc_url, form4_filings, parse_identity
 
 _SUBS = json.loads(
     (
@@ -17,6 +17,56 @@ def test_form4_filings_lists_form4s():
     assert len(filings) == 1
     assert filings[0]["accession"] == "0001234567-26-000123"
     assert filings[0]["primary_doc"] == "doc4.xml"
+
+
+def _subs_with_dates() -> dict:
+    return {
+        "filings": {
+            "recent": {
+                "form": ["10-Q"],
+                "accessionNumber": ["0000723125-26-000047"],
+                "primaryDocument": ["mu-10q.htm"],
+                "filingDate": ["2026-06-25"],
+                "reportDate": ["2026-05-28"],
+            }
+        }
+    }
+
+
+def test_filings_of_carries_the_report_date_distinct_from_filed():
+    """The load-bearing distinction (the every-name "dual-class" mis-flag): ``filed`` is the FILING date,
+    ``report_date`` the PERIOD OF REPORT — ~a month apart on a 10-Q. Both must ride."""
+    f = filings_of(_subs_with_dates(), "10-Q")[0]
+    assert f["filed"] == "2026-06-25"
+    assert f["report_date"] == "2026-05-28"
+
+
+def test_filings_of_defends_a_missing_report_date_array():
+    subs = _subs_with_dates()
+    del subs["filings"]["recent"]["reportDate"]
+    assert filings_of(subs, "10-Q")[0]["report_date"] == ""  # defensive "", never a crash
+
+
+def test_latest_filing_threads_the_period_of_report_not_the_filing_date():
+    """THE WIRING REGRESSION the golden suite couldn't see (it tests the pure core with a hand-picked
+    date): the live wrapper's date must be the PERIOD OF REPORT. With the FILING date, a cover's "as of"
+    (always earlier) failed the shares currency gate on every name -> the universal "dual-class" lie.
+    MU's real dates pin it: cover 06-17, filed 06-25, period 05-28."""
+    from datetime import date
+
+    from ingest.edgar.extract import _latest_filing
+
+    class _FakeClient:
+        def get_json(self, url: str, cache_key: str) -> dict:
+            return _subs_with_dates()
+
+        def get_text(self, url: str, cache_key: str) -> str:
+            return "cover text"
+
+    got = _latest_filing(_FakeClient(), 723125, "10-Q")  # type: ignore[arg-type]
+    assert got is not None
+    _url, _text, period = got
+    assert period == date(2026, 5, 28)  # the PERIOD OF REPORT — not 2026-06-25 (filed)
 
 
 def test_form4_doc_url_uses_raw_xml_not_xsl_render():

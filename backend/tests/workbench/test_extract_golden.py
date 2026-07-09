@@ -53,9 +53,16 @@ SEED = {
 }
 
 
-def _extract(name: str, cfg: ExtractorConfig = ExtractorConfig()):
+def _extract(
+    name: str,
+    cfg: ExtractorConfig = ExtractorConfig(),
+    tenq_date: date = date(2026, 3, 31),
+    companyfacts: dict | None = None,
+):
+    """``tenq_date`` is the 10-Q's PERIOD OF REPORT (what the live wrapper threads from submissions
+    ``reportDate``) — the shares staleness gate + event_date stamps are period semantics."""
     s = SEED[name]
-    cf = json.loads((_FX / f"CIK{s['cik']:010d}.json").read_text(encoding="utf-8"))
+    cf = companyfacts or json.loads((_FX / f"CIK{s['cik']:010d}.json").read_text(encoding="utf-8"))
     q = (_FX / f"{name}-10q.txt").read_text(encoding="utf-8")
     k = (_FX / f"{name}-10k.txt").read_text(encoding="utf-8")
     facts = extract_facts(
@@ -64,7 +71,7 @@ def _extract(name: str, cfg: ExtractorConfig = ExtractorConfig()):
         k,
         tenq_ref=s["tenq"],
         tenk_ref="10-K",
-        tenq_date=date(2026, 3, 31),
+        tenq_date=tenq_date,
         tenk_date=s["tenk_date"],
         cfg=cfg,
     )
@@ -97,12 +104,51 @@ def test_shares_auto_single_class_exact():
 
 
 def test_shares_dual_class_flagged_with_ab_sum():
+    # LEU/SMR carry NO dei cover rows at all (dual-class filers report DEI per class with dimension
+    # members that companyfacts DROPS) — the dual-class label comes from the >=2 per-class counts
+    # OBSERVED on the cover text, which is the honest evidence for the flag.
     for name in ("LEU", "SMR"):
         sh = _extract(name)["shares_outstanding"]
-        assert sh.tier is Tier.FLAG and "dual-class" in sh.flags, name
+        assert sh.tier is Tier.FLAG and sh.flags == ["dual-class"], name
         assert (
             sh.value == SEED[name]["shares"]
         ), name  # the cover A+B sum (the total economic count)
+
+
+def test_shares_auto_survives_the_live_cover_date_shape():
+    """THE REGRESSION for the every-name "dual-class" mis-flag: a 10-Q cover is dated AFTER the period
+    end and BEFORE the filing date, so the currency gate must compare against the PERIOD OF REPORT.
+    OKLO's cover (2026-05-07) vs its Q1 period (2026-03-31) -> AUTO; threading a FILING-like date
+    (after the cover, what the live wrapper used to do) must NOT resurrect a class claim — it reads
+    stale-cover, the condition actually observed."""
+    sh = _extract("OKLO")["shares_outstanding"]
+    assert sh.tier is Tier.AUTO and not sh.flags
+    counterfactual = _extract("OKLO", tenq_date=date(2026, 5, 13))["shares_outstanding"]
+    assert counterfactual.tier is Tier.FLAG
+    assert counterfactual.flags == ["stale-cover"]  # NEVER "dual-class" for a single-class name
+
+
+def test_shares_stale_cover_offers_the_value_dated_by_its_own_as_of():
+    """A lagging companyfacts is a STALENESS condition, not a class structure: the single-class count is
+    offered honestly (the operator confirms currency), and its event_date is the count's OWN as-of date
+    (valid-time honesty), never the period it failed to reach."""
+    sh = _extract("OKLO", tenq_date=date(2026, 6, 1))["shares_outstanding"]
+    assert sh.tier is Tier.FLAG and sh.flags == ["stale-cover"]
+    assert sh.value == SEED["OKLO"]["shares"]  # the stale count, offered — not a guess, not None
+    assert sh.event_date == date(2026, 5, 7)  # OKLO's cover as-of date, not the requested period
+    assert "OLDER than the filing period end" in sh.note
+
+
+def test_shares_no_companyfacts_and_classless_cover_is_located_only():
+    """Nothing observed anywhere — no dei concept, no per-class counts on the cover — is its OWN label
+    (never a class claim), with no value (the operator authors from the located cover)."""
+    s = SEED["OKLO"]
+    cf = json.loads((_FX / f"CIK{s['cik']:010d}.json").read_text(encoding="utf-8"))
+    del cf["facts"]["dei"]["EntityCommonStockSharesOutstanding"]
+    sh = _extract("OKLO", companyfacts=cf)["shares_outstanding"]
+    assert sh.tier is Tier.FLAG and sh.flags == ["no-companyfacts"]
+    assert sh.value is None
+    assert sh.located_passages  # the cover is still located — evidence, not a guess
 
 
 # ---------------------------------------------------------------------------------------------------------

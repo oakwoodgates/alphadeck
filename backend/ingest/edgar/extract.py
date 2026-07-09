@@ -3,8 +3,12 @@
 Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce candidate scoring facts
 (``domain.extraction.ExtractedFact``) for the three meters:
 
-- **shares_outstanding** (market cap): a single, current cover-share concept -> ``AUTO``; dual-class or an
-  absent/stale concept -> ``FLAG`` (best-effort cover regex for the A+B sum + locate the cover).
+- **shares_outstanding** (market cap): a single, CURRENT cover-share concept -> ``AUTO`` ("current" is
+  judged against the filing's PERIOD OF REPORT — never the filing date, which every cover predates).
+  Otherwise ``FLAG`` with the label naming the OBSERVED condition: ``dual-class`` (>1 distinct DEI values
+  on the latest cover date, or >=2 per-class counts parsed from the cover — the A+B sum offered),
+  ``stale-cover`` (a single count older than the period — offered, dated by its own as-of date), or
+  ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
 - **cash_burn** (runway): cash = cash+equiv (+ marketable securities); a clean ~quarter of operating cash
   flow -> ``AUTO``; a year-to-date column -> ``FLAG`` (derive the quarter); a large one-time reconciliation
   line, or marketable-securities present (filer-specific tag basis) -> ``FLAG`` (raw + locate).
@@ -159,34 +163,75 @@ def _cover_class_sum(text: str) -> float | None:
 
 def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> ExtractedFact:
     rows = _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
-    if rows:
-        latest_end = max(r["end"] for r in rows)
-        vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end})
-        # AUTO only when the cover concept is single-class AND current (the cover dates near the period)
-        if len(vals) == 1 and date.fromisoformat(latest_end) >= period_end:
-            return ExtractedFact(
-                fact_type="shares_outstanding",
-                tier=Tier.AUTO,
-                value=vals[0],
-                source="10-q-cover",
-                source_ref=ref,
-                event_date=date.fromisoformat(latest_end),
-                note=f"Cover-page shares outstanding as of {latest_end} (single class).",
-            )
-    # dual-class, absent, or stale -> FLAG: best-effort cover A+B + locate the cover
-    total = _cover_class_sum(tenq_text)
+    latest_end = max(r["end"] for r in rows) if rows else None
+    vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end}) if rows else []
+    # AUTO only when the cover concept is single-class AND current. ``period_end`` is the filing's
+    # PERIOD OF REPORT: a 10-Q cover is dated "as of the latest practicable date" — AFTER the period
+    # end, BEFORE the filing date — so a current cover always passes this gate. (Comparing against the
+    # FILING date instead made AUTO unreachable on live data: every single-class name fell through and
+    # wore the old catch-all "dual-class" flag. MU: cover 06-17 vs filed 06-25 vs period 05-28.)
+    if latest_end is not None and len(vals) == 1 and date.fromisoformat(latest_end) >= period_end:
+        return ExtractedFact(
+            fact_type="shares_outstanding",
+            tier=Tier.AUTO,
+            value=vals[0],
+            source="10-q-cover",
+            source_ref=ref,
+            event_date=date.fromisoformat(latest_end),
+            note=f"Cover-page shares outstanding as of {latest_end} (single class).",
+        )
+    # FLAG — three DISTINCT observed conditions get three HONEST labels (#6: a flag is evidence, so it
+    # must name what was OBSERVED; the old single catch-all stamped "dual-class" whichever branch fired,
+    # which lied on every single-class name once the date gate broke):
+    total = _cover_class_sum(
+        tenq_text
+    )  # >= 2 per-class counts located on the COVER text, else None
     passage = _locate(tenq_text, ref, "cover", ["shares of Class", "Class A", "outstanding"])
+    located = [p for p in [passage] if p]
+    if len(vals) > 1 or total is not None:
+        # multiple classes OBSERVED — either >1 distinct DEI values on the latest cover date, or >=2
+        # per-class counts parsed from the cover itself. (Dual-class filers usually report DEI per class
+        # with dimension members that companyfacts DROPS — so "no dei rows + a class-rich cover" is the
+        # common dual-class shape: LEU/SMR in the golden seed.)
+        return ExtractedFact(
+            fact_type="shares_outstanding",
+            tier=Tier.FLAG,
+            value=total,
+            source="10-q-cover",
+            source_ref=ref,
+            event_date=date.fromisoformat(latest_end) if latest_end else period_end,
+            flags=["dual-class"],
+            located_passages=located,
+            note="Multiple share classes observed — total economic = sum of all classes; "
+            "confirm against the cover (Class B is economic common; the A/B split is voting).",
+        )
+    if vals:
+        # a single-class count whose as-of date PREdates the filing's period — a lagging companyfacts,
+        # not a class structure. Offer the stale value honestly, dated by ITS OWN as-of date (valid-time
+        # honesty); the operator confirms currency against the located cover.
+        return ExtractedFact(
+            fact_type="shares_outstanding",
+            tier=Tier.FLAG,
+            value=vals[0],
+            source="10-q-cover",
+            source_ref=ref,
+            event_date=date.fromisoformat(latest_end) if latest_end else period_end,
+            flags=["stale-cover"],
+            located_passages=located,
+            note=f"Single-class cover count as of {latest_end} — OLDER than the filing period end "
+            f"({period_end}); confirm currency against the located cover.",
+        )
     return ExtractedFact(
         fact_type="shares_outstanding",
         tier=Tier.FLAG,
-        value=total,
+        value=None,
         source="10-q-cover",
         source_ref=ref,
         event_date=period_end,
-        flags=["dual-class"],
-        located_passages=[p for p in [passage] if p],
-        note="Multiple share classes / companyfacts stale or absent — total economic = sum of all classes; "
-        "confirm against the cover (Class B is economic common; the A/B split is voting).",
+        flags=["no-companyfacts"],
+        located_passages=located,
+        note="companyfacts has no cover-shares concept and the cover yielded no per-class counts — "
+        "author the count from the located cover.",
     )
 
 
@@ -476,7 +521,12 @@ def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, 
     text = clean_filing_text(
         client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
     )
-    return url, text, date.fromisoformat(f["filed"])
+    # The date threaded to the extractors is the PERIOD OF REPORT (quarter/year end), NOT the filing
+    # date — their staleness gates and event_date stamps are period semantics. Threading the filing
+    # date here made the shares AUTO gate unreachable live (a cover's "as of" date is always BEFORE
+    # the filing date), mis-flagging every single-class name "dual-class". Falls back to the filing
+    # date only when a submissions row carries no reportDate.
+    return url, text, date.fromisoformat(f.get("report_date") or f["filed"])
 
 
 def extract_for_security(
