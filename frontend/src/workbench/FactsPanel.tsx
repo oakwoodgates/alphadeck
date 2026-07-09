@@ -126,9 +126,15 @@ function RatifyRow({
       });
   };
 
-  // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator authors them.
+  // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator
+  // authors them. The OTHER types gate on their fields too — `Number("")` is 0, so an empty field must
+  // never confirm (the None-valued candidates — dual-class without a cover sum, no-companyfacts,
+  // no-cashflow-column — leave fields blank BY DESIGN; a blank confirm would ratify a fake zero).
   const confirmDisabled =
-    ratify.isPending || (candidate.fact_type === "revenue_mix" && (!pct || !segment));
+    ratify.isPending ||
+    (candidate.fact_type === "revenue_mix" && (!pct || !segment)) ||
+    (candidate.fact_type === "shares_outstanding" && !shares) ||
+    (candidate.fact_type === "cash_burn" && (!cash || !burn));
 
   if (ratify.isSuccess) {
     // show the vouched outcome for a purity estimate: confirmed-as-is vs overridden (client-derived from the %)

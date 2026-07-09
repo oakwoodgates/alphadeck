@@ -59,14 +59,17 @@ def _days(row: dict) -> int:
     return (e - s).days
 
 
-def _latest_instant(facts: dict, candidates: list[tuple[str, str]]) -> float | None:
-    """The latest balance-sheet value for the first present concept (instant fact = no span)."""
+def _latest_instant(facts: dict, candidates: list[tuple[str, str]]) -> tuple[float, str] | None:
+    """The latest balance-sheet (value, as-of end date) for the first present concept (instant fact = no
+    span). The DATE rides along so the cash composer can STATE every input's as-of and detect a lagging
+    companyfacts (the shares ``stale-cover`` rule, applied to cash) — the bare-value version silently
+    composed instants of unknown, possibly mixed dates."""
     rows = _first(facts, candidates, "USD")
     if not rows:
         return None
     end = max(r["end"] for r in rows)
     at = [r for r in rows if r["end"] == end]
-    return float(max(at, key=lambda r: r.get("filed", ""))["val"])
+    return float(max(at, key=lambda r: r.get("filed", ""))["val"]), end
 
 
 def _value_for_period(facts: dict, concept: str, start: str, end: str) -> float | None:
@@ -284,10 +287,16 @@ def _is_one_time_candidate(concept: str) -> bool:
     return concept.startswith("IncreaseDecreaseIn") and not _is_routine_wc(concept)
 
 
-def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str], bool] | None:
-    """The latest ~quarter of operating cash flow. Returns (value, (start,end), ytd_derived). companyfacts
-    cash-flow is often a YEAR-TO-DATE column; when the latest span exceeds a quarter we DERIVE the quarter
-    (YTD - the prior YTD of the same fiscal year)."""
+def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str], str] | None:
+    """The latest ~quarter of operating cash flow: (value, (start, end), basis). ``basis`` names what the
+    value IS — one condition, one label (the runway audit: the old bool lumped "derived" together with
+    "couldn't derive", so a RAW year-to-date figure went out wearing the ytd-derived label and a passage
+    claiming a derivation that never happened — runway would read ~3-4x too short):
+
+    - ``"quarter"`` — a native quarterly column (span <= quarterly_span_max_days).
+    - ``"derived"`` — the quarter computed as YTD − the prior same-start YTD.
+    - ``"ytd-raw"`` — a long-span column with NO prior to subtract: the value IS the raw YTD, not a quarter.
+    """
     durations = [r for r in _rows(facts, "us-gaap", _OCF, "USD") if r.get("start")]
     if not durations:
         return None
@@ -296,19 +305,15 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str],
         (r for r in durations if r["end"] == latest_end), key=_days
     )  # shortest span at latest end
     if _days(row) <= cfg.quarterly_span_max_days:
-        return float(row["val"]), (row["start"], row["end"]), False
+        return float(row["val"]), (row["start"], row["end"]), "quarter"
     prior = max(
         (r for r in durations if r["start"] == row["start"] and r["end"] < row["end"]),
         key=lambda r: r["end"],
         default=None,
     )
     if prior is None:
-        return (
-            float(row["val"]),
-            (row["start"], row["end"]),
-            True,
-        )  # can't derive; flag YTD, raw value
-    return float(row["val"]) - float(prior["val"]), (prior["end"], row["end"]), True
+        return float(row["val"]), (row["start"], row["end"]), "ytd-raw"
+    return float(row["val"]) - float(prior["val"]), (prior["end"], row["end"]), "derived"
 
 
 def _detect_one_time(
@@ -351,19 +356,79 @@ def _detect_one_time(
 def _cash_burn(
     facts: dict, tenq_text: str, ref: str, period_end: date, cfg: ExtractorConfig
 ) -> ExtractedFact:
-    cash = _latest_instant(facts, _CASH) or 0.0
-    marketable = (_latest_instant(facts, _STI) or 0.0) + (_latest_instant(facts, _LTI) or 0.0)
-    cash_usd = cash + marketable
-
+    """Cash + quarterly burn, labeled per OBSERVED condition (the runway audit — the shares-fix rules
+    applied here): a derived quarter is ``ytd-derived``; a raw YTD that COULDN'T be derived is ``ytd-raw``
+    (never claimed derived); a missing input is its own flag with a **None** value — never a fake $0 cash
+    or a fake $0 burn (which ratified into a fake "cash-generative"); every input's as-of date rides the
+    note, and an instant older than the filing period flags ``stale-cash``."""
+    cash_at = _latest_instant(facts, _CASH)
+    sti_at = _latest_instant(facts, _STI)
+    lti_at = _latest_instant(facts, _LTI)
     q = _quarter(facts, cfg)
+
+    # nothing observed anywhere -> a located-only FLAG (the shares no-companyfacts treatment). The old
+    # `or 0.0` coercions sent a no-data filer out AUTO / $0 cash / $0 burn / "Clean quarter" — a
+    # confirmable fake zero, one tier WORSE than the shares bug because AUTO invites confirm-as-is.
+    if cash_at is None and q is None:
+        locs = [
+            _locate(
+                tenq_text,
+                ref,
+                "balance-sheet",
+                ["cash and cash equivalents", "total current assets"],
+            ),
+            _locate(tenq_text, ref, "cash-flow", ["operating activities", "cash flows"]),
+        ]
+        return ExtractedFact(
+            fact_type="cash_burn",
+            tier=Tier.FLAG,
+            cash_usd=None,
+            quarterly_burn_usd=None,
+            source="10-q",
+            source_ref=ref,
+            event_date=period_end,
+            flags=["no-companyfacts"],
+            located_passages=[p for p in locs if p],
+            note="companyfacts has neither a cash instant nor an operating-cash-flow column for this "
+            "filer — author cash + quarterly burn from the located statements.",
+        )
+
     flags: list[str] = []
     passages: list[LocatedPassage] = []
+    # A balance sheet is ONE date: marketable instants join the sum ONLY when they carry the SAME as-of
+    # as cash. An off-date instant is not "stale, confirm it" — it's a DIFFERENT balance sheet (usually a
+    # discontinued tag: MU's AvailableForSaleSecurities* last reported 2018 — the old bare-value composer
+    # silently added those eight-year-old balances into current cash). Excluded + named, never summed.
+    mk_included = [x for x in (sti_at, lti_at) if x and cash_at and x[1] == cash_at[1]]
+    mk_offdate = [x for x in (sti_at, lti_at) if x and (not cash_at or x[1] != cash_at[1])]
+    marketable = sum(x[0] for x in mk_included)
+    cash_usd = (cash_at[0] + marketable) if cash_at else None
+    asofs: list[str] = []
+    if cash_at:
+        asofs.append(f"cash as of {cash_at[1]}")
+    if mk_included:
+        asofs.append(f"marketable as of {mk_included[0][1]}")
+    if mk_offdate:
+        asofs.append(
+            "marketable tags dated "
+            + ", ".join(sorted({x[1] for x in mk_offdate}))
+            + " ≠ the cash date — EXCLUDED from the sum (likely discontinued tags; verify where "
+            "current investments live)"
+        )
+
+    burn: float | None = None
     if q is None:
-        burn = 0.0
+        # cash present but NO operating-cash-flow column: burn=0 here used to ratify straight into a
+        # fake "cash-generative" (top-pip runway) on zero evidence — burn stays None, its own flag.
+        flags.append("no-cashflow-column")
+        cf = _locate(tenq_text, ref, "cash-flow", ["operating activities", "cash flows"])
+        if cf:
+            passages.append(cf)
     else:
-        qval, (start, end), ytd = q
+        qval, (start, end), basis = q
         burn = -qval  # quarterly_burn_usd is POSITIVE when burning (op-cash-use is negative)
-        if ytd:
+        asofs.append(f"burn over {start} → {end}")
+        if basis == "derived":
             flags.append("ytd-derived")
             passages.append(
                 LocatedPassage(
@@ -374,11 +439,35 @@ def _cash_burn(
                     "(YTD − prior period). Confirm the period basis …",
                 )
             )
+        elif basis == "ytd-raw":
+            flags.append("ytd-raw")
+            passages.append(
+                LocatedPassage(
+                    kind="cash-flow",
+                    source_ref=ref,
+                    anchor="year-to-date",
+                    excerpt="… companyfacts carries ONLY a year-to-date cash-flow column and no prior "
+                    "period to subtract — this value IS the year-to-date operating cash use, NOT a "
+                    "quarter. Derive the quarter manually (or enter the YTD basis deliberately) …",
+                )
+            )
         ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg)
         if ot:
             flags.append("possible-one-time")
             passages.append(ot)
-    if marketable > 0:
+    if cash_at is None:
+        # a burn column but NO cash instant — runway can't compute; offer the burn, name the miss
+        flags.append("no-cash-instant")
+        bs = _locate(tenq_text, ref, "balance-sheet", ["cash and cash equivalents"])
+        if bs:
+            passages.append(bs)
+    # a lagging companyfacts: the cash balance sheet predates the filing's period end (stale-cover, for
+    # cash — included marketable share cash's date by construction)
+    if cash_at and date.fromisoformat(cash_at[1]) < period_end:
+        flags.append("stale-cash")
+    if (cash_usd is not None and marketable > 0) or mk_offdate:
+        # a basis question EITHER way: marketable included in the sum (verify the composition), or
+        # marketable tags present but off-date and excluded (verify where current investments live)
         flags.append("verify-marketable-securities")
         bs = _locate(
             tenq_text,
@@ -390,14 +479,32 @@ def _cash_burn(
             passages.append(bs)
 
     tier = Tier.FLAG if flags else Tier.AUTO
+    cash_part = (
+        f"cash_usd = cash+equivalents (${cash_at[0] / 1e6:.1f}M) + marketable securities "
+        f"(${marketable / 1e6:.1f}M)"
+        if cash_at
+        else "cash: NOT FOUND in companyfacts (author it from the located balance sheet)"
+    )
+    burn_part = (
+        "quarterly burn = operating cash use"
+        if burn is not None
+        else "burn: NOT FOUND (no operating-cash-flow column)"
+    )
     note = (
-        f"cash_usd = cash+equivalents (${cash/1e6:.1f}M) + marketable securities (${marketable/1e6:.1f}M); "
-        f"quarterly burn = operating cash use. "
+        f"{cash_part}; {burn_part}"
+        + (f" [{'; '.join(asofs)}]" if asofs else "")
+        + ". "
         + (
             "FLAGS: " + ", ".join(flags) + " — confirm against the filing."
             if flags
             else "Clean quarter, no marketable-securities basis question."
         )
+    )
+    # the value's OWN as-of (the #132 event-date rule): the burn period end, else the cash instant's end
+    evt = (
+        date.fromisoformat(q[1][1])
+        if q is not None
+        else (date.fromisoformat(cash_at[1]) if cash_at else period_end)
     )
     return ExtractedFact(
         fact_type="cash_burn",
@@ -406,7 +513,7 @@ def _cash_burn(
         quarterly_burn_usd=burn,
         source="10-q",
         source_ref=ref,
-        event_date=period_end,
+        event_date=evt,
         flags=flags,
         located_passages=passages,
         note=note,
