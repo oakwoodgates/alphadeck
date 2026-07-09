@@ -335,6 +335,17 @@ class WorkbenchScored(BaseModel):
     members: list[ScoredMemberOut] = []
 
 
+class PriceIngestOut(BaseModel):
+    """The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD
+    bars appended (0 = already current — the ingest is incremental) and the latest bar now on file.
+    """
+
+    security_id: UUID
+    ticker: str
+    bars_appended: int
+    latest_bar: date | None = None  # None = the source returned nothing (e.g. an unquoted line)
+
+
 class SecurityMatchOut(BaseModel):
     """A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the
     exact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING

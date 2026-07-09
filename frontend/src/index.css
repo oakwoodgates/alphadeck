@@ -659,6 +659,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .located .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; text-decoration: none; align-self: flex-start; }
 .located .chip:hover { border-color: var(--leader); color: var(--txt-2); }
 .located .excerpt { font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+/* the ratify note as a growable textarea (a truncated single line hid the basis being ratified) */
+.ratify-row .rf .rf-note { width: 100%; font: inherit; color: inherit; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 4px 7px; resize: none; line-height: 1.45; }
+/* the section get-data bar — one deliberate click covers the active section; failures stay loud */
+.wb-section-data { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
+.wb-section-data .note { margin: 0; }
+.wb-section-data .flag { margin: 0; }
 /* the passage clamp — evidence stays scannable, not a wall; expand is explicit (one click) */
 .located .excerpt.clamped { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent); mask-image: linear-gradient(180deg, #000 72%, transparent); }
 /* "a ratified value is already on file" — quiet, green-ish; a re-confirm appends a new version */

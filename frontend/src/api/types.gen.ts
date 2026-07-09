@@ -136,6 +136,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities/{security_id}/ingest-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Security Prices
+         * @description Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
+         *     finalize screen can complete a name (real market cap, live archetype hint) BEFORE the operator
+         *     promotes. This endpoint WRITES (``fact_price_eod``) — deliberately, per explicit click: price bars are
+         *     FEED data (the same class as Form 4s), never operator-ratified facts; what they feed (the cap, the
+         *     hint) stays display/recommendation until the operator acts.
+         *
+         *     Bounded + polite by construction: one name per call (the tightest bound — the section button fans out
+         *     client-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest
+         *     stored one append — a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on
+         *     a fresh name is a cache miss and fetches live; a same-day re-click serves from the cache — the daily
+         *     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
+         *     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
+         */
+        post: operations["ingest_security_prices_workbench_securities__security_id__ingest_prices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts/explain": {
         parameters: {
             query?: never;
@@ -864,6 +895,24 @@ export interface components {
             current_price?: number | null;
             /** Opened On */
             opened_on?: string | null;
+        };
+        /**
+         * PriceIngestOut
+         * @description The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD
+         *     bars appended (0 = already current — the ingest is incremental) and the latest bar now on file.
+         */
+        PriceIngestOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Bars Appended */
+            bars_appended: number;
+            /** Latest Bar */
+            latest_bar?: string | null;
         };
         /**
          * ProduceTermsRequest
@@ -1607,6 +1656,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedFact"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_security_prices_workbench_securities__security_id__ingest_prices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceIngestOut"];
                 };
             };
             /** @description Validation Error */

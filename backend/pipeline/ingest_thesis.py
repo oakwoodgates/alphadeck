@@ -33,7 +33,7 @@ from domain.security import Security
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.submissions import fetch_submissions, form4_doc_url, form4_filings
-from ingest.prices.eod_loader import ingest_prices, latest_bar_date
+from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
 from repositories import thesis_repo
 from securities import master
@@ -69,28 +69,9 @@ def _form4_leg(
     return appended
 
 
-def _price_leg(
-    conn: psycopg.Connection,
-    sec: Security,
-    *,
-    tenant_id: UUID,
-    allow_live: bool,
-    force_refresh: bool,
-    source: PriceSource,
-) -> int:
-    """Ingest only EOD bars newer than the latest stored bar for this security (incremental). Returns the
-    count appended. Reads bars through the injected ``PriceSource`` (the seam), so the source is swappable;
-    ``force_refresh`` makes the recurring path bypass a stale cache hit (see ``eod_loader.fetch_eod``).
-    """
-    if not sec.ticker:
-        return 0
-    last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
-    rows = [
-        r
-        for r in source.get_bars(sec.ticker, allow_live=allow_live, force_refresh=force_refresh)
-        if last is None or r["d"] > last
-    ]
-    return ingest_prices(conn, sec.id, rows, tenant_id=tenant_id)
+# The price leg lives in ``ingest.prices.ingest_security.ingest_bars_for_security`` now — ONE
+# implementation shared with the Workbench's per-name / per-section pull (the finalize screen needs
+# real caps + hints BEFORE promote), so the incremental / cache-first / no-lookahead rules can't fork.
 
 
 def ingest_thesis(
@@ -138,7 +119,7 @@ def ingest_thesis(
             errs.append(f"form4: {e}")
         px = 0
         try:
-            px = _price_leg(
+            px = ingest_bars_for_security(
                 conn,
                 sec,
                 tenant_id=thesis.tenant_id,

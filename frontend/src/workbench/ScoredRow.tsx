@@ -1,5 +1,5 @@
 import type { ScoredMemberOut } from "../api/hooks";
-import { useExtract } from "../api/hooks";
+import { useExtract, useIngestPrices } from "../api/hooks";
 import { Meter } from "./Meter";
 import { archLabel, errText, formatMarketCap, memberHasFundamentals } from "./format";
 
@@ -23,8 +23,15 @@ interface Props {
  *  is RATIFIED the control disappears (the meters + funnel take over). Failures are per-name + retryable. */
 export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
   const extract = useExtract(member.security_id, thesisId);
+  // the surgical get-data pulls the FULL per-name set: extraction candidates + EOD price bars (the
+  // decoupled price leg) — same completeness as the section button, one name at a time
+  const ingestPx = useIngestPrices();
   const loaded = memberHasFundamentals(member);
   const dataReady = extract.data !== undefined;
+  const getData = () => {
+    extract.refetch();
+    ingestPx.mutate(member.security_id);
+  };
   return (
     // the row DIV owns the whole-surface click; the ticker block below is the real <button> (the
     // accessible select target) — a nested-button structure would be invalid HTML, hence the split.
@@ -78,7 +85,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
               title={`couldn't extract — ${errText(extract.error)}; click to retry`}
               onClick={(e) => {
                 e.stopPropagation();
-                extract.refetch();
+                getData();
               }}
             >
               ⚠ retry get data
@@ -88,15 +95,24 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
               type="button"
               className="wb-getdata"
               aria-label={`get data for ${member.ticker ?? "name"}`}
-              title="pull this name's latest 10-Q/10-K from EDGAR (2–4 requests, cache-first) — the candidates land in the rail for you to ratify"
+              title="pull this name's latest 10-Q/10-K (2–4 EDGAR requests) + its EOD price bars — cache-first; the candidates land in the rail for you to ratify"
               onClick={(e) => {
                 e.stopPropagation();
-                extract.refetch();
+                getData();
               }}
             >
               ⇣ get data
             </button>
           ))}
+        {/* the price leg's own failure — visible per name, non-blocking (extraction may still be fine) */}
+        {ingestPx.isError && (
+          <span
+            className="wb-getdata err"
+            title={`price pull failed — ${errText(ingestPx.error)}; get data again to retry`}
+          >
+            ⚠ price
+          </span>
+        )}
       </div>
       <div className="wb-meters">
         <Meter label="purity" figure={member.purity} />

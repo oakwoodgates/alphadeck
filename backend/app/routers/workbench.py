@@ -29,6 +29,7 @@ from app.schemas_api import (
     DraftReportOut,
     EditTermsRequest,
     FlagExplanationOut,
+    PriceIngestOut,
     ProduceTermsRequest,
     PromoteThesisRequest,
     RatifiedFactOut,
@@ -49,6 +50,8 @@ from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
 from ingest.edgar.fulltext import DiscoveryUnavailable
+from ingest.prices.eod_loader import latest_bar_date
+from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from llm.chain_decomposition import (
@@ -180,6 +183,47 @@ def extract_scoring_facts(
                     f"[on-thesis segment: {prop.segment}]. Grounded in the located segment passage."
                 )
     return cands
+
+
+@router.post("/securities/{security_id}/ingest-prices", response_model=PriceIngestOut)
+def ingest_security_prices(
+    security_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> PriceIngestOut:
+    """Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
+    finalize screen can complete a name (real market cap, live archetype hint) BEFORE the operator
+    promotes. This endpoint WRITES (``fact_price_eod``) — deliberately, per explicit click: price bars are
+    FEED data (the same class as Form 4s), never operator-ratified facts; what they feed (the cap, the
+    hint) stays display/recommendation until the operator acts.
+
+    Bounded + polite by construction: one name per call (the tightest bound — the section button fans out
+    client-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest
+    stored one append — a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on
+    a fresh name is a cache miss and fetches live; a same-day re-click serves from the cache — the daily
+    cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
+    Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``)."""
+    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    if sec is None:
+        raise HTTPException(status_code=404, detail="unknown security for this tenant")
+    if not sec.ticker:
+        raise HTTPException(
+            status_code=422, detail="no listed ticker — there is no price line to pull"
+        )
+    try:
+        appended = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
+        conn.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — source unreachable -> a clear 502, never a silent 500
+        conn.rollback()
+        raise HTTPException(status_code=502, detail=f"price pull failed: {exc}") from exc
+    return PriceIngestOut(
+        security_id=security_id,
+        ticker=sec.ticker,
+        bars_appended=appended,
+        latest_bar=latest_bar_date(conn, security_id, tenant_id=tenant_id),
+    )
 
 
 @router.post("/facts/explain", response_model=FlagExplanationOut)

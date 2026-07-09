@@ -102,6 +102,74 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     assert detail["basket"][0]["authored_by"] == "operator_set"
 
 
+def _bar(d, close):
+    return {"d": d, "open": close, "high": close, "low": close, "close": close, "volume": 1000}
+
+
+def test_ingest_prices_appends_and_is_incremental(client, db, security_id, monkeypatch):
+    """The DECOUPLED price leg (the finalize screen's per-name pull): appends EOD bars for ONE security;
+    a re-click appends ZERO (incremental — COUNT the table, not the read). The interactive path stays
+    cache-first (force_refresh=False asserted inside the fake). Price bars are feed data, deliberately
+    written on an explicit click — never a model-sourced number (#3 untouched)."""
+    from ingest.prices import ingest_security as mod
+
+    class _FakeSource:
+        def get_bars(self, ticker, *, allow_live=True, force_refresh=False):
+            assert (
+                force_refresh is False
+            )  # the interactive default — the daily cron owns force-refresh
+            return [_bar(date(2026, 7, 1), 10.0), _bar(date(2026, 7, 2), 11.0)]
+
+    monkeypatch.setattr(mod, "YahooPriceSource", _FakeSource)
+    r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["bars_appended"] == 2
+    assert body["latest_bar"] == "2026-07-02"
+    assert body["ticker"] == "DEVCO"
+
+    # the re-click: the same bars -> ZERO appended and the TABLE does not grow (the load-bearing gate)
+    r2 = client.post(f"/workbench/securities/{security_id}/ingest-prices")
+    assert r2.status_code == 200
+    assert r2.json()["bars_appended"] == 0
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM fact_price_eod WHERE security_id = %s", (security_id,)
+        )
+        assert cur.fetchone()["n"] == 2
+
+
+def test_ingest_prices_unknown_404_and_tickerless_422(client, db):
+    assert client.post(f"/workbench/securities/{uuid.uuid4()}/ingest-prices").status_code == 404
+    # a resolved filer with NO listed ticker (a sub/holdco) has no price line — an honest 422
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from)"
+            " VALUES (%s, %s, NULL, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "0009999999", "Holdco LLC", "2026-01-01"),
+        )
+    db.commit()
+    r = client.post(f"/workbench/securities/{sid}/ingest-prices")
+    assert r.status_code == 422
+    assert "no listed ticker" in r.json()["detail"]
+
+
+def test_ingest_prices_source_failure_is_a_visible_502(client, security_id, monkeypatch):
+    """Fail-visible: a dead source is a clear 502 the row can show — never a silent 500, never a
+    partial write (the leg rolls back)."""
+    from ingest.prices import ingest_security as mod
+
+    class _Boom:
+        def get_bars(self, ticker, *, allow_live=True, force_refresh=False):
+            raise RuntimeError("yahoo unreachable")
+
+    monkeypatch.setattr(mod, "YahooPriceSource", _Boom)
+    r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
+    assert r.status_code == 502
+    assert "price pull failed" in r.json()["detail"]
+
+
 def test_scored_carries_master_identity(client, db, security_id):
     """The scored view says WHO each row is: company name + the enrichment strings (sector / exchange /
     category), joined from the master on read via ``identity_for``. Display-only (#2) — never promoted

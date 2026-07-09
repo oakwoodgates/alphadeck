@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import {
   type ScoredMemberOut,
   usePromoteThesis,
+  useSectionData,
   useTheses,
   useThesis,
   useWorkbenchScored,
@@ -51,6 +52,10 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
   const promote = usePromoteThesis();
+  // the SECTION data runner (gate 2 at section granularity): prices + staged extraction for every name
+  // in the active section — bounded by the section, extract-and-propose only (the operator still
+  // ratifies per fact). The per-name row button stays the surgical option.
+  const sectionData = useSectionData(thesisId);
 
   const thesis = thesisQ.data;
   const scored = scoredQ.data;
@@ -81,6 +86,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
     setPickedMemberId(null);
     setEditing(false);
     setChainSaved(false);
+    sectionData.reset();
     promote.reset();
   };
 
@@ -360,6 +366,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                           onClick={() => {
                             setSeg(s.label);
                             setPickedMemberId(null);
+                            sectionData.reset(); // the report describes the LAST run's section
                           }}
                         >
                           <div className="sn">{s.label}</div>
@@ -430,6 +437,45 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                       {" · "}data confirmed on {members.filter(memberHasFundamentals).length} of{" "}
                       {members.length}
                     </em>
+                  </div>
+                  {/* the SECTION get-data (gate 2 at section granularity): prices + staged extraction
+                      for EVERY name in the active section, one deliberate click — bounded by the
+                      section, cache-first both sides, proposes only (per-fact ratify stays yours).
+                      The per-row button below remains the surgical option. */}
+                  <div className="wb-section-data">
+                    <button
+                      type="button"
+                      className="wb-mini"
+                      disabled={sectionData.running || shownMembers.length === 0}
+                      title="pull EOD prices (incremental, cache-first) + stage extraction candidates for every name in this section — proposes only; you still ratify per fact, purity stays yours"
+                      onClick={() =>
+                        sectionData.run(
+                          shownMembers.map((m) => ({
+                            security_id: m.security_id,
+                            ticker: m.ticker,
+                          })),
+                        )
+                      }
+                    >
+                      {sectionData.running
+                        ? `getting data for ${shownMembers.length} names…`
+                        : `⇣ get data — ${activeSeg ?? "all names"} (${shownMembers.length})`}
+                    </button>
+                    {sectionData.report && (
+                      <span className="note">
+                        prices on {sectionData.report.pricesOk} · candidates staged on{" "}
+                        {sectionData.report.extractsOk} of {sectionData.report.total} — ratify per
+                        name below
+                      </span>
+                    )}
+                    {sectionData.report && sectionData.report.failures.length > 0 && (
+                      <span className="flag">
+                        ⚑ failed:{" "}
+                        {sectionData.report.failures
+                          .map((f) => `${f.ticker} (${f.what})`)
+                          .join(", ")}
+                      </span>
+                    )}
                   </div>
                   {shownMembers.map((m) => (
                     <ScoredRow

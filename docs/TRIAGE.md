@@ -135,7 +135,19 @@ a read-only chip; an unset one shows nothing. The archetype is decided ONCE, on 
 `archetype_hint` → apply, or the rail's manual set — both `operator_edited`, #10); a placed-but-not-finalized
 member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `INVARIANTS.md` #10.
 
-## Mark for data — gate 2's per-name opt-in (the scored view)
+## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
+
+**The section button** (`⇣ get data — {section} (N)`): one deliberate click covers the ACTIVE value-chain
+section — for every member it pulls EOD price bars (the DECOUPLED price leg,
+`POST /workbench/securities/{id}/ingest-prices` — incremental, cache-first; see `FEED_LOOP.md`) and
+prefetches the extraction candidates into the same query the rows + rail read — so the section lands
+mostly-complete: caps computed where shares are already ratified, archetype hints live, purity candidates
+staged one ratify away. **Bounded by the section** (a slice of the saved shortlist, never the draft),
+**extract-and-proposes only** (nothing auto-confirms — purity stays HUMAN; every fact still passes the
+operator's per-fact ratify), failures reported LOUD and named per ticker. The per-name row button stays
+the surgical option and pulls the same full set (extraction + prices) for one name.
+
+### The per-name opt-in
 
 The three-gate flow's middle step, shipped as **the control IS the trigger**: a scored row without confirmed
 fundamentals shows **⇣ get data**, which fires **that one name's** extraction through the existing per-name

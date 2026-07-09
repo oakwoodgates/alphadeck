@@ -67,7 +67,14 @@ The EOD price source sits behind an interface, so swapping it is changing an **a
 - **`PriceSource`** — a `get_bars(ticker, *, allow_live, force_refresh) -> [normalized EOD bars]` Protocol.
   The normalized bar is `{d, open, high, low, close, volume}` — exactly what `ingest_prices` consumes.
 - **`YahooPriceSource`** (the live default) + **`StooqPriceSource`** (the formalized fallback) — thin
-  adapters over the cache-first fetchers. `ingest_thesis._price_leg` depends on the **interface**.
+  adapters over the cache-first fetchers.
+- **The price leg is DECOUPLED from the back-half loop** (`ingest.prices.ingest_security.
+  ingest_bars_for_security` — ONE implementation): `pipeline.ingest_thesis` calls it per member inside
+  its loop, and the Workbench's finalize screen calls it per name / per section
+  (`POST /workbench/securities/{id}/ingest-prices`) so real market caps + live archetype hints exist
+  BEFORE the operator promotes. Same incremental / cache-first / no-lookahead rules on both paths — the
+  interactive path stays `force_refresh=False` (a first pull is a cache miss and fetches live; the daily
+  cron owns force-refresh).
 - **The contract is "a source of EOD bars," not "Yahoo's adjusted bars."** Deliberately **no `get_splits`**
   yet: owning the split adjustment ourselves (adjusting at read time from raw bars) is a larger storage+read
   change that would EXTEND this interface if/when we adopt such a source — the seam eases that swap, it does

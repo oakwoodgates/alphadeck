@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
+import { AutoTextarea } from "./AutoTextarea";
 import { errText } from "./format";
 
 const METER_LABEL: Record<string, string> = {
@@ -287,11 +288,15 @@ function RatifyRow({
       {!auto && (
         <label className="rf wide">
           note
-          <input
-            aria-label="note"
+          {/* a textarea, not an input — the pre-filled composition/basis notes run long and a
+              single truncated line hid what the operator was about to ratify */}
+          <AutoTextarea
+            ariaLabel="note"
+            className="rf-note"
             value={note}
             placeholder="the composition / basis"
-            onChange={(e) => setNote(e.target.value)}
+            maxRows={6}
+            onChange={setNote}
           />
         </label>
       )}
