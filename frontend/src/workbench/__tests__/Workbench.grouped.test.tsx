@@ -44,6 +44,9 @@ vi.mock("../../api/hooks", () => ({
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
   usePromoteThesis: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useResolveSecurities: () => ({ data: [], isFetching: false }),
+  // the section-data runner + the per-name price pull (inert here; their own suites cover them)
+  useSectionData: () => ({ run: vi.fn(), running: false, report: null, reset: vi.fn() }),
+  useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   // the DD rail's facts panel (hybrid-2b): inert here — extract is explicit (never on render), no candidates
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useRatifyFact: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),

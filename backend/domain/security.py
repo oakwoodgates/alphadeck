@@ -19,7 +19,11 @@ class Security(DomainModel):
     """
 
     id: UUID
-    ticker: str
+    # None = a resolved SEC filer with NO listed line (a sub / holdco / debt issuer — the master keeps
+    # them; the "No listed ticker" bucket). The column is nullable and such rows exist live; a required
+    # str here made ``master.get`` RAISE on any of them (latent: one ticker-less basket member would have
+    # aborted a whole back-half ingest run). Consumers already guard ``if not sec.ticker``.
+    ticker: str | None = None
     tenant_id: UUID
     name: str | None = None
     cik: str | None = None

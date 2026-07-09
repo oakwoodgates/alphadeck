@@ -315,6 +315,50 @@
         }
       }
     },
+    "/workbench/securities/{security_id}/ingest-prices": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Ingest Security Prices",
+        "description": "Pull EOD price bars for ONE security \u2014 the price leg DECOUPLED from the back-half ingest, so the\nfinalize screen can complete a name (real market cap, live archetype hint) BEFORE the operator\npromotes. This endpoint WRITES (``fact_price_eod``) \u2014 deliberately, per explicit click: price bars are\nFEED data (the same class as Form 4s), never operator-ratified facts; what they feed (the cap, the\nhint) stays display/recommendation until the operator acts.\n\nBounded + polite by construction: one name per call (the tightest bound \u2014 the section button fans out\nclient-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest\nstored one append \u2014 a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on\na fresh name is a cache miss and fetches live; a same-day re-click serves from the cache \u2014 the daily\ncron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.\nShares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).",
+        "operationId": "ingest_security_prices_workbench_securities__security_id__ingest_prices_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceIngestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/facts/explain": {
       "post": {
         "tags": [
@@ -1840,6 +1884,43 @@
         "type": "object",
         "title": "Position",
         "description": "Populated once the operator logs a fill \u2014 its presence drives the Managing state."
+      },
+      "PriceIngestOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "bars_appended": {
+            "type": "integer",
+            "title": "Bars Appended"
+          },
+          "latest_bar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Bar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "bars_appended"
+        ],
+        "title": "PriceIngestOut",
+        "description": "The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD\nbars appended (0 = already current \u2014 the ingest is incremental) and the latest bar now on file."
       },
       "ProduceTermsRequest": {
         "properties": {

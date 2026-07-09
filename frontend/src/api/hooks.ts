@@ -1,4 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { api } from "./client";
 import type { components } from "./types.gen";
@@ -36,6 +37,8 @@ export type TermEdit = components["schemas"]["TermEdit"];
 export type TierRecommendation = components["schemas"]["TierRecommendation"];
 // the run-loader picker: one saved draft-run's summary (the detail endpoint returns a full ChainDraftOut)
 export type SavedRunSummary = components["schemas"]["SavedRunSummary"];
+// the per-security price pull's receipt (the finalize screen's decoupled price leg)
+export type PriceIngestOut = components["schemas"]["PriceIngestOut"];
 
 export function useTheses() {
   return useQuery({
@@ -200,13 +203,12 @@ export function useRecommendTiers(thesisId: string) {
   });
 }
 
-// Auto-extract candidate scoring facts from a security's latest 10-Q/10-K (hybrid-1). An EXPLICIT operator
-// action: `enabled: false` so it NEVER fires on a render — the facts panel triggers it via `refetch()`.
-export function useExtract(securityId: string, thesisId?: string) {
-  return useQuery({
+// The extract query's OPTIONS, shared by the hook and the section runner — one key, one fetcher, one
+// cache entry, however many observers (the row control, the FactsPanel, the section fan-out).
+export function extractQueryOptions(securityId: string, thesisId?: string) {
+  return {
     queryKey: ["workbench-extract", securityId, thesisId ?? null] as const,
-    enabled: false,
-    retry: false, // an explicit one-shot operator action — never auto-retry (same pattern as the draft query)
+    retry: false as const, // an explicit one-shot operator action — never auto-retry
     queryFn: async () => {
       // thesis_id is OPTIONAL + purity-only (SURFACE 1b): with it, the revenue_mix candidate carries a
       // GROUNDED purity ESTIMATE; without it (or when the seam declines) purity is today's located-only HUMAN.
@@ -219,7 +221,83 @@ export function useExtract(securityId: string, thesisId?: string) {
       if (error) throw error;
       return data;
     },
+  };
+}
+
+// Auto-extract candidate scoring facts from a security's latest 10-Q/10-K (hybrid-1). An EXPLICIT operator
+// action: `enabled: false` so it NEVER fires on a render — the facts panel triggers it via `refetch()`.
+export function useExtract(securityId: string, thesisId?: string) {
+  return useQuery({ ...extractQueryOptions(securityId, thesisId), enabled: false });
+}
+
+async function postIngestPrices(securityId: string): Promise<PriceIngestOut> {
+  const { data, error } = await api.POST("/workbench/securities/{security_id}/ingest-prices", {
+    params: { path: { security_id: securityId } },
   });
+  if (error) throw error;
+  return data;
+}
+
+// Pull EOD bars for ONE security — the DECOUPLED price leg (writes fact_price_eod; incremental +
+// cache-first server-side). An explicit per-name action (retry:false); success re-derives the scored
+// view so the cap / "needs shares" label updates.
+export function useIngestPrices() {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: postIngestPrices,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workbench-scored"] }),
+  });
+}
+
+export interface SectionDataReport {
+  total: number;
+  pricesOk: number;
+  extractsOk: number;
+  failures: { ticker: string; what: string }[];
+}
+
+// The SECTION runner — gate 2 at value-chain-section granularity: for every member the caller passes
+// (the ACTIVE section — a slice of the saved shortlist, never the draft), pull prices (incremental,
+// cache-first server-side) and prefetch the extract into the SAME query the rows + rail observe. It
+// EXTRACTS-AND-PROPOSES only: nothing here confirms a fact — candidates stage for the operator's per-fact
+// ratify, purity stays HUMAN. An already-fetched extract is not re-spent (client cache checked).
+export function useSectionData(thesisId: string) {
+  const qc = useQueryClient();
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState<SectionDataReport | null>(null);
+
+  const run = async (members: { security_id: string; ticker?: string | null }[]) => {
+    setRunning(true);
+    setReport(null);
+    const outcomes = await Promise.all(
+      members.map(async (m) => {
+        const [px, ex] = await Promise.allSettled([
+          postIngestPrices(m.security_id),
+          qc.getQueryData(["workbench-extract", m.security_id, thesisId ?? null]) !== undefined
+            ? Promise.resolve("cached" as const) // cache-first client-side too — never re-spend a fetch
+            : qc.fetchQuery(extractQueryOptions(m.security_id, thesisId)),
+        ]);
+        return { ticker: m.ticker ?? m.security_id.slice(0, 8), px, ex };
+      }),
+    );
+    const failures: SectionDataReport["failures"] = [];
+    for (const o of outcomes) {
+      if (o.px.status === "rejected") failures.push({ ticker: o.ticker, what: "price" });
+      if (o.ex.status === "rejected") failures.push({ ticker: o.ticker, what: "extract" });
+    }
+    setReport({
+      total: members.length,
+      pricesOk: outcomes.filter((o) => o.px.status === "fulfilled").length,
+      extractsOk: outcomes.filter((o) => o.ex.status === "fulfilled").length,
+      failures,
+    });
+    setRunning(false);
+    // ONE re-derive after the whole section lands (caps compute where shares are already ratified)
+    qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+  };
+
+  return { run, running, report, reset: () => setReport(null) };
 }
 
 // The narrative -> chain drafter (S5, the SECOND LLM seam) — now a KICK-OFF + POLL job (the draft takes minutes;

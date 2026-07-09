@@ -155,6 +155,17 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByRole("button", { name: /show the full passage/ })).not.toBeInTheDocument();
   });
 
+  it("the note is a growable TEXTAREA — a truncated single line hid the basis being ratified", async () => {
+    const user = userEvent.setup();
+    h.extract.data = [FLAG_BURN]; // FLAG rows carry a pre-filled composition note
+    render(<FactsPanel securityId={SID} />);
+    const note = screen.getByLabelText("note") as HTMLTextAreaElement;
+    expect(note.tagName).toBe("TEXTAREA");
+    expect(note.value).toContain("one-time ENTRA1"); // the pre-filled basis rides in, fully visible
+    await user.type(note, " — confirmed against the cash-flow statement");
+    expect(note.value).toContain("confirmed against"); // still editable
+  });
+
   it("a FLAG confirm posts the EDITED recurring burn, not the raw value", async () => {
     const user = userEvent.setup();
     h.extract.data = [FLAG_BURN];

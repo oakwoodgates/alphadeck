@@ -33,6 +33,7 @@ const fx = vi.hoisted(() => {
 
 const h = vi.hoisted(() => ({
   refetch: vi.fn(),
+  pxMutate: vi.fn(),
   extract: {} as Record<string, { data?: unknown; error?: unknown; isFetching?: boolean }>,
   calls: [] as [string, string | undefined][],
 }));
@@ -43,6 +44,10 @@ vi.mock("../../api/hooks", () => ({
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
   usePromoteThesis: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), reset: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useResolveSecurities: () => ({ data: [], isFetching: false }),
+  // the section-data runner (inert; its own suites cover it) + the per-name price pull (CAPTURED —
+  // the surgical get-data must pull the FULL per-name set: extraction AND the price bars)
+  useSectionData: () => ({ run: vi.fn(), running: false, report: null, reset: vi.fn() }),
+  useIngestPrices: () => ({ mutate: h.pxMutate, isPending: false, isError: false, error: null }),
   // ONE extract mock for BOTH observers (the row control + the rail's FactsPanel). h.calls captures the
   // (securityId, thesisId) pair each caller used — the cache-key contract the instant-sharing rests on.
   useExtract: (sid: string, tid?: string) => {
@@ -64,6 +69,7 @@ const railTicker = () => document.querySelector(".dd-head .tk")?.textContent;
 describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate flow)", () => {
   beforeEach(() => {
     h.refetch.mockReset();
+    h.pxMutate.mockReset();
     h.extract = {};
     h.calls = [];
   });
@@ -77,12 +83,15 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
     expect(screen.getByText(/data confirmed on 1 of 2/)).toBeInTheDocument();
   });
 
-  it("the click fires THAT name's extraction only, and does NOT change the rail selection", async () => {
+  it("the click fires THAT name's extraction AND price pull, without changing the rail selection", async () => {
     const user = userEvent.setup();
     renderWb();
     expect(railTicker()).toBe("WARM"); // the first member is selected by default
     await user.click(screen.getByRole("button", { name: "get data for COLD" }));
     expect(h.refetch).toHaveBeenCalledTimes(1); // one name, one deliberate spend
+    // the surgical option pulls the FULL per-name set — the decoupled price leg rides the same click
+    expect(h.pxMutate).toHaveBeenCalledTimes(1);
+    expect(h.pxMutate).toHaveBeenCalledWith("s-cold");
     expect(railTicker()).toBe("WARM"); // getting data is not opening — selection untouched
   });
 
