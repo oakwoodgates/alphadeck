@@ -109,10 +109,21 @@ no magic numbers). The judgment calls the operator most needs to make:
   marketable-securities tags are filer-specific, so when any are present the extractor includes them, flags
   it, and locates the balance-sheet line — the operator confirms the composition rather than trusting a tag
   guess. → flag `verify-marketable-securities`.
-- **Dual-class shares.** A single-class, current cover concept → AUTO. Otherwise (dual-class / absent / stale)
-  → FLAG: a best-effort cover-page regex sums the per-class counts (total economic = A+B; the A/B split is
-  voting, not economics) and locates the cover. If the cover doesn't yield ≥ 2 classes it returns **no value**
-  (not a guess), so a FLAG never anchors the operator to a wrong number. → flag `dual-class`.
+- **Shares (market cap): three honest FLAG labels, one per OBSERVED condition.** A single-class, **current**
+  cover concept → AUTO — where *current* is judged against the filing's **PERIOD OF REPORT** (submissions
+  `reportDate`), never the filing date: a cover's "as of" date always falls *between* the period end and the
+  filing date, so comparing against the filing date made AUTO unreachable live and mis-flagged every
+  single-class name (the gate-3 finding; MU: cover 06-17 · filed 06-25 · period 05-28). Otherwise the flag
+  names what was observed — a flag is evidence (#6), never a catch-all:
+  - → flag `dual-class` — multiple classes OBSERVED: >1 distinct DEI values on the latest cover date, **or**
+    ≥ 2 per-class counts parsed from the cover text (dual-class filers report DEI per class with dimension
+    members companyfacts DROPS, so "no dei rows + a class-rich cover" is the common dual shape — LEU/SMR).
+    Value = the cover A+B sum (total economic; the A/B split is voting, not economics), or **no value** if
+    the cover regex yields < 2 classes — a FLAG never anchors the operator to a wrong number.
+  - → flag `stale-cover` — a single-class count whose as-of date predates the period: a lagging
+    companyfacts, not a class structure. The stale value IS offered, dated by its **own** as-of date
+    (valid-time honesty); the operator confirms currency against the located cover.
+  - → flag `no-companyfacts` — nothing observed anywhere: located-only, no value.
 
 When no flag trips, `cash_burn` / `shares_outstanding` are AUTO; `revenue_mix` is always HUMAN.
 
