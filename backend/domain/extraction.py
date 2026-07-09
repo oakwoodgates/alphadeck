@@ -54,9 +54,11 @@ class ExtractedFact(DomainModel):
     value: float | None = None  # shares_outstanding
     cash_usd: float | None = None  # cash_burn
     quarterly_burn_usd: float | None = None  # cash_burn
-    flags: list[str] = Field(
-        default_factory=list
-    )  # "ytd-derived" | "possible-one-time" | "dual-class" | "verify-marketable-securities"
+    # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all):
+    # shares -> "dual-class" | "stale-cover" | "no-companyfacts"
+    # cash   -> "ytd-derived" | "ytd-raw" | "possible-one-time" | "verify-marketable-securities"
+    #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant" | "stale-cash"
+    flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the
     # grounded purity seam), and — as the surface grows — "computed" / "parsed". None = no estimate value

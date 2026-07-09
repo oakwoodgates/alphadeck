@@ -357,34 +357,43 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                   The value chain <em>— where the money flows, decomposed from your narrative</em>
                 </div>
                 {grouped ? (
-                  <div className="chain">
-                    {segments.map((s, i) => (
-                      <Fragment key={s.label}>
-                        <button
-                          type="button"
-                          className={`seg${s.label === activeSeg ? " on" : ""}`}
-                          onClick={() => {
-                            setSeg(s.label);
-                            setPickedMemberId(null);
-                            sectionData.reset(); // the report describes the LAST run's section
-                          }}
-                        >
-                          <div className="sn">{s.label}</div>
-                          <div className="smeta">
-                            <span className="ct">
-                              {countFor(s.label)} {countFor(s.label) === 1 ? "name" : "names"}
+                  <>
+                    {/* compact tabs (label + count) that WRAP — the per-tab descriptor blew the row out
+                        into a horizontal scroll strip; the ACTIVE segment's descriptor is the line below */}
+                    <div className="chain">
+                      {segments.map((s, i) => (
+                        <Fragment key={s.label}>
+                          <button
+                            type="button"
+                            className={`seg${s.label === activeSeg ? " on" : ""}`}
+                            onClick={() => {
+                              setSeg(s.label);
+                              setPickedMemberId(null);
+                              sectionData.reset(); // the report describes the LAST run's section
+                            }}
+                          >
+                            <div className="sn">{s.label}</div>
+                            <div className="smeta">
+                              <span className="ct">
+                                {countFor(s.label)} {countFor(s.label) === 1 ? "name" : "names"}
+                              </span>
+                            </div>
+                          </button>
+                          {i < segments.length - 1 ? (
+                            <span className="chain-arrow" aria-hidden="true">
+                              ›
                             </span>
-                            {s.descriptor ? <> · {s.descriptor}</> : null}
-                          </div>
-                        </button>
-                        {i < segments.length - 1 ? (
-                          <span className="chain-arrow" aria-hidden="true">
-                            ›
-                          </span>
-                        ) : null}
-                      </Fragment>
-                    ))}
-                  </div>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                    </div>
+                    {activeSeg && segments.find((s) => s.label === activeSeg)?.descriptor && (
+                      <div className="chain-desc">
+                        <b>{activeSeg}</b> —{" "}
+                        {segments.find((s) => s.label === activeSeg)?.descriptor}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="wb-empty">
                     {scoredQ.isLoading
@@ -418,12 +427,6 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                     saved basket (a re-draft is how you re-run discovery).
                   </div>
                 )}
-                {grouped && (
-                  <div className="note">
-                    Click a link to see its names. The whole chain is visible so you pick from a map —
-                    not the two names that came to mind first.
-                  </div>
-                )}
               </section>
 
               {shownMembers.length > 0 && (
@@ -435,7 +438,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
                       {/* the FUNNEL, visible (gate 2→3 progress): confirmed-data coverage over the WHOLE
                           basket (not the segment view) — the same memberHasFundamentals rule everywhere */}
                       {" · "}data confirmed on {members.filter(memberHasFundamentals).length} of{" "}
-                      {members.length}
+                      {members.length} basket-wide
                     </em>
                   </div>
                   {/* the SECTION get-data (gate 2 at section granularity): prices + staged extraction

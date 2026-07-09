@@ -152,6 +152,148 @@ def test_shares_no_companyfacts_and_classless_cover_is_located_only():
 
 
 # ---------------------------------------------------------------------------------------------------------
+# cash+burn honest labels (the runway audit) — one OBSERVED condition, one label; no fake zeros.
+# Unit-level on the pure _cash_burn with synthetic companyfacts (every path pinned).
+# ---------------------------------------------------------------------------------------------------------
+from ingest.edgar.extract import _cash_burn  # noqa: E402  (unit target — the pure composer)
+
+_PERIOD = date(2026, 5, 28)
+_TEXT = (
+    "cash and cash equivalents 104,272 total current assets ... "
+    "cash flows from operating activities (5,452) year-to-date ..."
+)
+
+
+def _dur(start, end, val):
+    return {"start": start, "end": end, "val": val}
+
+
+def _inst(end, val):
+    return {"end": end, "val": val, "filed": end}
+
+
+def _facts(ocf=None, cash=None, sti=None):
+    g = {}
+    if ocf is not None:
+        g["NetCashProvidedByUsedInOperatingActivities"] = {"units": {"USD": ocf}}
+    if cash is not None:
+        g["CashAndCashEquivalentsAtCarryingValue"] = {"units": {"USD": cash}}
+    if sti is not None:
+        g["ShortTermInvestments"] = {"units": {"USD": sti}}
+    return {"us-gaap": g}
+
+
+def _cb(facts):
+    return _cash_burn(facts, _TEXT, "10-Q", _PERIOD, ExtractorConfig())
+
+
+def test_cash_ytd_raw_is_never_claimed_derived():
+    """LIE A pinned: a long-span OCF column with NO same-start prior CANNOT be derived — the raw YTD goes
+    out as ``ytd-raw`` with a passage saying it IS the YTD, never the old ``ytd-derived`` label + a
+    passage claiming a derivation that didn't happen (runway would have read ~3x too short, believed).
+    """
+    f = _facts(
+        ocf=[_dur("2025-08-29", "2026-05-28", -90e6)],  # 272 days, no prior
+        cash=[_inst("2026-05-28", 100e6)],
+    )
+    cb = _cb(f)
+    assert cb.tier is Tier.FLAG
+    assert "ytd-raw" in cb.flags and "ytd-derived" not in cb.flags
+    assert (
+        cb.quarterly_burn_usd == 90e6
+    )  # the RAW YTD, honestly labeled — a real figure, not a guess
+    assert any("NOT a quarter" in p.excerpt for p in cb.located_passages)
+
+
+def test_cash_ytd_derived_stays_derived_with_the_true_quarter():
+    f = _facts(
+        ocf=[_dur("2025-08-29", "2026-05-28", -90e6), _dur("2025-08-29", "2026-02-26", -60e6)],
+        cash=[_inst("2026-05-28", 100e6)],
+    )
+    cb = _cb(f)
+    assert "ytd-derived" in cb.flags and "ytd-raw" not in cb.flags
+    assert cb.quarterly_burn_usd == 30e6  # YTD − prior YTD = the actual quarter
+    assert cb.event_date == date(2026, 5, 28)  # dated by the burn period's own end
+
+
+def test_cash_no_companyfacts_is_a_located_only_flag_never_auto_zero():
+    """LIE B pinned: a filer with NO cash instant and NO OCF column used to go out AUTO / $0 / $0 /
+    "Clean quarter" — a confirmable fake zero. Now: FLAG, values None, located-only."""
+    cb = _cb(_facts())
+    assert cb.tier is Tier.FLAG and cb.flags == ["no-companyfacts"]
+    assert cb.cash_usd is None and cb.quarterly_burn_usd is None
+    assert cb.located_passages  # the statements are still located — evidence, not a guess
+    assert "Clean quarter" not in cb.note
+
+
+def test_cash_without_ocf_never_fakes_cash_generative():
+    """The half case: cash on file, no operating-cash-flow column — burn stays None (its own flag),
+    because burn=0 ratified straight into a fake top-pip "cash-generative" on zero evidence."""
+    cb = _cb(_facts(cash=[_inst("2026-05-28", 104_272_000)]))
+    assert cb.tier is Tier.FLAG and "no-cashflow-column" in cb.flags
+    assert cb.cash_usd == 104_272_000 and cb.quarterly_burn_usd is None
+    assert "NOT FOUND (no operating-cash-flow column)" in cb.note
+
+
+def test_cash_ocf_without_cash_instant_names_the_miss():
+    cb = _cb(_facts(ocf=[_dur("2026-03-01", "2026-05-28", -5e6)]))  # native 88-day quarter
+    assert "no-cash-instant" in cb.flags
+    assert cb.cash_usd is None and cb.quarterly_burn_usd == 5e6
+    assert "cash: NOT FOUND" in cb.note
+
+
+def test_cash_stale_instant_is_flagged_and_dated():
+    """GAP C pinned: an included instant older than the filing period flags ``stale-cash`` and the note
+    STATES every input's as-of (the dates were previously discarded — silent mixing)."""
+    f = _facts(
+        ocf=[_dur("2026-03-01", "2026-05-28", -5e6)],
+        cash=[_inst("2026-02-26", 100e6)],  # a quarter older than the period
+    )
+    cb = _cb(f)
+    assert "stale-cash" in cb.flags
+    assert "cash as of 2026-02-26" in cb.note
+
+
+def test_cash_offdate_marketable_is_excluded_never_summed():
+    """A balance sheet is ONE date (the MU live catch): a marketable instant dated differently from cash
+    is a DIFFERENT balance sheet — usually a discontinued tag (MU's AvailableForSaleSecurities* last
+    reported 2018, and the old bare-value composer silently added those eight-year-old balances into
+    CURRENT cash). Excluded from the sum, named in the note, the basis question still flagged."""
+    f = _facts(
+        ocf=[_dur("2026-03-01", "2026-05-28", -5e6)],
+        cash=[_inst("2026-05-28", 100e6)],
+        sti=[_inst("2018-11-29", 50e6)],  # eight years off-date — a discontinued tag
+    )
+    cb = _cb(f)
+    assert cb.cash_usd == 100e6  # cash ONLY — the 2018 balance never enters the sum
+    assert "verify-marketable-securities" in cb.flags  # the basis question is still raised
+    assert (
+        "stale-cash" not in cb.flags
+    )  # cash itself is current; the off-date tag is EXCLUDED, not stale
+    assert "EXCLUDED from the sum" in cb.note and "2018-11-29" in cb.note
+
+
+def test_cash_samedate_marketable_still_sums():
+    f = _facts(
+        ocf=[_dur("2026-03-01", "2026-05-28", -5e6)],
+        cash=[_inst("2026-05-28", 100e6)],
+        sti=[_inst("2026-05-28", 50e6)],  # the SAME balance sheet as cash
+    )
+    cb = _cb(f)
+    assert cb.cash_usd == 150e6
+    assert "verify-marketable-securities" in cb.flags
+
+
+def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
+    cb = _cb(
+        _facts(ocf=[_dur("2026-03-01", "2026-05-28", -5e6)], cash=[_inst("2026-05-28", 100e6)])
+    )
+    assert cb.tier is Tier.AUTO and cb.flags == []
+    assert "cash as of 2026-05-28" in cb.note and "burn over 2026-03-01" in cb.note
+    assert cb.event_date == date(2026, 5, 28)
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Tier 1/2 — cash: cash-only -> AUTO exact; marketable securities present -> FLAG (verify the basis)
 # ---------------------------------------------------------------------------------------------------------
 def test_cash_auto_when_no_marketable_securities():

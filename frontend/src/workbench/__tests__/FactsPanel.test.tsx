@@ -155,6 +155,30 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByRole("button", { name: /show the full passage/ })).not.toBeInTheDocument();
   });
 
+  it("an EMPTY field can never confirm as 0 — the None-valued candidates gate their Confirm", async () => {
+    const user = userEvent.setup();
+    // a no-cashflow-column candidate: cash offered, burn deliberately BLANK (None) — Number("") is 0,
+    // so an ungated confirm would have ratified a fake $0 burn (a fake "cash-generative" runway)
+    const CASH_ONLY = {
+      ...FLAG_BURN,
+      cash_usd: 104_272_000,
+      quarterly_burn_usd: null,
+      flags: ["no-cashflow-column"],
+    };
+    // a dual-class candidate whose cover yielded no sum: shares BLANK by design
+    const SHARES_BLANK = { ...AUTO_SHARES, tier: "flag", value: null, flags: ["dual-class"] };
+    h.extract.data = [SHARES_BLANK, CASH_ONLY];
+    render(<FactsPanel securityId={SID} />);
+
+    const confirms = screen.getAllByRole("button", { name: "Confirm" });
+    expect(confirms[0]).toBeDisabled(); // shares blank -> gated
+    expect(confirms[1]).toBeDisabled(); // burn blank -> gated
+    await user.type(screen.getByLabelText("shares"), "1129393151");
+    expect(confirms[0]).toBeEnabled(); // authored -> confirmable
+    await user.type(screen.getByLabelText("quarterly burn"), "5452000");
+    expect(confirms[1]).toBeEnabled();
+  });
+
   it("the note is a growable TEXTAREA — a truncated single line hid the basis being ratified", async () => {
     const user = userEvent.setup();
     h.extract.data = [FLAG_BURN]; // FLAG rows carry a pre-filled composition note
