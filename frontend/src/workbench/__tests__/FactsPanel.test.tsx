@@ -107,6 +107,13 @@ describe("FactsPanel — extract → ratify", () => {
     expect(confirms[2]).toBeDisabled(); // the purity row (third candidate)
   });
 
+  it("an EMPTY extract shows the honest 'no 10-K/10-Q' note, not a silent blank rail", () => {
+    h.extract.data = []; // fetched, but the issuer has no covered filing (a foreign 20-F/6-K filer)
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/No 10-K\/10-Q on file/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+  });
+
   it("re-seeds the inputs when the selected member changes (no cross-member stale value)", () => {
     // The section-prefetch flow: the rail stays MOUNTED while the operator clicks name→name (only
     // `securityId` changes). RatifyRow seeds its inputs from `candidate` via useState, so a fact_type-only

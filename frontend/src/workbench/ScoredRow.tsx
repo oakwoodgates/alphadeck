@@ -27,7 +27,11 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
   // decoupled price leg) — same completeness as the section button, one name at a time
   const ingestPx = useIngestPrices();
   const loaded = memberHasFundamentals(member);
-  const dataReady = extract.data !== undefined;
+  // "data ready" means there are CANDIDATES to ratify — an empty extract (a foreign 20-F/6-K issuer with no
+  // 10-K/10-Q the extractor covers) is NOT ready. `noFilings` is that honest fetched-but-empty state; without
+  // it an empty result read as "✓ data ready" and opened to a blank rail (the SIMO confusion).
+  const hasCandidates = (extract.data?.length ?? 0) > 0;
+  const noFilings = extract.data !== undefined && !hasCandidates;
   const getData = () => {
     extract.refetch();
     ingestPx.mutate(member.security_id);
@@ -64,7 +68,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
         {!loaded &&
           (extract.isFetching ? (
             <span className="wb-getdata busy">extracting…</span>
-          ) : dataReady ? (
+          ) : hasCandidates ? (
             <button
               type="button"
               className="wb-getdata ready"
@@ -77,6 +81,14 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
             >
               ✓ data ready — ratify
             </button>
+          ) : noFilings ? (
+            // honest-loudness: an empty extract is NOT "data ready" and retrying won't help — say why, quietly
+            <span
+              className="wb-getdata none"
+              title="no 10-K/10-Q filing for this issuer — foreign names file 20-F/6-K, which the extractor doesn't cover yet; nothing to extract"
+            >
+              — no 10-K/10-Q
+            </span>
           ) : extract.error ? (
             <button
               type="button"
