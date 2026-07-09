@@ -20,7 +20,7 @@ framed by **stage**, not by surface.
 | **SEED** | The operator banks a narrative / early conviction in their own words (the vault). The edge is theirs, preserved. | Operator | `PROJECT_OVERVIEW.md` §2/§5 |
 | **DISCOVER** | Theme → names. EDGAR-first deterministic enumeration off an operator-seeded term set — not model recall. | Deterministic (+ LLM organizes/narrates) | `DISCOVERY.md`, `CHAIN_DRAFTER.md` |
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
-| **TRIAGE** | Craft the ~90-name draft into a chosen, ordered, weighted basket: prune, sort/filter, weight, re-segment. | Operator crafts | `TRIAGE.md` |
+| **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
 | **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → manage. The two-key call loop. | System times, operator gates | `CALL_LOGIC.md`, `FEED_LOOP.md` |
 | **SCORE** | Forward attribution — the platform's calls vs the operator's decisions vs follow-blindly. *(Parked — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → the parked Scoreboard |
 
@@ -50,6 +50,28 @@ being *auto-applied*. This pattern now recurs across the whole arc — the **#10
 
 The invariant already anticipated this ("any later flag/archetype recommendation"); the family is now shipped.
 See `INVARIANTS.md` #10.
+
+## The third thread — cost is the operator's to spend, never spent ambiently
+
+Real usage falsified the hidden assumption "you'll want data on everything placed" — a 370-name draft made
+extract-everything unaffordable *and unnecessary*. The resolution is a **third protective thread**, peer to the
+other two: the **trust invariants** protect *decisions* (the system must never lie, drop, or auto-decide), the
+**interaction principles** (`CLAUDE.md`) protect the *workflow* (reversible, visible, honest) — this one protects
+**affordability**. It is the same recommend → confirm seam extended from the *trust* axis to the *cost* axis:
+the system **surfaces everything** (recall stays sacred — the draft stays huge, #9), and the **operator decides
+where money is spent**. Concretely: extraction and price pulls run only on an explicit per-name or per-section
+click — never on draft, save, promote, or render, and never as a batch over the basket.
+
+Two vocabulary words carry it (`TRIAGE.md` has the mechanics):
+
+- **Shortlist** — the survivors of the cheap cut; the ONLY set expensive operations touch. Cost scales with the
+  operator's shortlist, not draft size — which is what lets discovery over-include freely.
+- **Mark for data** — the per-name, opt-in act of spending on a shortlisted name (shipped as *the control is
+  the trigger*: one click = one name's extraction + price pull, cost visible per click).
+
+This is TRIAGE's **three-gate** shape — cheap cut (judge on free row data) → mark for data (spend on the
+maybes) → finalize on data (ratify per fact) — and it maps 1:1 onto the buy-side screen → shortlist → diligence
+funnel.
 
 ## ⚠ ARCHITECTURAL CONSTRAINT — SURFACE estimates are COMPUTED-ON-READ, NEVER persisted as fact rows
 

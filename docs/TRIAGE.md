@@ -8,12 +8,25 @@
 > `frontend/src/workbench/ChainEditor.tsx` + `useChainDraft.ts`; the writer:
 > `POST /workbench/theses` (`app/routers/workbench.py`).
 >
-> **Status: BUILT** — include-controls (#113), the sortable/filterable view (#114), the conviction field (#115) +
-> the naming-collision guard (#116), the To-Review triage ruleset + the "Discovered" holding pen + the wired seg
-> dropdown (#118), and the cheap-cut board relief (the placed-board display partitions incl. the acronym-collision
-> lens, the hoisted noise sections, and the Save re-entry note — PR-A of the three-gate TRIAGE round).
+> **Status: BUILT, end to end** — the three-gate flow is live (the PR trail: include/find/weight #113–#118,
+> the three-gate round #127–#129, sections + honest flags #132–#136).
 
 ---
+
+## The three gates — the stage's organizing shape
+
+Real usage falsified "you'll want data on everything placed" (a 370-name draft made extract-everything
+unaffordable *and unnecessary*). TRIAGE is **three gates**, each cheaper judgment before more expensive data —
+the buy-side screen → shortlist → diligence funnel (`STAGE_MODEL.md`, "the third thread"):
+
+1. **CHEAP CUT** (zero API) — judge on already-visible row data (name, ticker, sector, matched terms,
+   off-thesis flag). Dashes are fine here: you cut "a bank that matched the word memory," not on purity.
+   The sections below through *the placed-board partitions* serve this gate.
+2. **MARK FOR DATA** (bounded spend) — only survivors the operator is *unsure* about get data: per-name or
+   per-section, the control is the trigger, cost visible per click. The **shortlist** (the survivors) is the
+   only set expensive operations ever touch. *The "Mark for data" section below.*
+3. **FINALIZE ON DATA** (the existing ratify) — confirm each fact against its honest flag, decide the
+   archetype on the rail, weight with conviction, promote. `WORKBENCH_EXTRACTION.md` owns the flags.
 
 ## The prune — include-controls (#113)
 
@@ -88,13 +101,11 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
   is surfaced, and a name that genuinely belongs is reachable via the master **name search**, which promotes by
   `security_id`).
 - **Precedence:** off-thesis > ticker-less > keeper.
-- **Three nested sub-drawers under one master To-Review collapsible** (#122r3 — mirrors the Placed section's
+- **Three nested sub-drawers under one master To-Review collapsible** (mirrors the Placed section's
   `.wb-placed-groups`): **Keepers** (open by default — the signal), **Low signal**, and **No listed ticker**
   (both collapsed). Each is independently collapsible so a big draft's To-review block stays keeper-sized, and
-  collapsing the master hides the whole bucket in one click. (This *replaces* the earlier "C-A hoist", which
-  made the two noise buckets top-level siblings *after* To review; the operator asked for the nested structure
-  so To-Review reads the same as Placed.) The master To-review header count is **keepers-only** (the headline is
-  the signal; each sub-drawer carries its own count).
+  collapsing the master hides the whole bucket in one click. The master header count is **keepers-only** (the
+  headline is the signal; each sub-drawer carries its own count).
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
 "Discovered". It is a **sorting queue, not a value-chain link** — de-linked visually (muted, "unsorted — not a

@@ -7,7 +7,7 @@
 >
 > House style follows `INVARIANTS.md`: a statement, the war story that earned it, then **Enforced by:** the
 > code + tests. Companions: `INVARIANTS.md` (#2 exact membership, #3 no model-sourced numbers, **#9 recall is
-> sacred**), `CHAIN_DRAFTER.md`, `ROADMAP.md` (sequencing + the open fork). Engines:
+> sacred**), `CHAIN_DRAFTER.md`, `ROADMAP.md` (sequencing). Engines:
 > `backend/ingest/edgar/fulltext.py` (the EFTS enumerator + `classify`), `backend/workbench/term_set.py` (the
 > producer), `backend/workbench/discovery.py` (the orchestrator), `backend/workbench/chain_draft.py` (the
 > per-CIK reconciler), `backend/llm/keyword_gen.py` + `backend/llm/chain_decomposition.py` (the demoted LLM
@@ -317,12 +317,10 @@ tests in `tests/workbench/test_draft_jobs.py`. Persistence: the compose `appdata
 
 ---
 
-## Known deferred gaps  *(pointers — sequenced together in `ROADMAP.md`, not here)*
+## Known deferred gaps  *(pointers — sequenced in `ROADMAP.md`, not here)*
 
-- **The seed-edit UI `[SHIPPED — #100]`** — the term-set editor (add/remove/promote/demote, regenerate-preserve)
-  lives in the Workbench term-set drawer; no longer a gap.
-- **Tail-sweep live validation `[VALIDATED — 2026-07-06, PASSED]`** — the dated record is in §6 above
-  (PharmAla/Universal Ibogaine/Bionomics returned; zero re-listing; honest empty corners; no financial figure).
+*(The one-time discovery fork is CLOSED: the seed-edit UI shipped (#100) and the tail-sweep validated live —
+the dated record is §6 above. What remains below is the one conscious drop + the standing gaps.)*
 - **The identity bridge — DROPPED (operator decision, 2026-07-06, PR #123 gate-2).** The gap it targeted has
   closed from both ends: **clean renames are handled** — the deterministic path is **CIK-keyed**, so a renamed
   filer surfaces under its CURRENT identity regardless of what it used to be called (MNMD→Definium arrives as
