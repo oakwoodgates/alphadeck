@@ -919,6 +919,36 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.getByText(/matched memory/)).toBeInTheDocument(); // Kroger's provenance still shows
   });
 
+  it("a keeper's ✕ sets it aside (greyed stub) and toggles back on a second click (#1/#2)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Micron");
+
+    // not set aside: the identity chips / prose show and the ✕ reads "set aside MU"
+    const setAside = screen.getByRole("button", { name: "set aside MU" });
+    expect(screen.getByRole("checkbox", { name: "add MU" })).toBeEnabled();
+
+    // click ✕ → the row greys to a stub: the "set aside" tag appears, add is disabled, the row stays VISIBLE
+    await user.click(setAside);
+    expect(screen.getByText("set aside")).toBeInTheDocument();
+    expect(screen.getByText("Micron")).toBeInTheDocument(); // #2 keep-it-visible: never vanishes
+    expect(screen.getByRole("checkbox", { name: "add MU" })).toBeDisabled();
+    // the same button is now the inverse — restore
+    const restore = screen.getByRole("button", { name: "restore MU" });
+    expect(restore).toHaveAttribute("aria-pressed", "true");
+
+    // click again → restored: the stub tag is gone, add is live again (#1 reversible)
+    await user.click(restore);
+    expect(screen.queryByText("set aside")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add MU" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "set aside MU" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
   it("item 6: 'Discovered' is de-linked (unsorted tag) and the nudge prompts sorting", async () => {
     const user = userEvent.setup();
     const PLACED_DISC = {
