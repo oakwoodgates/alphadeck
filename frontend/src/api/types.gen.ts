@@ -61,6 +61,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Decisions
+         * @description The thesis's decision log, newest first. Voided rows ride along FLAGGED (``voided: true``) —
+         *     the strip greys them, never hides them (pruning hides, it never vanishes).
+         */
+        get: operations["list_decisions_theses__thesis_id__decisions_get"];
+        put?: never;
+        /**
+         * Post Decision
+         * @description APPEND one operator decision (take / pass / close / void) to the decision-capture log.
+         *
+         *     Advisory only (#5): this LOGS a fill or pass the operator made elsewhere — nothing routes, nothing
+         *     blocks. A take against a not-yet verdict is logged with the platform's stance riding the row; that
+         *     record IS the v1 gate (the UI shows friction copy — the disagreement is written down, never
+         *     enforced). One open position per thesis (v1): take requires flat, close requires open. A mistake
+         *     is corrected by ``void`` (an append pointing at the mistaken row — reversibility, never a delete).
+         *     The append feeds the Managing state on the next call read (the position derives from this log).
+         */
+        post: operations["post_decision_theses__thesis_id__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/scored": {
         parameters: {
             query?: never;
@@ -623,6 +655,79 @@ export interface components {
              */
             placements: components["schemas"]["ResolvedPlacement"][];
             report?: components["schemas"]["DraftReportOut"] | null;
+        };
+        /**
+         * DecisionIn
+         * @description One operator decision to APPEND (gate-1 ratified 2026-07-10). Advisory only (#5): this LOGS a
+         *     fill/pass the operator made elsewhere — nothing routes, nothing blocks. ``take`` opens the thesis's
+         *     (single, v1) position; ``close`` closes it; ``pass`` records a no-act (any state, reason optional);
+         *     ``void`` points ``voids`` at a mistaken row — the reversibility inverse, never a delete.
+         */
+        DecisionIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "take" | "pass" | "close" | "void";
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Price */
+            price?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Voids */
+            voids?: string | null;
+        };
+        /**
+         * DecisionOut
+         * @description One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was
+         *     logged (display denormalization — attribution re-derives from the calls-log join); ``voided``
+         *     marks a row a later ``void`` points at (the strip greys it — visible, never hidden).
+         */
+        DecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "take" | "pass" | "close" | "void";
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Price */
+            price?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Voids */
+            voids?: string | null;
+            /** Call State */
+            call_state?: string | null;
+            /** Call Verdict */
+            call_verdict?: string | null;
+            /** Recorded At */
+            recorded_at: string;
+            /**
+             * Voided
+             * @default false
+             */
+            voided: boolean;
         };
         /**
          * DraftCoverageOut
@@ -1555,6 +1660,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallCardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_decisions_theses__thesis_id__decisions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_decision_theses__thesis_id__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionOut"];
                 };
             };
             /** @description Validation Error */

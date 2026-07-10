@@ -130,6 +130,106 @@
         }
       }
     },
+    "/theses/{thesis_id}/decisions": {
+      "post": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Post Decision",
+        "description": "APPEND one operator decision (take / pass / close / void) to the decision-capture log.\n\nAdvisory only (#5): this LOGS a fill or pass the operator made elsewhere \u2014 nothing routes, nothing\nblocks. A take against a not-yet verdict is logged with the platform's stance riding the row; that\nrecord IS the v1 gate (the UI shows friction copy \u2014 the disagreement is written down, never\nenforced). One open position per thesis (v1): take requires flat, close requires open. A mistake\nis corrected by ``void`` (an append pointing at the mistaken row \u2014 reversibility, never a delete).\nThe append feeds the Managing state on the next call read (the position derives from this log).",
+        "operationId": "post_decision_theses__thesis_id__decisions_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "List Decisions",
+        "description": "The thesis's decision log, newest first. Voided rows ride along FLAGGED (``voided: true``) \u2014\nthe strip greys them, never hides them (pruning hides, it never vanishes).",
+        "operationId": "list_decisions_theses__thesis_id__decisions_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DecisionOut"
+                  },
+                  "title": "Response List Decisions Theses  Thesis Id  Decisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/scored": {
       "get": {
         "tags": [
@@ -1284,6 +1384,210 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /\nnarration \u2014 ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader\nhandles its absence."
+      },
+      "DecisionIn": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "take",
+              "pass",
+              "close",
+              "void"
+            ],
+            "title": "Action"
+          },
+          "decision_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Decision Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "voids": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "decision_date"
+        ],
+        "title": "DecisionIn",
+        "description": "One operator decision to APPEND (gate-1 ratified 2026-07-10). Advisory only (#5): this LOGS a\nfill/pass the operator made elsewhere \u2014 nothing routes, nothing blocks. ``take`` opens the thesis's\n(single, v1) position; ``close`` closes it; ``pass`` records a no-act (any state, reason optional);\n``void`` points ``voids`` at a mistaken row \u2014 the reversibility inverse, never a delete."
+      },
+      "DecisionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "take",
+              "pass",
+              "close",
+              "void"
+            ],
+            "title": "Action"
+          },
+          "decision_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Decision Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "voids": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voids"
+          },
+          "call_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call State"
+          },
+          "call_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Verdict"
+          },
+          "recorded_at": {
+            "type": "string",
+            "title": "Recorded At"
+          },
+          "voided": {
+            "type": "boolean",
+            "title": "Voided",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "decision_date",
+          "recorded_at"
+        ],
+        "title": "DecisionOut",
+        "description": "One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was\nlogged (display denormalization \u2014 attribution re-derives from the calls-log join); ``voided``\nmarks a row a later ``void`` points at (the strip greys it \u2014 visible, never hidden)."
       },
       "DraftCoverageOut": {
         "properties": {

@@ -562,3 +562,40 @@ class SavedRunSummary(BaseModel):
     job_id: str | None = None
     placement_count: int
     segment_count: int
+
+
+# --- Decision capture (the operator-decisions log) — an EVENT log, never a scoring fact ---
+
+
+class DecisionIn(BaseModel):
+    """One operator decision to APPEND (gate-1 ratified 2026-07-10). Advisory only (#5): this LOGS a
+    fill/pass the operator made elsewhere — nothing routes, nothing blocks. ``take`` opens the thesis's
+    (single, v1) position; ``close`` closes it; ``pass`` records a no-act (any state, reason optional);
+    ``void`` points ``voids`` at a mistaken row — the reversibility inverse, never a delete."""
+
+    action: Literal["take", "pass", "close", "void"]
+    decision_date: date  # VALID time — the day the fill/decision actually happened
+    security_id: UUID | None = None  # the name acted on (defaults to thesis-level for a pass)
+    shares: float | None = None
+    price: float | None = None
+    reason: str | None = None
+    voids: UUID | None = None  # required iff action == "void"
+
+
+class DecisionOut(BaseModel):
+    """One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was
+    logged (display denormalization — attribution re-derives from the calls-log join); ``voided``
+    marks a row a later ``void`` points at (the strip greys it — visible, never hidden)."""
+
+    id: UUID
+    action: Literal["take", "pass", "close", "void"]
+    decision_date: date
+    security_id: UUID | None = None
+    shares: float | None = None
+    price: float | None = None
+    reason: str | None = None
+    voids: UUID | None = None
+    call_state: str | None = None
+    call_verdict: str | None = None
+    recorded_at: str
+    voided: bool = False
