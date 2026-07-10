@@ -6,6 +6,7 @@ import {
   isAcronymTerm,
   memberHasFundamentals,
   meterValueLabel,
+  onFileValues,
   provChip,
   provNotes,
 } from "../format";
@@ -129,5 +130,60 @@ describe("provNotes", () => {
         { source: "price", ref: "price:2026-06-05", detail: {} },
       ]),
     ).toEqual(["ENTRA1 burn composition"]);
+  });
+});
+
+describe("onFileValues", () => {
+  it("recovers the ratified values per fact type from the meters' provenance detail", () => {
+    const map = onFileValues({
+      purity: {
+        pips: 3,
+        value: 77,
+        provenance: [
+          { source: "10-k-segment", ref: "K", detail: { mix_pct: 77, segment_label: "reactors", note: "basis" } },
+        ],
+      },
+      runway: {
+        pips: 4,
+        value: 60,
+        provenance: [{ source: "10-q", ref: "Q", detail: { cash_usd: 1e9, quarterly_burn_usd: 5e7 } }],
+      },
+      market_cap: {
+        pips: null,
+        value: 2.5e9,
+        provenance: [
+          { source: "10-q-cover", ref: "SH", detail: { shares: 1e8 } },
+          { source: "price", ref: "price:2026-06-01", detail: { close: 25 } },
+        ],
+      },
+    });
+    expect(map.revenue_mix).toEqual({ mix_pct: 77, segment_label: "reactors", note: "basis" });
+    expect(map.shares_outstanding).toEqual({ shares: 1e8, note: undefined });
+    expect(map.cash_burn).toEqual({ cash_usd: 1e9, quarterly_burn_usd: 5e7, note: undefined });
+  });
+
+  it("absent facts stay absent; price/computed provenance never counts as on file", () => {
+    const map = onFileValues({
+      purity: { pips: null, value: null, provenance: [] },
+      runway: { pips: null, value: null, provenance: [] },
+      market_cap: {
+        pips: null,
+        value: null,
+        provenance: [{ source: "price", ref: "price:2026-06-01", detail: { close: 25 } }],
+      },
+    });
+    expect(map.revenue_mix).toBeUndefined();
+    expect(map.shares_outstanding).toBeUndefined(); // the price leg alone is NOT an operator fact
+    expect(map.cash_burn).toBeUndefined();
+  });
+
+  it("a pre-threading fact (no figures in detail) still reads as on file, values undefined", () => {
+    const map = onFileValues({
+      purity: { pips: 3, value: 77, provenance: [{ source: "10-k-segment", ref: "K", detail: {} }] },
+      runway: { pips: 4, value: 60, provenance: [{ source: "10-q", ref: "Q", detail: {} }] },
+      market_cap: { pips: null, value: null, provenance: [] },
+    });
+    expect(map.revenue_mix?.mix_pct).toBe(77); // the figure's own value backstops purity
+    expect(map.cash_burn).toEqual({ cash_usd: undefined, quarterly_burn_usd: undefined, note: undefined });
   });
 });

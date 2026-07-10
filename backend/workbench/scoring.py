@@ -40,11 +40,17 @@ def _bucket(value: float, cutoffs: tuple[float, ...]) -> int:
     return sum(1 for c in cutoffs if value >= c)
 
 
-def _prov(fact: dict[str, Any]) -> Provenance:
+def _prov(fact: dict[str, Any], **figures: Any) -> Provenance:
     """Provenance from a scoring fact (revenue_mix / shares / cash_burn): the ``source`` (the BASIS — e.g.
     ``10-k-segment`` vs ``10-k-business-description``), the ``source_ref`` (the filing), and the ``note``.
+    The extra ``figures`` are the fact's OWN ratified values (shares / cash_usd / mix_pct / …), threaded
+    into ``detail`` so the ratify panel can show WHAT is on file instead of re-offering the stale extract
+    candidate — the DB-free extract endpoint can't know a ratify happened; the scored read is the only
+    DB-backed surface the panel sees. Display-only (#2): these ride provenance, they never make a number.
     """
-    detail = {"note": fact["note"]} if fact.get("note") else {}
+    detail: dict[str, Any] = {k: v for k, v in figures.items() if v is not None}
+    if fact.get("note"):
+        detail["note"] = fact["note"]
     return Provenance(source=fact["source"], ref=fact["source_ref"], detail=detail)
 
 
@@ -55,7 +61,8 @@ def _purity(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         return ScoredFigure()  # "—": no purity data
     best = max(facts, key=lambda f: float(f["mix_pct"]))
     pct = float(best["mix_pct"])
-    return ScoredFigure(pips=_bucket(pct, cfg.purity_pip_pct), value=pct, provenance=[_prov(best)])
+    prov = _prov(best, mix_pct=pct, segment_label=best["segment_label"])
+    return ScoredFigure(pips=_bucket(pct, cfg.purity_pip_pct), value=pct, provenance=[prov])
 
 
 def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
@@ -65,13 +72,14 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         return ScoredFigure()  # "—": no cash/burn data
     best = max(facts, key=lambda f: f["valid_from"])
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
+    prov = _prov(best, cash_usd=cash, quarterly_burn_usd=burn)
     if burn <= 0:  # cash-generative: no burn-funding risk -> the top pip, no finite months figure
-        return ScoredFigure(pips=len(cfg.runway_pip_months), value=None, provenance=[_prov(best)])
+        return ScoredFigure(pips=len(cfg.runway_pip_months), value=None, provenance=[prov])
     months = cash / (burn / _MONTHS_PER_QUARTER)
     return ScoredFigure(
         pips=_bucket(months, cfg.runway_pip_months),
         value=round(months, 1),
-        provenance=[_prov(best)],
+        provenance=[prov],
     )
 
 
@@ -133,7 +141,9 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
                 "per-thesis ingest (the back half) pulls prices. The ratified shares fact IS on file."
             },
         )
-        return ScoredFigure(pips=None, value=None, provenance=[_prov(sh), awaiting])
+        return ScoredFigure(
+            pips=None, value=None, provenance=[_prov(sh, shares=float(sh["shares"])), awaiting]
+        )
     if not shares_facts:
         latest = prices[-1]
         awaiting = Provenance(
@@ -150,7 +160,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     latest = prices[-1]  # price_history is sorted ascending by date
     cap = float(sh["shares"]) * float(latest["close"])
     prov = [
-        _prov(sh),
+        _prov(sh, shares=float(sh["shares"])),
         Provenance(
             source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}
         ),

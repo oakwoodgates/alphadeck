@@ -1,6 +1,14 @@
 import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
 import { FactsPanel } from "./FactsPanel";
-import { ARCHETYPES, archLabel, formatMarketCap, meterValueLabel, provChip, provNotes } from "./format";
+import {
+  ARCHETYPES,
+  archLabel,
+  formatMarketCap,
+  meterValueLabel,
+  onFileValues,
+  provChip,
+  provNotes,
+} from "./format";
 
 const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[] = [
   { key: "purity", figure: (m) => m.purity },
@@ -184,16 +192,12 @@ export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId
         <FactsPanel
           securityId={member.security_id}
           thesisId={thesisId}
-          // which fact types already have a RATIFIED value on file (derived from the meters' provenance;
-          // price bars and the awaiting-note are not operator facts) — the panel tags those candidates so
-          // a re-confirm reads as "append a new version", not "the first save never happened"
-          onFile={{
-            revenue_mix: member.purity.provenance.length > 0,
-            shares_outstanding: member.market_cap.provenance.some(
-              (p) => p.source !== "price" && p.source !== "computed",
-            ),
-            cash_burn: member.runway.provenance.length > 0,
-          }}
+          // which fact types already have a RATIFIED value on file — WITH the ratified values themselves,
+          // recovered from the meters' provenance detail (price bars and the awaiting-note are not operator
+          // facts). The panel shows THOSE values, not the stale extract candidate: without them a re-open
+          // visibly "reverted" a saved purity to the original LLM rec (the save was fine; the DB-free
+          // extract just can't know it happened).
+          onFile={onFileValues(member)}
         />
       </div>
     </div>

@@ -103,6 +103,15 @@ def test_shares_auto_single_class_exact():
         assert sh.tier is Tier.AUTO and sh.value == SEED[name]["shares"], name
 
 
+def test_shares_auto_carries_its_cover_passage():
+    """Show-the-work (feel-of-control): an AUTO shares candidate still carries the located cover — the
+    pre-filled count is approvable AND inspectable (the UI keeps it collapsed; never a black-box value).
+    """
+    sh = _extract("OKLO")["shares_outstanding"]
+    assert sh.tier is Tier.AUTO
+    assert any(p.kind == "cover" for p in sh.located_passages)
+
+
 def test_shares_dual_class_flagged_with_ab_sum():
     # LEU/SMR carry NO dei cover rows at all (dual-class filers report DEI per class with dimension
     # members that companyfacts DROPS) — the dual-class label comes from the >=2 per-class counts
@@ -316,6 +325,8 @@ def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
     assert cb.tier is Tier.AUTO and cb.flags == []
     assert "cash as of 2026-05-28" in cb.note and "burn over 2026-03-01" in cb.note
     assert cb.event_date == date(2026, 5, 28)
+    # show-the-work: the clean AUTO still carries its located statements (collapsed in the UI)
+    assert {p.kind for p in cb.located_passages} == {"balance-sheet", "cash-flow"}
 
 
 # ---------------------------------------------------------------------------------------------------------
