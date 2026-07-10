@@ -150,12 +150,94 @@ describe("FactsPanel — extract → ratify", () => {
 
   it("a candidate whose fact is already ON FILE is tagged (a re-confirm appends, never 'never saved')", () => {
     h.extract.data = [AUTO_SHARES, FLAG_BURN];
-    render(
-      <FactsPanel securityId={SID} onFile={{ shares_outstanding: true, cash_burn: false }} />,
-    );
+    // presence of the (possibly empty) on-file object = a ratified fact exists; absence = not on file
+    render(<FactsPanel securityId={SID} onFile={{ shares_outstanding: {} }} />);
     const tags = screen.getAllByText("✓ on file");
     expect(tags).toHaveLength(1); // ONLY the shares row — the tag must discriminate
     expect(tags[0].closest(".ratify-row")).toHaveTextContent(/market cap · shares/);
+  });
+
+  it("re-entry shows the RATIFIED purity, not the stale LLM rec (the reversion bug)", () => {
+    // the candidate still carries the ORIGINAL estimate (the DB-free extract can't know a ratify
+    // happened) — the on-file values must win the seeding, and the estimate tag must NOT render
+    const ESTIMATED = {
+      ...HUMAN_PURITY,
+      value: 72,
+      estimate_source: "llm_proposed",
+      note: "LLM-PROPOSED purity (UNVERIFIED — confirm or override): x [on-thesis segment: HBM]. Grounded.",
+    };
+    h.extract.data = [ESTIMATED];
+    render(
+      <FactsPanel
+        securityId={SID}
+        thesisId="t-1"
+        onFile={{ revenue_mix: { mix_pct: 85, segment_label: "nuclear", note: "operator basis" } }}
+      />,
+    );
+    expect(screen.getByLabelText("purity percent")).toHaveValue(85); // the OPERATOR'S value, not 72
+    expect(screen.getByLabelText("segment")).toHaveValue("nuclear");
+    expect(screen.getByLabelText("note")).toHaveValue("operator basis");
+    expect(screen.queryByText(/llm-proposed · unverified/)).not.toBeInTheDocument();
+    expect(screen.getByText("✓ on file")).toBeInTheDocument();
+  });
+
+  it("re-entry seeds shares and cash/burn from the on-file values too (same family)", () => {
+    h.extract.data = [AUTO_SHARES, FLAG_BURN];
+    render(
+      <FactsPanel
+        securityId={SID}
+        onFile={{
+          shares_outstanding: { shares: 999000000 },
+          cash_burn: { cash_usd: 1000000, quarterly_burn_usd: 2000000 },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("shares")).toHaveValue(999000000);
+    expect(screen.getByLabelText("cash")).toHaveValue(1000000);
+    expect(screen.getByLabelText("quarterly burn")).toHaveValue(2000000);
+  });
+
+  it("AUTO's source is collapsed behind a toggle; one click shows the located passage", async () => {
+    const user = userEvent.setup();
+    const AUTO_WITH_COVER = {
+      ...AUTO_SHARES,
+      located_passages: [
+        {
+          kind: "cover",
+          source_ref: "https://sec.gov/oklo-10q#cover",
+          anchor: "outstanding",
+          excerpt: "141,000,000 shares of common stock outstanding as of May 7",
+        },
+      ],
+    };
+    h.extract.data = [AUTO_WITH_COVER];
+    render(<FactsPanel securityId={SID} />);
+    // collapsed by default — AUTO doesn't demand reading, but the source is one click away
+    expect(screen.queryByText(/shares of common stock outstanding/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /show the source/ }));
+    expect(screen.getByText(/shares of common stock outstanding/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /hide the source/ }));
+    expect(screen.queryByText(/shares of common stock outstanding/)).not.toBeInTheDocument();
+  });
+
+  it("FLAG's passage stays INLINE — no toggle (reading it IS the decision)", () => {
+    h.extract.data = [FLAG_BURN];
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Partnership milestone payment/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show the source/ })).not.toBeInTheDocument();
+  });
+
+  it("an empty purity names WHY it's empty: pre-revenue vs couldn't-ground (missing ≠ blank)", () => {
+    // pre-revenue: the business-description basis has no segment revenue to read
+    h.extract.data = [HUMAN_PURITY]; // source: 10-k-business-description
+    const { unmount } = render(<FactsPanel securityId={SID} thesisId="t-1" />);
+    expect(screen.getByText(/no revenue data on file — pre-revenue/)).toBeInTheDocument();
+    unmount();
+
+    // a revenue name, thesis-scoped, but the grounded estimate declined (fail-open) — a different why
+    h.extract.data = [{ ...HUMAN_PURITY, source: "10-k-segment" }];
+    render(<FactsPanel securityId={SID} thesisId="t-1" />);
+    expect(screen.getByText(/couldn't ground a purity estimate/)).toBeInTheDocument();
   });
 
   it("a LONG located passage renders CLAMPED with an explicit expand (evidence, not a wall)", async () => {

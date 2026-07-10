@@ -178,6 +178,21 @@ ratify UI shows it inline (not a tooltip) with a clickable EDGAR link.
   has a ratified value **"✓ on file"** (the extract endpoint is deliberately DB-free, so its candidates
   can't know — the tag is derived from the meters' provenance). A re-confirm is an append, honestly
   labeled — never "the first save never happened."
+- **Re-entry shows the RATIFIED VALUES, not the stale candidate** (the tag alone wasn't enough: a
+  re-opened name still *seeded its inputs* from the original candidate, so a saved purity visibly
+  "reverted" to the original LLM rec even though the meter was right). The scored read threads each
+  fact's own figures into its provenance **`detail`** (`mix_pct` + `segment_label` / `shares` /
+  `cash_usd` + `quarterly_burn_usd` + the ratified note — display-only, #2, an open dict so **no wire
+  schema change**); the panel seeds its inputs from those, suppresses the stale estimate tag, and
+  remounts into the on-file state when a confirm lands. The candidate is only the seed for a fact
+  **not yet on file**.
+- **AUTO shows its work, on demand.** Every AUTO candidate carries its located passage too (the shares
+  cover; the clean quarter's balance-sheet + cash-flow) — rendered **collapsed** behind a one-click
+  "show the source" (AUTO doesn't demand reading; FLAG/HUMAN stay inline because reading the passage IS
+  that decision). Approving a pre-filled value reads as the operator's decision, never a black box (#6).
+- **An empty purity names WHY it's empty** (missing ≠ blank): pre-revenue ("no revenue data on file —
+  author from the business description") vs a thesis-scoped extract whose grounded estimate declined
+  ("couldn't ground a purity estimate in the passage") — different authoring starts, labeled honestly.
 
 ---
 

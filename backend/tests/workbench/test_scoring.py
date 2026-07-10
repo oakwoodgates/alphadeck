@@ -155,6 +155,15 @@ def test_score_member_golden(db, security_id):
         sm.purity.provenance[0].source == "10-k-segment"
         and sm.purity.provenance[0].ref == "10-K-seg"
     )
+    # the ratified values ride provenance DETAIL (display-only, #2) — the ratify panel reads them so a
+    # re-open shows the operator's saved values, never the stale extract candidate (the DB-free extract
+    # can't know a ratify happened; the scored read is the panel's only DB-backed surface)
+    assert sm.purity.provenance[0].detail["mix_pct"] == 77.0
+    assert sm.purity.provenance[0].detail["segment_label"] == "reactors"
+    assert sm.runway.provenance[0].detail["cash_usd"] == 1_000_000_000.0
+    assert sm.runway.provenance[0].detail["quarterly_burn_usd"] == 50_000_000.0
+    sh_prov = next(p for p in sm.market_cap.provenance if p.source not in ("price", "computed"))
+    assert sh_prov.detail["shares"] == 100_000_000.0
     assert sm.runway.pips == 4 and sm.runway.value == 60.0
     assert sm.catalysts.pips == 2 and sm.catalysts.value == 1.0
     assert sm.dilution.pips == 1 and sm.dilution.value == 6.0  # ~5.97% overhang, rounded

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
 import { AutoTextarea } from "./AutoTextarea";
-import { errText } from "./format";
+import { errText, type OnFileFact, type OnFileMap } from "./format";
 
 const METER_LABEL: Record<string, string> = {
   revenue_mix: "purity",
@@ -28,11 +28,13 @@ export function FactsPanel({
 }: {
   securityId: string;
   thesisId?: string;
-  // per fact-type: a RATIFIED value already exists on file (derived by the parent from the meters'
-  // provenance). The extract endpoint is deliberately DB-free, so its candidates can't know — without
-  // this tag, re-opening a ratified name re-offered the same candidate as if the save never happened
-  // (the gate-3 "no save?" confusion; the store is append-only, latest wins on read).
-  onFile?: Partial<Record<string, boolean>>;
+  // per fact-type: the RATIFIED value(s) already on file (recovered by the parent from the meters'
+  // provenance detail). The extract endpoint is deliberately DB-free, so its candidates can't know —
+  // without this, re-opening a ratified name re-offered the stale candidate as if the save never
+  // happened (the gate-3 "no save?" confusion, then the purity value visibly REVERTING to the original
+  // LLM rec; the store is append-only, latest wins on read). Presence = on file; the row seeds its
+  // inputs from these values.
+  onFile?: OnFileMap;
 }) {
   // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
   const extract = useExtract(securityId, thesisId);
@@ -63,11 +65,14 @@ export function FactsPanel({
         // `securityId` changes), so a fact_type-only key made React REUSE the row and keep the PRIOR name's
         // values — every name in a section then showed the first-opened name's shares (a wrong-value ratify
         // risk). The composite key remounts the row per member, re-seeding from the new candidate.
+        // On-file state is IN the key too: when a confirm lands and the scored read refreshes, the row
+        // remounts into the on-file state showing the just-ratified value — the save visibly took.
         <RatifyRow
-          key={`${securityId}:${f.fact_type}`}
+          key={`${securityId}:${f.fact_type}:${onFile?.[f.fact_type] ? "onfile" : "new"}`}
           candidate={f}
           securityId={securityId}
-          onFile={onFile?.[f.fact_type] ?? false}
+          onFile={onFile?.[f.fact_type]}
+          estimateAttempted={thesisId != null}
         />
       ))}
       {/* honest-loudness (the SIMO case): an extract that came back EMPTY isn't a silent blank rail — the
@@ -89,10 +94,14 @@ function RatifyRow({
   candidate,
   securityId,
   onFile,
+  estimateAttempted,
 }: {
   candidate: ExtractedFact;
   securityId: string;
-  onFile?: boolean;
+  onFile?: OnFileFact;
+  // whether the extract was thesis-scoped (the grounded purity seam only RUNS with a thesis) — it decides
+  // the honest reason shown on an empty purity: "couldn't ground" vs simply "author from the passage"
+  estimateAttempted?: boolean;
 }) {
   const ratify = useRatifyFact();
   const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
@@ -101,22 +110,57 @@ function RatifyRow({
   // SURFACE 1b — the GROUNDED purity estimate (llm-proposed, UNVERIFIED): pre-fill the % + the proposed
   // segment (parsed from the note the endpoint wrote) so "confirm as-is" is one action; the operator can
   // override either. Sending the estimate on ratify lets the server stamp `vouched` (confirmed vs overridden).
+  // ON FILE SUPPRESSES IT: once the operator ratified, the stale rec must not displace THEIR value (the
+  // re-entry reversion bug) — and a re-confirm from file is not a vouch on the old estimate.
   const purityEstimate =
-    candidate.fact_type === "revenue_mix" && candidate.estimate_source === "llm_proposed"
+    candidate.fact_type === "revenue_mix" && candidate.estimate_source === "llm_proposed" && !onFile
       ? candidate.value
       : null;
   const proposedSegment = (candidate.note ?? "").match(/on-thesis segment:\s*(.+?)\s*\]/)?.[1] ?? "";
-  const [shares, setShares] = useState(candidate.value != null ? String(candidate.value) : "");
-  const [cash, setCash] = useState(candidate.cash_usd != null ? String(candidate.cash_usd) : "");
-  const [burn, setBurn] = useState(
-    candidate.quarterly_burn_usd != null ? String(candidate.quarterly_burn_usd) : "",
+  // seed each input from what's ON FILE first (the operator's ratified value — the panel must show their
+  // decision, not the stale candidate), then the candidate, then blank
+  const [shares, setShares] = useState(
+    onFile?.shares != null
+      ? String(onFile.shares)
+      : candidate.value != null
+        ? String(candidate.value)
+        : "",
   );
-  const [segment, setSegment] = useState(purityEstimate != null ? proposedSegment : "");
-  const [pct, setPct] = useState(purityEstimate != null ? String(purityEstimate) : "");
-  const [note, setNote] = useState(candidate.note ?? "");
+  const [cash, setCash] = useState(
+    onFile?.cash_usd != null
+      ? String(onFile.cash_usd)
+      : candidate.cash_usd != null
+        ? String(candidate.cash_usd)
+        : "",
+  );
+  const [burn, setBurn] = useState(
+    onFile?.quarterly_burn_usd != null
+      ? String(onFile.quarterly_burn_usd)
+      : candidate.quarterly_burn_usd != null
+        ? String(candidate.quarterly_burn_usd)
+        : "",
+  );
+  const [segment, setSegment] = useState(
+    onFile?.segment_label ?? (purityEstimate != null ? proposedSegment : ""),
+  );
+  const [pct, setPct] = useState(
+    onFile?.mix_pct != null
+      ? String(onFile.mix_pct)
+      : purityEstimate != null
+        ? String(purityEstimate)
+        : "",
+  );
+  // on file, the note shows what was RATIFIED (empty if none was) — never the candidate's note over it
+  const [note, setNote] = useState(onFile ? (onFile.note ?? "") : (candidate.note ?? ""));
   // the located passage is EVIDENCE and must be readable — but a segment table arrives as a wall of
   // collapsed text, so it renders CLAMPED (a scannable window + fade) with an explicit expand
   const [expanded, setExpanded] = useState(false);
+  // AUTO's source is on-demand (feel-of-control): collapsed by default — AUTO doesn't demand reading —
+  // one click to see the located passage behind the pre-filled value. FLAG/HUMAN stay inline (reading
+  // the passage IS that decision).
+  const [srcOpen, setSrcOpen] = useState(false);
+  const passages = candidate.located_passages ?? [];
+  const showPassages = passages.length > 0 && (!auto || srcOpen);
 
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
   const common = {
@@ -195,27 +239,37 @@ function RatifyRow({
         ))}
       </div>
 
-      {/* the located passage — EVIDENCE, readable inline (reading it IS the FLAG decision). Clamped to a
-          scannable window (a raw segment table arrives as a wall of collapsed text); the expand is one
-          click, the filing link one more. */}
-      {(candidate.located_passages ?? []).map((p, i) => (
-        <div className="located" key={i}>
-          <a
-            className="chip"
-            href={p.source_ref}
-            target="_blank"
-            rel="noreferrer"
-            title={p.source_ref}
-          >
-            {p.kind} · {p.anchor} ↗
-          </a>
-          {/* clamp only what's actually long — the fade must never eat a short passage */}
-          <div className={`excerpt${!expanded && p.excerpt.length > 420 ? " clamped" : ""}`}>
-            {p.excerpt}
+      {/* the located passage — EVIDENCE. FLAG/HUMAN render it inline (reading it IS the decision);
+          AUTO renders it BEHIND the toggle above (collapsed by default — the pre-filled value doesn't
+          demand reading, but its source is one click away, so approving it reads as the operator's
+          decision, never a black box). Clamped to a scannable window (a raw segment table arrives as
+          a wall of collapsed text); the expand is one click, the filing link one more. */}
+      {auto && passages.length > 0 && (
+        <button type="button" className="wb-mini ghost" onClick={() => setSrcOpen((v) => !v)}>
+          {srcOpen
+            ? "− hide the source"
+            : `▸ show the source (${[...new Set(passages.map((p) => p.kind))].join(" · ")})`}
+        </button>
+      )}
+      {showPassages &&
+        passages.map((p, i) => (
+          <div className="located" key={i}>
+            <a
+              className="chip"
+              href={p.source_ref}
+              target="_blank"
+              rel="noreferrer"
+              title={p.source_ref}
+            >
+              {p.kind} · {p.anchor} ↗
+            </a>
+            {/* clamp only what's actually long — the fade must never eat a short passage */}
+            <div className={`excerpt${!expanded && p.excerpt.length > 420 ? " clamped" : ""}`}>
+              {p.excerpt}
+            </div>
           </div>
-        </div>
-      ))}
-      {(candidate.located_passages ?? []).some((p) => p.excerpt.length > 420) && (
+        ))}
+      {showPassages && passages.some((p) => p.excerpt.length > 420) && (
         <button type="button" className="wb-mini ghost" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "− collapse the passage" : "+ show the full passage"}
         </button>
@@ -290,6 +344,19 @@ function RatifyRow({
           {purityEstimate != null && (
             <div className="est-tag">
               ✦ estimate {purityEstimate}% · llm-proposed · unverified — confirm as-is, or override
+            </div>
+          )}
+          {/* missing ≠ blank: an empty purity says WHY it's empty (the market-cap "needs price" rule,
+              applied here). Pre-revenue names have no segment revenue to read; a thesis-scoped extract
+              that stayed empty means the grounded estimate declined (fail-open) — different authoring
+              starts, named honestly. Quiet on file (the ratified value is showing). */}
+          {purityEstimate == null && !onFile && (
+            <div className="rf-reason">
+              {candidate.source === "10-k-business-description"
+                ? "no revenue data on file — pre-revenue: author the % from the business description"
+                : estimateAttempted
+                  ? "couldn't ground a purity estimate in the passage — author the % from it"
+                  : "author the % from the segment passage"}
             </div>
           )}
           <label className="rf">

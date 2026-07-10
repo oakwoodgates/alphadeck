@@ -39,6 +39,59 @@ export function errText(e: unknown): string {
   return typeof d === "string" ? d : "the request was rejected";
 }
 
+/** The ratified values ON FILE for one fact type, recovered from the scored read (the meters'
+ *  provenance `detail` — the DB-backed surface). The extract endpoint is deliberately DB-free, so on
+ *  re-entry it re-offers the ORIGINAL candidate — the panel visibly "reverted" a saved purity to the
+ *  stale LLM rec even though the meter was correct. Presence of the object = a ratified fact exists;
+ *  each field is best-effort (a fact ratified before the detail threading carries none — the tag still
+ *  renders, the inputs fall back to the candidate). */
+export interface OnFileFact {
+  mix_pct?: number;
+  segment_label?: string;
+  shares?: number;
+  cash_usd?: number;
+  quarterly_burn_usd?: number;
+  note?: string;
+}
+export type OnFileMap = Partial<Record<string, OnFileFact>>;
+
+const dnum = (d: Record<string, unknown> | undefined, k: string): number | undefined =>
+  typeof d?.[k] === "number" ? (d[k] as number) : undefined;
+const dstr = (d: Record<string, unknown> | undefined, k: string): string | undefined =>
+  typeof d?.[k] === "string" ? (d[k] as string) : undefined;
+
+/** Build the per-fact-type on-file map from a scored member. Purity/runway ride their single fact
+ *  provenance; shares is the market-cap entry that is neither the price leg nor the awaiting-note
+ *  (the same predicate as memberHasFundamentals — non-operator provenance never counts as on file). */
+export function onFileValues(m: {
+  purity: ScoredFigureOut;
+  runway: ScoredFigureOut;
+  market_cap: ScoredFigureOut;
+}): OnFileMap {
+  const map: OnFileMap = {};
+  const pu = m.purity.provenance[0];
+  if (pu) {
+    map.revenue_mix = {
+      mix_pct: m.purity.value ?? dnum(pu.detail, "mix_pct"),
+      segment_label: dstr(pu.detail, "segment_label"),
+      note: dstr(pu.detail, "note"),
+    };
+  }
+  const sh = m.market_cap.provenance.find((p) => p.source !== "price" && p.source !== "computed");
+  if (sh) {
+    map.shares_outstanding = { shares: dnum(sh.detail, "shares"), note: dstr(sh.detail, "note") };
+  }
+  const cb = m.runway.provenance[0];
+  if (cb) {
+    map.cash_burn = {
+      cash_usd: dnum(cb.detail, "cash_usd"),
+      quarterly_burn_usd: dnum(cb.detail, "quarterly_burn_usd"),
+      note: dstr(cb.detail, "note"),
+    };
+  }
+  return map;
+}
+
 /** Market cap (a figure, not a meter) → "$8.0B" / "$600M"; "—" when either price or shares is missing
  *  (null value), never a fake "$0". */
 export function formatMarketCap(value: number | null | undefined): string {

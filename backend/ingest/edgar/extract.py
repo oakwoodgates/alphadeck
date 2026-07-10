@@ -168,6 +168,10 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
     rows = _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
     latest_end = max(r["end"] for r in rows) if rows else None
     vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end}) if rows else []
+    # the located cover rides EVERY branch — on AUTO too (show-the-work: the pre-filled count is
+    # approvable AND inspectable; the UI keeps it collapsed for AUTO, never a black-box value)
+    passage = _locate(tenq_text, ref, "cover", ["shares of Class", "Class A", "outstanding"])
+    located = [p for p in [passage] if p]
     # AUTO only when the cover concept is single-class AND current. ``period_end`` is the filing's
     # PERIOD OF REPORT: a 10-Q cover is dated "as of the latest practicable date" — AFTER the period
     # end, BEFORE the filing date — so a current cover always passes this gate. (Comparing against the
@@ -181,6 +185,7 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
             source="10-q-cover",
             source_ref=ref,
             event_date=date.fromisoformat(latest_end),
+            located_passages=located,
             note=f"Cover-page shares outstanding as of {latest_end} (single class).",
         )
     # FLAG — three DISTINCT observed conditions get three HONEST labels (#6: a flag is evidence, so it
@@ -189,8 +194,6 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
     total = _cover_class_sum(
         tenq_text
     )  # >= 2 per-class counts located on the COVER text, else None
-    passage = _locate(tenq_text, ref, "cover", ["shares of Class", "Class A", "outstanding"])
-    located = [p for p in [passage] if p]
     if len(vals) > 1 or total is not None:
         # multiple classes OBSERVED — either >1 distinct DEI values on the latest cover date, or >=2
         # per-class counts parsed from the cover itself. (Dual-class filers usually report DEI per class
@@ -472,6 +475,18 @@ def _cash_burn(
     # NO marketable-securities flag (the re-tier): same-dated inclusion is the textbook liquidity
     # composition and off-date exclusion errs conservative (cash understated -> runway reads SHORTER) —
     # both are stated in the note's as-ofs above; the alarm, when it matters, is the meter reading short.
+
+    if not flags:
+        # show-the-work on AUTO: attach the same deterministic locates the FLAG paths carry, so the
+        # pre-filled clean quarter still shows its statements (the UI keeps them collapsed for AUTO —
+        # the source is on demand, never demanded, and never a black box).
+        for kind, keys in (
+            ("balance-sheet", ["cash and cash equivalents", "total current assets"]),
+            ("cash-flow", ["operating activities", "cash flows"]),
+        ):
+            p = _locate(tenq_text, ref, kind, keys)
+            if p:
+                passages.append(p)
 
     tier = Tier.FLAG if flags else Tier.AUTO
     cash_part = (
