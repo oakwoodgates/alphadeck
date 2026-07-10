@@ -11,6 +11,7 @@ from pathlib import Path
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
+from ingest import CacheMiss
 from pipeline import ingest_thesis as IT
 from pipeline.provision_tenant import provision_tenant
 
@@ -32,6 +33,23 @@ class _FakeClient:
         pass
 
     def get_text(self, url: str, cache_key: str) -> str:
+        return _XML
+
+
+class _MixedClient(_FakeClient):
+    """A per-filing-failure EdgarClient: accession ACC-BAD returns an unparseable doc (the pre-XML
+    SGML/text era), ACC-404 raises the 404 an ancient document URL produces, anything else is the
+    good sample XML."""
+
+    def get_text(self, url: str, cache_key: str) -> str:
+        if "ACC-BAD" in cache_key:
+            return "-----BEGIN PRIVACY-ENHANCED MESSAGE-----\n<SEC-DOCUMENT>not xml"
+        if "ACC-404" in cache_key:
+            import httpx
+
+            req = httpx.Request("GET", url)
+            resp = httpx.Response(404, request=req)
+            raise httpx.HTTPStatusError("404 Not Found", request=req, response=resp)
         return _XML
 
 
@@ -242,3 +260,74 @@ def test_ingest_writes_under_the_thesis_tenant(db, monkeypatch):
     assert r.error is None and r.form4_appended == _F4_PER_ACCESSION and r.price_bars_appended == 1
     assert _counts(db, tenant=_ALT_TENANT) == (_F4_PER_ACCESSION, 1)  # under the alt tenant
     assert _counts(db, tenant=DEFAULT_TENANT_ID) == (0, 0)  # nothing leaked to the default
+
+
+def test_unparseable_filing_is_skipped_not_leg_fatal(db, security_id, monkeypatch, capsys):
+    """Per-filing tolerance: an unparseable filing (the pre-2004 SGML/text era) is skipped-and-counted
+    with a visible warning; the walk CONTINUES and the good filing still lands — one ancient filing
+    never blanks the name's whole insider history (the NVEC/INTT live failure)."""
+    _patch(monkeypatch, accessions=("ACC-BAD", "ACC-1"), bar_dates=(date(2026, 6, 15),))
+    monkeypatch.setattr(IT, "EdgarClient", _MixedClient)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error is None  # the leg did NOT abort
+    assert r.form4_appended == _F4_PER_ACCESSION  # ACC-1, walked AFTER the bad filing, still landed
+    assert r.form4_skipped == 1
+    assert _counts(db) == (_F4_PER_ACCESSION, 1)
+    out = capsys.readouterr().out
+    assert "ACC-BAD" in out and "skipped" in out  # the per-filing warning is visible
+
+
+def test_unfetchable_filing_is_skipped_not_leg_fatal(db, security_id, monkeypatch):
+    """The fetch side of the same tolerance: a document URL that 404s (the ASYS/CVV year-2000 URL
+    shape) is skipped-and-counted; the rest of the walk still ingests."""
+    _patch(monkeypatch, accessions=("ACC-404", "ACC-1"), bar_dates=(date(2026, 6, 15),))
+    monkeypatch.setattr(IT, "EdgarClient", _MixedClient)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error is None
+    assert r.form4_appended == _F4_PER_ACCESSION
+    assert r.form4_skipped == 1
+    assert _counts(db) == (_F4_PER_ACCESSION, 1)
+
+
+def test_skip_tolerance_keeps_rerun_at_zero_rows_count_the_table(db, security_id, monkeypatch):
+    """COUNT-the-table idempotency holds WITH a skip in the walk: the re-run re-attempts the bad
+    filing (never stored → never in ``existing_accessions``), re-skips it, and appends ZERO rows —
+    the skip stays visible on every run instead of being silently marked done."""
+    _patch(monkeypatch, accessions=("ACC-BAD", "ACC-1"), bar_dates=(date(2026, 6, 15),))
+    monkeypatch.setattr(IT, "EdgarClient", _MixedClient)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    IT.ingest_thesis(db, tid, allow_live=False)
+    before = _counts(db)
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]  # identical second run
+
+    assert _counts(db) == before  # the TABLE did not grow
+    assert r.form4_appended == 0 and r.price_bars_appended == 0
+    assert r.form4_skipped == 1  # still counted, still visible
+
+
+def test_cache_miss_still_aborts_the_form4_leg(db, security_id, monkeypatch):
+    """The tolerance is per-FILING, not per-anything: a ``CacheMiss`` (live pulls disabled, cold
+    cache) is an environment condition, not one filing's fault — it still fails the leg visibly
+    instead of dissolving into a skip count. Per-LEG isolation still commits the price leg."""
+
+    class _ColdClient(_FakeClient):
+        def get_text(self, url: str, cache_key: str) -> str:
+            raise CacheMiss(f"{cache_key} not cached (live pulls disabled)")
+
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    monkeypatch.setattr(IT, "EdgarClient", _ColdClient)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error and "form4" in r.error and "not cached" in r.error
+    assert r.form4_appended == 0 and r.form4_skipped == 0
+    assert r.price_bars_appended == 1  # the price leg still committed
+    assert _counts(db) == (0, 1)

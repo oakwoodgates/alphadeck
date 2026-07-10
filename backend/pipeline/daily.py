@@ -105,7 +105,9 @@ def _report(results: list[ThesisRunResult]) -> int:
         else:
             mark = "unchanged (no new row)"
         facts = sum(x.form4_appended + x.price_bars_appended for x in r.ingested)
-        print(f"  {r.name}: +{facts} facts · {mark}")
+        skipped = sum(x.form4_skipped for x in r.ingested)
+        sk = f" · {skipped} form4 skipped" if skipped else ""  # loudness marks the exception
+        print(f"  {r.name}: +{facts} facts{sk} · {mark}")
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged · "
         f"{len(errored)} errored"
