@@ -325,6 +325,16 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
+  // Keeper set-aside (VIEW-only, #1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
+  // stub and stays on screen, one ✕-click from restore. Local — never persisted, never touches the basket/backend.
+  const [setAside, setSetAside] = useState<Set<string>>(new Set());
+  const toggleSetAside = (id: string) =>
+    setSetAside((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
@@ -653,8 +663,11 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       : !p.ticker
         ? "no listed ticker — not directly investable (add via the name search below if you need it)"
         : "check to add — moves it up to Placed (the basket)";
+    // VIEW-only set-aside (#2 keep-it-visible): the ✕ greys the keeper to a stub, reversible in one click.
+    const asideId = p.security_id ?? p.ticker ?? p.name ?? key;
+    const aside = setAside.has(asideId);
     return (
-      <div className="nmrow" key={key}>
+      <div className={`nmrow${aside ? " excluded" : ""}`} key={key}>
         <div className="top">
           {/* the "add" checkbox sits LEFT of the name — the same spot as the Placed include checkbox (consistency).
               Checking it promotes the candidate → the row moves up to Placed. Disabled + titled for un-addable names. */}
@@ -662,18 +675,44 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             type="checkbox"
             className="wb-inc"
             checked={false}
-            disabled={!canAdd}
+            disabled={!canAdd || aside}
             aria-label={`add ${p.ticker || p.name}`}
             title={addWhy}
-            onChange={() => canAdd && addVerify(p)}
+            onChange={() => canAdd && !aside && addVerify(p)}
           />
           <span className="tk">{p.ticker || "—"}</span>
           <span className="co">{p.name}</span>
-          <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
-          {p.discovery_source === "off_universe" && <OffUniversePill />}
+          {/* set aside → a quiet stub (chips + prose hidden, the noise recedes); else the identity chips. */}
+          {aside ? (
+            <span className="wb-exc-tag" title="set aside — click the ✕ to restore">
+              set aside
+            </span>
+          ) : (
+            <>
+              <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
+              {p.discovery_source === "off_universe" && <OffUniversePill />}
+            </>
+          )}
+          {/* the ✕ set-aside toggle, top-right (reversibility #1): click to grey the keeper out, click again to
+              restore. Local view state only — nothing added, removed, or sent to the backend. */}
+          <button
+            type="button"
+            className={`wb-setaside${aside ? " on" : ""}`}
+            aria-pressed={aside}
+            aria-label={`${aside ? "restore" : "set aside"} ${p.ticker || p.name}`}
+            title={
+              aside
+                ? "restore — bring this keeper back"
+                : "set aside — grey this keeper out (reversible; click again to restore)"
+            }
+            onClick={() => toggleSetAside(asideId)}
+          >
+            ✕
+          </button>
         </div>
-        {p.prose ? <div className="fit">{p.prose}</div> : null}
-        {(() => {
+        {aside ? null : p.prose ? <div className="fit">{p.prose}</div> : null}
+        {!aside &&
+        (() => {
           // Only surface "recommend → {segment}" when it's a REAL link. "Discovered" is the unsorted holding pen
           // (not a link), so "recommend → Discovered" is a contradiction — it's exactly where the low-signal /
           // ticker-less names land, i.e. the system is NOT recommending a link. Keep the `matched …` provenance
@@ -689,7 +728,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
             </div>
           );
         })()}
-        {p.listing_status === "inactive" && <NotListedFlag />}
+        {!aside && p.listing_status === "inactive" && <NotListedFlag />}
       </div>
     );
   };

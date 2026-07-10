@@ -597,6 +597,12 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .wb-results .nmrow.excluded .tk { text-decoration: line-through; }
 /* R3: the collapsed-stub tag on an excluded row (chips/controls/prose are hidden; re-check restores them). */
 .wb-results .wb-exc-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); margin-left: auto; }
+/* the keeper set-aside ✕ (To-Review) — a top-right VIEW toggle: grey the row to a stub, click again to restore.
+   Sits far right (margin-left:auto); the tag + ✕ group together on a set-aside row (both auto-margined). */
+.wb-results .wb-setaside { margin-left: auto; flex: none; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: 1px solid transparent; border-radius: 5px; padding: 2px 7px; cursor: pointer; }
+.wb-results .wb-exc-tag + .wb-setaside { margin-left: 6px; }
+.wb-results .wb-setaside:hover { color: var(--txt-2); border-color: var(--line-2); background: var(--panel); }
+.wb-results .wb-setaside:focus-visible { outline: 2px solid var(--leader); outline-offset: 1px; }
 .wb-triage-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 9px; }
 .wb-triage-bulk .note { margin: 0; margin-right: auto; }
 .wb-results .fund-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; padding: 2px 7px; border-radius: 5px; color: var(--txt-4); background: rgba(90, 100, 116, 0.12); border: 1px dashed var(--line-2); }
