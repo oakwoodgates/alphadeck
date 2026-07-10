@@ -89,7 +89,11 @@ three candidates — one per meter: `revenue_mix` (purity), `shares_outstanding`
 ## The detectors — what trips a FLAG (category, not size)
 
 The detectors read `companyfacts`; every threshold is a dial in `ExtractorConfig` (`backend/domain/config.py`,
-no magic numbers). The judgment calls the operator most needs to make:
+no magic numbers). **A FLAG marks an EXCEPTION needing judgment; COMPOSITION rides the note as provenance**
+(the re-tier — honest loudness applied to the extractor itself: `ytd-derived` fired on ~3 of 4 filings [GAAP
+10-Q cash-flow statements are YTD] and `verify-marketable-securities` on ~every real filer, so AUTO was
+structurally empty and a wall of alarms drowned the rare flag that mattered). The judgment calls the operator
+most needs to make:
 
 - **The one-time detector is CATEGORY-not-size.** A burn quarter can hide a one-time outflow (a settlement /
   milestone payment) that makes runway look far worse than the recurring reality. The detector flags a
@@ -101,23 +105,30 @@ no magic numbers). The judgment calls the operator most needs to make:
   **generic — it never branches on a named item** ("ENTRA1" appears only in a clarifying comment in
   `extract.py`, never in the logic); it locates the flagged AMOUNT (or a corroborating one-time keyword) in
   the cash-flow statement and lets the operator decide whether to back it out. → flag `possible-one-time`.
-- **YTD derivation — and the raw-YTD case it must never be confused with.** companyfacts' cash-flow column
-  is often year-to-date. When the latest span exceeds `quarterly_span_max_days` (100) and a same-start prior
-  exists, the extractor DERIVES the quarter (YTD − prior YTD) → flag `ytd-derived`. When there is **no prior
-  to subtract**, the value goes out as the **raw YTD, labeled `ytd-raw`** with a passage saying it is NOT a
-  quarter (the runway audit: the old single label claimed a derivation that never happened — runway would
-  have read ~3–4× too short, believed).
-- **Cash includes marketable securities — same balance sheet only, flagged for verification.**
+- **YTD derivation — a clean derivation is AUTO; only the raw-YTD case flags.** companyfacts' cash-flow
+  column is often year-to-date. When the latest span exceeds `quarterly_span_max_days` (100) and a same-start
+  prior exists, the extractor DERIVES the quarter (YTD − prior YTD) — **reproducible arithmetic on two filed
+  columns (the market-cap trust class), stated in the note (`derived (YTD − prior YTD)`), never a flag.**
+  When there is **no prior to subtract**, the value goes out as the **raw YTD → flag `ytd-raw`** with a
+  passage saying it is NOT a quarter (the runway audit: the old single label claimed a derivation that never
+  happened — runway would have read ~3–4× too short, believed). The one-time detector runs on the derived
+  quarter too — a clean basis never bypasses the anomaly check.
+- **Cash includes marketable securities — same balance sheet only; the composition is a note, not an alarm.**
   `cash_usd = cash + equivalents + marketable securities` (the uniform cash rule, `WORKBENCH_SCORING.md`) —
   but **a balance sheet is ONE date**: a marketable instant dated differently from cash is a *different*
   balance sheet (usually a discontinued tag — MU's `AvailableForSaleSecurities*` last reported **2018**, and
   the old composer silently added those balances into current cash) and is **EXCLUDED from the sum**, named
-  in the note. Included-or-excluded, the basis question is raised → flag `verify-marketable-securities`.
+  in the note ("verify where current investments live"). Included-or-excluded, the basis rides the note's
+  as-ofs; **no flag** — same-dated inclusion is the textbook liquidity composition, and the off-date
+  exclusion errs CONSERVATIVE (understated cash → runway reads *shorter*; a funding-risk gauge that
+  over-warns, never under-warns). The alarm, when it matters, is the runway meter reading short.
 - **Missing inputs are their own labels with None values — never a fake $0.** No cash instant *and* no
   OCF column → `no-companyfacts` (located-only; the old `or 0.0` coercions sent such filers out AUTO / $0 /
   $0 / "Clean quarter" — a confirmable fake zero). Cash without an OCF column → `no-cashflow-column` (burn
   stays None; a $0 burn used to ratify into a fake "cash-generative"). An OCF column without a cash
-  instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0).
+  instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0) and renders
+  the missing-data labels **grey (∅), not warm (⚠)** — a data gap is an authoring state, not an alarm; the
+  warm glyph is reserved for the judgment exceptions (one-time / stale / raw-YTD / dual-class).
 - **Every input's as-of date rides the note** ("cash as of … · burn over … → …"), and a cash balance sheet
   older than the filing's period end flags `stale-cash` (the shares `stale-cover` rule, applied here).
   `event_date` = the burn period's own end (else the cash as-of) — the value's own valid-time, never the

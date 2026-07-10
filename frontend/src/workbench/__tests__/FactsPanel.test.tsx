@@ -114,6 +114,15 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
   });
 
+  it("missing-data flags render grey (∅), judgment flags warm (⚠) — honest loudness", () => {
+    // one candidate can carry both: a derived burn with an anomalous line (judgment) + no cash
+    // instant (a data gap). The gap is an authoring state, not an alarm — grey, never warm.
+    h.extract.data = [{ ...FLAG_BURN, flags: ["possible-one-time", "no-cash-instant"] }];
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText("⚠ possible-one-time").className).toBe("rflag");
+    expect(screen.getByText("∅ no-cash-instant").className).toBe("rflag missing");
+  });
+
   it("re-seeds the inputs when the selected member changes (no cross-member stale value)", () => {
     // The section-prefetch flow: the rail stays MOUNTED while the operator clicks name→name (only
     // `securityId` changes). RatifyRow seeds its inputs from `candidate` via useState, so a fact_type-only

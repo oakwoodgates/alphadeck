@@ -356,11 +356,17 @@ def _detect_one_time(
 def _cash_burn(
     facts: dict, tenq_text: str, ref: str, period_end: date, cfg: ExtractorConfig
 ) -> ExtractedFact:
-    """Cash + quarterly burn, labeled per OBSERVED condition (the runway audit — the shares-fix rules
-    applied here): a derived quarter is ``ytd-derived``; a raw YTD that COULDN'T be derived is ``ytd-raw``
-    (never claimed derived); a missing input is its own flag with a **None** value — never a fake $0 cash
-    or a fake $0 burn (which ratified into a fake "cash-generative"); every input's as-of date rides the
-    note, and an instant older than the filing period flags ``stale-cash``."""
+    """Cash + quarterly burn. A FLAG marks an EXCEPTION needing judgment (the re-tier — honest loudness:
+    ``ytd-derived`` fired on ~3 of 4 filings [GAAP 10-Q cash-flow statements are YTD] and
+    ``verify-marketable-securities`` on ~every real filer, so AUTO was structurally empty and the flags
+    carried no information): a raw YTD that COULDN'T be derived is ``ytd-raw`` (never claimed derived);
+    an anomalous line is ``possible-one-time``; an instant older than the filing period is ``stale-cash``;
+    a missing input is its own flag with a **None** value — never a fake $0 cash or a fake $0 burn (which
+    ratified into a fake "cash-generative"). COMPOSITION is provenance, not an alarm: a cleanly-derived
+    quarter (YTD − prior YTD — reproducible arithmetic on two filed columns, the market-cap trust class)
+    and the marketable-securities basis (same-dated included / off-date excluded, which errs CONSERVATIVE —
+    understated cash reads runway shorter) ride the NOTE and stay AUTO. Every input's as-of rides the note.
+    """
     cash_at = _latest_instant(facts, _CASH)
     sti_at = _latest_instant(facts, _STI)
     lti_at = _latest_instant(facts, _LTI)
@@ -417,6 +423,9 @@ def _cash_burn(
         )
 
     burn: float | None = None
+    basis_suffix = (
+        ""  # the derivation basis, stated in the note (composition = provenance, not a flag)
+    )
     if q is None:
         # cash present but NO operating-cash-flow column: burn=0 here used to ratify straight into a
         # fake "cash-generative" (top-pip runway) on zero evidence — burn stays None, its own flag.
@@ -429,18 +438,13 @@ def _cash_burn(
         burn = -qval  # quarterly_burn_usd is POSITIVE when burning (op-cash-use is negative)
         asofs.append(f"burn over {start} → {end}")
         if basis == "derived":
-            flags.append("ytd-derived")
-            passages.append(
-                LocatedPassage(
-                    kind="cash-flow",
-                    source_ref=ref,
-                    anchor="year-to-date",
-                    excerpt="… companyfacts reports a year-to-date cash-flow column; the quarter is derived "
-                    "(YTD − prior period). Confirm the period basis …",
-                )
-            )
+            # a clean derivation (both YTD columns on file, quarter = YTD − prior YTD) is reproducible
+            # arithmetic, not a judgment fork — stated, never alarmed. As a FLAG it fired on ~3 of 4
+            # filings (GAAP 10-Qs report cash flow YTD), marking the RULE instead of the exception.
+            basis_suffix = ", derived (YTD − prior YTD)"
         elif basis == "ytd-raw":
             flags.append("ytd-raw")
+            basis_suffix = " — the RAW year-to-date, NOT a quarter (see the flag)"
             passages.append(
                 LocatedPassage(
                     kind="cash-flow",
@@ -465,18 +469,9 @@ def _cash_burn(
     # cash — included marketable share cash's date by construction)
     if cash_at and date.fromisoformat(cash_at[1]) < period_end:
         flags.append("stale-cash")
-    if (cash_usd is not None and marketable > 0) or mk_offdate:
-        # a basis question EITHER way: marketable included in the sum (verify the composition), or
-        # marketable tags present but off-date and excluded (verify where current investments live)
-        flags.append("verify-marketable-securities")
-        bs = _locate(
-            tenq_text,
-            ref,
-            "balance-sheet",
-            ["marketable securities", "short-term investments", "investments"],
-        )
-        if bs:
-            passages.append(bs)
+    # NO marketable-securities flag (the re-tier): same-dated inclusion is the textbook liquidity
+    # composition and off-date exclusion errs conservative (cash understated -> runway reads SHORTER) —
+    # both are stated in the note's as-ofs above; the alarm, when it matters, is the meter reading short.
 
     tier = Tier.FLAG if flags else Tier.AUTO
     cash_part = (
@@ -486,7 +481,7 @@ def _cash_burn(
         else "cash: NOT FOUND in companyfacts (author it from the located balance sheet)"
     )
     burn_part = (
-        "quarterly burn = operating cash use"
+        f"quarterly burn = operating cash use{basis_suffix}"
         if burn is not None
         else "burn: NOT FOUND (no operating-cash-flow column)"
     )
@@ -497,7 +492,7 @@ def _cash_burn(
         + (
             "FLAGS: " + ", ".join(flags) + " — confirm against the filing."
             if flags
-            else "Clean quarter, no marketable-securities basis question."
+            else "No attention flags."
         )
     )
     # the value's OWN as-of (the #132 event-date rule): the burn period end, else the cash instant's end
@@ -653,7 +648,8 @@ def extract_for_security(
     a 10-K carries a cover-share count (shares) + a cash-flow statement (burn); a 10-Q carries interim
     segment notes (purity) — so a domestic filer with only one recent form still yields candidates. The
     both-present case is UNCHANGED (q=10-Q, k=10-K). A fallen-back annual cash-flow column stays honest:
-    the existing detector FLAGs a year-to-date column rather than mislabel it a clean quarter."""
+    a derivable YTD is stated as derived in the note (reproducible arithmetic — AUTO, the re-tier); an
+    underivable one FLAGs ``ytd-raw`` rather than mislabel a clean quarter."""
     cik = int(cik)
     cf = client.get_json(
         companyfacts_url(cik),
