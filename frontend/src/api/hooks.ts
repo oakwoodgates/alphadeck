@@ -89,6 +89,46 @@ export function useCalls(thesisIds: string[], asof: string) {
   return useQueries({ queries: thesisIds.map((id) => callQuery(id, asof)) });
 }
 
+// --- decision capture: the operator-decisions log (take / pass / close / void) ---
+export type DecisionIn = components["schemas"]["DecisionIn"];
+export type DecisionOut = components["schemas"]["DecisionOut"];
+
+// The thesis's decision log, newest first (voided rows ride along flagged — greyed, never hidden).
+export function useDecisions(thesisId: string) {
+  return useQuery({
+    queryKey: ["decisions", thesisId] as const,
+    enabled: Boolean(thesisId),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/theses/{thesis_id}/decisions", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// APPEND one decision (advisory only, #5 — this LOGS a fill/pass made elsewhere; nothing routes).
+// A landed decision changes the derived position, so the CALL invalidates too (every asof, via the
+// partial key match) and the card visibly flips — take → Managing; close → back to signals-driven.
+export function usePostDecision(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: DecisionIn) => {
+      const { data, error } = await api.POST("/theses/{thesis_id}/decisions", {
+        params: { path: { thesis_id: thesisId } },
+        body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["decisions", thesisId] });
+      qc.invalidateQueries({ queryKey: ["call", thesisId] });
+    },
+  });
+}
+
 // The Workbench scored read: the value-chain segments + the four-meter scores per basket member,
 // re-derived at `asof` (Option B — nothing persists; the UI always shows current numbers).
 export function useWorkbenchScored(thesisId: string, asof: string) {

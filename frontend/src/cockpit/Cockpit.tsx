@@ -177,7 +177,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
         <aside className="cp-rail">
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
-          {card && <CallCard card={card} />}
+          {card && <CallCard card={card} thesisId={thesisId} />}
           {card && <MemberMenu card={card} />}
         </aside>
       </div>

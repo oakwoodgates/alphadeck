@@ -8,15 +8,17 @@ import {
   STATE_CLASS,
   verdictLabel,
 } from "../util/format";
+import { DecisionActions } from "./DecisionActions";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
 
 // The rail: the opinionated, auditable call. Recomputed live at `card.asof` (the read path).
-export function CallCard({ card }: { card: CallCardResponse }) {
+// With `thesisId` the action row wires to the operator-decisions log (the Cockpit); without it the
+// card is purely presentational (tests, previews) — no dead buttons either way.
+export function CallCard({ card, thesisId }: { card: CallCardResponse; thesisId?: string }) {
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   const armed = card.state === "armed";
-  const managing = card.state === "managing";
   // Confidence is an Armed-state metric (§7): the backend nulls it for a not-yet card, so the bar
   // only renders when armed — a Warming card never wears the Armed card's confidence bar.
   const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
@@ -133,43 +135,13 @@ export function CallCard({ card }: { card: CallCardResponse }) {
           </div>
         )}
 
-        {/* the rail is state-appropriate (inverse loudness): only Armed shows the loud primary Act.
-            A not-yet card shows the gate — the platform withholding its go-signal — and a logged
-            early-entry override, not an act button. */}
-        {armed ? (
-          <div className="actions">
-            <button className="btn primary" type="button">
-              Act
-            </button>
-            <button className="btn" type="button">
-              Override
-            </button>
-            <button className="btn" type="button">
-              Snooze
-            </button>
-          </div>
-        ) : managing ? (
-          <div className="actions two">
-            <button className="btn" type="button">
-              Log exit
-            </button>
-            <button className="btn" type="button">
-              Trail stop
-            </button>
-          </div>
-        ) : (
-          <div className="gate">
-            <div className="gate-note">
-              The gate is withholding the go-signal — friction, not a block. Enter early if you
-              disagree; the override is logged.
-            </div>
-            <button className="btn wide" type="button">
-              Override — enter early (logged)
-            </button>
-          </div>
-        )}
+        {/* the rail is state-appropriate (inverse loudness): only Armed shows the loud primary act;
+            a not-yet card shows the gate. The row is WIRED — every act / pass / override / exit is
+            an append to the operator-decisions log (decision capture), never a dead button. */}
+        {thesisId && <DecisionActions thesisId={thesisId} card={card} />}
         <div className="advisory">
-          Advisory only — order routing never; the override log lands with the Scoreboard.
+          Advisory only — order routing never; every act, pass, and override above is a logged
+          decision (the Scoreboard's operator record).
         </div>
       </div>
     </div>
