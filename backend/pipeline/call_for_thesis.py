@@ -8,7 +8,7 @@ import psycopg
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from pipeline.core import assemble_from_pit
-from repositories import calls_repo, thesis_repo
+from repositories import calls_repo, decisions_repo, thesis_repo
 from signals.base import PointInTimeData
 
 
@@ -37,6 +37,13 @@ def call_for_thesis(
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
         raise LookupError(f"thesis not found: {thesis_id}")
+
+    # THE POSITION FEED (decision capture): the operator-decisions log is the source of truth for the
+    # position, read as-of BOTH time axes — a past-asof call (or a pinned-known_at run) never sees a
+    # later-logged fill (#1). Fed here, at the single assembly funnel, so the API read, pipeline.run,
+    # and the daily cron all get it from one place and the assembler stays pure. A thesis with no
+    # decision rows keeps its stored seed-era position (the precedence rule in decisions_repo).
+    thesis.position = decisions_repo.effective_position(conn, thesis, asof=asof, known_at=known_at)
 
     # Derive the tenant from the THESIS (auth deferred): a thesis lives in exactly one tenant, so its
     # tenant_id scopes EVERY fact read for this call (threaded once into the pit) AND the call-of-record

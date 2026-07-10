@@ -62,7 +62,7 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 | → **Incubating** | No *live* entry trigger. *(default state)* |
 | Incubating → **Warming** | ≥ `warming_min_entry_triggers` live entry triggers, but the two keys are **not** co-located (e.g. a conviction with no confirmation on the same security). |
 | Warming → **Armed** | A **conviction** key and a **confirmation** key are *live and co-located on the same security* (`arming_requires_confirmation`), and no severe risk signal is blocking. |
-| any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). |
+| any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). The position DERIVES from the **operator-decisions log** (`operator_decision` — decision capture): `take` opens, `close` closes, `void` un-does an append; read as-of BOTH time axes (`decision_date` = valid, `recorded_at` = transaction — a replayed past call never sees a later-logged fill), fed once at the `call_for_thesis` funnel (`decisions_repo.effective_position`; any log rows beat the seed-era `thesis.position_*` columns, including net-closed). The same log is the Scoreboard's operator column and the gate's override record (a take rides with the platform's stance at logging time — logged, never blocked, #5). |
 | Armed → **Warming** | The **confirmation** key ages past its liveness window (the *entry window* `arm_until` lapses) with no fill — re-arming needs a fresh confirmation. A mild consolidation (a dip that doesn't age out the firing) is **not** a lapse. |
 | Armed/Warming → **Incubating** | All live entry triggers age out (past the *hold* horizon `exit_by`). |
 
