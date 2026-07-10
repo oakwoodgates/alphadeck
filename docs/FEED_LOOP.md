@@ -48,6 +48,13 @@ price facts for each **resolved** basket member. CLI: `python -m pipeline.ingest
   on success and rolling back on failure, so one leg's error never discards the other's work and never aborts
   the run — the error is captured into the name's `NameResult` (improving on the scanner's bare `except:
   pass`). One bad name never stops the rest.
+- **Per-filing tolerance inside the Form 4 leg.** One unfetchable or unparseable filing — pre-2004-06-30
+  Form 4s are SGML/text, not XML, and some ancient document URLs 404 (seen live: NVEC/INTT parse errors,
+  ASYS/CVV year-2000 404s blanking whole names) — is **skipped-and-counted** (`NameResult.form4_skipped`,
+  a printed per-filing warning, surfaced in the summaries only when nonzero) instead of aborting the leg.
+  A skipped accession is never stored, so later runs re-attempt it rather than marking it done. Systemic
+  failures (DB errors, a cache miss with live pulls off, a missing User-Agent) still abort the leg — those
+  are the environment's fault, not one filing's.
 - **Incremental — a re-run appends NOTHING.** Form 4: `form4.existing_accessions` skips filings already
   stored (accession is the filing identity). Prices: `eod_loader.latest_bar_date` → ingest only bars with
   `d > latest`. So re-ingesting an already-current name writes zero rows. *(This is the write-side guard; the
