@@ -172,7 +172,7 @@ def _inst(end, val):
     return {"end": end, "val": val, "filed": end}
 
 
-def _facts(ocf=None, cash=None, sti=None):
+def _facts(ocf=None, cash=None, sti=None, extra=None):
     g = {}
     if ocf is not None:
         g["NetCashProvidedByUsedInOperatingActivities"] = {"units": {"USD": ocf}}
@@ -180,6 +180,8 @@ def _facts(ocf=None, cash=None, sti=None):
         g["CashAndCashEquivalentsAtCarryingValue"] = {"units": {"USD": cash}}
     if sti is not None:
         g["ShortTermInvestments"] = {"units": {"USD": sti}}
+    for concept, rows in (extra or {}).items():
+        g[concept] = {"units": {"USD": rows}}
     return {"us-gaap": g}
 
 
@@ -205,15 +207,35 @@ def test_cash_ytd_raw_is_never_claimed_derived():
     assert any("NOT a quarter" in p.excerpt for p in cb.located_passages)
 
 
-def test_cash_ytd_derived_stays_derived_with_the_true_quarter():
+def test_cash_clean_derived_quarter_is_auto_with_the_derivation_in_the_note():
+    """THE RE-TIER pinned: a cleanly-derived quarter (both YTD columns on file) is reproducible
+    arithmetic — AUTO, the derivation stated in the note, never a flag. (As a FLAG, ``ytd-derived``
+    fired on ~3 of 4 filings — GAAP 10-Qs report cash flow YTD — so it marked the RULE, not the
+    exception, and AUTO was structurally empty.) The one-time detector still runs on the derived
+    quarter — see ``test_one_time_inside_a_derived_quarter_still_flags``."""
     f = _facts(
         ocf=[_dur("2025-08-29", "2026-05-28", -90e6), _dur("2025-08-29", "2026-02-26", -60e6)],
         cash=[_inst("2026-05-28", 100e6)],
     )
     cb = _cb(f)
-    assert "ytd-derived" in cb.flags and "ytd-raw" not in cb.flags
+    assert cb.tier is Tier.AUTO and cb.flags == []
     assert cb.quarterly_burn_usd == 30e6  # YTD − prior YTD = the actual quarter
+    assert "derived (YTD − prior YTD)" in cb.note  # composition = provenance, stated where ratified
     assert cb.event_date == date(2026, 5, 28)  # dated by the burn period's own end
+
+
+def test_one_time_inside_a_derived_quarter_still_flags():
+    """The re-tier's counterfactual: AUTO-derived must NOT bypass the one-time detector — a derived
+    quarter carrying an anomalous accrued line still FLAGs (the exception outranks the clean basis).
+    """
+    f = _facts(
+        ocf=[_dur("2025-08-29", "2026-05-28", -90e6), _dur("2025-08-29", "2026-02-26", -60e6)],
+        cash=[_inst("2026-05-28", 100e6)],
+        extra={"IncreaseDecreaseInAccruedLiabilities": [_dur("2026-02-26", "2026-05-28", -25e6)]},
+    )
+    cb = _cb(f)
+    assert cb.tier is Tier.FLAG and cb.flags == ["possible-one-time"]
+    assert "derived (YTD − prior YTD)" in cb.note  # the basis still stated alongside the flag
 
 
 def test_cash_no_companyfacts_is_a_located_only_flag_never_auto_zero():
@@ -258,7 +280,9 @@ def test_cash_offdate_marketable_is_excluded_never_summed():
     """A balance sheet is ONE date (the MU live catch): a marketable instant dated differently from cash
     is a DIFFERENT balance sheet — usually a discontinued tag (MU's AvailableForSaleSecurities* last
     reported 2018, and the old bare-value composer silently added those eight-year-old balances into
-    CURRENT cash). Excluded from the sum, named in the note, the basis question still flagged."""
+    CURRENT cash). Excluded from the sum and NAMED in the note — no flag (the re-tier): the exclusion
+    errs CONSERVATIVE (understated cash reads runway SHORTER), so the alarm, when it matters, is the
+    meter reading short — and the note right there says where current investments might live."""
     f = _facts(
         ocf=[_dur("2026-03-01", "2026-05-28", -5e6)],
         cash=[_inst("2026-05-28", 100e6)],
@@ -266,14 +290,14 @@ def test_cash_offdate_marketable_is_excluded_never_summed():
     )
     cb = _cb(f)
     assert cb.cash_usd == 100e6  # cash ONLY — the 2018 balance never enters the sum
-    assert "verify-marketable-securities" in cb.flags  # the basis question is still raised
-    assert (
-        "stale-cash" not in cb.flags
-    )  # cash itself is current; the off-date tag is EXCLUDED, not stale
+    assert cb.tier is Tier.AUTO and cb.flags == []  # composition is a note, never an alarm
     assert "EXCLUDED from the sum" in cb.note and "2018-11-29" in cb.note
 
 
-def test_cash_samedate_marketable_still_sums():
+def test_cash_samedate_marketable_sums_quietly_into_the_composition():
+    """Same-dated STI/LTI + cash is the textbook liquidity composition — summed, stated in the note's
+    as-ofs, AUTO. (``verify-marketable-securities`` fired on ~every real filer — a flag marking the
+    rule, retired by the re-tier.)"""
     f = _facts(
         ocf=[_dur("2026-03-01", "2026-05-28", -5e6)],
         cash=[_inst("2026-05-28", 100e6)],
@@ -281,7 +305,8 @@ def test_cash_samedate_marketable_still_sums():
     )
     cb = _cb(f)
     assert cb.cash_usd == 150e6
-    assert "verify-marketable-securities" in cb.flags
+    assert cb.tier is Tier.AUTO and cb.flags == []
+    assert "marketable as of 2026-05-28" in cb.note  # the composition stated where ratified
 
 
 def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
@@ -294,25 +319,26 @@ def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Tier 1/2 — cash: cash-only -> AUTO exact; marketable securities present -> FLAG (verify the basis)
+# Tier 1/2 — cash: composition (cash-only OR + same-dated marketable) -> AUTO; flags mark exceptions
 # ---------------------------------------------------------------------------------------------------------
 def test_cash_auto_when_no_marketable_securities():
     leu = _extract("LEU")["cash_burn"]
     assert leu.tier is Tier.AUTO and leu.cash_usd == SEED["LEU"]["cash"]
 
 
-def test_cash_flagged_when_marketable_securities_present():
+def test_cash_marketable_composition_is_a_note_never_an_alarm():
+    """THE RE-TIER on the seed fixtures. SMR still FLAGs — via the one-time detector (the real
+    exception), never verify-marketable. OKLO goes AUTO; its companyfacts tag sum UNDERCOUNTS the true
+    balance-sheet cash — the deliberate trade of retiring the flag: the error direction is CONSERVATIVE
+    (understated cash -> runway reads SHORTER; a funding-risk gauge that over-warns, never under-warns),
+    and the note states the exact composition where the operator ratifies."""
     smr = _extract("SMR")["cash_burn"]
-    assert "verify-marketable-securities" in smr.flags
-    assert (
-        smr.cash_usd == SEED["SMR"]["cash"]
-    )  # SMR's tag basis happens to reconcile; still flagged to verify
-    # OKLO: the companyfacts tag sum UNDERCOUNTS -> the FLAG is what catches it (the operator reads the BS)
+    assert "verify-marketable-securities" not in smr.flags
+    assert smr.flags == ["possible-one-time"]  # the surviving flag marks the exception
     oklo = _extract("OKLO")["cash_burn"]
-    assert "verify-marketable-securities" in oklo.flags
-    assert oklo.cash_usd != SEED["OKLO"]["cash"] and any(
-        p.kind == "balance-sheet" for p in oklo.located_passages
-    )
+    assert oklo.tier is Tier.AUTO and oklo.flags == []
+    assert oklo.cash_usd != SEED["OKLO"]["cash"]  # the undercount — conservative by direction
+    assert "marketable" in oklo.note  # the composition stated where the operator ratifies
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -342,10 +368,14 @@ def test_one_time_precision_clean_burns_do_not_flag():
     )  # LEU: no flags at all (cash-only + clean burn)
 
 
-def test_ytd_quarter_is_derived():
+def test_ytd_quarter_is_derived_and_auto():
+    """NNE (a Q2 filer): the quarter derives from the 6-month YTD − Q1 and goes out AUTO with the
+    derivation stated in the note — the ``ytd-derived`` flag is retired (composition, not an exception).
+    """
     nne = _extract("NNE")["cash_burn"]
-    assert "ytd-derived" in nne.flags
     assert nne.quarterly_burn_usd == SEED["NNE"]["qburn"]  # Q2 = the 6-month YTD - Q1 (derived)
+    assert nne.tier is Tier.AUTO and nne.flags == []
+    assert "derived (YTD − prior YTD)" in nne.note
 
 
 # ---------------------------------------------------------------------------------------------------------

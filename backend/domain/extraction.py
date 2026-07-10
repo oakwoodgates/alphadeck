@@ -54,10 +54,13 @@ class ExtractedFact(DomainModel):
     value: float | None = None  # shares_outstanding
     cash_usd: float | None = None  # cash_burn
     quarterly_burn_usd: float | None = None  # cash_burn
-    # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all):
+    # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
+    # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
+    # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
+    # information (the re-tier; honest loudness):
     # shares -> "dual-class" | "stale-cover" | "no-companyfacts"
-    # cash   -> "ytd-derived" | "ytd-raw" | "possible-one-time" | "verify-marketable-securities"
-    #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant" | "stale-cash"
+    # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
+    #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the

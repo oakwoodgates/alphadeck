@@ -10,6 +10,12 @@ const METER_LABEL: Record<string, string> = {
   cash_burn: "runway · cash + burn",
 };
 
+/** Missing-data flags — "can't compute" is a grey AUTHORING state (the value is None by design; the
+ *  operator writes it from the located statements), not a warm alarm. The loud ⚠ is reserved for the
+ *  judgment exceptions (one-time, stale, raw-YTD, dual-class) — honest loudness: a flag that alarms
+ *  on a mere data gap drowns the flags that mark real composition risk. */
+const MISSING_FLAGS = new Set(["no-companyfacts", "no-cashflow-column", "no-cash-instant"]);
+
 /** The facts panel (hybrid-2b) — extract the scoring facts from the latest filings and RATIFY them, closing
  *  the extract → ratify → re-score loop in the UI. The operator confirms each candidate (AUTO as-is, FLAG
  *  the composition, HUMAN purity authored); on confirm the fact is written and the meter re-derives. The
@@ -183,8 +189,8 @@ function RatifyRow({
           </span>
         )}
         {(candidate.flags ?? []).map((fl) => (
-          <span className="rflag" key={fl}>
-            ⚠ {fl}
+          <span className={MISSING_FLAGS.has(fl) ? "rflag missing" : "rflag"} key={fl}>
+            {MISSING_FLAGS.has(fl) ? "∅" : "⚠"} {fl}
           </span>
         ))}
       </div>
