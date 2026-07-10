@@ -682,6 +682,21 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .est-tag { font-size: 10px; color: var(--leader); letter-spacing: 0.02em; background: rgba(138, 180, 255, 0.08); border: 1px solid rgba(138, 180, 255, 0.28); border-radius: 6px; padding: 4px 8px; }
 /* the honest empty-state reason (missing ≠ blank): WHY a purity is blank and where to author it from */
 .rf-reason { font-size: 10px; color: var(--txt-3); font-style: italic; }
+
+/* --- decision capture: the CallCard action row + the operator-decision log --- */
+.dc { display: flex; flex-direction: column; gap: 8px; }
+.dc-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }
+/* the v1 gate: friction copy on a take against a withheld go-signal — display + record, never a block */
+.dc-friction { flex-basis: 100%; font-size: 10px; color: var(--warm); }
+.dc-log { display: flex; flex-direction: column; gap: 3px; }
+.dc-log-h { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--txt-4); }
+.dc-row { display: flex; align-items: baseline; gap: 7px; font-size: 11px; color: var(--txt-2); }
+.dc-row.voided { color: var(--txt-4); text-decoration: line-through; }
+.dc-row.voided .dc-voided-tag { text-decoration: none; }
+.dc-act { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.dc-when { color: var(--txt-3); }
+.dc-detail { color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-voided-tag { font-size: 9px; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; }
 .located { display: flex; flex-direction: column; gap: 4px; padding-left: 9px; border-left: 2px solid var(--line-2); }
 .located .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; text-decoration: none; align-self: flex-start; }
 .located .chip:hover { border-color: var(--leader); color: var(--txt-2); }
