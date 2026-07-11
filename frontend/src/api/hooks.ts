@@ -23,7 +23,12 @@ export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
 export type RatifyFactBody =
   | components["schemas"]["RatifyRevenueMix"]
   | components["schemas"]["RatifyShares"]
-  | components["schemas"]["RatifyCashBurn"];
+  | components["schemas"]["RatifyCashBurn"]
+  | components["schemas"]["RatifyCatalyst"];
+export type CatalystIn = components["schemas"]["CatalystIn"];
+export type KillCriterionIn = components["schemas"]["KillCriterionIn"];
+export type CatalystOut = components["schemas"]["Catalyst"];
+export type KillCriterionOut = components["schemas"]["KillCriterion"];
 // the narrative -> chain draft (S5): segments + each proposed name resolved to placed/ambiguous/absent
 export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
 // the draft run's honesty report (the honest-discovery slice): EFTS coverage + capped terms + the tail-sweep
@@ -444,6 +449,47 @@ export function useRatifyFact() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the meter re-derives
+      // a ratified fact can move the CALL too (a catalyst conviction turns Key-1; a shares fact
+      // completes a cap) — refresh every observed call read (partial key: all theses, all asofs)
+      qc.invalidateQueries({ queryKey: ["call"] });
+    },
+  });
+}
+
+// --- spine-list authoring: the catalyst SURFACE + kill criteria (sole-writer endpoints) ---
+
+export function usePutCatalysts(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CatalystIn[]) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/catalysts", {
+        params: { path: { thesis_id: thesisId } },
+        body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] }); // the calendar re-reads
+      qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the catalyst surface rides the card
+    },
+  });
+}
+
+export function usePutKillCriteria(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: KillCriterionIn[]) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/kill-criteria", {
+        params: { path: { thesis_id: thesisId } },
+        body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+      qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the counter-case re-derives
     },
   });
 }

@@ -689,6 +689,15 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 /* the honest empty-state reason (missing ≠ blank): WHY a purity is blank and where to author it from */
 .rf-reason { font-size: 10px; color: var(--txt-3); font-style: italic; }
 
+/* --- spine-list editors (catalyst calendar + kill criteria) + the catalyst-fact form --- */
+.sle { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.sle-row { display: flex; gap: 6px; align-items: center; }
+.sle-row input { flex: 1; min-width: 0; }
+.sle-row input.sle-kind { flex: 0 0 90px; }
+.sle-row input[type="date"] { flex: 0 0 130px; }
+.sle-actions { display: flex; gap: 8px; align-items: center; }
+.cff { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }
+
 /* --- decision capture: the CallCard action row + the operator-decision log --- */
 .dc { display: flex; flex-direction: column; gap: 8px; }
 .dc-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }

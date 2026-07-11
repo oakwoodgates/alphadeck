@@ -1,5 +1,6 @@
 import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
+import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
   accentVar,
@@ -140,36 +141,38 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                 </section>
               )}
 
-              {catalysts.length > 0 && (
-                <section className="sect">
-                  <div className="sect-h">Catalyst calendar</div>
-                  {catalysts.map((c) => {
-                    const d = daysFrom(asof, c.when_date);
-                    const soon = d !== null && d >= 0 && d <= 21;
-                    const when = c.when_date
-                      ? `${fmtDate(c.when_date)}${d !== null && d >= 0 ? ` · ${d}d` : ""}`
-                      : (c.when_label ?? "—");
-                    return (
-                      <div className={`cat ${soon ? "soon" : ""}`} key={c.id}>
-                        <span className="when">{when}</span>
-                        <span className="lbl">{c.label}</span>
-                        <span className="kind">{c.kind ?? ""}</span>
-                      </div>
-                    );
-                  })}
-                </section>
-              )}
-
-              {killCriteria.length > 0 && (
-                <section className="sect">
-                  <div className="sect-h">Kill criteria</div>
-                  {killCriteria.map((k) => (
-                    <div className="kill" key={k.id}>
-                      {k.text}
+              {/* both sections render EVEN AT ZERO now — an unauthored thesis needs the authoring
+                  entry point (the sections used to vanish when empty, which made "no way to add
+                  one" invisible). The editors write through the sole-writer endpoints; a promote
+                  can never wipe the lists (the structural guard, server-side). */}
+              <section className="sect">
+                <div className="sect-h">Catalyst calendar</div>
+                {catalysts.map((c) => {
+                  const d = daysFrom(asof, c.when_date);
+                  const soon = d !== null && d >= 0 && d <= 21;
+                  const when = c.when_date
+                    ? `${fmtDate(c.when_date)}${d !== null && d >= 0 ? ` · ${d}d` : ""}`
+                    : (c.when_label ?? "—");
+                  return (
+                    <div className={`cat ${soon ? "soon" : ""}`} key={c.id}>
+                      <span className="when">{when}</span>
+                      <span className="lbl">{c.label}</span>
+                      <span className="kind">{c.kind ?? ""}</span>
                     </div>
-                  ))}
-                </section>
-              )}
+                  );
+                })}
+                <CatalystEditor thesisId={thesisId} catalysts={catalysts} />
+              </section>
+
+              <section className="sect">
+                <div className="sect-h">Kill criteria</div>
+                {killCriteria.map((k) => (
+                  <div className="kill" key={k.id}>
+                    {k.text}
+                  </div>
+                ))}
+                <KillCriteriaEditor thesisId={thesisId} kills={killCriteria} />
+              </section>
             </>
           )}
         </main>

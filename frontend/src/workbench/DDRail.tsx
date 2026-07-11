@@ -1,4 +1,5 @@
 import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
+import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import {
   ARCHETYPES,
@@ -187,6 +188,10 @@ export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId
         {METERS.map(({ key, figure }) => (
           <MeterProvenance key={key} meter={key} figure={figure(member)} />
         ))}
+
+        {/* the hand-authored conviction fact (Key-1) — the one meter input that has no extractor:
+            the operator logs a CITED verifiable event; the catalysts meter + the call consume it */}
+        <CatalystFactForm securityId={member.security_id} />
 
         <div className="dd-sub">Extract &amp; ratify the facts</div>
         <FactsPanel
