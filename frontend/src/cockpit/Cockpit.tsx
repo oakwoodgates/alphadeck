@@ -169,11 +169,13 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                             </button>
                           </td>
                         </tr>
-                        {!closedGroups.has(def.key) &&
-                          rows.map((r) => (
+                        {/* folded rows stay MOUNTED and visibility-COLLAPSE (never unmount):
+                            a collapsed row still feeds the column-width algorithm, so folding
+                            the bucket with the widest cells can't re-flow the columns */}
+                        {rows.map((r) => (
                           <tr
                             key={r.ordinal}
-                            className={`bkt ${def.cls}${r.ordinal === selOrdinal ? " sel" : ""}`}
+                            className={`bkt ${def.cls}${closedGroups.has(def.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                             tabIndex={0}
                             aria-selected={r.ordinal === selOrdinal}
                             onClick={() => toggleRow(r.ordinal)}

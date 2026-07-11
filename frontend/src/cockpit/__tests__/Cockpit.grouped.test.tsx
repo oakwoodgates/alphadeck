@@ -106,17 +106,21 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
   it("collapses a bucket on header click — open by default, count stays visible, reversible", () => {
     const { container } = renderCockpit();
     const warmingHeader = container.querySelector("tr.grp.bkt-warming .grp-h") as HTMLElement;
+    const warmingRow = container.querySelector("tr.bkt.bkt-warming") as HTMLElement;
     expect(warmingHeader.getAttribute("aria-expanded")).toBe("true"); // open by default
-    expect(container.querySelector("tr.bkt.bkt-warming")).not.toBeNull();
+    expect(warmingRow.className).not.toContain("folded");
 
     fireEvent.click(warmingHeader);
     expect(warmingHeader.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector("tr.bkt.bkt-warming")).toBeNull(); // rows folded away…
-    expect(warmingHeader.querySelector(".ct")?.textContent).toBe("· 1"); // …the count never hides
-    expect(container.querySelector("tr.bkt.bkt-watch")).not.toBeNull(); // other buckets untouched
+    // folded rows stay MOUNTED with visibility:collapse (a collapsed row still feeds the
+    // column-width algorithm — the fold must never re-flow the columns), never unmounted
+    expect(container.querySelector("tr.bkt.bkt-warming")).toBe(warmingRow);
+    expect(warmingRow.className).toContain("folded");
+    expect(warmingHeader.querySelector(".ct")?.textContent).toBe("· 1"); // the count never hides
+    expect(container.querySelector("tr.bkt.bkt-watch")?.className).not.toContain("folded");
 
     fireEvent.click(warmingHeader); // one click back (reversibility)
-    expect(container.querySelector("tr.bkt.bkt-warming")).not.toBeNull();
+    expect(warmingRow.className).not.toContain("folded");
   });
 
   it("swaps the dead Role/Detail columns for Name + Exit-by (Dot has no text header)", () => {

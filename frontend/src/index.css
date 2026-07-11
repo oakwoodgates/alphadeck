@@ -137,6 +137,12 @@ tr.bkt-quiet td { color: var(--txt-3); }
 tr.bkt-quiet .tk { color: var(--txt-2); }
 table.basket td.exitby.lapse { color: var(--warm); }
 
+/* a folded bucket's rows COLLAPSE, never unmount: per CSS tables, a collapsed row still feeds the
+   column-width algorithm, so folding the bucket that holds the widest cells (Quiet's long names)
+   cannot re-flow the columns — the width snap this exists to stop. (Safari renders collapse as
+   hidden-with-gap; acceptable — the operator surface is Chromium/Firefox on Windows.) */
+tr.bkt.folded { visibility: collapse; }
+
 /* rows are clickable (the per-name panel); the selected row wears its bucket accent */
 tr.bkt { cursor: pointer; }
 tr.bkt:hover td { background: rgba(20, 24, 33, 0.7); }
