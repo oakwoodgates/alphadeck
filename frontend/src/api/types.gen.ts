@@ -154,6 +154,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Exclusions
+         * @description Persist the thesis's durable exclusion set (#7) — the operator's NO per name, with the
+         *     optional "rejected because X". Full-list replace via the sole writer (the term_set structural
+         *     guard, fourth application: a promote never touches the table, so a narrative edit can't wipe
+         *     the pruning). THE #9 LINE: discovery never filters on this — a re-draft still surfaces every
+         *     name; the EDITOR seeds these as visibly-greyed, one-click-reversible state.
+         */
+        put: operations["put_exclusions_theses__thesis_id__exclusions_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/decisions": {
         parameters: {
             query?: never;
@@ -956,6 +980,38 @@ export interface components {
             date_label?: string | null;
         };
         /**
+         * ExcludedName
+         * @description One durably-excluded name (#7): the operator's NO, with the optional why. Applied by the
+         *     EDITOR as pre-seeded greyed state — discovery never filters on it (#9, recall sacred).
+         */
+        ExcludedName: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * ExclusionIn
+         * @description One durably-excluded name (#7): the operator's NO with the optional why. Full-list replaced
+         *     via the sole writer; discovery never filters on it (#9) — the editor greys, visibly.
+         */
+        ExclusionIn: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * ExtractedFact
          * @description One candidate scoring fact for a security, with its tier, raw value(s), located evidence, and flags.
          *     The shape mirrors the three ``ingest_*`` writers: shares -> ``value``; cash_burn -> ``cash_usd`` +
@@ -1640,6 +1696,11 @@ export interface components {
              */
             kill_criteria: components["schemas"]["KillCriterion"][];
             position?: components["schemas"]["Position"] | null;
+            /**
+             * Exclusions
+             * @default []
+             */
+            exclusions: components["schemas"]["ExcludedName"][];
         };
         /**
          * ThesisSummary
@@ -1963,6 +2024,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["KillCriterionIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_exclusions_theses__thesis_id__exclusions_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExclusionIn"][];
             };
         };
         responses: {

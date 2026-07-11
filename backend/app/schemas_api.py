@@ -15,6 +15,7 @@ from domain.thesis import (
     BasketMember,
     Catalyst,
     Evidence,
+    ExcludedName,
     KillCriterion,
     Position,
     Segment,
@@ -227,6 +228,8 @@ class ThesisDetail(BaseModel):
     catalysts: list[Catalyst] = []
     kill_criteria: list[KillCriterion] = []
     position: Position | None = None
+    # the durable exclusion set (#7) — the editor seeds its greyed state from this; never a filter
+    exclusions: list[ExcludedName] = []
 
     @classmethod
     def from_thesis(cls, t: Thesis) -> "ThesisDetail":
@@ -243,6 +246,7 @@ class ThesisDetail(BaseModel):
             catalysts=list(t.catalysts),
             kill_criteria=list(t.kill_criteria),
             position=t.position,
+            exclusions=list(t.exclusions),
         )
 
 
@@ -602,6 +606,15 @@ class KillCriterionIn(BaseModel):
     deterministic counter-case (the card stops reading "no documented counter-case")."""
 
     text: str
+
+
+class ExclusionIn(BaseModel):
+    """One durably-excluded name (#7): the operator's NO with the optional why. Full-list replaced
+    via the sole writer; discovery never filters on it (#9) — the editor greys, visibly."""
+
+    security_id: UUID
+    ticker: str | None = None
+    reason: str | None = None
 
 
 # --- Decision capture (the operator-decisions log) — an EVENT log, never a scoring fact ---

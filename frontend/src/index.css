@@ -698,6 +698,10 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .sle-actions { display: flex; gap: 8px; align-items: center; }
 .cff { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }
 
+/* #7: the optional rejection reason on an excluded row — quiet, skippable, persisted on Save */
+.wb-exc-why { flex: 0 1 260px; min-width: 120px; font-size: 10.5px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; }
+.wb-exc-why::placeholder { color: var(--txt-4); font-style: italic; }
+
 /* --- thesis archive (board hygiene): the sibling ✕ + the collapsed archived section --- */
 .card-wrap { position: relative; }
 .card-wrap .card-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; line-height: 1; font-size: 11px; color: var(--txt-4); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }

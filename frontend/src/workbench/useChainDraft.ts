@@ -38,15 +38,39 @@ export function useChainDraft(thesis: ThesisDetail) {
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
   const [draft, setDraft] = useState<ChainDraft>(base);
 
-  // TRIAGE (the prune) — include is a NEW, FE-only concept ORTHOGONAL to accept/authorship. A member starts
-  // INCLUDED (#9: nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys the
-  // operator has chosen to leave OUT of the saved basket. It is never persisted — Save sends `includedBasket`,
-  // and the promote full-replace simply doesn't receive the excluded names (the draft is reproducible by
-  // re-drafting). Include NEVER touches `authored_by` — a name can be accepted-but-excluded or the reverse.
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  // TRIAGE (the prune) — include is ORTHOGONAL to accept/authorship. A member starts INCLUDED (#9:
+  // nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys chosen to
+  // leave OUT of the saved basket. #7 made the NO durable: the set SEEDS from the thesis's persisted
+  // exclusions (previously-rejected names arrive pre-greyed, visible, one click back — never a filter),
+  // and Save persists the current set (with the optional reasons) through PUT /theses/{id}/exclusions
+  // alongside the promote. Include still NEVER touches `authored_by`.
+  const [baseExcluded] = useState<Set<string>>(
+    () => new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
+  );
+  const [excluded, setExcluded] = useState<Set<string>>(baseExcluded);
+  // the optional "rejected because X", keyed like `excluded`; seeded from the persisted rows
+  const [reasons, setReasons] = useState<Map<string, string>>(
+    () =>
+      new Map(
+        (thesis.exclusions ?? [])
+          .filter((e) => e.reason)
+          .map((e) => [e.security_id, e.reason as string]),
+      ),
+  );
+  const [reasonsDirty, setReasonsDirty] = useState(false);
+  const editReason = (key: string, text: string) => {
+    setReasons((prev) => new Map(prev).set(key, text));
+    setReasonsDirty(true);
+  };
 
-  // An exclusion is an unsaved intent even when the draft structure is untouched (Save would persist fewer names).
-  const dirty = JSON.stringify(draft) !== JSON.stringify(base) || excluded.size > 0;
+  const setsEqual = (a: Set<string>, b: Set<string>) =>
+    a.size === b.size && [...a].every((x) => b.has(x));
+  // an exclusion (or reason) edit is an unsaved intent even when the draft structure is untouched —
+  // but the SEEDED baseline is not (a clean load must not read as dirty)
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(base) ||
+    !setsEqual(excluded, baseExcluded) ||
+    reasonsDirty;
 
   const isIncluded = (key: string) => !excluded.has(key);
   const includedBasket = draft.basket.filter((m) => !excluded.has(memberKey(m)));
@@ -259,5 +283,8 @@ export function useChainDraft(thesis: ThesisDetail) {
     excludeAll,
     excludeUnaccepted,
     excludeKeys,
+    // #7: the optional rejection reasons, persisted with the exclusion set on Save
+    reasons,
+    editReason,
   };
 }

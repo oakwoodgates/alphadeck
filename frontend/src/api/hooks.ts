@@ -29,6 +29,8 @@ export type CatalystIn = components["schemas"]["CatalystIn"];
 export type KillCriterionIn = components["schemas"]["KillCriterionIn"];
 export type CatalystOut = components["schemas"]["Catalyst"];
 export type KillCriterionOut = components["schemas"]["KillCriterion"];
+export type ExclusionIn = components["schemas"]["ExclusionIn"];
+export type ExcludedName = components["schemas"]["ExcludedName"];
 // the narrative -> chain draft (S5): segments + each proposed name resolved to placed/ambiguous/absent
 export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
 // the draft run's honesty report (the honest-discovery slice): EFTS coverage + capped terms + the tail-sweep
@@ -494,6 +496,23 @@ export function usePutCatalysts(thesisId: string) {
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] }); // the calendar re-reads
       qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the catalyst surface rides the card
     },
+  });
+}
+
+// #7: the durable exclusion set — Save persists the editor's pruning (session decisions ∪ the
+// carried-forward prior NOs) so a re-draft never re-surfaces a rejected name as fresh work.
+export function usePutExclusions(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: ExclusionIn[]) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/exclusions", {
+        params: { path: { thesis_id: thesisId } },
+        body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["thesis", thesisId] }),
   });
 }
 

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const h = vi.hoisted(() => ({
   mutate: vi.fn(),
+  putExcl: vi.fn(async () => ({})), // #7: the exclusion PUT rides every Save (mutateAsync resolves)
   start: vi.fn(),
   produce: vi.fn(),
   edit: vi.fn(),
@@ -43,6 +44,13 @@ vi.mock("../../api/hooks", () => ({
   }),
   // the manual term-set save (no LLM): mutate records the PUT body (the full edited set)
   useEditTerms: () => ({ mutate: h.edit, isPending: false, isError: false, error: null }),
+  // #7: the durable exclusion set — Save persists the pruning through this PUT before the promote
+  usePutExclusions: () => ({
+    mutateAsync: h.putExcl,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
   // the tier RECOMMENDER (#10): mutate(undefined, {onSuccess}) — the test drives onSuccess with canned recs
   useRecommendTiers: () => ({ mutate: h.recommend, isPending: false, isError: false, error: null }),
   // the run-loader picker: no saved runs here → RunPicker self-hides (its own suite covers its behavior)
@@ -114,6 +122,7 @@ const VERIFY_ALKS = {
 
 beforeEach(() => {
   h.mutate.mockReset();
+  h.putExcl.mockClear();
   h.start.mockReset();
   h.produce.mockReset();
   h.edit.mockReset();
@@ -1563,5 +1572,70 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
     const capped = screen.getAllByText("⚠ capped");
     expect(capped).toHaveLength(1); // psilocybin's chip only — ketamine carries no marker
     expect(capped[0].closest("li")).toHaveTextContent("psilocybin");
+  });
+});
+
+describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
+  const member = (ticker: string, sid: string) => ({
+    ticker,
+    role: "r",
+    archetype: null,
+    security_id: sid,
+    segment: null,
+    thesis_fit: null,
+    conviction: null,
+    authored_by: "operator_set",
+  });
+  const saveBody = () => h.mutate.mock.calls[0][0] as { basket: { ticker: string }[] };
+
+  it("seeds from the persisted set: a rejected name arrives pre-greyed with its reason — and NOT dirty", () => {
+    const t = {
+      ...flatThesis,
+      basket: [member("SMR", "s-smr")],
+      exclusions: [{ security_id: "s-smr", ticker: "SMR", reason: "junk acronym" }],
+    };
+    render(<ChainEditor thesis={t as never} onDone={vi.fn()} />);
+    expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
+    expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // pre-greyed, one click back (#9)
+    expect(screen.getByLabelText("why excluded SMR")).toHaveValue("junk acronym");
+    expect(screen.queryByText("unsaved")).toBeNull(); // a clean load is NOT a dirty edit
+  });
+
+  it("Save PUTs the pruning: session NO + reason, carry-forward of the unseen NO, withdrawn NO dropped", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    const t = {
+      ...flatThesis,
+      basket: [member("SMR", "s-smr"), member("LEU", "s-leu")],
+      exclusions: [
+        { security_id: "s-leu", ticker: "LEU", reason: "old no" }, // re-included below → WITHDRAWN
+        { security_id: "s-gone", ticker: "GONE", reason: "never resurfaced" }, // carried forward
+      ],
+    };
+    render(<ChainEditor thesis={t as never} onDone={vi.fn()} />);
+
+    await user.click(screen.getByLabelText("include LEU")); // withdraw the old NO (re-include)
+    await user.click(screen.getByLabelText("include SMR")); // a fresh NO...
+    await user.type(screen.getByLabelText("why excluded SMR"), "off-thesis"); // ...with its why
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+
+    expect(h.putExcl).toHaveBeenCalledTimes(1);
+    const list = h.putExcl.mock.calls[0][0] as {
+      security_id: string;
+      ticker: string | null;
+      reason: string | null;
+    }[];
+    expect(list).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ security_id: "s-smr", reason: "off-thesis" }),
+        expect.objectContaining({ security_id: "s-gone", reason: "never resurfaced" }),
+      ]),
+    );
+    expect(list.find((e) => e.security_id === "s-leu")).toBeUndefined(); // the withdrawn NO is gone
+    // and the promote still receives ONLY the included subset (LEU back in, SMR pruned)
+    expect(saveBody().basket.map((m) => m.ticker)).toEqual(["LEU"]);
   });
 });

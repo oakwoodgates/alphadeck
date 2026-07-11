@@ -88,6 +88,7 @@ one adapter away).
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
+| Excluded-name permanence (#7): the durable NO + optional reason, seeded greyed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -108,27 +109,24 @@ one adapter away).
 
 ## What's next (by appetite, in rough order)
 
-1. **Excluded-name permanence + rejection reason** — the one queued Workbench feature. `include` is FE-only
-   run state today, so a re-draft re-surfaces names the operator already set aside, with nowhere to record
-   *why*. Persist exclusions + an optional "rejected because X" (schema; the `/data` run-log substrate from
-   #125 is in place). Cross-ref the exclusion model in `TRIAGE.md`.
-2. **The source-strategy A-vs-B decision** — (A) keep Yahoo + re-version restated bars, or (B) raw+splits and
-   own the adjustment at read time (dissolves the deferred restatement re-version). `DATA_SOURCES.md` has both
-   paths; decide before the re-version is built. **Priority raised:** the platform now runs live nightly, so a
-   basket name splitting mid-thesis is a real false-breakout/false-lapse risk, not a parked one.
-3. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
+1. **The restated-bars re-version slice** — the source-strategy fork is DECIDED (**Option A**, operator pick
+   2026-07-11 — `DATA_SOURCES.md` records it): keep Yahoo, re-version restated bars. The build: an overlap
+   compare in the daily force-refresh path (fresh ≠ stored → append new versions; as-of picks latest),
+   COUNT-the-table idempotency, and a simulated-split regression. Closes the last live price-correctness gap
+   (mixed-basis window drops to ≤ 1 cron tick).
+2. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
    operator's decisions vs follow-blindly. Unlocks the **second, out-of-sample recalibration**. Both record
    streams now accumulate (the daily call-of-record + the operator-decisions log); parked deliberately while
    decision rows build up — it needs the data more than the UI.
-4. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
+3. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
    transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
    Deferred by operator call ("other things coming").
-5. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
+4. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
    daily" (live pulls): ingest active theses daily, dormant less often. Fine at today's scale; jotted.
-6. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance
+5. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance
    ("re-confirm?"). Shares the MONITOR/Board drift machinery — **build it with the Board**, not in the
    Workbench.
-7. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
+6. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
    send-back discoverability, accept-color decoupling, pre-revenue purity chip, explain transport-error,
    FE async-boundary tests, off-universe label copy, dilution polarity styling.
 

@@ -359,6 +359,64 @@
         }
       }
     },
+    "/theses/{thesis_id}/exclusions": {
+      "put": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Put Exclusions",
+        "description": "Persist the thesis's durable exclusion set (#7) \u2014 the operator's NO per name, with the\noptional \"rejected because X\". Full-list replace via the sole writer (the term_set structural\nguard, fourth application: a promote never touches the table, so a narrative edit can't wipe\nthe pruning). THE #9 LINE: discovery never filters on this \u2014 a re-draft still surfaces every\nname; the EDITOR seeds these as visibly-greyed, one-click-reversible state.",
+        "operationId": "put_exclusions_theses__thesis_id__exclusions_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ExclusionIn"
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/decisions": {
       "post": {
         "tags": [
@@ -2078,6 +2136,81 @@
         "title": "Evidence",
         "description": "Immutable reference to a filing / data point."
       },
+      "ExcludedName": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "ExcludedName",
+        "description": "One durably-excluded name (#7): the operator's NO, with the optional why. Applied by the\nEDITOR as pre-seeded greyed state \u2014 discovery never filters on it (#9, recall sacred)."
+      },
+      "ExclusionIn": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "ExclusionIn",
+        "description": "One durably-excluded name (#7): the operator's NO with the optional why. Full-list replaced\nvia the sole writer; discovery never filters on it (#9) \u2014 the editor greys, visibly."
+      },
       "ExtractedFact": {
         "properties": {
           "fact_type": {
@@ -3589,6 +3722,14 @@
                 "type": "null"
               }
             ]
+          },
+          "exclusions": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedName"
+            },
+            "type": "array",
+            "title": "Exclusions",
+            "default": []
           }
         },
         "type": "object",
