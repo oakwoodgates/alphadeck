@@ -1,16 +1,46 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from uuid import UUID
 
+from calls.assembler import assemble_call
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG
+from domain.enums import Archetype
 from domain.signal import SignalEvent
-from tests.calls.factories import breakout_event, insider_event
+from domain.thesis import BasketMember, Thesis
+from repositories import calls_repo, thesis_repo
+from tests.calls.factories import breakout_event, insider_event, make_thesis
 
-# Shared seeding helpers for the Scoreboard tests: controlled price bars (bitemporal, explicit
-# recorded_at when versioning matters) and the two-key event pair with a CHOSEN fire date (the
-# factories fix asof; an episode test needs exit_by/arm_until anchored where the test says).
+# Shared seeding helpers for the Scoreboard tests: a persisted single-name thesis, controlled
+# call-of-record rows (assemble at a chosen as-of, append to the log — the live shape), controlled
+# price bars (bitemporal, explicit recorded_at when versioning matters), and the two-key event pair
+# with a CHOSEN fire date (the factories fix asof; an episode test needs exit_by/arm_until anchored
+# where the test says).
+
+
+def persist_thesis(db, security_id: UUID, thesis_id: UUID | None = None) -> Thesis:
+    thesis = make_thesis(
+        id=thesis_id or uuid.uuid4(),
+        basket=[
+            BasketMember(
+                ticker="DEVCO",
+                role="Lead developer",
+                archetype=Archetype.LEADER,
+                security_id=security_id,
+            )
+        ],
+    )
+    thesis_repo.upsert(db, thesis)
+    db.commit()
+    return thesis_repo.get(db, thesis.id)  # reload: tenant_id stamped by the repo
+
+
+def record_day(db, thesis: Thesis, events: list[SignalEvent], asof: date) -> None:
+    calls_repo.append(db, assemble_call(thesis, events, asof, DEFAULT_CONFIG))
+    db.commit()
 
 
 def bar(

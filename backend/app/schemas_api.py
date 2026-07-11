@@ -23,6 +23,7 @@ from domain.thesis import (
     Thesis,
 )
 from domain.workbench import ScoredFigure, ScoredMember
+from scoreboard.schema import ScoredEpisode, ThesisRecord
 from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
@@ -655,3 +656,159 @@ class DecisionOut(BaseModel):
     call_verdict: str | None = None
     recorded_at: str
     voided: bool = False
+
+
+# ---------- The Scoreboard (SCORE) — the forward record, served ----------
+
+
+class ScoreboardEpisodeOut(BaseModel):
+    """One arm episode from the record, scored — a ledger row. Outcome fields keep replay's
+    canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
+    ``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING
+    return, not a verdict; metrics judge only matured + non-censored episodes."""
+
+    thesis_id: UUID
+    security_id: UUID
+    ticker: str | None = None
+    is_headline: bool = False
+    theme_armed: bool = False
+    arm_date: date
+    dearm_date: date | None = None
+    close_reason: str
+    status: Literal["open", "closed"]
+    matured: bool
+    censored_start: bool
+    verdict: Verdict | None = None
+    entry_grade: Grade | None = None
+    conviction_grade: Grade | None = None
+    confidence: float | None = None
+    exit_by: date | None = None
+    arm_until: date | None = None
+    warm_date: date | None = None
+    triggers_at_arm: list[TriggerRefOut] = []  # the WHY behind the arm (invariant #6)
+    entry_close: float | None = None
+    exit_close: float | None = None
+    exit_date: date | None = None
+    forward_return: float | None = None
+    arm_until_return: float | None = None
+    warm_return: float | None = None
+    peak_return: float | None = None
+    peak_date: date | None = None
+    exit_vs_peak_days: int | None = None
+    truncated: bool = False  # the hold horizon ran past the available (asof-capped) bars
+    insufficient_prices: bool = False  # e.g. a day-1 arm: no bar on/after the arm yet
+
+
+def _scoreboard_episode_out(
+    e: ScoredEpisode, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+) -> ScoreboardEpisodeOut:
+    ep, out = e.episode, e.outcome
+    return ScoreboardEpisodeOut(
+        thesis_id=ep.thesis_id,
+        security_id=ep.security_id,
+        ticker=tickers.get(ep.security_id),
+        is_headline=ep.is_headline,
+        theme_armed=ep.theme_armed,
+        arm_date=ep.arm_date,
+        dearm_date=ep.dearm_date,
+        close_reason=ep.close_reason,
+        status=e.status,
+        matured=e.matured,
+        censored_start=e.censored_start,
+        verdict=ep.verdict,
+        entry_grade=ep.entry_grade,
+        conviction_grade=ep.conviction_grade,
+        confidence=ep.confidence,
+        exit_by=ep.exit_by,
+        arm_until=ep.arm_until,
+        warm_date=ep.warm_date,
+        triggers_at_arm=[_trigger_out(t, ciks, tickers) for t in e.triggers_at_arm],
+        entry_close=out.entry_close,
+        exit_close=out.exit_close,
+        exit_date=out.exit_date,
+        forward_return=out.forward_return,
+        arm_until_return=out.arm_until_return,
+        warm_return=out.warm_return,
+        peak_return=out.peak_return,
+        peak_date=out.peak_date,
+        exit_vs_peak_days=out.exit_vs_peak_days,
+        truncated=out.truncated,
+        insufficient_prices=out.insufficient_prices,
+    )
+
+
+class ScoreboardThesisOut(BaseModel):
+    """One thesis's slice of the Scoreboard: record coverage + scored episodes. Present even at
+    zero episodes — the record span and an accruing warming window ARE the honest launch state.
+    ``record_error`` surfaces an unreadable historical card (fault isolation), never a 500."""
+
+    thesis_id: UUID
+    name: str
+    ticker: str | None = None
+    basket_size: int = 0
+    archived: bool = False
+    first_call_asof: date | None = None
+    last_call_asof: date | None = None
+    current_state: str | None = None
+    current_verdict: str | None = None
+    warming_since: date | None = None
+    episodes: list[ScoreboardEpisodeOut] = []
+    record_error: str | None = None
+
+
+def _scoreboard_thesis_out(
+    t: ThesisRecord, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+) -> ScoreboardThesisOut:
+    return ScoreboardThesisOut(
+        thesis_id=t.thesis_id,
+        name=t.name,
+        ticker=t.ticker,
+        basket_size=t.basket_size,
+        archived=t.archived,
+        first_call_asof=t.first_call_asof,
+        last_call_asof=t.last_call_asof,
+        current_state=t.current_state,
+        current_verdict=t.current_verdict,
+        warming_since=t.warming_since,
+        episodes=[_scoreboard_episode_out(e, ciks, tickers) for e in t.episodes],
+        record_error=t.error,
+    )
+
+
+class ScoreboardMetricOut(BaseModel):
+    """One claim-tied metric (the replay set, computed over eligible live outcomes). ``claim``
+    names which system claim it tests — never a generic hit-rate; below ``n``/``insufficient_n``
+    the summary must not be read as a claim (the FE renders it quiet)."""
+
+    name: str
+    claim: str
+    n: int
+    insufficient_n: bool
+    summary: dict[str, float | None] = {}
+    detail: list[dict[str, Any]] = []
+    note: str = ""
+
+
+class ScoreboardSummaryOut(BaseModel):
+    """The aggregate strip: counts + the honesty banner + the gated metric set."""
+
+    n_theses: int
+    n_with_record: int
+    n_episodes: int
+    n_open: int
+    n_matured: int
+    n_censored: int
+    n_eligible: int
+    record_began: date | None = None
+    banner: str
+    min_n: int
+    metrics: list[ScoreboardMetricOut] = []
+
+
+class ScoreboardResponse(BaseModel):
+    """The Scoreboard: the call-of-record scored as-of ``asof`` — the record, never a recompute."""
+
+    asof: date
+    generated_at: str  # known_at honesty stamp (ISO): when this read of the record was taken
+    summary: ScoreboardSummaryOut
+    theses: list[ScoreboardThesisOut] = []

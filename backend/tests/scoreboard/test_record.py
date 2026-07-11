@@ -5,42 +5,18 @@ from datetime import date
 
 import pytest
 
-from calls.assembler import assemble_call
 from db.session import DEFAULT_TENANT_ID
-from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype
-from domain.thesis import BasketMember
-from repositories import calls_repo, thesis_repo
+from repositories import thesis_repo
 from scoreboard.record import derive_thesis_record, scoreboard_records
-from tests.calls.factories import insider_event, make_thesis
+from tests.calls.factories import insider_event
 from tests.scoreboard.helpers import bar, keys_fired
+from tests.scoreboard.helpers import persist_thesis as _thesis
+from tests.scoreboard.helpers import record_day as _record_day
 
 # The scoring source is the RECORD (the calls log), never a recompute — these tests write a
 # controlled log via calls_repo.append at chosen as-ofs (the live shape: dense on cron days, gapped
 # on weekends/downtime) and assert the derived episodes, the record-honesty flags, and that the
 # whole path writes NOTHING.
-
-
-def _thesis(db, security_id, thesis_id=None):
-    thesis = make_thesis(
-        id=thesis_id or uuid.uuid4(),
-        basket=[
-            BasketMember(
-                ticker="DEVCO",
-                role="Lead developer",
-                archetype=Archetype.LEADER,
-                security_id=security_id,
-            )
-        ],
-    )
-    thesis_repo.upsert(db, thesis)
-    db.commit()
-    return thesis_repo.get(db, thesis.id)  # reload: tenant_id stamped by the repo
-
-
-def _record_day(db, thesis, events, asof):
-    calls_repo.append(db, assemble_call(thesis, events, asof, DEFAULT_CONFIG))
-    db.commit()
 
 
 def test_gappy_log_boundaries_rearm_and_open_edge(db, security_id):
@@ -168,11 +144,11 @@ def test_archived_included_by_default_and_excludable(db, security_id):
     thesis_repo.set_archived(db, thesis.id, True)
     db.commit()
 
-    result, _ = scoreboard_records(db, date(2026, 6, 5))
+    result, _, _ = scoreboard_records(db, date(2026, 6, 5))
     (rec,) = [t for t in result.theses if t.thesis_id == thesis.id]
     assert rec.archived is True and len(rec.episodes) == 1
 
-    result, _ = scoreboard_records(db, date(2026, 6, 5), include_archived=False)
+    result, _, _ = scoreboard_records(db, date(2026, 6, 5), include_archived=False)
     assert [t for t in result.theses if t.thesis_id == thesis.id] == []
 
 
@@ -191,7 +167,7 @@ def test_unreadable_card_is_fault_isolated(db, security_id):
         )
     db.commit()
 
-    result, _ = scoreboard_records(db, date(2026, 6, 5))
+    result, _, _ = scoreboard_records(db, date(2026, 6, 5))
     by_id = {t.thesis_id: t for t in result.theses}
     assert by_id[bad.id].error is not None and by_id[bad.id].episodes == []
     assert by_id[good.id].error is None and len(by_id[good.id].episodes) == 1

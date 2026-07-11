@@ -601,6 +601,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scoreboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scoreboard
+         * @description The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` — a READ-ONLY pass over
+         *     the immutable calls log, the operator-decision log, and realized asof-capped prices. The
+         *     RECORD is the scoring source, never a recompute (replay re-derives history; this holds the
+         *     platform to what it actually said). Aggregate metrics judge only matured, non-censored
+         *     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
+         */
+        get: operations["get_scoreboard_scoreboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1505,6 +1529,228 @@ export interface components {
             placement_count: number;
             /** Segment Count */
             segment_count: number;
+        };
+        /**
+         * ScoreboardEpisodeOut
+         * @description One arm episode from the record, scored — a ledger row. Outcome fields keep replay's
+         *     canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
+         *     ``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING
+         *     return, not a verdict; metrics judge only matured + non-censored episodes.
+         */
+        ScoreboardEpisodeOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Is Headline
+             * @default false
+             */
+            is_headline: boolean;
+            /**
+             * Theme Armed
+             * @default false
+             */
+            theme_armed: boolean;
+            /**
+             * Arm Date
+             * Format: date
+             */
+            arm_date: string;
+            /** Dearm Date */
+            dearm_date?: string | null;
+            /** Close Reason */
+            close_reason: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "closed";
+            /** Matured */
+            matured: boolean;
+            /** Censored Start */
+            censored_start: boolean;
+            verdict?: components["schemas"]["Verdict"] | null;
+            entry_grade?: components["schemas"]["Grade"] | null;
+            conviction_grade?: components["schemas"]["Grade"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Exit By */
+            exit_by?: string | null;
+            /** Arm Until */
+            arm_until?: string | null;
+            /** Warm Date */
+            warm_date?: string | null;
+            /**
+             * Triggers At Arm
+             * @default []
+             */
+            triggers_at_arm: components["schemas"]["TriggerRefOut"][];
+            /** Entry Close */
+            entry_close?: number | null;
+            /** Exit Close */
+            exit_close?: number | null;
+            /** Exit Date */
+            exit_date?: string | null;
+            /** Forward Return */
+            forward_return?: number | null;
+            /** Arm Until Return */
+            arm_until_return?: number | null;
+            /** Warm Return */
+            warm_return?: number | null;
+            /** Peak Return */
+            peak_return?: number | null;
+            /** Peak Date */
+            peak_date?: string | null;
+            /** Exit Vs Peak Days */
+            exit_vs_peak_days?: number | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Insufficient Prices
+             * @default false
+             */
+            insufficient_prices: boolean;
+        };
+        /**
+         * ScoreboardMetricOut
+         * @description One claim-tied metric (the replay set, computed over eligible live outcomes). ``claim``
+         *     names which system claim it tests — never a generic hit-rate; below ``n``/``insufficient_n``
+         *     the summary must not be read as a claim (the FE renders it quiet).
+         */
+        ScoreboardMetricOut: {
+            /** Name */
+            name: string;
+            /** Claim */
+            claim: string;
+            /** N */
+            n: number;
+            /** Insufficient N */
+            insufficient_n: boolean;
+            /**
+             * Summary
+             * @default {}
+             */
+            summary: {
+                [key: string]: number | null;
+            };
+            /**
+             * Detail
+             * @default []
+             */
+            detail: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * ScoreboardResponse
+         * @description The Scoreboard: the call-of-record scored as-of ``asof`` — the record, never a recompute.
+         */
+        ScoreboardResponse: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Generated At */
+            generated_at: string;
+            summary: components["schemas"]["ScoreboardSummaryOut"];
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["ScoreboardThesisOut"][];
+        };
+        /**
+         * ScoreboardSummaryOut
+         * @description The aggregate strip: counts + the honesty banner + the gated metric set.
+         */
+        ScoreboardSummaryOut: {
+            /** N Theses */
+            n_theses: number;
+            /** N With Record */
+            n_with_record: number;
+            /** N Episodes */
+            n_episodes: number;
+            /** N Open */
+            n_open: number;
+            /** N Matured */
+            n_matured: number;
+            /** N Censored */
+            n_censored: number;
+            /** N Eligible */
+            n_eligible: number;
+            /** Record Began */
+            record_began?: string | null;
+            /** Banner */
+            banner: string;
+            /** Min N */
+            min_n: number;
+            /**
+             * Metrics
+             * @default []
+             */
+            metrics: components["schemas"]["ScoreboardMetricOut"][];
+        };
+        /**
+         * ScoreboardThesisOut
+         * @description One thesis's slice of the Scoreboard: record coverage + scored episodes. Present even at
+         *     zero episodes — the record span and an accruing warming window ARE the honest launch state.
+         *     ``record_error`` surfaces an unreadable historical card (fault isolation), never a 500.
+         */
+        ScoreboardThesisOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Basket Size
+             * @default 0
+             */
+            basket_size: number;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+            /** First Call Asof */
+            first_call_asof?: string | null;
+            /** Last Call Asof */
+            last_call_asof?: string | null;
+            /** Current State */
+            current_state?: string | null;
+            /** Current Verdict */
+            current_verdict?: string | null;
+            /** Warming Since */
+            warming_since?: string | null;
+            /**
+             * Episodes
+             * @default []
+             */
+            episodes: components["schemas"]["ScoreboardEpisodeOut"][];
+            /** Record Error */
+            record_error?: string | null;
         };
         /**
          * ScoredFigureOut
@@ -2602,6 +2848,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RatifiedFactOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scoreboard_scoreboard_get: {
+        parameters: {
+            query: {
+                /** @description score the record as-of this date (caps both axes) */
+                asof: string;
+                /** @description archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter */
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreboardResponse"];
                 };
             };
             /** @description Validation Error */

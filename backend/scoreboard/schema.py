@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from domain.call import TriggerRef
+from replay.metrics import MetricResult
 from replay.schema import Episode, Outcome
 
 # The Scoreboard's analytical output records — the ``replay/schema.py`` posture: plain records, not
@@ -38,6 +39,7 @@ class ThesisRecord(BaseModel):
     zero episodes (the record span and any accruing warming window are the honest launch state)."""
 
     thesis_id: UUID
+    tenant_id: UUID | None = None  # threads the thesis's tenant to resolution/readers (never wire)
     name: str
     ticker: str | None = None
     basket_size: int = 0
@@ -51,8 +53,21 @@ class ThesisRecord(BaseModel):
     error: str | None = None  # fault isolation: an unreadable historical card, surfaced not raised
 
 
+class ScoreboardSummary(BaseModel):
+    """The aggregate layer: replay's claim-tied metric set over ELIGIBLE outcomes only — matured
+    (judged at the episode's own exit_by) AND non-censored (the record saw the arm) — plus the
+    banner that keeps it honest. Metrics below ``min_n`` are an instrument, never a claim."""
+
+    banner: str
+    min_n: int
+    n_eligible: int = 0
+    record_began: date | None = None
+    metrics: list[MetricResult] = []
+
+
 class ScoreboardResult(BaseModel):
-    """The whole record scored as-of one date (the SB1 analytical result; SB2 adds metrics)."""
+    """The whole record scored as-of one date; ``summary`` rides once the metric pass has run
+    (``assemble_scoreboard``) — the bare record walk leaves it None."""
 
     asof: date
     theses: list[ThesisRecord] = []
@@ -62,3 +77,4 @@ class ScoreboardResult(BaseModel):
     n_open: int = 0
     n_matured: int = 0
     n_censored: int = 0
+    summary: ScoreboardSummary | None = None

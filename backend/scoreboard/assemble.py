@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from uuid import UUID
+
+import psycopg
+
+from db.session import DEFAULT_TENANT_ID
+from domain.enums import State
+from replay.metrics import MIN_N, compute_metrics
+from replay.schema import CallSnapshot
+from scoreboard.prices import PgRealizedPrices
+from scoreboard.record import scoreboard_records
+from scoreboard.schema import ScoreboardResult, ScoreboardSummary
+
+# The full assembly: the record walk + replay's claim-tied metric set over ELIGIBLE outcomes only —
+# matured (the episode's own exit_by elapsed; a running return must never drift inside a metric
+# before the claim's own deadline) AND non-censored (the record saw the arm). The timeline handed to
+# the withheld-arm metric is censor-trimmed the same way: a warming run already open on the record's
+# FIRST card has an unknowable start — dropped, never guessed. The banner keeps the whole layer
+# honest: an instrument, not a claim, until n accrues.
+
+
+class _RoutedPrices:
+    """``compute_metrics`` takes ONE realized reader; tenants are per-thesis. Routes each read to
+    the owning name's tenant (single-name sids — the withheld metric's whole universe)."""
+
+    def __init__(
+        self,
+        conn: psycopg.Connection,
+        sid_tenant: dict[UUID, UUID],
+        cap: date,
+        known_at: datetime | None,
+    ) -> None:
+        self._conn = conn
+        self._sid_tenant = sid_tenant
+        self._cap = cap
+        self._known_at = known_at
+        self._readers: dict[UUID, PgRealizedPrices] = {}
+
+    def _for(self, security_id: UUID) -> PgRealizedPrices:
+        tenant = self._sid_tenant.get(security_id, DEFAULT_TENANT_ID)
+        if tenant not in self._readers:
+            self._readers[tenant] = PgRealizedPrices(
+                self._conn, tenant_id=tenant, cap=self._cap, known_at=self._known_at
+            )
+        return self._readers[tenant]
+
+    def first_close_on_or_after(self, security_id: UUID, d: date):
+        return self._for(security_id).first_close_on_or_after(security_id, d)
+
+    def last_close_through(self, security_id: UUID, through: date):
+        return self._for(security_id).last_close_through(security_id, through)
+
+    def closes_between(self, security_id: UUID, start: date, end: date):
+        return self._for(security_id).closes_between(security_id, start, end)
+
+
+def _censor_leading_warming(snaps: list[CallSnapshot]) -> list[CallSnapshot]:
+    """Drop a warming-with-conviction run that is already OPEN on the record's first card — its
+    start is unknowable (the record began mid-warm), so the withheld metric never prices it.
+    Later runs are untouched (they have a visible non-warming boundary before them)."""
+    i = 0
+    while (
+        i < len(snaps) and snaps[i].state is State.WARMING and snaps[i].conviction_grade is not None
+    ):
+        i += 1
+    return snaps[i:]
+
+
+def assemble_scoreboard(
+    conn: psycopg.Connection,
+    *,
+    asof: date,
+    include_archived: bool = True,
+    known_at: datetime | None = None,
+) -> ScoreboardResult:
+    """The Scoreboard, assembled: every thesis's scored record + the aggregate metric summary.
+    Read-only end to end (compute-on-read; the walk and the metric pass write nothing)."""
+    result, timelines, single_name = scoreboard_records(
+        conn, asof, include_archived=include_archived, known_at=known_at
+    )
+    eligible = [
+        e.outcome for t in result.theses for e in t.episodes if e.matured and not e.censored_start
+    ]
+    trimmed = {tid: _censor_leading_warming(snaps) for tid, snaps in timelines.items()}
+    tenant_by_thesis = {t.thesis_id: t.tenant_id for t in result.theses}
+    sid_tenant = {
+        sid: tenant_by_thesis.get(tid) or DEFAULT_TENANT_ID for tid, sid in single_name.items()
+    }
+    metrics = compute_metrics(
+        eligible,
+        timeline=trimmed,
+        realized=_RoutedPrices(conn, sid_tenant, asof, known_at),
+        single_name_security=single_name,
+    )
+    record_began = min(
+        (t.first_call_asof for t in result.theses if t.first_call_asof), default=None
+    )
+    began = f"record began {record_began}" if record_began else "no call-of-record yet"
+    result.summary = ScoreboardSummary(
+        banner=(
+            f"FORWARD RECORD, NOT A CLAIM — {began}; {len(eligible)} episodes eligible for "
+            f"metrics (matured + non-censored; gate n<{MIN_N}); open, immature, and censored "
+            "episodes are ledger-only."
+        ),
+        min_n=MIN_N,
+        n_eligible=len(eligible),
+        record_began=record_began,
+        metrics=metrics.metrics,
+    )
+    return result

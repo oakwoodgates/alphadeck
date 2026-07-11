@@ -74,6 +74,7 @@ def derive_thesis_record(
     snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof)
     record = ThesisRecord(
         thesis_id=thesis.id,
+        tenant_id=thesis.tenant_id,
         name=thesis.name,
         ticker=thesis.ticker,
         basket_size=len(thesis.basket),
@@ -110,20 +111,29 @@ def scoreboard_records(
     *,
     include_archived: bool = True,
     known_at: datetime | None = None,
-) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]]]:
+) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
     (the log outlives schema changes; ``DomainModel`` is ``extra="forbid"``) becomes a visible
-    ``ThesisRecord.error``, never a raised 500 — siblings score unaffected."""
+    ``ThesisRecord.error``, never a raised 500 — siblings score unaffected.
+
+    Returns ``(result, timelines, single_name_security)`` — the last is thesis_id -> its sole
+    resolved member's security_id (replay's ``_single_name_security`` shape, computed here where the
+    loaded theses are in scope), the unit the withheld-arm metric can price."""
     result = ScoreboardResult(asof=asof)
     timelines: dict[UUID, list[CallSnapshot]] = {}
+    single_name: dict[UUID, UUID] = {}
     for thesis in thesis_repo.list_all(conn, include_archived=include_archived):
+        sids = [m.security_id for m in thesis.basket if m.security_id is not None]
+        if len(sids) == 1:
+            single_name[thesis.id] = sids[0]
         try:
             record, snaps = derive_thesis_record(conn, thesis, asof, known_at=known_at)
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard
             record = ThesisRecord(
                 thesis_id=thesis.id,
+                tenant_id=thesis.tenant_id,
                 name=thesis.name,
                 ticker=thesis.ticker,
                 basket_size=len(thesis.basket),
@@ -137,4 +147,4 @@ def scoreboard_records(
     result.n_open = sum(1 for t in result.theses for e in t.episodes if e.status == "open")
     result.n_matured = sum(1 for t in result.theses for e in t.episodes if e.matured)
     result.n_censored = sum(1 for t in result.theses for e in t.episodes if e.censored_start)
-    return result, timelines
+    return result, timelines, single_name
