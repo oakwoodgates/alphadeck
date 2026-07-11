@@ -23,6 +23,51 @@ from replay.schema import Episode, Outcome
 #                       visible, excluded from arm-anchored metrics — marked, never reconstructed.
 
 
+class EpisodeOperator(BaseModel):
+    """The operator's answer to one arm episode (SB3): the earliest take-span inside the episode's
+    window, or a pass when nobody took. Prices carry ``inferred`` flags (a logged fill wins; a
+    missing one is the close, flagged, never silent); a pass carries no prices — the episode's own
+    outcome sits beside it. NO delta/counterfactual fields (parked to v2)."""
+
+    action: Literal["took", "passed"]
+    decision_id: UUID
+    decision_date: date
+    reason: str | None = None
+    thesis_level: bool = False  # logged without a name; never guessed onto one (unpriced)
+    entry_price: float | None = None
+    entry_inferred: bool = False
+    exit_price: float | None = None
+    exit_inferred: bool = False
+    exit_date: date | None = None
+    running: bool = False  # still open at asof: the return is running, not realized
+    operator_return: float | None = None
+
+
+class OperatorSpan(BaseModel):
+    """A take→close span answering NO armed episode — the off-record row, carrying the stance
+    FROZEN on the take at logging time (the record is attribution's source). ``override`` = the
+    platform's stance was not armed/managing when the operator entered (the gate's logged
+    override, now with its outcome attached)."""
+
+    take_id: UUID
+    take_date: date
+    security_id: UUID | None = None
+    thesis_level: bool = False
+    call_state_at_take: str | None = None
+    call_verdict_at_take: str | None = None
+    override: bool = False
+    close_id: UUID | None = None
+    close_date: date | None = None
+    running: bool = False
+    entry_price: float | None = None
+    entry_inferred: bool = False
+    exit_price: float | None = None
+    exit_inferred: bool = False
+    exit_date: date | None = None
+    operator_return: float | None = None
+    reason: str | None = None
+
+
 class ScoredEpisode(BaseModel):
     """One arm episode from the record, scored — plus the live record-honesty flags."""
 
@@ -32,6 +77,7 @@ class ScoredEpisode(BaseModel):
     matured: bool
     censored_start: bool
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
+    operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
 
 
 class ThesisRecord(BaseModel):
@@ -50,6 +96,12 @@ class ThesisRecord(BaseModel):
     current_verdict: str | None = None
     warming_since: date | None = None  # open warming-with-conviction run at the record edge
     episodes: list[ScoredEpisode] = []
+    operator_spans: list[OperatorSpan] = []  # off-record take→close spans (overrides live here)
+    decision_anomaly: str | None = None  # a log shape the API should prevent — surfaced, not fixed
+    n_takes: int = 0
+    n_passes: int = 0
+    n_overrides: int = 0
+    n_voided: int = 0
     error: str | None = None  # fault isolation: an unreadable historical card, surfaced not raised
 
 
@@ -77,4 +129,8 @@ class ScoreboardResult(BaseModel):
     n_open: int = 0
     n_matured: int = 0
     n_censored: int = 0
+    n_takes: int = 0  # the operator track (SB3): non-voided decisions <= asof
+    n_passes: int = 0
+    n_overrides: int = 0  # off-record takes against a not-armed stance
+    n_voided: int = 0  # decisions later voided (excluded from all math, still counted)
     summary: ScoreboardSummary | None = None

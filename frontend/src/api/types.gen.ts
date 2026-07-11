@@ -985,6 +985,59 @@ export interface components {
             terms: components["schemas"]["TermEdit"][];
         };
         /**
+         * EpisodeOperatorOut
+         * @description The operator's answer to an arm episode: took (with the operator's own prices/return —
+         *     ``inferred`` marks a close used where no fill price was logged) or passed (no prices; the
+         *     episode's own outcome sits beside it). No delta fields — v2.
+         */
+        EpisodeOperatorOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "took" | "passed";
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Thesis Level
+             * @default false
+             */
+            thesis_level: boolean;
+            /** Entry Price */
+            entry_price?: number | null;
+            /**
+             * Entry Inferred
+             * @default false
+             */
+            entry_inferred: boolean;
+            /** Exit Price */
+            exit_price?: number | null;
+            /**
+             * Exit Inferred
+             * @default false
+             */
+            exit_inferred: boolean;
+            /** Exit Date */
+            exit_date?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
+            /** Operator Return */
+            operator_return?: number | null;
+        };
+        /**
          * Evidence
          * @description Immutable reference to a filing / data point.
          */
@@ -1187,6 +1240,71 @@ export interface components {
              * @default []
              */
             triggers: components["schemas"]["TriggerRefOut"][];
+        };
+        /**
+         * OperatorSpanOut
+         * @description An off-record take→close span (answering no armed episode), with the stance FROZEN on the
+         *     take row at logging time. ``override`` = entered while the platform said not-armed — the
+         *     gate's logged override, now carrying its outcome.
+         */
+        OperatorSpanOut: {
+            /**
+             * Take Id
+             * Format: uuid
+             */
+            take_id: string;
+            /**
+             * Take Date
+             * Format: date
+             */
+            take_date: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Thesis Level
+             * @default false
+             */
+            thesis_level: boolean;
+            /** Call State At Take */
+            call_state_at_take?: string | null;
+            /** Call Verdict At Take */
+            call_verdict_at_take?: string | null;
+            /**
+             * Override
+             * @default false
+             */
+            override: boolean;
+            /** Close Id */
+            close_id?: string | null;
+            /** Close Date */
+            close_date?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
+            /** Entry Price */
+            entry_price?: number | null;
+            /**
+             * Entry Inferred
+             * @default false
+             */
+            entry_inferred: boolean;
+            /** Exit Price */
+            exit_price?: number | null;
+            /**
+             * Exit Inferred
+             * @default false
+             */
+            exit_inferred: boolean;
+            /** Exit Date */
+            exit_date?: string | null;
+            /** Operator Return */
+            operator_return?: number | null;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * PlacementStatus
@@ -1622,6 +1740,7 @@ export interface components {
              * @default false
              */
             insufficient_prices: boolean;
+            operator?: components["schemas"]["EpisodeOperatorOut"] | null;
         };
         /**
          * ScoreboardMetricOut
@@ -1696,6 +1815,26 @@ export interface components {
             n_censored: number;
             /** N Eligible */
             n_eligible: number;
+            /**
+             * N Takes
+             * @default 0
+             */
+            n_takes: number;
+            /**
+             * N Passes
+             * @default 0
+             */
+            n_passes: number;
+            /**
+             * N Overrides
+             * @default 0
+             */
+            n_overrides: number;
+            /**
+             * N Voided
+             * @default 0
+             */
+            n_voided: number;
             /** Record Began */
             record_began?: string | null;
             /** Banner */
@@ -1749,6 +1888,13 @@ export interface components {
              * @default []
              */
             episodes: components["schemas"]["ScoreboardEpisodeOut"][];
+            /**
+             * Operator Spans
+             * @default []
+             */
+            operator_spans: components["schemas"]["OperatorSpanOut"][];
+            /** Decision Anomaly */
+            decision_anomaly?: string | null;
             /** Record Error */
             record_error?: string | null;
         };

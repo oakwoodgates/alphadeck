@@ -8,8 +8,8 @@ the immediate follow-up after v1 is surfacing **replay's historical episodes alo
 record (clearly separated — the record stays clean). "The platform feeds itself" became true at M2;
 *this* is what makes "validated forward" true.
 
-Status: **SB1 (the scoring engine + CLI) built.** SB2 = `GET /scoreboard` + gated metrics; SB3 = the
-operator-track join; SB4 = the FE view. This doc grows with the slices.
+Status: **SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3 (the
+operator track) built.** SB4 = the FE view. This doc grows with the slices.
 
 ## The one rule everything hangs on
 
@@ -61,6 +61,31 @@ two readers row-for-row equal, including the identical `Outcome`.
 This required one 2-line enabler in replay: `replay/scoring.py`'s `import duckdb` moved under
 `TYPE_CHECKING` (duckdb is the optional `.[replay]` extra, absent from the lean prod image; the
 import was annotation-only). `tests/scoreboard/test_lean_import.py` pins that structurally.
+
+## The operator track (SB3)
+
+The decision log (`operator_decision` — append-only, "the Scoreboard's missing column") joined to
+the episodes it answered. Voids resolve first (a voided decision is excluded from all math, still
+counted in `n_voided`); the valid axis caps at the request asof (`decision_date <= asof`).
+
+- **took** — the earliest take→close span whose take date falls inside an episode's window
+  (`[arm_date, dearm or asof]`) on the same name fills that episode's `operator` slot. Prices: a
+  logged fill always wins; a missing one falls back to the close, flagged `inferred`, never silent
+  (entry = first close on/after the take — blind-entry parity; a running span's exit = last close
+  ≤ asof). **No delta/counterfactual fields** — the row shows the record's return and the
+  operator's side by side (deltas ride with the v2 follow-blindly track).
+- **passed** — a pass inside an armed window fills the slot when no take did (same name; a
+  thesis-level pass lands on the **headline** episode — Decision Queue semantics). No prices; the
+  episode's own outcome sits beside it.
+- **no decision logged** — an armed episode nobody answered keeps `operator: null`: the honest
+  capture gap, rendered as such, never an error.
+- **off-record spans / overrides** — a span answering no episode rides `operator_spans`, carrying
+  the stance **frozen on the take row at logging time** (`call_state`/`call_verdict` — the record,
+  not a recompute, is attribution's source). `override=true` when that stance was not
+  armed/managing: the gate's logged override, now with its outcome attached. A thesis-level take
+  (no name) stays **unpriced** — visible, never guessed onto a name.
+- **anomalies** — a log shape the API should have prevented (take-while-open, close-while-flat)
+  surfaces as a per-thesis `decision_anomaly` note; the pairing never silently fixes the log.
 
 ## Reading it
 

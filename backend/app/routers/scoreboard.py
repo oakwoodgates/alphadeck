@@ -40,9 +40,11 @@ def get_scoreboard(
     for t in result.theses:
         # Resolve tickers/CIKs under the THESIS's tenant (the get_call precedent): episode names
         # + the trigger evidence's names, so provenance links attribute correctly per tenant.
-        sids = {e.episode.security_id for e in t.episodes} | {
-            tr.security_id for e in t.episodes for tr in e.triggers_at_arm
-        }
+        sids = (
+            {e.episode.security_id for e in t.episodes}
+            | {tr.security_id for e in t.episodes for tr in e.triggers_at_arm}
+            | {s.security_id for s in t.operator_spans if s.security_id is not None}
+        )
         tenant = t.tenant_id or DEFAULT_TENANT_ID
         ciks = master.ciks_for(conn, sids, tenant_id=tenant)
         tickers = master.tickers_for(conn, sids, tenant_id=tenant)
@@ -58,6 +60,10 @@ def get_scoreboard(
             n_open=result.n_open,
             n_matured=result.n_matured,
             n_censored=result.n_censored,
+            n_takes=result.n_takes,
+            n_passes=result.n_passes,
+            n_overrides=result.n_overrides,
+            n_voided=result.n_voided,
             n_eligible=summary.n_eligible if summary else 0,
             record_began=summary.record_began if summary else None,
             banner=summary.banner if summary else "",
