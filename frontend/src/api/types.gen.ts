@@ -1184,7 +1184,9 @@ export interface components {
         /**
          * PriceIngestOut
          * @description The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD
-         *     bars appended (0 = already current — the ingest is incremental) and the latest bar now on file.
+         *     bars appended (0 = already current — the ingest is incremental), how many overlap bars were
+         *     RE-VERSIONED (a source restatement, e.g. a split re-base — the exceptional path; source-strategy
+         *     Option A), and the latest bar now on file.
          */
         PriceIngestOut: {
             /**
@@ -1194,6 +1196,11 @@ export interface components {
             security_id: string;
             /** Ticker */
             ticker: string;
+            /**
+             * Bars Reversioned
+             * @default 0
+             */
+            bars_reversioned: number;
             /** Bars Appended */
             bars_appended: number;
             /** Latest Bar */

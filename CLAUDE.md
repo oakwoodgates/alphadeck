@@ -2,7 +2,7 @@
 
 Working agreements for AI agents (and humans) operating in this repo. Read this before writing code.
 This file is about **how to build Alpha Deck correctly**; the *what* and *why* live in `README.md` and `docs/PROJECT_OVERVIEW.md`.
-**The organizing frame** — the platform as a pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE), each a recommend→confirm trust handoff — is `docs/STAGE_MODEL.md`; frame new work by **stage**. SURFACE = `docs/WORKBENCH_EXTRACTION.md` (facts) + `docs/WORKBENCH_ENRICHMENT.md` (identity); TRIAGE = `docs/TRIAGE.md`.
+**The organizing frame** — the platform as a pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE), each a recommend→confirm trust handoff — is `docs/STAGE_MODEL.md`; frame new work by **stage**. SURFACE = `docs/WORKBENCH_EXTRACTION.md` (facts) + `docs/WORKBENCH_ENRICHMENT.md` (identity); TRIAGE = `docs/TRIAGE.md`; MONITOR = `docs/BOARD.md` (the surface) + `docs/CALL_LOGIC.md` (the brain) + `docs/FEED_LOOP.md` (the rhythm).
 
 ---
 

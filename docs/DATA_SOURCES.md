@@ -134,7 +134,7 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   corporate-actions adapter isn't boxed out. (Deliberately no `get_splits` yet — that extends the interface
   if/when we adopt an own-the-adjustment source.)
 
-> **KNOWN LIMITATION (decided, build queued): mixed-basis bars across a FUTURE split.** Because the
+> **RESOLVED — the re-version pass `[BUILT]` (was: mixed-basis bars across a FUTURE split).** Because the
 > adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is
 > incremental (`d > latest_bar_date`), a thesis that lives ACROSS a future split accumulates **old-basis
 > stored bars + new-basis appended bars** → a distorted `volume_breakout` ratio over that window. **Trigger:**
@@ -142,7 +142,12 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > Yahoo and **re-version restated bars** — the daily force-refresh already re-pulls each whole series; an
 > overlap compare appends new versions where fresh ≠ stored (the bitemporal store's native move; as-of reads
 > pick latest `recorded_at`), so the series snaps to the new basis within one cron tick, volume adjustment
-> stays free, and the mixed-basis window is ≤ 1 day. **The re-version slice is the queued build.** Option
+> stays free, and the mixed-basis window is ≤ 1 day. **BUILT:** `ingest_bars_for_security` now runs the
+> overlap compare on every pull (`stored_bars` deduped read → append a new version where fresh ≠ stored
+> beyond float noise, close AND volume; a hole in the overlap backfills through the same pass). Idempotent
+> (COUNT-the-table), replay-honest (a `known_at` before the correction still sees the OLD basis — the
+> bitemporal store's transaction-time guarantee), and loud only on the exception (the daily prints "N bars
+> RE-VERSIONED (restated)" only when nonzero). Option
 > (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid data tier
 > arrives; the `PriceSource` seam deliberately doesn't box it out.
 

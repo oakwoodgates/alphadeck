@@ -28,20 +28,20 @@ alphadeck/
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
 ├── scripts/run_5b_draft_check.ps1  # live gate-2 check: draft a chain from a narrative + scan the prose for numbers
-├── docs/                           # THE CANON (see the doc index in PROJECT_OVERVIEW)
-│   ├── PROJECT_OVERVIEW.md · ROADMAP.md · CALL_LOGIC.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
-│   ├── WORKBENCH_SCORING.md · WORKBENCH_EXTRACTION.md · DISCOVERY.md · CHAIN_DRAFTER.md   # the front half (S3 / hybrid / EDGAR-first discovery / S5 authoring)
-│   ├── FEED_LOOP.md                                          # the back half feeds itself (M2: ingest + cron + seam)
+├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
+│   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
+│   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order
+│   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm)   # the back half
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
 │   ├── RECALIBRATION.md   # the post-MVP tuning agenda (pass-001 record retired into ROADMAP's trust box)
-│   └── mockups/                    # the Board/Cockpit/Workbench visual targets
+│   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/
 │       ├── App.tsx · main.tsx · index.css        # shell + the design tokens (inverse loudness)
 │       ├── api/{client,hooks,types.gen}.ts       # openapi-fetch client; the hooks; GENERATED wire types
-│       ├── board/{Board,ThesisCard}.tsx          # the Board (lifecycle columns)
-│       ├── cockpit/Cockpit.tsx                    # the Cockpit (one thesis's call)
-│       ├── components/{CallCard,MemberMenu,ErrorToast}.tsx   # the call card · the M5 per-member menu · the shared error toast (Tier-3)
+│       ├── board/{Board,ThesisCard}.tsx          # the Board (lifecycle columns + the Decision Queue + the collapsed Archived section)
+│       ├── cockpit/{Cockpit,SpineListEditors}.tsx # the Cockpit (one thesis's call) + the catalyst-calendar / kill-criteria editors
+│       ├── components/{CallCard,MemberMenu,DecisionActions,ErrorToast}.tsx   # the call card · the M5 per-member menu · decision capture (take/pass/close/void) · the shared error toast
 │       ├── workbench/                             # the front half
 │       │   ├── Workbench.tsx                      #   the page (NARRATIVE › DECOMPOSE › SCORE › PROMOTE) + the create/edit form (M1)
 │       │   ├── ThesisFields.tsx                    #   M1: the name + narrative form (shared by create + narrative-edit)
@@ -49,6 +49,7 @@ alphadeck/
 │       │   ├── AddName.tsx                        #   the resolver typeahead (exact-membership pick; CIK shown)
 │       │   ├── ScoredRow.tsx · Meter.tsx          #   the four-meter scored row
 │       │   ├── FactsPanel.tsx · DDRail.tsx        #   extract → ratify (hybrid) + the "behind the scores" rail
+│       │   ├── CatalystFactForm.tsx               #   "+ log a catalyst" — the cited Key-1 conviction fact (the ratify union's catalyst variant)
 │       │   └── format.ts                          #   archetype labels, error text
 │       └── {test/setup.ts, **/__tests__/*}        # vitest (vi.mock the api/hooks boundary; real component logic)
 └── backend/                        # Python: FastAPI + Pydantic + psycopg
@@ -80,6 +81,7 @@ alphadeck/
     │   ├── chain_draft.py          #   resolve_discovered_chain: the per-CIK RECONCILER (PLACED/VERIFY by CIK + matched_terms; _resolve_one for off-universe names)
     │   ├── draft_jobs.py           #   the async draft-job registry (kick-off → poll; 409 in-flight guard; reaper; single-worker guard)
     │   └── draft_run_log.py        #   the DISCOVER run-of-record: one WRITE-ONLY JSON per completed draft job (data/draft_runs/; fail-open, never a read path)
+    ├── notify/                     # the notify seam: TransitionEvent + Notifier protocol + LogNotifier (delivery = one adapter, deferred)
     ├── calls/                      # THE CALL-ASSEMBLER (the product) — pure + golden-tested
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None
@@ -89,20 +91,20 @@ alphadeck/
     │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
     │   ├── edgar/{client,submissions,form4,converts,extract,fulltext}.py   # SEC client + Form 4 + converts + extractor + fulltext (the EFTS discovery enumerator: discover · classify · parallel under the shared RateLimiter)
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
-    │   ├── prices/{eod_loader,source}.py                          # EOD bars (+ latest_bar_date, force_refresh) · the PriceSource seam (Yahoo/Stooq)
+    │   ├── prices/{eod_loader,source,ingest_security}.py          # EOD bars (+ latest_bar_date, stored_bars, force_refresh) · the PriceSource seam (Yahoo/Stooq) · the ONE price leg (incremental tail + the RE-VERSION pass)
     │   └── {cash_burn,revenue_mix,shares,catalyst,theme_conviction}.py   # the ratify bridges (write fact_*)
     ├── securities/                 # entity resolution → the security master
     │   ├── master.py               #   search (discovery net) · resolve · ids_for_tickers / ids_for_ciks (exact membership) · populate_universe (broadener) · exists · get
     │   └── figi.py · sec_tickers.py
     ├── db/                         # bitemporal Postgres store
     │   ├── session.py · bitemporal.py (as_of / as_of_thesis / append_fact) · migrate.py
-    │   └── migrations/0001…0012    #   …0008 workbench_chain · 0009 scoring_facts · 0010 note · 0011 thesis_fit · 0012 thesis_term_set
+    │   └── migrations/0001…0021    #   …0009 scoring_facts · 0012 thesis_term_set · 0018 archetype_nullable · 0019 operator_decision · 0020 thesis_archived · 0021 thesis_exclusion
     ├── repositories/               # the row↔domain seam (raw rows never escape)
-    │   └── mappers.py · thesis_repo.py (get/list_all/upsert) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical)
+    │   └── mappers.py · thesis_repo.py (get/list_all/upsert + the sole writers: set_term_set/set_catalysts/set_kill_criteria/set_exclusions/set_archived — the structural wipe-guards) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical) · decisions_repo.py (the operator-decisions log + the derived position)
     ├── pipeline/                   # thin orchestration / CLIs
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
-    │   ├── daily.py                #   M2: the daily call-of-record cron (ingest → assemble → record_if_changed)
+    │   ├── daily.py                #   the daily call-of-record cron (ingest → assemble → TRANSITION detection → record_if_changed; archived skipped)
     │   ├── populate_master.py      #   the SEC-universe broadener CLI
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py             #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares)

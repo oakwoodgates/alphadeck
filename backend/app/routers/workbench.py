@@ -212,7 +212,7 @@ def ingest_security_prices(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
     try:
-        appended = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
+        bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
         conn.commit()
     except HTTPException:
         raise
@@ -222,7 +222,8 @@ def ingest_security_prices(
     return PriceIngestOut(
         security_id=security_id,
         ticker=sec.ticker,
-        bars_appended=appended,
+        bars_appended=bars.appended,
+        bars_reversioned=bars.reversioned,
         latest_bar=latest_bar_date(conn, security_id, tenant_id=tenant_id),
     )
 

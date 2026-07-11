@@ -54,6 +54,9 @@ class NameResult:
     price_bars_appended: int
     error: str | None = None
     form4_skipped: int = 0  # filings skipped per-filing (pre-XML era / unfetchable), never appended
+    # overlap bars re-stored because the source RESTATED them (a split re-base; source-strategy A) —
+    # the exceptional path, reported loudly only when nonzero
+    price_bars_reversioned: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -158,9 +161,9 @@ def ingest_thesis(
         ) as e:  # noqa: BLE001 — fail-visible: capture, roll back this leg, keep going
             conn.rollback()
             errs.append(f"form4: {e}")
-        px = 0
+        px_appended, px_reversioned = 0, 0
         try:
-            px = ingest_bars_for_security(
+            bars = ingest_bars_for_security(
                 conn,
                 sec,
                 tenant_id=thesis.tenant_id,
@@ -168,11 +171,22 @@ def ingest_thesis(
                 force_refresh=force_refresh,
                 source=source,
             )
+            px_appended, px_reversioned = bars.appended, bars.reversioned
             conn.commit()
         except Exception as e:  # noqa: BLE001
             conn.rollback()
             errs.append(f"price: {e}")
-        results.append(NameResult(sec.ticker, sec.id, f4, px, "; ".join(errs) or None, f4_skipped))
+        results.append(
+            NameResult(
+                sec.ticker,
+                sec.id,
+                f4,
+                px_appended,
+                "; ".join(errs) or None,
+                f4_skipped,
+                price_bars_reversioned=px_reversioned,
+            )
+        )
     return results
 
 
