@@ -45,10 +45,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
 
 ## The Cockpit — one thesis, deep
 
-Selecting a card opens the Cockpit: the narrative (the operator's words, preserved), the basket table
-(archetype shown **only if decided** — an unset one renders "—", never a default; computed market cap
-bridged from the scoring read), evidence, and two **operator-authored lists** that render *even at zero*
-(an empty section used to vanish, which made "there's no way to author one" invisible):
+Selecting a card opens the Cockpit: the narrative (the operator's words, preserved), the **grouped
+basket table + the per-name panel** (the next two sections), evidence, and two **operator-authored
+lists** that render *even at zero* (an empty section used to vanish, which made "there's no way to
+author one" invisible):
 
 - **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3").
   Dated entries within the hold horizon ride the CallCard's catalyst surface; entries ≤ 21 days out
@@ -60,6 +60,57 @@ bridged from the scoring read), evidence, and two **operator-authored lists** th
   counter-case on the CallCard — an authored thesis stops reading "no documented counter-case."
 
 The Cockpit shares the Board's as-of; the call rail beside it recomputes live at that date.
+
+### The grouped basket — per-name buckets
+
+The basket table partitions by each member's **own** call state — the Board's column idiom applied
+in-table, strongest → weakest, one header (swatch · label · hint · count) per **populated** bucket
+(an empty bucket renders no header — loudness marks the exception) and a status dot per row:
+
+- **Managing** — `verdict === "managing"`, **render-if-present**: the wire's Verdict enum carries it,
+  but the assembler computes member verdicts at ARMED today and the thesis Position has no
+  security_id, so the group stays empty until per-name managing lands (a flagged backend follow-up).
+- **Armed** / **Lapsing** / **Theme-armed** — the `armed_members` tier, split by its flags. When a
+  member is lapsing *and* theme-armed, **Lapsing wins the bucket** (the clock is the urgent fact;
+  the theme basis stays visible on the panel).
+- **Warming** — the coverage bucket the wire forces: a conviction-only name sits in NEITHER
+  `armed_members` NOR `watch_members` (watch is confirmation-only) yet its firing is live on the
+  rail. Joined by ticker from `triggers_fired` (`TriggerRefOut` carries no security_id), so
+  duplicate-ticker rows both light — visible over-inclusion, never a silent drop.
+- **Watch** — `watch_members` ("moving, no conviction yet").
+- **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
+  (keep-it-visible), greyed rather than gone.
+
+Wire rank is preserved inside the armed/watch buckets (the call machinery already ranked them — the
+FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order. Columns:
+`Dot · Ticker · Name · Archetype (only if decided — an unset one renders "—", never a default) ·
+Mkt cap (bridged from the scoring read) · Exit-by` (the member's **own** hold clock; amber
+"lapses ‹date›" on a Lapsing row). The old Role/Detail columns are gone from the table; the
+authored text survives on the per-name panel. No card yet (loading/error) → everything reads
+Quiet, honestly.
+
+### The per-name panel
+
+Clicking a row slides a **read-only, non-modal** panel over the rail (no scrim — the table stays
+clickable, so switching names is one click on the next row; the table never unmounts, and
+Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
+
+- **The call · this name** — its own verdict + grade chips + confidence bar, or the honest degrade
+  line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals
+  at this as-of"), plus its two clocks (a lapsing hold clock reads amber, "lapses in Nd").
+- **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
+  Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
+  `risk_signals`, ticker-filtered.
+- **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): archetype
+  (+ the enrichment's quiet "figures suggest …" line when undecided, #10), segment, sector,
+  exchange, category, mkt cap, the operator's **size weight — labeled "yours"** so it can never
+  read as the signal conviction beside it (the two meanings never cross), and the authored
+  role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
+  (the four meters — already fetched for the mkt-cap bridge).
+
+Everything on the panel is a wire field this page already fetched; deciding (sizing, facts,
+archetype) lives in the Workbench. Omitted deliberately: description/website — draft-time
+enrichment fields that are never promoted onto a `BasketMember`.
 
 ## The CallCard — the opinionated, auditable rail
 
@@ -101,7 +152,8 @@ Below the card, when a theme has more than one moving name: the **ranked armed r
 [0]; ranking = freshness band on the liveness runway first, grade within — `CALL_LOGIC.md`; `lapsing`
 flags a member below the freshness dial; `theme-armed` marks one armed via the theme-conviction fallback
 rather than its own conviction) and the quiet **watch tier** ("moving, no conviction yet"). A single-name
-thesis IS its headline card — the menu self-hides.
+thesis IS its headline card — the menu self-hides. The menu stays the ranked *summary*; the per-name
+panel (above) is the deep view — the thesis-wide lists are no longer the only per-member read.
 
 ## The nightly rhythm
 
