@@ -12,18 +12,131 @@
           "theses"
         ],
         "summary": "List Theses",
+        "description": "List theses. Archived ones are EXCLUDED by default \u2014 the workbench picker and every default\nconsumer skip them without asking; the Board passes ``include_archived=true`` and renders them\nin a collapsed section (visible + restorable, never vanished).",
         "operationId": "list_theses_theses_get",
+        "parameters": [
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "include archived theses (the Board's explicit, reversible filter)",
+              "default": false,
+              "title": "Include Archived"
+            },
+            "description": "include archived theses (the Board's explicit, reversible filter)"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/ThesisSummary"
                   },
-                  "type": "array",
                   "title": "Response List Theses Theses Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/archive": {
+      "post": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Archive Thesis",
+        "description": "ARCHIVE, never delete (board hygiene): the thesis leaves the default list and the daily\ncron's walk (its calls-of-record stop accumulating \u2014 the Scoreboard's data stays clean), but the\nspine, the calls log, and the decision log all stay. Fully reversible via unarchive.",
+        "operationId": "archive_thesis_theses__thesis_id__archive_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/unarchive": {
+      "post": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Unarchive Thesis",
+        "description": "Restore an archived thesis whole \u2014 back onto the Board and into the cron's nightly walk.",
+        "operationId": "unarchive_thesis_theses__thesis_id__unarchive_post",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3517,6 +3630,11 @@
           "narrative": {
             "type": "string",
             "title": "Narrative"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived",
+            "default": false
           }
         },
         "type": "object",

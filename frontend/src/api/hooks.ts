@@ -45,14 +45,35 @@ export type SavedRunSummary = components["schemas"]["SavedRunSummary"];
 // the per-security price pull's receipt (the finalize screen's decoupled price leg)
 export type PriceIngestOut = components["schemas"]["PriceIngestOut"];
 
-export function useTheses() {
+export function useTheses(includeArchived = false) {
   return useQuery({
-    queryKey: ["theses"],
+    // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the
+    // list keeps working); archived stay excluded by default — only the Board asks for them
+    queryKey: ["theses", includeArchived] as const,
     queryFn: async () => {
-      const { data, error } = await api.GET("/theses");
+      const { data, error } = await api.GET("/theses", {
+        params: { query: { include_archived: includeArchived } },
+      });
       if (error) throw error;
       return data;
     },
+  });
+}
+
+// Archive (never delete) / restore — the Board's hygiene control. The spine, calls log, and
+// decision log all stay; an archived thesis just leaves the default list + the cron's walk.
+export function useSetArchived() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ thesisId, archived }: { thesisId: string; archived: boolean }) => {
+      const path = archived ? "/theses/{thesis_id}/archive" : "/theses/{thesis_id}/unarchive";
+      const { data, error } = await api.POST(path, {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["theses"] }),
   });
 }
 

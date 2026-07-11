@@ -11,10 +11,57 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Theses */
+        /**
+         * List Theses
+         * @description List theses. Archived ones are EXCLUDED by default — the workbench picker and every default
+         *     consumer skip them without asking; the Board passes ``include_archived=true`` and renders them
+         *     in a collapsed section (visible + restorable, never vanished).
+         */
         get: operations["list_theses_theses_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Thesis
+         * @description ARCHIVE, never delete (board hygiene): the thesis leaves the default list and the daily
+         *     cron's walk (its calls-of-record stop accumulating — the Scoreboard's data stays clean), but the
+         *     spine, the calls log, and the decision log all stay. Fully reversible via unarchive.
+         */
+        post: operations["archive_thesis_theses__thesis_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unarchive Thesis
+         * @description Restore an archived thesis whole — back onto the Board and into the cron's nightly walk.
+         */
+        post: operations["unarchive_thesis_theses__thesis_id__unarchive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1615,6 +1662,11 @@ export interface components {
             basket_size: number;
             /** Narrative */
             narrative: string;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
         };
         /**
          * Tier
@@ -1707,7 +1759,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_theses_theses_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description include archived theses (the Board's explicit, reversible filter) */
+                include_archived?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1721,6 +1776,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThesisSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_thesis_theses__thesis_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unarchive_thesis_theses__thesis_id__unarchive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

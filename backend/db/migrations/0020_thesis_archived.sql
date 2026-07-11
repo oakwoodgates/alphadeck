@@ -1,0 +1,12 @@
+-- 0020 — thesis.archived_at: archive, never delete (board hygiene; the slice-B plan).
+--
+-- An archived thesis leaves the Board's default list and the daily cron's walk (its test/draft
+-- calls-of-record stop accumulating — the Scoreboard's data starts clean), but NOTHING is deleted:
+-- the spine, the calls log, and the decision log all stay (the calls/decision FKs make a hard
+-- delete wrong anyway, and "keep it visible" is the workbench principle — an explicit, reversible
+-- filter, never a vanish). Unarchive restores it whole.
+--
+-- The column is deliberately NOT written by `upsert` (thesis_to_row never names it — the term_set
+-- structural guard): a promote can neither archive nor resurrect a thesis; the narrow
+-- `set_archived` is the sole writer.
+ALTER TABLE thesis ADD COLUMN IF NOT EXISTS archived_at timestamptz;

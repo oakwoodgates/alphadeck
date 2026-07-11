@@ -698,6 +698,17 @@ table.basket .role { color: var(--txt-2); font-size: 11px; }
 .sle-actions { display: flex; gap: 8px; align-items: center; }
 .cff { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }
 
+/* --- thesis archive (board hygiene): the sibling ✕ + the collapsed archived section --- */
+.card-wrap { position: relative; }
+.card-wrap .card-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; line-height: 1; font-size: 11px; color: var(--txt-4); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.card-wrap:hover .card-x { opacity: 1; }
+.card-wrap .card-x:hover { color: var(--txt-2); border-color: var(--line-2); background: var(--panel-2); }
+.arch-sect { margin: 10px 14px 18px; color: var(--txt-4); }
+.arch-sect summary { cursor: pointer; font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; }
+.arch-row { display: flex; align-items: center; gap: 10px; padding: 4px 2px; font-size: 12px; color: var(--txt-3); }
+.arch-row .arch-nm { min-width: 220px; }
+.arch-row .arch-sz { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
+
 /* --- decision capture: the CallCard action row + the operator-decision log --- */
 .dc { display: flex; flex-direction: column; gap: 8px; }
 .dc-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }

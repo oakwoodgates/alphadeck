@@ -81,13 +81,32 @@ def set_kill_criteria(
             )
 
 
-def list_all(conn: psycopg.Connection) -> list[Thesis]:
-    """Every thesis, each fully loaded, ordered by name. The API projects these to lightweight
-    summaries; at this scale a full load per thesis is fine (optimize if the universe grows)."""
+def list_all(conn: psycopg.Connection, *, include_archived: bool = False) -> list[Thesis]:
+    """Every thesis, each fully loaded, ordered by name. ARCHIVED theses are EXCLUDED by default —
+    the Board's default list, the workbench picker, and the daily cron's walk all skip them without
+    asking (an archived test basket stops accumulating calls-of-record; the Scoreboard's data stays
+    clean). ``include_archived=True`` is the explicit, reversible filter (the Board's collapsed
+    "Archived" section). The API projects these to lightweight summaries; at this scale a full load
+    per thesis is fine (optimize if the universe grows)."""
+    where = "" if include_archived else "WHERE archived_at IS NULL"
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM thesis ORDER BY name")
+        cur.execute(f"SELECT id FROM thesis {where} ORDER BY name")
         ids = [r["id"] for r in cur.fetchall()]
     return [thesis for thesis in (get(conn, i) for i in ids) if thesis is not None]
+
+
+def set_archived(conn: psycopg.Connection, thesis_id: UUID, archived: bool) -> None:
+    """Archive (never delete) / restore a thesis — the SOLE writer of ``archived_at`` (``upsert``
+    never names the column, so a promote can neither archive nor resurrect). Idempotent: archiving
+    an archived thesis re-stamps the time; restoring a live one is a no-op NULL. The spine, the
+    calls log, and the decision log all stay — reversible, nothing vanishes. The caller owns the
+    transaction."""
+    stamp = "now()" if archived else "NULL"
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE thesis SET archived_at = {stamp}, updated_at = now() WHERE id = %s",
+            (thesis_id,),
+        )
 
 
 def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
