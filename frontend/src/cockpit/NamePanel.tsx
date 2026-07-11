@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
-import type { CallCardResponse, TriggerRefOut } from "../api/hooks";
+import type { CallCardResponse, ThesisDetail, TriggerRefOut } from "../api/hooks";
+import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel } from "../workbench/format";
@@ -13,6 +14,10 @@ interface Props {
   /** The thesis card — the wire's only home for a Warming name's triggers and any member's risk
    *  signals (both joins are by ticker: TriggerRefOut carries no security_id). */
   card: CallCardResponse | undefined;
+  /** For the per-name slice of the decision log (same query the rail already fetched). */
+  thesisId: string;
+  /** The thesis's open position — shown here only when attributed to THIS name (its security_id). */
+  position: ThesisDetail["position"];
   asof: string;
   onClose: () => void;
 }
@@ -35,7 +40,7 @@ const AUTHOR_TAG: Record<string, string> = {
  *  switching names is one click on the next row; the table itself never unmounts). READ-ONLY by
  *  design: every value is a wire field this page already fetched — sizing, facts, and archetype
  *  decisions live in the Workbench. Esc / ✕ / re-clicking the row closes it. */
-export function NamePanel({ row, def, card, asof, onClose }: Props) {
+export function NamePanel({ row, def, card, thesisId, position, asof, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -58,6 +63,16 @@ export function NamePanel({ row, def, card, asof, onClose }: Props) {
   const risks = (card?.risk_signals ?? []).filter(
     (t) => t.ticker != null && t.ticker === member.ticker,
   );
+
+  // The operator record, per-name: the open position when it's attributed to THIS name, and the
+  // decision rows logged ON this name (by security_id). Thesis-level rows (no name on the row —
+  // passes, seed-era takes) stay on the rail's full log, which is also where acting and undo live:
+  // the panel READS the record, it never writes it (one write surface, no divergence).
+  const decisions = useDecisions(thesisId).data ?? [];
+  const myDecisions = member.security_id
+    ? decisions.filter((d) => d.security_id === member.security_id)
+    : [];
+  const held = Boolean(position?.security_id && position.security_id === member.security_id);
 
   const armDays = daysFrom(asof, call?.arm_until);
   const exitDays = daysFrom(asof, call?.exit_by);
@@ -173,6 +188,17 @@ export function NamePanel({ row, def, card, asof, onClose }: Props) {
         </div>
       )}
 
+      {held && position && (
+        <>
+          <div className="np-h">Position · this name</div>
+          <div className="np-pos">
+            Position open — entered {fmtDate(position.opened_on)}
+            {position.entry_price != null && <> @ ${position.entry_price}</>}
+            {position.current_price != null && <> · now ${position.current_price}</>}
+          </div>
+        </>
+      )}
+
       <div className="np-h">Triggers · this name&apos;s own</div>
       {own.length > 0 ? (
         own.map((t, i) => (
@@ -248,9 +274,33 @@ export function NamePanel({ row, def, card, asof, onClose }: Props) {
         </>
       )}
 
+      {myDecisions.length > 0 && (
+        <>
+          <div className="np-h">Decision log · this name</div>
+          {/* voided rows grey with a tag — visible, never vanished (the rail's rule, kept here) */}
+          {myDecisions.slice(0, 6).map((d) => (
+            <div className={`np-dlog${d.voided ? " voided" : ""}`} key={d.id}>
+              <b className="act">{d.action}</b>
+              <span className="dt">{fmtDate(d.decision_date)}</span>
+              <span className="dd">
+                {[
+                  d.shares != null ? `${d.shares} sh` : null,
+                  d.price != null ? `@ $${d.price}` : null,
+                  d.reason || null,
+                  d.call_verdict ? `platform: ${d.call_verdict.replace(/_/g, "-")}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                {d.voided && " · voided"}
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+
       <div className="np-note">
-        Read-only — sizing, facts, and archetype decisions live in the Workbench. Closing returns
-        the table exactly as you left it.
+        Read-only — sizing, facts, and archetype decisions live in the Workbench; acting, passing,
+        and undo live on the thesis rail. Closing returns the table exactly as you left it.
       </div>
     </aside>
   );

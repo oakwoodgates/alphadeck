@@ -286,6 +286,8 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           row={selected.row}
           def={selected.def}
           card={card}
+          thesisId={thesisId}
+          position={thesis?.position}
           asof={asof}
           onClose={() => setSelOrdinal(null)}
         />

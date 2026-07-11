@@ -102,6 +102,11 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
 - **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
   Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
   `risk_signals`, ticker-filtered.
+- **The operator record · this name** — the open **position** when it's attributed to this name
+  (`Position.security_id`), and the **decision rows logged on this name** (`DecisionOut.security_id`)
+  with voided rows greyed, never hidden. Display-only slices of the rail's log (the same query, no
+  new fetch): thesis-level rows — and acting / passing / undo — stay on the rail, the one write
+  surface.
 - **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): archetype
   (+ the enrichment's quiet "figures suggest …" line when undecided, #10), segment, sector,
   exchange, category, mkt cap, the operator's **size weight — labeled "yours"** so it can never

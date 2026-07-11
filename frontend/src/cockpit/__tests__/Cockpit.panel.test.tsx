@@ -22,8 +22,14 @@ const fx = vi.hoisted(() => {
     evidence: [],
     catalysts: [],
     kill_criteria: [],
-    position: null,
+    // the open position, ATTRIBUTED to J (post-#155 Position.security_id) — the panel joins on it
+    position: { entry_price: 125, current_price: null, opened_on: "2026-07-11", security_id: "s-j" },
   },
+  decisions: [
+    { id: "d1", action: "take", decision_date: "2026-07-11", security_id: "s-j", shares: 10, price: 125, reason: "test", voids: null, call_state: "armed", call_verdict: "starter_entry", recorded_at: "2026-07-11T12:00:00Z", voided: false },
+    { id: "d2", action: "take", decision_date: "2026-07-10", security_id: "s-ztek", shares: null, price: null, reason: "other name", voids: null, call_state: null, call_verdict: null, recorded_at: "2026-07-10T12:00:00Z", voided: false },
+    { id: "d3", action: "pass", decision_date: "2026-07-09", security_id: null, shares: null, price: null, reason: "thesis-level", voids: null, call_state: null, call_verdict: null, recorded_at: "2026-07-09T12:00:00Z", voided: false },
+  ],
   call: {
     thesis_id: "t-nuke",
     asof: "2026-07-11",
@@ -88,7 +94,7 @@ vi.mock("../../api/hooks", () => ({
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
-  useDecisions: () => ({ data: [], isLoading: false, error: null }),
+  useDecisions: () => ({ data: fx.decisions, isLoading: false, error: null }),
   usePostDecision: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
 }));
 
@@ -205,6 +211,24 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("cash-generative")).toBeInTheDocument(); // runway null value, honest label
     expect(p.getByText("1 unconfirmed estimate(s)")).toBeInTheDocument();
     expect(p.getByText("drafted")).toBeInTheDocument(); // system_drafted fit tag
+  });
+
+  it("shows the position and the decision rows logged ON this name — other names' never leak", () => {
+    const { container } = renderCockpit();
+    fireEvent.click(row(container, "bkt-armed")); // J — the held, decided-on name
+    const p = within(panel(container) as HTMLElement);
+    expect(p.getByText(/Position open — entered Jul 11 @ \$125/)).toBeInTheDocument();
+    expect(p.getByText("Decision log · this name")).toBeInTheDocument();
+    expect(p.getByText("take")).toBeInTheDocument();
+    expect(p.getByText("10 sh · @ $125 · test · platform: starter-entry")).toBeInTheDocument();
+    expect(p.queryByText(/other name/)).toBeNull(); // ZTEK's row never leaks into J's panel
+    expect(p.queryByText(/thesis-level/)).toBeNull(); // unattributed rows stay on the rail's log
+
+    fireEvent.click(row(container, "bkt-quiet")); // URA — flat, nothing logged on it
+    const q = within(panel(container) as HTMLElement);
+    expect(q.queryByText(/Position open/)).toBeNull();
+    // no rows on this name → the whole section stays off (loudness marks the exception)
+    expect(q.queryByText("Decision log · this name")).toBeNull();
   });
 
   it("keeps the panel read-only — no buttons beyond close, nothing to mutate", () => {
