@@ -68,9 +68,19 @@ def _thesis(security_id) -> Thesis:
     )
 
 
+def _persist(db, t: Thesis) -> None:
+    """Upsert + the sole child-list writers: catalysts / kill criteria left ``upsert`` (the structural
+    wipe-guard — the same reason as ``set_term_set``), so a full persist goes through their writers.
+    """
+    thesis_repo.upsert(db, t)
+    tenant = t.tenant_id or DEFAULT_TENANT_ID
+    thesis_repo.set_catalysts(db, t.id, t.catalysts, tenant_id=tenant)
+    thesis_repo.set_kill_criteria(db, t.id, t.kill_criteria, tenant_id=tenant)
+
+
 def test_upsert_then_get_roundtrips(db, security_id):
     t = _thesis(security_id)
-    thesis_repo.upsert(db, t)
+    _persist(db, t)
     db.commit()
     assert thesis_repo.get(db, t.id) == t  # full domain round-trip; no raw row escapes the repo
 
@@ -81,7 +91,7 @@ def test_chain_structure_survives_reload(db, security_id):
     (durable in the store, not just the writer's session view). If this doesn't hold, the MVP isn't done.
     """
     t = _thesis(security_id)
-    thesis_repo.upsert(db, t)
+    _persist(db, t)
     db.commit()
 
     reloaded = connect()  # a fresh connection — the chain must be durable, not session-local
@@ -176,9 +186,25 @@ def test_upsert_cannot_blank_a_persisted_term_set(db, security_id):
     assert [e.term for e in got.term_set] == ["psilocin"]  # the term set SURVIVED unblanked
 
 
+def test_upsert_cannot_blank_authored_catalysts_or_kill_criteria(db, security_id):
+    """The term-set structural guard, third instance: ``upsert`` never touches the two child tables,
+    so a promote-shaped re-upsert (whose object carries EMPTY lists — exactly what the promote route
+    builds from a request that omits them) cannot wipe an authored catalyst surface or kill list."""
+    t = _thesis(security_id)
+    _persist(db, t)
+    db.commit()
+    thesis_repo.upsert(
+        db, t.model_copy(update={"narrative": "edited", "catalysts": [], "kill_criteria": []})
+    )
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    assert got.narrative == "edited"  # upsert DID write the fields it owns
+    assert len(got.catalysts) == 1 and len(got.kill_criteria) == 1  # the lists SURVIVED
+
+
 def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     t = _thesis(security_id)
-    thesis_repo.upsert(db, t)
+    _persist(db, t)
     db.commit()
 
     # mutate the narrative + log a fill + RE-SEGMENT the chain (re-label the link, re-place the name,

@@ -61,6 +61,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/catalysts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Catalysts
+         * @description Author the thesis's catalyst SURFACE — the upcoming binary events the card renders between
+         *     entry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).
+         *     Full-list replace via the sole writer (``set_catalysts`` — the structural wipe-guard: a promote
+         *     never touches this table). Operator authority (#4: the operator authors the events; the platform
+         *     times them).
+         */
+        put: operations["put_catalysts_theses__thesis_id__catalysts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/kill-criteria": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Kill Criteria
+         * @description Author the thesis's kill criteria — the documented "what would kill this", read by the
+         *     deterministic counter-case (the card stops saying "no documented counter-case"). Full-list
+         *     replace via the sole writer; same structural wipe-guard as the catalysts.
+         */
+        put: operations["put_kill_criteria_theses__thesis_id__kill_criteria_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/decisions": {
         parameters: {
             query?: never;
@@ -627,6 +673,28 @@ export interface components {
             when_label?: string | null;
         };
         /**
+         * CatalystIn
+         * @description One catalyst-surface entry (a narrative binary event the card's surface renders between entry
+         *     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
+         *     generates the id; the list is replaced whole (the operator edits it as a list).
+         */
+        CatalystIn: {
+            /** Label */
+            label: string;
+            /** Kind */
+            kind?: string | null;
+            /** When Date */
+            when_date?: string | null;
+            /** When Label */
+            when_label?: string | null;
+        };
+        /**
+         * CatalystType
+         * @description The catalyst nature, where one applies (optional on a signal; extensible).
+         * @enum {string}
+         */
+        CatalystType: "regulatory" | "promoter_attention" | "clinical_readout" | "personnel" | "earnings" | "contract" | "gov_funding";
+        /**
          * ChainDraftOut
          * @description The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
          *     resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
@@ -925,6 +993,15 @@ export interface components {
             text: string;
         };
         /**
+         * KillCriterionIn
+         * @description One kill criterion — the operator's documented "what would kill this thesis"; feeds the
+         *     deterministic counter-case (the card stops reading "no documented counter-case").
+         */
+        KillCriterionIn: {
+            /** Text */
+            text: string;
+        };
+        /**
          * Kind
          * @description What produced the signal (extensible).
          * @enum {string}
@@ -1115,6 +1192,46 @@ export interface components {
             cash_usd: number;
             /** Quarterly Burn Usd */
             quarterly_burn_usd: number;
+        };
+        /**
+         * RatifyCatalyst
+         * @description A hand-authored catalyst-CONVICTION fact (the Key-1 arming path — ``fact_catalyst`` via
+         *     ``ingest_catalyst``, ``source='ratified'``). Unlike the extractor-fed types there is no candidate:
+         *     the operator authors the event and MUST cite it (``source_ref`` — the press release / 8-K / IR
+         *     page; provenance is the point, #6). ``event_date`` = when the catalyst became known (valid time,
+         *     no lookahead); ``horizon_end`` optionally pins its relevance horizon (else the liveness default).
+         *     Distinct from the thesis-level catalyst SURFACE (display objects, ``PUT /theses/{id}/catalysts``).
+         */
+        RatifyCatalyst: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /** Estimate */
+            estimate?: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "catalyst";
+            catalyst_type: components["schemas"]["CatalystType"];
+            grade: components["schemas"]["Grade"];
+            /** Label */
+            label: string;
+            /** Horizon End */
+            horizon_end?: string | null;
         };
         /** RatifyRevenueMix */
         RatifyRevenueMix: {
@@ -1673,6 +1790,76 @@ export interface operations {
             };
         };
     };
+    put_catalysts_theses__thesis_id__catalysts_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalystIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_kill_criteria_theses__thesis_id__kill_criteria_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KillCriterionIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_decisions_theses__thesis_id__decisions_get: {
         parameters: {
             query?: never;
@@ -2173,7 +2360,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RatifyRevenueMix"] | components["schemas"]["RatifyShares"] | components["schemas"]["RatifyCashBurn"];
+                "application/json": components["schemas"]["RatifyRevenueMix"] | components["schemas"]["RatifyShares"] | components["schemas"]["RatifyCashBurn"] | components["schemas"]["RatifyCatalyst"];
             };
         };
         responses: {

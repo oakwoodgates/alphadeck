@@ -47,6 +47,7 @@ from domain.extraction import ExtractedFact
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
+from ingest.catalyst import ingest_catalyst
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security
 from ingest.edgar.fulltext import DiscoveryUnavailable
@@ -724,6 +725,28 @@ def ratify_fact(
             shares=req.shares,
             vouched=_vouched(req.estimate, req.shares),
             **common,
+        )
+    elif req.fact_type == "catalyst":
+        # a hand-authored conviction fact (the Key-1 arming path) — no extractor candidate exists,
+        # so the CITATION is the provenance (#6): an empty source_ref would be a bare operator claim
+        if not req.source_ref.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="a catalyst fact needs its citation (source_ref) — the press release / "
+                "8-K / IR page it traces to",
+            )
+        fid = ingest_catalyst(
+            conn,
+            req.security_id,
+            catalyst_type=req.catalyst_type,
+            grade=req.grade,
+            label=req.label,
+            source=req.source,
+            source_ref=req.source_ref,
+            event_date=req.event_date,
+            horizon_end=req.horizon_end,
+            ratified_by="operator",
+            tenant_id=tenant_id,
         )
     else:  # cash_burn
         fid = ingest_cash_burn(

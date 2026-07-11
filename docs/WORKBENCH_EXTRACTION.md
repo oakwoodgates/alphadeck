@@ -161,7 +161,8 @@ ratify UI shows it inline (not a tooltip) with a clickable EDGAR link.
 ## Ratify — the operator's value is the only one stored
 
 `POST /workbench/facts` (the facts panel) writes the operator's confirmed/edited value via the existing
-`ingest_*` bridges (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn`):
+`ingest_*` bridges (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn` /
+`fact_catalyst`):
 
 - The stored value is **strictly the operator's submitted field** — never an extractor figure that slipped
   through. (AUTO is confirm-as-is, but it still travels as the operator's confirmed value.)
@@ -169,6 +170,13 @@ ratify UI shows it inline (not a tooltip) with a clickable EDGAR link.
   `10-q-cover`) — never flattened to "ratified", so the provenance chip stays honest.
 - `ratified_by` is stamped `"operator"` server-side. The fact is append-only (a re-ratify is a new row,
   latest-wins). The meter re-derives on the next scored read — closing the extract → ratify → score loop.
+- **The `catalyst` variant is hand-authored, not extractor-fed** (the authoring slice): no candidate
+  exists, so the **citation is the provenance** — `source_ref` (the press release / 8-K / IR page) is
+  REQUIRED, an empty one 422s (#6: an uncited catalyst is a bare operator claim, not evidence). It writes
+  the Key-1 **conviction fact** (`ingest_catalyst`, `source='ratified'`) the catalyst-conviction detector
+  consumes — distinct from the thesis-level catalyst *surface* (display events, `PUT
+  /theses/{id}/catalysts`, whose sole writer is `thesis_repo.set_catalysts` — the `set_term_set`
+  structural wipe-guard, so a promote can never blank an authored list; same for kill criteria).
 - **The ratify must be VISIBLE even when its meter can't move yet** (the gate-3 "no save?" finding: a
   shares confirm on a price-less fresh name changed nothing on screen — the fact was on file all along).
   Three surfaces carry it now: `_market_cap` keeps a half-input figure **value-None but provenance'd**
