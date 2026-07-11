@@ -62,7 +62,7 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 | → **Incubating** | No *live* entry trigger. *(default state)* |
 | Incubating → **Warming** | ≥ `warming_min_entry_triggers` live entry triggers, but the two keys are **not** co-located (e.g. a conviction with no confirmation on the same security). |
 | Warming → **Armed** | A **conviction** key and a **confirmation** key are *live and co-located on the same security* (`arming_requires_confirmation`), and no severe risk signal is blocking. |
-| any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). The position DERIVES from the **operator-decisions log** (`operator_decision` — decision capture): `take` opens, `close` closes, `void` un-does an append; read as-of BOTH time axes (`decision_date` = valid, `recorded_at` = transaction — a replayed past call never sees a later-logged fill), fed once at the `call_for_thesis` funnel (`decisions_repo.effective_position`; any log rows beat the seed-era `thesis.position_*` columns, including net-closed). The same log is the Scoreboard's operator column and the gate's override record (a take rides with the platform's stance at logging time — logged, never blocked, #5). |
+| any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). The position DERIVES from the **operator-decisions log** (`operator_decision` — decision capture): `take` opens, `close` closes, `void` un-does an append; read as-of BOTH time axes (`decision_date` = valid, `recorded_at` = transaction — a replayed past call never sees a later-logged fill), fed once at the `call_for_thesis` funnel (`decisions_repo.effective_position`; any log rows beat the seed-era `thesis.position_*` columns, including net-closed). The same log is the Scoreboard's operator column and the gate's override record (a take rides with the platform's stance at logging time — logged, never blocked, #5). A take logged **on a name** also attributes the held member on the menu — per-member Managing, §4. |
 | Armed → **Warming** | The **confirmation** key ages past its liveness window (the *entry window* `arm_until` lapses) with no fill — re-arming needs a fresh confirmation. A mild consolidation (a dip that doesn't age out the firing) is **not** a lapse. |
 | Armed/Warming → **Incubating** | All live entry triggers age out (past the *hold* horizon `exit_by`). |
 
@@ -152,6 +152,24 @@ core-conviction + weak-confirmation, both mean *"enter small, build."* The only 
 build into (more catalysts firming vs volume confirming); that lives in the expression / show-your-work
 (§5, §8) and confidence (§7), not a separate verdict. A `starter_entry` carries reduced confidence and a
 cautious expression.
+
+**Per-member Managing attribution `[PROPOSED]` (confirm).** The table's Managing row is thesis-level;
+per-member it applies to exactly **one** name — the held one. When the open position carries a
+`security_id` (the position derives from a `take` logged **on a name**; `Position.security_id` rides the
+derived position), the held member's `MemberCall` is computed by the **same scoped helper as every member**
+(its live grades, clocks, and triggers ride along — computed facts, unchanged) with the two ACTION fields
+overridden: `verdict = managing` (the action is "manage", not "enter") and `confidence = None` (an
+entry-sizing bar; the thesis-level Managing rule, applied per-member). It **leads `armed_members`** (the
+held name is a Managing thesis's per-name headline; the entry ranking follows beneath, unchanged — safe
+because the Decision Queue's `armed_members[0]` headline renders only for `state=armed`, which an open
+position precludes) and it never sits in the watch tier (watch stays verdict-less by contract) — so the
+Cockpit's grouped basket files it under **Managing** instead of Quiet even after its triggers age out. The
+**risk veto cannot un-hold a held name** (it gates entry timing, §2; the position already exists — the risk
+still rides `risk_signals` for the counter-case). A position with **no** `security_id` (a thesis-level
+take; the seed-era `thesis.position_*` fallback, which stores no name) attributes nothing per-member —
+attribution is honest or absent, never guessed. No-lookahead is inherited from the position feed (§2): the
+position derives as-of both time axes, so a future-dated or later-recorded fill neither flips the state nor
+attributes a member.
 
 ## 5. Expression  `[PROPOSED]`
 

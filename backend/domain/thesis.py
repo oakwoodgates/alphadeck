@@ -103,6 +103,10 @@ class Position(DomainModel):
     entry_price: float | None = None
     current_price: float | None = None
     opened_on: date | None = None
+    # the held NAME (the position-deriving take row's security_id) — drives the per-member Managing
+    # attribution (CALL_LOGIC §4). None = unattributed: a thesis-level take, or the seed-era stored
+    # thesis.position_* columns (which carry no name) — those attribute nothing, never a guess.
+    security_id: UUID | None = None
 
 
 class Thesis(DomainModel):

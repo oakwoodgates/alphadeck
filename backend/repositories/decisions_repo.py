@@ -96,7 +96,8 @@ def derived_position(
 
     Nets the non-voided take/close events with ``decision_date <= asof`` AND ``recorded_at <=
     known_at`` (both axes — no lookahead): the latest such event decides — a take → an open
-    ``Position(entry_price=price, opened_on=decision_date)``; a close → ``None``. ``any_rows`` is
+    ``Position(entry_price=price, opened_on=decision_date, security_id=row's name — None on a
+    thesis-level take)``; a close → ``None``. ``any_rows`` is
     True when the thesis has ANY decision row at all (regardless of the as-of window) — the
     precedence signal ``effective_position`` uses, so a logged-then-closed position does NOT fall
     back to the stale seed columns. Voids recorded after ``known_at`` do not yet apply (a replay
@@ -126,6 +127,7 @@ def derived_position(
         Position(
             entry_price=float(last["price"]) if last["price"] is not None else None,
             opened_on=last["decision_date"],
+            security_id=last["security_id"],
         ),
         True,
     )

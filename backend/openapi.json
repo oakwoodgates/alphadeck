@@ -2624,6 +2624,18 @@
               }
             ],
             "title": "Opened On"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
           }
         },
         "additionalProperties": false,

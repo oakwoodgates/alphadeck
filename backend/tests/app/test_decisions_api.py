@@ -180,6 +180,34 @@ def test_seed_position_yields_to_the_log_and_never_resurrects(client, db):
     assert _call_state(client, t.id) == "incubating"  # the log (net closed) now wins
 
 
+# --- per-member attribution: the held NAME reads managing on the member menu (CALL_LOGIC §4) -------------
+
+
+def test_take_on_a_name_attributes_managing_per_member(client, db, security_id):
+    """A take logged ON a name threads its security_id through the derived position into the member
+    menu: the held member's call leads armed_members with verdict=managing (confidence null), its
+    ticker resolved through the master like any member."""
+    t = _thesis(db)
+    r = _post(client, t.id, action="take", price=10.0, security_id=str(security_id))
+    assert r.status_code == 200
+    card = client.get(f"/theses/{t.id}/call", params={"asof": str(TODAY)}).json()
+    assert card["state"] == "managing"
+    assert [m["security_id"] for m in card["armed_members"]] == [str(security_id)]
+    held = card["armed_members"][0]
+    assert held["verdict"] == "managing" and held["confidence"] is None
+    assert held["ticker"] == "DEVCO"
+
+
+def test_thesis_level_take_attributes_no_member(client, db):
+    """A thesis-level take (no name on the row) flips the state but attributes nothing per-member —
+    honest absence, never a guessed name (the seed-era stored columns behave the same way)."""
+    t = _thesis(db)
+    _post(client, t.id, action="take", price=10.0)
+    card = client.get(f"/theses/{t.id}/call", params={"asof": str(TODAY)}).json()
+    assert card["state"] == "managing"
+    assert card["armed_members"] == []
+
+
 def test_tenant_isolation_on_the_log(db):
     t = _thesis(db)
     decisions_repo.append(

@@ -67,9 +67,10 @@ The basket table partitions by each member's **own** call state — the Board's 
 in-table, strongest → weakest, one header (swatch · label · hint · count) per **populated** bucket
 (an empty bucket renders no header — loudness marks the exception) and a status dot per row:
 
-- **Managing** — `verdict === "managing"`, **render-if-present**: the wire's Verdict enum carries it,
-  but the assembler computes member verdicts at ARMED today and the thesis Position has no
-  security_id, so the group stays empty until per-name managing lands (a flagged backend follow-up).
+- **Managing** — `verdict === "managing"`: the held name, when the open position carries its
+  `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
+  An unattributed position (a thesis-level take; the seed-era stored columns) emits no member
+  verdict, so the group stays empty — **render-if-present** either way, never a guessed name.
 - **Armed** / **Lapsing** / **Theme-armed** — the `armed_members` tier, split by its flags. When a
   member is lapsing *and* theme-armed, **Lapsing wins the bucket** (the clock is the urgent fact;
   the theme basis stays visible on the panel).

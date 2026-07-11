@@ -37,7 +37,9 @@ class MemberCall(DomainModel):
     """
 
     security_id: UUID  # the member; the API resolves it to a ticker (like TriggerRef)
-    verdict: Verdict | None = None  # armed: the member's verdict; watch: None (not actionable)
+    # armed: the member's verdict; managing: the HELD name (an attributed open position, §4);
+    # watch: None (not actionable)
+    verdict: Verdict | None = None
     conviction_grade: Grade | None = None
     confirmation_grade: Grade | None = None
     entry_grade: Grade | None = None  # the weaker key — None for a watch member (no conviction)
@@ -85,5 +87,6 @@ class CallCard(DomainModel):
     # M5 Part A — the per-member ranked menu. `armed_members` is ranked (freshness band on runway primary,
     # grade within); the headline above is `armed_members[0]`. `watch_members` = confirmation-only members
     # ("moving, no conviction yet"). For a single-name thesis, `armed_members` is the one armed call (or empty).
+    # When Managing with an attributed position (§4), the HELD member's call (verdict=managing) leads the list.
     armed_members: list[MemberCall] = Field(default_factory=list)
     watch_members: list[MemberCall] = Field(default_factory=list)
