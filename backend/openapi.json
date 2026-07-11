@@ -130,6 +130,122 @@
         }
       }
     },
+    "/theses/{thesis_id}/catalysts": {
+      "put": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Put Catalysts",
+        "description": "Author the thesis's catalyst SURFACE \u2014 the upcoming binary events the card renders between\nentry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).\nFull-list replace via the sole writer (``set_catalysts`` \u2014 the structural wipe-guard: a promote\nnever touches this table). Operator authority (#4: the operator authors the events; the platform\ntimes them).",
+        "operationId": "put_catalysts_theses__thesis_id__catalysts_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CatalystIn"
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/kill-criteria": {
+      "put": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Put Kill Criteria",
+        "description": "Author the thesis's kill criteria \u2014 the documented \"what would kill this\", read by the\ndeterministic counter-case (the card stops saying \"no documented counter-case\"). Full-list\nreplace via the sole writer; same structural wipe-guard as the catalysts.",
+        "operationId": "put_kill_criteria_theses__thesis_id__kill_criteria_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/KillCriterionIn"
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/decisions": {
       "post": {
         "tags": [
@@ -925,6 +1041,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/RatifyCashBurn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RatifyCatalyst"
                   }
                 ],
                 "title": "Req",
@@ -933,7 +1052,8 @@
                   "mapping": {
                     "revenue_mix": "#/components/schemas/RatifyRevenueMix",
                     "shares_outstanding": "#/components/schemas/RatifyShares",
-                    "cash_burn": "#/components/schemas/RatifyCashBurn"
+                    "cash_burn": "#/components/schemas/RatifyCashBurn",
+                    "catalyst": "#/components/schemas/RatifyCatalyst"
                   }
                 }
               }
@@ -1343,6 +1463,68 @@
           "label"
         ],
         "title": "Catalyst"
+      },
+      "CatalystIn": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Date"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "CatalystIn",
+        "description": "One catalyst-surface entry (a narrative binary event the card's surface renders between entry\nand exit-by) \u2014 display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server\ngenerates the id; the list is replaced whole (the operator edits it as a list)."
+      },
+      "CatalystType": {
+        "type": "string",
+        "enum": [
+          "regulatory",
+          "promoter_attention",
+          "clinical_readout",
+          "personnel",
+          "earnings",
+          "contract",
+          "gov_funding"
+        ],
+        "title": "CatalystType",
+        "description": "The catalyst nature, where one applies (optional on a signal; extensible)."
       },
       "ChainDraftOut": {
         "properties": {
@@ -1972,6 +2154,20 @@
         ],
         "title": "KillCriterion"
       },
+      "KillCriterionIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "KillCriterionIn",
+        "description": "One kill criterion \u2014 the operator's documented \"what would kill this thesis\"; feeds the\ndeterministic counter-case (the card stops reading \"no documented counter-case\")."
+      },
       "Kind": {
         "type": "string",
         "enum": [
@@ -2420,6 +2616,90 @@
           "quarterly_burn_usd"
         ],
         "title": "RatifyCashBurn"
+      },
+      "RatifyCatalyst": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "event_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Event Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
+          },
+          "fact_type": {
+            "type": "string",
+            "const": "catalyst",
+            "title": "Fact Type"
+          },
+          "catalyst_type": {
+            "$ref": "#/components/schemas/CatalystType"
+          },
+          "grade": {
+            "$ref": "#/components/schemas/Grade"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "horizon_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizon End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "source",
+          "source_ref",
+          "event_date",
+          "fact_type",
+          "catalyst_type",
+          "grade",
+          "label"
+        ],
+        "title": "RatifyCatalyst",
+        "description": "A hand-authored catalyst-CONVICTION fact (the Key-1 arming path \u2014 ``fact_catalyst`` via\n``ingest_catalyst``, ``source='ratified'``). Unlike the extractor-fed types there is no candidate:\nthe operator authors the event and MUST cite it (``source_ref`` \u2014 the press release / 8-K / IR\npage; provenance is the point, #6). ``event_date`` = when the catalyst became known (valid time,\nno lookahead); ``horizon_end`` optionally pins its relevance horizon (else the liveness default).\nDistinct from the thesis-level catalyst SURFACE (display objects, ``PUT /theses/{id}/catalysts``)."
       },
       "RatifyRevenueMix": {
         "properties": {

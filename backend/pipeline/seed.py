@@ -122,6 +122,16 @@ def _hims_thesis(security_id: UUID) -> Thesis:
     )
 
 
+def _persist_thesis(conn: psycopg.Connection, thesis: Thesis) -> None:
+    """Upsert + the child-list writers: catalysts / kill criteria are no longer ``upsert`` children
+    (the structural wipe-guard — a promote that doesn't carry them cannot wipe them), so the seed
+    persists its authored lists through their sole writers."""
+    thesis_repo.upsert(conn, thesis)
+    tenant = thesis.tenant_id or DEFAULT_TENANT_ID
+    thesis_repo.set_catalysts(conn, thesis.id, thesis.catalysts, tenant_id=tenant)
+    thesis_repo.set_kill_criteria(conn, thesis.id, thesis.kill_criteria, tenant_id=tenant)
+
+
 def seed_hims(conn: psycopg.Connection) -> UUID:
     """Ingest the HIMS fixtures + upsert the HIMS thesis (idempotent). Caller commits. Returns the id."""
     security_id = _ensure_hims_security(conn)
@@ -139,7 +149,7 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
         ),
     )
     thesis = _hims_thesis(security_id)
-    thesis_repo.upsert(conn, thesis)
+    _persist_thesis(conn, thesis)
 
     # the real ~$402.5M convertible-notes overhang, parsed deterministically from the committed 8-Ks
     terms = parse_convert_terms(
@@ -238,7 +248,7 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
         )
         ingest_prices(conn, sid, bars)
     thesis = _nuclear_thesis()
-    thesis_repo.upsert(conn, thesis)
+    _persist_thesis(conn, thesis)
     return thesis.id
 
 
@@ -425,7 +435,7 @@ def seed_unh(conn: psycopg.Connection) -> UUID:
         ),
     )
     thesis = _unh_thesis()
-    thesis_repo.upsert(conn, thesis)
+    _persist_thesis(conn, thesis)
     return thesis.id
 
 

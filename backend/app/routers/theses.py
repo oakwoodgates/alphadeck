@@ -2,13 +2,22 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn, get_thesis_or_404
-from app.schemas_api import CallCardResponse, DecisionIn, DecisionOut, ThesisDetail, ThesisSummary
-from domain.thesis import Thesis
+from app.schemas_api import (
+    CallCardResponse,
+    CatalystIn,
+    DecisionIn,
+    DecisionOut,
+    KillCriterionIn,
+    ThesisDetail,
+    ThesisSummary,
+)
+from domain.thesis import Catalyst, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
@@ -53,6 +62,43 @@ def get_call(
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     return CallCardResponse.from_card(card, cik_for, ticker_for)
+
+
+@router.put("/{thesis_id}/catalysts", response_model=ThesisDetail)
+def put_catalysts(
+    body: list[CatalystIn],
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    """Author the thesis's catalyst SURFACE — the upcoming binary events the card renders between
+    entry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).
+    Full-list replace via the sole writer (``set_catalysts`` — the structural wipe-guard: a promote
+    never touches this table). Operator authority (#4: the operator authors the events; the platform
+    times them)."""
+    cats = [
+        Catalyst(
+            id=uuid4(), label=c.label, kind=c.kind, when_date=c.when_date, when_label=c.when_label
+        )
+        for c in body
+    ]
+    thesis_repo.set_catalysts(conn, thesis.id, cats, tenant_id=thesis.tenant_id)
+    conn.commit()
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
+
+
+@router.put("/{thesis_id}/kill-criteria", response_model=ThesisDetail)
+def put_kill_criteria(
+    body: list[KillCriterionIn],
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    """Author the thesis's kill criteria — the documented "what would kill this", read by the
+    deterministic counter-case (the card stops saying "no documented counter-case"). Full-list
+    replace via the sole writer; same structural wipe-guard as the catalysts."""
+    kills = [KillCriterion(id=uuid4(), text=k.text) for k in body]
+    thesis_repo.set_kill_criteria(conn, thesis.id, kills, tenant_id=thesis.tenant_id)
+    conn.commit()
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
 
 
 def _decision_out(row: dict[str, Any], *, voided: bool) -> DecisionOut:

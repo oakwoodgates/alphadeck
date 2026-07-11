@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
-from domain.enums import Archetype, Grade, Kind, State, TermTier, Verdict
+from domain.enums import Archetype, CatalystType, Grade, Kind, State, TermTier, Verdict
 from domain.settings import get_settings
 from domain.signal import Provenance
 from domain.thesis import (
@@ -453,9 +453,26 @@ class RatifyCashBurn(_RatifyBase):
     quarterly_burn_usd: float
 
 
+class RatifyCatalyst(_RatifyBase):
+    """A hand-authored catalyst-CONVICTION fact (the Key-1 arming path — ``fact_catalyst`` via
+    ``ingest_catalyst``, ``source='ratified'``). Unlike the extractor-fed types there is no candidate:
+    the operator authors the event and MUST cite it (``source_ref`` — the press release / 8-K / IR
+    page; provenance is the point, #6). ``event_date`` = when the catalyst became known (valid time,
+    no lookahead); ``horizon_end`` optionally pins its relevance horizon (else the liveness default).
+    Distinct from the thesis-level catalyst SURFACE (display objects, ``PUT /theses/{id}/catalysts``).
+    """
+
+    fact_type: Literal["catalyst"]
+    catalyst_type: CatalystType
+    grade: Grade
+    label: str
+    horizon_end: date | None = None
+
+
 # the discriminated body — Pydantic validates the per-type required fields for free (a missing field -> 422)
 RatifyFactRequest = Annotated[
-    RatifyRevenueMix | RatifyShares | RatifyCashBurn, Field(discriminator="fact_type")
+    RatifyRevenueMix | RatifyShares | RatifyCashBurn | RatifyCatalyst,
+    Field(discriminator="fact_type"),
 ]
 
 
@@ -562,6 +579,27 @@ class SavedRunSummary(BaseModel):
     job_id: str | None = None
     placement_count: int
     segment_count: int
+
+
+# --- Thesis-list authoring: the catalyst SURFACE + kill criteria (spine children, operator-owned) ---
+
+
+class CatalystIn(BaseModel):
+    """One catalyst-surface entry (a narrative binary event the card's surface renders between entry
+    and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
+    generates the id; the list is replaced whole (the operator edits it as a list)."""
+
+    label: str
+    kind: str | None = None  # display kind e.g. "earnings", "regulatory"
+    when_date: date | None = None  # dated -> enters the catalyst_surface filter; None = fuzzy
+    when_label: str | None = None  # display string e.g. "~3wk", "Q3"
+
+
+class KillCriterionIn(BaseModel):
+    """One kill criterion — the operator's documented "what would kill this thesis"; feeds the
+    deterministic counter-case (the card stops reading "no documented counter-case")."""
+
+    text: str
 
 
 # --- Decision capture (the operator-decisions log) — an EVENT log, never a scoring fact ---

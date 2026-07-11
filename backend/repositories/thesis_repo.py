@@ -5,7 +5,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
-from domain.thesis import TermSetEntry, Thesis
+from domain.thesis import Catalyst, KillCriterion, TermSetEntry, Thesis
 from repositories.mappers import row_to_thesis, thesis_to_row
 
 
@@ -46,6 +46,41 @@ def set_term_set(conn: psycopg.Connection, thesis_id: UUID, term_set: list[TermS
         )
 
 
+def set_catalysts(
+    conn: psycopg.Connection, thesis_id: UUID, catalysts: list[Catalyst], *, tenant_id: UUID
+) -> None:
+    """Persist the thesis's narrative catalysts (the card's catalyst SURFACE — upcoming binary events,
+    display objects; the per-security CONVICTION facts live in ``fact_catalyst`` via the ratify path).
+    The SOLE writer of the ``catalyst`` child table — deliberately NOT part of ``upsert``, so a promote
+    that doesn't carry catalysts structurally CANNOT wipe them (the ``set_term_set`` wipe-guard).
+    Full-list replace (the operator edits the list as a whole); the caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM catalyst WHERE thesis_id = %s", (thesis_id,))
+        for i, c in enumerate(catalysts):
+            cur.execute(
+                """INSERT INTO catalyst
+                   (id, tenant_id, thesis_id, label, kind, when_date, when_label, ordinal)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (c.id, tenant_id, thesis_id, c.label, c.kind, c.when_date, c.when_label, i),
+            )
+
+
+def set_kill_criteria(
+    conn: psycopg.Connection, thesis_id: UUID, kills: list[KillCriterion], *, tenant_id: UUID
+) -> None:
+    """Persist the thesis's kill criteria (the counter-case's documented "what would kill this").
+    The SOLE writer of the ``kill_criterion`` child table — same structural wipe-guard as
+    ``set_catalysts``. Full-list replace; the caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM kill_criterion WHERE thesis_id = %s", (thesis_id,))
+        for i, k in enumerate(kills):
+            cur.execute(
+                """INSERT INTO kill_criterion (id, tenant_id, thesis_id, text, ordinal)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (k.id, tenant_id, thesis_id, k.text, i),
+            )
+
+
 def list_all(conn: psycopg.Connection) -> list[Thesis]:
     """Every thesis, each fully loaded, ordered by name. The API projects these to lightweight
     summaries; at this scale a full load per thesis is fine (optimize if the universe grows)."""
@@ -56,8 +91,12 @@ def list_all(conn: psycopg.Connection) -> list[Thesis]:
 
 
 def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
-    """Insert or update a thesis. Definitional children (basket / catalysts / kill-criteria) are
-    replaced; evidence is APPEND-ONLY (new rows added, existing ones never modified or removed).
+    """Insert or update a thesis. The basket is replaced (the promote payload owns it); evidence is
+    APPEND-ONLY (new rows added, existing ones never modified or removed). Catalysts and kill
+    criteria are NOT touched here — ``set_catalysts`` / ``set_kill_criteria`` are their sole writers
+    (the ``set_term_set`` pattern: a promote that doesn't carry them structurally CANNOT wipe them;
+    before the authoring surfaces existed, the old full-replace here wiped [] over [] silently on
+    every narrative edit — the wipe-trap's third instance, caught before it had rows to lose).
     The caller owns the transaction (commit/rollback).
     """
     row = thesis_to_row(thesis)
@@ -104,21 +143,6 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     m.conviction,
                     m.authored_by.value,
                 ),
-            )
-        cur.execute("DELETE FROM catalyst WHERE thesis_id = %s", (tid,))
-        for i, c in enumerate(thesis.catalysts):
-            cur.execute(
-                """INSERT INTO catalyst
-                   (id, tenant_id, thesis_id, label, kind, when_date, when_label, ordinal)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (c.id, tenant, tid, c.label, c.kind, c.when_date, c.when_label, i),
-            )
-        cur.execute("DELETE FROM kill_criterion WHERE thesis_id = %s", (tid,))
-        for i, k in enumerate(thesis.kill_criteria):
-            cur.execute(
-                """INSERT INTO kill_criterion (id, tenant_id, thesis_id, text, ordinal)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (k.id, tenant, tid, k.text, i),
             )
         # evidence is append-only: add new rows, never modify/remove existing ones
         for i, e in enumerate(thesis.evidence):
