@@ -1,5 +1,5 @@
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
-import { useCalls, useTheses } from "../api/hooks";
+import { useCalls, useSetArchived, useTheses } from "../api/hooks";
 import { tickerLabel, verdictLabel } from "../util/format";
 import { ThesisCard } from "./ThesisCard";
 
@@ -23,8 +23,13 @@ interface Row {
 }
 
 export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench }: Props) {
-  const thesesQ = useTheses();
-  const theses = thesesQ.data ?? [];
+  // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
+  // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
+  const thesesQ = useTheses(true);
+  const setArchived = useSetArchived();
+  const all = thesesQ.data ?? [];
+  const theses = all.filter((t) => !t.archived);
+  const archived = all.filter((t) => t.archived);
   const callResults = useCalls(
     theses.map((t) => t.id),
     asof,
@@ -108,7 +113,21 @@ export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench }: Props) 
               </div>
               <div className="col-body">
                 {colRows.map(({ thesis, call }) => (
-                  <ThesisCard key={thesis.id} thesis={thesis} call={call} onSelect={onSelect} />
+                  // the archive control is a SIBLING of the card (the card is itself a <button> —
+                  // nesting one inside would be the nested-button trap), hover-quiet
+                  <div className="card-wrap" key={thesis.id}>
+                    <ThesisCard thesis={thesis} call={call} onSelect={onSelect} />
+                    <button
+                      type="button"
+                      className="card-x"
+                      title="archive — off the board and out of the nightly cron; restorable below, nothing deleted"
+                      aria-label={`archive ${thesis.name}`}
+                      disabled={setArchived.isPending}
+                      onClick={() => setArchived.mutate({ thesisId: thesis.id, archived: true })}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 ))}
                 {colRows.length === 0 && <div className="col-empty">{computing ? "…" : "—"}</div>}
               </div>
@@ -116,6 +135,29 @@ export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench }: Props) 
           );
         })}
       </div>
+
+      {/* archived — visible + restorable, never vanished (an explicit, reversible filter; their
+          calls are not computed). Quiet by design: collapsed, grey, out of the columns. */}
+      {archived.length > 0 && (
+        <details className="arch-sect">
+          <summary>Archived ({archived.length})</summary>
+          {archived.map((t) => (
+            <div className="arch-row" key={t.id}>
+              <span className="arch-nm">{t.name}</span>
+              <span className="arch-sz">{tickerLabel(t.ticker, t.basket_size)}</span>
+              <button
+                type="button"
+                className="wb-mini ghost"
+                disabled={setArchived.isPending}
+                aria-label={`restore ${t.name}`}
+                onClick={() => setArchived.mutate({ thesisId: t.id, archived: false })}
+              >
+                restore
+              </button>
+            </div>
+          ))}
+        </details>
+      )}
     </div>
   );
 }

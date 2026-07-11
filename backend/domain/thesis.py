@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -116,6 +116,9 @@ class Thesis(DomainModel):
     catalysts: list[Catalyst] = Field(default_factory=list)
     kill_criteria: list[KillCriterion] = Field(default_factory=list)
     position: Position | None = None
+    # archive, never delete (board hygiene): set ONLY by thesis_repo.set_archived — upsert never
+    # names the column, so a promote can neither archive nor resurrect (the term_set guard).
+    archived_at: datetime | None = None
 
     @model_validator(mode="after")
     def _segments_consistent(self) -> "Thesis":

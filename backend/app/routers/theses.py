@@ -26,8 +26,43 @@ router = APIRouter(prefix="/theses", tags=["theses"])
 
 
 @router.get("", response_model=list[ThesisSummary])
-def list_theses(conn: psycopg.Connection = Depends(get_conn)) -> list[ThesisSummary]:
-    return [ThesisSummary.from_thesis(t) for t in thesis_repo.list_all(conn)]
+def list_theses(
+    include_archived: bool = Query(
+        False, description="include archived theses (the Board's explicit, reversible filter)"
+    ),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> list[ThesisSummary]:
+    """List theses. Archived ones are EXCLUDED by default — the workbench picker and every default
+    consumer skip them without asking; the Board passes ``include_archived=true`` and renders them
+    in a collapsed section (visible + restorable, never vanished)."""
+    return [
+        ThesisSummary.from_thesis(t)
+        for t in thesis_repo.list_all(conn, include_archived=include_archived)
+    ]
+
+
+@router.post("/{thesis_id}/archive", response_model=ThesisSummary)
+def archive_thesis(
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisSummary:
+    """ARCHIVE, never delete (board hygiene): the thesis leaves the default list and the daily
+    cron's walk (its calls-of-record stop accumulating — the Scoreboard's data stays clean), but the
+    spine, the calls log, and the decision log all stay. Fully reversible via unarchive."""
+    thesis_repo.set_archived(conn, thesis.id, True)
+    conn.commit()
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
+
+
+@router.post("/{thesis_id}/unarchive", response_model=ThesisSummary)
+def unarchive_thesis(
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisSummary:
+    """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk."""
+    thesis_repo.set_archived(conn, thesis.id, False)
+    conn.commit()
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
 
 
 @router.get("/{thesis_id}", response_model=ThesisDetail)

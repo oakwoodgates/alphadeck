@@ -196,6 +196,7 @@ class ThesisSummary(BaseModel):
     ticker: str | None = None  # None for a multi-name theme thesis; the Board shows a basket marker
     basket_size: int = 0
     narrative: str
+    archived: bool = False  # archived = out of the default list + the cron's walk; restorable
 
     @classmethod
     def from_thesis(cls, thesis: Thesis) -> "ThesisSummary":
@@ -205,6 +206,7 @@ class ThesisSummary(BaseModel):
             ticker=thesis.ticker,
             basket_size=len(thesis.basket),
             narrative=thesis.narrative,
+            archived=thesis.archived_at is not None,
         )
 
 

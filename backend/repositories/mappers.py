@@ -45,6 +45,7 @@ def row_to_thesis(
         catalysts=[_row_to_catalyst(c) for c in catalysts],
         kill_criteria=[_row_to_kill(k) for k in kills],
         position=_row_to_position(t),
+        archived_at=t.get("archived_at"),
     )
 
 
@@ -124,8 +125,9 @@ def thesis_to_row(thesis: Thesis) -> dict[str, Any]:
         "position_current_price": pos.current_price if pos else None,
         "position_opened_on": pos.opened_on if pos else None,
         "segments": Json([s.model_dump(mode="json") for s in thesis.segments]),
-        # NB: `term_set` is intentionally NOT here. The full `upsert` never names that column, so a `promote`
-        # (which omits term_set) CANNOT blank it — the sole writer is the narrow `thesis_repo.set_term_set`.
+        # NB: `term_set` and `archived_at` are intentionally NOT here. The full `upsert` never names those
+        # columns, so a `promote` (which omits them) can neither blank the term set nor archive/resurrect the
+        # thesis — the sole writers are the narrow `set_term_set` / `set_archived`.
     }
 
 
