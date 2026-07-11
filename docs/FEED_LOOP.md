@@ -101,12 +101,20 @@ stays cache-first; a cache MISS always fetches (a new name's first ingest is fre
 
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
-`run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, …)`. CLI: `python -m
-pipeline.daily`. For **each** thesis (`thesis_repo.list_all` — tenant intrinsic per-thesis):
+`run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.
+CLI: `python -m pipeline.daily`. For **each** thesis (`thesis_repo.list_all` — tenant intrinsic
+per-thesis; **archived theses are skipped by the list's default**, the archive slice):
 
 1. **Refresh facts** — `ingest_thesis` (incremental + fail-visible; `force_refresh=True`, the recurring path).
 2. **Assemble TODAY's call WITHOUT writing** — `call_for_thesis(asof=today, known_at=now, record=False)`.
-3. **Append the call-of-record ONLY if it changed** — `calls_repo.record_if_changed`.
+3. **Detect a MATERIAL TRANSITION** — state or verdict changed vs the PRIOR as-of's call-of-record →
+   emit a `TransitionEvent` through the **notify seam** (`backend/notify`: a `Notifier` protocol; v1
+   ships `LogNotifier` — a loud log line + the summary's TRANSITIONS block, printed only when there are
+   any. DELIVERY is deferred: a channel is one adapter behind `get_notifier()`, zero cron rework). This
+   is also the calls-log **material-change line**: clock/trigger churn versions the log via
+   `record_if_changed` *without* being a transition; a state/verdict MOVE is what an operator would want
+   to be told about.
+4. **Append the call-of-record ONLY if it changed** — `calls_repo.record_if_changed`.
 
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).

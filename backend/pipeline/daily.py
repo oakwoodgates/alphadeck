@@ -30,6 +30,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from notify import Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
@@ -38,12 +39,14 @@ from repositories import calls_repo, thesis_repo
 @dataclass
 class ThesisRunResult:
     """Per-thesis outcome. ``recorded``: True = a new call-of-record was appended, False = unchanged (no
-    row), None = the call step failed (see ``error``)."""
+    row), None = the call step failed (see ``error``). ``transition``: the state/verdict move vs the
+    PRIOR as-of's call-of-record (None = no move — the overwhelmingly common, quiet case)."""
 
     thesis_id: UUID
     name: str
     ingested: list[NameResult] = field(default_factory=list)
     recorded: bool | None = None
+    transition: str | None = None
     error: str | None = None
 
 
@@ -55,6 +58,7 @@ def run_daily(
     allow_live: bool = True,
     force_refresh: bool = True,
     user_agent: str | None = None,
+    notifier: Notifier | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -64,6 +68,7 @@ def run_daily(
     new bar. It threads to the price source (``eod_loader.fetch_eod``).
     """
     asof = asof or date.today()
+    notifier = notifier or get_notifier()
     out: list[ThesisRunResult] = []
     for thesis in thesis_repo.list_all(conn):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
@@ -83,6 +88,28 @@ def run_daily(
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
             card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
+            # (4) TRANSITION DETECTION (the notify seam): compare state/verdict against the PRIOR
+            # as-of's call-of-record — the material-change line (trigger churn / provenance noise
+            # version the log via record_if_changed without being transitions; a state or verdict
+            # MOVE is what an operator would want to be told about). First-ever call = no prior =
+            # no event. Delivery is the adapter's concern (v1: a loud log line).
+            prior = next(
+                (c for c in calls_repo.latest_for_thesis(conn, thesis.id) if c.asof < asof), None
+            )
+            if prior is not None and (
+                prior.state is not card.state or prior.verdict is not card.verdict
+            ):
+                evt = TransitionEvent(
+                    thesis_id=thesis.id,
+                    thesis_name=thesis.name,
+                    asof=asof,
+                    from_state=prior.state.value,
+                    to_state=card.state.value,
+                    from_verdict=prior.verdict.value,
+                    to_verdict=card.verdict.value,
+                )
+                notifier.notify(evt)
+                res.transition = evt.label
             res.recorded = calls_repo.record_if_changed(conn, card, thesis.tenant_id)
             conn.commit()
         except Exception as e:  # noqa: BLE001 — one thesis's call never aborts the cron
@@ -108,9 +135,16 @@ def _report(results: list[ThesisRunResult]) -> int:
         skipped = sum(x.form4_skipped for x in r.ingested)
         sk = f" · {skipped} form4 skipped" if skipped else ""  # loudness marks the exception
         print(f"  {r.name}: +{facts} facts{sk} · {mark}")
+    # transitions get their own LOUD block — and only when there ARE any (loudness marks the
+    # exception; the common all-quiet night prints nothing here)
+    transitions = [r.transition for r in results if r.transition]
+    if transitions:
+        print("TRANSITIONS:")
+        for t in transitions:
+            print(f"  {t}")
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged · "
-        f"{len(errored)} errored"
+        f"{len(transitions)} transitions · {len(errored)} errored"
     )
     return len(errored)
 

@@ -26,9 +26,21 @@
   dual-class mis-flag, the invisible ratify, the 2018 stale-marketable composition, and the ticker-less
   `master.get` crash were each caught live and fixed with regression tests.
 
-**What's actually in flight:** the **MVP gate** — the AI-memory thesis end-to-end (operator: finish the
-finalize pass + promote; then the back half: `ingest_thesis` → the call → WARM/ARM → the daily
-call-of-record). That is the live North-Star proof on a real, freshly-discovered thesis.
+**The MVP gate RAN (2026-07-10)** — the AI-memory thesis end-to-end on real data: 68 names ingested
+(+41k insider txns, +8k bars), the call computed **WARMING / not-yet / exit-by** with a real MU insider
+conviction (Form 4-linked) against volume-backed watch names — the two-key discipline live; the daily
+cron sidecar runs nightly and its same-day idempotency held in production (0 appended · 11 unchanged).
+The North Star's *Armed* call now awaits a real two-key coincidence — correct behavior, which the cron
+will catch.
+
+**Since the gate:** **decision capture** shipped (#143/#144/#146 — the operator-decisions log:
+take/pass/close/void, the derived position that makes **Managing reachable**, the gate's override
+record, the Scoreboard's operator column accumulating from day one); **catalyst + kill-criteria
+authoring** (#147 + the FE pair — the Key-1 conviction-fact form with a REQUIRED citation, the Cockpit
+calendar/kill editors, and the third wipe-trap fixed structurally); **thesis archive** (board hygiene —
+archive-never-delete; the cron walks only the live board); and the **notify PIPE** (transition
+detection vs the prior call-of-record + a Notifier seam — delivery deliberately deferred; a channel is
+one adapter away).
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE; **"the forward trust loop is closed" is NOT** — that is the **Scoreboard**, still parked. The first
@@ -72,6 +84,10 @@ call-of-record). That is the live North-Star proof on a real, freshly-discovered
 | Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` §3, `INVARIANTS.md` #2 |
 | The three-gate TRIAGE round: board partitions + acronym lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
+| Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
+| **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
+| Decision capture: the operator-decisions log (take/pass/close/void) · Managing reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
+| Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -92,18 +108,21 @@ call-of-record). That is the live North-Star proof on a real, freshly-discovered
 
 ## What's next (by appetite, in rough order)
 
-1. **The MVP gate, finished** *(in flight)* — the AI-memory thesis: finalize + promote (operator), then
-   `ingest_thesis` → WARM/ARM on real insider+price → the daily call-of-record. The live North-Star proof.
-2. **Excluded-name permanence + rejection reason** — the one queued Workbench feature. `include` is FE-only
+1. **Excluded-name permanence + rejection reason** — the one queued Workbench feature. `include` is FE-only
    run state today, so a re-draft re-surfaces names the operator already set aside, with nowhere to record
    *why*. Persist exclusions + an optional "rejected because X" (schema; the `/data` run-log substrate from
    #125 is in place). Cross-ref the exclusion model in `TRIAGE.md`.
-3. **The source-strategy A-vs-B decision** — (A) keep Yahoo + re-version restated bars, or (B) raw+splits and
+2. **The source-strategy A-vs-B decision** — (A) keep Yahoo + re-version restated bars, or (B) raw+splits and
    own the adjustment at read time (dissolves the deferred restatement re-version). `DATA_SOURCES.md` has both
-   paths; decide before the re-version is built.
-4. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
-   operator's decisions vs follow-blindly. Unlocks the **second, out-of-sample recalibration**. The daily
-   call-of-record is its ready-made record.
+   paths; decide before the re-version is built. **Priority raised:** the platform now runs live nightly, so a
+   basket name splitting mid-thesis is a real false-breakout/false-lapse risk, not a parked one.
+3. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
+   operator's decisions vs follow-blindly. Unlocks the **second, out-of-sample recalibration**. Both record
+   streams now accumulate (the daily call-of-record + the operator-decisions log); parked deliberately while
+   decision rows build up — it needs the data more than the UI.
+4. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
+   transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
+   Deferred by operator call ("other things coming").
 5. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
    daily" (live pulls): ingest active theses daily, dormant less often. Fine at today's scale; jotted.
 6. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance
