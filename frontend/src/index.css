@@ -98,9 +98,11 @@ table.basket .co { color: var(--txt-2); }
 /* --- the per-name buckets (grouped basket): group headers + status dots --------------------
    Each bucket class sets `--gc`, the group accent the swatch/dot/label all read. The weaker-basis
    buckets (theme-armed / warming / quiet) wear a HOLLOW dot — same hue, weaker claim. */
-table.basket th.dotc, table.basket td.dotc { width: 18px; padding-right: 6px; }
+/* left padding clears the selected row's 2px inset accent bar — the dot must never touch it */
+table.basket th.dotc, table.basket td.dotc { width: 18px; padding-left: 9px; padding-right: 6px; }
 .rowdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--gc); }
-tr.grp td { padding: 15px 0 6px; border-bottom: 1px solid var(--line-2); }
+/* header swatch keeps the same 9px inset as the row dots below it (one aligned icon column) */
+tr.grp td { padding: 15px 0 6px 9px; border-bottom: 1px solid var(--line-2); }
 .grp-in { display: flex; align-items: center; gap: 8px; }
 .grp-in .swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--gc); }
 .grp-in .lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gc); }
