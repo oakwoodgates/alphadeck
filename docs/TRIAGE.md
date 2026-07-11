@@ -28,20 +28,27 @@ the buy-side screen → shortlist → diligence funnel (`STAGE_MODEL.md`, "the t
 3. **FINALIZE ON DATA** (the existing ratify) — confirm each fact against its honest flag, decide the
    archetype on the rail, weight with conviction, promote. `WORKBENCH_EXTRACTION.md` owns the flags.
 
-## The prune — include-controls (#113)
+## The prune — include-controls (#113) + the durable NO (#7)
 
 A per-name **include toggle** on every placed row. **Save persists ONLY the included subset** (the promote
-full-replaces, so excluded names simply aren't sent; the draft is reproducible by re-drafting, so nothing is truly
-lost).
+full-replaces, so excluded names simply aren't sent).
 
 - **Default-INCLUDED (#9):** a discovered name starts IN; the operator *unchecks* to exclude. Nothing is silently
   dropped — an excluded row stays **visible** (greyed), one click from re-inclusion.
 - **Orthogonal to accept / authorship.** Include ≠ accept. Accept is the authorship flip (`system_drafted →
   operator_set/operator_edited`, the re-roll survivor); include is "goes in the saved basket." A name can be
-  **accepted-but-excluded** or **included-but-not-yet-accepted**. `include` is FE-only state (`excluded: Set` in
-  `useChainDraft`), never persisted, never touches `authored_by`.
+  **accepted-but-excluded** or **included-but-not-yet-accepted**. Include never touches `authored_by`.
 - **Bulk actions:** include all / exclude all / **clear un-accepted** (exclude every still-`system_drafted` name —
   the fast path to just-my-vouched names — without touching authorship).
+- **The exclusion is DURABLE (#7).** Save also persists the current exclusion set — with the optional
+  **"rejected because X"** reason (a quiet inline input on the greyed row; skippable, editable) — through the
+  sole-writer `PUT /theses/{id}/exclusions` (`thesis_exclusion`; the term_set structural wipe-guard, so a
+  promote can never blank the pruning). On the next session or re-draft the editor **seeds** its excluded
+  state (and the To-Review keeper set-asides, for resolved names) from the persisted set: a rejected name
+  arrives **pre-greyed, visible, one click back**. **THE #9 LINE: discovery never filters on exclusions** —
+  a re-draft still surfaces every name; the NO is an editor default, never a recall cut. Prior NOs the
+  session never re-surfaced are carried forward on Save; re-including a name withdraws its NO. (v1 scope:
+  keyed by `security_id` — unresolved names' set-asides stay session-local.)
 
 ## The find — the sortable / filterable view (#114)
 

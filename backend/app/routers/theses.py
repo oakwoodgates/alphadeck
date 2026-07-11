@@ -13,11 +13,12 @@ from app.schemas_api import (
     CatalystIn,
     DecisionIn,
     DecisionOut,
+    ExclusionIn,
     KillCriterionIn,
     ThesisDetail,
     ThesisSummary,
 )
-from domain.thesis import Catalyst, KillCriterion, Thesis
+from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
@@ -132,6 +133,32 @@ def put_kill_criteria(
     replace via the sole writer; same structural wipe-guard as the catalysts."""
     kills = [KillCriterion(id=uuid4(), text=k.text) for k in body]
     thesis_repo.set_kill_criteria(conn, thesis.id, kills, tenant_id=thesis.tenant_id)
+    conn.commit()
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
+
+
+@router.put("/{thesis_id}/exclusions", response_model=ThesisDetail)
+def put_exclusions(
+    body: list[ExclusionIn],
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    """Persist the thesis's durable exclusion set (#7) — the operator's NO per name, with the
+    optional "rejected because X". Full-list replace via the sole writer (the term_set structural
+    guard, fourth application: a promote never touches the table, so a narrative edit can't wipe
+    the pruning). THE #9 LINE: discovery never filters on this — a re-draft still surfaces every
+    name; the EDITOR seeds these as visibly-greyed, one-click-reversible state."""
+    # bound #2, fail-closed (the promote route's own guard): a caller-supplied security_id must be
+    # an exact member of this tenant's master — never a junk row behind an FK error
+    for e in body:
+        if not master.exists(conn, e.security_id, tenant_id=thesis.tenant_id):
+            raise HTTPException(
+                status_code=404,
+                detail=f"exclusion {e.ticker or e.security_id} references a security not in "
+                "this tenant's master",
+            )
+    excl = [ExcludedName(security_id=e.security_id, ticker=e.ticker, reason=e.reason) for e in body]
+    thesis_repo.set_exclusions(conn, thesis.id, excl, tenant_id=thesis.tenant_id)
     conn.commit()
     return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
 

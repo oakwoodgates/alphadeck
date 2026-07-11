@@ -5,7 +5,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
-from domain.thesis import Catalyst, KillCriterion, TermSetEntry, Thesis
+from domain.thesis import Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
 from repositories.mappers import row_to_thesis, thesis_to_row
 
 
@@ -28,7 +28,12 @@ def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
             "SELECT * FROM kill_criterion WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,)
         )
         kills = cur.fetchall()
-    return row_to_thesis(t, basket, evidence, catalysts, kills)
+        cur.execute(
+            "SELECT * FROM thesis_exclusion WHERE thesis_id = %s ORDER BY recorded_at, id",
+            (thesis_id,),
+        )
+        exclusions = cur.fetchall()
+    return row_to_thesis(t, basket, evidence, catalysts, kills, exclusions)
 
 
 def set_term_set(conn: psycopg.Connection, thesis_id: UUID, term_set: list[TermSetEntry]) -> None:
@@ -78,6 +83,26 @@ def set_kill_criteria(
                 """INSERT INTO kill_criterion (id, tenant_id, thesis_id, text, ordinal)
                    VALUES (%s, %s, %s, %s, %s)""",
                 (k.id, tenant_id, thesis_id, k.text, i),
+            )
+
+
+def set_exclusions(
+    conn: psycopg.Connection, thesis_id: UUID, exclusions: list[ExcludedName], *, tenant_id: UUID
+) -> None:
+    """Persist the thesis's durable exclusion set (#7) — the operator's NO per name, with the
+    optional why. The SOLE writer of ``thesis_exclusion`` (``upsert`` never names the table — the
+    term_set structural guard, fourth application: a promote can't wipe the operator's pruning).
+    Full-list replace: the editor sends the CURRENT set (its session decisions ∪ the carried-forward
+    prior exclusions it didn't re-decide). Discovery NEVER reads this table (#9 — recall sacred; the
+    editor applies it as visible, reversible greyed state). The caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM thesis_exclusion WHERE thesis_id = %s", (thesis_id,))
+        for e in exclusions:
+            cur.execute(
+                """INSERT INTO thesis_exclusion (tenant_id, thesis_id, security_id, ticker, reason)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (thesis_id, security_id) DO NOTHING""",
+                (tenant_id, thesis_id, e.security_id, e.ticker, e.reason),
             )
 
 

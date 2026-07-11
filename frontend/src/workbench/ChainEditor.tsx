@@ -16,6 +16,7 @@ import {
   useEditTerms,
   useProduceTerms,
   usePromoteThesis,
+  usePutExclusions,
   useRecommendTiers,
   useStartDraft,
 } from "../api/hooks";
@@ -128,6 +129,7 @@ const NotListedFlag = () => (
 export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
+  const putExclusions = usePutExclusions(thesis.id); // #7: the durable NOs ride every Save
   // The draft is a KICK-OFF + POLL job now (it takes minutes; held open it 504'd). Start it, stash the job_id,
   // and poll until terminal. A poll-timeout (below) and a 404 (server restart) both surface as a visible failure
   // — never an infinite spinner.
@@ -325,9 +327,14 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
-  // Keeper set-aside (VIEW-only, #1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
-  // stub and stays on screen, one ✕-click from restore. Local — never persisted, never touches the basket/backend.
-  const [setAside, setSetAside] = useState<Set<string>>(new Set());
+  // Keeper set-aside (#1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
+  // stub and stays on screen, one ✕-click from restore. #7 made it durable for RESOLVED keepers: the
+  // set seeds from the thesis's persisted exclusions (a rejected keeper arrives pre-greyed on the next
+  // draft) and Save persists the UUID-keyed entries with the exclusion set. Ticker/name-keyed set-asides
+  // (unresolved names) stay session-local — the flagged v1 scope cut.
+  const [setAside, setSetAside] = useState<Set<string>>(
+    () => new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
+  );
   const toggleSetAside = (id: string) =>
     setSetAside((prev) => {
       const next = new Set(prev);
@@ -620,13 +627,52 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // Save persists ONLY the INCLUDED subset (the prune) — the promote full-replaces, so excluded names simply
   // aren't sent. The current sort/filter VIEW never affects this: it's the whole basket minus `excluded`,
   // regardless of what's visible (#9 — the view hides, only include decides what persists).
-  const onSave = () => {
+  // #7: Save ALSO persists the exclusion set — the session's NOs (excluded members + UUID-keyed keeper
+  // set-asides, each with its optional reason) ∪ the CARRIED-FORWARD prior exclusions this session never
+  // re-surfaced (a name absent from today's draft must not lose its durable NO). A re-included name is
+  // simply not in the payload — the NO is withdrawn.
+  const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+  const onSave = async () => {
     const basket = d.includedBasket;
     if (basket.length === 0 && d.draft.basket.length > 0) {
       const ok = window.confirm(
         "Save an empty basket? Every name is excluded — the thesis will have no basket to score. Include at least one, or confirm the wipe.",
       );
       if (!ok) return;
+    }
+    const priorTicker = new Map((thesis.exclusions ?? []).map((e) => [e.security_id, e.ticker]));
+    const priorReason = new Map((thesis.exclusions ?? []).map((e) => [e.security_id, e.reason]));
+    const exclusions: { security_id: string; ticker: string | null; reason: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const m of d.draft.basket) {
+      if (!m.security_id) continue;
+      seen.add(m.security_id);
+      if (d.excluded.has(memberKey(m))) {
+        exclusions.push({
+          security_id: m.security_id,
+          ticker: m.ticker,
+          reason: d.reasons.get(memberKey(m)) ?? priorReason.get(m.security_id) ?? null,
+        });
+      }
+    }
+    for (const id of setAside) {
+      if (!isUuid(id) || seen.has(id)) continue; // unresolved keys stay session-local (v1 cut)
+      seen.add(id);
+      exclusions.push({
+        security_id: id,
+        ticker: priorTicker.get(id) ?? null,
+        reason: d.reasons.get(id) ?? priorReason.get(id) ?? null,
+      });
+    }
+    for (const e of thesis.exclusions ?? []) {
+      if (seen.has(e.security_id)) continue; // re-decided this session (kept or withdrawn above)
+      exclusions.push({ security_id: e.security_id, ticker: e.ticker ?? null, reason: e.reason ?? null });
+    }
+    try {
+      await putExclusions.mutateAsync(exclusions);
+    } catch {
+      window.alert("Couldn't persist the exclusion set — the basket was NOT saved. Retry Save.");
+      return;
     }
     save.mutate(
       {
@@ -1275,9 +1321,23 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                       hidden so the noise recedes (inverse loudness). Exclude is VIEW-only here — it never touches
                       authorship (orthogonal A: an edited note stays operator_edited, safe from the next re-roll). */}
                   {!included ? (
-                    <span className="wb-exc-tag" title="excluded from Save — re-check to restore its detail">
-                      excluded
-                    </span>
+                    <>
+                      <span
+                        className="wb-exc-tag"
+                        title="excluded from Save — re-check to restore its detail"
+                      >
+                        excluded
+                      </span>
+                      {/* #7: the optional "rejected because X" — persisted with the exclusion on
+                          Save; quiet, skippable, editable (never a modal on a 300-name prune) */}
+                      <input
+                        className="wb-exc-why"
+                        aria-label={`why excluded ${m.ticker}`}
+                        placeholder="why? (optional)"
+                        value={d.reasons.get(k) ?? ""}
+                        onChange={(e) => d.editReason(k, e.target.value)}
+                      />
+                    </>
                   ) : (
                     <>
                       {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}

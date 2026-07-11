@@ -54,6 +54,13 @@ const fx = vi.hoisted(() => {
 const h = vi.hoisted(() => ({ mutate: vi.fn() }));
 
 vi.mock("../../api/hooks", () => ({
+  // #7: the exclusion PUT rides every ChainEditor Save (mutateAsync must resolve)
+  usePutExclusions: () => ({
+    mutateAsync: async () => ({}),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
   useTheses: () => ({
     data: [{ id: "t-nuke", name: "Small modular nuclear", ticker: null, basket_size: 1, narrative: "x" }],
   }),

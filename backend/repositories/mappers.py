@@ -13,6 +13,7 @@ from domain.thesis import (
     BasketMember,
     Catalyst,
     Evidence,
+    ExcludedName,
     KillCriterion,
     Position,
     Segment,
@@ -30,6 +31,7 @@ def row_to_thesis(
     evidence: list[dict[str, Any]],
     catalysts: list[dict[str, Any]],
     kills: list[dict[str, Any]],
+    exclusions: list[dict[str, Any]] | None = None,
 ) -> Thesis:
     return Thesis(
         id=t["id"],
@@ -46,6 +48,10 @@ def row_to_thesis(
         kill_criteria=[_row_to_kill(k) for k in kills],
         position=_row_to_position(t),
         archived_at=t.get("archived_at"),
+        exclusions=[
+            ExcludedName(security_id=e["security_id"], ticker=e["ticker"], reason=e["reason"])
+            for e in (exclusions or [])
+        ],
     )
 
 

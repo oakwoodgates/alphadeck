@@ -134,15 +134,17 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   corporate-actions adapter isn't boxed out. (Deliberately no `get_splits` yet — that extends the interface
   if/when we adopt an own-the-adjustment source.)
 
-> **KNOWN LIMITATION (deferred, not a silent bug): mixed-basis bars across a FUTURE split.** Because the
+> **KNOWN LIMITATION (decided, build queued): mixed-basis bars across a FUTURE split.** Because the
 > adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is
 > incremental (`d > latest_bar_date`), a thesis that lives ACROSS a future split accumulates **old-basis
 > stored bars + new-basis appended bars** → a distorted `volume_breakout` ratio over that window. **Trigger:**
-> a tracked thesis living across a future split (NOT the demo — the seeded names have no splits, and a fresh
-> thesis pulls a continuous whole-history-adjusted series). **Two resolution paths, deferred to the
-> source-strategy decision (post-MVP):** (a) keep Yahoo and **re-version** restated bars (re-store a bar when
-> the fresh value differs), or (b) move to a **raw + splits** source and **own the adjustment at read time**
-> (raw bars are immutable → no re-basing → the limitation dissolves).
+> a tracked thesis living across a future split. **DECIDED — Option (a), operator pick 2026-07-11:** keep
+> Yahoo and **re-version restated bars** — the daily force-refresh already re-pulls each whole series; an
+> overlap compare appends new versions where fresh ≠ stored (the bitemporal store's native move; as-of reads
+> pick latest `recorded_at`), so the series snaps to the new basis within one cron tick, volume adjustment
+> stays free, and the mixed-basis window is ≤ 1 day. **The re-version slice is the queued build.** Option
+> (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid data tier
+> arrives; the `PriceSource` seam deliberately doesn't box it out.
 
 > **Cancelled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
