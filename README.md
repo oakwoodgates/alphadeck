@@ -49,10 +49,10 @@ See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lens
 
 ## Surfaces (UI)
 
-Four surfaces; three clickable mockups exist in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, and a segment cockpit).
+Four surfaces; clickable mockups live in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, a segment cockpit, the Workbench, and the Cockpit per-name build).
 
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
-- **Cockpit** — thesis detail: narrative + conviction notes (preserved), basket with archetype tags, evidence, catalyst calendar, and the live **call card**.
+- **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
 - **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
 - **Scoreboard** — review/calibration: platform calls vs your decisions vs the counterfactual; override log; outcome attribution. *(Post-MVP — the forward trust loop; still parked.)*
 

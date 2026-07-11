@@ -1,10 +1,11 @@
 import { Fragment, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
-import { groupBasket } from "./buckets";
+import { groupBasket, type BucketKey } from "./buckets";
 import { NamePanel } from "./NamePanel";
 import {
   accentVar,
@@ -53,6 +54,25 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           .find((x) => x.row.ordinal === selOrdinal) ?? null);
   const toggleRow = (ordinal: number) =>
     setSelOrdinal((s) => (s === ordinal ? null : ordinal));
+
+  // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
+  // header keeps its count while closed, so nothing reads as dropped). Local view state only.
+  const [closedGroups, setClosedGroups] = useState<Set<BucketKey>>(new Set());
+  const toggleGroup = (key: BucketKey) => {
+    const apply = () =>
+      setClosedGroups((s) => {
+        const next = new Set(s);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    // The fold rides a View Transition so the rows below SLIDE up/down instead of snapping —
+    // table rows can't height-animate, so we animate the layout change itself. flushSync makes
+    // React commit inside the snapshot callback; jsdom/older browsers take the instant path.
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+    if (doc.startViewTransition) doc.startViewTransition(() => flushSync(apply));
+    else apply();
+  };
 
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
@@ -132,18 +152,30 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                       <Fragment key={def.key}>
                         <tr className={`grp ${def.cls}`}>
                           <td colSpan={6}>
-                            <div className="grp-in">
-                              <span className="swatch" />
+                            {/* the To Review heading idiom (chev · label · hint · count · hairline),
+                                bucket-colored; click-to-collapse, open by default — the count stays
+                                visible while closed, so a collapsed bucket never reads as dropped */}
+                            <button
+                              type="button"
+                              className="grp-h"
+                              aria-expanded={!closedGroups.has(def.key)}
+                              onClick={() => toggleGroup(def.key)}
+                            >
+                              {/* one glyph, rotated closed — the swap read as a flicker */}
+                              <span className="chev">▾</span>
                               <span className="lbl">{def.label}</span>
-                              <span className="hint">{def.hint}</span>
-                              <span className="n">{rows.length}</span>
-                            </div>
+                              <em className="hint">· {def.hint}</em>
+                              <span className="ct">· {rows.length}</span>
+                            </button>
                           </td>
                         </tr>
+                        {/* folded rows stay MOUNTED and visibility-COLLAPSE (never unmount):
+                            a collapsed row still feeds the column-width algorithm, so folding
+                            the bucket with the widest cells can't re-flow the columns */}
                         {rows.map((r) => (
                           <tr
                             key={r.ordinal}
-                            className={`bkt ${def.cls}${r.ordinal === selOrdinal ? " sel" : ""}`}
+                            className={`bkt ${def.cls}${closedGroups.has(def.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                             tabIndex={0}
                             aria-selected={r.ordinal === selOrdinal}
                             onClick={() => toggleRow(r.ordinal)}
@@ -191,7 +223,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
               </section>
 
               {evidence.length > 0 && (
-                <section className="sect">
+                <section className="sect vt-evidence">
                   <div className="sect-h">Evidence</div>
                   {evidence.map((e) => (
                     <div className="ev" key={e.id}>
@@ -207,7 +239,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                   entry point (the sections used to vanish when empty, which made "no way to add
                   one" invisible). The editors write through the sole-writer endpoints; a promote
                   can never wipe the lists (the structural guard, server-side). */}
-              <section className="sect">
+              <section className="sect vt-cats">
                 <div className="sect-h">Catalyst calendar</div>
                 {catalysts.map((c) => {
                   const d = daysFrom(asof, c.when_date);
@@ -226,7 +258,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                 <CatalystEditor thesisId={thesisId} catalysts={catalysts} />
               </section>
 
-              <section className="sect">
+              <section className="sect vt-kills">
                 <div className="sect-h">Kill criteria</div>
                 {killCriteria.map((k) => (
                   <div className="kill" key={k.id}>
@@ -254,6 +286,8 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           row={selected.row}
           def={selected.def}
           card={card}
+          thesisId={thesisId}
+          position={thesis?.position}
           asof={asof}
           onClose={() => setSelOrdinal(null)}
         />

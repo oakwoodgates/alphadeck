@@ -64,8 +64,9 @@ The Cockpit shares the Board's as-of; the call rail beside it recomputes live at
 ### The grouped basket — per-name buckets
 
 The basket table partitions by each member's **own** call state — the Board's column idiom applied
-in-table, strongest → weakest, one header (swatch · label · hint · count) per **populated** bucket
-(an empty bucket renders no header — loudness marks the exception) and a status dot per row:
+in-table, strongest → weakest, one **collapsible header** (chev · label · hint · count — the
+Workbench's To Review heading idiom, the toggle bucket-colored) per **populated** bucket (an empty
+bucket renders no header — loudness marks the exception) and a status dot per row:
 
 - **Managing** — `verdict === "managing"`: the held name, when the open position carries its
   `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
@@ -81,6 +82,12 @@ in-table, strongest → weakest, one header (swatch · label · hint · count) p
 - **Watch** — `watch_members` ("moving, no conviction yet").
 - **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
   (keep-it-visible), greyed rather than gone.
+
+**The fold** is an explicit, reversible view filter — open by default, one click back, the count
+stays on a closed header (a folded bucket never reads as dropped). Folded rows stay **mounted** with
+`visibility: collapse`: a collapsed row still feeds the table's column-width algorithm, so folding
+the bucket with the widest cells cannot re-flow the columns; the vertical reflow rides a View
+Transition (instant where unsupported, off under reduced motion) instead of snapping.
 
 Wire rank is preserved inside the armed/watch buckets (the call machinery already ranked them — the
 FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order. Columns:
@@ -102,6 +109,11 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
 - **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
   Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
   `risk_signals`, ticker-filtered.
+- **The operator record · this name** — the open **position** when it's attributed to this name
+  (`Position.security_id`), and the **decision rows logged on this name** (`DecisionOut.security_id`)
+  with voided rows greyed, never hidden. Display-only slices of the rail's log (the same query, no
+  new fetch): thesis-level rows — and acting / passing / undo — stay on the rail, the one write
+  surface.
 - **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): archetype
   (+ the enrichment's quiet "figures suggest …" line when undecided, #10), segment, sector,
   exchange, category, mkt cap, the operator's **size weight — labeled "yours"** so it can never

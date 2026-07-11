@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // The grouped basket (per-name buckets, C1): a thesis whose card exercises every populated bucket —
@@ -89,18 +89,38 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     const headers = [...container.querySelectorAll("tr.grp")].map((tr) => ({
       label: tr.querySelector(".lbl")?.textContent,
       hint: tr.querySelector(".hint")?.textContent,
-      n: tr.querySelector(".n")?.textContent,
+      ct: tr.querySelector(".ct")?.textContent,
     }));
     expect(headers).toEqual([
-      { label: "Armed", hint: "act now", n: "1" },
-      { label: "Lapsing", hint: "entry window closing", n: "1" },
-      { label: "Theme-armed", hint: "theme fallback · starter cap", n: "1" },
-      { label: "Warming", hint: "conviction in · awaiting confirmation", n: "1" },
-      { label: "Watch", hint: "moving · no conviction yet", n: "1" },
-      { label: "Quiet", hint: "no live signals", n: "1" },
+      { label: "Armed", hint: "· act now", ct: "· 1" },
+      { label: "Lapsing", hint: "· entry window closing", ct: "· 1" },
+      { label: "Theme-armed", hint: "· theme fallback · starter cap", ct: "· 1" },
+      { label: "Warming", hint: "· conviction in · awaiting confirmation", ct: "· 1" },
+      { label: "Watch", hint: "· moving · no conviction yet", ct: "· 1" },
+      { label: "Quiet", hint: "· no live signals", ct: "· 1" },
     ]);
-    // Managing never emitted on the wire today → no header (render-if-present, not a stub)
+    // no member call reads managing in this fixture → no header (render-if-present, not a stub)
     expect(screen.queryByText("Managing", { selector: ".lbl" })).toBeNull();
+  });
+
+  it("collapses a bucket on header click — open by default, count stays visible, reversible", () => {
+    const { container } = renderCockpit();
+    const warmingHeader = container.querySelector("tr.grp.bkt-warming .grp-h") as HTMLElement;
+    const warmingRow = container.querySelector("tr.bkt.bkt-warming") as HTMLElement;
+    expect(warmingHeader.getAttribute("aria-expanded")).toBe("true"); // open by default
+    expect(warmingRow.className).not.toContain("folded");
+
+    fireEvent.click(warmingHeader);
+    expect(warmingHeader.getAttribute("aria-expanded")).toBe("false");
+    // folded rows stay MOUNTED with visibility:collapse (a collapsed row still feeds the
+    // column-width algorithm — the fold must never re-flow the columns), never unmounted
+    expect(container.querySelector("tr.bkt.bkt-warming")).toBe(warmingRow);
+    expect(warmingRow.className).toContain("folded");
+    expect(warmingHeader.querySelector(".ct")?.textContent).toBe("· 1"); // the count never hides
+    expect(container.querySelector("tr.bkt.bkt-watch")?.className).not.toContain("folded");
+
+    fireEvent.click(warmingHeader); // one click back (reversibility)
+    expect(warmingRow.className).not.toContain("folded");
   });
 
   it("swaps the dead Role/Detail columns for Name + Exit-by (Dot has no text header)", () => {

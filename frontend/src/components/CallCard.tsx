@@ -191,14 +191,13 @@ export function TriggerRow({
     <div className={`trg-item ${variant}`}>
       <span className="ic">{icon}</span>
       <span>
+        {/* dot · ticker · grade tag · text · source — the tag LEADS the text (a trailing tag
+            wrapped onto its own line under a long label), same order on the rail and the panel */}
         {item.ticker && <span className="trg-tk">{item.ticker}</span>}
-        {item.label}
         {showGrade && item.grade && (
-          <>
-            {" · "}
-            <span className={`grade ${gradeClass(item.grade)}`}>{item.grade.toUpperCase()}</span>
-          </>
+          <span className={`grade ${gradeClass(item.grade)}`}>{item.grade.toUpperCase()}</span>
         )}
+        {item.label}
         {url && (
           <>
             {" "}
