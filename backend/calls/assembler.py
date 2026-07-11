@@ -168,6 +168,24 @@ def assemble_call(
     )
     watch_members = [_member_call(sec, live_entry, active_risk, asof, cfg) for sec in watch_secs]
 
+    # Per-member Managing attribution (§4): when the open position carries the held NAME (the take
+    # row's security_id — absent on a thesis-level take and the seed-era stored columns, which
+    # attribute nothing), the held member's call LEADS armed_members with the two ACTION fields
+    # overridden: verdict = managing (the action is "manage", not "enter") and confidence = None
+    # (an entry-sizing bar; the thesis-level Managing rule, applied per-member). Built by the same
+    # scoped helper as every member, so its live grades/clocks/triggers ride along — computed
+    # facts, unchanged. The held name never sits in the watch tier; the entry ranking below it is
+    # untouched. No-lookahead is inherited: state is MANAGING only when the as-of-derived position
+    # is open (§2), so a future-dated fill neither flips the state nor attributes a member.
+    position = thesis.position
+    if state is State.MANAGING and position is not None and position.security_id is not None:
+        held = position.security_id
+        held_call = _member_call(held, live_entry, active_risk, asof, cfg).model_copy(
+            update={"verdict": Verdict.MANAGING, "confidence": None}
+        )
+        armed_members = [held_call] + [m for m in armed_members if m.security_id != held]
+        watch_members = [m for m in watch_members if m.security_id != held]
+
     return CallCard(
         thesis_id=thesis.id,
         asof=asof,

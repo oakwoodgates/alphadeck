@@ -1180,6 +1180,8 @@ export interface components {
             current_price?: number | null;
             /** Opened On */
             opened_on?: string | null;
+            /** Security Id */
+            security_id?: string | null;
         };
         /**
          * PriceIngestOut

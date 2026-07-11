@@ -28,9 +28,10 @@ export interface BucketDef {
   cls: string;
 }
 
-/** Display order, strongest → weakest. `managing` is render-if-present: the wire's Verdict enum
- *  carries it, but the assembler doesn't emit it per-member yet (member verdicts are computed at
- *  ARMED and the thesis Position has no security_id) — the group simply stays empty until it does. */
+/** Display order, strongest → weakest. `managing` is render-if-present: the assembler emits it on
+ *  the HELD member when the open position carries a security_id (a take logged on a name —
+ *  CALL_LOGIC §4); an unattributed position (a thesis-level take, the seed-era columns) emits no
+ *  member verdict and the group simply stays empty. */
 export const BUCKETS: BucketDef[] = [
   { key: "managing", label: "Managing", hint: "in position", cls: "bkt-managing" },
   { key: "armed", label: "Armed", hint: "act now", cls: "bkt-armed" },

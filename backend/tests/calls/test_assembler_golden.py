@@ -12,6 +12,7 @@ from calls.assembler import assemble_call
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
+from domain.thesis import Position
 from tests.calls.factories import (
     ASOF,
     SID,
@@ -497,6 +498,106 @@ def test_theme_armed_member_is_withheld_on_severe_risk():
     assert (
         card.watch_members == []
     )  # it has conviction (the theme), so it isn't a watch member either
+
+
+# --- Per-member Managing attribution (§4): the held name reads MANAGING on the member menu ---
+
+
+def _position_on(sec: uuid.UUID | None, opened: date = ASOF) -> Position:
+    """An open position as-of the golden ASOF — held on ``sec`` (None = unattributed, seed-era shape)."""
+    return Position(entry_price=10.0, opened_on=opened, security_id=sec)
+
+
+def test_held_member_reads_managing_and_leads_the_menu():
+    """The held name's call flips to MANAGING and leads armed_members; its computed facts (grades,
+    clocks, triggers) ride along unchanged, but confidence is nulled (an entry-sizing bar — the
+    thesis-level Managing rule applied per-member). The OTHER armed member is untouched below it."""
+    events = [
+        insider_event(security_id=SID),  # SID: armed core/core — and HELD
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        catalyst_event(grade=Grade.CORE, liveness=400, security_id=_SID2),  # SID2: armed, not held
+        breakout_event(grade=Grade.CORE, security_id=_SID2),
+    ]
+    card = assemble_call(make_thesis(position=_position_on(SID)), events, ASOF, DEFAULT_CONFIG)
+    assert card.state is State.MANAGING and card.verdict is Verdict.MANAGING
+    assert [m.security_id for m in card.armed_members] == [SID, _SID2]  # held leads, one entry each
+    held = card.armed_members[0]
+    assert held.verdict is Verdict.MANAGING
+    assert held.confidence is None  # a Managing card renders the position, not a confidence bar
+    assert held.conviction_grade is Grade.CORE  # the computed facts survive the override
+    assert len(held.triggers) == 2
+    assert held.exit_by == ASOF + timedelta(days=DEFAULT_CONFIG.insider_core_alpha_liveness_days)
+    other = card.armed_members[1]
+    assert other.verdict is Verdict.CORE_ENTRY and other.confidence is not None  # untouched
+
+
+def test_held_watch_member_moves_to_managing_never_the_watch_tier():
+    """A held name whose only live signal is a confirmation leaves the watch tier (watch stays
+    verdict-less by contract) and leads armed_members as MANAGING — its breakout fact rides along.
+    """
+    events = [
+        insider_event(security_id=SID),  # SID: armed
+        breakout_event(grade=Grade.CORE, security_id=SID),
+        breakout_event(grade=Grade.CORE, security_id=_SID2),  # SID2: confirmation-only — and HELD
+    ]
+    card = assemble_call(make_thesis(position=_position_on(_SID2)), events, ASOF, DEFAULT_CONFIG)
+    assert [m.security_id for m in card.armed_members] == [_SID2, SID]
+    held = card.armed_members[0]
+    assert held.verdict is Verdict.MANAGING
+    assert held.conviction_grade is None and held.confirmation_grade is Grade.CORE
+    assert card.watch_members == []  # moved out — never a managing verdict in the watch tier
+
+
+def test_held_quiet_member_emits_a_bare_managing_call():
+    """A held name with NO live triggers still surfaces (verdict=managing, everything else empty) —
+    the Cockpit files it under Managing instead of Quiet. Attribution follows the position, not the
+    signal stream."""
+    card = assemble_call(make_thesis(position=_position_on(SID)), [], ASOF, DEFAULT_CONFIG)
+    assert card.state is State.MANAGING
+    assert [m.security_id for m in card.armed_members] == [SID]
+    held = card.armed_members[0]
+    assert held.verdict is Verdict.MANAGING
+    assert held.conviction_grade is None and held.confirmation_grade is None
+    assert held.triggers == [] and held.exit_by is None and held.confidence is None
+
+
+def test_held_risk_blocked_member_still_reads_managing():
+    """The risk veto withholds ENTRY timing (§2) — it cannot un-hold an open position. A severe risk
+    on the held name leaves the verdict MANAGING; the risk still rides the card's risk_signals for
+    the counter-case."""
+    events = [insider_event(), breakout_event(), dilution_event()]  # severe risk on SID — and HELD
+    card = assemble_call(make_thesis(position=_position_on(SID)), events, ASOF, DEFAULT_CONFIG)
+    assert card.state is State.MANAGING
+    assert [m.security_id for m in card.armed_members] == [SID]
+    assert card.armed_members[0].verdict is Verdict.MANAGING
+    assert len(card.risk_signals) == 1  # the risk stays visible; it just can't gate a held name
+
+
+def test_unattributed_position_changes_nothing_per_member():
+    """A position with NO security_id (a thesis-level take; the seed-era thesis.position_* columns)
+    cannot attribute per-name: the thesis-level card is Managing, but the member menu is exactly the
+    signals-derived one — attribution is honest or absent, never guessed."""
+    events = [insider_event(), breakout_event(grade=Grade.CORE)]
+    card = assemble_call(make_thesis(position=_position_on(None)), events, ASOF, DEFAULT_CONFIG)
+    assert card.state is State.MANAGING and card.verdict is Verdict.MANAGING
+    assert [m.security_id for m in card.armed_members] == [SID]
+    assert (
+        card.armed_members[0].verdict is Verdict.CORE_ENTRY
+    )  # the signals-derived call, untouched
+    assert all(m.verdict is not Verdict.MANAGING for m in card.armed_members)
+
+
+def test_managing_attribution_honors_no_lookahead():
+    """A fill dated after asof neither flips the state nor attributes a member (the same opened_on
+    guard as §2, flowing through to the member menu); one day later it does both."""
+    events = [insider_event(), breakout_event(grade=Grade.CORE)]
+    thesis = make_thesis(position=_position_on(SID, opened=ASOF + timedelta(days=1)))
+    before = assemble_call(thesis, events, ASOF, DEFAULT_CONFIG)
+    assert before.state is State.ARMED
+    assert before.armed_members[0].verdict is Verdict.CORE_ENTRY  # not yet held at this asof
+    after = assemble_call(thesis, events, ASOF + timedelta(days=1), DEFAULT_CONFIG)
+    assert after.state is State.MANAGING
+    assert after.armed_members[0].verdict is Verdict.MANAGING
 
 
 def test_assembler_has_no_magic_number_thresholds():
