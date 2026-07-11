@@ -153,7 +153,7 @@ build into (more catalysts firming vs volume confirming); that lives in the expr
 (§5, §8) and confidence (§7), not a separate verdict. A `starter_entry` carries reduced confidence and a
 cautious expression.
 
-**Per-member Managing attribution `[PROPOSED]` (confirm).** The table's Managing row is thesis-level;
+**Per-member Managing attribution `[SPECIFIED]` (confirmed — ratified with #155).** The table's Managing row is thesis-level;
 per-member it applies to exactly **one** name — the held one. When the open position carries a
 `security_id` (the position derives from a `take` logged **on a name**; `Position.security_id` rides the
 derived position), the held member's `MemberCall` is computed by the **same scoped helper as every member**
