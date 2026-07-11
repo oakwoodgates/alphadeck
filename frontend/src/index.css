@@ -120,6 +120,50 @@ tr.grp.bkt-theme .swatch, tr.grp.bkt-warming .swatch, tr.grp.bkt-quiet .swatch {
 tr.bkt-quiet td { color: var(--txt-3); }
 tr.bkt-quiet .tk { color: var(--txt-2); }
 table.basket td.exitby.lapse { color: var(--warm); }
+
+/* rows are clickable (the per-name panel); the selected row wears its bucket accent */
+tr.bkt { cursor: pointer; }
+tr.bkt:hover td { background: rgba(20, 24, 33, 0.7); }
+tr.bkt:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+tr.bkt.sel td { background: color-mix(in srgb, var(--gc) 7%, transparent); }
+tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
+
+/* --- the per-name panel: a fixed, NON-MODAL slide-over ------------------------------------
+   No scrim — the table stays clickable, so switching names is one click on the next row. It
+   overlays (dims, never hides) the thesis rail; the table itself never unmounts under it. */
+.npanel { position: fixed; top: 0; right: 0; bottom: 0; width: 404px; z-index: 40; background: var(--bg-2); border-left: 1px solid var(--line-2); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); overflow-y: auto; padding: 16px 18px 40px; }
+.cp-rail.dimmed { opacity: 0.35; }
+.np-head { display: flex; align-items: center; gap: 10px; }
+.np-tk { font-family: var(--mono); font-weight: 800; font-size: 17px; }
+.np-bucket { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; color: var(--gc); border: 1px solid color-mix(in srgb, var(--gc) 40%, transparent); background: color-mix(in srgb, var(--gc) 10%, transparent); }
+.np-close { margin-left: auto; font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; }
+.np-close:hover { color: var(--txt); }
+.np-co { color: var(--txt-2); font-size: 12px; margin: 4px 0 2px; }
+.np-h { font-size: 9.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--txt-4); margin: 16px 0 8px; display: flex; align-items: center; gap: 8px; }
+.np-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.np-verdict { font-size: 17px; font-weight: 800; color: var(--gc); display: flex; align-items: center; gap: 8px; }
+.np-theme { color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.np-stateline { color: var(--txt-3); font-style: italic; font-size: 12px; line-height: 1.5; }
+.np-grades { display: flex; gap: 14px; margin-top: 8px; font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; align-items: center; }
+.np-conf { margin-top: 10px; }
+.np-conf .row { display: flex; justify-content: space-between; font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+.np-conf .bar { height: 4px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.np-conf .fill { height: 100%; background: var(--gc); }
+.np-clocks { display: grid; gap: 7px; margin-top: 10px; }
+.np-clocks .clock-row.lapse .cd, .np-clocks .clock-row.lapse .x { color: var(--warm); }
+.np-idgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 11.5px; }
+.np-idgrid .k { color: var(--txt-4); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+.np-idgrid .v { color: var(--txt-2); font-family: var(--mono); font-size: 11px; }
+.np-idgrid .cell.wide { grid-column: 1 / -1; }
+.np-hintline { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); }
+.np-fit { font-style: italic; color: var(--txt-2); font-size: 12px; line-height: 1.55; border-left: 2px solid var(--line-2); padding-left: 11px; }
+.np-fit .tag { display: inline-block; margin-left: 7px; font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
+.np-meters { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
+.np-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.np-meter-row .val { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
+.np-unconf { margin-top: 6px; font-size: 10px; color: var(--warm); }
+.np-note { margin-top: 18px; font-size: 10px; color: var(--txt-4); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 10px; }
+@media (max-width: 880px) { .npanel { width: min(404px, 92vw); } }
 .arch { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
 .arch.leader { color: #8ab4ff; background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.25); }
 .arch.high_beta { color: var(--armed); background: rgba(255, 87, 51, 0.1); border: 1px solid rgba(255, 87, 51, 0.28); }

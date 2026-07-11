@@ -1,10 +1,11 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 
 import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import { groupBasket } from "./buckets";
+import { NamePanel } from "./NamePanel";
 import {
   accentVar,
   archLabel,
@@ -38,6 +39,21 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
   // display-only joins over data this page already fetches (no call is re-derived here). While the
   // call is still computing (card undefined) everything reads Quiet, honestly.
   const groups = groupBasket(basket, card, scoredQ.data?.members);
+
+  // The per-name panel's selection — keyed by the row's basket ordinal (stable across bucket moves
+  // and duplicate tickers). The panel is a SIBLING overlay: opening/closing/switching never
+  // unmounts the table, so grouping, dots, and scroll survive exactly as left. If the selected row
+  // vanishes (e.g. the basket changed under an edit), the panel simply doesn't render — no strand.
+  const [selOrdinal, setSelOrdinal] = useState<number | null>(null);
+  const selected =
+    selOrdinal === null
+      ? null
+      : (groups
+          .flatMap((g) => g.rows.map((r) => ({ row: r, def: g.def })))
+          .find((x) => x.row.ordinal === selOrdinal) ?? null);
+  const toggleRow = (ordinal: number) =>
+    setSelOrdinal((s) => (s === ordinal ? null : ordinal));
+
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
   const killCriteria = thesis?.kill_criteria ?? [];
@@ -125,7 +141,19 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                           </td>
                         </tr>
                         {rows.map((r) => (
-                          <tr key={r.ordinal} className={`bkt ${def.cls}`}>
+                          <tr
+                            key={r.ordinal}
+                            className={`bkt ${def.cls}${r.ordinal === selOrdinal ? " sel" : ""}`}
+                            tabIndex={0}
+                            aria-selected={r.ordinal === selOrdinal}
+                            onClick={() => toggleRow(r.ordinal)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleRow(r.ordinal);
+                              }
+                            }}
+                          >
                             <td className="dotc">
                               <span className="rowdot" title={def.label} />
                             </td>
@@ -211,13 +239,25 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           )}
         </main>
 
-        <aside className="cp-rail">
+        {/* the thesis-level rail stays (no longer the ONLY per-name view); it dims — not hides —
+            under the panel overlay, and comes right back on close */}
+        <aside className={`cp-rail${selected ? " dimmed" : ""}`}>
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
           {card && <CallCard card={card} thesisId={thesisId} />}
           {card && <MemberMenu card={card} />}
         </aside>
       </div>
+
+      {selected && (
+        <NamePanel
+          row={selected.row}
+          def={selected.def}
+          card={card}
+          asof={asof}
+          onClose={() => setSelOrdinal(null)}
+        />
+      )}
     </div>
   );
 }
