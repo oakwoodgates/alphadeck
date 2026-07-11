@@ -15,7 +15,7 @@ transaction-time honest — history is amended forward, never rewritten).
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 
 from db.session import DEFAULT_TENANT_ID
 from domain.security import Security
@@ -143,7 +143,15 @@ def test_replay_before_the_reversion_still_sees_the_old_basis(db, security_id):
     old basis. No-lookahead's mirror image: no look-BACK rewriting either."""
     ingest_prices(db, security_id, [_bar(D1, 100, 1000)])
     db.commit()
-    before_fix = datetime.now(timezone.utc)
+    # The pin must come from the clock that stamps recorded_at — Postgres — never the host: the
+    # margin to the next transaction is sub-millisecond, so any momentary host<->container skew
+    # puts a host-clock pin AT/AFTER the correction and the replay sees it. clock_timestamp(),
+    # not now(), for the current instant (now() is the txn start), and commit, so the
+    # correction's transaction — whose now() stamps recorded_at — begins strictly later.
+    with db.cursor() as cur:
+        cur.execute("SELECT clock_timestamp() AS t")
+        before_fix = cur.fetchone()["t"]
+    db.commit()
 
     ingest_bars_for_security(
         db,
