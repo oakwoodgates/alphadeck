@@ -343,11 +343,14 @@ class WorkbenchScored(BaseModel):
 
 class PriceIngestOut(BaseModel):
     """The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD
-    bars appended (0 = already current — the ingest is incremental) and the latest bar now on file.
+    bars appended (0 = already current — the ingest is incremental), how many overlap bars were
+    RE-VERSIONED (a source restatement, e.g. a split re-base — the exceptional path; source-strategy
+    Option A), and the latest bar now on file.
     """
 
     security_id: UUID
     ticker: str
+    bars_reversioned: int = 0
     bars_appended: int
     latest_bar: date | None = None  # None = the source returned nothing (e.g. an unquoted line)
 

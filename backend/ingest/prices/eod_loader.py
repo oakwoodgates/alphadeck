@@ -166,6 +166,21 @@ def ingest_prices(
     return count
 
 
+def stored_bars(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> dict[date, dict]:
+    """The latest stored VERSION per bar date — the re-version pass's compare basis. DISTINCT ON (d)
+    with newest ``recorded_at`` winning: the SAME dedup the bitemporal as-of read applies, so the
+    compare sees exactly what the detectors would."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (d) d, close, volume FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = %s ORDER BY d, recorded_at DESC",
+            (tenant_id, security_id),
+        )
+        return {r["d"]: r for r in cur.fetchall()}
+
+
 def latest_bar_date(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> date | None:
