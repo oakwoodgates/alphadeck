@@ -89,6 +89,7 @@ one adapter away).
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Excluded-name permanence (#7): the durable NO + optional reason, seeded greyed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
+| Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -109,24 +110,19 @@ one adapter away).
 
 ## What's next (by appetite, in rough order)
 
-1. **The restated-bars re-version slice** — the source-strategy fork is DECIDED (**Option A**, operator pick
-   2026-07-11 — `DATA_SOURCES.md` records it): keep Yahoo, re-version restated bars. The build: an overlap
-   compare in the daily force-refresh path (fresh ≠ stored → append new versions; as-of picks latest),
-   COUNT-the-table idempotency, and a simulated-split regression. Closes the last live price-correctness gap
-   (mixed-basis window drops to ≤ 1 cron tick).
-2. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
+1. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
    operator's decisions vs follow-blindly. Unlocks the **second, out-of-sample recalibration**. Both record
    streams now accumulate (the daily call-of-record + the operator-decisions log); parked deliberately while
    decision rows build up — it needs the data more than the UI.
-3. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
+2. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
    transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
    Deferred by operator call ("other things coming").
-4. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
+3. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
    daily" (live pulls): ingest active theses daily, dormant less often. Fine at today's scale; jotted.
-5. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance
+4. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance
    ("re-confirm?"). Shares the MONITOR/Board drift machinery — **build it with the Board**, not in the
    Workbench.
-6. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
+5. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
    send-back discoverability, accept-color decoupling, pre-revenue purity chip, explain transport-error,
    FE async-boundary tests, off-universe label copy, dilution polarity styling.
 

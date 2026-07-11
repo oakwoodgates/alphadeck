@@ -21,7 +21,7 @@ framed by **stage**, not by surface.
 | **DISCOVER** | Theme → names. EDGAR-first deterministic enumeration off an operator-seeded term set — not model recall. | Deterministic (+ LLM organizes/narrates) | `DISCOVERY.md`, `CHAIN_DRAFTER.md` |
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
-| **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → manage. The two-key call loop. | System times, operator gates | `CALL_LOGIC.md`, `FEED_LOOP.md` |
+| **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → manage. The two-key call loop. | System times, operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
 | **SCORE** | Forward attribution — the platform's calls vs the operator's decisions vs follow-blindly. *(Parked — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → the parked Scoreboard |
 
 ## The trust gradient
