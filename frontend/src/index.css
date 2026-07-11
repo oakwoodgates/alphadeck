@@ -101,13 +101,15 @@ table.basket .co { color: var(--txt-2); }
 /* left padding clears the selected row's 2px inset accent bar — the dot must never touch it */
 table.basket th.dotc, table.basket td.dotc { width: 18px; padding-left: 9px; padding-right: 6px; }
 .rowdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--gc); }
-/* header swatch keeps the same 9px inset as the row dots below it (one aligned icon column) */
-tr.grp td { padding: 15px 0 6px 9px; border-bottom: 1px solid var(--line-2); }
-.grp-in { display: flex; align-items: center; gap: 8px; }
-.grp-in .swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--gc); }
-.grp-in .lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gc); }
-.grp-in .hint { font-size: 10px; color: var(--txt-3); }
-.grp-in .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 10px; padding: 1px 8px; }
+/* bucket headers — the To Review heading idiom (chev · label · hint · count · trailing hairline),
+   bucket-colored + click-to-collapse. The 9px inset keeps the chev on the row dots' icon column. */
+tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
+.grp-h { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: transparent; text-align: left; cursor: pointer; padding: 0; font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gc); }
+.grp-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.grp-h .chev { font-size: 12px; letter-spacing: 0; }
+.grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
+.grp-h .ct { font-family: var(--mono); font-weight: 400; color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
+.grp-h:hover .hint { color: var(--txt-3); }
 .bkt-managing { --gc: var(--manage); }
 .bkt-armed { --gc: var(--armed); }
 .bkt-lapsing { --gc: var(--warm); }
@@ -115,8 +117,7 @@ tr.grp td { padding: 15px 0 6px 9px; border-bottom: 1px solid var(--line-2); }
 .bkt-warming { --gc: var(--warm); }
 .bkt-watch { --gc: var(--incub); }
 .bkt-quiet { --gc: var(--txt-4); }
-tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot,
-tr.grp.bkt-theme .swatch, tr.grp.bkt-warming .swatch, tr.grp.bkt-quiet .swatch {
+tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
 }
 tr.bkt-quiet td { color: var(--txt-3); }

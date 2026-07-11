@@ -4,7 +4,7 @@ import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
-import { groupBasket } from "./buckets";
+import { groupBasket, type BucketKey } from "./buckets";
 import { NamePanel } from "./NamePanel";
 import {
   accentVar,
@@ -53,6 +53,17 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           .find((x) => x.row.ordinal === selOrdinal) ?? null);
   const toggleRow = (ordinal: number) =>
     setSelOrdinal((s) => (s === ordinal ? null : ordinal));
+
+  // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
+  // header keeps its count while closed, so nothing reads as dropped). Local view state only.
+  const [closedGroups, setClosedGroups] = useState<Set<BucketKey>>(new Set());
+  const toggleGroup = (key: BucketKey) =>
+    setClosedGroups((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
@@ -132,15 +143,26 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                       <Fragment key={def.key}>
                         <tr className={`grp ${def.cls}`}>
                           <td colSpan={6}>
-                            <div className="grp-in">
-                              <span className="swatch" />
+                            {/* the To Review heading idiom (chev · label · hint · count · hairline),
+                                bucket-colored; click-to-collapse, open by default — the count stays
+                                visible while closed, so a collapsed bucket never reads as dropped */}
+                            <button
+                              type="button"
+                              className="grp-h"
+                              aria-expanded={!closedGroups.has(def.key)}
+                              onClick={() => toggleGroup(def.key)}
+                            >
+                              <span className="chev">
+                                {closedGroups.has(def.key) ? "▸" : "▾"}
+                              </span>
                               <span className="lbl">{def.label}</span>
-                              <span className="hint">{def.hint}</span>
-                              <span className="n">{rows.length}</span>
-                            </div>
+                              <em className="hint">· {def.hint}</em>
+                              <span className="ct">· {rows.length}</span>
+                            </button>
                           </td>
                         </tr>
-                        {rows.map((r) => (
+                        {!closedGroups.has(def.key) &&
+                          rows.map((r) => (
                           <tr
                             key={r.ordinal}
                             className={`bkt ${def.cls}${r.ordinal === selOrdinal ? " sel" : ""}`}
