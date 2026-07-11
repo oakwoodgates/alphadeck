@@ -22,7 +22,7 @@ framed by **stage**, not by surface.
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
 | **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → manage. The two-key call loop. | System times, operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
-| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions vs follow-blindly. *(Parked — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → the parked Scoreboard |
+| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) |
 
 ## The trust gradient
 

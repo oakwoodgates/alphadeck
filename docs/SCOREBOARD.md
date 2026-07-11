@@ -8,8 +8,8 @@ the immediate follow-up after v1 is surfacing **replay's historical episodes alo
 record (clearly separated — the record stays clean). "The platform feeds itself" became true at M2;
 *this* is what makes "validated forward" true.
 
-Status: **SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3 (the
-operator track) built.** SB4 = the FE view. This doc grows with the slices.
+Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
+(the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
 
 ## The one rule everything hangs on
 

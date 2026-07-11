@@ -120,6 +120,30 @@ export function useCalls(thesisIds: string[], asof: string) {
   return useQueries({ queries: thesisIds.map((id) => callQuery(id, asof)) });
 }
 
+// --- the Scoreboard (SCORE): the forward record scored — the calls log + the decision log ---
+export type ScoreboardResponse = components["schemas"]["ScoreboardResponse"];
+export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
+export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
+export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
+export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
+export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
+
+// ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
+// fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
+export function useScoreboard(asof: string, includeArchived = true) {
+  return useQuery({
+    queryKey: ["scoreboard", asof, includeArchived] as const,
+    enabled: Boolean(asof),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/scoreboard", {
+        params: { query: { asof, include_archived: includeArchived } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 // --- decision capture: the operator-decisions log (take / pass / close / void) ---
 export type DecisionIn = components["schemas"]["DecisionIn"];
 export type DecisionOut = components["schemas"]["DecisionOut"];

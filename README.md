@@ -54,7 +54,7 @@ Four surfaces; clickable mockups live in `docs/mockups/` (Board+Cockpit, the 202
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
 - **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
-- **Scoreboard** — review/calibration: platform calls vs your decisions vs the counterfactual; override log; outcome attribution. *(Post-MVP — the forward trust loop; still parked.)*
+- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own exit-by yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2, replay-history-alongside is the immediate follow-up.)*
 
 **Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm instrument panel. The UI *is* the gate.
 
@@ -142,6 +142,7 @@ Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
 [`docs/FEED_LOOP.md`](docs/FEED_LOOP.md). Build/run/test commands: [`CLAUDE.md`](CLAUDE.md).
 
 **Trust state (kept honest):** the calls are tuned **in-sample** (n=19; see `docs/ROADMAP.md`'s trust box).
-"The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard** (the
-forward trust loop: platform calls vs the operator's decisions vs the follow-blindly counterfactual) is the
-**post-MVP open, still parked** — the daily call-of-record is the forward record it will track.
+"The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard v1**
+(the forward trust loop's instrument: the platform's calls vs the operator's decisions, scored over the
+call-of-record) is **built** — validation now accrues with the record itself (metrics gate below n=5; the
+follow-blindly counterfactual + deltas are v2).

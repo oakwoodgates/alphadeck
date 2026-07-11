@@ -19,12 +19,13 @@ interface Props {
   asof: string;
   onAsofChange: (asof: string) => void;
   onBack: () => void;
+  onOpenScoreboard: () => void;
 }
 
 /** The Workbench (Phase-2 front half): a narrative → a scored, structured basket → promote to the Board.
  *  DISPLAY · SCORE · PROMOTE (S4) + AUTHORING (S4b): the operator builds/edits the value chain in an edit
  *  mode (ChainEditor), saving through the full-replace promote; the meters re-derive on the new structure. */
-export function Workbench({ asof, onAsofChange, onBack }: Props) {
+export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Props) {
   const thesesQ = useTheses();
   const theses = thesesQ.data ?? [];
 
@@ -193,7 +194,7 @@ export function Workbench({ asof, onAsofChange, onBack }: Props) {
         <nav className="nav">
           <a onClick={onBack}>Board</a>
           <a className="on">Workbench</a>
-          <a className="stub">Scoreboard</a>
+          <a onClick={onOpenScoreboard}>Scoreboard</a>
         </nav>
         <div className="spacer" />
         <label className="asof">
