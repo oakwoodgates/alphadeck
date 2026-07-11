@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOCKUP — Cockpit per-name build</title>
+<style>
+  /* tokens lifted from frontend/src/index.css so the mockup reads as the real surface */
+  :root {
+    --bg: #08090b; --bg-2: #0c0e12; --panel: #101318; --panel-2: #141821;
+    --line: #1e232c; --line-2: #2a313c;
+    --txt: #e7eaef; --txt-2: #9aa3b0; --txt-3: #5a6470; --txt-4: #3c4450;
+    --incub: #586374; --warm: #e0a23c; --armed: #ff5733; --manage: #34c2a0;
+    --pos: #46d07f; --neg: #ff5a6a; --leader: #8ab4ff;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Archivo", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--txt); font-family: var(--sans); font-size: 13px;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,87,51,.05), transparent 60%),
+      radial-gradient(900px 500px at -5% 110%, rgba(52,194,160,.04), transparent 60%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+
+  /* ---- top bar (as today) ---- */
+  .cp-top { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  .back { font: inherit; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  .brand { font-weight: 800; letter-spacing: .12em; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 2px; background: var(--armed); box-shadow: 0 0 10px rgba(255,87,51,.7); }
+  .brand small { color: var(--txt-3); font-weight: 600; letter-spacing: .18em; }
+  .cp-title { display: flex; align-items: baseline; gap: 10px; }
+  .cp-title .tk { font-family: var(--mono); font-weight: 700; color: var(--manage); }
+  .cp-title h1 { font-size: 15px; margin: 0; font-weight: 700; }
+  .state-badge { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .1em; padding: 3px 8px; border-radius: 6px;
+    color: var(--manage); background: rgba(52,194,160,.14); border: 1px solid rgba(52,194,160,.4); }
+  .spacer { flex: 1; }
+  .asof { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-3); }
+  .asof b { font-family: var(--mono); font-size: 12px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 9px; font-weight: 500; }
+
+  /* ---- mockup note strip ---- */
+  .mock-note { margin: 12px 18px 0; padding: 8px 12px; border: 1px dashed rgba(224,162,60,.45); border-radius: 8px;
+    color: var(--warm); font-size: 11px; background: rgba(224,162,60,.05); }
+  .mock-note b { letter-spacing: .1em; }
+
+  /* ---- body grid (as today: main + 380px rail) ---- */
+  .cp-body { display: grid; grid-template-columns: 1fr 380px; }
+  .cp-main { padding: 22px 26px 60px; min-width: 0; }
+  .cp-rail { border-left: 1px solid var(--line); background: var(--bg-2); padding: 20px 20px 60px; transition: opacity .15s; }
+  .cp-rail.dimmed { opacity: .35; pointer-events: none; }
+  .sect { margin-bottom: 26px; }
+  .sect-h { font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--txt-3); margin-bottom: 11px; display: flex; align-items: center; gap: 8px; }
+  .sect-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .narrative { font-size: 14px; line-height: 1.6; color: var(--txt); border-left: 2px solid var(--line-2); padding: 2px 0 2px 15px; font-style: italic; }
+  .narrative .by { display: block; margin-top: 6px; font-size: 10px; font-style: normal; letter-spacing: .1em; text-transform: uppercase; color: var(--txt-4); }
+
+  /* ---- the grouped basket table (NEW) ---- */
+  table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.basket th { text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
+  table.basket td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  table.basket .tk { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+  .num { text-align: right; font-family: var(--mono); font-weight: 500; color: var(--txt-2); white-space: nowrap; }
+  th.num { font-family: var(--sans); }
+  .co { color: var(--txt-2); }
+  .muted { color: var(--txt-4); }
+
+  /* group header row — the Board's col-head idiom, in-table */
+  tr.grp td { padding: 16px 0 6px; border-bottom: 1px solid var(--line-2); }
+  .grp-in { display: flex; align-items: center; gap: 8px; }
+  .grp .swatch { width: 9px; height: 9px; border-radius: 2px; }
+  .grp .lbl { font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+  .grp .hint { font-size: 10px; color: var(--txt-3); }
+  .grp .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 10px; padding: 1px 8px; }
+
+  /* per-row status dot, keyed to the group */
+  .rowdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .managing   { --gc: var(--manage); }
+  .armed      { --gc: var(--armed); }
+  .lapsing    { --gc: var(--warm); }
+  .themearmed { --gc: var(--armed); }
+  .warming    { --gc: var(--warm); }
+  .watch      { --gc: var(--incub); }
+  .quiet      { --gc: var(--txt-4); }
+  .grp .swatch, .rowdot { background: var(--gc); }
+  .themearmed .rowdot, .warming .rowdot, .quiet .rowdot { background: transparent; border: 1.5px solid var(--gc); }
+  .grp .lbl { color: var(--gc); }
+  .themearmed.grp .swatch, .warming.grp .swatch, .quiet.grp .swatch { background: transparent; border: 1.5px solid var(--gc); }
+  tr.quiet td { color: var(--txt-3); }
+  tr.quiet .tk { color: var(--txt-2); font-weight: 600; }
+
+  /* clickable rows + selection */
+  tr.name { cursor: pointer; }
+  tr.name:hover td { background: rgba(20,24,33,.7); }
+  tr.name[aria-selected="true"] td { background: color-mix(in srgb, var(--gc) 7%, transparent); }
+  tr.name[aria-selected="true"] td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
+
+  .arch { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
+  .arch.high_beta { color: var(--armed); border: 1px solid rgba(255,87,51,.4); background: rgba(255,87,51,.08); }
+  .arch.leader { color: var(--leader); border: 1px solid rgba(138,180,255,.4); background: rgba(138,180,255,.08); }
+  .exitby.lapsing-cell { color: var(--warm); }
+
+  /* ---- rail placeholder (thesis-level call, unchanged) ---- */
+  .cc-ph { border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+  .cc-ph .h { padding: 8px 12px; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--manage); background: rgba(52,194,160,.08); display:flex; justify-content: space-between; }
+  .cc-ph .b { padding: 12px; color: var(--txt-3); font-size: 11px; line-height: 1.5; }
+  .cc-ph .v { color: var(--manage); font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+
+  /* ---- the per-name panel (NEW): fixed slide-over drawer, non-modal ---- */
+  .npanel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 404px; z-index: 40;
+    background: var(--bg-2); border-left: 1px solid var(--line-2);
+    box-shadow: -18px 0 40px rgba(0,0,0,.45); overflow-y: auto; padding: 16px 18px 40px;
+    transform: translateX(105%); transition: transform .16s ease-out;
+  }
+  .npanel.open { transform: translateX(0); }
+  .np-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .np-tk { font-family: var(--mono); font-weight: 800; font-size: 17px; }
+  .np-close { margin-left: auto; font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; }
+  .np-close:hover { color: var(--txt); }
+  .np-co { color: var(--txt-2); font-size: 12px; margin-bottom: 10px; }
+  .np-bucket { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; color: var(--gc); border: 1px solid color-mix(in srgb, var(--gc) 40%, transparent); background: color-mix(in srgb, var(--gc) 10%, transparent); }
+  .np-h { font-size: 9.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--txt-4); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+  .np-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .np-verdict { font-size: 17px; font-weight: 800; color: var(--gc); }
+  .np-stateline { color: var(--txt-3); font-style: italic; font-size: 12px; line-height: 1.5; }
+  .np-grades { display: flex; gap: 14px; margin-top: 8px; font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: .06em; }
+  .np-grades b { font-family: var(--mono); color: var(--txt-2); }
+  .grade { font-family: var(--mono); font-weight: 700; }
+  .grade.core { color: var(--armed); } .grade.flip { color: var(--warm); }
+  .np-conf { margin-top: 10px; }
+  .np-conf .row { display: flex; justify-content: space-between; font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+  .np-conf .bar { height: 4px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .np-conf .fill { height: 100%; background: var(--gc); }
+  .clock-row { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; background: var(--panel); font-size: 11px; }
+  .clock-row .cd { font-family: var(--mono); font-weight: 700; }
+  .clock-row .x { color: var(--txt-3); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+  .clock-row.lapse .cd, .clock-row.lapse .x { color: var(--warm); }
+  .trg-item { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 11.5px; line-height: 1.45; color: var(--txt-2); }
+  .trg-item .ic { color: var(--pos); }
+  .trg-item.warn .ic { color: var(--warm); }
+  .trg-tk { font-family: var(--mono); font-weight: 700; color: var(--txt); margin-right: 6px; }
+  .trg-item a { color: var(--leader); text-decoration: none; font-size: 10.5px; }
+  .np-idgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; font-size: 11.5px; }
+  .np-idgrid .k { color: var(--txt-4); font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; }
+  .np-idgrid .v { color: var(--txt-2); font-family: var(--mono); font-size: 11px; }
+  .np-idgrid .cell.wide { grid-column: 1 / -1; }
+  .np-fit { font-style: italic; color: var(--txt-2); font-size: 12px; line-height: 1.55; border-left: 2px solid var(--line-2); padding-left: 11px; }
+  .np-fit .tag { display: inline-block; margin-left: 7px; font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
+  .np-meters { border: 1px dashed var(--line-2); border-radius: 8px; padding: 9px 11px; }
+  .np-meters .opt { float: right; font-family: var(--mono); font-size: 8.5px; color: var(--txt-4); letter-spacing: .08em; text-transform: uppercase; }
+  .m-row { display: flex; align-items: center; gap: 9px; font-size: 10.5px; color: var(--txt-3); padding: 3px 0; }
+  .m-row .lbl { width: 62px; text-transform: uppercase; letter-spacing: .06em; font-size: 9px; }
+  .m-row .pips { display: flex; gap: 3px; }
+  .m-row .pip { width: 9px; height: 4px; border-radius: 2px; background: var(--panel-2); }
+  .m-row .pip.on { background: var(--txt-3); }
+  .m-row .val { margin-left: auto; font-family: var(--mono); color: var(--txt-2); }
+  .np-note { margin-top: 18px; font-size: 10px; color: var(--txt-4); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 10px; }
+  .np-illus { margin-top: 10px; padding: 7px 10px; border: 1px dashed rgba(224,162,60,.45); border-radius: 7px; color: var(--warm); font-size: 10px; }
+  @media (max-width: 880px) { .cp-body { grid-template-columns: 1fr; } .npanel { width: min(404px, 92vw); } }
+</style>
+</head>
+<body>
+
+<header class="cp-top">
+  <button class="back" type="button">← Board</button>
+  <div class="brand"><span class="dot"></span>ALPHA&nbsp;DECK <small>// research cockpit</small></div>
+  <div class="cp-title"><span class="tk">◇ 41</span><h1>5b draft check</h1><span class="state-badge">MANAGING</span></div>
+  <div class="spacer"></div>
+  <label class="asof">as-of <b>07/11/2026</b></label>
+</header>
+
+<div class="mock-note"><b>MOCKUP · COCKPIT PER-NAME BUILD</b> — display-only proposal. Rows are grouped by the member-call buckets;
+click any row to open its panel (click again / ✕ / Esc to close — the table never unmounts). Data is illustrative;
+the MANAGING group is shown for review but stays empty until per-name managing lands on the wire (see plan, open question 2).</div>
+
+<div class="cp-body">
+  <main class="cp-main">
+    <section class="sect">
+      <div class="sect-h">Narrative &amp; conviction</div>
+      <div class="narrative">small modular nuclear is about to rip - reactor developers, the enrichment and fuel supply chain, and the utilities that will run them
+        <span class="by">— your notes, preserved</span>
+      </div>
+    </section>
+
+    <section class="sect">
+      <div class="sect-h">Basket · the expression</div>
+      <table class="basket" id="tbl">
+        <thead>
+          <tr>
+            <th style="width:18px"></th>
+            <th>Ticker</th>
+            <th>Name</th>
+            <th>Archetype</th>
+            <th class="num">Mkt cap</th>
+            <th class="num">Exit-by</th>
+          </tr>
+        </thead>
+        <tbody><!-- groups + rows rendered by the script below --></tbody>
+      </table>
+    </section>
+  </main>
+
+  <aside class="cp-rail" id="rail">
+    <div class="cc-ph">
+      <div class="h"><span>Position</span><span>CORE THESIS</span></div>
+      <div class="b">
+        <div class="v">Managing</div>
+        Thesis-level CallCard + ranked MemberMenu — <b>unchanged by this build</b>. The per-name panel slides over
+        this rail when a row is selected (non-modal: rows stay clickable, so switching names is one click).
+      </div>
+    </div>
+    <div class="cc-ph">
+      <div class="h" style="color:var(--txt-3);background:var(--panel-2)"><span>Triggers fired · thesis-wide</span></div>
+      <div class="b">The existing 8-trigger summary list stays — no longer the <i>only</i> per-name view.</div>
+    </div>
+  </aside>
+</div>
+
+<!-- the per-name panel: fixed, non-modal slide-over -->
+<aside class="npanel" id="npanel" aria-label="per-name panel"></aside>
+
+<script>
+// ---- illustrative data (mirrors the 5b draft check screenshot where possible) ----------------
+const GROUPS = [
+  { key: "managing",   lbl: "Managing",    hint: "in position" },
+  { key: "armed",      lbl: "Armed",       hint: "act now" },
+  { key: "lapsing",    lbl: "Lapsing",     hint: "entry window closing" },
+  { key: "themearmed", lbl: "Theme-armed", hint: "theme fallback · starter cap" },
+  { key: "warming",    lbl: "Warming",     hint: "conviction in · awaiting confirmation" },   // proposed addition
+  { key: "watch",      lbl: "Watch",       hint: "moving · no conviction yet" },
+  { key: "quiet",      lbl: "Quiet",       hint: "no live signals" },                          // proposed addition
+];
+
+const ROWS = [
+  { g:"managing", tk:"CCJ",  co:"Cameco Corp.",            arch:null,        cap:"$24.3B", exit:"Nov 11",
+    call:{ verdict:"Managing", grades:null, conf:null,
+      clocks:[["Nov 11","hold exit-by · conviction clock · 123d",false]],
+      triggers:[["◉","Position open — entered Jun 12 @ $54.10 (your logged fill).",null,false]],
+      illus:"ILLUSTRATIVE — the wire does not yet emit a per-name managing verdict (thesis Position carries no security_id). Group renders only if/when it does." },
+    id:{ Sector:"Uranium mining", Exchange:"NYSE", Category:"operating co", Segment:"Fuel & enrichment", "Size weight (yours)":"—" },
+    fit:["Largest western uranium producer — the safe tonnage expression of the fuel leg.","drafted"] },
+
+  { g:"armed", tk:"J", co:"Jacobs Solutions Inc.", arch:null, cap:"$16.4B", exit:"Nov 11",
+    call:{ verdict:"STARTER entry", grades:[["conviction","core"],["confirmation","flip"],["entry","flip"]], conf:54,
+      clocks:[["Jul 17","entry window · confirmation clock · act within 6d",false],["Nov 11","hold exit-by · conviction clock · 123d",false]],
+      triggers:[
+        ["◉","2 insiders incl. senior officer bought $477,650 open-market (code P) across 3 txns","core",true],
+        ["◉","Momentum-only breakout: close 130.29 cleared the 8-day high 128.98, +10% over 10d on 0.7x avg volume","flip",false]] },
+    id:{ Sector:"Engineering & construction", Exchange:"NYSE", Category:"operating co", Segment:"EPC & services", "Size weight (yours)":"—" },
+    fit:["Nuclear-adjacent EPC with live reactor-services backlog — expresses the buildout via engineering hours, not fuel.","drafted"],
+    meters:{ purity:[2,"38%"], runway:[4,"cash-generative"], catalysts:[1,"1 live"], dilution:[4,"—"] } },
+
+  { g:"lapsing", tk:"UUUU", co:"Energy Fuels Inc.", arch:null, cap:"$1.6B", exit:"lapses Jul 15",
+    call:{ verdict:"STARTER entry", grades:[["conviction","core"],["confirmation","flip"],["entry","flip"]], conf:41,
+      clocks:[["Jul 15","hold exit-by · conviction clock · lapses in 4d",true]],
+      triggers:[
+        ["◉","2 insiders incl. senior officer bought $1,018,700 open-market (code P) across 2 txns","core",true],
+        ["◉","Momentum-only breakout: close 6.91 cleared the 8-day high 6.55, +12% over 10d on 0.8x avg volume","flip",false]] },
+    id:{ Sector:"Uranium mining", Exchange:"NYSE American", Category:"operating co", Segment:"Fuel & enrichment", "Size weight (yours)":"—" },
+    fit:["US uranium + rare-earth processor — fuel-cycle torque with a domestic-supply kicker.","drafted"] },
+
+  { g:"themearmed", tk:"NNE", co:"Nano Nuclear Energy Inc.", arch:null, cap:"$1.0B", exit:"Sep 30",
+    call:{ verdict:"STARTER entry", theme:true, grades:[["conviction","theme"],["confirmation","flip"],["entry","flip"]], conf:33,
+      clocks:[["Jul 19","entry window · confirmation clock · act within 8d",false],["Sep 30","hold exit-by · theme conviction clock",false]],
+      triggers:[["◉","Theme conviction (fallback): the basket's conviction cluster, not NNE's own signal","flip",false],
+                ["◉","Momentum-only breakout: close 31.40 cleared the 8-day high 29.85, +9% over 10d on 0.9x avg volume","flip",false]] },
+    id:{ Sector:"Nuclear — microreactors", Exchange:"NASDAQ", Category:"pre-revenue", Segment:"Reactor developers", "Size weight (yours)":"—" },
+    fit:["Micro-reactor pure-play — highest torque, thinnest fundamentals; theme exposure only.","drafted"] },
+
+  { g:"warming", tk:"XE", co:"X-Energy Corp.", arch:null, cap:"—", exit:"—",
+    call:{ verdict:null, state:"Conviction fired — awaiting market confirmation (no breakout on XE yet).",
+      triggers:[["◉","4 insiders incl. senior officer bought $282,900 open-market (code P) across 4 txns","core",true]] },
+    id:{ Sector:"Nuclear — SMR developers", Exchange:"—", Category:"—", Segment:"Reactor developers", "Size weight (yours)":"—" },
+    fit:["SMR developer with utility partnerships — core reactor-leg expression if it lists cleanly.","drafted"] },
+  { g:"warming", tk:"EU", co:"enCore Energy Corp.", arch:null, cap:"$256M", exit:"—",
+    call:{ verdict:null, state:"Conviction fired — awaiting market confirmation.",
+      triggers:[["◉","4 insiders incl. senior officer bought $397,284 open-market (code P) across 7 txns","core",true]] },
+    id:{ Sector:"Uranium mining", Exchange:"NASDAQ", Category:"operating co", Segment:"Fuel & enrichment", "Size weight (yours)":"—" },
+    fit:["In-situ US uranium restart story — early-production torque on the fuel leg.","drafted"] },
+  { g:"warming", tk:"OKLO", co:"Oklo Inc.", arch:"high_beta", cap:"$8.6B", exit:"—",
+    call:{ verdict:null, state:"Conviction fired (FLIP-grade catalyst) — awaiting market confirmation.",
+      triggers:[["◉","DOE other (DENE0009589): OKLO OTHER TRANSACTION AGREEMENT (OTA) FOR DOE REACTOR PILOT PROGRAM — $0 obligated, term to 2029-07-01","flip",true]] },
+    id:{ Sector:"Nuclear — SMR developers", Exchange:"NYSE", Category:"pre-revenue", Segment:"Reactor developers", "Size weight (yours)":"—" },
+    fit:["Fast-reactor developer with DOE pilot momentum — the sentiment bellwether of the theme.","drafted"] },
+
+  { g:"watch", tk:"ZTEK", co:"Zentek Ltd.", arch:null, cap:"$92M", exit:"—",
+    call:{ verdict:null, state:"Moving, no conviction yet — confirmation-only.",
+      clocks:[["Jul 21","confirmation clock · decays in 10d",false]],
+      triggers:[["◉","Volume-backed breakout: close 0.51 cleared the 8-day high 0.49, +27% over 10d on 2.6x avg volume","core",false]] },
+    id:{ Sector:"Advanced materials", Exchange:"NASDAQ", Category:"pre-revenue", Segment:"Adjacent", "Size weight (yours)":"—" },
+    fit:["Term-collision candidate — moving with the theme, thesis link unratified.","drafted"] },
+  { g:"watch", tk:"FMST", co:"Foremost Clean Energy Ltd.", arch:null, cap:"$47M", exit:"—",
+    call:{ verdict:null, state:"Moving, no conviction yet — confirmation-only.",
+      clocks:[["Jul 18","confirmation clock · decays in 7d",false]],
+      triggers:[["◉","Momentum-only breakout: close 1.76 cleared the 8-day high 1.52, +16% over 10d on 0.9x avg volume","flip",false]] },
+    id:{ Sector:"Uranium exploration", Exchange:"NASDAQ", Category:"pre-revenue", Segment:"Fuel & enrichment", "Size weight (yours)":"—" },
+    fit:["Athabasca-basin explorer — lotto-adjacent torque on the fuel leg.","drafted"] },
+
+  { g:"quiet", tk:"SMR", co:"NuScale Power Corp.", arch:"high_beta", cap:"$3.3B", exit:"—",
+    call:{ verdict:null, state:"No live signals at this as-of." },
+    id:{ Sector:"Nuclear — SMR developers", Exchange:"NYSE", Category:"operating co", Segment:"Reactor developers", "Size weight (yours)":"●●●●○ 4" },
+    fit:["Most de-risked SMR (NRC-approved design) — the leader expression of the reactor leg.","edited"] },
+  { g:"quiet", tk:"GIG",  co:"GigCapital7 Corp.",        arch:null, cap:"—",      exit:"—" },
+  { g:"quiet", tk:"NKLR", co:"Nuklear Power Corp.",      arch:null, cap:"$538M",  exit:"—" },
+  { g:"quiet", tk:null,   co:"Eagle Nuclear Energy Corp.", arch:null, cap:"$201M", exit:"—",
+    call:{ verdict:null, state:"No live signals at this as-of." },
+    id:{ Segment:"Reactor developers" }, unresolved:true,
+    fit:["Unresolved against the security master — identity fields unavailable until a master link lands.","drafted"] },
+  { g:"quiet", tk:"UEC",  co:"Uranium Energy Corp.",     arch:null, cap:"$5.0B",  exit:"—" },
+  { g:"quiet", tk:"DNN",  co:"Denison Mines Corp.",      arch:null, cap:"—",      exit:"—" },
+  { g:"quiet", tk:"URG",  co:"Ur-Energy Inc.",           arch:null, cap:"$528M",  exit:"—" },
+  { g:"quiet", tk:"LTBR", co:"Lightbridge Corp.",        arch:null, cap:"—",      exit:"—" },
+  { g:"quiet", tk:"LEU",  co:"Centrus Energy Corp.",     arch:null, cap:"$3.4B",  exit:"—" },
+  { g:"quiet", tk:"BWXT", co:"BWX Technologies Inc.",    arch:null, cap:"$17.1B", exit:"—" },
+  { g:"quiet", tk:"CW",   co:"Curtiss-Wright Corp.",     arch:null, cap:"$28.1B", exit:"—" },
+  { g:"quiet", tk:"GHM",  co:"Graham Corp.",             arch:null, cap:"$1.3B",  exit:"—" },
+];
+
+// ---- render the grouped table --------------------------------------------------------------
+const tbody = document.querySelector("#tbl tbody");
+let html = "";
+for (const g of GROUPS) {
+  const rows = ROWS.filter(r => r.g === g.key);
+  if (!rows.length) continue;                       // empty group = no header (honest loudness)
+  html += `<tr class="grp ${g.key}"><td colspan="6"><div class="grp-in">
+      <span class="swatch"></span><span class="lbl">${g.lbl}</span>
+      <span class="hint">${g.hint}</span><span class="n">${rows.length}</span></div></td></tr>`;
+  for (const r of rows) {
+    const key = r.tk ?? r.co;
+    const archChip = r.arch ? `<span class="arch ${r.arch}">${r.arch.replace("_","-")}</span>` : `<span class="muted">—</span>`;
+    const lapse = r.g === "lapsing" ? " lapsing-cell" : "";
+    html += `<tr class="name ${r.g}" data-key="${key}" aria-selected="false" tabindex="0" role="button">
+      <td><span class="rowdot" title="${g.lbl}"></span></td>
+      <td class="tk">${r.tk ?? `<span class="co">${r.co}</span>`}</td>
+      <td class="co">${r.tk ? r.co : '<span class="muted">unresolved</span>'}</td>
+      <td>${archChip}</td>
+      <td class="num">${r.cap}</td>
+      <td class="num exitby${lapse}">${r.exit}</td></tr>`;
+  }
+}
+tbody.innerHTML = html;
+
+// ---- the per-name panel ---------------------------------------------------------------------
+const panel = document.getElementById("npanel");
+const rail = document.getElementById("rail");
+let selected = null;
+
+function gradeChip(v){ return v==="theme" ? `<span class="grade flip">THEME</span>` : `<span class="grade ${v}">${v.toUpperCase()}</span>`; }
+
+function renderPanel(r, g) {
+  const call = r.call ?? { verdict:null, state:"No live signals at this as-of." };
+  const id = r.id ?? {};
+  let s = `<div class="${r.g}">
+    <div class="np-head"><span class="np-tk">${r.tk ?? "◇"}</span>
+      <span class="np-bucket"><span class="rowdot"></span>${g.lbl}</span>
+      <button class="np-close" id="npx" title="close (Esc)">✕</button></div>
+    <div class="np-co">${r.co}</div>`;
+
+  s += `<div class="np-h">The call · this name</div>`;
+  if (call.verdict) {
+    s += `<div class="np-verdict">${call.verdict}${call.theme ? ` <span class="np-bucket" style="vertical-align:3px" title="Armed on the theme conviction (a fallback) — capped at a starter, not its own signal">theme</span>` : ""}</div>`;
+    if (call.grades) s += `<div class="np-grades">${call.grades.map(([k,v])=>`<span>${k} ${gradeChip(v)}</span>`).join("")}</div>`;
+    if (call.conf != null) s += `<div class="np-conf"><div class="row"><span>Confidence</span><span>${call.conf}%</span></div><div class="bar"><div class="fill" style="width:${call.conf}%"></div></div></div>`;
+  } else {
+    s += `<div class="np-stateline">${call.state}</div>`;
+  }
+  if (call.clocks?.length) s += `<div style="margin-top:10px">` + call.clocks.map(([d,x,lapse]) =>
+      `<div class="clock-row${lapse?" lapse":""}"><span class="cd">${d}</span><span class="x">${x}</span></div>`).join("") + `</div>`;
+
+  if (call.triggers?.length) {
+    s += `<div class="np-h">Triggers · this name's own</div>`;
+    s += call.triggers.map(([ic,txt,grade,src]) =>
+      `<div class="trg-item"><span class="ic">${ic}</span><span>${txt}${grade?` · <span class="grade ${grade}">${grade.toUpperCase()}</span>`:""}${src?` <a href="#">↗ source</a>`:""}</span></div>`).join("");
+  }
+  s += `<div class="np-h">Risk signals · this name</div>`;
+  s += (call.risks?.length)
+    ? call.risks.map(t=>`<div class="trg-item warn"><span class="ic">▲</span><span>${t}</span></div>`).join("")
+    : `<div class="np-stateline">None active.</div>`;
+
+  s += `<div class="np-h">Identity</div><div class="np-idgrid">`;
+  const base = { Archetype: r.arch ? r.arch.replace("_","-") : "—", "Mkt cap": r.cap, ...id };
+  for (const [k,v] of Object.entries(base)) s += `<div class="cell"><div class="k">${k}</div><div class="v">${v ?? "—"}</div></div>`;
+  s += `</div>`;
+  if (r.fit) s += `<div class="np-h">Thesis fit</div><div class="np-fit">${r.fit[0]}<span class="tag">${r.fit[1]}</span></div>`;
+
+  if (r.meters) {
+    s += `<div class="np-h">Scoring snapshot</div><div class="np-meters"><span class="opt">optional block — operator call</span>`;
+    for (const [k,[pips,val]] of Object.entries(r.meters))
+      s += `<div class="m-row"><span class="lbl">${k}</span><span class="pips">${[0,1,2,3].map(i=>`<span class="pip${i<pips?" on":""}"></span>`).join("")}</span><span class="val">${val}</span></div>`;
+    s += `</div>`;
+  }
+  if (call.illus) s += `<div class="np-illus">${call.illus}</div>`;
+  s += `<div class="np-note">Read-only — sizing, facts, and archetype decisions live in the Workbench (TRIAGE). Exit restores the table exactly as you left it.</div></div>`;
+  panel.innerHTML = s;
+  document.getElementById("npx").onclick = close;
+}
+
+function open(key) {
+  const r = ROWS.find(x => (x.tk ?? x.co) === key);
+  if (!r) return;
+  const g = GROUPS.find(x => x.key === r.g);
+  renderPanel(r, g);
+  panel.classList.add("open");
+  rail.classList.add("dimmed");
+  selected = key;
+  document.querySelectorAll("tr.name").forEach(tr => tr.setAttribute("aria-selected", String(tr.dataset.key === key)));
+}
+function close() {
+  panel.classList.remove("open");
+  rail.classList.remove("dimmed");
+  selected = null;
+  document.querySelectorAll("tr.name").forEach(tr => tr.setAttribute("aria-selected", "false"));
+}
+document.querySelectorAll("tr.name").forEach(tr => {
+  const act = () => (selected === tr.dataset.key ? close() : open(tr.dataset.key));
+  tr.addEventListener("click", act);
+  tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+
+open("J");   // default state for review: the armed headline, panel open
+</script>
+</body>
+</html>

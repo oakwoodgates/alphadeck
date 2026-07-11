@@ -173,8 +173,9 @@ function Key({
 }
 
 // One trigger / risk-signal row: ticker chip · label · (optional grade) · (optional source link). Triggers
-// pass showGrade + the hit variant (◉); risk signals don't (warn variant, ▲). The single source for the row.
-function TriggerRow({
+// pass showGrade + the hit variant (◉); risk signals don't (warn variant, ▲). The single source for the row
+// — exported so the Cockpit's per-name panel renders member triggers with the same markup.
+export function TriggerRow({
   item,
   icon,
   variant,
