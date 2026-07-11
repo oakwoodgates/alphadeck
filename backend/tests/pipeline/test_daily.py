@@ -85,6 +85,49 @@ def test_daily_appends_exactly_one_when_the_call_changes(db, security_id, monkey
     assert len(_calls(db, tid)) == 2
 
 
+def test_daily_emits_a_transition_only_on_a_real_state_or_verdict_move(
+    db, security_id, monkeypatch
+):
+    """The notify seam (slice C): a MATERIAL transition = state/verdict changed vs the PRIOR as-of's
+    call-of-record. Three days pin the line: day 1 (first-ever call — a birth is not a transition, no
+    prior to move from), day 2 (the P-buy lands: incubating → warming — ONE event, and the result row
+    carries the label), day 3 (still warming: the card CHANGES — its clocks shift with asof, so
+    record_if_changed appends a new version — but state/verdict hold, so NO event: churn ≠ transition,
+    the calls-log material-change question answered where it bites)."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "Nuclear", members=[("DEVCO", security_id)])
+    captured: list = []
+
+    class Capture:
+        def notify(self, event):
+            captured.append(event)
+
+    by = {
+        r.thesis_id: r
+        for r in daily.run_daily(db, asof=date(2026, 6, 5), allow_live=False, notifier=Capture())
+    }
+    assert captured == [] and by[tid].transition is None  # first-ever call: no prior, no event
+
+    ingest_form4(db, security_id, _XML, "0000000000-26-000001")
+    db.commit()
+    by = {
+        r.thesis_id: r
+        for r in daily.run_daily(db, asof=_ASOF, allow_live=False, notifier=Capture())
+    }
+    assert len(captured) == 1
+    evt = captured[0]
+    assert evt.from_state == "incubating" and evt.to_state == "warming"
+    assert by[tid].transition == evt.label and "incubating → warming" in evt.label
+
+    captured.clear()
+    day3 = {
+        r.thesis_id: r
+        for r in daily.run_daily(db, asof=date(2026, 6, 11), allow_live=False, notifier=Capture())
+    }
+    assert captured == [] and day3[tid].transition is None  # a changed card, but no MOVE
+    assert day3[tid].recorded is True  # ...and it DID version the log (churn without transition)
+
+
 def test_daily_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
     _no_network(monkeypatch)
     good = _thesis(db, "GOOD")
