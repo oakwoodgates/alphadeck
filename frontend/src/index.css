@@ -106,7 +106,8 @@ table.basket th.dotc, table.basket td.dotc { width: 18px; padding-left: 9px; pad
 tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .grp-h { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: transparent; text-align: left; cursor: pointer; padding: 0; font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gc); }
 .grp-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.grp-h .chev { font-size: 12px; letter-spacing: 0; }
+.grp-h .chev { font-size: 12px; letter-spacing: 0; transition: transform 0.15s ease; }
+.grp-h[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
 .grp-h .ct { font-family: var(--mono); font-weight: 400; color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
 .grp-h:hover .hint { color: var(--txt-3); }
@@ -119,6 +120,18 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .bkt-quiet { --gc: var(--txt-4); }
 tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
+}
+
+/* the bucket fold rides a View Transition (Cockpit.toggleGroup): named boxes MORPH — the table
+   resizes and the sections below slide — while the root crossfades, so a 34-row fold doesn't snap.
+   Unsupported browsers keep the instant fold; reduced-motion turns the animation off entirely. */
+::view-transition-group(*) { animation-duration: 170ms; }
+table.basket { view-transition-name: cp-basket; }
+.vt-evidence { view-transition-name: cp-evidence; }
+.vt-cats { view-transition-name: cp-cats; }
+.vt-kills { view-transition-name: cp-kills; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none; }
 }
 tr.bkt-quiet td { color: var(--txt-3); }
 tr.bkt-quiet .tk { color: var(--txt-2); }
