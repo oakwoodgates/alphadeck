@@ -8,6 +8,9 @@ import type { components } from "./types.gen";
 export type ThesisSummary = components["schemas"]["ThesisSummary"];
 export type ThesisDetail = components["schemas"]["ThesisDetail"];
 export type CallCardResponse = components["schemas"]["CallCardResponse"];
+// the per-member call rows (M5 armed/watch tiers) — the Cockpit's per-name buckets + panel read these
+export type MemberCallOut = components["schemas"]["MemberCallOut"];
+export type TriggerRefOut = components["schemas"]["TriggerRefOut"];
 export type WorkbenchScored = components["schemas"]["WorkbenchScored"];
 export type ScoredMemberOut = components["schemas"]["ScoredMemberOut"];
 export type ScoredFigureOut = components["schemas"]["ScoredFigureOut"];

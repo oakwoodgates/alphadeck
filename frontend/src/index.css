@@ -92,8 +92,34 @@ table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.basket .tk { font-family: var(--mono); font-weight: 700; }
-table.basket .role { color: var(--txt-2); font-size: 11px; }
+table.basket .co { color: var(--txt-2); }
 .met { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); text-align: right; }
+
+/* --- the per-name buckets (grouped basket): group headers + status dots --------------------
+   Each bucket class sets `--gc`, the group accent the swatch/dot/label all read. The weaker-basis
+   buckets (theme-armed / warming / quiet) wear a HOLLOW dot — same hue, weaker claim. */
+table.basket th.dotc, table.basket td.dotc { width: 18px; padding-right: 6px; }
+.rowdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--gc); }
+tr.grp td { padding: 15px 0 6px; border-bottom: 1px solid var(--line-2); }
+.grp-in { display: flex; align-items: center; gap: 8px; }
+.grp-in .swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--gc); }
+.grp-in .lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gc); }
+.grp-in .hint { font-size: 10px; color: var(--txt-3); }
+.grp-in .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 10px; padding: 1px 8px; }
+.bkt-managing { --gc: var(--manage); }
+.bkt-armed { --gc: var(--armed); }
+.bkt-lapsing { --gc: var(--warm); }
+.bkt-theme { --gc: var(--armed); }
+.bkt-warming { --gc: var(--warm); }
+.bkt-watch { --gc: var(--incub); }
+.bkt-quiet { --gc: var(--txt-4); }
+tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot,
+tr.grp.bkt-theme .swatch, tr.grp.bkt-warming .swatch, tr.grp.bkt-quiet .swatch {
+  background: transparent; border: 1.5px solid var(--gc);
+}
+tr.bkt-quiet td { color: var(--txt-3); }
+tr.bkt-quiet .tk { color: var(--txt-2); }
+table.basket td.exitby.lapse { color: var(--warm); }
 .arch { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
 .arch.leader { color: #8ab4ff; background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.25); }
 .arch.high_beta { color: var(--armed); background: rgba(255, 87, 51, 0.1); border: 1px solid rgba(255, 87, 51, 0.28); }

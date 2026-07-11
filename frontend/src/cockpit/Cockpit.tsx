@@ -1,7 +1,10 @@
+import { Fragment } from "react";
+
 import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
+import { groupBasket } from "./buckets";
 import {
   accentVar,
   archLabel,
@@ -26,16 +29,15 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
   const scoredQ = useWorkbenchScored(thesisId, asof);
   const thesis = thesisQ.data;
   const card = callQ.data;
-  // Computed market cap (the scoring engine, re-derived on read) bridged by security_id — surfaced read-only
-  // beside the manual `detail`, not in place of it. "—" when a name is un-scored / has no price+shares facts.
-  const capBySid = new Map<string, number | null>(
-    (scoredQ.data?.members ?? []).map((m) => [m.security_id, m.market_cap.value ?? null]),
-  );
 
   const state = card?.state ?? "incubating";
   const sc = STATE_CLASS[state] ?? "incub";
 
   const basket = thesis?.basket ?? [];
+  // The per-name buckets (Managing … Quiet): the basket partitioned by each member's OWN call —
+  // display-only joins over data this page already fetches (no call is re-derived here). While the
+  // call is still computing (card undefined) everything reads Quiet, honestly.
+  const groups = groupBasket(basket, card, scoredQ.data?.members);
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
   const killCriteria = thesis?.kill_criteria ?? [];
@@ -94,35 +96,67 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
 
               <section className="sect">
                 <div className="sect-h">Basket · the expression</div>
+                {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's
+                    column idiom in-table). The dead Role/Detail columns are gone from the table —
+                    the authored text survives on the per-name panel, not as an all-"—" column.
+                    Empty buckets render no header (loudness marks the exception). */}
                 <table className="basket">
                   <thead>
                     <tr>
+                      <th className="dotc" aria-label="status" />
                       <th>Ticker</th>
-                      <th>Role</th>
+                      <th>Name</th>
                       <th>Archetype</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
-                      <th style={{ textAlign: "right" }}>Detail</th>
+                      <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {basket.map((b, i) => (
-                      <tr key={i}>
-                        <td className="tk">{b.ticker}</td>
-                        <td className="role">{b.role}</td>
-                        <td>
-                          {/* a DECIDED archetype only (item F): an unset one renders a quiet "—",
-                              never the string "null" (the decision lives on the Workbench rail) */}
-                          {b.archetype ? (
-                            <span className={`arch ${b.archetype}`}>{archLabel(b.archetype)}</span>
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
-                        </td>
-                        <td className="met">
-                          {formatMarketCap(b.security_id ? capBySid.get(b.security_id) : null)}
-                        </td>
-                        <td className="met">{b.detail ?? "—"}</td>
-                      </tr>
+                    {groups.map(({ def, rows }) => (
+                      <Fragment key={def.key}>
+                        <tr className={`grp ${def.cls}`}>
+                          <td colSpan={6}>
+                            <div className="grp-in">
+                              <span className="swatch" />
+                              <span className="lbl">{def.label}</span>
+                              <span className="hint">{def.hint}</span>
+                              <span className="n">{rows.length}</span>
+                            </div>
+                          </td>
+                        </tr>
+                        {rows.map((r) => (
+                          <tr key={r.ordinal} className={`bkt ${def.cls}`}>
+                            <td className="dotc">
+                              <span className="rowdot" title={def.label} />
+                            </td>
+                            <td className="tk">{r.member.ticker}</td>
+                            <td className="co">
+                              {r.scored?.name ?? <span className="muted">—</span>}
+                            </td>
+                            <td>
+                              {/* a DECIDED archetype only (item F): an unset one renders a quiet "—",
+                                  never the string "null" (the decision lives on the Workbench rail) */}
+                              {r.member.archetype ? (
+                                <span className={`arch ${r.member.archetype}`}>
+                                  {archLabel(r.member.archetype)}
+                                </span>
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                            <td className="met">
+                              {/* computed market cap (the scoring engine, re-derived on read),
+                                  bridged by security_id — "—" when un-scored / no price+shares facts */}
+                              {formatMarketCap(r.scored?.market_cap.value)}
+                            </td>
+                            <td className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}>
+                              {r.call?.exit_by
+                                ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
