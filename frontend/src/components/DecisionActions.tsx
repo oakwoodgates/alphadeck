@@ -7,7 +7,7 @@ import {
   type DecisionOut,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
-import { fmtDate } from "../util/format";
+import { fmtDate, todayISO } from "../util/format";
 
 /** Decision capture — the CallCard's action row, wired to the operator-decisions log.
  *
@@ -28,7 +28,11 @@ export function DecisionActions({
   const decisions = useDecisions(thesisId);
   const post = usePostDecision(thesisId);
   const [form, setForm] = useState<"take" | "close" | "pass" | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  // LOCAL today (todayISO), never toISOString(): UTC-today is TOMORROW after ~8pm ET, and a fill
+  // default-dated one day ahead of the Board's (local) as-of is invisible to it — no-lookahead
+  // correctly hides a future-dated fill, so the operator watched a logged take not flip the card
+  // (the gate-2 catch on 5b draft check: form said Jul 11, the board's as-of said Jul 10).
+  const today = todayISO();
   const [date, setDate] = useState(today);
   const [shares, setShares] = useState("");
   const [price, setPrice] = useState("");

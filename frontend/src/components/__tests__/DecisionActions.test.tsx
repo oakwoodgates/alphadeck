@@ -17,9 +17,12 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 import type { CallCardResponse } from "../../api/hooks";
+import { todayISO } from "../../util/format";
 import { DecisionActions } from "../DecisionActions";
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// LOCAL today, same source as the component — a UTC-derived constant would diverge from the form's
+// default near midnight in any non-UTC test environment (the exact bug this pins against)
+const TODAY = todayISO();
 
 const base = {
   thesis_id: "t1",
