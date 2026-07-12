@@ -10,6 +10,10 @@ This file is about **how to build Alpha Deck correctly**; the *what* and *why* l
 
 Alpha Deck helps a discretionary trader turn early narrative convictions into well-timed trades. It is **decision-support, not execution**. Its job is to *preserve the operator's edge* (early narrative-spotting) and *patch the flaw* (timing, name selection). Be **opinionated about timing, deferential about thesis**.
 
+**Product boundary:** Alpha Deck ends at the research-and-monitoring handoff. The firm's existing OMS,
+execution, position-sizing, and portfolio-risk systems own orders, allocation, and risk controls. Alpha Deck
+does not replace or write to them; it records operator decisions and monitors the thesis after an entry.
+
 ## Project stage
 
 Solo, greenfield, validating whether the core loop is useful for one trader. Right-size everything to that:
@@ -38,8 +42,8 @@ Do not violate these. If a request seems to require violating one, stop and flag
 1. **No lookahead, ever.** Every historical read is *as-of* a timestamp. Signals and backtests may only use data that was knowable at the simulated point in time. The data layer is bitemporal (valid-time + transaction-time); honor it. A backtest that touches future data is a bug, not a feature.
 2. **The thesis is the spine.** Features attach to the thesis object (narrative, basket, evidence, catalysts, signals, kill criteria, expression). Do not build orphan screeners or standalone tools that float free of a thesis.
 3. **The LLM augments; it never sources signals.** Triggers fire from deterministic code against data. The model reads filings, drafts DD, and writes call *explanations* — it never invents a trigger, fires a call, or is the authority for a number. Every trigger on a call card must trace to a computation.
-4. **Opinionated on timing, deferential on thesis.** The system grades, times, and selects expression. It does **not** judge whether a trade idea is good. Don't add features that rank or veto theses on conviction.
-5. **Advisory only (v1).** No order routing, no brokerage writes, no execution of any kind. The "gate" *withholds the platform's go-signal and logs overrides* — it never blocks the user and never places a trade. The user logs their own fills.
+4. **Opinionated on timing, deferential on thesis.** The system grades the call's strength and times the signal window. Any expression text is advisory research context, never a position-size, instrument-selection, or order instruction. It does **not** judge whether a trade idea is good. Don't add features that rank or veto theses on conviction.
+5. **Advisory only (v1).** No order routing, no brokerage writes, no execution, sizing, or portfolio-risk management of any kind. The "gate" *withholds the platform's go-signal and logs overrides* — it never blocks the user and never places or manages a trade. The user logs their own fills; the firm's OMS / execution / risk stack owns the trade.
 6. **Explainability is a feature.** Every call, score, and signal carries its evidence and provenance (source filing/data + the computation). No black-box outputs. If you can't show the work, don't surface the result.
 7. **Inverse loudness.** Quietness scales with how early it is. Incubating must not nag (no alerts, low visual energy); loudness is reserved for Armed. This applies to notifications, not just CSS.
 
@@ -81,14 +85,14 @@ is a bug before it ships.
 Use these terms precisely; they are the ubiquitous language of the codebase.
 
 - **Thesis** — first-class object: `narrative`, `basket`, `evidence[]`, `catalysts[]`, `signals[]`, `kill_criteria[]`, `expression`/`position`.
-- **Lifecycle states** (a loop, not a one-way ratchet): `Incubating → Warming → Armed → Managing`.
-- **Signal taxonomy** (three orthogonal fields): **`role`** = `entry_trigger | risk_signal` (only entry triggers turn the keys; risk signals feed counter-case/confidence and can soft-veto *timing*); **`kind`** = what produced it (`insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …`); **`type`** = catalyst nature where one applies (`regulatory | promoter_attention | clinical_readout | personnel | …`, optional).
-- **Trigger grade**: `flip` (fast, sentiment-driven; small size, short-dated, do not hold) vs `core` (structural; build the position). Applies to entry triggers.
+- **Lifecycle states** (a loop, not a one-way ratchet): `Incubating → Warming → Armed → Managing`. **Managing** means the operator has entered a position and Alpha Deck is monitoring the thesis; it is not portfolio or position risk management.
+- **Signal taxonomy** (three orthogonal fields): **`role`** = `entry_trigger | risk_signal` (only entry triggers turn the keys; risk signals feed the counter-case / setup strength — wire field `confidence` — and can soft-veto *timing*); **`kind`** = what produced it (`insider | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …`); **`type`** = catalyst nature where one applies (`regulatory | promoter_attention | clinical_readout | personnel | …`, optional).
+- **Trigger grade**: the categorical **call-strength class** on an entry trigger: `flip` (fast, sentiment/attention-driven setup) vs `core` (structural, more durable setup). Grade never determines position size, instrument, or expression.
 - **Archetype** (basket member role): `leader | high_beta | lotto | shovel | adjacent | fund` (`adjacent` = off-thesis/impure exposure, surfaced and *flagged* by the Workbench; `fund` = the ETF safe-exposure sleeve).
 - **Conviction — two unrelated meanings, they must NEVER cross.** (1) **Operator conviction** = `BasketMember.conviction`, the operator's per-name 1–5 **size weight** (stored metadata, TRIAGE-authored; NULL = unset, never 0) — it never touches the call. (2) **Signal conviction** = the deterministic call machinery in `calls/` (`conviction_kinds` / `conviction_grade` / `key_conviction` — triggers that warm/arm). Wiring operator conviction into the call is a **#4 violation** (opinionated on timing, deferential on thesis).
-- **Alpha half-life** — how long a signal's edge persists; sets the **exit-by** date.
-- **Catalyst surface** — the binary events crossed between entry and exit-by.
-- **Call card** — `{ verdict, grade, expression, exit_by, triggers_fired[] (with sources), missing[], counter_case, confidence, actions }`.
+- **Alpha half-life** — how long a signal's edge is expected to remain relevant; sets the `exit_by` **signal-validity horizon**, not a mandatory trade exit.
+- **Catalyst surface** — the binary events that fall within the thesis's `exit_by` signal-validity window.
+- **Call card** — `{ verdict, grade, expression, exit_by, triggers_fired[] (with sources), missing[], counter_case, confidence, actions }`; the product label for wire field `confidence` is **setup strength**, an experimental relative indicator, not a probability.
 - **The gate** — advisory friction: withhold the go-signal + readiness scorecard + logged override.
 - **ETF radar** — per-theme ETF intelligence: *availability* (which ETFs express the theme), *coming launches* (SEC N-1A/485 — a new thematic launch is an emergence-kind signal), and *holdings/flows* (free universe seed + positioning signal). An ETF is also a low-torque **expression** of a thesis (the safe-exposure sleeve), always surfaced with fund internals (holdings, weights, expense ratio, AUM, liquidity).
 - **Scoring-fact tiers** (the Workbench extractor) — `AUTO` (companyfacts reproduces the value → pre-fill, confirm-and-go) · `FLAG` (raw value + a detected risk + a **located passage** → the operator ratifies the composition) · `HUMAN` (purity — located only, **never auto-valued**). The extractor **LOCATES; the operator RATIFIES** (invariant #3). See `docs/WORKBENCH_EXTRACTION.md`.
@@ -103,7 +107,7 @@ Use these terms precisely; they are the ubiquitous language of the codebase.
 - **EDGAR-first discovery + the term set** — how names are FOUND: the thesis owns a persisted tiered term set (**SIGNAL = operator seeds** — a hit PLACES alone; **BROAD = keyword-gen** — corroboration-only, never auto-promoted) → deterministic EFTS enumeration by CIK → PLACED/VERIFY classify → the per-CIK reconciler (completeness is the deterministic layer's, never the organizer's to lose) → narration + matched-term tags. AMBIGUOUS enters only by an explicit operator pick; ABSENT is shown-not-placed. Recall is sacred (#9); the LLM is demoted to keyword-gen + the tail-sweep. Full detail: `docs/DISCOVERY.md`.
 - **`thesis_fit`** — the per-member drafted thesis-fit prose ("why this name sits in its segment"), on `basket_member`. Kept **distinct** from `detail` (the board/cockpit "met" cell) and a segment's `descriptor`; operational on the spine, never a fact/number.
 - **The create → edit → draft front door** (M1) — "+ New thesis" → the promote upsert (`id=null`) → the editor → Draft-from-narrative; a narrative edit resends the existing basket + segments (the **wipe-trap** — a full-replace promote must never empty the authored chain). See `docs/CHAIN_DRAFTER.md`.
-- **The back-half feed loop** (M2) — `pipeline.ingest_thesis` (per-thesis Form 4 + EOD for the resolved basket; incremental, fail-visible, no-lookahead) + `pipeline.daily` (the call-of-record cron — `record_if_changed` appends only on change; **"feeds itself" ≠ "validated forward"**, the Scoreboard is parked) + the **`PriceSource` seam** (swappable EOD adapters; the recurring path force-refreshes a stale cache, and the Workbench's per-name/per-section pull shares the SAME price leg, decoupled). See `docs/FEED_LOOP.md`.
+- **The back-half feed loop** (M2) — `pipeline.ingest_thesis` (per-thesis Form 4 + EOD for the resolved basket; incremental, fail-visible, no-lookahead) + `pipeline.daily` (the call-of-record cron — `record_if_changed` appends only on change; **"feeds itself" ≠ "validated forward"**; the Scoreboard is built and its forward record is still accruing) + the **`PriceSource` seam** (swappable EOD adapters; the recurring path force-refreshes a stale cache, and the Workbench's per-name/per-section pull shares the SAME price leg, decoupled). See `docs/FEED_LOOP.md`.
 - **Three-gate TRIAGE + the cost thread** — TRIAGE runs **cheap cut** (zero API, on visible row data) → **mark for data** (the per-name / per-section opt-in; the control IS the trigger) → **finalize on data** (ratify per fact; archetype decided ONCE, on the rail). The **shortlist** (cheap-cut survivors) is the only set expensive operations touch: **cost is the operator's to spend, never ambient** — the third protective thread, peer to the trust invariants (decisions) and the interaction principles (workflow). See `docs/STAGE_MODEL.md` + `docs/TRIAGE.md`.
 
 ## Architecture & stack
@@ -138,7 +142,7 @@ See `README.md` for the full table. Key shape:
 
 ## Out of scope for v1
 
-Reject or defer (flag, don't silently build): trade execution / brokerage integration; intraday or streaming data; options-gamma and paid borrow-data signals; crypto / commodities / prediction-market asset classes; runtime authentication and multi-tenant serving (schema seams only); a separate graph database.
+Reject or defer (flag, don't silently build): trade execution / brokerage integration; position sizing and portfolio-risk management (handoff to the firm's OMS / execution / risk systems); intraday or streaming data; options-gamma and paid borrow-data signals; crypto / commodities / prediction-market asset classes; runtime authentication and multi-tenant serving (schema seams only); a separate graph database.
 
 ## Data sources
 

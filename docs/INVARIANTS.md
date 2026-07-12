@@ -155,13 +155,16 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
 
 ## 7. Factor behavior on the property that drives it — never on grade-as-a-bundle or signal kind
 
-The through-line (CALL_LOGIC). Entry **size** ← grade; **hold-or-don't** ← horizon; **starter + confidence
-cap** ← the weaker (entry) key; catalyst **liveness** ← the agreement's horizon. **Never** re-couple these,
-and never add an `if kind == …` branch where a property already carries the signal. A new signal kind
-inherits correct behavior from its own properties.
+The through-line (CALL_LOGIC). Categorical **call strength** ← grade; **signal-validity window** ← horizon;
+provisional-call wording + **setup-strength cap** (wire/config name `confidence`) ← the weaker entry key;
+catalyst **liveness** ← the agreement's horizon. Position size, instrument, execution, and portfolio risk
+belong to the operator and the firm's external systems — never to grade or another CallCard field. **Never**
+re-couple these, and never add an `if kind == …` branch where a property already carries the signal. A new
+signal kind inherits correct behavior from its own properties.
 
 **Theme conviction (M5b) is the canonical case.** It's a Key-1 *fallback* emitted at **`flip`**, so it caps
-the call through the weaker-key path exactly like any flip — there is **no** "theme is capped" branch. The
+the call's setup strength through the weaker-key path exactly like any flip — there is **no** "theme is
+capped" branch. The
 only reads of the theme kind are: set membership in `conviction_kinds`; the **`own_conviction_kinds`**
 exclusion (`conviction_kinds − {THEME_CONVICTION}` — the seam that keeps a future conviction kind inheriting
 "own" automatically); the `theme_armed` **display flag**; and the `is_own` **ranking tiebreak**. None is a
@@ -173,7 +176,8 @@ overhang % — with **no `if kind ==` branch anywhere in the engine**. The 0-4 p
 `CallConfig` (no hardcoded thresholds), the same property-keyed discipline.
 
 - *Enforced by:* CALL_LOGIC §3/§4/§7; the verdict keys on `conviction_hold_threshold_days`, not kind; the
-  confidence cap keys on `is_starter` (entry grade), not kind; the theme conviction caps via its `flip`
+  setup-strength cap (`starter_confidence_cap`) keys on `is_starter` (entry grade), not kind; the theme
+  conviction caps via its `flip`
   grade (`signals/theme_conviction.broadcast` emits flip), with the `own_conviction_kinds` property in
   `domain/config.py` — see `docs/THEME_CONVICTION.md` §5. For the scorer: a **behavioral** magic-number test
   (a changed cutoff changes a pip) + a **lexical** float-literal scan of `workbench/scoring.py`

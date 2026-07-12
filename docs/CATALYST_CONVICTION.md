@@ -28,11 +28,13 @@
   (`gov_funding` for DOE), fires on the **subject security** (name-specific co-location, §5), real provenance.
 - **Liveness ≠ grade (option A).** A catalyst's liveness is its relevance **horizon** — the agreement's
   period of performance from the structured record, else a 365d default — DECOUPLED from grade. Grade does
-  one job: entry **size**. (Insider stays grade-coupled — there grade and horizon coincide. See the
+  one job: categorical **call strength**. It never sets position size or expression. (Insider stays
+  grade-coupled — there grade and horizon coincide. See the
   through-line in CALL_LOGIC.)
-- **Verdict keyed on horizon, not kind (CALL_LOGIC §4).** A small (flip) conviction with a *long* horizon →
-  `starter_entry`; *short* horizon → `flip_only`. A provisional-but-durable catalyst holds; a fast insider
-  flip doesn't; the next kind inherits correct behaviour from its own horizon (no `if-kind` branch).
+- **Verdict keyed on horizon, not kind (CALL_LOGIC §4).** A provisional (`flip`) conviction with a *long*
+  signal-validity horizon → `starter_entry`; *short* horizon → `flip_only`. These are call-strength/readiness
+  labels, not sizing or exit instructions; the next kind inherits correct behaviour from its own horizon
+  (no `if-kind` branch).
 - **Invariant #3:** firing + grade are deterministic-parse or operator-ratified — **never** the model.
 - **Append-only / bitemporal storage:** `fact_catalyst` (+ `horizon_end`); a correction is a new row;
   `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe.
@@ -40,25 +42,29 @@
 **Deferred `[DEFERRED]`:** theme/group arming (a theme-conviction arms any confirmed member) is now
 `[BUILT — M5b, see docs/THEME_CONVICTION.md]`; the automated material-agreement 8-K detector; NRC license-action feed; ETF-launch-as-conviction; the
 loans award-type group in the DOE feed (the grade rule already handles loans → core, but the query group isn't
-wired — see RECALIBRATION). The age-decay-of-confidence refinement stays filed (CALL_LOGIC §7).
+wired — see RECALIBRATION). The age-decay-of-setup-strength refinement (`confidence` in code) stays filed
+(CALL_LOGIC §7).
 
 ## Grade rule `[APPROVED]` — customer vs sponsor
 
-Grade is the **nature of the commitment, never its size** (size flows through confidence). The principle: is
-the funder your **customer** or your **sponsor**?
+Grade is the **nature/call-strength class of the commitment, never its obligation amount and never a position
+size**. Obligation magnitude may affect the trigger score and experimental setup strength (`confidence` on
+the wire) within a grade. The principle: is the funder your **customer** or your **sponsor**?
 - **`core`** — DOE-as-customer/financier: a procurement **contract** (DOE buys your product = contracted
   revenue) of real size, or a **loan / loan guarantee** (committed financing).
 - **`flip`** — DOE-as-sponsor: a grant / cooperative agreement / OTA / authorization pathway (funds your
-  development = support, not revenue). Provisional → small, short-dated.
+  development = support, not revenue). Provisional / fast setup; no sizing or instrument instruction.
 
 **Award type is the proxy; customer-vs-sponsor is the principle.** Precedent: LEU's $317M HALEU production
 **contract** → `core`; OKLO's $0 reactor-pilot **OTA** → `flip`; a $148M cooperative agreement stays `flip`
-(size, not nature — its weight shows up as confidence within the flip grade). Deterministic implementation in
+(obligation magnitude, not nature — its trigger score may affect setup strength within the flip grade, but
+never position size). Deterministic implementation in
 `ingest/doe/feed._derive_grade` (the `$10M` contract floor is `cfg.doe_core_min_obligation_usd`); ratified
 catalysts set grade by the same principle at ratification time.
 
 **Calibration dials** (RECALIBRATION.md): the `$10M` contract floor; the `365d` default horizon (when no term
-is published); the `90d` hold threshold (the clean gap between insider-flip ~18d and core/catalyst ≥180d).
+is published); the legacy-named `90d` hold threshold (a short-vs-long signal-window verdict cutoff, not a
+mandatory trade-exit rule; the clean gap between insider-flip ~18d and core/catalyst ≥180d).
 
 **Seeded demo state — two real DOE catalysts, on opposite ends of the grade.** Both ratified via the
 bridge from USAspending records, both co-located with a live 2026-06-02 breakout:
@@ -67,14 +73,16 @@ bridge from USAspending records, both co-located with a live 2026-06-02 breakout
 - **LEU** (Centrus) — DOE **HALEU production contract** (`89243223CNE000030`), **core** (~$317M obligated
   *and exercised* = binding contracted revenue), horizon = the contract's **base term → 2026-06-30** (the
   ~$1.1B all-options ceiling to 2028 is DOE-discretion, **not** folded in). It arms LEU as a real
-  **core_entry**, with the hold clock landing on 2026-06-30 — a near-the-edge renewal cliff, not an
-  open-ended core. Entity: `AMERICAN CENTRIFUGE OPERATING, LLC → Centrus → LEU` is the **first row** of the
+  **core_entry** call-strength verdict, with the signal-validity window ending on 2026-06-30 — a
+  near-the-edge renewal cliff, not an open-ended core signal. Entity:
+  `AMERICAN CENTRIFUGE OPERATING, LLC → Centrus → LEU` is the **first row** of the
   curated awardee→ticker table the automated feed will reuse.
 
 With both seeded, the theme **headlines the binding name** (LEU `core_entry`), because the assembler arms a
 thesis on its **strongest** member — a binding revenue contract correctly out-ranks a provisional
 authorization. OKLO's starter is still computed beneath; true per-member side-by-side is the **M5** group
-view. The **confidence cap** generalized with this work: it now caps **any** starter (the weaker *entry
+view. The **setup-strength cap** (`starter_confidence_cap`) generalized with this work: it now caps **any**
+starter (the weaker *entry
 grade*), so OKLO's provisional starter no longer reads loud just because its breakout is strong — same
 "key on the weaker key, not the kind" generalization as the verdict (CALL_LOGIC §7).
 
@@ -97,9 +105,11 @@ A **catalyst-conviction is a deterministic, verifiable, *fundamental commitment*
 trajectory** — the structural analog of an open-market insider buy. The grade follows directly:
 
 - **core** = a *binding, fundamental* commitment (a signed multi-year power-offtake / PPA, an NRC operating
-  license, a DOE loan guarantee) — capital or contracted revenue is now real; *build the position*.
+  license, a DOE loan guarantee) — capital or contracted revenue is now real; the setup is structural.
 - **flip** = a *soft / sentiment* event (a non-binding MOU/LOI, promoter attention, a thematic ETF launch) —
-  fast, mean-reverting; *small and short-dated*.
+  fast and more likely to mean-revert.
+
+These grades classify call strength/nature only. They do not select position size, instrument, or expression.
 
 This keeps the grade **deterministic** (it falls out of the parsed/ratified facts — filing item code,
 counterparty, structured terms), never the model's read. Conviction is the most important signal in the
@@ -116,7 +126,7 @@ system; anchoring it to *verifiable commitment* (not narrative) is the whole poi
 | `alpha_liveness_days` | **graded** (reuses the #30/#32 machinery): core = months, flip = weeks (§7). |
 | `security_id` | the **subject** of the catalyst — the 8-K filer / the awardee. Name-specific → co-locates with *that name's* breakout via the existing per-security model (§5). |
 | `provenance` | the filing accession / dataset record **+ the parsed terms** (counterparty, $ size, term) — show the work, like the converts detector. |
-| `score` | from the parsed terms (size / bindingness), bounded — same spirit as `insider_conviction._score`. |
+| `score` | from the parsed terms (obligation magnitude / bindingness), bounded — same spirit as `insider_conviction._score`; it contributes to setup strength, not position sizing. |
 | `asof` | the catalyst's **event date** (filing/award date), not the query asof — anchors liveness to when conviction formed, exactly like the insider cluster. |
 
 ## 3. Data sources  `[ranked]` — deterministic or operator-ratified (invariant #3)
@@ -168,7 +178,8 @@ deferred (and already flagged in the assembler).
 ## 6. Grade rule  `[APPROVED — see the Grade rule section above]`
 
 Resolved as **customer vs sponsor** (contract / loan-guarantee = `core`; grant / cooperative-agreement /
-OTA = `flip`; by nature, not size). The authoritative statement + precedent is the **Grade rule** section
+OTA = `flip`; by commitment nature, not obligation amount or position size). The authoritative statement +
+precedent is the **Grade rule** section
 near the top. (This section's original instinct — binding=core, soft=flip — was right; customer-vs-sponsor
 made it precise and added the loan-guarantee=core edge.)
 
@@ -176,8 +187,9 @@ made it precise and added the loan-guarantee=core edge.)
 
 ⚠️ This section proposed a *graded* catalyst liveness (core≈180d / flip≈21d) — **option A reversed that.** A
 catalyst's liveness is **NOT** grade-coupled; it is the agreement's **relevance horizon** (its period of
-performance from the structured record, else the `365d` default), independent of grade. Grade sets entry
-**size** only. (Insider liveness *stays* grade-coupled — CALL_LOGIC §3 + the through-line.) Kept to mark the change.
+performance from the structured record, else the `365d` default), independent of grade. Grade classifies
+call strength only; it does not size a position. (Insider liveness *stays* grade-coupled — CALL_LOGIC §3 +
+the through-line.) Kept to mark the change.
 
 ## 8. How it composes — the unlock
 

@@ -60,26 +60,29 @@ PIN is a read-time filter, so the mirror reproduces the SoR's `as_of` for any `k
 Armed is **sticky**, so per-`(thesis, asof)` would multi-count one decision. The unit is the **arm episode**:
 a contiguous run in which one basket **member** is in `armed_members`, keyed `(thesis_id, security_id,
 arm_date)` — **per member** (not just the headline), so name-selection is scorable. Measured over
-`[arm_date, exit_by]` (the system's **own** hold horizon — the honest yardstick) on realized closes. Re-arm =
-a new episode; never-armed theses → **0 episodes** (Warming-forever is a non-event). Close reasons:
+`[arm_date, exit_by]` (the system's own **signal-validity horizon** — an honest scoring yardstick, not a
+mandatory trade exit) on realized closes. Re-arm = a new episode; never-armed theses → **0 episodes**
+(Warming-forever is a non-event). Close reasons:
 `arm_until_lapsed` · `conviction_aged_out` · `managing` · `window_end` · `dearmed_other`. **`managing` is
-expected-zero in pure replay** (no operator fills exist in historical facts).
+expected-zero in pure replay** (no operator fills exist in historical facts); it denotes an
+operator-entered position being monitored, not portfolio risk management.
 
 ## The metric set — tied to the claim (not generic hit-rate)
 
 The claim: **opinionated on timing, deferential on thesis; preserve the edge (early narrative), patch the flaw
 (timing + name-selection).** There is deliberately **no** "was the thesis right" metric. Each carries `n` +
-`insufficient_n`.
+`insufficient_n`. `MIN_N = 5` is a presentation safeguard against over-reading tiny aggregates, not an
+evidence threshold; clearing it does not validate a metric or turn setup strength into a probability.
 
 | Metric | Tests |
 |---|---|
-| `arm_timing_forward_return` | **Timing** (the flaw patched): realized return over the hold window from the arm. |
+| `arm_timing_forward_return` | **Timing** (the flaw patched): realized return over the signal-validity window from the arm. |
 | `early_vs_armed_delta` | **Preserve the edge**: warm-return − arm-return; large positive ⇒ the gate clips the early edge. |
-| `grade_confidence_calibration` | **Discrimination**: do higher-grade/confidence arms track better outcomes (monotonic)? |
+| `grade_confidence_calibration` | **Discrimination** (legacy metric slug): do higher-grade / higher-setup-strength (`confidence` wire field) arms track better outcomes monotonically? This tests a future calibration hypothesis; it does not treat setup strength as probability. |
 | `name_selection_lift` | **Name-selection** (the flaw patched): did the ranked headline beat the rest of the basket? |
 | `false_arm_rate` | **Timing precision**: arms whose realized return was adverse (the gate firing wrongly). |
 | `withheld_arm_counterfactual` | **Timing's false-negative side**: the move during windows the gate withheld. |
-| `exit_by_vs_rollover` | **The exit side**: does the edge persist to `exit_by`, or decay earlier? (the liveness dials). |
+| `exit_by_vs_rollover` | **Signal-window persistence**: does the edge persist to the `exit_by` validity endpoint, or decay earlier? (the liveness dials; not a sell instruction). |
 
 **Instrument, not a claim.** On the seed only **UNH** is a long forward arc (the mid-May-2025 CEO-led insider
 cluster → the Aug-2025 volume-backed breakout → aged out by 2026). The deliverable is the instrument + UNH as
@@ -109,7 +112,8 @@ cfg-sweep. Parity + the two no-lookahead tests are the gate.
 
 ## Out of scope (later)
 
-Step 2 (recalibration — tuning the dials); Step 3 (the production-tenant cut). The live **Scoreboard** (Phase 3,
-parked) — the record/scoring models (`replay/schema.py`: `CallSnapshot`, `Episode`, `Outcome`) are built
-reusably for it, but the board is not built here. Bitemporal thesis-definition versioning (the limitation
-above). A `recorded_at`-staggered correction dataset beyond the one test fixture; multi-PIN comparison runs.
+Step 2 (recalibration — tuning the dials); Step 3 (the production-tenant cut). The live **Scoreboard** is now
+built from the reusable record/scoring models (`replay/schema.py`: `CallSnapshot`, `Episode`, `Outcome`), but
+its implementation is not part of this replay harness. Bitemporal thesis-definition versioning (the
+limitation above). A `recorded_at`-staggered correction dataset beyond the one test fixture; multi-PIN
+comparison runs.

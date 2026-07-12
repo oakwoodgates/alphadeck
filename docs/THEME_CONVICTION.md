@@ -21,7 +21,8 @@ the real "why now." M5b lets that thesis-level belief arm such a name — as a d
 a core — when the name **also** confirms on its own volume-backed breakout.
 
 > It is the theme analog of *"I believe in this sector"* — graded, horizon'd, provenanced, and capped, so
-> belief can time an entry without ever masquerading as a name-specific, build-the-position conviction.
+> belief can support a provisional timing call without masquerading as a name-specific, structural
+> conviction. The grade/verdict is call strength, not position size.
 
 ## 1. The mechanic
 
@@ -36,8 +37,9 @@ together at the as-of.** Nothing else about arming changes.
    via `ingest/theme_conviction.py` (mirrors `ingest_catalyst`), keyed by **thesis**, not security. Arming
    re-derives from it on read.
 2. **Grade capped at starter.** The broadcast emits the conviction event at **`flip`** → `entry_grade =
-   weaker_grade(flip, core) = flip` → the existing `starter_confidence_cap` applies. **Belief can never
-   mint a core** — the load-bearing discipline.
+   weaker_grade(flip, core) = flip` → the existing setup-strength cap (`starter_confidence_cap`) applies.
+   **Belief can never mint a core call-strength class** — the load-bearing discipline. Neither label sizes
+   a trade.
 3. **Operator horizon + expiry.** Liveness = `horizon_end − valid_from`, else
    `cfg.theme_conviction_default_horizon_days` (365). The conviction expires past its horizon unless
    re-ratified — no zombie narratives. Same liveness rule as a catalyst (decoupled from grade).
@@ -61,7 +63,8 @@ The theme conviction is a thesis-level bitemporal fact. A thin detector
 (`signals/theme_conviction.py`) reads it (`detect_fact`, the only DB-touching step) and **broadcasts a
 flip-graded conviction `SignalEvent` onto each eligible member's `security_id`** (`broadcast`, pure). From
 there it is **just another conviction event**: adding `Kind.THEME_CONVICTION` to `cfg.conviction_kinds`
-makes the existing co-location (`conv_secs & conf_secs`), ranking, confidence cap, watch-tier subtraction
+makes the existing co-location (`conv_secs & conf_secs`), ranking, setup-strength cap
+(`starter_confidence_cap`), watch-tier subtraction
 (`conf_secs − conv_secs`), and the per-member risk veto all work **with no change to the guarded
 `assemble_call`**. The broadcast runs in `pipeline/call_for_thesis.py` after the per-member detector loop
 (eligibility reads the assembled member stream). The entire M5b eligibility discipline (rules 4/5/7) lives
@@ -84,8 +87,9 @@ readily a fresh theme starter leapfrogs a lapsing own core).
 
 ## 5. Through-line audit (invariants)
 
-- **Theme conviction is the weaker key** (emitted `flip`) → it caps the call via the **grade property**,
-  never an `if kind == THEME_CONVICTION` behavior branch. The only legitimate reads of the theme kind are:
+- **Theme conviction is the weaker key** (emitted `flip`) → it caps the call's setup strength via the
+  **grade property**, never an `if kind == THEME_CONVICTION` behavior branch. Grade is the categorical
+  call-strength class, not sizing or expression guidance. The only legitimate reads of the theme kind are:
   set membership in `conviction_kinds`; the `own_conviction_kinds` exclusion (`conviction_kinds −
   {THEME_CONVICTION}`, the seam that keeps a future conviction kind inheriting "own" automatically); the
   `theme_armed` **display flag**; the `is_own` **ranking tiebreak** (provenance-based, not behavioral).
@@ -118,7 +122,7 @@ readily a fresh theme starter leapfrogs a lapsing own core).
 `theme_conviction_default_horizon_days` (365, the horizon when no `horizon_end` is ratified — also the
 upper-bound / re-ratification-cadence knob); the within-band tiebreak weighting (own-above-theme placement
 is shape, the weight is the dial); `headline_lapsing_soon_days` (now load-bearing for belief-vs-data, §4).
-The theme-armed confidence cap is the existing `starter_confidence_cap`; the volume-backed bar is the
+The theme-armed setup-strength cap is the existing `starter_confidence_cap`; the volume-backed bar is the
 existing breakout params. A **hard surface cap** on how many theme-armed names appear is `[DEFERRED]` —
 rely on ranking; add only if Phase-1 replay shows flooding.
 
