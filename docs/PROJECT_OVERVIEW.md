@@ -17,15 +17,20 @@
 > **back half feeds itself** (the per-thesis ingest + the daily call-of-record cron, M2). The **North Star is
 > reachable end to end on real data.** *Trust caveat (kept honest):* the calls are tuned **in-sample (n=19)**,
 > and "feeds itself daily" is the DATA loop — **not** forward validation. The **live Scoreboard** (the forward
-> trust loop) is the post-MVP open. See `ROADMAP.md`.
+> trust-loop instrument) is built; its forward record is still accruing. See `ROADMAP.md`.
 
 ---
 
 ## 1. What this is
 
-A research platform for **hunting, validating, timing, and managing equity theses** — a "DD engine" for finding and executing on alpha. It is not a quant black box and not an execution system. It is a decision-support tool that helps a discretionary trader turn early narrative convictions into well-timed trades.
+A research platform for **hunting, validating, timing, and monitoring equity theses** — a "DD engine" for
+finding alpha and handing timing context to the firm's execution stack. It is not a quant black box and not
+an execution, sizing, or portfolio-risk system. It is a decision-support tool that helps a discretionary
+trader turn early narrative convictions into well-timed trades.
 
-The trade expression (spot / futures / options) is out of scope as a design concern — the platform is about *research and timing*, not order routing.
+Trade construction (instrument, allocation, orders, and portfolio risk) is out of scope. Alpha Deck is about
+*research, timing, and post-entry thesis monitoring*; it hands off to the firm's OMS / execution / sizing /
+risk systems rather than replacing them. Any `expression` text on a CallCard is advisory research context.
 
 ## 2. Operator profile & design philosophy
 
@@ -38,7 +43,9 @@ Design principle: **preserve the edge, patch the flaw.**
 - Preserve: capture early convictions so they aren't lost or forgotten (the "vault").
 - Patch: supply name selection + DD, impose timing discipline, and tell the operator the moment the market is catching up.
 
-Corollary principle for the opinion layer: **opinionated about timing, deferential about thesis.** The platform doesn't second-guess whether an idea is good (the operator's strength); it gets loud only on *when / what grade / what expression* (the operator's weak spot).
+Corollary principle for the opinion layer: **opinionated about timing, deferential about thesis.** The
+platform doesn't second-guess whether an idea is good (the operator's strength); it gets loud only on *when*
+and on the evidence-backed strength of the setup (the operator's weak spot).
 
 ## 3. Original goals
 
@@ -55,7 +62,8 @@ Corollary principle for the opinion layer: **opinionated about timing, deferenti
 narrative → decompose into the value chain → surface & score specific names by exposure purity, risk profile, cash runway, catalyst density → auto-draft DD per name.
 
 **Back half (park + time):**
-chosen names become a parked thesis → incubate → trigger detection → graded "call" → manage to exit.
+chosen names become a parked thesis → incubate → trigger detection → graded "call" → monitor the thesis
+after the operator enters, through the signal-validity window.
 
 **The spine:** the **thesis as a first-class object** connects the two halves. An idea flows front-to-back, from "psychedelics — here are the five names and why" to "OPTH broke its base on volume the week after the executive order — time to move."
 
@@ -67,8 +75,9 @@ A structured, versioned record containing:
 - **Evidence** — linked filings and data points (immutable references).
 - **Catalysts** — dated events that should move it.
 - **Signals** — the quantitative triggers being monitored.
-- **Kill criteria** — disconfirming evidence / exit conditions (the discipline layer).
-- **Expression / position** — sizing and current state, populated once entered.
+- **Kill criteria** — operator-authored disconfirming evidence (the discipline layer, not an automated exit).
+- **Expression / position** — advisory research context plus the operator-logged position state; sizing stays
+  in external execution/risk systems.
 
 ## 6. Thesis lifecycle & trigger grading
 
@@ -77,17 +86,22 @@ A loop, not a one-way ratchet — a parked thesis can cycle through states and t
 - **Incubating** — banked idea, nothing confirmed. Platform watches *quietly and does not nag* (anti-FOMO; stops entering at month one of a six-month wait).
 - **Warming** — early stirrings (volume, attention inflection, catalyst entering window).
 - **Armed** — entry conditions met; alerts loudly with the call.
-- **Managing** — position open; exit-timing / half-life logic governs.
+- **Managing** — the operator has entered a position; Alpha Deck monitors thesis signals, evidence, and the
+  validity window. It does not manage position or portfolio risk.
 
 **Trigger grading.** Each fire is classified by:
-- **Grade:** *flip* (fast, sentiment-driven pop — trade small/fast, then fall back to Incubating) vs *core / structural* (real change to the setup — build the core position).
+- **Grade:** a categorical call-strength class — *flip* (fast, sentiment/attention-driven setup) vs *core /
+  structural* (more durable structural setup). It never determines position size, instrument, or expression.
 - **Type:** regulatory, promoter/attention-driven, technical breakout, clinical readout, squeeze, personnel/appointment.
 
-**Expression follows grade:** flip → high-beta / lotto names or short-dated options; structural → core position in leaders + shovels.
+**Expression is separate from grade:** basket names, archetypes, or fund sleeves may be surfaced as research
+context, but Alpha Deck does not turn `flip` / `core` into an instrument, allocation, or order instruction.
 
-**Timing discipline (entry & exit):**
-- Holding period matched to each signal's **alpha half-life**; the platform derives an **exit-by date** and overlays the **catalyst surface** (binary events crossed before exit).
-- Horizon target: mostly 1–3 weeks, acceptable to ~6–12 weeks for strong theses; longer only with a strong accumulation case and explicit opportunity-cost consideration.
+**Timing discipline (entry and signal validity):**
+- Each signal's **alpha half-life** supplies an `exit_by` **signal-validity horizon** and a **catalyst surface**
+  (binary events falling inside that window). `exit_by` is not a sell-by date or mandatory trade exit.
+- Validity windows may span weeks or months according to the deterministic signal; the operator and external
+  risk/execution systems decide any actual holding period.
 - Personnel/appointments treated as leading indicators of regime change (a Warming signal in their own right).
 
 ## 7. The opinionated call layer
@@ -95,20 +109,31 @@ A loop, not a one-way ratchet — a parked thesis can cycle through states and t
 The platform **makes the call and shows its work.**
 
 A single call is one **card**:
-- **Verdict** — grade + suggested expression + exit-by date.
+- **Verdict** — categorical call-strength/readiness posture.
+- **Expression** — advisory research context, not sizing or execution guidance.
+- **`exit_by`** — signal-validity horizon, not a mandatory exit.
 - **Triggers fired** — with links to the filings / data behind them.
 - **What's missing** — the unmet conditions.
 - **Counter-case** — what would invalidate it.
-- **Confidence** — calibrated; a high-confidence core entry reads differently from a marginal 2-of-3 flip.
+- **Setup strength** (wire field `confidence`) — an experimental relative read of trigger composition, not a
+  probability. It remains experimental until matured Scoreboard outcomes support calibration; the `n ≥ 5`
+  aggregate-metric gate is only a UI safeguard, not an evidence threshold.
 - **Actions** — act, override (logged), or snooze.
 
 Because the work is shown, an **override becomes a documented bet against evidence**, not a gut feeling — the friction that patches the "too early" habit.
 
 ## 8. Behavioral / accountability layer
 
-- **The gate (advisory).** No execution in v1, so the gate withholds the platform's *blessing* rather than blocking an order: it won't show "Armed / go" until conditions are met, and shows a **readiness scorecard** ("3 of 4 triggers missing").
+- **The gate (advisory).** No execution, sizing, or portfolio-risk management, so the gate withholds the
+  platform's *blessing* rather than blocking an order: it won't show "Armed / go" until conditions are met,
+  and shows a **readiness scorecard** ("3 of 4 triggers missing"). The firm's OMS / execution / risk stack
+  owns the handoff.
 - **Override logging.** Early/manual entries are logged, not blocked.
-- **Scoreboards.** Three tracks scored over time: the platform's calls, the operator's actual decisions, and the counterfactual of following the platform blindly. The deltas turn "edge and flaw" from metaphor into measured data — showing empirically where discretion adds vs destroys value. The platform is held accountable for its own opinions (call accuracy by trigger type and grade).
+- **Scoreboards.** v1 scores two tracks over time: the platform's calls and the operator's actual decisions.
+  The counterfactual of following the platform blindly and its deltas are v2. The growing record can turn
+  "edge and flaw" from metaphor into measured data — showing where discretion adds vs destroys value. The
+  platform is held accountable for its own opinions (outcomes by trigger type and grade), but no small-sample
+  UI gate establishes that evidence.
 
 ## 9. The sector dashboard (discovery views — "section headlines")
 
@@ -128,7 +153,10 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 ## 10. Key analytic components
 
 - **Momentum-health classifier** — for already-run names, judges *continuation vs last gasp*: breakout-from-base on expanding volume + broadening peer participation + news-justified + real buying (continues) vs extended / low-volume / isolated / promoter-pumped (exhausted). Lets the operator chase the strongest horse with eyes open.
-- **Personality-backed = attention-catalyst proxy (double-edged).** Map notable backers/board members (13D/13F/board, free from EDGAR) + detect public promotion (media/social footprint spiking). Often the literal answer to "why did it run." Flip-grade by nature — great for catching the retail wave, dangerous to marry; pair with the momentum classifier.
+- **Personality-backed = attention-catalyst proxy (double-edged).** Map notable backers/board members
+  (13D/13F/board, free from EDGAR) + detect public promotion (media/social footprint spiking). Often the
+  literal answer to "why did it run." Flip-grade by nature: a fast, attention-driven setup rather than a
+  structural one; pair with the momentum classifier.
 - **Dilution clock** — months of runway at current burn + recent shelf/ATM filings + warrant overhang. For pre-revenue names, dilution kills more theses than the fundamentals do.
 - **Laggard scanner** — beta-adjusted residual of theme peers vs a leader's move; surfaces names that "should have" moved and haven't.
 - **Emergence detector** — composite of regulatory/personnel milestones + attention rate-of-change + institutional first-footprint (first 13F, first initiation, first thematic ETF) + capital-markets activity (IPO/SPAC pipeline, uplistings).
@@ -139,7 +167,9 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 ## 11. Constraints & key decisions
 
 - **Horizon:** swing trades; see §6.
-- **v1 scope:** human-in-the-loop; **explainability over execution**. No trade execution — advisory only; operator logs fills so the thesis stays tied to the live position.
+- **v1 scope:** human-in-the-loop; **explainability over execution**. No trade execution, sizing, or
+  portfolio-risk management — advisory only; the operator logs fills so the thesis stays tied to the live
+  position, while the firm's OMS / execution / risk systems own the trade.
 - **Data posture:** bootstrap on free sources (EDGAR incl. N-1A/485 for ETF launches, FINRA short interest, free price/fundamentals, public ETF holdings, on-chain/crypto data for crypto-adjacent themes). Pay case-by-case for the right thing (borrow data, options/gamma, premium fundamentals, ETF flows). See `docs/DATA_SOURCES.md`.
 - **LLM-in-the-loop:** filing classification & summarization, DD drafting, and the reasoning behind each "call" (with citations to source).
 - **Trajectory:** personal project first; possible SaaS later. Keep multi-tenant seams in the schema, but don't pay the multi-tenant tax yet.
@@ -148,7 +178,10 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 
 - **Point-in-time / bitemporal data** (valid-time + transaction-time, as-of queries). The single thing that separates a real research platform from a toy; foundation and future moat. Design in from day one.
 - **Canonical security master + entity resolution** (CIK ↔ ticker ↔ CUSIP ↔ FIGI), with corporate actions and survivorship-bias avoidance.
-- **Layered pipeline:** ingestion → normalization / entity resolution → relationship graph (companies, people, supplier/customer, fund holdings, themes) → signal engine (composable, backtestable detectors emitting events) → thesis workspace → (later) execution / risk.
+- **Layered pipeline:** ingestion → normalization / entity resolution → relationship graph (companies,
+  people, supplier/customer, fund holdings, themes) → signal engine (composable, backtestable detectors
+  emitting events) → thesis workspace → explicit handoff to the firm's existing execution / risk systems
+  (outside Alpha Deck).
 - **Differentiated wedge (build-vs-buy):** the thesis-object connective tissue + replay/backtest rigor + opinionated graded calls — not re-deriving screeners that already exist (Fintel, Quiver, Unusual Whales, Koyfin, etc.).
 
 ## 13. Build order

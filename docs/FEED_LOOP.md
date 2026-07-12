@@ -123,7 +123,7 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   accountability log). It builds **NO read-serving signal/score cache** — calls still re-derive on read. The
   call-of-record log is never read back to serve (`INVARIANTS.md` #6; `DATA_FLOW.md`).
 - **Scoreboard-ready, not coupled.** One clean versioned row per (thesis, day); same-day re-runs collapse via
-  `calls_repo.latest_for_thesis`'s `DISTINCT ON (asof)`. That is exactly what the future Scoreboard reads —
+  `calls_repo.latest_for_thesis`'s `DISTINCT ON (asof)`. That is exactly what the built Scoreboard reads —
   with zero Scoreboard code in the cron.
 
 ### `record_if_changed` + `_canonical` — idempotent append to an immutable log
@@ -132,8 +132,9 @@ The `calls` log is **immutable** (a `no_update` trigger) and its `(thesis_id, as
 so an UPSERT is impossible. `record_if_changed(conn, card, tenant_id)` therefore **reads-compares-then-
 conditionally-appends**: it finds today's latest call-of-record for `(thesis, card.asof)` and appends a new
 versioned row **only if none exists yet or the latest differs in substance**. A same-day re-run on unchanged
-facts appends **nothing**; a genuine change (Incubating→Warming→Armed, confidence / exit_by / provenance /
-members) appends **exactly one** new row (latest-append-per-asof wins on read).
+facts appends **nothing**; a genuine change (Incubating→Warming→Armed, `confidence` [setup strength] /
+`exit_by` [signal-validity horizon] / provenance / members) appends **exactly one** new row
+(latest-append-per-asof wins on read).
 
 `_canonical(card)` is the substance compare: it serializes the CallCard order-INDEPENDENTLY (recursively
 **sorts dict keys AND list elements**) and **rounds floats**, so a pure reorder of an unordered card list
@@ -188,8 +189,9 @@ fact tables) and M2b (the calls log): `test_rerun_appends_zero_rows_count_the_ta
     (the count-the-table failure on this path). Compare at a stable precision so a re-pull's float noise doesn't
     fake a difference. No `fact_price_eod` schema change; the replay/Parquet PIT's split fidelity is separate.
 - **The Scoreboard** `[BUILT]` (v1) — the forward trust loop's instrument over this record: the episode
-  ledger + the operator track, metrics gated until n accrues. `docs/SCOREBOARD.md`; the second, out-of-sample
-  recalibration arrives as the record grows. `ROADMAP.md`.
+  ledger + the operator track. The `n ≥ 5` aggregate UI gate suppresses tiny summaries; it is a presentation
+  safeguard, not an evidence threshold. Forward calibration arrives only as a materially useful record grows.
+  `docs/SCOREBOARD.md`; `ROADMAP.md`.
 - **Scaling the cron** `[FILED]` — at today's scale the cron ingests every thesis daily. As theses
   accumulate, decouple "record the call-of-record for ALL theses" (cheap — keep) from "ingest ALL theses
   daily" (expensive — live pulls): ingest **active** theses daily, dormant ones less often. A post-MVP

@@ -27,14 +27,16 @@
   `master.get` crash were each caught live and fixed with regression tests.
 
 **The MVP gate RAN (2026-07-10)** — the AI-memory thesis end-to-end on real data: 68 names ingested
-(+41k insider txns, +8k bars), the call computed **WARMING / not-yet / exit-by** with a real MU insider
+(+41k insider txns, +8k bars), the call computed **WARMING / not-yet / `exit_by` signal-validity horizon**
+with a real MU insider
 conviction (Form 4-linked) against volume-backed watch names — the two-key discipline live; the daily
 cron sidecar runs nightly and its same-day idempotency held in production (0 appended · 11 unchanged).
 The North Star's *Armed* call now awaits a real two-key coincidence — correct behavior, which the cron
 will catch.
 
 **Since the gate:** **decision capture** shipped (#143/#144/#146 — the operator-decisions log:
-take/pass/close/void, the derived position that makes **Managing reachable**, the gate's override
+take/pass/close/void, the derived position that makes **Managing** (in-position thesis monitoring, not risk
+management) reachable, the gate's override
 record, the Scoreboard's operator column accumulating from day one); **catalyst + kill-criteria
 authoring** (#147 + the FE pair — the Key-1 conviction-fact form with a REQUIRED citation, the Cockpit
 calendar/kill editors, and the third wipe-trap fixed structurally); **thesis archive** (board hygiene —
@@ -44,20 +46,24 @@ one adapter away).
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE; **"the forward trust loop is closed" is NOT** — the **Scoreboard v1** now stands as its instrument,
-> but closure arrives only as the record accrues past the metric gates (nothing is validated at n=0). The first
+> but evidence arrives only as matured forward outcomes accrue (nothing is validated at n=0, and no small
+> threshold closes the loop). The `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading early
+> summaries, **not** an evidence threshold. The first
 > recalibration pass (#45) tuned **direction from the literature + the mechanism**; the replay only
 > *illustrated*, it never *selected* a value. Its seed is **n=19 episodes, only UNH a long forward arc**, so its
 > honest claim is "the dials are grounded in replayed history + the one obvious lever was inspected" — **NOT**
 > "the system is validated." It shipped **zero dial changes** (the disciplined result at n=19; the one give-back
-> — insider-core exit ~35d past peak — is a confidence-*shape* problem [age-decay, `RECALIBRATION.md` B.4], not
+> — the insider-core signal-validity window ended ~35d past the realized peak — is a setup-strength *shape*
+> problem [wire field `confidence`; age-decay, `RECALIBRATION.md` B.4], not
 > a magnitude the binary liveness window can fix). The daily call-of-record is the forward RECORD the Scoreboard
-> will later track — **Scoreboard-ready, not Scoreboard-coupled.** Do not round "feeds itself" up to
+> now tracks. Do not round "feeds itself" up to
 > "validated forward."
 
 ## Organizing principle — two halves on one spine
 
 - **Front half (hunt + research):** narrative → value chain → surfaced, scored names → a chosen basket.
-- **Back half (park + time):** the basket becomes a parked thesis → incubate → trigger → graded call → exit.
+- **Back half (park + time):** the basket becomes a parked thesis → incubate → trigger → graded call →
+  monitor the entered thesis through the signal-validity window.
 - **The spine:** the thesis as a first-class object connects the two (`PROJECT_OVERVIEW.md` §4).
 - **Sequencing rule (locked): trust before front-half build** — honored; both are behind us.
 
@@ -87,7 +93,7 @@ one adapter away).
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
-| Decision capture: the operator-decisions log (take/pass/close/void) · Managing reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
+| Decision capture: the operator-decisions log (take/pass/close/void) · Managing thesis-monitoring state reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Excluded-name permanence (#7): the durable NO + optional reason, seeded greyed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
 | Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
@@ -112,9 +118,11 @@ one adapter away).
 ## What's next (by appetite, in rough order)
 
 1. **The live Scoreboard — v1 BUILT** (the forward twin of replay; `docs/SCOREBOARD.md`): the episode ledger
-   over the two record streams — the platform's calls scored on their own exit-by yardstick + the operator's
-   decisions joined to the episodes they answered (overrides with outcomes); aggregate metrics gate below
-   n=5 and judge only matured, non-censored episodes. Still unlocks the **second, out-of-sample
+   over the two record streams — the platform's calls scored on their own `exit_by` signal-validity yardstick
+   + the operator's decisions joined to the episodes they answered (overrides with outcomes); the UI gates
+   aggregate metrics below `n=5` and metrics include only matured, non-censored episodes. That gate prevents
+   premature display; it is not an evidence threshold, and passing it does not establish calibration. The
+   growing record still unlocks the **second, out-of-sample
    recalibration** — that arrives as the record accrues. Next here: **replay-history-alongside** (the
    immediate follow-up), then the v2 follow-blindly track + deltas (+ a metrics-led second view behind a
    toggle once n accrues).
@@ -162,14 +170,17 @@ one adapter away).
 
 ## Locked — do not reopen
 
-- **The through-line** (`INVARIANTS.md` #7): size ← grade, hold ← horizon, starter / confidence-cap ← the
-  weaker key, catalyst-liveness ← the agreement horizon. **Never re-couple; never add an `if kind ==` branch**
-  where a property already carries the signal.
+- **The through-line** (`INVARIANTS.md` #7): categorical call strength ← grade; signal-validity window ←
+  horizon; provisional-call wording / setup-strength cap (`confidence` in code) ← the weaker key;
+  catalyst-liveness ← the agreement horizon; sizing / instruments / execution / portfolio risk ← the operator
+  and external systems. **Never re-couple; never add an `if kind ==` branch** where a property already carries
+  the signal.
 - **All of `INVARIANTS.md`.** In particular **no model-sourced numbers** — extended to the Workbench: the LLM
   drafts *structure* and *proposes sources*, never supplies a number. *Narrative is the operator's, structure
   is a draft, numbers are facts.*
 - **The catalyst grade rule** — customer-vs-sponsor (contract ≥ $10M = core; loan / loan-guarantee = core;
-  assistance / OTA / grant = flip); **grade is the nature of the commitment, not its size.**
+  assistance / OTA / grant = flip); **grade is the nature/call-strength class of the commitment, not its
+  obligation amount or a position-size instruction.**
 - **The Workbench persistence seam** — the value-chain **structure** persists **operationally on the thesis
   spine** (`segment` + `authored_by` on `basket_member`, `segments` on `thesis` — editable config, **not**
   bitemporal); the **scores never persist** (re-derived on read). Chain-evolution *history* is a taxonomy-era
@@ -179,11 +190,14 @@ one adapter away).
 
 ## Parked — deliberate non-goals
 
-- **Execution / brokerage — permanently out.** Advisory-only is the product's identity.
+- **OMS / execution / brokerage / sizing / portfolio risk — permanently external.** Advisory research and
+  thesis monitoring are the product's identity; Alpha Deck hands off to the firm's existing systems and does
+  not replace them.
 - **Position sizing / portfolio construction, MNPI/compliance, quant/chart signals — out by design, not gaps**
   (`STAGE_MODEL.md` records the reasoning). TRIAGE captures a conviction *weight* but does no sizing math;
   the platform is EDGAR-only (no private-data surface → no MNPI vector); TA/price-pattern prediction is parked.
 - **Deferred** (scope, not principle): intraday / streaming data; options-gamma; borrow + squeeze radar;
   crypto / commodities / prediction markets; runtime auth / multi-tenant serving; Dagster; Neo4j.
-- **The live Scoreboard v1 is built** — the forward twin of the replay harness. It earns trust by *living
-  with the calls over weeks*: the ledger is standing, the metrics stay gated until the record grows into them.
+- **The live Scoreboard v1 is built** — the forward twin of the replay harness. It can earn trust only by
+  *living with the calls over time*: the ledger is standing and forward outcomes accrue. The `n ≥ 5` UI gate
+  merely suppresses tiny aggregates; it is not the point at which evidence becomes sufficient.

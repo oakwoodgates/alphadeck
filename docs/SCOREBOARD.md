@@ -6,7 +6,8 @@ and **the operator's decisions** (the append-only decision log, joined to the ep
 The follow-blindly counterfactual track and its deltas are **v2** (additive on the same computation);
 the immediate follow-up after v1 is surfacing **replay's historical episodes alongside** the live
 record (clearly separated — the record stays clean). "The platform feeds itself" became true at M2;
-*this* is what makes "validated forward" true.
+*this* is the instrument through which forward evidence accrues. Its existence — or a small sample crossing
+a UI gate — does not by itself make the platform "validated forward."
 
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
@@ -35,20 +36,33 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
 
 The unit is replay's **arm episode** (`replay/episodes.py::derive_episodes`, reused as-is): a
 contiguous run of one basket member in `armed_members`, keyed `(thesis_id, security_id, arm_date)`,
-scored by `replay/scoring.py::score_episode` over `[arm_date, exit_by]` — the system's own hold
-horizon, the honest yardstick. The live additions (`scoreboard/schema.py`) are honesty about the
+scored by `replay/scoring.py::score_episode` over `[arm_date, exit_by]` — the system's own
+**signal-validity horizon**, the honest yardstick. It is not a mandatory trade exit or sell-by date. The
+live additions (`scoreboard/schema.py`) are honesty about the
 record, per episode:
 
 | Flag | Meaning |
 |---|---|
 | `status` open/closed | open = still armed at the record edge ≤ asof (replay's `window_end`, read live); its return is a RUNNING return, not a verdict |
-| `matured` | the episode's own `exit_by` has elapsed (≤ asof). **Metrics judge only matured, non-censored episodes** — a running return must never drift inside `false_arm_rate` before the claim's own deadline |
+| `matured` | the episode's own `exit_by` signal-validity endpoint has elapsed (≤ asof). **Metrics judge only matured, non-censored episodes** — a running return must never drift inside `false_arm_rate` before the scoring window ends |
 | `censored_start` | armed since before the record began (above) |
 | `triggers_at_arm` | the arm-date card's member trigger evidence — the WHY rides every row (invariant #6) |
 
 `Outcome.insufficient_prices` on a fresh arm means "no bar on/after the arm yet" (an arm recorded
 Friday has no entry bar until the next trading close lands) — awaiting data, not an error.
-`truncated` = the hold horizon ran past the available (asof-capped) bars: the running-return shape.
+`truncated` = the signal-validity horizon ran past the available (asof-capped) bars: the running-return shape.
+
+## Setup strength and the small-sample gate
+
+The per-call display is **setup strength**; its stable wire field remains `confidence`. It is an experimental
+relative read of trigger composition and risk penalties, **not a probability of success**. The legacy metric
+slug `grade_confidence_calibration` asks whether grade/setup-strength ordering discriminates realized outcomes
+monotonically; only matured forward outcomes can support that calibration.
+
+`MIN_N = 5` / `insufficient_n` controls how early aggregate metrics are presented in the UI. It is a
+**safeguard against over-reading tiny summaries, not an evidence threshold**: clearing `n ≥ 5` does not make a
+metric conclusive, establish calibration, or convert setup strength into a probability. Sample composition,
+per-bucket counts, censoring, and stability over a materially larger forward record still matter.
 
 ## Prices: the Postgres twin, asof-capped
 
@@ -84,7 +98,8 @@ counted in `n_voided`); the valid axis caps at the request asof (`decision_date 
 - **off-record spans / overrides** — a span answering no episode rides `operator_spans`, carrying
   the stance **frozen on the take row at logging time** (`call_state`/`call_verdict` — the record,
   not a recompute, is attribution's source). `override=true` when that stance was not
-  armed/managing: the gate's logged override, now with its outcome attached. A thesis-level take
+  armed/managing (`managing` means an operator-entered thesis is being monitored, not risk-managed):
+  the gate's logged override, now with its outcome attached. A thesis-level take
   (no name) stays **unpriced** — visible, never guessed onto a name.
 - **anomalies** — a log shape the API should have prevented (take-while-open, close-while-flat)
   surfaces as a per-thesis `decision_anomaly` note; the pairing never silently fixes the log.

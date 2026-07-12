@@ -2,7 +2,8 @@
 
 > Repo path: `docs/TRIAGE.md`. The **TRIAGE** stage (`STAGE_MODEL.md`): after DISCOVER finds the names and SURFACE
 > populates them, the operator turns a ~90-name discovered draft into a **chosen, ordered, weighted basket** — in
-> minutes, not by scrolling a flat list. This is the "construction" stage of the buy-side funnel. Mostly a
+> minutes, not by scrolling a flat list. This is basket curation, **not** position sizing or portfolio
+> construction; those live in the firm's external OMS / execution / risk systems. Mostly a
 > frontend + wiring stage (no new spine): the promote endpoint already **full-replaces** the basket from a
 > client-sent list, so crafting is a matter of sending the right subset. Surface:
 > `frontend/src/workbench/ChainEditor.tsx` + `useChainDraft.ts`; the writer:
@@ -77,8 +78,10 @@ drag in (position sizing is out of scope — `STAGE_MODEL.md`).
 - **`NULL` ≠ 0.** Unset means "the operator hasn't said," **never** "zero size" — so attribution can't silently
   treat unset as zero-weight (the same estimate-vs-confirmed honesty, #6). Renders `—`.
 - **Stored metadata, NEVER fed to the call (#4).** Conviction rides ON the member (persists through the
-  full-replace promote, mirrors `thesis_fit`); it never touches the meters / verdict / grade / exit-by. The entry
-  grade stays **signal-derived + deterministic** — the system sizes from the triggers, it does not judge the idea.
+  full-replace promote, mirrors `thesis_fit`); it never touches the meters / verdict / grade / `exit_by`
+  signal-validity horizon. The entry grade stays **signal-derived + deterministic** — the system derives a
+  categorical call-strength class from the triggers; it does not size a position or judge the idea. Actual
+  sizing remains an operator/external-system decision.
   Operator-authored by definition (no LLM recommendation).
 
 > **NAMING GUARD (#116) — two unrelated "convictions", they must never cross.** **Operator conviction** =

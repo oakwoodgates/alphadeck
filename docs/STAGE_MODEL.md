@@ -21,7 +21,7 @@ framed by **stage**, not by surface.
 | **DISCOVER** | Theme → names. EDGAR-first deterministic enumeration off an operator-seeded term set — not model recall. | Deterministic (+ LLM organizes/narrates) | `DISCOVERY.md`, `CHAIN_DRAFTER.md` |
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
-| **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → manage. The two-key call loop. | System times, operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
+| **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → monitor after an operator-entered position. The two-key call loop; `Managing` is thesis monitoring, not portfolio risk management. | System times and watches the thesis; operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
 | **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) |
 
 ## The trust gradient
@@ -94,13 +94,15 @@ funnel.
 
 ## Where this maps
 
-**The professional buy-side funnel** — idea → screen → diligence → construction → monitor → attribution — maps 1:1:
-SEED=idea, DISCOVER=screen, SURFACE=diligence, TRIAGE=construction, MONITOR=monitor, SCORE=attribution. **The
+**The professional buy-side funnel** — idea → screen → diligence → basket curation → monitor → attribution — maps 1:1:
+SEED=idea, DISCOVER=screen, SURFACE=diligence, TRIAGE=basket curation (not position sizing), MONITOR=monitor,
+SCORE=attribution. **The
 wedge:** **DISCOVER** (theme→names) and **SCORE** (per-thesis forward attribution) are the two stages the existing
 tools serve worst — that's where Alpha Deck is differentiated, not in re-deriving screeners that already exist.
 
 **"The Workbench" is THREE stages in one UI** — the tail of DISCOVER (resolve the discovered names) + SURFACE
-(populate + confirm) + TRIAGE (craft the basket). The Board/Cockpit is MONITOR; the (parked) Scoreboard is SCORE.
+(populate + confirm) + TRIAGE (craft the basket). The Board/Cockpit is MONITOR; the built, forward-accruing
+Scoreboard is SCORE.
 Naming the three stages separately is what kept each buildable.
 
 **The "two halves on one spine"** (`PROJECT_OVERVIEW.md` §4) is the same spine at coarser grain: **front half** =
@@ -113,9 +115,12 @@ it does not replace it. The **thesis object** is the spine every stage reads and
 These are deliberately **not** stages, and their absence is a design choice to record so a future author doesn't
 read it as an omission:
 
-- **Position sizing / portfolio construction** — the operator's external tools. TRIAGE captures a per-name
-  **conviction weight** (1–5, `TRIAGE.md`) as forward metadata, but the platform does **no** allocation optimizer,
-  risk-parity, or sizing math. Only *evaluation* math enters — at SCORE (attribution), never as a construction step.
+- **OMS / execution / position sizing / portfolio construction and risk** — the firm's existing external
+  systems. Alpha Deck hands off research and timing context, records the operator's decisions/fills, and
+  monitors the entered thesis; it does **not** route orders, choose an instrument or allocation, set risk
+  limits, or manage a position. TRIAGE captures a per-name **conviction weight** (1–5, `TRIAGE.md`) as forward
+  metadata, but does no optimizer, risk-parity, or sizing math. Only *evaluation* math enters — at SCORE
+  (attribution), never as a construction step.
 - **MNPI / compliance surface** — out **by design.** The platform reads only public EDGAR + free data; there is no
   private-data ingestion surface, so there is no MNPI vector to police. Advisory-only, EDGAR-only.
 - **Quant / chart / TA signals** — parked. The edge is narrative-early + filing-derived timing, not price-pattern

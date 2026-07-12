@@ -87,8 +87,9 @@ the name's **market cap + purity** (not the LLM — a pure derivation), surfaced
   `authored_by → operator_edited` — so a confirmed recommendation is operator-authored and stable across a
   re-roll. Nothing auto-applies, and no other surface (placement rows, AddName, the editor) offers the field —
   one decision point, one moment, one provenance.
-- **It never feeds the call.** Archetype is basket-member role metadata; the back-half grade/size still flow from
-  the signals (`INVARIANTS.md` #7 — never an `if kind ==` branch).
+- **It never feeds the call.** Archetype is basket-member role metadata; the back-half categorical
+  call-strength grade still flows from the signals (`INVARIANTS.md` #7 — never an `if kind ==` branch).
+  Position sizing is external and does not flow from grade or archetype.
 
 ## Invariant fit
 

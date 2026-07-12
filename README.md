@@ -1,7 +1,11 @@
 # Alpha Deck
 
-**A research cockpit for hunting, validating, timing, and managing equity theses.**
+**A research cockpit for hunting, validating, timing, and monitoring equity theses.**
 A "DD engine" that helps a discretionary trader turn early narrative convictions into *well-timed* trades — decision-support, not execution.
+
+**Boundary:** Alpha Deck hands its research and timing output to the firm's existing OMS, execution,
+position-sizing, and portfolio-risk systems. It does not route orders, size positions, set risk limits, or
+manage the portfolio; after an operator-entered position is logged, it keeps monitoring the thesis.
 
 > Working codename: **Alpha Deck**. US equities first; commodities / crypto / prediction markets later.
 > **The organizing frame — the pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE): [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md) (read first).**
@@ -19,7 +23,7 @@ Alpha Deck is built around one operator pattern:
 So the whole system follows two rules:
 
 1. **Preserve the edge, patch the flaw.** Capture early convictions so they're never lost or forgotten (the vault); supply name selection, DD, and timing discipline on top.
-2. **Opinionated about timing, deferential about thesis.** The platform never votes on whether an idea is good — that's the operator's strength. It gets loud only on *when / what grade / what expression* — the operator's weak spot.
+2. **Opinionated about timing, deferential about thesis.** The platform never votes on whether an idea is good — that's the operator's strength. It gets loud only on *when* and on the call's evidence-backed strength — the operator's weak spot.
 
 ## What it does
 
@@ -38,12 +42,20 @@ Maps the operator's six hunts onto capabilities:
 ## How it works — two halves on one spine
 
 - **Front (hunt + research):** narrative → decompose into the value chain → surface & score specific names by exposure purity, risk, cash runway, catalyst density → auto-draft DD per name.
-- **Back (park + time):** chosen names become a parked **thesis** → incubate → graded trigger → manage to exit.
+- **Back (park + time):** chosen names become a parked **thesis** → incubate → graded trigger → monitor the entered thesis through its live signal window.
 - **Spine:** the **thesis is a first-class object** (narrative, basket, evidence, catalysts, signals, kill criteria, expression). Everything attaches to it; no orphan screeners.
 
-**Thesis lifecycle** (a loop, not a ratchet): `Incubating → Warming → Armed → Managing`.
-**Trigger grading:** every fire is graded *flip* vs *core/structural* and typed (regulatory, promoter/attention, technical breakout, clinical readout, squeeze, personnel). Expression follows grade.
-**The call layer is opinionated and auditable:** the platform *makes the call and shows its work* — verdict + expression + exit-by, the triggers that fired (with source links), what's missing, the counter-case, a calibrated confidence, and `act / override / snooze`. An override is a logged bet against documented evidence, then scored.
+**Thesis lifecycle** (a loop, not a ratchet): `Incubating → Warming → Armed → Managing`; Managing means an
+operator-entered position is being monitored, not that Alpha Deck manages its risk.
+**Trigger grading:** every fire is assigned a categorical call-strength class — *flip* for a fast,
+sentiment/attention-driven setup, *core* for a structural, more durable setup — and a type (regulatory,
+promoter/attention, technical breakout, clinical readout, squeeze, personnel). Grade never determines
+position size, instrument, or expression.
+**The call layer is opinionated and auditable:** the platform *makes the call and shows its work* — verdict +
+advisory research context + the `exit_by` signal-validity horizon (not a sell-by date), the triggers that fired
+(with source links), what's missing, the counter-case, experimental **setup strength** (wire field
+`confidence`, not a probability), and logged `act / override / snooze` decisions. An override is a logged bet
+against documented evidence, then scored.
 
 See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lenses, and analytic components (momentum-health classifier, personality-backed attention proxy, dilution clock, laggard scanner, insider-conviction scoring, ETF radar) in full.
 
@@ -54,9 +66,9 @@ Four surfaces; clickable mockups live in `docs/mockups/` (Board+Cockpit, the 202
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
 - **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
-- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own exit-by yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2, replay-history-alongside is the immediate follow-up.)*
+- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own `exit_by` signal-validity yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. Setup strength remains experimental until this forward record supports calibration; the `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading a tiny sample, not an evidence threshold. *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2, replay-history-alongside is built.)*
 
-**Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm instrument panel. The UI *is* the gate.
+**Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm thesis-monitoring panel for a position the operator entered. The UI *is* the gate.
 
 ## Architecture & stack
 
@@ -108,9 +120,11 @@ alpha-deck/
 
 **In:** the Board + Cockpit surfaces; the thesis object + lifecycle; the SEC/filing intelligence brick (insider-conviction, dilution clock, 8-K classification) feeding both halves; the laggard scanner; the opinionated call layer with override logging; the point-in-time data foundation.
 
-**Built since (the MVP):** the **Workbench** (the full front half — scoring, authoring, the extract → ratify hybrid, the two LLM seams, and the create-thesis front door) + the **M2 feed loop** (per-thesis back-half ingest + the daily call-of-record cron). **Still parked:** the **Scoreboard** (the forward trust loop). See `docs/ROADMAP.md`.
+**Built since (the MVP):** the **Workbench** (the full front half — scoring, authoring, the extract → ratify hybrid, the two LLM seams, and the create-thesis front door) + the **M2 feed loop** (per-thesis back-half ingest + the daily call-of-record cron) + the **Scoreboard v1** (the forward trust-loop instrument; its record is still accruing). See `docs/ROADMAP.md`.
 
-**Out** (see CLAUDE.md): trade execution / brokerage writes; intraday/streaming; options-gamma & paid borrow data; crypto / commodities / prediction markets; runtime auth & multi-tenancy.
+**Out** (see CLAUDE.md): trade execution / brokerage writes, position sizing, and portfolio-risk management
+(all handed off to the firm's OMS / execution / risk stack); intraday/streaming; options-gamma & paid borrow
+data; crypto / commodities / prediction markets; runtime auth & multi-tenancy.
 
 ## Build order
 
@@ -144,5 +158,7 @@ Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
 **Trust state (kept honest):** the calls are tuned **in-sample** (n=19; see `docs/ROADMAP.md`'s trust box).
 "The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard v1**
 (the forward trust loop's instrument: the platform's calls vs the operator's decisions, scored over the
-call-of-record) is **built** — validation now accrues with the record itself (metrics gate below n=5; the
-follow-blindly counterfactual + deltas are v2).
+call-of-record) is **built** — forward evidence now accrues with the record itself. The setup-strength value
+remains experimental until those outcomes support calibration; the UI hides early aggregates below `n=5`
+only to discourage over-reading, and crossing that gate does not establish evidence. The follow-blindly
+counterfactual + deltas are v2.

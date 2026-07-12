@@ -4,7 +4,8 @@
 > columns, the Cockpit's deep view, the CallCard rail, decision capture, and the nightly rhythm that feeds
 > them. This is the *surface* doc; the *brain* is `CALL_LOGIC.md` (how signals become a call), the *rhythm*
 > is `FEED_LOOP.md` (the ingest + the call-of-record cron), and the *frame* is `STAGE_MODEL.md` (MONITOR is
-> the back half: the chosen basket parks as a thesis → incubate → warm → arm → manage).
+> the back half: the chosen basket parks as a thesis → incubate → warm → arm → monitor after an
+> operator-entered position).
 > Code: `frontend/src/board/` · `frontend/src/cockpit/` · `frontend/src/components/{CallCard,MemberMenu,
 > DecisionActions}.tsx` · the reads they render come from `GET /theses` + `GET /theses/{id}/call`.
 >
@@ -21,7 +22,8 @@ computes at the selected as-of (`useCalls` per thesis → `card.state`); nothing
 persisted for display. Change the as-of, and the whole board re-derives — it is a point-in-time view.
 
 - **The columns are the lifecycle, not a ranking:** `Incubating (quiet · do not act) → Warming (stirring)
-  → Armed (act now) → Managing (in position)`. The lifecycle is a loop, not a ratchet — cards move back
+  → Armed (act now) → Managing (entered position · thesis monitoring)`. Managing does not mean Alpha Deck
+  manages the position or portfolio risk. The lifecycle is a loop, not a ratchet — cards move back
   when triggers age out or a position closes (`CALL_LOGIC.md` §2). Columns never rank theses against each
   other (#4: the platform is deferential on thesis — it times, it doesn't judge ideas).
 - **The as-of scrub** (top right) defaults to **local today** (`todayISO` — deliberately not UTC, which is
@@ -33,9 +35,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
   Nothing to do. ✓"* — a calm board is a working board.
 - **The ThesisCard**: ticker (or a basket marker for a theme), name, narrative, and a state-appropriate
-  footer — Armed leads with the **entry verdict** (STARTER/CORE — *what to do*), with the conviction
-  grade as secondary context ("core thesis"); a bare CORE badge up front read as "go big", the over-commit
-  misread this split exists to stop. Non-armed cards show the two-key **readiness pips** (0–2). Armed
+  footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
+  with the conviction grade as secondary context ("core setup"); neither label sizes a trade. A bare CORE
+  badge up front read as "go big"; this split exists to stop that over-commit misread. Non-armed cards show
+  the two-key **readiness pips** (0–2). Armed
   cards carry the `CALL READY` flag.
 - **Archive, never delete** (board hygiene): hover a card → a quiet **✕** appears (a *sibling* of the
   card, top-right). Archiving drops the thesis into the collapsed **Archived (N)** section at the bottom —
@@ -51,7 +54,7 @@ lists** that render *even at zero* (an empty section used to vanish, which made 
 author one" invisible):
 
 - **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3").
-  Dated entries within the hold horizon ride the CallCard's catalyst surface; entries ≤ 21 days out
+  Dated entries within the `exit_by` signal-validity horizon ride the CallCard's catalyst surface; entries ≤ 21 days out
   highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
   `PUT /theses/{id}/catalysts` — a promote can never wipe the list. **Distinct from the per-name
   conviction FACTS** (the Key-1 arming inputs), which are authored on the Workbench rail with a required
@@ -92,7 +95,7 @@ Transition (instant where unsupported, off under reduced motion) instead of snap
 Wire rank is preserved inside the armed/watch buckets (the call machinery already ranked them — the
 FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order. Columns:
 `Dot · Ticker · Name · Archetype (only if decided — an unset one renders "—", never a default) ·
-Mkt cap (bridged from the scoring read) · Exit-by` (the member's **own** hold clock; amber
+Mkt cap (bridged from the scoring read) · Exit-by` (the member's **own** signal-validity horizon; amber
 "lapses ‹date›" on a Lapsing row). The old Role/Detail columns are gone from the table; the
 authored text survives on the per-name panel. No card yet (loading/error) → everything reads
 Quiet, honestly.
@@ -103,9 +106,9 @@ Clicking a row slides a **read-only, non-modal** panel over the rail (no scrim �
 clickable, so switching names is one click on the next row; the table never unmounts, and
 Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
 
-- **The call · this name** — its own verdict + grade chips + confidence bar, or the honest degrade
+- **The call · this name** — its own verdict + grade chips + setup-strength bar (wire field `confidence`), or the honest degrade
   line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals
-  at this as-of"), plus its two clocks (a lapsing hold clock reads amber, "lapses in Nd").
+  at this as-of"), plus its two clocks (a lapsing signal-validity clock reads amber, "lapses in Nd").
 - **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
   Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
   `risk_signals`, ticker-filtered.
@@ -121,21 +124,23 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
 
-Everything on the panel is a wire field this page already fetched; deciding (sizing, facts,
-archetype) lives in the Workbench. Omitted deliberately: description/website — draft-time
+Everything on the panel is a wire field this page already fetched; fact/archetype decisions live in the
+Workbench, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time
 enrichment fields that are never promoted onto a `BasketMember`.
 
 ## The CallCard — the opinionated, auditable rail
 
 State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top to bottom:
 
-- **Verdict + expression** — the call in words: `not_yet` with "hold for a volume-confirmed breakout"
-  through `starter_entry` / `core_entry` / `flip_only` / `managing` (§5/§8 of `CALL_LOGIC.md` decide).
+- **Verdict + expression** — the call-strength posture plus explanatory research context:
+  `not_yet` through `starter_entry` / `core_entry` / `flip_only` / `managing` (§5/§8 of
+  `CALL_LOGIC.md` decide). The legacy `expression` wire string is not sizing, instrument, or execution guidance.
 - **The two keys, explicit** — Conviction and Confirmation, the arming model made visible. A turned-but-
   weak confirmation (momentum-only, flip-grade) renders **amber, not green** — the loudest element on the
   card must not overstate a starter.
-- **Confidence bar** — Armed-only (§7): the backend nulls it for a not-yet card, so a Warming card never
-  wears the Armed card's bar.
+- **Setup-strength bar** (wire field `confidence`) — Armed-only (§7): the backend nulls it for a not-yet
+  card, so a Warming card never wears the Armed card's bar. It is an experimental relative indicator, not
+  a success probability; forward Scoreboard outcomes must support calibration.
 - **Triggers fired** — each with its ticker, grade, and a **clickable source link** (the Form 4, the 8-K —
   provenance is a feature, #6). **Still missing** names what hasn't fired; **Risk signals** ride with a
   warning glyph and no grade.
@@ -143,10 +148,12 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   triggers.
 - **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
   clock; on an Armed card it's an act-by deadline, "act within Nd"; informational decay otherwise) — and
-  `exit_by` — the **hold horizon** (conviction's clock, the one that governs once a fill is logged).
+  `exit_by` — the **signal-validity horizon** (conviction's clock and post-fill monitoring/scoring yardstick,
+  not a mandatory exit or sell-by date).
 - **Decision capture — the action row** (`DecisionActions`): every button **logs**, nothing routes (#5).
   State-appropriate: Armed → the loud **"Act — log the fill"** (name select defaults to the platform's
-  headline pick); Managing → **"Log exit"**; a not-yet state shows **the gate** — friction copy plus
+  headline pick); Managing → the current **"Log exit"** control, which records a close the operator already
+  decided rather than instructing one; a not-yet state shows **the gate** — friction copy plus
   "Override — log an early entry", and the take is logged with the platform's stance riding the row
   (*"the platform's verdict is not-yet — logging this take as an override"*). **"Pass (logged)"** is
   quiet and available at every state. The **decision log strip** lists recent rows (action · date ·
@@ -157,7 +164,8 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   derives the position that flips the thesis to **Managing** on the next read; a close returns it to the
   signals-driven state (`CALL_LOGIC.md` §2, the Managing row).
 - **The advisory line** — "order routing never; every act, pass, and override above is a logged decision
-  (the Scoreboard's operator record)."
+  (the Scoreboard's operator record)." Execution, sizing, and portfolio risk remain in the firm's OMS /
+  execution / risk systems.
 
 ## The MemberMenu — the ranked basket (themes only)
 
@@ -181,7 +189,8 @@ first thing the platform already checked without the operator.
 ## What the Board never does (decisions, not gaps)
 
 - **No execution, ever** (#5) — the gate withholds a go-signal and logs overrides; it never blocks and
-  never trades. The operator logs their own fills.
+  never trades. The operator logs their own fills; Alpha Deck hands off to the firm's OMS / execution /
+  sizing / portfolio-risk systems and does not replace them.
 - **No persisted display state** — columns, queue, and card all re-derive from facts on every read
   (Option B; a fact correction propagates automatically).
 - **No thesis-vs-thesis ranking** (#4) — the board organizes by lifecycle and times entries; it has no
