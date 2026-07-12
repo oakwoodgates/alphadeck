@@ -10,7 +10,8 @@ record (clearly separated — the record stays clean). "The platform feeds itsel
 
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
-**RH (replay-alongside): RH-A built** (the snapshot CLI + `GET /scoreboard/replay`); RH-B = the FE section.
+**RH (replay-alongside): built** — RH-A (the snapshot CLI + `GET /scoreboard/replay`) + RH-B (the FE
+historical section: collapsed-by-default below the live ledger, `frontend/src/scoreboard/ReplayPanel.tsx`).
 
 ## The one rule everything hangs on
 

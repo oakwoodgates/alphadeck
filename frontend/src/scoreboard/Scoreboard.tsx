@@ -1,19 +1,12 @@
 import { Fragment, useState } from "react";
 
-import type { ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
+import type { ScoreboardThesisOut } from "../api/hooks";
 import { useScoreboard } from "../api/hooks";
 import { fmtDate } from "../util/format";
-import {
-  episodeBadges,
-  fmtReturn,
-  gateMetrics,
-  groupCount,
-  groupHint,
-  groupToneClass,
-  metricHeadline,
-  operatorLine,
-  returnLabel,
-} from "./rows";
+import { EpisodeRow } from "./EpisodeRow";
+import { MetricsStrip } from "./MetricsStrip";
+import { ReplayPanel } from "./ReplayPanel";
+import { fmtReturn, groupCount, groupHint, groupToneClass } from "./rows";
 
 // The Scoreboard (SCORE) — the episode ledger over the forward record: what the platform said,
 // what the operator did, what happened. Ledger-first (the aggregate strip stays quiet until n
@@ -27,67 +20,6 @@ type Props = {
   onOpenWorkbench: () => void;
   onSelect: (thesisId: string) => void;
 };
-
-function EpisodeRow({
-  ep,
-  thesisId,
-  onSelect,
-}: {
-  ep: ScoreboardEpisodeOut;
-  thesisId: string;
-  onSelect: (id: string) => void;
-}) {
-  const ret = fmtReturn(ep.forward_return);
-  const op = operatorLine(ep);
-  return (
-    <tr className="sb-row" onClick={() => onSelect(thesisId)} tabIndex={0}>
-      <td className="tk">{ep.ticker ?? "—"}</td>
-      <td className="sb-armed">
-        {fmtDate(ep.arm_date)}
-        {ep.censored_start && (
-          <span className="sb-cen" title="the record began mid-arm — true arm date unknowable">
-            *
-          </span>
-        )}
-        {ep.dearm_date && <span className="sb-dearm"> → {fmtDate(ep.dearm_date)}</span>}
-      </td>
-      <td className="sb-why">
-        {ep.triggers_at_arm.length ? (
-          ep.triggers_at_arm.map((t, i) => (
-            <span key={i} className="sb-trig" title={t.label}>
-              {t.kind}
-            </span>
-          ))
-        ) : (
-          <span className="muted">—</span>
-        )}
-      </td>
-      <td className="exitby">{fmtDate(ep.exit_by)}</td>
-      <td className="sb-status">
-        {episodeBadges(ep).map((b) => (
-          <span key={b.label} className={`sb-badge ${b.cls}`} title={b.title}>
-            {b.label}
-          </span>
-        ))}
-        {ep.status === "closed" && <span className="sb-reason">{ep.close_reason}</span>}
-      </td>
-      <td className="sb-ret">
-        <span className={`ret ${ret.cls}`}>{ret.text}</span>
-        <span className="sb-retlabel"> {returnLabel(ep)}</span>
-      </td>
-      <td className={`sb-op sb-op-${op.kind}`}>
-        {op.text}
-        {op.ret && <span className={`ret ${op.ret.cls}`}> {op.ret.text}</span>}
-        {op.inferred && (
-          <span className="sb-inf" title="no fill price logged — the close stands in">
-            ≈
-          </span>
-        )}
-        {ep.operator?.reason && <span className="sb-reason"> · {ep.operator.reason}</span>}
-      </td>
-    </tr>
-  );
-}
 
 function SpanRow({
   t,
@@ -163,7 +95,6 @@ export function Scoreboard({ asof, onAsofChange, onBack, onOpenWorkbench, onSele
     });
 
   const summary = data?.summary;
-  const gated = summary ? gateMetrics(summary.metrics, summary.min_n) : null;
 
   return (
     <div className="board-shell sb-shell">
@@ -204,17 +135,7 @@ export function Scoreboard({ asof, onAsofChange, onBack, onOpenWorkbench, onSele
             {summary.n_voided > 0 && <span>{summary.n_voided} voided</span>}
           </div>
 
-          {gated && (
-            <div className="sb-metrics">
-              {gated.shown.map((m) => (
-                <div key={m.name} className="sb-metric" title={m.claim}>
-                  <div className="sb-mname">{m.name.replaceAll("_", " ")}</div>
-                  <div className="sb-mval">{metricHeadline(m)}</div>
-                </div>
-              ))}
-              {gated.gatedLine && <div className="sb-gated">{gated.gatedLine}</div>}
-            </div>
-          )}
+          <MetricsStrip metrics={summary.metrics} minN={summary.min_n} />
 
           {summary.n_episodes === 0 && summary.n_takes === 0 && (
             <div className="sb-empty">
@@ -297,6 +218,8 @@ export function Scoreboard({ asof, onAsofChange, onBack, onOpenWorkbench, onSele
               ))}
             </tbody>
           </table>
+
+          <ReplayPanel onSelect={onSelect} />
         </div>
       )}
     </div>
