@@ -93,7 +93,9 @@ export function metricHeadline(m: ScoreboardMetricOut): string {
   return `${pick} ${text} · n=${m.n}`;
 }
 
-/** The thesis group's hint line: record span, or the honest zero-episode story. */
+/** The thesis group's hint line: record span, plus any OPEN warming-with-conviction run — an
+ *  accruing withheld window is worth a quiet mark whether or not episodes already exist
+ *  (mockup proposal ⑩, operator-approved). */
 export function groupHint(t: ScoreboardThesisOut): string {
   if (t.record_error) return "record error";
   if (!t.first_call_asof) return "no call-of-record yet";
@@ -101,7 +103,7 @@ export function groupHint(t: ScoreboardThesisOut): string {
     t.first_call_asof === t.last_call_asof
       ? `record ${t.first_call_asof}`
       : `record ${t.first_call_asof} → ${t.last_call_asof}`;
-  if (!t.episodes.length && t.warming_since) return `${span} · warming since ${t.warming_since}`;
+  if (t.warming_since) return `${span} · warming since ${t.warming_since}`;
   return span;
 }
 

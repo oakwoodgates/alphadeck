@@ -207,11 +207,15 @@ function thesis(over: Partial<ScoreboardThesisOut> = {}): ScoreboardThesisOut {
 }
 
 describe("groupHint / groupToneClass / groupCount", () => {
-  it("shows the record span, and the warming accrual at zero episodes", () => {
+  it("shows the record span, and the warming accrual whenever a run is open (proposal ⑩)", () => {
     expect(groupHint(thesis())).toBe("record 2026-07-10 → 2026-07-11");
     expect(
       groupHint(thesis({ warming_since: "2026-07-10", first_call_asof: "2026-07-10", last_call_asof: "2026-07-10" })),
     ).toBe("record 2026-07-10 · warming since 2026-07-10");
+    // an accruing withheld window shows even when episodes already exist (⑩ — operator-approved)
+    expect(groupHint(thesis({ warming_since: "2026-08-25", episodes: [ep()] }))).toBe(
+      "record 2026-07-10 → 2026-07-11 · warming since 2026-08-25",
+    );
     expect(groupHint(thesis({ first_call_asof: null }))).toBe("no call-of-record yet");
   });
   it("tone: open episode → armed; warming edge → warm; else quiet", () => {
