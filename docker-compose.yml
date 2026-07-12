@@ -72,12 +72,13 @@ services:
       retries: 12
       start_period: 20s # cover migrate + seed before failures count
 
-  # The daily call-of-record cron — "the platform feeds itself" (M2d). DISABLED by default: it runs ONLY
-  # under the `cron` profile (`docker compose --profile cron up`), so `docker compose up`, local dev, and
-  # tests never fire it. Shares the backend image; the idempotent `pipeline.daily` CLI is the unit of work,
-  # this sidecar is just the trigger (scripts/daily_cron.sh sleeps until the US-close time, then runs it).
+  # The daily call-of-record cron — "the platform feeds itself" (M2d). ON BY DEFAULT: it comes up with the
+  # normal `docker compose up`, so the platform notifies itself with no extra command to remember. (Local dev
+  # uses infra/docker-compose.yml — DB only — and tests use pytest, so neither starts this; the full-stack
+  # compose is the deployment, where the cron belongs. To skip it for one run: `docker compose up -d
+  # --scale cron=0`.) Shares the backend image; the idempotent `pipeline.daily` CLI is the unit of work, this
+  # sidecar is just the trigger (scripts/daily_cron.sh sleeps until the US-close time, then runs it).
   cron:
-    profiles: ["cron"]
     build: ./backend
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck

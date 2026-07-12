@@ -11,3 +11,8 @@ docker-compose.yml text eol=lf
 # platforms. The loader also normalizes newlines at read time (belt + suspenders); the golden-hash test pins
 # the model-visible bytes regardless, but eol=lf keeps the committed file clean.
 backend/llm/prompts/*.md text eol=lf
+
+# Shell scripts run under `sh` (dash) inside the Linux containers — a CRLF checkout on Windows appends a \r
+# that dash reads as an illegal option (`set -u\r`), crash-looping the cron sidecar. Force LF everywhere so
+# the Docker build context is always Linux-clean, regardless of core.autocrlf.
+*.sh text eol=lf
