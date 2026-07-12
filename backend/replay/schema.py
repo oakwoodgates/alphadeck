@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from domain.call import CallCard, MemberCall
+from domain.call import CallCard, MemberCall, TriggerRef
 from domain.enums import Grade, State, Verdict
 
 # The replay OUTPUT models. Deliberately reusable by the future live Scoreboard (the forward twin of
@@ -28,6 +28,10 @@ class MemberRow(BaseModel):
     arm_until: date | None = None
     lapsing: bool = False
     theme_armed: bool = False
+    # the member's own fired evidence (additive — default empty, so hand-built test rows and every
+    # pre-existing consumer are unchanged): the live Scoreboard's replay panel reads the WHY from
+    # the arm-date snapshot, exactly as the forward record reads it from the arm-date card (#6).
+    triggers: list[TriggerRef] = []
 
     @classmethod
     def from_member(cls, m: MemberCall, tier: str) -> "MemberRow":
@@ -43,6 +47,7 @@ class MemberRow(BaseModel):
             arm_until=m.arm_until,
             lapsing=m.lapsing,
             theme_armed=m.theme_armed,
+            triggers=list(m.triggers),
         )
 
 

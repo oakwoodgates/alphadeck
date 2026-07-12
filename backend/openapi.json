@@ -1314,6 +1314,28 @@
         }
       }
     },
+    "/scoreboard/replay": {
+      "get": {
+        "tags": [
+          "scoreboard"
+        ],
+        "summary": "Get Scoreboard Replay",
+        "description": "The HISTORICAL (replayed) panel \u2014 replayed history served from the operator-kicked artifact\n(``python -m scoreboard.replay_snapshot``, dev venv only: replay needs the .[replay] extra the\nlean image deliberately lacks). A RECOMPUTE by construction \u2014 today's code + dials over\nhistorical facts, the not-bitemporal basket caveat riding the banner \u2014 NEVER the record and\nnever merged with it: separate artifact, separate endpoint, metrics never pooled with the live\nsummary. ``available=false`` when no artifact exists (or it fails validation \u2014 absence, not an\noutage). Read-only; the container's artifact mount is read-only besides.",
+        "operationId": "get_scoreboard_replay_scoreboard_replay_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreboardReplayResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -3975,6 +3997,179 @@
         ],
         "title": "ScoreboardMetricOut",
         "description": "One claim-tied metric (the replay set, computed over eligible live outcomes). ``claim``\nnames which system claim it tests \u2014 never a generic hit-rate; below ``n``/``insufficient_n``\nthe summary must not be read as a claim (the FE renders it quiet)."
+      },
+      "ScoreboardReplayResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "known_at_pin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known At Pin"
+          },
+          "record_began": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Began"
+          },
+          "window_overlaps_record": {
+            "type": "boolean",
+            "title": "Window Overlaps Record",
+            "default": false
+          },
+          "banner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner"
+          },
+          "min_n": {
+            "type": "integer",
+            "title": "Min N",
+            "default": 0
+          },
+          "n_theses": {
+            "type": "integer",
+            "title": "N Theses",
+            "default": 0
+          },
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "n_censored": {
+            "type": "integer",
+            "title": "N Censored",
+            "default": 0
+          },
+          "n_eligible": {
+            "type": "integer",
+            "title": "N Eligible",
+            "default": 0
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardMetricOut"
+            },
+            "type": "array",
+            "title": "Metrics",
+            "default": []
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardReplayThesisOut"
+            },
+            "type": "array",
+            "title": "Theses",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "ScoreboardReplayResponse",
+        "description": "The replay panel: replayed history served from the operator-kicked artifact \u2014 a RECOMPUTE\n(today's code + dials over historical facts), never the record; separate endpoint, separate\nsection, metrics never pooled with the live summary. ``available=false`` = no artifact yet\n(run ``python -m scoreboard.replay_snapshot`` from the dev venv)."
+      },
+      "ScoreboardReplayThesisOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "basket_size": {
+            "type": "integer",
+            "title": "Basket Size",
+            "default": 0
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardEpisodeOut"
+            },
+            "type": "array",
+            "title": "Episodes",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name"
+        ],
+        "title": "ScoreboardReplayThesisOut",
+        "description": "One thesis's slice of the HISTORICAL (replayed) panel \u2014 platform track only (decision\ncapture post-dates history, so the operator column is structurally absent, not empty)."
       },
       "ScoreboardResponse": {
         "properties": {
