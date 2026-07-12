@@ -41,7 +41,8 @@ vi.mock("../scoreboard/Scoreboard", () => ({
     <div>
       <h1>SCOREBOARD</h1>
       <span data-testid="sb-asof">{p.asof}</span>
-      <button onClick={() => p.onSelect("t-9")}>sb-select</button>
+      <button onClick={() => p.onSelect("t-9", "HIMS")}>sb-select</button>
+      <button onClick={() => p.onSelect("t-9")}>sb-select-bare</button>
       <button onClick={() => p.onBack()}>sb-back</button>
       <button onClick={() => p.onOpenWorkbench()}>sb-to-workbench</button>
     </div>
@@ -64,8 +65,11 @@ vi.mock("../cockpit/Cockpit", () => ({
       <h1>COCKPIT</h1>
       <span data-testid="cp-thesis">{p.thesisId}</span>
       <span data-testid="cp-asof">{p.asof}</span>
+      <span data-testid="cp-name">{p.selectedName ?? ""}</span>
       <button onClick={() => p.onBack()}>cp-back</button>
       <button onClick={() => p.onAsofChange("2026-06-01")}>cp-scrub</button>
+      <button onClick={() => p.onSelectName("XE")}>cp-pick-xe</button>
+      <button onClick={() => p.onSelectName(null)}>cp-clear-name</button>
     </div>
   ),
 }));
@@ -162,6 +166,48 @@ describe("App routes — Back returns to the originating view", () => {
     await user.click(screen.getByText("cp-back"));
     expect(screen.getByText("BOARD")).toBeInTheDocument();
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
+  });
+});
+
+describe("App routes — the ?name= deep link", () => {
+  it("a scoreboard row click lands the Cockpit with the name key AND asof carried", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard?asof=2026-06-01");
+    await user.click(screen.getByText("sb-select"));
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
+    expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
+  });
+
+  it("?name= in a direct URL (the shared link) reaches the Cockpit prop", () => {
+    renderAt("/thesis/t-42?name=OKLO");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("OKLO");
+  });
+
+  it("picking another name swaps the key; onSelectName(null) clears it", async () => {
+    const user = userEvent.setup();
+    renderAt("/thesis/t-42?name=OKLO");
+    await user.click(screen.getByText("cp-pick-xe"));
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("XE");
+    await user.click(screen.getByText("cp-clear-name"));
+    expect(screen.getByTestId("cp-name").textContent).toBe("");
+  });
+
+  it("a name-less select (a thesis-level span) opens the bare Cockpit", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard");
+    await user.click(screen.getByText("sb-select-bare"));
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
+    expect(screen.getByTestId("cp-name").textContent).toBe("");
+  });
+
+  it("Back from a name-deep-linked Cockpit returns to the Scoreboard", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard?asof=2026-06-01");
+    await user.click(screen.getByText("sb-select"));
+    await user.click(screen.getByText("cp-back"));
+    expect(screen.getByText("SCOREBOARD")).toBeInTheDocument();
+    expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
   });
 });
 

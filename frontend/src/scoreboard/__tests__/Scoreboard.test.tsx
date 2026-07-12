@@ -202,10 +202,25 @@ describe("Scoreboard", () => {
     expect(screen.getAllByText(/awaiting first bar/).length).toBe(2);
   });
 
-  it("drills into the Cockpit on row click", () => {
+  it("drills into the Cockpit on row click — carrying the clicked NAME for the ?name= deep link", () => {
     const { onSelect } = renderBoard();
+    // an episode row: thesis id + its ticker as the name key
+    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+    expect(onSelect).toHaveBeenCalledWith("t-hims", "HIMS");
+    // a span row: same contract (this one has a name)
     fireEvent.click(screen.getByText(/platform said watching/).closest("tr")!);
-    expect(onSelect).toHaveBeenCalledWith("t-5b");
+    expect(onSelect).toHaveBeenCalledWith("t-5b", "J");
+  });
+
+  it("falls back to security_id as the name key when the episode's ticker is unresolved", () => {
+    const { onSelect } = renderBoard({
+      data: {
+        ...PAYLOAD,
+        theses: [{ ...PAYLOAD.theses[0], episodes: [{ ...EP, ticker: null }] }],
+      },
+    });
+    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+    expect(onSelect).toHaveBeenCalledWith("t-hims", "s1");
   });
 
   it("renders the honest empty state when the record has nothing yet", () => {

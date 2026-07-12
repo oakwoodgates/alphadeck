@@ -43,7 +43,14 @@ import { Cockpit } from "../Cockpit";
 describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", () => {
   it("renders a `fund` member as 'ETF sleeve' via the shared archLabel, not the raw key", () => {
     const { container } = render(
-      <Cockpit thesisId="t-etf" asof="2026-06-20" onAsofChange={() => {}} onBack={() => {}} />,
+      <Cockpit
+        thesisId="t-etf"
+        asof="2026-06-20"
+        onAsofChange={() => {}}
+        onBack={() => {}}
+        selectedName={null}
+        onSelectName={() => {}}
+      />,
     );
     // The chip's DOM text is "ETF sleeve" — the `.arch { text-transform: uppercase }` is visual-only, so we
     // assert on the textContent ("ETF sleeve"), NOT the rendered "ETF SLEEVE".
@@ -56,7 +63,16 @@ describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", 
   });
 
   it("surfaces computed market cap per basket row, bridged by security_id (Slice 3)", () => {
-    render(<Cockpit thesisId="t-etf" asof="2026-06-20" onAsofChange={() => {}} onBack={() => {}} />);
+    render(
+      <Cockpit
+        thesisId="t-etf"
+        asof="2026-06-20"
+        onAsofChange={() => {}}
+        onBack={() => {}}
+        selectedName={null}
+        onSelectName={() => {}}
+      />,
+    );
     expect(screen.getByText("Mkt cap")).toBeInTheDocument(); // the new column header
     expect(screen.getByText("$3.2B")).toBeInTheDocument(); // URA's computed cap (formatMarketCap(3.2e9))
   });

@@ -12,7 +12,11 @@ import { MetricsStrip } from "./MetricsStrip";
 // one but a different dataset — the two are never pooled. Platform track only: history predates
 // decision capture, so the operator cell says so instead of faking a capture gap.
 
-export function ReplayPanel({ onSelect }: { onSelect: (thesisId: string) => void }) {
+export function ReplayPanel({
+  onSelect,
+}: {
+  onSelect: (thesisId: string, nameKey?: string) => void;
+}) {
   const { data } = useScoreboardReplay();
   const [open, setOpen] = useState(false); // collapsed by default: context, not action
 

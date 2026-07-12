@@ -14,13 +14,19 @@ export function EpisodeRow({
 }: {
   ep: ScoreboardEpisodeOut;
   thesisId: string;
-  onSelect: (id: string) => void;
+  /** nameKey deep-links the clicked NAME's panel in the Cockpit (?name=) — the ticker when
+   *  resolved, else the security_id (always present on an episode). */
+  onSelect: (id: string, nameKey?: string) => void;
   historical?: boolean;
 }) {
   const ret = fmtReturn(ep.forward_return);
   const op = operatorLine(ep);
   return (
-    <tr className="sb-row" onClick={() => onSelect(thesisId)} tabIndex={0}>
+    <tr
+      className="sb-row"
+      onClick={() => onSelect(thesisId, ep.ticker ?? ep.security_id)}
+      tabIndex={0}
+    >
       <td className="tk">{ep.ticker ?? "—"}</td>
       <td className="sb-armed">
         {fmtDate(ep.arm_date)}

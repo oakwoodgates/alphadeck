@@ -5,7 +5,13 @@ import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
-import { groupBasket, type BucketKey } from "./buckets";
+import {
+  groupBasket,
+  nameKeyFor,
+  resolveNameKey,
+  type BucketKey,
+  type BucketRow,
+} from "./buckets";
 import { NamePanel } from "./NamePanel";
 import {
   accentVar,
@@ -23,9 +29,21 @@ interface Props {
   asof: string;
   onAsofChange: (asof: string) => void;
   onBack?: () => void;
+  /** The per-name panel's selection key (?name= — a ticker, or a security_id for duplicate
+   *  tickers), owned by the URL via App's CockpitRoute so a scoreboard row / a shared link can
+   *  land with the panel already open. */
+  selectedName: string | null;
+  onSelectName: (key: string | null) => void;
 }
 
-export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
+export function Cockpit({
+  thesisId,
+  asof,
+  onAsofChange,
+  onBack,
+  selectedName,
+  onSelectName,
+}: Props) {
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
   const scoredQ = useWorkbenchScored(thesisId, asof);
@@ -41,19 +59,16 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
   // call is still computing (card undefined) everything reads Quiet, honestly.
   const groups = groupBasket(basket, card, scoredQ.data?.members);
 
-  // The per-name panel's selection — keyed by the row's basket ordinal (stable across bucket moves
-  // and duplicate tickers). The panel is a SIBLING overlay: opening/closing/switching never
-  // unmounts the table, so grouping, dots, and scroll survive exactly as left. If the selected row
-  // vanishes (e.g. the basket changed under an edit), the panel simply doesn't render — no strand.
-  const [selOrdinal, setSelOrdinal] = useState<number | null>(null);
-  const selected =
-    selOrdinal === null
-      ? null
-      : (groups
-          .flatMap((g) => g.rows.map((r) => ({ row: r, def: g.def })))
-          .find((x) => x.row.ordinal === selOrdinal) ?? null);
-  const toggleRow = (ordinal: number) =>
-    setSelOrdinal((s) => (s === ordinal ? null : ordinal));
+  // The per-name panel's selection — lifted to the URL (the selectedName prop, ?name= via App's
+  // CockpitRoute) and RESOLVED to a row on every render, so a deep link opens the panel the moment
+  // data loads. Ordinal stays the render identity (duplicate tickers remain distinct rows); the
+  // panel is a SIBLING overlay: opening/closing/switching never unmounts the table, so grouping,
+  // dots, and scroll survive exactly as left. If the key matches nothing (a stale link, a basket
+  // edit), the panel simply doesn't render — no strand.
+  const selected = resolveNameKey(groups, selectedName);
+  const selOrdinal = selected?.row.ordinal ?? null;
+  const toggleRow = (r: BucketRow) =>
+    onSelectName(r.ordinal === selOrdinal ? null : nameKeyFor(r, basket));
 
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
   // header keeps its count while closed, so nothing reads as dropped). Local view state only.
@@ -178,11 +193,11 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
                             className={`bkt ${def.cls}${closedGroups.has(def.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                             tabIndex={0}
                             aria-selected={r.ordinal === selOrdinal}
-                            onClick={() => toggleRow(r.ordinal)}
+                            onClick={() => toggleRow(r)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                toggleRow(r.ordinal);
+                                toggleRow(r);
                               }
                             }}
                           >
@@ -289,7 +304,7 @@ export function Cockpit({ thesisId, asof, onAsofChange, onBack }: Props) {
           thesisId={thesisId}
           position={thesis?.position}
           asof={asof}
-          onClose={() => setSelOrdinal(null)}
+          onClose={() => onSelectName(null)}
         />
       )}
     </div>
