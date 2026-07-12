@@ -187,7 +187,7 @@ curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
 # the narrative->chain draft (S5; needs ANTHROPIC_API_KEY — else an empty fail-open draft):
 curl -X POST "http://127.0.0.1:8000/workbench/theses/<id>/draft-chain"
 
-# frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /theses -> :8000
+# frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /api -> :8000
 ```
 
 Keep this section current as the source of truth for build/run/test.
