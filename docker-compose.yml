@@ -43,6 +43,11 @@ services:
       # Fallback is `false` (NOT empty): an empty env value can't parse as a bool — pydantic-settings would crash
       # on boot (same trap as the hit-cap above).
       ALPHADECK_RUN_LOADER_ENABLED: ${ALPHADECK_RUN_LOADER_ENABLED:-false}
+      # The notify DELIVERY channel (the Slack incoming-webhook). Unset -> the LogNotifier fallback (delivery
+      # off; transitions still logged). Set SLACK_WEBHOOK_URL in `.env` to push the loud -> armed transitions.
+      # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
+      # sidecar (below) is the automated path.
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +85,9 @@ services:
       TZ: ${ALPHADECK_CRON_TZ:-America/New_York} # explicit TZ — schedule at US market close, never UTC
       RUN_AT: ${ALPHADECK_CRON_AT:-22:30} # HH:MM in TZ — after the US close + EOD settle
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
+      # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push. Unset ->
+      # LogNotifier (transitions logged, not delivered); set SLACK_WEBHOOK_URL in `.env` to push to Slack.
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       backend:
         condition: service_healthy # the API migrates + seeds on start; the cron needs the ready DB
