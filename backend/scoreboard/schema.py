@@ -105,6 +105,42 @@ class ThesisRecord(BaseModel):
     error: str | None = None  # fault isolation: an unreadable historical card, surfaced not raised
 
 
+class ReplayThesisHistory(BaseModel):
+    """One thesis's slice of the HISTORICAL (replayed) panel — platform track only: no operator
+    join exists in history (decision capture post-dates it), structurally absent, never empty."""
+
+    thesis_id: UUID
+    tenant_id: UUID | None = None  # threads ticker/CIK resolution at serve time (never wire)
+    name: str
+    ticker: str | None = None
+    basket_size: int = 0
+    episodes: list[ScoredEpisode] = []
+
+
+class ReplaySnapshot(BaseModel):
+    """The replay-panel artifact — replayed history for the Scoreboard's clearly-separated
+    historical section. A RECOMPUTE by construction (today's code + dials over historical facts,
+    the documented not-bitemporal basket caveat riding the banner) — never the record, never
+    merged with it: separate artifact, separate endpoint, separate section. Written only by the
+    operator-kicked CLI (``python -m scoreboard.replay_snapshot``); the app only reads."""
+
+    kind: Literal["scoreboard_replay_snapshot"] = "scoreboard_replay_snapshot"
+    generated_at: str
+    window_start: date
+    window_end: date
+    known_at_pin: str
+    record_began: date | None = None
+    window_overlaps_record: bool = False  # end pushed past the record: loud, never silent
+    banner: str
+    min_n: int
+    n_theses: int = 0
+    n_episodes: int = 0
+    n_censored: int = 0
+    n_eligible: int = 0
+    metrics: list[MetricResult] = []  # over matured + non-censored — the SAME rule as live
+    theses: list[ReplayThesisHistory] = []
+
+
 class ScoreboardSummary(BaseModel):
     """The aggregate layer: replay's claim-tied metric set over ELIGIBLE outcomes only — matured
     (judged at the episode's own exit_by) AND non-censored (the record saw the arm) — plus the

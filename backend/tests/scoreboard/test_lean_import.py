@@ -53,6 +53,8 @@ def test_scoreboard_package_imports_without_replay_extra_modules():
         "scoreboard.record",
         "scoreboard.schema",
         "scoreboard.run",
+        "scoreboard.artifact",
+        "scoreboard.replay_snapshot",  # the CLI imports replay's duckdb bits inside main() only
     ):
         path = Path(__file__).resolve().parents[2] / Path(*module.split(".")).with_suffix(".py")
         runtime = _runtime_imports(path)

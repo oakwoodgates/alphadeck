@@ -878,3 +878,37 @@ def _operator_span_out(s: OperatorSpan, tickers: Mapping[UUID, str | None]) -> O
     return OperatorSpanOut(
         ticker=tickers.get(s.security_id) if s.security_id else None, **s.model_dump()
     )
+
+
+class ScoreboardReplayThesisOut(BaseModel):
+    """One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
+    capture post-dates history, so the operator column is structurally absent, not empty)."""
+
+    thesis_id: UUID
+    name: str
+    ticker: str | None = None
+    basket_size: int = 0
+    episodes: list[ScoreboardEpisodeOut] = []
+
+
+class ScoreboardReplayResponse(BaseModel):
+    """The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
+    (today's code + dials over historical facts), never the record; separate endpoint, separate
+    section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
+    (run ``python -m scoreboard.replay_snapshot`` from the dev venv)."""
+
+    available: bool
+    generated_at: str | None = None
+    window_start: date | None = None
+    window_end: date | None = None
+    known_at_pin: str | None = None
+    record_began: date | None = None
+    window_overlaps_record: bool = False
+    banner: str | None = None
+    min_n: int = 0
+    n_theses: int = 0
+    n_episodes: int = 0
+    n_censored: int = 0
+    n_eligible: int = 0
+    metrics: list[ScoreboardMetricOut] = []
+    theses: list[ScoreboardReplayThesisOut] = []

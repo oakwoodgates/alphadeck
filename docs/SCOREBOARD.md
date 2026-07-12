@@ -10,6 +10,7 @@ record (clearly separated — the record stays clean). "The platform feeds itsel
 
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
+**RH (replay-alongside): RH-A built** (the snapshot CLI + `GET /scoreboard/replay`); RH-B = the FE section.
 
 ## The one rule everything hangs on
 
@@ -87,6 +88,32 @@ counted in `n_voided`); the valid axis caps at the request asof (`decision_date 
 - **anomalies** — a log shape the API should have prevented (take-while-open, close-while-flat)
   surfaces as a per-thesis `decision_anomaly` note; the pairing never silently fixes the log.
 
+## The historical panel (replay-alongside, RH)
+
+The immediate post-v1 follow-up: replayed history in a **clearly-separated** section, so the page
+has depth while the forward record accrues — without polluting it. Structure over trust:
+
+- **An operator-kicked artifact, never live compute.** Replay needs the `.[replay]` extra (absent
+  from the lean prod image) and takes minutes — so `python -m scoreboard.replay_snapshot` (dev
+  venv) runs replay and writes ONE JSON artifact (`data/scoreboard_replay/latest.json`,
+  latest-only: the snapshot is deterministic per (SoR, pin, window, cfg)). The app only READS it
+  (`GET /scoreboard/replay`; `available:false` when absent/unreadable — never a 500). In compose,
+  that one subpath is a **read-only host bind** over the appdata volume: the container serves the
+  artifact but physically cannot write it. Cost stays the operator's to spend, never ambient.
+- **The seam.** The window defaults to ending at `record_began − 1`: replay covers history, the
+  record covers everything after — no double-counted arms. A replayed episode still armed at the
+  seam (`window_end`) and a censored record episode on the same name are the same real arm, split
+  at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
+  (`window_overlaps_record` + a banner warning), never silent.
+- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts; baskets are not
+  versioned (REPLAY.md's known limitation) — the caveat rides the banner permanently. Separate
+  endpoint, separate section, metrics never pooled with the live summary.
+- **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
+  the window's first replayed day; `matured` against the data edge; metrics over matured ∧
+  non-censored only; the WHY rides each episode from the arm-date snapshot (`MemberRow.triggers`,
+  the one additive replay-schema change). Platform track only — decision capture post-dates
+  history, so the operator column is structurally absent.
+
 ## Reading it
 
 ```powershell
@@ -106,7 +133,7 @@ keep `CallCard` evolution **additive-only** so old cards stay loadable.
 
 ## Deliberately NOT here (v1)
 
-Follow-blindly track + deltas (v2) · replay-history-alongside (the immediate follow-up) · a second
-metrics-led view behind a toggle (v2, once n accrues) · charts · persistence/caching of scores ·
-cron changes · notifications · the second recalibration (unlocked by this, not part of it) ·
-a transaction-time (`known_at`) scrub parameter.
+Follow-blindly track + deltas (v2) · a second metrics-led view behind a toggle (v2, once n
+accrues) · charts · persistence/caching of scores · cron changes · notifications · the second
+recalibration (unlocked by this, not part of it) · a transaction-time (`known_at`) scrub
+parameter · stitching replayed and recorded episodes across the seam (noted, never merged).

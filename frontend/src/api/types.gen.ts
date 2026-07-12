@@ -625,6 +625,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scoreboard/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scoreboard Replay
+         * @description The HISTORICAL (replayed) panel — replayed history served from the operator-kicked artifact
+         *     (``python -m scoreboard.replay_snapshot``, dev venv only: replay needs the .[replay] extra the
+         *     lean image deliberately lacks). A RECOMPUTE by construction — today's code + dials over
+         *     historical facts, the not-bitemporal basket caveat riding the banner — NEVER the record and
+         *     never merged with it: separate artifact, separate endpoint, metrics never pooled with the live
+         *     summary. ``available=false`` when no artifact exists (or it fails validation — absence, not an
+         *     outage). Read-only; the container's artifact mount is read-only besides.
+         */
+        get: operations["get_scoreboard_replay_scoreboard_replay_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1776,6 +1802,95 @@ export interface components {
              * @default
              */
             note: string;
+        };
+        /**
+         * ScoreboardReplayResponse
+         * @description The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
+         *     (today's code + dials over historical facts), never the record; separate endpoint, separate
+         *     section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
+         *     (run ``python -m scoreboard.replay_snapshot`` from the dev venv).
+         */
+        ScoreboardReplayResponse: {
+            /** Available */
+            available: boolean;
+            /** Generated At */
+            generated_at?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Known At Pin */
+            known_at_pin?: string | null;
+            /** Record Began */
+            record_began?: string | null;
+            /**
+             * Window Overlaps Record
+             * @default false
+             */
+            window_overlaps_record: boolean;
+            /** Banner */
+            banner?: string | null;
+            /**
+             * Min N
+             * @default 0
+             */
+            min_n: number;
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /**
+             * N Censored
+             * @default 0
+             */
+            n_censored: number;
+            /**
+             * N Eligible
+             * @default 0
+             */
+            n_eligible: number;
+            /**
+             * Metrics
+             * @default []
+             */
+            metrics: components["schemas"]["ScoreboardMetricOut"][];
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["ScoreboardReplayThesisOut"][];
+        };
+        /**
+         * ScoreboardReplayThesisOut
+         * @description One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
+         *     capture post-dates history, so the operator column is structurally absent, not empty).
+         */
+        ScoreboardReplayThesisOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Basket Size
+             * @default 0
+             */
+            basket_size: number;
+            /**
+             * Episodes
+             * @default []
+             */
+            episodes: components["schemas"]["ScoreboardEpisodeOut"][];
         };
         /**
          * ScoreboardResponse
@@ -3037,6 +3152,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scoreboard_replay_scoreboard_replay_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreboardReplayResponse"];
                 };
             };
         };

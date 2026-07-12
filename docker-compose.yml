@@ -55,6 +55,11 @@ services:
       # re-enumerated EFTS fully live — politeness cost + run-to-run index drift at the hit-cap boundary.
       # Also the home of the draft run log (/data/draft_runs — the DISCOVER run-of-record artifacts).
       - appdata:/data
+      # The Scoreboard's replay-panel artifact (SCORE) — written by the HOST dev venv
+      # (`python -m scoreboard.replay_snapshot`; replay needs the .[replay] extra the lean image
+      # lacks), so this one subpath overlays the appdata volume with a READ-ONLY bind of the host
+      # dir: the container serves the artifact but physically cannot write it.
+      - ./data/scoreboard_replay:/data/scoreboard_replay:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
