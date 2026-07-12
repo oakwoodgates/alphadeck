@@ -261,6 +261,12 @@ class Settings(BaseSettings):
     openfigi_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("OPENFIGI_API_KEY")
     )
+    # The notify DELIVERY channel: the Slack incoming-webhook URL. Unprefixed (Slack's own convention), so it
+    # needs the alias like openfigi_api_key. Its ABSENCE is the off switch — get_notifier() falls back to the
+    # LogNotifier when this is unset (delivery is opt-in; the log record stays regardless).
+    slack_webhook_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("SLACK_WEBHOOK_URL")
+    )
 
 
 @lru_cache(maxsize=1)
