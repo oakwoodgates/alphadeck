@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 from uuid import UUID
-
-import duckdb
 
 from db.session import DEFAULT_TENANT_ID
 from replay.schema import Episode, Outcome
+
+if TYPE_CHECKING:  # duckdb is the optional .[replay] extra, annotation-only in this module — the
+    import duckdb  # live Scoreboard imports the scorer in the lean prod image (no duckdb installed).
 
 # The SCORING pass. RealizedPrices is a FORWARD-windowed reader with NO as-of / known_at cap — the
 # deliberate opposite of ReplayPointInTimeData (which is as-of-capped). It is the ONLY reader the scorer

@@ -45,7 +45,7 @@ packages = [
     "app", "app.routers",
     "calls", "db", "domain", "llm",
     "ingest", "ingest.edgar", "ingest.prices",
-    "pipeline", "repositories", "securities", "signals", "replay",
+    "pipeline", "repositories", "securities", "signals", "replay", "scoreboard",
 ]
 
 [tool.ruff]
@@ -59,7 +59,7 @@ ignore = ["E501"]  # long evidence/label strings; black handles real wrapping
 [tool.ruff.lint.isort]
 known-first-party = [
     "domain", "calls", "app", "db", "ingest", "securities",
-    "signals", "repositories", "pipeline", "replay", "llm", "tests",
+    "signals", "repositories", "pipeline", "replay", "scoreboard", "llm", "tests",
 ]
 
 [tool.black]
