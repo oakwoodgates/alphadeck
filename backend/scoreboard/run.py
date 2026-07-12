@@ -105,7 +105,7 @@ def main() -> None:
     args = p.parse_args()
     conn = connect()
     try:
-        result, _ = scoreboard_records(
+        result, _, _ = scoreboard_records(
             conn, date.fromisoformat(args.asof), include_archived=not args.exclude_archived
         )
         if args.json:

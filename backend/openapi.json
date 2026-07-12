@@ -1256,6 +1256,64 @@
         }
       }
     },
+    "/scoreboard": {
+      "get": {
+        "tags": [
+          "scoreboard"
+        ],
+        "summary": "Get Scoreboard",
+        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.",
+        "operationId": "get_scoreboard_scoreboard_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "score the record as-of this date (caps both axes)",
+              "title": "Asof"
+            },
+            "description": "score the record as-of this date (caps both axes)"
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter",
+              "default": true,
+              "title": "Include Archived"
+            },
+            "description": "archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -3292,6 +3350,568 @@
         ],
         "title": "SavedRunSummary",
         "description": "One saved draft-run artifact's summary for the run-loader picker (the cheap label fields \u2014 never the\ndraft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no\nnumber (#3). ``run_id`` is the artifact's filename stem (the detail-endpoint path segment)."
+      },
+      "ScoreboardEpisodeOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "is_headline": {
+            "type": "boolean",
+            "title": "Is Headline",
+            "default": false
+          },
+          "theme_armed": {
+            "type": "boolean",
+            "title": "Theme Armed",
+            "default": false
+          },
+          "arm_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Arm Date"
+          },
+          "dearm_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dearm Date"
+          },
+          "close_reason": {
+            "type": "string",
+            "title": "Close Reason"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "title": "Status"
+          },
+          "matured": {
+            "type": "boolean",
+            "title": "Matured"
+          },
+          "censored_start": {
+            "type": "boolean",
+            "title": "Censored Start"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conviction_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "warm_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warm Date"
+          },
+          "triggers_at_arm": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Triggers At Arm",
+            "default": []
+          },
+          "entry_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Close"
+          },
+          "exit_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Close"
+          },
+          "exit_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Date"
+          },
+          "forward_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forward Return"
+          },
+          "arm_until_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until Return"
+          },
+          "warm_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warm Return"
+          },
+          "peak_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Return"
+          },
+          "peak_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Date"
+          },
+          "exit_vs_peak_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Vs Peak Days"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          },
+          "insufficient_prices": {
+            "type": "boolean",
+            "title": "Insufficient Prices",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "security_id",
+          "arm_date",
+          "close_reason",
+          "status",
+          "matured",
+          "censored_start"
+        ],
+        "title": "ScoreboardEpisodeOut",
+        "description": "One arm episode from the record, scored \u2014 a ledger row. Outcome fields keep replay's\ncanonical names (``forward_return`` = arm\u2192exit_by on realized closes \u2264 the request asof).\n``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING\nreturn, not a verdict; metrics judge only matured + non-censored episodes."
+      },
+      "ScoreboardMetricOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "claim": {
+            "type": "string",
+            "title": "Claim"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "insufficient_n": {
+            "type": "boolean",
+            "title": "Insufficient N"
+          },
+          "summary": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Summary",
+            "default": {}
+          },
+          "detail": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Detail",
+            "default": []
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "claim",
+          "n",
+          "insufficient_n"
+        ],
+        "title": "ScoreboardMetricOut",
+        "description": "One claim-tied metric (the replay set, computed over eligible live outcomes). ``claim``\nnames which system claim it tests \u2014 never a generic hit-rate; below ``n``/``insufficient_n``\nthe summary must not be read as a claim (the FE renders it quiet)."
+      },
+      "ScoreboardResponse": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ScoreboardSummaryOut"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardThesisOut"
+            },
+            "type": "array",
+            "title": "Theses",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "generated_at",
+          "summary"
+        ],
+        "title": "ScoreboardResponse",
+        "description": "The Scoreboard: the call-of-record scored as-of ``asof`` \u2014 the record, never a recompute."
+      },
+      "ScoreboardSummaryOut": {
+        "properties": {
+          "n_theses": {
+            "type": "integer",
+            "title": "N Theses"
+          },
+          "n_with_record": {
+            "type": "integer",
+            "title": "N With Record"
+          },
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes"
+          },
+          "n_open": {
+            "type": "integer",
+            "title": "N Open"
+          },
+          "n_matured": {
+            "type": "integer",
+            "title": "N Matured"
+          },
+          "n_censored": {
+            "type": "integer",
+            "title": "N Censored"
+          },
+          "n_eligible": {
+            "type": "integer",
+            "title": "N Eligible"
+          },
+          "record_began": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Began"
+          },
+          "banner": {
+            "type": "string",
+            "title": "Banner"
+          },
+          "min_n": {
+            "type": "integer",
+            "title": "Min N"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardMetricOut"
+            },
+            "type": "array",
+            "title": "Metrics",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_theses",
+          "n_with_record",
+          "n_episodes",
+          "n_open",
+          "n_matured",
+          "n_censored",
+          "n_eligible",
+          "banner",
+          "min_n"
+        ],
+        "title": "ScoreboardSummaryOut",
+        "description": "The aggregate strip: counts + the honesty banner + the gated metric set."
+      },
+      "ScoreboardThesisOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "basket_size": {
+            "type": "integer",
+            "title": "Basket Size",
+            "default": 0
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived",
+            "default": false
+          },
+          "first_call_asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Call Asof"
+          },
+          "last_call_asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Asof"
+          },
+          "current_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current State"
+          },
+          "current_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Verdict"
+          },
+          "warming_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warming Since"
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardEpisodeOut"
+            },
+            "type": "array",
+            "title": "Episodes",
+            "default": []
+          },
+          "record_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name"
+        ],
+        "title": "ScoreboardThesisOut",
+        "description": "One thesis's slice of the Scoreboard: record coverage + scored episodes. Present even at\nzero episodes \u2014 the record span and an accruing warming window ARE the honest launch state.\n``record_error`` surfaces an unreadable historical card (fault isolation), never a 500."
       },
       "ScoredFigureOut": {
         "properties": {
