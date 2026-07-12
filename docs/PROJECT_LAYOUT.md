@@ -37,8 +37,9 @@ alphadeck/
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/
-│       ├── App.tsx · main.tsx · index.css        # shell + the design tokens (inverse loudness)
-│       ├── api/{client,hooks,types.gen}.ts       # openapi-fetch client; the hooks; GENERATED wire types
+│       ├── App.tsx · main.tsx · index.css        # the routing shell (a path per view; route wrappers translate URL ↔ page props) + the design tokens (inverse loudness)
+│       ├── nav.ts                                # the URL scheme, pure: / · /scoreboard · /workbench · /thesis/:id, ?asof= + ?name= builders/guards
+│       ├── api/{client,hooks,types.gen}.ts       # openapi-fetch client (baseUrl /api — proxy-stripped, the contract never carries it); the hooks; GENERATED wire types
 │       ├── board/{Board,ThesisCard}.tsx          # the Board (lifecycle columns + the Decision Queue + the collapsed Archived section)
 │       ├── cockpit/{Cockpit,NamePanel,SpineListEditors}.tsx · cockpit/buckets.ts   # the Cockpit (the grouped basket: collapsible per-name buckets) · the read-only per-name panel (call + own triggers + operator record) · the spine-list editors · the pure bucket derivation
 │       ├── components/{CallCard,MemberMenu,DecisionActions,ErrorToast}.tsx   # the call card · the M5 per-member menu · decision capture (take/pass/close/void) · the shared error toast
