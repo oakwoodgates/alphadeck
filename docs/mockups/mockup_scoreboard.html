@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Deck — Scoreboard Mockup (the record, 7 weeks in)</title>
+<!--
+  MOCKUP: the Scoreboard ~2–8 weeks after v1 ships (as-of 2026-08-28; record began 2026-07-10).
+  Three live theses, test artifacts cleaned up. Every shape the record can produce is on screen,
+  each tagged with a circled number explained in the MOCKUP NOTES box at the bottom:
+  open in profit + taken · closed in profit + captured · closed in profit + passed (foregone) ·
+  closed adverse + nobody took it · closed adverse + taken-then-cut-early · late take (different
+  time, still attached) · override with outcome · censored start · pass with reason · inferred
+  price marker · metrics partially past the gate.
+  Deliberately ABSENT (v2, per the locked decisions): the follow-blindly counterfactual track,
+  delta columns, aggregate "discretion P&L", charts. Replay-history-alongside is the next slice.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090b; --bg-2:#0c0e12; --panel:#101318; --panel-2:#141821;
+    --line:#1e232c; --line-2:#2a313c;
+    --txt:#e7eaef; --txt-2:#9aa3b0; --txt-3:#5a6470; --txt-4:#3c4450;
+    --incub:#586374; --warm:#e0a23c; --armed:#ff5733; --manage:#34c2a0;
+    --pos:#46d07f; --neg:#ff5a6a;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:Archivo,system-ui,sans-serif;font-size:13px;line-height:1.45}
+  .topbar{display:flex;align-items:center;gap:26px;padding:12px 22px;border-bottom:1px solid var(--line);background:var(--bg-2)}
+  .brand{font-weight:800;letter-spacing:.14em;font-size:13px;display:flex;align-items:center;gap:9px}
+  .brand small{color:var(--txt-3);font-weight:500;letter-spacing:.06em}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--armed);box-shadow:0 0 10px var(--armed)}
+  .nav{display:flex;gap:18px;font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+  .nav a{color:var(--txt-3);cursor:pointer}
+  .nav a.on{color:var(--txt)}
+  .spacer{flex:1}
+  .asof{font-family:var(--mono);font-size:10.5px;color:var(--txt-3);display:flex;gap:8px;align-items:center}
+  .asof b{color:var(--txt);font-weight:500;border:1px solid var(--line-2);border-radius:6px;padding:3px 8px;background:var(--panel)}
+
+  .sb-body{padding:18px 22px 40px;display:flex;flex-direction:column;gap:12px;max-width:1280px;margin:0 auto;width:100%}
+  .sb-banner{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--txt-3);border:1px dashed var(--line);border-radius:8px;padding:7px 10px}
+  .sb-counts{display:flex;gap:14px;font-family:var(--mono);font-size:10.5px;color:var(--txt-2);flex-wrap:wrap}
+  .sb-counts .sb-sep{color:var(--txt-4)}
+  .sb-metrics{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .sb-metric{border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-width:210px}
+  .sb-mname{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-3)}
+  .sb-mval{font-family:var(--mono);font-size:11px;color:var(--txt);margin-top:2px}
+  .sb-mclaim{font-size:9.5px;color:var(--txt-4);margin-top:2px}
+  .sb-gated{font-family:var(--mono);font-size:10px;color:var(--txt-4)}
+
+  table.sb-ledger{width:100%;border-collapse:collapse}
+  .sb-ledger th{text-align:left;font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-4);padding:6px 8px 4px;border-bottom:1px solid var(--line)}
+  .sb-ledger td{padding:7px 8px;border-bottom:1px solid rgba(30,35,44,.55);font-size:12px;vertical-align:baseline}
+  .sb-ledger tr.grp td{padding:16px 8px 4px;border-bottom:none}
+  .grp-h{display:flex;width:100%;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--gc)}
+  .grp-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .grp-h .chev{font-size:12px;letter-spacing:0}
+  .grp-h .hint{font-style:normal;font-weight:400;color:var(--txt-4);letter-spacing:.04em;text-transform:none;font-size:10.5px}
+  .grp-h .ct{font-family:var(--mono);font-weight:400;color:var(--txt-2);font-size:10px;letter-spacing:.02em}
+  .sbg-armed{--gc:var(--armed)} .sbg-warm{--gc:var(--warm)} .sbg-quiet{--gc:var(--txt-4)}
+  .tk{font-family:var(--mono);font-weight:700;letter-spacing:.04em}
+  .sb-armed,.sb-ret,.exitby{font-family:var(--mono);font-size:11px}
+  .sb-dearm{color:var(--txt-3)}
+  .sb-cen{color:var(--warm);font-weight:700;margin-left:1px}
+  .sb-trig{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;margin-right:4px}
+  .sb-stance{font-size:11px;color:var(--txt-3);font-style:italic}
+  .sb-badge{display:inline-block;font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.1em;border-radius:5px;padding:1.5px 6px;margin-right:5px}
+  .b-open{color:var(--armed);border:1px solid rgba(255,87,51,.45);background:rgba(255,87,51,.10)}
+  .b-mat{color:var(--manage);border:1px solid rgba(52,194,160,.45)}
+  .b-cen{color:var(--warm);border:1px solid rgba(224,162,60,.45)}
+  .b-ovr{color:var(--warm);border:1px solid rgba(224,162,60,.55);background:rgba(224,162,60,.12)}
+  .b-lvl{color:var(--txt-3);border:1px solid var(--line)}
+  .sb-reason{color:var(--txt-3);font-size:10.5px;margin-left:5px}
+  .ret.pos{color:var(--pos)} .ret.neg{color:var(--neg)}
+  .sb-retlabel{color:var(--txt-4);font-size:9.5px;letter-spacing:.04em}
+  .sb-op{font-size:11px}
+  .sb-op-none{color:var(--txt-4);font-style:italic}
+  .sb-inf{color:var(--warm);margin-left:3px;font-family:var(--mono)}
+  .sb-quietline{color:var(--txt-4);font-size:11px;font-style:italic}
+  .note{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;border:1px solid var(--warm);color:var(--warm);font-family:var(--mono);font-size:9.5px;margin-left:7px;vertical-align:1px}
+
+  .mock-notes{margin-top:26px;border:1px dashed var(--warm);border-radius:10px;padding:14px 16px;background:rgba(224,162,60,.03)}
+  .mock-notes h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--warm);margin-bottom:10px}
+  .mock-notes ol{list-style:none;display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:var(--txt-2)}
+  .mock-notes li b{color:var(--txt);font-weight:600}
+  .mock-notes .n{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;border:1px solid var(--warm);color:var(--warm);font-family:var(--mono);font-size:9.5px;margin-right:8px;flex-shrink:0;vertical-align:-2px}
+  .mock-notes .v2{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);color:var(--txt-3);font-size:11px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="dot"></span>ALPHA&nbsp;DECK <small>// research cockpit</small></div>
+  <nav class="nav"><a>Board</a><a>Workbench</a><a class="on">Scoreboard</a></nav>
+  <div class="spacer"></div>
+  <div class="asof">as-of <b>2026-08-28</b></div>
+</header>
+
+<div class="sb-body">
+
+  <div class="sb-banner">FORWARD RECORD, NOT A CLAIM — record began 2026-07-10; 5 episodes eligible for metrics (matured + non-censored; gate n&lt;5); open, immature, and censored episodes are ledger-only.</div>
+
+  <div class="sb-counts">
+    <span>8 episodes</span><span>3 open</span><span>5 matured</span><span>1 censored</span>
+    <span class="sb-sep">·</span>
+    <span>5 takes</span><span>2 passes</span><span>1 overrides</span><span>1 voided</span>
+  </div>
+
+  <div class="sb-metrics">
+    <div class="sb-metric">
+      <div class="sb-mname">arm timing forward return <span class="note">⑪</span></div>
+      <div class="sb-mval">median +3.4% · mean +5.3% · n=5</div>
+      <div class="sb-mclaim">timing (the flaw patched): realized return over the hold window from the arm</div>
+    </div>
+    <div class="sb-metric">
+      <div class="sb-mname">false arm rate</div>
+      <div class="sb-mval">adverse 2 of 5 · n=5</div>
+      <div class="sb-mclaim">timing precision — raw counts at small n, never a percentage claim</div>
+    </div>
+    <div class="sb-metric">
+      <div class="sb-mname">exit-by vs rollover</div>
+      <div class="sb-mval">exit 4d after peak · gave up 2.6% · n=5</div>
+      <div class="sb-mclaim">the exit side: does the edge persist to exit-by, or decay earlier?</div>
+    </div>
+    <div class="sb-gated">4 of 7 metrics await n ≥ 5 (largest today: n=4)</div>
+  </div>
+
+  <table class="sb-ledger">
+    <colgroup><col style="width:7%"><col style="width:13%"><col style="width:19%"><col style="width:9%"><col style="width:17%"><col style="width:14%"><col style="width:21%"></colgroup>
+    <thead><tr><th>Name</th><th>Armed</th><th>Why</th><th>Exit-by</th><th>Status</th><th>Record return</th><th>Operator</th></tr></thead>
+    <tbody>
+
+      <!-- ============ SMALL-SCALE NUCLEAR ============ -->
+      <tr class="grp sbg-armed"><td colspan="7">
+        <div class="grp-h"><span class="chev">▾</span><span>SMALL-SCALE NUCLEAR</span><em class="hint">· record 2026-07-10 → 2026-08-28</em><span class="ct">· 4</span></div>
+      </td></tr>
+
+      <tr>
+        <td class="tk">SMR</td>
+        <td class="sb-armed">Jul 14 <span class="sb-dearm">→ Aug 3 (conviction_aged_out)</span></td>
+        <td><span class="sb-trig" title="2 insiders incl. CFO bought $840k open-market (code P)">insider</span><span class="sb-trig" title="Volume-backed breakout on 2.1x avg volume">technical_breakout</span></td>
+        <td class="exitby">Aug 1</td>
+        <td><span class="sb-badge b-mat">MATURED</span><span class="sb-reason">closed</span><span class="note">①</span></td>
+        <td class="sb-ret"><span class="ret pos">+13.1%</span> <span class="sb-retlabel">realized</span></td>
+        <td class="sb-op">took Jul 14 @ 41.20 → closed Jul 30 @ 47.05 <span class="ret pos">+14.2%</span><span class="sb-reason">· clean flip setup</span></td>
+      </tr>
+
+      <tr>
+        <td class="tk">OKLO</td>
+        <td class="sb-armed">Jul 22 <span class="sb-dearm">→ Jul 31 (arm_until_lapsed)</span></td>
+        <td><span class="sb-trig">insider</span><span class="sb-trig">technical_breakout</span></td>
+        <td class="exitby">Aug 9</td>
+        <td><span class="sb-badge b-mat">MATURED</span><span class="sb-reason">closed</span><span class="note">②</span></td>
+        <td class="sb-ret"><span class="ret pos">+22.4%</span> <span class="sb-retlabel">realized</span></td>
+        <td class="sb-op">passed Jul 22<span class="sb-reason">· extended — chasing</span></td>
+      </tr>
+
+      <tr>
+        <td class="tk">J</td>
+        <td class="sb-armed">Jul 15 <span class="sb-dearm">→ Aug 4 (conviction_aged_out)</span></td>
+        <td><span class="sb-trig">insider</span><span class="sb-trig">technical_breakout</span></td>
+        <td class="exitby">Aug 2</td>
+        <td><span class="sb-badge b-mat">MATURED</span><span class="sb-reason">closed</span><span class="note">③</span></td>
+        <td class="sb-ret"><span class="ret pos">+3.4%</span> <span class="sb-retlabel">realized</span></td>
+        <td class="sb-op sb-op-none">no decision logged</td>
+      </tr>
+
+      <tr>
+        <td class="tk">BWXT</td>
+        <td class="sb-armed">Aug 18</td>
+        <td><span class="sb-trig" title="3 insiders incl. CEO+CFO, $2.3M open-market — a CORE cluster">insider</span><span class="sb-trig">technical_breakout</span></td>
+        <td class="exitby">Feb 14</td>
+        <td><span class="sb-badge b-open">OPEN</span><span class="note">④</span></td>
+        <td class="sb-ret"><span class="ret pos">+6.8%</span> <span class="sb-retlabel">running</span></td>
+        <td class="sb-op">took Aug 19 @ 128.40 · running <span class="ret pos">+5.9%</span></td>
+      </tr>
+
+      <!-- ============ AI MEMORY & STORAGE SUPERCYCLE ============ -->
+      <tr class="grp sbg-armed"><td colspan="7">
+        <div class="grp-h"><span class="chev">▾</span><span>AI MEMORY &amp; STORAGE SUPERCYCLE</span><em class="hint">· record 2026-07-10 → 2026-08-28 · warming since Aug 25 <span class="note">⑩</span></em><span class="ct">· 3</span></div>
+      </td></tr>
+
+      <tr>
+        <td class="tk">MU</td>
+        <td class="sb-armed">Jul 10<span class="sb-cen" title="the record began mid-arm — true arm date unknowable">*</span></td>
+        <td><span class="sb-trig">insider</span><span class="sb-trig" title="HBM capacity catalyst (ratified)">catalyst</span></td>
+        <td class="exitby">Oct 8</td>
+        <td><span class="sb-badge b-open">OPEN</span><span class="sb-badge b-cen">CENSORED</span><span class="note">⑤</span></td>
+        <td class="sb-ret"><span class="ret pos">+11.3%</span> <span class="sb-retlabel">running</span></td>
+        <td class="sb-op">took Jul 24 @ 118.00 <span class="sb-reason">· 14d after the arm</span> · running <span class="ret pos">+9.2%</span></td>
+      </tr>
+
+      <tr>
+        <td class="tk">WDC</td>
+        <td class="sb-armed">Jul 28 <span class="sb-dearm">→ Aug 18 (conviction_aged_out)</span></td>
+        <td><span class="sb-trig" title="armed via the THEME-conviction fallback, capped at starter">theme_conviction</span><span class="sb-trig">technical_breakout</span></td>
+        <td class="exitby">Aug 15</td>
+        <td><span class="sb-badge b-mat">MATURED</span><span class="sb-reason">closed</span><span class="note">⑥</span></td>
+        <td class="sb-ret"><span class="ret neg">−4.6%</span> <span class="sb-retlabel">realized</span></td>
+        <td class="sb-op sb-op-none">no decision logged</td>
+      </tr>
+
+      <tr>
+        <td class="tk">STX</td>
+        <td class="sb-armed">Aug 4 <span class="sb-dearm">→ Aug 14 (arm_until_lapsed)</span></td>
+        <td><span class="sb-trig">insider</span><span class="sb-trig" title="Momentum-only breakout on 0.8x avg volume — FLIP grade">technical_breakout</span></td>
+        <td class="exitby">Aug 22</td>
+        <td><span class="sb-badge b-mat">MATURED</span><span class="sb-reason">closed</span><span class="note">⑦</span></td>
+        <td class="sb-ret"><span class="ret neg">−7.9%</span> <span class="sb-retlabel">realized</span></td>
+        <td class="sb-op">took Aug 4 @ 99.10 → closed Aug 12 ≈ 95.30<span class="sb-inf" title="no fill price logged — the close stands in">≈</span> <span class="ret neg">−3.8%</span><span class="sb-reason">· cut it early</span></td>
+      </tr>
+
+      <!-- ============ PSYCHEDELIC THERAPY ============ -->
+      <tr class="grp sbg-armed"><td colspan="7">
+        <div class="grp-h"><span class="chev">▾</span><span>PSYCHEDELIC THERAPY</span><em class="hint">· record 2026-07-10 → 2026-08-28</em><span class="ct">· 2</span></div>
+      </td></tr>
+
+      <tr>
+        <td class="tk">CMPS</td>
+        <td class="sb-armed">Jul 16</td>
+        <td><span class="sb-trig" title="FDA advisory-committee date set (ratified regulatory catalyst)">catalyst</span><span class="sb-trig">technical_breakout</span></td>
+        <td class="exitby">Jan 12</td>
+        <td><span class="sb-badge b-open">OPEN</span><span class="note">⑧</span></td>
+        <td class="sb-ret"><span class="ret pos">+31.6%</span> <span class="sb-retlabel">running</span></td>
+        <td class="sb-op">passed Jul 16 <span class="sb-badge b-lvl">THESIS-LEVEL</span><span class="sb-reason">· binary FDA readout — sizing rules</span></td>
+      </tr>
+
+      <tr>
+        <td class="tk">ATAI</td>
+        <td class="sb-armed">Aug 21</td>
+        <td><span class="sb-stance">platform said not_yet</span></td>
+        <td class="exitby">—</td>
+        <td><span class="sb-badge b-ovr" title="entered while the platform withheld — the logged override, with its outcome">OVERRIDE</span><span class="note">⑨</span></td>
+        <td class="sb-ret"><span class="ret pos">+18.7%</span> <span class="sb-retlabel">running</span></td>
+        <td class="sb-op">took Aug 21 @ 2.14<span class="sb-reason">· conviction on the readout; gate too slow here</span></td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="mock-notes">
+    <h2>Mockup notes — every shape the record can produce</h2>
+    <ol>
+      <li><span class="n">①</span><b>Closed in profit, captured.</b> The platform's call realized +13.1% on its own exit-by yardstick; the operator took it at the arm and closed two days before exit-by for +14.2%. Both returns sit side by side — no delta column (v2).</li>
+      <li><span class="n">②</span><b>Closed in profit, passed — the foregone one.</b> The record shows what the pass left on the table (+22.4%), with the operator's logged reason beside it. This is discretion-vs-gate made visible without any counterfactual math.</li>
+      <li><span class="n">③</span><b>Closed in profit, nobody answered.</b> "No decision logged" is the honest capture gap — the call happened whether or not it was acted on, and it still feeds the metrics.</li>
+      <li><span class="n">④</span><b>Open core call, taken next day.</b> Running returns on both sides (record from the arm-date close, operator from their fill); a CORE arm carries a long exit-by (Feb 14), so it stays metric-ineligible until then.</li>
+      <li><span class="n">⑤</span><b>Censored start + a take at a different time.</b> The record began mid-arm (Jul 10*, true arm date unknowable → excluded from metrics forever) — and the operator took it 14 days after the recorded arm; the take still attaches because it falls inside the episode's window.</li>
+      <li><span class="n">⑥</span><b>The false arm nobody took.</b> A theme-armed flip that aged out at −4.6%. Adverse closed calls stay on the record and drive <i>false_arm_rate</i> — the platform is accountable for its own opinions.</li>
+      <li><span class="n">⑦</span><b>Adverse call, taken, cut early.</b> The platform's yardstick realized −7.9%; the operator exited early at −3.8%. The ≈ marks an inferred price (no fill logged — the close stands in, flagged never silent).</li>
+      <li><span class="n">⑧</span><b>Open big winner, passed at thesis level.</b> The pass rode the headline episode (Decision Queue semantics) with its reason; the running +31.6% keeps the foregone value visible while the call is still live.</li>
+      <li><span class="n">⑨</span><b>Override, with its outcome.</b> A take while the platform said not_yet — off-record (no episode to attach to), the stance frozen at logging time, currently +18.7% running. Overrides are where "discretion beats the gate" (or doesn't) accumulates.</li>
+      <li><span class="n">⑩</span><b>Small proposal:</b> today the warming-since accrual line only renders on a zero-episode thesis; this mockup shows it in the group hint even when episodes exist (a fresh withheld window opened Aug 25). One-line change if wanted.</li>
+      <li><span class="n">⑪</span><b>Metrics past the gate.</b> With 5 matured, non-censored episodes, three claim-tied metrics clear MIN_N and render with real numbers; the other four stay one quiet line. Calibration needs ≥5 <i>per grade bucket</i>, so it gates longer by design.</li>
+    </ol>
+    <div class="v2">Deliberately absent (locked v1 decisions): the follow-blindly counterfactual track and any delta/discretion-P&amp;L aggregates (v2) · charts · a metrics-led second view (v2, behind a toggle once n accrues). The immediate follow-up is <b>replay-history-alongside</b> — replayed historical episodes in a clearly-separated section, giving this page depth without polluting the forward record. Counts up top reconcile: 8 episodes (3 open · 5 matured · 1 censored), takes ①④⑤⑦⑨ = 5, passes ②⑧ = 2, override ⑨, one voided decision (a fat-fingered OKLO take, voided same day — excluded from all math, still counted).</div>
+  </div>
+
+</div>
+</body>
+</html>
