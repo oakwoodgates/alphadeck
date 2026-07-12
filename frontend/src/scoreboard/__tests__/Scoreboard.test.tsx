@@ -15,6 +15,7 @@ const fx: { data: unknown; isLoading: boolean; error: unknown } = {
 
 vi.mock("../../api/hooks", () => ({
   useScoreboard: () => fx,
+  useScoreboardReplay: () => ({ data: null, isLoading: false, error: null }),
 }));
 
 const EP = {

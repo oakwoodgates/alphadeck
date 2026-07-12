@@ -128,6 +128,23 @@ export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 
+export type ScoreboardReplayResponse = components["schemas"]["ScoreboardReplayResponse"];
+export type ScoreboardReplayThesisOut = components["schemas"]["ScoreboardReplayThesisOut"];
+
+// The HISTORICAL (replayed) panel — served from the operator-kicked artifact, so it is
+// asof-INDEPENDENT (the artifact is what it is; no asof in the key). available:false = no
+// artifact yet; the panel renders nothing at all (absence, not an empty shell).
+export function useScoreboardReplay() {
+  return useQuery({
+    queryKey: ["scoreboard-replay"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/scoreboard/replay");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 // ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
 export function useScoreboard(asof: string, includeArchived = true) {
