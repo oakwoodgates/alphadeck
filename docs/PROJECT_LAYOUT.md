@@ -27,7 +27,6 @@ alphadeck/
 ├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, ...
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
-├── scripts/run_5b_draft_check.ps1  # live gate-2 check: draft a chain from a narrative + scan the prose for numbers
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order

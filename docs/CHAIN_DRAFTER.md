@@ -235,8 +235,8 @@ Both LLM seams read `ANTHROPIC_API_KEY` from the environment. The stack reads it
 (committed template `.env.example`); `docker-compose.yml`'s `backend` service injects `ANTHROPIC_API_KEY` +
 `ALPHADECK_USER_AGENT` (`${VAR:-}`, fail-open) — before this, neither LLM seam worked in the deployed stack.
 With no key, both seams degrade to no-output and the rest of the app is unaffected.
-`scripts/run_5b_draft_check.ps1` is the repeatable live check: rebuild + restart, draft a chain from a
-narrative, and scan every prose string for a number (the manual no-number gate).
+The repeatable live check is the Workbench "✦ Draft from narrative" flow: draft a chain from a narrative and
+confirm no prose string states a number (the manual no-number gate).
 
 ## The create-thesis front door  `[BUILT — #67 / #68]`
 

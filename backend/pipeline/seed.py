@@ -80,7 +80,7 @@ def _hims_thesis(security_id: UUID) -> Thesis:
     return Thesis(
         id=HIMS_THESIS_ID,
         tenant_id=DEFAULT_TENANT_ID,
-        name="HIMS — insider conviction",
+        name="HIMS — insider conviction (system)",
         narrative=(
             "Director David Wells bought ~$1.2M HIMS open-market off the lows — a high-USD senior "
             "insider buy. Watching for the market to confirm with a volume-backed breakout."
@@ -184,7 +184,7 @@ def _nuclear_thesis() -> Thesis:
     return Thesis(
         id=NUCLEAR_THESIS_ID,
         tenant_id=DEFAULT_TENANT_ID,
-        name="Small-scale nuclear",
+        name="Small-scale nuclear (system)",
         narrative=(
             "Sentiment has flipped in younger generations who didn't live through the meltdowns; "
             "clean power matters for the climate; the technology has improved (small-scale modular "
@@ -371,7 +371,7 @@ def _unh_thesis() -> Thesis:
     return Thesis(
         id=UNH_THESIS_ID,
         tenant_id=DEFAULT_TENANT_ID,
-        name="UNH — insider cluster",
+        name="UNH — insider cluster (system)",
         narrative=(
             "After the selloff cut UnitedHealth ~46%, the board brought Stephen Hemsley back as CEO — "
             "and in a single week (mid-May 2025) he, the CFO, and three directors bought ~$31.6M of "
