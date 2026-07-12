@@ -18,8 +18,8 @@
 >
 > **Trust caveat (load-bearing): "feeds itself" is NOT "validated forward."** This arc is platform PLUMBING,
 > not the call engine. It did not change the trust validation — still in-sample (n=19; see `ROADMAP.md`'s "Keep
-> the trust state honest" box); the forward trust loop (the **Scoreboard**) stays PARKED. The daily call-of-record is the forward
-> RECORD the Scoreboard will later track — built **Scoreboard-ready, not Scoreboard-coupled**.
+> the trust state honest" box); the forward trust loop's instrument (the **Scoreboard v1**) is now BUILT and reads this record. The daily
+> call-of-record is the forward RECORD it tracks — still **Scoreboard-ready, not Scoreboard-coupled** (zero Scoreboard code in the cron).
 >
 > **Legend:** `[BUILT]` shipped · `[FILED]`/`[DEFERRED]` not built.
 
@@ -187,9 +187,9 @@ fact tables) and M2b (the calls log): `test_rerun_appends_zero_rows_count_the_ta
     when the value differs** — else a no-split re-run re-appends the same bars daily and the table grows forever
     (the count-the-table failure on this path). Compare at a stable precision so a re-pull's float noise doesn't
     fake a difference. No `fact_price_eod` schema change; the replay/Parquet PIT's split fidelity is separate.
-- **The Scoreboard** `[PARKED]` — the forward trust loop. The daily call-of-record is its forward record;
-  building it is the post-MVP step that earns forward trust (and drives the second, out-of-sample
-  recalibration). `ROADMAP.md`.
+- **The Scoreboard** `[BUILT]` (v1) — the forward trust loop's instrument over this record: the episode
+  ledger + the operator track, metrics gated until n accrues. `docs/SCOREBOARD.md`; the second, out-of-sample
+  recalibration arrives as the record grows. `ROADMAP.md`.
 - **Scaling the cron** `[FILED]` — at today's scale the cron ingests every thesis daily. As theses
   accumulate, decouple "record the call-of-record for ALL theses" (cheap — keep) from "ingest ALL theses
   daily" (expensive — live pulls): ingest **active** theses daily, dormant ones less often. A post-MVP

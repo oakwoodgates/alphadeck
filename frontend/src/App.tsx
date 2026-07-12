@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
+import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
 
@@ -12,9 +13,10 @@ export function App() {
   // armed on 2026-06-01 — scrub back to that date to see the canonical loop checkpoint.
   const [asof, setAsof] = useState(todayISO());
   const [selected, setSelected] = useState<string | null>(null);
-  // The top-level view (tab-state, no router): the Board, or the Workbench front half. A selected
-  // thesis opens the Cockpit and takes precedence.
-  const [view, setView] = useState<"board" | "workbench">("board");
+  // The top-level view (tab-state, no router): the Board, the Workbench front half, or the
+  // Scoreboard (SCORE — the forward record). A selected thesis opens the Cockpit and takes
+  // precedence.
+  const [view, setView] = useState<"board" | "workbench" | "scoreboard">("board");
 
   if (isLoading) return <div className="center-note">Loading…</div>;
   if (error || !theses?.length) {
@@ -37,7 +39,25 @@ export function App() {
     );
   }
   if (view === "workbench") {
-    return <Workbench asof={asof} onAsofChange={setAsof} onBack={() => setView("board")} />;
+    return (
+      <Workbench
+        asof={asof}
+        onAsofChange={setAsof}
+        onBack={() => setView("board")}
+        onOpenScoreboard={() => setView("scoreboard")}
+      />
+    );
+  }
+  if (view === "scoreboard") {
+    return (
+      <Scoreboard
+        asof={asof}
+        onAsofChange={setAsof}
+        onBack={() => setView("board")}
+        onOpenWorkbench={() => setView("workbench")}
+        onSelect={setSelected}
+      />
+    );
   }
   return (
     <Board
@@ -45,6 +65,7 @@ export function App() {
       onAsofChange={setAsof}
       onSelect={setSelected}
       onOpenWorkbench={() => setView("workbench")}
+      onOpenScoreboard={() => setView("scoreboard")}
     />
   );
 }

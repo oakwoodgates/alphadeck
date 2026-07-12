@@ -43,7 +43,8 @@ detection vs the prior call-of-record + a Notifier seam — delivery deliberatel
 one adapter away).
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
-> is TRUE; **"the forward trust loop is closed" is NOT** — that is the **Scoreboard**, still parked. The first
+> is TRUE; **"the forward trust loop is closed" is NOT** — the **Scoreboard v1** now stands as its instrument,
+> but closure arrives only as the record accrues past the metric gates (nothing is validated at n=0). The first
 > recalibration pass (#45) tuned **direction from the literature + the mechanism**; the replay only
 > *illustrated*, it never *selected* a value. Its seed is **n=19 episodes, only UNH a long forward arc**, so its
 > honest claim is "the dials are grounded in replayed history + the one obvious lever was inspected" — **NOT**
@@ -110,10 +111,13 @@ one adapter away).
 
 ## What's next (by appetite, in rough order)
 
-1. **The live Scoreboard** — the forward trust loop (the forward twin of replay): the platform's calls vs the
-   operator's decisions vs follow-blindly. Unlocks the **second, out-of-sample recalibration**. Both record
-   streams now accumulate (the daily call-of-record + the operator-decisions log); parked deliberately while
-   decision rows build up — it needs the data more than the UI.
+1. **The live Scoreboard — v1 BUILT** (the forward twin of replay; `docs/SCOREBOARD.md`): the episode ledger
+   over the two record streams — the platform's calls scored on their own exit-by yardstick + the operator's
+   decisions joined to the episodes they answered (overrides with outcomes); aggregate metrics gate below
+   n=5 and judge only matured, non-censored episodes. Still unlocks the **second, out-of-sample
+   recalibration** — that arrives as the record accrues. Next here: **replay-history-alongside** (the
+   immediate follow-up), then the v2 follow-blindly track + deltas (+ a metrics-led second view behind a
+   toggle once n accrues).
 2. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
    transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
    Deferred by operator call ("other things coming").
@@ -181,5 +185,5 @@ one adapter away).
   the platform is EDGAR-only (no private-data surface → no MNPI vector); TA/price-pattern prediction is parked.
 - **Deferred** (scope, not principle): intraday / streaming data; options-gamma; borrow + squeeze radar;
   crypto / commodities / prediction markets; runtime auth / multi-tenant serving; Dagster; Neo4j.
-- **The live Scoreboard is the one parked item clearly coming** — the forward twin of the replay harness. It
-  earns trust by *living with the calls over weeks*; it arrives with live use.
+- **The live Scoreboard v1 is built** — the forward twin of the replay harness. It earns trust by *living
+  with the calls over weeks*: the ledger is standing, the metrics stay gated until the record grows into them.
