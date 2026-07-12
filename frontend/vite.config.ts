@@ -7,12 +7,16 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/theses": "http://127.0.0.1:8000",
-      // draft-chain's research pass (Opus + web search) runs for minutes — give the dev proxy a matching long
-      // timeout (ms) so it doesn't disconnect mid-call, in concert with nginx + llm_research_timeout_s (300s).
-      "/workbench": { target: "http://127.0.0.1:8000", proxyTimeout: 300_000, timeout: 300_000 },
-      "/scoreboard": "http://127.0.0.1:8000",
-      "/health": "http://127.0.0.1:8000",
+      // The whole API rides /api (see src/api/client.ts) so the SPA owns every other path for its
+      // client-side routes. Strip the prefix — the backend never sees /api. Keep in sync with nginx.conf.
+      // The long timeout (ms) covers the workbench draft-chain research pass (Opus + web search, minutes),
+      // in concert with nginx + llm_research_timeout_s (300s).
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        rewrite: (p) => p.replace(/^\/api/, ""),
+        proxyTimeout: 300_000,
+        timeout: 300_000,
+      },
     },
   },
   // The first frontend test harness (Slice 4b-2): jsdom + RTL for the Workbench authoring components and
