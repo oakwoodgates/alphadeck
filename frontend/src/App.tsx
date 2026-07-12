@@ -11,7 +11,7 @@ import {
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import { ASOF, boardPath, scoreboardPath, thesisPath, validAsof, workbenchPath } from "./nav";
+import { ASOF, NAME, boardPath, scoreboardPath, thesisPath, validAsof, workbenchPath } from "./nav";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
@@ -72,7 +72,11 @@ function ScoreboardRoute() {
       onAsofChange={setAsof}
       onBack={() => navigate(boardPath(asofParam))}
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
-      onSelect={(id) => navigate(thesisPath(id, { asof: asofParam }), { state: { from: here } })}
+      onSelect={(id, nameKey) =>
+        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
+          state: { from: here },
+        })
+      }
     />
   );
 }
@@ -95,6 +99,21 @@ function CockpitRoute() {
   const location = useLocation();
   const { thesisId } = useParams();
   const { asof, asofParam, setAsof } = useAsof();
+  // The NamePanel's selection rides ?name= so a scoreboard row / shared link lands with the
+  // panel open. Opening/closing/switching a name REPLACES (a selection, not a navigation — Back
+  // still walks pages, and browsing names never spams history).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedName = searchParams.get(NAME);
+  const onSelectName = (key: string | null) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (key) next.set(NAME, key);
+        else next.delete(NAME);
+        return next;
+      },
+      { replace: true },
+    );
   if (!thesisId) return <Navigate to="/" replace />;
   const from = (location.state as { from?: string } | null)?.from;
   return (
@@ -103,6 +122,8 @@ function CockpitRoute() {
       asof={asof}
       onAsofChange={setAsof}
       onBack={() => navigate(from ?? boardPath(asofParam))}
+      selectedName={selectedName}
+      onSelectName={onSelectName}
     />
   );
 }

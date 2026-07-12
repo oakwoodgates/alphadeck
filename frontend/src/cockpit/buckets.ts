@@ -126,3 +126,33 @@ export function groupBasket(
       .map(({ rank: _rank, ...row }) => row),
   })).filter((g) => g.rows.length > 0);
 }
+
+/** The URL key (?name=) for a cockpit row: the ticker when it's unique in the basket (readable —
+ *  the overwhelmingly common case), the security_id when the ticker duplicates (precise across the
+ *  duplicates). A duplicate-ticker row with NO security_id degrades to the ticker, which
+ *  resolveNameKey lands on the first match by basket order — documented, acceptable. */
+export function nameKeyFor(row: BucketRow, basket: BasketMember[]): string {
+  const t = row.member.ticker.toLowerCase();
+  const dup = basket.filter((m) => m.ticker.toLowerCase() === t).length > 1;
+  return dup && row.member.security_id ? row.member.security_id : row.member.ticker;
+}
+
+/** Resolve a ?name= key to its display row: security_id exact match first (precise), else
+ *  case-insensitive ticker, ties broken by the authored basket order (lowest ordinal). No match →
+ *  null: the panel simply doesn't render — the existing vanished-row behavior — so a stale or
+ *  mistyped URL key is harmless. */
+export function resolveNameKey(
+  groups: BucketGroup[],
+  key: string | null | undefined,
+): { row: BucketRow; def: BucketDef } | null {
+  if (!key) return null;
+  const all = groups.flatMap((g) => g.rows.map((row) => ({ row, def: g.def })));
+  const kt = key.toLowerCase();
+  const hits = all.some((x) => x.row.member.security_id === key)
+    ? all.filter((x) => x.row.member.security_id === key)
+    : all.filter((x) => x.row.member.ticker.toLowerCase() === kt);
+  return hits.reduce<{ row: BucketRow; def: BucketDef } | null>(
+    (best, x) => (best === null || x.row.ordinal < best.row.ordinal ? x : best),
+    null,
+  );
+}

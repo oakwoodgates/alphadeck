@@ -1,4 +1,5 @@
 import { fireEvent, render, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 // The per-name panel (C2): row click → a read-only, non-modal slide-over with THAT name's call,
@@ -100,10 +101,24 @@ vi.mock("../../api/hooks", () => ({
 
 import { Cockpit } from "../Cockpit";
 
-function renderCockpit() {
-  return render(
-    <Cockpit thesisId="t-nuke" asof="2026-07-11" onAsofChange={() => {}} onBack={() => {}} />,
+// In the app the selection key is URL-owned (?name=, App's CockpitRoute); the harness plays that
+// controlled-prop role so every open/switch/close path below exercises the real lift.
+function Harness() {
+  const [name, setName] = useState<string | null>(null);
+  return (
+    <Cockpit
+      thesisId="t-nuke"
+      asof="2026-07-11"
+      onAsofChange={() => {}}
+      onBack={() => {}}
+      selectedName={name}
+      onSelectName={setName}
+    />
   );
+}
+
+function renderCockpit() {
+  return render(<Harness />);
 }
 
 const row = (container: HTMLElement, cls: string) =>

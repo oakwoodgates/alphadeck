@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BasketMember, CallCardResponse, MemberCallOut, TriggerRefOut } from "../../api/hooks";
-import { groupBasket } from "../buckets";
+import { groupBasket, nameKeyFor, resolveNameKey } from "../buckets";
 
 // --- fixture builders (loose partials cast to the wire types — test-only) ----------------------
 function member(ticker: string, sid: string | null, over: Partial<BasketMember> = {}): BasketMember {
@@ -147,5 +147,68 @@ describe("groupBasket — the per-name bucket derivation", () => {
     const basket = [member("A", "sa")];
     const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
     expect(keysOf(groupBasket(basket, c, []))).toEqual(["armed"]);
+  });
+});
+
+describe("nameKeyFor — the ?name= URL key for a cockpit row", () => {
+  const rowFor = (groups: ReturnType<typeof groupBasket>, ticker: string, sid: string | null) =>
+    groups.flatMap((g) => g.rows).find((r) => r.member.ticker === ticker && r.member.security_id === sid)!;
+
+  it("uses the ticker when it is unique in the basket (the readable common case)", () => {
+    const basket = [member("A", "sa"), member("B", "sb")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(nameKeyFor(rowFor(groups, "A", "sa"), basket)).toBe("A");
+  });
+
+  it("uses the security_id when the ticker duplicates (precise across the duplicates)", () => {
+    const basket = [member("A", "sa1"), member("A", "sa2")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(nameKeyFor(rowFor(groups, "A", "sa1"), basket)).toBe("sa1");
+    expect(nameKeyFor(rowFor(groups, "A", "sa2"), basket)).toBe("sa2");
+  });
+
+  it("degrades to the ticker for a duplicate with NO security_id (first-match territory)", () => {
+    const basket = [member("A", null), member("A", "sa2")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(nameKeyFor(rowFor(groups, "A", null), basket)).toBe("A");
+    expect(nameKeyFor(rowFor(groups, "A", "sa2"), basket)).toBe("sa2");
+  });
+});
+
+describe("resolveNameKey — ?name= back to the display row", () => {
+  it("matches security_id first, even when a ticker also matches the key text", () => {
+    // pathological on purpose: a member whose TICKER equals another member's SID
+    const basket = [member("sb", "sa"), member("B", "sb")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(resolveNameKey(groups, "sb")?.row.member.security_id).toBe("sb");
+  });
+
+  it("matches the ticker case-insensitively", () => {
+    const basket = [member("OKLO", "s1")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(resolveNameKey(groups, "oklo")?.row.member.ticker).toBe("OKLO");
+    expect(resolveNameKey(groups, "OKLO")?.row.member.ticker).toBe("OKLO");
+  });
+
+  it("breaks duplicate-ticker ties by the authored basket order (lowest ordinal)", () => {
+    const basket = [member("A", null), member("A", null)];
+    const groups = groupBasket(basket, undefined, []);
+    expect(resolveNameKey(groups, "A")?.row.ordinal).toBe(0);
+  });
+
+  it("returns null for an unknown or absent key — the panel simply doesn't render", () => {
+    const basket = [member("A", "sa")];
+    const groups = groupBasket(basket, undefined, []);
+    expect(resolveNameKey(groups, "NOSUCH")).toBeNull();
+    expect(resolveNameKey(groups, null)).toBeNull();
+    expect(resolveNameKey(groups, undefined)).toBeNull();
+    expect(resolveNameKey(groups, "")).toBeNull();
+  });
+
+  it("carries the row's bucket def so the panel opens with the right accent", () => {
+    const basket = [member("A", "sa")];
+    const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
+    const groups = groupBasket(basket, c, []);
+    expect(resolveNameKey(groups, "A")?.def.key).toBe("armed");
   });
 });

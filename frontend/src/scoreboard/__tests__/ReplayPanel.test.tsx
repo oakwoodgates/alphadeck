@@ -143,10 +143,10 @@ describe("ReplayPanel", () => {
     expect(screen.getByText("OVERLAPS RECORD")).toBeInTheDocument();
   });
 
-  it("drills into the Cockpit on row click", () => {
+  it("drills into the Cockpit on row click — carrying the clicked NAME for the ?name= deep link", () => {
     const { onSelect } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /Historical — replayed/ }));
     fireEvent.click(screen.getByText("+27.7%").closest("tr")!);
-    expect(onSelect).toHaveBeenCalledWith("t-hims");
+    expect(onSelect).toHaveBeenCalledWith("t-hims", "HIMS");
   });
 });

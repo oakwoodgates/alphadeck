@@ -18,7 +18,8 @@ type Props = {
   onAsofChange: (v: string) => void;
   onBack: () => void;
   onOpenWorkbench: () => void;
-  onSelect: (thesisId: string) => void;
+  /** nameKey (when the row has a name) deep-links that member's panel in the Cockpit (?name=). */
+  onSelect: (thesisId: string, nameKey?: string) => void;
 };
 
 function SpanRow({
@@ -26,7 +27,7 @@ function SpanRow({
   onSelect,
 }: {
   t: ScoreboardThesisOut;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, nameKey?: string) => void;
 }) {
   // off-record spans (overrides live here) — rendered per span under the thesis group
   return (
@@ -34,7 +35,12 @@ function SpanRow({
       {t.operator_spans.map((s) => {
         const ret = fmtReturn(s.operator_return);
         return (
-          <tr key={s.take_id} className="sb-row sb-span" onClick={() => onSelect(t.thesis_id)}>
+          <tr
+            key={s.take_id}
+            className="sb-row sb-span"
+            // a thesis-level span has no name — the click opens the bare Cockpit
+            onClick={() => onSelect(t.thesis_id, s.ticker ?? s.security_id ?? undefined)}
+          >
             <td className="tk">{s.ticker ?? (s.thesis_level ? "◇" : "—")}</td>
             <td className="sb-armed">{fmtDate(s.take_date)}</td>
             <td className="sb-why">

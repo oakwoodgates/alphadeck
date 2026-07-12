@@ -79,7 +79,14 @@ import { Cockpit } from "../Cockpit";
 
 function renderCockpit() {
   return render(
-    <Cockpit thesisId="t-nuke" asof="2026-07-11" onAsofChange={() => {}} onBack={() => {}} />,
+    <Cockpit
+      thesisId="t-nuke"
+      asof="2026-07-11"
+      onAsofChange={() => {}}
+      onBack={() => {}}
+      selectedName={null}
+      onSelectName={() => {}}
+    />,
   );
 }
 
