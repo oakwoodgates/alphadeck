@@ -2152,6 +2152,112 @@
         "title": "EditTermsRequest",
         "description": "Body for ``PUT /theses/{id}/terms/edit`` \u2014 the operator's full, edited term set, saved DIRECTLY (no LLM,\nmirroring LLM-out-of-promote). Authorship is re-stamped server-side: an untouched ``system_drafted`` BROAD\nterm keeps its authorship so a later regenerate can re-roll it; only operator-touched entries become\n``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator\nchoice)."
       },
+      "EpisodeOperatorOut": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "took",
+              "passed"
+            ],
+            "title": "Action"
+          },
+          "decision_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Decision Id"
+          },
+          "decision_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Decision Date"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "thesis_level": {
+            "type": "boolean",
+            "title": "Thesis Level",
+            "default": false
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_inferred": {
+            "type": "boolean",
+            "title": "Entry Inferred",
+            "default": false
+          },
+          "exit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Price"
+          },
+          "exit_inferred": {
+            "type": "boolean",
+            "title": "Exit Inferred",
+            "default": false
+          },
+          "exit_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Date"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "default": false
+          },
+          "operator_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Return"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "decision_id",
+          "decision_date"
+        ],
+        "title": "EpisodeOperatorOut",
+        "description": "The operator's answer to an arm episode: took (with the operator's own prices/return \u2014\n``inferred`` marks a close used where no fill price was logged) or passed (no prices; the\nepisode's own outcome sits beside it). No delta fields \u2014 v2."
+      },
       "Evidence": {
         "properties": {
           "id": {
@@ -2636,6 +2742,177 @@
         ],
         "title": "MemberCallOut",
         "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
+      },
+      "OperatorSpanOut": {
+        "properties": {
+          "take_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Take Id"
+          },
+          "take_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Take Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "thesis_level": {
+            "type": "boolean",
+            "title": "Thesis Level",
+            "default": false
+          },
+          "call_state_at_take": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call State At Take"
+          },
+          "call_verdict_at_take": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Verdict At Take"
+          },
+          "override": {
+            "type": "boolean",
+            "title": "Override",
+            "default": false
+          },
+          "close_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Id"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "default": false
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_inferred": {
+            "type": "boolean",
+            "title": "Entry Inferred",
+            "default": false
+          },
+          "exit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Price"
+          },
+          "exit_inferred": {
+            "type": "boolean",
+            "title": "Exit Inferred",
+            "default": false
+          },
+          "exit_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Date"
+          },
+          "operator_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Return"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "take_id",
+          "take_date"
+        ],
+        "title": "OperatorSpanOut",
+        "description": "An off-record take\u2192close span (answering no armed episode), with the stance FROZEN on the\ntake row at logging time. ``override`` = entered while the platform said not-armed \u2014 the\ngate's logged override, now carrying its outcome."
       },
       "PlacementStatus": {
         "type": "string",
@@ -3616,6 +3893,16 @@
             "type": "boolean",
             "title": "Insufficient Prices",
             "default": false
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpisodeOperatorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3750,6 +4037,26 @@
           "n_eligible": {
             "type": "integer",
             "title": "N Eligible"
+          },
+          "n_takes": {
+            "type": "integer",
+            "title": "N Takes",
+            "default": 0
+          },
+          "n_passes": {
+            "type": "integer",
+            "title": "N Passes",
+            "default": 0
+          },
+          "n_overrides": {
+            "type": "integer",
+            "title": "N Overrides",
+            "default": 0
+          },
+          "n_voided": {
+            "type": "integer",
+            "title": "N Voided",
+            "default": 0
           },
           "record_began": {
             "anyOf": [
@@ -3892,6 +4199,25 @@
             "type": "array",
             "title": "Episodes",
             "default": []
+          },
+          "operator_spans": {
+            "items": {
+              "$ref": "#/components/schemas/OperatorSpanOut"
+            },
+            "type": "array",
+            "title": "Operator Spans",
+            "default": []
+          },
+          "decision_anomaly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Anomaly"
           },
           "record_error": {
             "anyOf": [

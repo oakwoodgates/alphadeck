@@ -11,7 +11,8 @@ from domain.thesis import Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot
 from replay.scoring import score_episode
-from repositories import calls_repo, thesis_repo
+from repositories import calls_repo, decisions_repo, thesis_repo
+from scoreboard.decisions import attach_operator_track
 from scoreboard.prices import PgRealizedPrices
 from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord
 
@@ -85,23 +86,35 @@ def derive_thesis_record(
         current_verdict=snaps[-1].verdict.value if snaps else None,
         warming_since=_warming_since(snaps),
     )
-    if not snaps:
-        return record, snaps
-
     # tenant threading: the thesis's own tenant scopes every price read (never the default here)
     prices = PgRealizedPrices(conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at)
-    first_recorded = snaps[0].asof
-    for ep in derive_episodes(snaps):
-        record.episodes.append(
-            ScoredEpisode(
-                episode=ep,
-                outcome=score_episode(ep, prices),
-                status="open" if ep.dearm_date is None else "closed",
-                matured=ep.exit_by is not None and ep.exit_by <= asof,
-                censored_start=ep.arm_date == first_recorded,
-                triggers_at_arm=_triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id),
+    if snaps:
+        first_recorded = snaps[0].asof
+        for ep in derive_episodes(snaps):
+            record.episodes.append(
+                ScoredEpisode(
+                    episode=ep,
+                    outcome=score_episode(ep, prices),
+                    status="open" if ep.dearm_date is None else "closed",
+                    matured=ep.exit_by is not None and ep.exit_by <= asof,
+                    censored_start=ep.arm_date == first_recorded,
+                    triggers_at_arm=_triggers_at_arm(
+                        cards_by_asof.get(ep.arm_date), ep.security_id
+                    ),
+                )
             )
+
+    # the operator track (SB3): the decision log joined to the episodes it answered — runs even
+    # with no record yet (a decision can predate the first call-of-record; it rides off-record)
+    rows = decisions_repo.list_for_thesis(conn, thesis.id, tenant_id=thesis.tenant_id)
+    if rows:
+        record.operator_spans, counts, record.decision_anomaly = attach_operator_track(
+            record.episodes, rows, prices, asof
         )
+        record.n_takes = counts["takes"]
+        record.n_passes = counts["passes"]
+        record.n_overrides = counts["overrides"]
+        record.n_voided = counts["voided"]
     return record, snaps
 
 
@@ -147,4 +160,8 @@ def scoreboard_records(
     result.n_open = sum(1 for t in result.theses for e in t.episodes if e.status == "open")
     result.n_matured = sum(1 for t in result.theses for e in t.episodes if e.matured)
     result.n_censored = sum(1 for t in result.theses for e in t.episodes if e.censored_start)
+    result.n_takes = sum(t.n_takes for t in result.theses)
+    result.n_passes = sum(t.n_passes for t in result.theses)
+    result.n_overrides = sum(t.n_overrides for t in result.theses)
+    result.n_voided = sum(t.n_voided for t in result.theses)
     return result, timelines, single_name

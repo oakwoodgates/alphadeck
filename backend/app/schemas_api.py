@@ -23,7 +23,7 @@ from domain.thesis import (
     Thesis,
 )
 from domain.workbench import ScoredFigure, ScoredMember
-from scoreboard.schema import ScoredEpisode, ThesisRecord
+from scoreboard.schema import EpisodeOperator, OperatorSpan, ScoredEpisode, ThesisRecord
 from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
@@ -697,6 +697,7 @@ class ScoreboardEpisodeOut(BaseModel):
     exit_vs_peak_days: int | None = None
     truncated: bool = False  # the hold horizon ran past the available (asof-capped) bars
     insufficient_prices: bool = False  # e.g. a day-1 arm: no bar on/after the arm yet
+    operator: "EpisodeOperatorOut | None" = None  # None = no decision logged (the capture gap)
 
 
 def _scoreboard_episode_out(
@@ -734,6 +735,7 @@ def _scoreboard_episode_out(
         exit_vs_peak_days=out.exit_vs_peak_days,
         truncated=out.truncated,
         insufficient_prices=out.insufficient_prices,
+        operator=_operator_out(e.operator),
     )
 
 
@@ -753,6 +755,8 @@ class ScoreboardThesisOut(BaseModel):
     current_verdict: str | None = None
     warming_since: date | None = None
     episodes: list[ScoreboardEpisodeOut] = []
+    operator_spans: "list[OperatorSpanOut]" = []  # off-record spans: overrides live here
+    decision_anomaly: str | None = None  # a log shape the API should prevent — shown, not fixed
     record_error: str | None = None
 
 
@@ -771,6 +775,8 @@ def _scoreboard_thesis_out(
         current_verdict=t.current_verdict,
         warming_since=t.warming_since,
         episodes=[_scoreboard_episode_out(e, ciks, tickers) for e in t.episodes],
+        operator_spans=[_operator_span_out(s, tickers) for s in t.operator_spans],
+        decision_anomaly=t.decision_anomaly,
         record_error=t.error,
     )
 
@@ -799,6 +805,10 @@ class ScoreboardSummaryOut(BaseModel):
     n_matured: int
     n_censored: int
     n_eligible: int
+    n_takes: int = 0  # the operator track: non-voided decisions <= asof
+    n_passes: int = 0
+    n_overrides: int = 0
+    n_voided: int = 0
     record_began: date | None = None
     banner: str
     min_n: int
@@ -812,3 +822,59 @@ class ScoreboardResponse(BaseModel):
     generated_at: str  # known_at honesty stamp (ISO): when this read of the record was taken
     summary: ScoreboardSummaryOut
     theses: list[ScoreboardThesisOut] = []
+
+
+class EpisodeOperatorOut(BaseModel):
+    """The operator's answer to an arm episode: took (with the operator's own prices/return —
+    ``inferred`` marks a close used where no fill price was logged) or passed (no prices; the
+    episode's own outcome sits beside it). No delta fields — v2."""
+
+    action: Literal["took", "passed"]
+    decision_id: UUID
+    decision_date: date
+    reason: str | None = None
+    thesis_level: bool = False
+    entry_price: float | None = None
+    entry_inferred: bool = False
+    exit_price: float | None = None
+    exit_inferred: bool = False
+    exit_date: date | None = None
+    running: bool = False
+    operator_return: float | None = None
+
+
+class OperatorSpanOut(BaseModel):
+    """An off-record take→close span (answering no armed episode), with the stance FROZEN on the
+    take row at logging time. ``override`` = entered while the platform said not-armed — the
+    gate's logged override, now carrying its outcome."""
+
+    take_id: UUID
+    take_date: date
+    security_id: UUID | None = None
+    ticker: str | None = None
+    thesis_level: bool = False
+    call_state_at_take: str | None = None
+    call_verdict_at_take: str | None = None
+    override: bool = False
+    close_id: UUID | None = None
+    close_date: date | None = None
+    running: bool = False
+    entry_price: float | None = None
+    entry_inferred: bool = False
+    exit_price: float | None = None
+    exit_inferred: bool = False
+    exit_date: date | None = None
+    operator_return: float | None = None
+    reason: str | None = None
+
+
+def _operator_out(op: EpisodeOperator | None) -> EpisodeOperatorOut | None:
+    if op is None:
+        return None
+    return EpisodeOperatorOut(**op.model_dump())
+
+
+def _operator_span_out(s: OperatorSpan, tickers: Mapping[UUID, str | None]) -> OperatorSpanOut:
+    return OperatorSpanOut(
+        ticker=tickers.get(s.security_id) if s.security_id else None, **s.model_dump()
+    )
