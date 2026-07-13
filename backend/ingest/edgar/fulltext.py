@@ -95,10 +95,12 @@ class DiscoveryRun:
 
 # "NAME  (TICKER[, TICKER2])  (CIK 000...)" — capture the ticker group that immediately precedes the CIK group.
 _TICKER_RE = re.compile(r"\(([A-Z0-9]{1,6}(?:,\s?[A-Z0-9]{1,6})*)\)\s*\(CIK")
+# The CIK a display string EMBEDS — the self-validating join key for a multi-CIK (joint) filing's hit.
+_EMBED_CIK_RE = re.compile(r"\(CIK\s*(\d{10})\)")
 
 
 def _parse_display(display_name: str) -> tuple[str, str | None]:
-    """A ``display_names[0]`` -> (company name, first ticker or None). The name is everything before the first
+    """One display string -> (company name, first ticker or None). The name is everything before the first
     ``"  ("`` parenthetical group (the SEC formats both the ticker and the CIK as ``"  (...)"`` groups). Ticker
     is best-effort display only — the CIK (read from ``_source.ciks``, never parsed) is the identity.
     """
@@ -106,6 +108,40 @@ def _parse_display(display_name: str) -> tuple[str, str | None]:
     m = _TICKER_RE.search(display_name)
     ticker = m.group(1).split(",")[0].strip() if m else None
     return name, ticker
+
+
+def _pair_hit(src: dict[str, Any]) -> list[tuple[str, str, str | None]]:
+    """Pair ONE hit's CIKs with their OWN display names -> ``[(cik, name, ticker)]``.
+
+    A joint filing (merger 425/S-4, tender offer SC TO, SC 13D/G, parent+subsidiary co-registrants,
+    spinoff distributions) lists SEVERAL entities: ``_source.ciks`` and ``_source.display_names`` are
+    parallel arrays, one entry per entity, and every display string embeds its own CIK
+    (``"NAME  (TKR)  (CIK 0001234567)"``). The join is by that EMBEDDED CIK — self-validating and
+    order-proof — with the parallel index as fallback only for a display that names no CIK at all. A CIK
+    with no verified display gets NO label (name ``""`` / ticker ``None``), never another entity's:
+    stamping ``display_names[0]`` across all of a filing's CIKs is exactly how merger counterparties
+    swapped identities (KLAC↔LRCX, SIMO↔MXL — the misbind class). Labels are display-only; every CIK is
+    still emitted regardless of labeling (#9 — recall never hangs on a parse).
+    """
+    ciks = src.get("ciks", [])
+    displays = src.get("display_names") or []
+    parsed: list[tuple[tuple[str, str | None], str | None]] = []
+    for d in displays:
+        m = _EMBED_CIK_RE.search(d)
+        parsed.append((_parse_display(d), m.group(1) if m else None))
+    by_embed = {cik: label for label, cik in parsed if cik is not None}
+    rows: list[tuple[str, str, str | None]] = []
+    for i, cik in enumerate(ciks):
+        if cik in by_embed:
+            name, ticker = by_embed[cik]
+        elif i < len(parsed) and parsed[i][1] is None:
+            name, ticker = parsed[i][
+                0
+            ]  # index-aligned display that names no CIK — accept, don't cross
+        else:
+            name, ticker = "", None  # no verified display for THIS cik — unlabeled, never a guess
+        rows.append((cik, name, ticker))
+    return rows
 
 
 def _cache_key(keyword: str, frm: int) -> str:
@@ -116,19 +152,17 @@ def _fetch_page(
     client: _JsonClient, keyword: str, frm: int
 ) -> tuple[list[tuple[str, str, str | None]], int, int]:
     """Fetch ONE EFTS page (``&from=frm``) for ``keyword`` -> ``(rows, total, page_size)``. Each row is
-    ``(cik, name, ticker)`` (a filing's CIKs x its parsed display); ``total`` is EFTS's reported hit count;
-    ``page_size`` is this page's hit count (0 = past the end). Cache-first via ``client.get_json`` with the
-    SAME ``cache_key`` as the sequential walk, so the parallel fan-out reuses the same cached pages.
+    ``(cik, name, ticker)``, paired PER ENTITY by ``_pair_hit`` (a joint filing's counterparty never wears
+    this filer's label); ``total`` is EFTS's reported hit count; ``page_size`` is this page's hit count
+    (0 = past the end). Cache-first via ``client.get_json`` with the SAME ``cache_key`` as the sequential
+    walk, so the parallel fan-out reuses the same cached pages.
     """
     q = urllib.parse.quote(f'"{keyword}"')
     data = client.get_json(f"{_EFTS_URL}?q={q}&from={frm}", _cache_key(keyword, frm))
     hits = data.get("hits", {}).get("hits", [])
     rows: list[tuple[str, str, str | None]] = []
     for h in hits:
-        src = h.get("_source", {})
-        name, ticker = _parse_display((src.get("display_names") or [""])[0])
-        for cik in src.get("ciks", []):
-            rows.append((cik, name, ticker))
+        rows.extend(_pair_hit(h.get("_source", {})))
     total = data.get("hits", {}).get("total", {}).get("value", 0)
     return rows, total, len(hits)
 
@@ -136,9 +170,12 @@ def _fetch_page(
 def _merge_rows(
     uni: dict[str, Filer], keyword: str, rows: list[tuple[str, str, str | None]]
 ) -> None:
-    """Union one page's rows into the CIK->Filer map: a new CIK seeds a Filer (first-seen name/ticker — best-
-    effort DISPLAY only, the CIK is the identity), an existing one just adds the keyword. Order-independent on
-    the CIK SET + the keyword tagging (what the precision filter scores); name/ticker is cosmetic.
+    """Union one page's rows into the CIK->Filer map: a new CIK seeds a Filer, an existing one adds the
+    keyword; a MISSING label (an unlabeled multi-CIK row) is filled by the first labeled sighting, and a
+    present label is never overwritten (first-verified-seen — deterministic under the fixed merge order).
+    Order-independent on the CIK SET + the keyword tagging (what the precision filter scores); the label is
+    best-effort DISPLAY for the un-placeable tail — placeable CIKs are relabeled from the MASTER row they
+    bind to (bind-then-label, ``workbench.discovery.run_discovery``).
     """
     for cik, name, ticker in rows:
         f = uni.get(cik)
@@ -146,6 +183,10 @@ def _merge_rows(
             uni[cik] = Filer(cik=cik, name=name, ticker=ticker, keywords={keyword})
         else:
             f.keywords.add(keyword)
+            if not f.name and name:
+                f.name = name
+            if not f.ticker and ticker:
+                f.ticker = ticker
 
 
 def ciks_for_keyword(
@@ -164,7 +205,12 @@ def ciks_for_keyword(
         if page_size == 0:
             break
         for cik, name, ticker in rows:
-            out.setdefault(cik, (name, ticker))
+            cur = out.get(cik)
+            if cur is None:
+                out[cik] = (name, ticker)
+            elif not cur[0] or not cur[1]:
+                # same fill-missing-label rule as _merge_rows (the parallel walk's determinism reference)
+                out[cik] = (cur[0] or name, cur[1] or ticker)
         frm += page_size
         if frm >= total:
             break
