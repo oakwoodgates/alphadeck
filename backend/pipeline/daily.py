@@ -34,6 +34,7 @@ from notify import Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
+from securities import master
 
 
 @dataclass
@@ -69,6 +70,17 @@ def run_daily(
     """
     asof = asof or date.today()
     notifier = notifier or get_notifier()
+    # The canonical-primary health guard: a master with multi-row CIKs but ZERO is_primary flags resolves
+    # every multi-sibling CIK to an ARBITRARY row (warrant / preferred / OTC foreign ordinary) — and nothing
+    # errors, so the state is invisible unless something says it. The cron is the daily surface; the line
+    # prints only in the broken state (loudness marks the exception) and names the one-command fix.
+    for gap in master.primary_flag_gaps(conn):
+        if gap["flagged_rows"] == 0:
+            print(
+                f"WARNING: tenant {gap['tenant_id']}: {gap['multi_row_ciks']} multi-row CIKs but ZERO "
+                "is_primary flags — CIK->security resolution is picking ARBITRARY siblings; "
+                "run `python -m pipeline.populate_master --live` to stamp the canonical primaries"
+            )
     out: list[ThesisRunResult] = []
     for thesis in thesis_repo.list_all(conn):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)

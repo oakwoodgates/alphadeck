@@ -53,6 +53,32 @@ def _calls(db, thesis_id):
     return calls_repo.list_for_thesis(db, thesis_id)  # the full append-only history (every row)
 
 
+def test_daily_warns_loudly_when_primary_flags_were_never_stamped(db, monkeypatch, capsys):
+    """The canonical-primary guard: a master with multi-row CIKs and ZERO is_primary flags resolves each
+    multi-sibling CIK to an ARBITRARY row — silently (nothing errors). The cron is the daily surface: it
+    prints the warning (naming the one-command fix) ONLY in the broken state, and stays quiet once any
+    flag is stamped (loudness marks the exception)."""
+    _no_network(monkeypatch)
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) VALUES "
+            "(%s, %s, 'ASML',  '0000937966', '2026-01-01'), "
+            "(%s, %s, 'ASMLF', '0000937966', '2026-01-01')",
+            (uuid.uuid4(), DEFAULT_TENANT_ID, uuid.uuid4(), DEFAULT_TENANT_ID),
+        )
+    db.commit()
+
+    daily.run_daily(db, asof=_ASOF, allow_live=False)
+    out = capsys.readouterr().out
+    assert "ZERO is_primary flags" in out and "populate_master --live" in out  # loud + actionable
+
+    with db.cursor() as cur:  # what a populate_master re-run does — the guard must then go quiet
+        cur.execute("UPDATE security_master SET is_primary = true WHERE ticker = 'ASML'")
+    db.commit()
+    daily.run_daily(db, asof=_ASOF, allow_live=False)
+    assert "is_primary" not in capsys.readouterr().out
+
+
 def test_daily_idempotent_end_to_end_count_the_table(db, monkeypatch):
     _no_network(monkeypatch)
     tid = _thesis(db, "Fact-less thesis")
