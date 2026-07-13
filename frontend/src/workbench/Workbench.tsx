@@ -150,7 +150,19 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
     }
   };
 
-  const onPromote = () => {
+  // IDENTITY MISMATCHES, computed client-side from data both queries already carry: the basket stores the
+  // member's LABEL (bm.ticker); the scored read joins the BOUND master row's ticker by security_id. A
+  // disagreement is the misbind class (a crossed label riding another company's id, or a drifted label) —
+  // post-fix it fires only on pre-guard damage or a deliberately overridden pair, so the chip stays rare
+  // (honest loudness). The same list feeds the promote bind-anyway override below.
+  const idMismatches = (thesis?.basket ?? []).flatMap((b) => {
+    const bound = b.security_id ? scoredById[b.security_id]?.ticker : null;
+    return b.security_id && b.ticker && bound && b.ticker.toUpperCase() !== bound.toUpperCase()
+      ? [{ securityId: b.security_id, stored: b.ticker, bound }]
+      : [];
+  });
+
+  const onPromote = (identityOverrides?: string[]) => {
     if (!thesis) return;
     promote.mutate({
       id: thesis.id,
@@ -159,6 +171,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
       ticker: thesis.ticker ?? null,
       basket: thesis.basket,
       segments: thesis.segments,
+      ...(identityOverrides?.length ? { identity_overrides: identityOverrides } : {}),
     });
   };
 
@@ -511,9 +524,21 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
                   <div className="bmems">
                     {members.map((m) => {
                       const auth = authoredByFor(m.security_id);
+                      const mm = idMismatches.find((x) => x.securityId === m.security_id);
                       return (
                         <span className="bchip" key={m.security_id}>
                           <b>{m.ticker ?? "◇"}</b>
+                          {/* the identity-mismatch flag (the misbind class): the stored member LABEL
+                              disagrees with the BOUND master row this id points at. Rare by design —
+                              pre-guard damage or a deliberate override — so it's loud when it fires. */}
+                          {mm && (
+                            <span
+                              className="flag"
+                              title={`identity mismatch: this member is labeled ${mm.stored} but its security_id is bound to ${mm.bound} (${m.name ?? "see row"}). Facts, prices and filings follow the BOUND id. Re-pick the name (remove + re-add via search), or promote with the explicit bind-anyway override (logged).`}
+                            >
+                              ⚠ label {mm.stored} ≠ bound {mm.bound}
+                            </span>
+                          )}
                           {/* only a DECIDED archetype renders (item F) — unset is quiet, not "null" */}
                           {m.archetype && (
                             <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
@@ -532,7 +557,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
                   <button
                     type="button"
                     className="promote"
-                    onClick={onPromote}
+                    onClick={() => onPromote()}
                     disabled={promote.isPending || !thesis}
                   >
                     {promote.isPending ? "Promoting…" : "Promote to thesis → Board (Incubating)"}
@@ -548,6 +573,25 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
                     Couldn't promote — {errText(promote.error)}. Nothing was sent.
                   </ErrorToast>
                 )}
+                {/* The bind-anyway override (the gate idiom — friction + a record, never a wall): promote
+                    fail-closed on an identity mismatch; the override re-sends the SAME chain listing the
+                    flagged members' ids, per-promote, logged server-side. Rendered only when the 422 was
+                    an identity mismatch AND the flagged rows are visible above (the ⚠ chips). */}
+                {promote.isError &&
+                  errText(promote.error).startsWith("identity mismatch") &&
+                  idMismatches.length > 0 && (
+                    <button
+                      type="button"
+                      className="wb-mini"
+                      title={idMismatches
+                        .map((x) => `${x.stored} stays bound to ${x.bound}`)
+                        .join("; ")}
+                      onClick={() => onPromote(idMismatches.map((x) => x.securityId))}
+                    >
+                      Bind anyway — accept {idMismatches.length} identity{" "}
+                      {idMismatches.length === 1 ? "mismatch" : "mismatches"} (logged)
+                    </button>
+                  )}
                 <div className="seam">
                   <b>On promote</b>, the chain structure persists with the thesis — the segment each name
                   sits in (a label on basket_member). The scores aren't stored; they re-derive on read,
