@@ -85,8 +85,10 @@ class SecurityCandidate(DomainModel):
 
 class ResolvedPlacement(DomainModel):
     """A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
-    ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are
-    preserved (so the UI can show what the model proposed even when it didn't resolve).
+    ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``prose`` are preserved (so the
+    UI can show what the model proposed even when it didn't resolve); ``ticker`` on a row that carries a
+    ``security_id`` is the BOUND master row's ticker (bind-then-label — shown ≡ bound; promote persists
+    this field with the id), and only an unresolved row keeps the model's ticker guess.
 
     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
@@ -245,6 +247,10 @@ def _resolve_one(
     # They agree, or only one fired → auto-place that exact member.
     placed = by_ticker if by_ticker is not None else by_name
     if placed is not None:
+        if by_ticker is None and name_exact:
+            # Placed by NAME alone: the model's ticker guess resolved to nothing, so show the BOUND row's
+            # ticker instead (shown ≡ bound — promote persists this field alongside the security_id).
+            base["ticker"] = name_exact[0].ticker
         return ResolvedPlacement(**base, status=PlacementStatus.PLACED, security_id=placed)
 
     # No unique exact match: any rows → the operator PICKS (a token/partial match is NOT membership — the
@@ -357,7 +363,9 @@ def resolve_discovered_chain(
             placements.append(
                 ResolvedPlacement(
                     name=p.name,
-                    ticker=p.ticker,
+                    # the BOUND row's ticker, not the organizer's echo (bind-then-label: the universe's
+                    # filers carry master identity, and promote persists this field with the security_id)
+                    ticker=(f.ticker if f is not None and f.ticker else p.ticker),
                     prose=p.prose,
                     segment=s.label,
                     status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,

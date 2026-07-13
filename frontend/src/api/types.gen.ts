@@ -1579,8 +1579,10 @@ export interface components {
         /**
          * ResolvedPlacement
          * @description A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
-         *     ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``ticker`` / ``prose`` are
-         *     preserved (so the UI can show what the model proposed even when it didn't resolve).
+         *     ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``prose`` are preserved (so the
+         *     UI can show what the model proposed even when it didn't resolve); ``ticker`` on a row that carries a
+         *     ``security_id`` is the BOUND master row's ticker (bind-then-label — shown ≡ bound; promote persists
+         *     this field with the id), and only an unresolved row keeps the model's ticker guess.
          *
          *     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
          *     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
