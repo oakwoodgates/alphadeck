@@ -57,6 +57,19 @@ def _page(total: int, *rows: tuple[str, str]) -> dict:
     }
 
 
+def _joint_page(total: int, *hits: tuple[list[str], list[str]]) -> dict:
+    """An EFTS page of MULTI-CIK hits: each hit is ``(ciks, display_names)`` — the joint-filing shape
+    (merger 425/S-4, tender offer SC TO, SC 13D/G, co-registrant lists) the single-cik ``_page`` helper
+    can't express. ``ciks`` and ``display_names`` are parallel arrays, one entry per entity, exactly as
+    EFTS returns them (verified against 1,301 cached multi-CIK hits, all parallel)."""
+    return {
+        "hits": {
+            "total": {"value": total},
+            "hits": [{"_source": {"ciks": c, "display_names": d}} for c, d in hits],
+        }
+    }
+
+
 def test_parse_display_name_and_ticker():
     assert _parse_display("COMPASS Pathways plc  (CMPS)  (CIK 0001816590)") == (
         "COMPASS Pathways plc",
@@ -67,6 +80,101 @@ def test_parse_display_name_and_ticker():
         "Optimi Health Corp.",
         "OPTH",  # first of several tickers
     )
+
+
+def test_joint_filing_pairs_each_cik_with_its_own_display():
+    """THE MISBIND REGRESSION (SIMO↔MXL, KLAC↔LRCX): a joint filing (merger 425) lists BOTH entities'
+    CIKs; each must get ITS OWN display name/ticker — stamping ``display_names[0]`` across every CIK is
+    how merger counterparties swapped identities. The join is by the CIK each display string embeds.
+    """
+    pages = {
+        "efts/nand_0.json": _joint_page(
+            1,
+            (
+                ["0001288469", "0001329394"],
+                [
+                    "MAXLINEAR, INC  (MXL)  (CIK 0001288469)",
+                    "Silicon Motion Technology CORP  (SIMO)  (CIK 0001329394)",
+                ],
+            ),
+        )
+    }
+    uni = discover(_FakeEfts(pages), ["nand"]).filers
+    assert (uni["0001288469"].name, uni["0001288469"].ticker) == ("MAXLINEAR, INC", "MXL")
+    assert (uni["0001329394"].name, uni["0001329394"].ticker) == (
+        "Silicon Motion Technology CORP",
+        "SIMO",
+    )
+
+
+def test_joint_filing_embedded_cik_wins_over_index_order():
+    """The embedded-CIK join is ORDER-PROOF: displays arrive in the opposite order of ``ciks`` and each
+    entity still gets its own label (the 2015 KLA/Lam merger shape). Index position is never trusted when
+    a display names its CIK."""
+    pages = {
+        "efts/etch_0.json": _joint_page(
+            1,
+            (
+                ["0000707549", "0000319201"],
+                [
+                    "KLA TENCOR CORP  (KLAC)  (CIK 0000319201)",
+                    "LAM RESEARCH CORP  (LRCX)  (CIK 0000707549)",
+                ],
+            ),
+        )
+    }
+    uni = discover(_FakeEfts(pages), ["etch"]).filers
+    assert (uni["0000707549"].name, uni["0000707549"].ticker) == ("LAM RESEARCH CORP", "LRCX")
+    assert (uni["0000319201"].name, uni["0000319201"].ticker) == ("KLA TENCOR CORP", "KLAC")
+
+
+def test_joint_filing_person_cik_never_wears_the_company_label():
+    """An SC 13D lists the company AND the reporting PERSON (a real cached case: NRX + Javitt Jonathan C).
+    The person's CIK gets the person's display — name only, no ticker — never the company's ticker (the
+    old cross-stamp labeled a person's CIK 'NRX Pharmaceuticals (NRXP)')."""
+    pages = {
+        "efts/ketamine_0.json": _joint_page(
+            1,
+            (
+                ["0001719406", "0001303782"],
+                [
+                    "NRX Pharmaceuticals, Inc.  (NRXP, NRXPW)  (CIK 0001719406)",
+                    "Javitt Jonathan C  (CIK 0001303782)",
+                ],
+            ),
+        )
+    }
+    uni = discover(_FakeEfts(pages), ["ketamine"]).filers
+    assert (uni["0001719406"].name, uni["0001719406"].ticker) == (
+        "NRX Pharmaceuticals, Inc.",
+        "NRXP",
+    )
+    assert (uni["0001303782"].name, uni["0001303782"].ticker) == ("Javitt Jonathan C", None)
+
+
+def test_joint_filing_unverifiable_cik_is_enumerated_unlabeled():
+    """A CIK with NO verified display (ragged arrays / a display that names a DIFFERENT cik) is still
+    ENUMERATED — recall never hangs on a parse (#9) — but carries no label: never another entity's, and
+    never a guess. A later page where the entity appears under its own display FILLS the missing label
+    (and an already-present label is never overwritten — first-verified-seen)."""
+    pages = {
+        # ragged: two CIKs, one display (embedding only the first) -> the second is kept, unlabeled
+        "efts/kw1_0.json": _joint_page(
+            1,
+            (
+                ["0000000001", "0000000002"],
+                ["Alpha Co  (ALFA)  (CIK 0000000001)"],
+            ),
+        ),
+        # the second entity later surfaces under its own display -> label filled, keywords unioned
+        "efts/kw2_0.json": _page(1, ("0000000002", "Beta Co  (BETA)  (CIK 0000000002)")),
+        # a THIRD sighting under a different display must not overwrite the filled label
+        "efts/kw3_0.json": _page(1, ("0000000002", "Beta Company Holdings  (CIK 0000000002)")),
+    }
+    uni = discover(_FakeEfts(pages), ["kw1", "kw2", "kw3"]).filers
+    assert (uni["0000000001"].name, uni["0000000001"].ticker) == ("Alpha Co", "ALFA")
+    assert uni["0000000002"].keywords == {"kw1", "kw2", "kw3"}  # the ragged kw1 hit still counted
+    assert (uni["0000000002"].name, uni["0000000002"].ticker) == ("Beta Co", "BETA")
 
 
 def test_ciks_for_keyword_paginates_and_dedups():

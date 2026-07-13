@@ -73,9 +73,12 @@ class DiscoveryEmpty(DiscoveryUnavailable):
 @dataclass
 class DiscoveredUniverse:
     """The EDGAR-first discovered universe for a thesis. ``placed`` / ``verify`` are ``cik -> security_id`` (the
-    placeable, in-master names, by confidence tier); ``filers`` is the raw enumerated set (``cik -> Filer``) the
-    chain reconciler needs for the organizer name/ticker match-back and the 'Discovered' fallback labels.
-    ``signal`` / ``broad`` are the keyword tiers used (carried for visibility / debugging)."""
+    placeable, in-master names, by confidence tier); ``filers`` is the enumerated set (``cik -> Filer``) the
+    chain reconciler needs for the organizer name/ticker match-back and the 'Discovered' fallback labels —
+    BIND-THEN-LABEL: a placeable CIK's Filer carries the identity of the MASTER row it binds to (never the
+    EFTS display string), so shown ≡ bound for every row that carries a ``security_id``; the un-placeable
+    tail keeps its EFTS display label (it never binds). ``signal`` / ``broad`` are the keyword tiers used
+    (carried for visibility / debugging)."""
 
     placed: dict[str, UUID] = field(default_factory=dict)
     verify: dict[str, UUID] = field(default_factory=dict)
@@ -110,9 +113,10 @@ def discovery_context(universe: DiscoveredUniverse, tail_sweep: str | None = Non
     (name + ticker, the deterministic spine) followed by the tail-sweep synthesis (the foreign/brand-new tail).
     Returns ``None`` when BOTH are empty (the decompose then runs recall-only).
 
-    The names are listed with their CURRENT ticker so the organizer emits a ticker the reconciler can match back
-    to the discovered CIK; a single-BROAD verify name is tagged so the organizer keeps it but the operator sees
-    its lower confidence. No number is emitted (#3 — names + tickers + tags only)."""
+    The names are listed with their MASTER ticker (bind-then-label — the identity of the row each CIK binds
+    to) so the organizer emits a ticker the reconciler can match back to the discovered CIK; a single-BROAD
+    verify name is tagged so the organizer keeps it but the operator sees its lower confidence. No number is
+    emitted (#3 — names + tickers + tags only)."""
     lines: list[str] = []
     for cik in (*universe.placed, *universe.verify):
         f = universe.filers.get(cik)
@@ -129,6 +133,37 @@ def discovery_context(universe: DiscoveredUniverse, tail_sweep: str | None = Non
         prefix = block + "\n\n" if block else ""
         block = prefix + "Additional names (directed web-search tail-sweep):\n" + tail_sweep.strip()
     return block or None
+
+
+def _relabel_placeable(
+    conn: psycopg.Connection,
+    filers: dict[str, Filer],
+    resolved: dict[str, UUID],
+    *,
+    tenant_id: UUID,
+) -> dict[str, Filer]:
+    """BIND-THEN-LABEL: relabel every placeable CIK's Filer with the identity of the MASTER row its
+    ``security_id`` binds to (ticker + name) — the master is canonical; the EFTS display string is a
+    filing-era artifact ("KLA TENCOR CORP") and, on a joint filing, can wear the COUNTERPARTY's identity
+    outright (the KLAC↔LRCX / SIMO↔MXL misbind). Relabeling at the source makes shown ≡ bound STRUCTURAL:
+    the organizer context lines, the reconciler's match-back keys, and the 'Discovered' fallback labels all
+    read these filers, so a label can never disagree with the id it rides with — even if a future parse bug
+    recurs upstream. The un-placeable tail (no master row) keeps its EFTS label: display-only, never binds.
+    New Filer objects (the raw map is not mutated); ``keywords`` — the #9 provenance tell — carry over; a
+    master gap falls back to the EFTS label (never blank a name that had one)."""
+    secs = master.get_many(conn, resolved.values(), tenant_id=tenant_id)
+    out = dict(filers)
+    for cik, sid in resolved.items():
+        s, f = secs.get(sid), filers.get(cik)
+        if s is None or f is None:
+            continue
+        out[cik] = Filer(
+            cik=cik,
+            name=s.name or f.name,
+            ticker=s.ticker or f.ticker,
+            keywords=f.keywords,
+        )
+    return out
 
 
 def run_discovery(
@@ -170,6 +205,8 @@ def run_discovery(
     filers = run.filers
     in_master = master.ids_for_ciks(conn, filers.keys(), tenant_id=tenant_id)
     disc = classify(filers, in_master_ids=in_master, signal=signal, broad=broad)
+    # BIND-THEN-LABEL (see _relabel_placeable): every placeable CIK now displays the master row it binds to.
+    filers = _relabel_placeable(conn, filers, {**disc.placed, **disc.verify}, tenant_id=tenant_id)
     universe = DiscoveredUniverse(
         placed=disc.placed,
         verify=disc.verify,

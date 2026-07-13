@@ -14,6 +14,12 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
 from domain.thesis import TermSetEntry
 from ingest.edgar.fulltext import DiscoveryDegraded, DiscoveryUnavailable
+from securities import master
+from workbench.chain_draft import (
+    ProposedPlacement,
+    ProposedSegment,
+    resolve_discovered_chain,
+)
 from workbench.discovery import DiscoveryEmpty, DiscoveryNoTerms, run_discovery
 
 
@@ -105,6 +111,54 @@ def test_run_discovery_omits_not_in_master(db):
     uni = run_discovery(db, _FakeEfts(_PAGES), _TERMS, hit_cap=1000)
     assert uni.placed == {_A: a}  # Silo placed-tier but not in master -> omitted
     assert uni.verify == {}  # Alkermes not in master -> omitted
+
+
+def test_run_discovery_relabels_placeable_from_master(db):
+    """BIND-THEN-LABEL: a placeable CIK's Filer carries the MASTER row's ticker/name — what the organizer
+    context, the match-back keys, and the reconciler's fallback labels all read — never the EFTS display
+    string (filing-era, and on a joint filing possibly the COUNTERPARTY's identity outright). The
+    un-placeable tail keeps its EFTS label: display-only, it never binds."""
+    k = _insert(db, "KLAC", name="KLA CORP", cik=_A)
+    pages = {
+        # EFTS shows the joint-filing counterparty's identity for _A — the misbind's raw material
+        "efts/psilocybin_0.json": _page(1, (_A, "LAM RESEARCH CORP  (LRCX)  (CIK 0000707549)")),
+        # _B is not in the master (the tail) — its EFTS label must survive untouched
+        "efts/ketamine_0.json": _page(1, (_B, "Tail Foreign Co  (CIK 0000000002)")),
+    }
+    uni = run_discovery(db, _FakeEfts(pages), _TERMS, hit_cap=1000)
+    assert uni.placed == {_A: k}
+    f = uni.filers[_A]
+    assert (f.name, f.ticker) == ("KLA CORP", "KLAC")  # the bound master identity, not the display
+    assert f.keywords == {"psilocybin"}  # the #9 provenance tell carries over
+    assert (uni.filers[_B].name, uni.filers[_B].ticker) == ("Tail Foreign Co", None)
+
+
+def test_end_to_end_shown_identity_equals_bound_identity(db):
+    """THE MISBIND REGRESSION, end to end (SIMO↔MXL): even when the EFTS display strings arrive fully
+    CROSSED — each CIK wearing the other company's name+ticker, the joint-425 worst case — every placement
+    the reconciler emits shows the identity of the master row it BINDS. One name travels the organizer
+    match-back path, the other the reconciler-appended 'Discovered' path; shown ≡ bound on both."""
+    mxl = _insert(db, "MXL", name="MAXLINEAR, INC", cik="0001288469")
+    simo = _insert(db, "SIMO", name="Silicon Motion Technology CORP", cik="0001329394")
+    pages = {
+        "efts/psilocybin_0.json": _page(
+            2,
+            ("0001288469", "Silicon Motion Technology CORP  (SIMO)  (CIK 0001329394)"),
+            ("0001329394", "MAXLINEAR, INC  (MXL)  (CIK 0001288469)"),
+        )
+    }
+    uni = run_discovery(db, _FakeEfts(pages), _terms(["psilocybin"], []), hit_cap=1000)
+    segs = [
+        ProposedSegment(
+            label="Controllers",
+            placements=[ProposedPlacement(name="MaxLinear", ticker="MXL", prose="x")],
+        )
+    ]
+    chain = resolve_discovered_chain(db, segs, uni, tenant_id=DEFAULT_TENANT_ID)
+    assert {p.security_id for p in chain.placements} == {mxl, simo}  # both names, none dropped
+    for p in chain.placements:
+        bound = master.get(db, p.security_id, tenant_id=DEFAULT_TENANT_ID)
+        assert p.ticker == bound.ticker  # shown ≡ bound — the crossed display never rides a row
 
 
 def test_run_discovery_raises_when_no_term_set(db):
