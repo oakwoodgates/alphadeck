@@ -875,6 +875,86 @@ def test_promote_stores_the_primary_as_is(client, db):
     assert member["security_id"] == str(asml) and member["ticker"] == "ASML"
 
 
+def _identity_payload(ticker, sid, *, overrides=None):
+    p = {
+        "name": "Semis",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "controllers"}],
+        "basket": [
+            {
+                "ticker": ticker,
+                "role": "r",
+                "archetype": "leader",
+                "security_id": str(sid),
+                "segment": "controllers",
+            }
+        ],
+    }
+    if overrides is not None:
+        p["identity_overrides"] = [str(x) for x in overrides]
+    return p
+
+
+def test_promote_rejects_a_cross_company_identity_mismatch(client, db):
+    """The identity-coherence guard (the misbind class, fail-closed): a member whose shown ticker belongs
+    to a DIFFERENT company than its bound row — SIMO's label riding MXL's security_id, exactly how the
+    joint-filing mispair persisted — 422s NAMING BOTH IDENTITIES, and the spine stays untouched (count the
+    table). Promote never silently decides which company the operator meant (#2)."""
+    mxl = _insert_security(db, "MXL", name="MAXLINEAR, INC", cik="0001288469")
+    _insert_security(db, "SIMO", name="Silicon Motion Technology CORP", cik="0001329394")
+    r = client.post("/workbench/theses", json=_identity_payload("SIMO", mxl))
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "identity mismatch" in detail
+    assert "MXL" in detail and "0001288469" in detail  # the bound row, named
+    assert "identity_overrides" in detail  # the escape hatch, named
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM thesis WHERE name = 'Semis'")
+        assert cur.fetchone()["n"] == 0  # fail-closed: nothing reached the spine
+
+
+def test_promote_identity_override_accepts_and_logs(client, db, caplog):
+    """The escape hatch (per-member, logged — the gate idiom): listing the member's security_id in
+    ``identity_overrides`` binds the disagreeing pair AS SENT (the operator's deliberate choice, label
+    kept), and the acceptance lands in the log — friction plus a record, never a silent pass."""
+    import logging
+
+    mxl = _insert_security(db, "MXL", name="MAXLINEAR, INC", cik="0001288469")
+    _insert_security(db, "SIMO", name="Silicon Motion Technology CORP", cik="0001329394")
+    with caplog.at_level(logging.WARNING):
+        r = client.post("/workbench/theses", json=_identity_payload("SIMO", mxl, overrides=[mxl]))
+    assert r.status_code == 200
+    member = r.json()["basket"][0]
+    assert (member["ticker"], member["security_id"]) == ("SIMO", str(mxl))  # bound as sent
+    assert any("identity override ACCEPTED" in rec.message for rec in caplog.records)
+
+
+def test_promote_rejects_a_drifted_label_without_override(client, db):
+    """The MNMD→DFTX class: a shown ticker no current master row carries (the SEC file moved on) is not
+    promote's judgment to accept silently — 422 with the same per-member override path."""
+    dftx = _insert_security(db, "DFTX", name="Definium Therapeutics, Inc.", cik="0001813814")
+    r = client.post("/workbench/theses", json=_identity_payload("MNMD", dftx))
+    assert r.status_code == 422
+    assert "matches no current master row" in r.json()["detail"]
+
+
+def test_promote_aligns_a_sibling_label_to_the_bound_row(client, db):
+    """A SIBLING disagreement (same CIK, another line's label — ticker ASMLF with the PRIMARY row's id, so
+    the canonicalizer has nothing to re-point) is ALIGNED, not rejected: the same coerce-all rule the
+    operator ratified for canonicalize — right company, the spine's label follows the bound instrument.
+    """
+    asml = _insert_security(db, "ASML", name="ASML HOLDING NV", cik="0000937966", is_primary=True)
+    _insert_security(db, "ASMLF", name="ASML HOLDING NV", cik="0000937966", is_primary=False)
+    r = client.post("/workbench/theses", json=_identity_payload("ASMLF", asml))
+    assert r.status_code == 200
+    member = r.json()["basket"][0]
+    assert (member["ticker"], member["security_id"]) == (
+        "ASML",
+        str(asml),
+    )  # label aligned, visibly
+
+
 def test_promote_persists_thesis_fit(client, security_id):
     """The thesis-fit prose round-trips the spine (draft -> promote -> re-read): a basket member's
     `thesis_fit` (the "why it sits here" reasoning) persists ALONGSIDE its `authored_by`. This is the column
