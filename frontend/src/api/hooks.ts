@@ -235,12 +235,18 @@ export function useResolveSecurities(query: string) {
 
 // Promote/save a structured thesis (the app's only mutation): create/update via full-replace upsert,
 // then invalidate the Board list AND the scored read so the meters re-derive on the new structure.
-// Scores are never sent — they re-derive on read.
+// Scores are never sent — they re-derive on read. `identity_overrides` is optional at the call sites
+// (defaulted here): only the explicit bind-anyway flow ever sends member ids — an override is a
+// deliberate, per-promote choice, never ambient state a payload builder could accidentally carry.
 export function usePromoteThesis() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: PromoteThesisRequest) => {
-      const { data, error } = await api.POST("/workbench/theses", { body });
+    mutationFn: async (
+      body: Omit<PromoteThesisRequest, "identity_overrides"> & { identity_overrides?: string[] },
+    ) => {
+      const { data, error } = await api.POST("/workbench/theses", {
+        body: { ...body, identity_overrides: body.identity_overrides ?? [] },
+      });
       if (error) throw error;
       return data;
     },
