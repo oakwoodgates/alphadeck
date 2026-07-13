@@ -379,6 +379,43 @@ def canonicalize_ids(
         return {r["given_id"]: (r["primary_id"], r["primary_ticker"]) for r in cur.fetchall()}
 
 
+def primary_flag_gaps(conn: psycopg.Connection) -> list[dict]:
+    """The canonical-primary HEALTH CHECK: per tenant, how many multi-row CIKs the master carries vs how many
+    rows are flagged ``is_primary`` — ``[{tenant_id, multi_row_ciks, flagged_rows}]``, one entry per tenant
+    that HAS multi-row CIKs (a single-instrument-only master needs no flags and reports nothing).
+
+    ``flagged_rows == 0`` with ``multi_row_ciks > 0`` is the SILENT DEGRADED STATE this guard exists for:
+    ``ids_for_ciks`` / ``canonicalize_ids`` order ``is_primary DESC NULLS LAST, recorded_at DESC, id``, so an
+    entirely-unflagged master resolves every multi-sibling CIK to an ARBITRARY row — a warrant, a preferred
+    line, the OTC foreign ordinary (the live finding: 10,366 rows / 0 flags / 1,449 multi-row CIKs → ASML
+    bound to ASMLF, Blaize to its BZAIW warrant). The state is invisible to every read (nothing errors), so
+    the daily cron surfaces it LOUDLY instead; the fix is one command — ``python -m pipeline.populate_master
+    --live`` (a re-run stamps the flags; ``populate_universe`` updates on the is_primary diff). Cross-tenant
+    deliberately: the guard must not miss a tenant the caller didn't think to name."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH multi AS ("
+            "  SELECT tenant_id, cik FROM security_master"
+            "  WHERE cik IS NOT NULL AND ticker IS NOT NULL"
+            "  GROUP BY tenant_id, cik HAVING count(*) > 1"
+            "), flags AS ("
+            "  SELECT tenant_id, count(*) AS flagged FROM security_master"
+            "  WHERE is_primary GROUP BY tenant_id"
+            ") "
+            "SELECT m.tenant_id, count(*) AS multi_row_ciks, COALESCE(f.flagged, 0) AS flagged_rows "
+            "FROM multi m LEFT JOIN flags f ON f.tenant_id = m.tenant_id "
+            "GROUP BY m.tenant_id, f.flagged ORDER BY m.tenant_id",
+        )
+        return [
+            {
+                "tenant_id": r["tenant_id"],
+                "multi_row_ciks": r["multi_row_ciks"],
+                "flagged_rows": r["flagged_rows"],
+            }
+            for r in cur.fetchall()
+        ]
+
+
 def search(
     conn: psycopg.Connection,
     query: str,

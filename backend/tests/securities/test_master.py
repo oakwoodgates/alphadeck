@@ -57,6 +57,35 @@ def test_resolve_is_idempotent(db):
         assert cur.fetchone()["n"] == 1  # not re-inserted
 
 
+def test_primary_flag_gaps_reports_unflagged_multi_row_ciks(db):
+    """The canonical-primary health check: a tenant whose master has multi-row CIKs but ZERO is_primary
+    flags is the silent degraded state (ids_for_ciks falls back to an arbitrary sibling — the live 10,366-
+    rows/0-flags finding). The gap reports it; stamping ANY primary clears the zero-flags condition; a
+    master with no multi-row CIKs reports nothing at all (no flags needed — honest loudness)."""
+    _insert(db, ticker="ASML", cik="0000937966")
+    _insert(db, ticker="ASMLF", cik="0000937966")  # the multi-sibling CIK, both unflagged
+    _insert(db, ticker="HIMS", cik="0001773751")  # single-row CIK — needs no flag
+    gaps = master.primary_flag_gaps(db)
+    assert gaps == [
+        {"tenant_id": DEFAULT_TENANT_ID, "multi_row_ciks": 1, "flagged_rows": 0}
+    ]  # the broken state, named
+
+    with db.cursor() as cur:  # stamp a primary (what a populate_master re-run does) -> gap clears
+        cur.execute(
+            "UPDATE security_master SET is_primary = true WHERE ticker = 'ASML'",
+        )
+    db.commit()
+    (gap,) = master.primary_flag_gaps(db)
+    assert gap["flagged_rows"] == 1  # flagged_rows > 0 -> the daily guard stays quiet
+
+
+def test_primary_flag_gaps_empty_when_no_multi_row_ciks(db):
+    """Single-instrument-only master: nothing to rank, nothing reported (the guard never nags a state that
+    needs no flags)."""
+    _insert(db, ticker="HIMS", cik="0001773751")
+    assert master.primary_flag_gaps(db) == []
+
+
 def test_cache_miss_raises_when_live_disabled(db):
     with pytest.raises(CacheMiss):
         _resolve(db, "ZZZZ")  # no cached fixture and live pulls disabled
