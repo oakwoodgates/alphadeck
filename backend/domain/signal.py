@@ -23,7 +23,7 @@ class Provenance(DomainModel):
 
 
 class SignalEvent(DomainModel):
-    """A detector's output: f(point_in_time_data, asof) -> SignalEvent (CALL_LOGIC §1).
+    """A detector's output: f(point_in_time_data, security_id, asof, cfg) -> SignalEvent (CALL_LOGIC §1).
 
     Detectors are pure: no implicit "now" — time is always the `asof` parameter.
     """
@@ -42,10 +42,15 @@ class SignalEvent(DomainModel):
     asof: date
 
     @model_validator(mode="after")
-    def _grade_matches_role(self) -> "SignalEvent":
-        # taxonomy contract (§1/§3): risk signals are ungraded; a fired entry trigger is graded flip|core
+    def _event_contract(self) -> "SignalEvent":
+        # Taxonomy + trust contract (§1/§3 and invariants #3/#6): risks are ungraded; a fired entry
+        # trigger is graded and bounded by a positive alpha horizon; every fired output shows its source.
         if self.role == Role.RISK_SIGNAL and self.grade is not None:
             raise ValueError("a risk_signal must not carry a grade")
         if self.role == Role.ENTRY_TRIGGER and self.fired and self.grade is None:
             raise ValueError("a fired entry_trigger must carry a grade (flip|core)")
+        if self.role == Role.ENTRY_TRIGGER and self.fired and self.alpha_liveness_days is None:
+            raise ValueError("a fired entry_trigger must carry alpha_liveness_days")
+        if self.fired and not self.provenance:
+            raise ValueError("a fired signal must carry provenance")
         return self

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 import psycopg
 
 from db.bitemporal import as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
+from domain.config import CallConfig
 from domain.signal import SignalEvent
 
 
@@ -134,5 +136,52 @@ class PointInTimeData:
         )
 
 
-# A detector is pure: f(point_in_time_data, security_id, asof) -> SignalEvent | None (CLAUDE.md / CALL_LOGIC §1).
-Detector = Callable[[PointInTimeData, UUID, date], SignalEvent | None]
+class SignalPointInTimeData(Protocol):
+    """The structural fact-view contract consumed by the current signal pipeline.
+
+    Both the Postgres-backed ``PointInTimeData`` above and replay's DuckDB-backed
+    ``ReplayPointInTimeData`` satisfy this protocol. It names only the accessors the existing four
+    per-security detectors plus the thesis-level theme broadcast use — no future plugin surface.
+    """
+
+    asof: date
+    known_at: datetime
+    tenant_id: UUID
+
+    def insider_txns(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def price_history(
+        self, security_id: UUID, lookback_days: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def dilution_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
+
+
+DetectorFn = Callable[
+    [SignalPointInTimeData, UUID, date, CallConfig],
+    SignalEvent | None,
+]
+
+
+@dataclass(frozen=True, slots=True)
+class Detector:
+    """One registered per-security detector with the exact current pipeline contract."""
+
+    name: str
+    detect: DetectorFn
+
+    def __call__(
+        self,
+        pit: SignalPointInTimeData,
+        security_id: UUID,
+        asof: date,
+        cfg: CallConfig,
+    ) -> SignalEvent | None:
+        event = self.detect(pit, security_id, asof, cfg)
+        if event is not None and event.detector != self.name:
+            raise ValueError(f"detector {self.name!r} emitted event stamped by {event.detector!r}")
+        return event

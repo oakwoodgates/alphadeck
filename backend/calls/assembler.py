@@ -12,6 +12,7 @@ from domain.config import CallConfig
 from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
+from signals.common import entry_signal_is_live
 
 # The LLM (M4b) supplies counter-case prose via this hook; it never sets state/verdict/grade/triggers.
 CounterCaseFn = Callable[[Thesis, list[SignalEvent], list[str], list[str]], str]
@@ -254,8 +255,8 @@ def assemble_call(
 def _live(e: SignalEvent, asof: date) -> bool:
     """A fired entry trigger counts only while inside its alpha-liveness window (``e.asof`` = its fire date)."""
     if e.alpha_liveness_days is None:
-        return True
-    return asof <= e.asof + timedelta(days=e.alpha_liveness_days)
+        raise ValueError("fired entry trigger is missing alpha_liveness_days")
+    return entry_signal_is_live(e.asof, e.alpha_liveness_days, asof)
 
 
 def _member_events(sec: UUID, live_entry: list[SignalEvent], kinds) -> list[SignalEvent]:

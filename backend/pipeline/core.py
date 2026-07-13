@@ -7,28 +7,12 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
 from domain.thesis import Thesis
-from signals import (
-    catalyst_conviction,
-    dilution_clock,
-    insider_conviction,
-    theme_conviction,
-    volume_breakout,
-)
-from signals.base import PointInTimeData
-
-# The per-security detectors the pipeline runs over each basket member: the Key-1 conviction triggers
-# (insider buys + catalysts, for single-name and theme theses respectively), the Key-2 volume breakout,
-# and the dilution risk signal. (The breakdown risk signal joins in M4a-ii.)
-_DETECTORS = (
-    insider_conviction.detect,
-    catalyst_conviction.detect,
-    volume_breakout.detect,
-    dilution_clock.detect,
-)
+from signals import registered_detectors, theme_conviction
+from signals.base import SignalPointInTimeData
 
 
 def assemble_from_pit(
-    pit: PointInTimeData,
+    pit: SignalPointInTimeData,
     thesis: Thesis,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
@@ -41,12 +25,15 @@ def assemble_from_pit(
     the Parquet mirror); it carries ``asof`` / ``known_at`` / ``tenant_id``, so this core takes no conn and
     does no recording. A pure function of ``(pit, thesis, asof, cfg)``.
     """
+    if pit.asof != asof:
+        raise ValueError(f"pipeline asof {asof} does not match point-in-time view {pit.asof}")
+
     events: list[SignalEvent] = []
     for member in thesis.basket:
         if member.security_id is None:
             continue
-        for detect in _DETECTORS:
-            event = detect(pit, member.security_id, asof, cfg)
+        for detector in registered_detectors():
+            event = detector(pit, member.security_id, asof, cfg)
             if event is not None:
                 events.append(event)
 

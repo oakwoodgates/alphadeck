@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade, Kind, Role
-from domain.signal import Provenance, SignalEvent
-from signals.base import PointInTimeData
+from domain.signal import SignalEvent
+from signals.base import Detector, SignalPointInTimeData
+from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.registry import register_detector
 
 # A binding (core) catalyst reads as strong conviction; a provisional (flip) one as moderate. Inline
 # STARTING calibration — detectors may carry numbers (the magic-number guard is on the assembler).
+DETECTOR_NAME = "catalyst_conviction"
 _CORE_SCORE = 0.9
 _FLIP_SCORE = 0.5
 
@@ -49,31 +52,30 @@ def score(
     live: list[tuple[dict[str, Any], Grade, int]] = []
     for f in facts:
         lv = liveness(f, cfg)
-        if f["valid_from"] >= asof - timedelta(days=lv):
+        if entry_signal_is_live(f["valid_from"], lv, asof):
             live.append((f, Grade(f["grade"]), lv))
     if not live:
         return None
     # strongest conviction: prefer a binding (core) catalyst, then the most recent
     fact, grade, lv = max(live, key=lambda x: (x[1] is Grade.CORE, x[0]["valid_from"]))
     ctype = CatalystType(fact["catalyst_type"]) if fact.get("catalyst_type") else None
-    return SignalEvent(
-        detector="catalyst_conviction",
+    return fired_signal(
+        detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.CATALYST,
-        type=ctype,
+        catalyst_type=ctype,
         grade=grade,
         score=_CORE_SCORE if grade is Grade.CORE else _FLIP_SCORE,
-        fired=True,
         label=fact["label"],
         alpha_liveness_days=lv,
-        provenance=[Provenance(source=fact["source"], ref=fact["source_ref"])],
+        provenance=[source_provenance(fact["source"], fact["source_ref"])],
         asof=fact["valid_from"],
     )
 
 
 def detect(
-    pit: PointInTimeData,
+    pit: SignalPointInTimeData,
     security_id: UUID,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
@@ -82,3 +84,6 @@ def detect(
     facts via the point-in-time view; arming still needs a co-located confirmation (the breakout).
     """
     return score(pit.catalyst_facts(security_id), security_id, asof, cfg)
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
