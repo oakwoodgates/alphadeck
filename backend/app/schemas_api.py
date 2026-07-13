@@ -381,6 +381,12 @@ class PromoteThesisRequest(BaseModel):
     ticker: str | None = None
     basket: list[BasketMember] = []
     segments: list[Segment] = []
+    # The identity-coherence override (fail-closed with an escape hatch — the gate idiom): promote REJECTS
+    # (422) a member whose shown ticker disagrees with its bound master row (cross-company / label-drift,
+    # the misbind class) UNLESS that member's security_id is listed here — an explicit, per-member, LOGGED
+    # acceptance ("I know the label and the binding disagree; bind it anyway"). Never blanket, never
+    # remembered across promotes.
+    identity_overrides: list[UUID] = []
 
 
 class ProduceTermsRequest(BaseModel):

@@ -1416,6 +1416,11 @@ export interface components {
              * @default []
              */
             segments: components["schemas"]["Segment"][];
+            /**
+             * Identity Overrides
+             * @default []
+             */
+            identity_overrides: string[];
         };
         /** ProvenanceOut */
         ProvenanceOut: {

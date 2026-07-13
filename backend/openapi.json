@@ -3105,6 +3105,15 @@
             "type": "array",
             "title": "Segments",
             "default": []
+          },
+          "identity_overrides": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Identity Overrides",
+            "default": []
           }
         },
         "type": "object",

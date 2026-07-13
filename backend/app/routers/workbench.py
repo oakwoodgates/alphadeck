@@ -66,7 +66,7 @@ from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
-from securities import master
+from securities import coherence, master
 from signals.base import PointInTimeData
 from workbench import run_loader
 from workbench.chain_draft import (
@@ -324,6 +324,60 @@ def promote(
             thesis.basket[i] = m.model_copy(
                 update={"security_id": primary_id, "ticker": primary_ticker}
             )
+    # The IDENTITY-COHERENCE guard (the misbind class, fail-closed): after canonicalize, a member whose
+    # shown ticker STILL disagrees with its bound master row is either another company's label riding the id
+    # (cross-company — how KLAC's label rode LRCX's security_id) or a label no current row carries
+    # (label-drift). Persisting that pair silently would corrupt every downstream read (facts pull by the
+    # bound id; the operator reads the label), and choosing a side is not promote's judgment to make (#2) —
+    # so it 422s NAMING BOTH IDENTITIES, unless the operator explicitly listed the member's security_id in
+    # ``identity_overrides`` (per-member, logged — the gate idiom: friction + a record, never a silent
+    # pass). A SIBLING disagreement (same CIK, another line's label) is ALIGNED instead, mirroring the
+    # canonicalize coerce-all rule the operator already ratified — same company, the spine's label follows
+    # the bound instrument.
+    findings = coherence.classify_members(
+        conn, [(m.ticker, m.security_id) for m in thesis.basket], tenant_id=tenant_id
+    )
+    overrides = set(req.identity_overrides)
+    blocked: list[str] = []
+    for i, (m, f) in enumerate(zip(thesis.basket, findings)):
+        if f.kind is coherence.CoherenceKind.SIBLING:
+            _log.info(
+                "promote: sibling label %s aligned to bound %s for thesis %s",
+                m.ticker,
+                f.bound_ticker,
+                thesis.id,
+            )
+            thesis.basket[i] = m.model_copy(update={"ticker": f.bound_ticker})
+        elif f.kind in (
+            coherence.CoherenceKind.CROSS_COMPANY,
+            coherence.CoherenceKind.LABEL_DRIFT,
+        ):
+            if m.security_id in overrides:
+                _log.warning(
+                    "promote: identity override ACCEPTED for thesis %s: shown %r stays bound to "
+                    "%s (%s, CIK %s) — %s",
+                    thesis.id,
+                    m.ticker,
+                    f.bound_ticker,
+                    f.bound_name,
+                    f.bound_cik,
+                    f.kind,
+                )
+            else:
+                blocked.append(
+                    f"{m.ticker!r} is bound to {f.bound_ticker} ({f.bound_name}, CIK {f.bound_cik})"
+                    f" — {f.detail}"
+                )
+    if blocked:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "identity mismatch: "
+                + "; ".join(blocked)
+                + ". Re-pick the security for each member, or resend listing the member's "
+                "security_id in identity_overrides to bind it deliberately (the override is logged)."
+            ),
+        )
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)
