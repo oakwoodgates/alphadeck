@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from statistics import fmean
 from typing import Any
 from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
-from domain.signal import Provenance, SignalEvent
-from signals.base import PointInTimeData
+from domain.signal import SignalEvent
+from signals.base import Detector, SignalPointInTimeData
+from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.registry import register_detector
+
+DETECTOR_NAME = "volume_breakout"
 
 
 def _score(
@@ -49,11 +53,10 @@ def score(
         return None
     closes = [float(b["close"]) for b in bars]
     earliest = max(cfg.breakout_base_window, cfg.breakout_return_days)
-    fresh_floor = asof - timedelta(days=cfg.breakout_alpha_liveness_days)
 
     idx = None
     for i in range(len(bars) - 1, earliest - 1, -1):
-        if bars[i]["d"] < fresh_floor:
+        if not entry_signal_is_live(bars[i]["d"], cfg.breakout_alpha_liveness_days, asof):
             break  # bars are ascending; everything earlier is past the freshness window too
         base_high = max(closes[i - cfg.breakout_base_window : i])
         ret = closes[i] / closes[i - cfg.breakout_return_days] - 1.0
@@ -76,14 +79,13 @@ def score(
     vol_ratio = (float(bar_vol) / base_vol_avg) if (bar_vol and base_vol_avg) else 0.0
     volume_backed = vol_ratio >= cfg.breakout_volume_mult
     quality = "Volume-backed" if volume_backed else "Momentum-only"
-    return SignalEvent(
-        detector="volume_breakout",
+    return fired_signal(
+        detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.TECHNICAL_BREAKOUT,
         grade=Grade.CORE if volume_backed else Grade.FLIP,
         score=_score(last_close / base_high, ret, vol_ratio, volume_backed, cfg),
-        fired=True,
         label=(
             f"{quality} breakout: close {last_close:.2f} cleared the {cfg.breakout_base_window}-day "
             f"high {base_high:.2f}, +{ret * 100:.0f}% over {cfg.breakout_return_days}d on "
@@ -91,9 +93,9 @@ def score(
         ),
         alpha_liveness_days=cfg.breakout_alpha_liveness_days,
         provenance=[
-            Provenance(
-                source="price",
-                ref=f"price:{security_id}:{event_date.isoformat()}",
+            source_provenance(
+                "price",
+                f"price:{security_id}:{event_date.isoformat()}",
                 detail={
                     "close": last_close,
                     "base_high": base_high,
@@ -108,7 +110,7 @@ def score(
 
 
 def detect(
-    pit: PointInTimeData,
+    pit: SignalPointInTimeData,
     security_id: UUID,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
@@ -116,3 +118,6 @@ def detect(
     """Key 2 — breakout confirmation (arms), graded by volume. Reads EOD bars via the point-in-time view."""
     bars = pit.price_history(security_id, lookback_days=cfg.breakout_lookback_days)
     return score(bars, security_id, asof, cfg)
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))

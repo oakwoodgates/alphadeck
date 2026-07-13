@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
-from domain.signal import Provenance, SignalEvent
+from domain.signal import SignalEvent
 from domain.thesis import Thesis
-from signals.base import PointInTimeData
+from signals.base import SignalPointInTimeData
+from signals.common import entry_signal_is_live, fired_signal, source_provenance
 
 # A theme conviction is the weaker key — a modest conviction score, kept below an own catalyst's flip
 # score so an own name out-tiebreaks a theme-armed one on conviction_score too (the is_own axis already
@@ -31,14 +32,17 @@ def strongest_live_fact(
 ) -> dict[str, Any] | None:
     """The most-recent LIVE theme conviction for a thesis (or None). Live = the event date is within its
     horizon as-of; a theme conviction expires unless re-ratified — no zombie narratives (rule 3)."""
-    live = [f for f in facts if f["valid_from"] >= asof - timedelta(days=_liveness(f, cfg))]
+    live = [f for f in facts if entry_signal_is_live(f["valid_from"], _liveness(f, cfg), asof)]
     if not live:
         return None
     return max(live, key=lambda f: f["valid_from"])  # the operator's latest live ratification
 
 
 def detect_fact(
-    pit: PointInTimeData, thesis_id: UUID, asof: date, cfg: CallConfig = DEFAULT_CONFIG
+    pit: SignalPointInTimeData,
+    thesis_id: UUID,
+    asof: date,
+    cfg: CallConfig = DEFAULT_CONFIG,
 ) -> dict[str, Any] | None:
     """The only DB-touching step: read the thesis's operator-ratified theme conviction as-of. Returns the
     live fact, or None when none is ratified / all have expired."""
@@ -72,7 +76,7 @@ def broadcast(
     if theme_fact is None:
         return []
     liveness = _liveness(theme_fact, cfg)
-    provenance = [Provenance(source=theme_fact["source"], ref=theme_fact["source_ref"])]
+    provenance = [source_provenance(theme_fact["source"], theme_fact["source_ref"])]
     events: list[SignalEvent] = []
     for member in thesis.basket:
         sec = member.security_id
@@ -86,14 +90,13 @@ def broadcast(
         if not volume_backed:
             continue  # rule 4: needs its OWN volume-backed (CORE) confirmation; momentum-only excluded
         events.append(
-            SignalEvent(
+            fired_signal(
                 detector="theme_conviction",
                 security_id=sec,
                 role=Role.ENTRY_TRIGGER,
                 kind=Kind.THEME_CONVICTION,
                 grade=Grade.FLIP,  # rule 2: capped at starter — a theme conviction never mints a core
                 score=_THEME_SCORE,
-                fired=True,
                 label=theme_fact["label"],
                 alpha_liveness_days=liveness,
                 provenance=provenance,

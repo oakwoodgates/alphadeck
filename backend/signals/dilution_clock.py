@@ -15,9 +15,13 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
-from domain.signal import Provenance, SignalEvent
+from domain.signal import SignalEvent
 from ingest.edgar.converts import ConvertTerms
-from signals.base import PointInTimeData
+from signals.base import Detector, SignalPointInTimeData
+from signals.common import fired_signal, source_provenance
+from signals.registry import register_detector
+
+DETECTOR_NAME = "dilution_clock"
 
 
 def _live_converts(
@@ -26,20 +30,31 @@ def _live_converts(
     """The as-of-LIVE convertible-note terms (matured ones dropped) + the shares-outstanding basis, or
     ``None`` if there are no live converts or no shares. The single parse that BOTH the overhang number and
     the risk-signal label/provenance read from — one read of ``fact_dilution``, one source of truth.
+
+    A name can have several live offerings, each carrying the shares basis known when that offering was
+    recorded. Use the latest available basis by fact effective date (accession breaks same-day ties), never
+    whichever row the storage engine happened to return last. The returned terms are ordered by that same
+    deterministic key so live Postgres and replay DuckDB produce byte-identical labels/provenance.
     """
-    terms: list[tuple[ConvertTerms, str]] = []
-    shares_out: float | None = None
+    parsed: list[tuple[date, str, ConvertTerms, float | None]] = []
     for f in facts:
         if f.get("instrument_kind") != "convertible_notes":
             continue
         t = ConvertTerms.model_validate(f["terms"])
         if t.maturity_date < asof:  # already matured -> no overhang
             continue
-        terms.append((t, f["accession"]))
-        if f.get("shares_outstanding"):
-            shares_out = float(f["shares_outstanding"])
-    if not terms or not shares_out:
+        accession = f["accession"]
+        effective_date = f.get("valid_from") or t.issued_date or date.min
+        raw_shares = f.get("shares_outstanding")
+        shares = float(raw_shares) if raw_shares else None
+        parsed.append((effective_date, accession, t, shares))
+    if not parsed:
         return None
+    parsed.sort(key=lambda row: (row[0], row[1]))
+    shares_out = next((row[3] for row in reversed(parsed) if row[3] is not None), None)
+    if shares_out is None:
+        return None
+    terms = [(t, accession) for _, accession, t, _ in parsed]
     return terms, shares_out
 
 
@@ -77,9 +92,15 @@ def score(
         return None
 
     severity = min(pct / cfg.dilution_overhang_severe_pct, 1.0) * cfg.risk_block_severity
+    signal_score = round(min(severity, 0.95), 4)
+    risk_read = (
+        "severe overhang — withholds the Armed call on timing"
+        if signal_score >= cfg.risk_block_severity
+        else "structural overhang, below the Armed-call timing-veto threshold"
+    )
     total_principal = sum(t.principal_total_usd for t, _ in terms)
     capped = any(t.capped_call_cost_usd is not None for t, _ in terms)
-    cap_price = next((t.cap_price_usd for t, _ in terms if t.cap_price_usd), None)
+    cap_price = next((t.cap_price_usd for t, _ in reversed(terms) if t.cap_price_usd), None)
     coupon_zero = all(t.coupon_pct == 0.0 for t, _ in terms)
     due_year = min(t.maturity_date.year for t, _ in terms)
     issued = [t.issued_date for t, _ in terms if t.issued_date]
@@ -87,23 +108,19 @@ def score(
     offset = f", offset by a capped call (cap ~${cap_price:,.2f})" if capped and cap_price else ""
     label = (
         f"~${total_principal / 1e6:,.1f}M {'zero-coupon ' if coupon_zero else ''}convertible notes "
-        f"due {due_year} — ~{pct:.1f}% potential share dilution{offset}; structural "
-        f"overhang, not an entry blocker"
+        f"due {due_year} — ~{pct:.1f}% potential share dilution{offset}; {risk_read}"
     )
-    return SignalEvent(
-        detector="dilution_clock",
+    return fired_signal(
+        detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.RISK_SIGNAL,
         kind=Kind.DILUTION_RISK,
-        grade=None,
-        score=round(min(severity, 0.95), 4),
-        fired=True,
+        score=signal_score,
         label=label,
-        alpha_liveness_days=None,
         provenance=[
-            Provenance(
-                source="8-k",
-                ref=acc,
+            source_provenance(
+                "8-k",
+                acc,
                 detail={
                     "principal_usd": t.principal_total_usd,
                     "conversion_rate": t.conversion_rate,
@@ -118,10 +135,13 @@ def score(
 
 
 def detect(
-    pit: PointInTimeData,
+    pit: SignalPointInTimeData,
     security_id: UUID,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> SignalEvent | None:
     """Risk signal — convertible-note dilution overhang. Reads fact_dilution via point-in-time view."""
     return score(pit.dilution_facts(security_id), security_id, asof, cfg)
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))

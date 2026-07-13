@@ -6,8 +6,12 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
-from domain.signal import Provenance, SignalEvent
-from signals.base import PointInTimeData
+from domain.signal import SignalEvent
+from signals.base import Detector, SignalPointInTimeData
+from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.registry import register_detector
+
+DETECTOR_NAME = "insider_conviction"
 
 
 def _is_senior(role: str | None, keywords: frozenset[str]) -> bool:
@@ -69,33 +73,35 @@ def score(
     )
     # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
     # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
-    if anchor < asof - timedelta(days=liveness):
+    if not entry_signal_is_live(anchor, liveness, asof):
         return None
     by_accession = {t["accession"]: t for t in buys if t.get("accession")}
-    return SignalEvent(
-        detector="insider_conviction",
+    return fired_signal(
+        detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.INSIDER,
         grade=Grade.CORE if is_core else Grade.FLIP,
         score=_score(len(distinct), total_usd, senior, cfg),
-        fired=True,
         label=(
             f"{len(distinct)} insider{'s' if len(distinct) != 1 else ''}"
             f"{' incl. senior officer' if senior else ''} bought "
             f"${total_usd:,.0f} open-market (code P) across {len(buys)} txns"
         ),
         alpha_liveness_days=liveness,
-        provenance=[Provenance(source="form4", ref=acc) for acc in by_accession],
+        provenance=[source_provenance("form4", acc) for acc in by_accession],
         asof=anchor,
     )
 
 
 def detect(
-    pit: PointInTimeData,
+    pit: SignalPointInTimeData,
     security_id: UUID,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> SignalEvent | None:
     """Key 1 — insider conviction (warms). Reads open-market purchases via the point-in-time view."""
     return score(pit.insider_txns(security_id), security_id, asof, cfg)
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
