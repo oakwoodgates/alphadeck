@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // A thesis whose basket has a `fund` member — the archetype Cockpit's old LOCAL ARCH_LABEL was missing, so it
 // fell back to the raw key ("fund"). Tier 3 routes Cockpit through the shared archLabel(), which knows `fund`.
@@ -26,8 +27,14 @@ const fx = vi.hoisted(() => ({
     position: null,
   },
   // the Workbench scored read (Slice 3): computed market cap bridged by security_id onto the basket rows
-  scored: { members: [{ security_id: "s-ura", market_cap: { value: 3.2e9 } }] },
+  scored: { members: [{ security_id: "s-ura", ticker: "URA", name: "Global X Uranium ETF", market_cap: { value: 3.2e9 } }] },
 }));
+
+const exportSpy = vi.hoisted(() => vi.fn());
+vi.mock("../../util/exportNames", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../util/exportNames")>();
+  return { ...mod, exportKeptNames: exportSpy };
+});
 
 vi.mock("../../api/hooks", () => ({
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
@@ -41,6 +48,33 @@ vi.mock("../../api/hooks", () => ({
 import { Cockpit } from "../Cockpit";
 
 describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", () => {
+  beforeEach(() => {
+    exportSpy.mockReset();
+  });
+
+  it("exports the board basket with ticker and name", async () => {
+    const user = userEvent.setup();
+    render(
+      <Cockpit
+        thesisId="t-etf"
+        asof="2026-06-20"
+        onAsofChange={() => {}}
+        onBack={() => {}}
+        selectedName={null}
+        onSelectName={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "export 1 board names" }));
+
+    expect(exportSpy).toHaveBeenCalledWith({
+      thesisName: "Uranium",
+      stage: "board",
+      asof: "2026-06-20",
+      rows: [{ ticker: "URA", name: "Global X Uranium ETF" }],
+    });
+  });
+
   it("renders a `fund` member as 'ETF sleeve' via the shared archLabel, not the raw key", () => {
     const { container } = render(
       <Cockpit

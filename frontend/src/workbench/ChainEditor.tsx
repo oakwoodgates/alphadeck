@@ -21,6 +21,7 @@ import {
   useStartDraft,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
+import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
@@ -41,6 +42,7 @@ const DRAFT_POLL_TIMEOUT_MS = 600_000;
 
 interface Props {
   thesis: ThesisDetail;
+  asof: string;
   // Exit edit mode (the parent unmounts this, re-snapshotting on the next edit). `saved` = the exit
   // FOLLOWED a successful Save — it drives the parent's "your saved basket is editable on return" note (D).
   onDone: (saved: boolean) => void;
@@ -131,7 +133,7 @@ const NotListedFlag = () => (
  *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
  *  which honors each member's authorship and stores the thesis-fit prose). */
-export function ChainEditor({ thesis, onDone, scoredById }: Props) {
+export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
   const d = useChainDraft(thesis);
   const save = usePromoteThesis();
   const putExclusions = usePutExclusions(thesis.id); // #7: the durable NOs ride every Save
@@ -1172,6 +1174,29 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 onClick={d.excludeUnaccepted}
               >
                 clear un-accepted
+              </button>
+              <button
+                type="button"
+                className="wb-mini ghost"
+                disabled={d.includedBasket.length === 0}
+                aria-label={`export ${d.includedBasket.length} included names`}
+                onClick={() =>
+                  exportKeptNames({
+                    thesisName: thesis.name,
+                    stage: "triage",
+                    asof,
+                    rows: d.includedBasket.map((m) =>
+                      toExportedName({
+                        ticker: m.ticker,
+                        name:
+                          (m.security_id ? names[m.security_id] : undefined) ??
+                          (m.security_id ? scoredById?.[m.security_id]?.name : undefined),
+                      }),
+                    ),
+                  })
+                }
+              >
+                Export ({d.includedBasket.length})
               </button>
             </div>
           )}

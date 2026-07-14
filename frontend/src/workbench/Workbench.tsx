@@ -9,6 +9,7 @@ import {
   useWorkbenchScored,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
+import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
@@ -321,6 +322,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
               <ChainEditor
                 key={thesis.id}
                 thesis={thesis}
+                asof={asof}
                 onDone={(saved) => {
                   setEditing(false);
                   setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
@@ -454,6 +456,24 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
                       {" · "}data confirmed on {members.filter(memberHasFundamentals).length} of{" "}
                       {members.length} basket-wide
                     </em>
+                    <button
+                      type="button"
+                      className="wb-mini ghost"
+                      disabled={members.length === 0}
+                      aria-label={`export ${members.length} shortlist names`}
+                      onClick={() =>
+                        exportKeptNames({
+                          thesisName: activeName,
+                          stage: "shortlist",
+                          asof,
+                          rows: members.map((m) =>
+                            toExportedName({ ticker: m.ticker, name: m.name }),
+                          ),
+                        })
+                      }
+                    >
+                      Export ({members.length})
+                    </button>
                   </div>
                   {/* the SECTION get-data (gate 2 at section granularity): prices + staged extraction
                       for EVERY name in the active section, one deliberate click — bounded by the

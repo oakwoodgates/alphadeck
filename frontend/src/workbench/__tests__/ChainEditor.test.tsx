@@ -58,6 +58,12 @@ vi.mock("../../api/hooks", () => ({
   useLoadThesisRun: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false, error: null }),
 }));
 
+const exportSpy = vi.hoisted(() => vi.fn());
+vi.mock("../../util/exportNames", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../util/exportNames")>();
+  return { ...mod, exportKeptNames: exportSpy };
+});
+
 import { ChainEditor } from "../ChainEditor";
 
 const flatThesis = {
@@ -130,6 +136,7 @@ beforeEach(() => {
   h.produceData = undefined;
   h.jobData = undefined;
   h.jobIsError = false;
+  exportSpy.mockReset();
 });
 
 describe("ChainEditor — authoring", () => {
@@ -140,7 +147,7 @@ describe("ChainEditor — authoring", () => {
       opts?.onSuccess?.(),
     );
 
-    render(<ChainEditor thesis={flatThesis} onDone={onDone} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={onDone} />);
 
     await user.type(screen.getByLabelText("new link label"), "reactors");
     await user.click(screen.getByRole("button", { name: "+ link" }));
@@ -165,7 +172,7 @@ describe("ChainEditor — authoring", () => {
   it("D: Done exits WITHOUT the saved signal (onDone(false)) — only a successful Save sends true", async () => {
     const user = userEvent.setup();
     const onDone = vi.fn();
-    render(<ChainEditor thesis={flatThesis} onDone={onDone} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={onDone} />);
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(onDone).toHaveBeenCalledWith(false);
     expect(h.mutate).not.toHaveBeenCalled();
@@ -173,7 +180,7 @@ describe("ChainEditor — authoring", () => {
 
   it("adds a name via the resolver typeahead (search → pick → classify → add), CIK shown", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.type(screen.getByLabelText("search securities"), "cc");
     const match = await screen.findByRole("button", { name: /CCJ/ });
@@ -196,7 +203,7 @@ describe("ChainEditor — authoring", () => {
         { label: "fuel", descriptor: null },
       ],
     };
-    render(<ChainEditor thesis={withSegs} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={withSegs} onDone={vi.fn()} />);
     const seg = screen.getByLabelText("segment for OKLO") as HTMLSelectElement;
     await user.selectOptions(seg, "fuel"); // selecting a link re-places the name
     expect((screen.getByLabelText("segment for OKLO") as HTMLSelectElement).value).toBe("fuel");
@@ -213,7 +220,7 @@ describe("ChainEditor — authoring", () => {
       ],
       basket: [{ ...flatThesis.basket[0], segment: "a" }],
     };
-    render(<ChainEditor thesis={withSegs} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={withSegs} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "move a later" }));
     expect(
@@ -229,7 +236,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("loads a PLACED name as a drafted, accept-able placement with its prose", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
@@ -243,7 +250,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("accept ⇄ un-accept is a reversible toggle (#1): accept relabels, un-accept relabels back, values kept", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
@@ -265,7 +272,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("editing a drafted name's prose flips it to operator_edited, and it can still be un-accepted (edits kept)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     const prose = await screen.findByLabelText("thesis-fit for SMR");
@@ -307,7 +314,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
         [{ label: "fuel", descriptor: null }],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     // NOT auto-placed — it sits in the COULDN'T RESOLVE drawer behind a "pick CIK…" affordance
@@ -331,7 +338,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     mockDraft(
       draft([VERIFY_ALKS], [{ label: "therapeutics", descriptor: null }]),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     // NOT auto-placed (single broad keyword -> lower confidence) — in the TO REVIEW bucket, not yet a member
@@ -366,7 +373,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
         [],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText("Kairos Power")).toBeInTheDocument(); // shown in COULDN'T RESOLVE…
@@ -384,7 +391,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
         ],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
@@ -418,7 +425,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     };
     // PLACED_SMR matched an EDGAR CIK (discovery_source defaults "edgar") → it must show NO pill.
     mockDraft(draft([PLACED_SMR, PLACED_OFF, ABSENT_OFF]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for KEP"); // the off_universe name landed in PLACED (the win-signal)
@@ -453,7 +460,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
       listing_status: "active",
     };
     mockDraft(draft([PLACED_ENRICHED]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for CCJ");
@@ -482,7 +489,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
       listing_status: "inactive",
     };
     mockDraft(draft([AMBIGUOUS_UNLISTED]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText("Defunct Reactors Inc.")).toBeInTheDocument();
@@ -499,7 +506,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("an empty draft (fail-open) leaves the editor unchanged", async () => {
     const user = userEvent.setup();
     mockDraft(draft([], []));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.getByText("OKLO")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
@@ -513,7 +520,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     const user = userEvent.setup();
     h.start.mockResolvedValue({ job_id: "j1", status: "running" });
     h.jobData = { job_id: "j1", status: "failed", result: null, error: "term set is empty" };
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     const toast = await screen.findByText(/Couldn't draft/); // the error toast (unique prefix)
     expect(toast).toHaveTextContent("term set is empty"); // visible failure (#9), no spinner
@@ -525,7 +532,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     h.start.mockResolvedValue({ job_id: "j1", status: "running" });
     h.jobData = undefined;
     h.jobIsError = true; // the poll 404s
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText(/draft was lost/i)).toBeInTheDocument();
   });
@@ -533,7 +540,7 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
   it("a 409 (a draft already running) is shown, not retried", async () => {
     const user = userEvent.setup();
     h.start.mockRejectedValue({ detail: "a draft is already running for this thesis" });
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     expect(await screen.findByText(/already running/)).toBeInTheDocument();
     expect(h.start).toHaveBeenCalledTimes(1); // no auto-retry of the expensive kick-off
@@ -555,7 +562,7 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
         ],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     // ALKS sits in To-Review; check-to-add → it leaves To-Review and lands in PLACED
@@ -612,7 +619,7 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
     );
 
     mockDraft(D1);
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
 
@@ -644,7 +651,7 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
 
 describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
   it("R1: the accept toggle right-aligns at the END of the controls row, sharing it with SEG/CONV", () => {
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO is operator_set → an "un-accept" toggle
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />); // OKLO is operator_set → an "un-accept" toggle
     const acceptBtn = screen.getByRole("button", { name: "un-accept OKLO" });
     const segSel = screen.getByLabelText("segment for OKLO");
     // the action lives in the row-actions group…
@@ -655,7 +662,7 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
   });
 
   it("item F: the row has NO archetype editor — a SET archetype shows as a read-only chip", () => {
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // OKLO carries a stored "high_beta"
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />); // OKLO carries a stored "high_beta"
     // no select — the archetype is decided ONCE, on the finalize rail, never at placement
     expect(screen.queryByLabelText("archetype for OKLO")).not.toBeInTheDocument();
     // the stored value still SHOWS (read-only chip) — a re-opened finalized basket keeps its context
@@ -664,7 +671,7 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
 
   it("R2: the thesis-fit box auto-sizes (rows=1, not a fixed 3) and still edits", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     const ta = screen.getByLabelText("thesis-fit for OKLO") as HTMLTextAreaElement;
     expect(ta.tagName).toBe("TEXTAREA");
     expect(ta).toHaveAttribute("rows", "1"); // auto-sizing min (was a fixed rows=3)
@@ -675,7 +682,7 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
   it("R3: excluding a name collapses its detail to a stub; re-including restores it, authorship untouched", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
     // baseline: the drafted SMR shows its full detail
@@ -707,7 +714,7 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
         ],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR"); // Placed is open by default
 
@@ -747,7 +754,7 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
 
@@ -763,7 +770,7 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
 
@@ -789,7 +796,7 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([PLACED_SMR])); // SMR loads system_drafted; OKLO is operator_set
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
 
@@ -806,10 +813,28 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO"]);
   });
 
+  it("exports only included placed names", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    await user.click(screen.getByLabelText("include SMR"));
+    await user.click(screen.getByRole("button", { name: "export 1 included names" }));
+
+    expect(exportSpy).toHaveBeenCalledWith({
+      thesisName: "Nuclear",
+      stage: "triage",
+      asof: "2026-06-08",
+      rows: [{ ticker: "OKLO", name: null }],
+    });
+  });
+
   it("exclude-all then Save confirms the empty-basket wipe; include-all restores", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false); // operator cancels the wipe
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "exclude all" }));
     expect(screen.getByText("· 0 of 1 included")).toBeInTheDocument();
@@ -834,7 +859,7 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     unmount();
 
     // nothing surfaced → NO per-row badge (it'd be true of every row = noise), just the quiet header hint
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.queryByText("needs SURFACE")).not.toBeInTheDocument();
     expect(screen.queryByText("✓ fundamentals")).not.toBeInTheDocument();
     expect(screen.getByText(/Surface your shortlist/)).toBeInTheDocument();
@@ -858,7 +883,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
       category: "Large accelerated filer",
     };
     mockDraft(draft([PLACED_ENRICHED], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
     expect(screen.getByText("Micron Technology")).toBeInTheDocument(); // item 2 — name bridged onto the row
@@ -902,7 +927,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   it("items 4+5: To Review surfaces keepers, collapses off-thesis (Low signal) + ticker-less (No listed ticker)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     // the keeper is SURFACED at the top (no per-row "recommend add" badge — it'd be true of every visible keeper)
@@ -931,7 +956,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   it("a keeper's ✕ sets it aside (greyed stub) and toggles back on a second click (#1/#2)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
@@ -978,7 +1003,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   it("included filter hides a set-aside To Review row and updates counts", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={toReviewThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
@@ -996,7 +1021,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   it("excluded filter shows only set-aside To Review rows", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={toReviewThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
@@ -1012,7 +1037,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   it("clear filters restores set-aside To Review stubs under all", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={toReviewThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
@@ -1032,7 +1057,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
       opts?.onSuccess?.(),
     );
     mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={toReviewThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
@@ -1066,7 +1091,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
         ],
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for FOO");
     expect(screen.getByText("not a link")).toBeInTheDocument(); // the de-link tag on the pen chip
@@ -1082,7 +1107,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
       segments: [{ label: "DRAM & HBM Maker", descriptor: null }],
       basket: [{ ...flatThesis.basket[0], segment: "DRAM & HBM Maker" }],
     };
-    render(<ChainEditor thesis={withLong} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={withLong} onDone={vi.fn()} />);
     expect(screen.getByText(/Value chain/)).toBeInTheDocument(); // the section title
     expect(screen.getByText(/links your basket decomposes into/)).toBeInTheDocument(); // the description
     // the label input auto-widths to its content (size = label length) — no fixed 130px truncation
@@ -1090,14 +1115,14 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
   });
 
   it("C: the Placed section header reads 'Placed names'", () => {
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.getByRole("button", { name: /Placed names/ })).toBeInTheDocument();
   });
 
   it("D: To Review nests three sub-drawers under one master (collapsing the master hides all three)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     // three nested sub-drawers, mirroring the Placed section: Keepers (open) · Low signal · No listed ticker
     await screen.findByText("Keepers");
@@ -1127,7 +1152,7 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
   it("flags an off-thesis placement — it STAYS placed (#9), shows the ⚑ (no hard remove; uncheck to exclude)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_OFFTHESIS]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     // NEVER dropped — the flagged name is a placed member (membership is deterministic, #2)
@@ -1142,7 +1167,7 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
   it("does NOT flag an on-thesis placement — fail-open, no off_thesis → no flag", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR])); // no off_thesis field on the placement
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
     expect(screen.queryByText(/model thinks off-thesis/)).not.toBeInTheDocument();
@@ -1200,7 +1225,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
   it("stays FLAT when the partition doesn't discriminate (no flags, no low-quality)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
     expect(screen.queryByLabelText("toggle Placed")).not.toBeInTheDocument();
@@ -1212,7 +1237,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([P_CLEAN, P_FLAGGED], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
 
@@ -1236,7 +1261,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
   it("G: sole-acronym without model flag stays in Placed (not low quality)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN, P_COLLISION], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
 
@@ -1250,7 +1275,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([P_CLEAN, { ...P_COLLISION, off_thesis: true }], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
 
@@ -1280,7 +1305,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([P_CLEAN], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
     await user.click(screen.getByRole("button", { name: "Save chain" }));
@@ -1291,7 +1316,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
   it("G precedence: off-thesis + junk tell lands in low-quality group, not flagged", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN, { ...P_COLLISION, off_thesis: true }], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
     expect(screen.getByLabelText("toggle Placed, low quality")).toBeInTheDocument();
@@ -1312,7 +1337,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
       off_thesis: true,
     };
     mockDraft(draft([P_CLEAN, P_FUND], MEM_SEG));
-    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
     expect(screen.getByLabelText("toggle Placed, low quality")).toBeInTheDocument();
@@ -1330,7 +1355,7 @@ describe("ChainEditor — TRIAGE conviction/size", () => {
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
 
     const conv = screen.getByLabelText("conviction for OKLO") as HTMLSelectElement;
     expect(conv.value).toBe(""); // unset by default
@@ -1344,7 +1369,7 @@ describe("ChainEditor — TRIAGE conviction/size", () => {
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     // leave conviction untouched → the option shows the "—" placeholder, and Save carries null (not 0)
     expect((screen.getByLabelText("conviction for OKLO") as HTMLSelectElement).value).toBe("");
     await user.click(screen.getByRole("button", { name: "Save chain" }));
@@ -1354,7 +1379,7 @@ describe("ChainEditor — TRIAGE conviction/size", () => {
   it("setting conviction is ORTHOGONAL to authorship — a drafted name keeps its accept", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR]));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
@@ -1385,7 +1410,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
 
   it("sorts the placed list by name (a view-only reorder)", async () => {
     const user = userEvent.setup();
-    const { container } = render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    const { container } = render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
     expect(tickerOrder(container)).toEqual(["OKLO", "CCJ", "BWXT"]); // draft order
     await user.selectOptions(screen.getByLabelText("sort placed names"), "name");
     expect(tickerOrder(container)).toEqual(["BWXT", "CCJ", "OKLO"]); // A→Z
@@ -1393,7 +1418,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
 
   it("filters the view by archetype and reports the shown count", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
     await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
     expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument();
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // hidden
@@ -1405,7 +1430,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
     await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader"); // hides OKLO + BWXT
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
@@ -1415,7 +1440,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
 
   it("clear filters restores the full view (#9 — a hidden name is one click from visible)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
     await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "clear filters" }));
@@ -1425,7 +1450,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
 
   it("compact collapses the thesis-fit prose editors (they return when toggled off)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={triageThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
     expect(screen.getByLabelText("thesis-fit for OKLO")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "compact" }));
     expect(screen.queryByLabelText("thesis-fit for OKLO")).not.toBeInTheDocument();
@@ -1437,14 +1462,14 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
 describe("ChainEditor — term set produce + edit", () => {
   it("the Produce button POSTs /terms (the LLM writer seam the operator triggers)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Produce term set/ }));
     expect(h.produce).toHaveBeenCalledTimes(1);
   });
 
   it("the term-set drawer is open by default and collapses on click (counts stay in the header)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     expect(screen.getByRole("button", { name: /Regenerate term set/ })).toBeInTheDocument(); // open by default
     expect(screen.getByText("1 signal · 1 broad")).toBeInTheDocument(); // psilocybin signal + ketamine broad
     await user.click(screen.getByRole("button", { name: /Term set/ })); // collapse
@@ -1454,7 +1479,7 @@ describe("ChainEditor — term set produce + edit", () => {
   });
 
   it("displays the stored SIGNAL/BROAD split with provenance + per-term edit controls", () => {
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     expect(screen.getByText("psilocybin")).toBeInTheDocument(); // SIGNAL (a seed)
     expect(screen.getByText("ketamine")).toBeInTheDocument(); // BROAD (proposed)
     expect(screen.getByText("seed")).toBeInTheDocument(); // operator provenance, surfaced
@@ -1466,7 +1491,7 @@ describe("ChainEditor — term set produce + edit", () => {
 
   it("add-seed PUTs the new compound as SIGNAL (the new-thesis entry path)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // empty set
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />); // empty set
     await user.type(screen.getByPlaceholderText(/add a seed/i), "ibogaine");
     await user.click(screen.getByRole("button", { name: /Add seed/ }));
     expect(h.edit).toHaveBeenCalledTimes(1);
@@ -1475,7 +1500,7 @@ describe("ChainEditor — term set produce + edit", () => {
 
   it("remove drops the term from the PUT body (curate junk)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     // remove ketamine (the BROAD) — one of two terms, so no clear-confirm fires
     const ketamineRow = screen.getByText("ketamine").closest("li") as HTMLElement;
     await user.click(within(ketamineRow).getByRole("button", { name: "×" }));
@@ -1484,7 +1509,7 @@ describe("ChainEditor — term set produce + edit", () => {
 
   it("demote/promote toggles the tier in the PUT body (re-tier → operator_edited server-side)", async () => {
     const user = userEvent.setup();
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /↑ signal/ })); // promote ketamine
     expect(h.edit.mock.calls[0][0]).toEqual([
       { term: "psilocybin", tier: "signal" },
@@ -1499,7 +1524,7 @@ describe("ChainEditor — term set produce + edit", () => {
       ...flatThesis,
       term_set: [{ term: "psilocybin", tier: "signal", authored_by: "operator_set", source: "seed" }],
     };
-    render(<ChainEditor thesis={oneTerm} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={oneTerm} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "×" }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(h.edit).not.toHaveBeenCalled(); // cancelled → no save, the set is preserved
@@ -1510,10 +1535,10 @@ describe("ChainEditor — term set produce + edit", () => {
 describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
   it("the Recommend button is absent on an empty set and fires once when present", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />); // empty set
+    const { unmount } = render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />); // empty set
     expect(screen.queryByRole("button", { name: /Recommend tiers/ })).not.toBeInTheDocument();
     unmount();
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
     expect(h.recommend).toHaveBeenCalledTimes(1);
   });
@@ -1526,7 +1551,7 @@ describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
         { term: "ketamine", recommended_tier: "signal", reason: "discriminating dissociative" }, // OFFENSE
       ]),
     );
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
     // DEFENSE on the operator's SIGNAL seed; OFFENSE on the system_drafted BROAD term — both loud, with reasons
     expect(screen.getByText(/↓ recommend BROAD — marketed comparator/)).toBeInTheDocument();
@@ -1540,7 +1565,7 @@ describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
         { term: "psilocybin", recommended_tier: "signal", reason: "a specific compound" }, // agrees with the seed
       ]),
     );
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
     const marker = screen.getByText("✓ signal");
     expect(marker).toBeInTheDocument(); // present, not hidden in v1
@@ -1564,7 +1589,7 @@ describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
         ],
       }),
     );
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Recommend tiers/ }));
     expect(screen.getByText(/↑ recommend SIGNAL/)).toBeInTheDocument(); // loud OFFENSE before adoption
     await user.click(screen.getByRole("button", { name: /↑ signal/ })); // confirm via the EXISTING toggle
@@ -1598,7 +1623,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("a healthy report renders ONE quiet line — counts, coverage, sweep, narration — and NO loud block", async () => {
     const user = userEvent.setup();
     mockDraft(draftWithReport([PLACED_SMR], healthyReport()));
-    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    const { container } = render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     const strip = await screen.findByText(/Draft complete —/);
@@ -1620,7 +1645,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
         }),
       ),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     await screen.findByText(/completed with gaps/);
@@ -1631,7 +1656,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("a FAILED tail-sweep is loud (a lost foreign/ADR tail, no longer indistinguishable from none)", async () => {
     const user = userEvent.setup();
     mockDraft(draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "failed" })));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     await screen.findByText(/completed with gaps/);
@@ -1641,7 +1666,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("a SKIPPED sweep stays QUIET with the no-key label (the operator's own config, never alarmed)", async () => {
     const user = userEvent.setup();
     mockDraft(draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "skipped" })));
-    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    const { container } = render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     const strip = await screen.findByText(/Draft complete —/);
@@ -1652,7 +1677,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("a narration shortfall is loud with the M-of-N count", async () => {
     const user = userEvent.setup();
     mockDraft(draftWithReport([PLACED_SMR], healthyReport({ narration_filled: 3 })));
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     await screen.findByText(/completed with gaps/);
@@ -1662,7 +1687,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("no report -> no strip (a pre-slice result renders exactly as before)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([PLACED_SMR])); // no report field
-    const { container } = render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    const { container } = render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     await screen.findByLabelText("segment for SMR"); // the draft itself loaded
@@ -1675,7 +1700,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
     mockDraft(
       draftWithReport([], healthyReport({ narration_needed: 0, narration_filled: 0 }), []),
     );
-    render(<ChainEditor thesis={flatThesis} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     const strip = await screen.findByText(/Draft complete —/);
@@ -1687,7 +1712,7 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
   it("the ⚠ capped marker lands on the MATCHING term chip only, and the strip names the term", async () => {
     const user = userEvent.setup();
     mockDraft(draftWithReport([PLACED_SMR], healthyReport({ capped_terms: ["psilocybin"] })));
-    render(<ChainEditor thesis={thesisWithTerms} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
     await screen.findByText(/completed with gaps/); // a capped term IS a gap -> loud
@@ -1717,7 +1742,7 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
       basket: [member("SMR", "s-smr")],
       exclusions: [{ security_id: "s-smr", ticker: "SMR", reason: "junk acronym" }],
     };
-    render(<ChainEditor thesis={t as never} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={t as never} onDone={vi.fn()} />);
     expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
     expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // pre-greyed, one click back (#9)
     expect(screen.getByLabelText("why excluded SMR")).toHaveValue("junk acronym");
@@ -1737,7 +1762,7 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
         { security_id: "s-gone", ticker: "GONE", reason: "never resurfaced" }, // carried forward
       ],
     };
-    render(<ChainEditor thesis={t as never} onDone={vi.fn()} />);
+    render(<ChainEditor asof="2026-06-08" thesis={t as never} onDone={vi.fn()} />);
 
     await user.click(screen.getByLabelText("include LEU")); // withdraw the old NO (re-include)
     await user.click(screen.getByLabelText("include SMR")); // a fresh NO...

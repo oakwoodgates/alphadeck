@@ -13,6 +13,7 @@ import {
   type BucketRow,
 } from "./buckets";
 import { NamePanel } from "./NamePanel";
+import { exportKeptNames, toExportedName } from "../util/exportNames";
 import {
   accentVar,
   archLabel,
@@ -58,6 +59,9 @@ export function Cockpit({
   // display-only joins over data this page already fetches (no call is re-derived here). While the
   // call is still computing (card undefined) everything reads Quiet, honestly.
   const groups = groupBasket(basket, card, scoredQ.data?.members);
+  const exportRows = groups
+    .flatMap((g) => g.rows)
+    .map((r) => toExportedName({ ticker: r.member.ticker, name: r.scored?.name }));
 
   // The per-name panel's selection — lifted to the URL (the selectedName prop, ?name= via App's
   // CockpitRoute) and RESOLVED to a row on every render, so a deep link opens the panel the moment
@@ -146,7 +150,25 @@ export function Cockpit({
               </section>
 
               <section className="sect">
-                <div className="sect-h">Basket · the expression</div>
+                <div className="sect-h">
+                  Basket · the expression
+                  <button
+                    type="button"
+                    className="wb-mini ghost"
+                    disabled={exportRows.length === 0}
+                    aria-label={`export ${exportRows.length} board names`}
+                    onClick={() =>
+                      exportKeptNames({
+                        thesisName: thesis.name,
+                        stage: "board",
+                        asof,
+                        rows: exportRows,
+                      })
+                    }
+                  >
+                    Export ({exportRows.length})
+                  </button>
+                </div>
                 {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's
                     column idiom in-table). The dead Role/Detail columns are gone from the table —
                     the authored text survives on the per-name panel, not as an all-"—" column.
