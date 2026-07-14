@@ -24,7 +24,12 @@ import { ErrorToast } from "../components/ErrorToast";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
-import { archLabel, errText, isAcronymTerm, memberHasFundamentals } from "./format";
+import { archLabel, errText, memberHasFundamentals } from "./format";
+import {
+  matchesAnyJunkTell,
+  signalAcronymTermsFrom,
+  type JunkTellContext,
+} from "./junkTells";
 import { RunPicker } from "./RunPicker";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
@@ -309,18 +314,18 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
 
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large group (hundreds of names) collapses to a preview + "show more"
-  // per-group "show more" state, keyed by group ("placed" | "flagged" | "collision"; flat mode uses "placed")
+  // per-group "show more" state, keyed by group ("placed" | "flagged" | "low_quality"; flat mode uses "placed")
   const [showAllGroups, setShowAllGroups] = useState<Set<string>>(new Set());
   // The two big result sections collapse (open by default) — a long Placed list is a lot to scroll past to
   // reach To Review / Couldn't resolve, so the header is a click-to-collapse (the counts stay visible).
   const [placedOpen, setPlacedOpen] = useState(true);
   // C-B + G — the placed board's DISPLAY partitions (up to three groups of the ONE membership), each
   // independently collapsible. The two Placed groups start OPEN (nothing hidden by default); the acronym-
-  // collision group starts COLLAPSED (a junk cluster to visit for a scan-and-clear pass, not a wall to
+  // low-quality group starts COLLAPSED (a junk cluster to visit for a scan-and-clear pass, not a wall to
   // scroll past). Grouping only renders when it discriminates — see `groupingActive` below.
   const [cleanOpen, setCleanOpen] = useState(true);
   const [flaggedOpen, setFlaggedOpen] = useState(true);
-  const [collisionOpen, setCollisionOpen] = useState(false);
+  const [lowQualityOpen, setLowQualityOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(true); // the master To-Review section (open by default)
   const [keepersOpen, setKeepersOpen] = useState(true); // the keepers sub-drawer (the signal — open)
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
@@ -402,32 +407,39 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // filter → sort → partition → per-group preview-collapse (counts are of the FILTERED set)
   const triaged = sorted(d.draft.basket.filter(matchesFilters));
 
-  // G — the acronym-collision lens (a cheap-cut accelerant): a SIGNAL term that is a single all-caps token
-  // (HBM, DRAM) is collision-prone — the letters match tickers/fund names/boilerplate without any of the
-  // spelled-out words that would confirm the meaning. A placed name whose ONLY discovery match is one such
-  // term is almost always a string collision (a genuine name matches the acronym PLUS the phrases), so it's
-  // grouped for one fast scan-and-clear pass. A LENS, never a bucket: membership / include / Save are
-  // untouched (#9 — grouped for scanning, nothing dropped). Derived from the WORKING term set + the run's
-  // `matched` provenance, so like both, it's draft-session state.
-  const collisionTerms = new Set(
-    termSet.filter((e) => e.tier === "signal" && isAcronymTerm(e.term)).map((e) => norm(e.term)),
-  );
-  const soleAcronymMatch = (m: BasketMember): boolean => {
-    const mt = m.security_id ? matched[m.security_id] : undefined;
-    return !!mt && mt.length === 1 && collisionTerms.has(norm(mt[0]));
+  // G — the low-quality lens (a cheap-cut accelerant): model-flagged off-thesis AND any registered junk-tell
+  // (see junkTells.ts). The LLM flag is the recall guard — a loose tell can't demote a name the narrator
+  // approved. A LENS, never a bucket: membership / include / Save are untouched (#9). Draft-session state.
+  const signalAcronymTerms = signalAcronymTermsFrom(termSet);
+  const junkTellCtx = (m: BasketMember): JunkTellContext | null => {
+    if (!m.security_id) return null;
+    return {
+      matchedTerms: matched[m.security_id] ?? [],
+      companyName: names[m.security_id] ?? "",
+      signalAcronymTerms,
+    };
   };
-  // C-B + G — ONE membership in up to three DISPLAY partitions, precedence collision > flagged > clean (the
+  const isLowQuality = (m: BasketMember): boolean => {
+    const ctx = junkTellCtx(m);
+    return (
+      !!m.security_id &&
+      offThesisSet.has(m.security_id) &&
+      !!ctx &&
+      matchesAnyJunkTell(ctx)
+    );
+  };
+  // C-B + G — ONE membership in up to three DISPLAY partitions, precedence lowQuality > flagged > clean (the
   // To-Review precedence idiom). Grouping renders ONLY when it discriminates (everything in one group is
   // just today's flat list — a partition that doesn't discriminate is noise, honest-loudness #3).
   const gClean: BasketMember[] = [];
   const gFlagged: BasketMember[] = [];
-  const gCollision: BasketMember[] = [];
+  const gLowQuality: BasketMember[] = [];
   for (const m of triaged) {
-    if (soleAcronymMatch(m)) gCollision.push(m);
+    if (isLowQuality(m)) gLowQuality.push(m);
     else if (m.security_id && offThesisSet.has(m.security_id)) gFlagged.push(m);
     else gClean.push(m);
   }
-  const groupingActive = gFlagged.length > 0 || gCollision.length > 0;
+  const groupingActive = gFlagged.length > 0 || gLowQuality.length > 0;
   const shownRows = (gkey: string, rows: BasketMember[]) =>
     showAllGroups.has(gkey) ? rows : rows.slice(0, PLACED_PREVIEW);
   const showMoreBtn = (gkey: string, rows: BasketMember[]) =>
@@ -1112,7 +1124,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
       <div className="wb-results">
         {/* PLACED — the ONE basket, shown flat until a partition discriminates, then as up to three display
             groups (C-B: "Placed" / "Placed, flagged" by the narrator's off-thesis opinion; G: "Placed,
-            acronym-only" for sole-acronym term collisions). Groups are VIEWS — membership, include, and
+            low quality" when model-flagged AND a junk-tell matches). Groups are VIEWS — membership, include, and
             Save are computed over the whole draft regardless of grouping (#9, test-guarded). */}
         <div className="sect">
           <button
@@ -1507,7 +1519,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   )}
                 </div>
               );
-            // Flat when the partition doesn't discriminate (no flags, no collisions) — today's single list.
+            // Flat when the partition doesn't discriminate (no flags, no low-quality) — today's single list.
             if (!groupingActive) {
               return (
                 <>
@@ -1528,25 +1540,24 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                   () => setFlaggedOpen((o) => !o),
                 )}
                 {group(
-                  "collision",
-                  "Placed, acronym-only",
-                  "matched ONE acronym signal term — likely collisions",
-                  gCollision,
-                  collisionOpen,
-                  () => setCollisionOpen((o) => !o),
+                  "low_quality",
+                  "Placed, low quality",
+                  "model-flagged off-thesis + junk tell matched",
+                  gLowQuality,
+                  lowQualityOpen,
+                  () => setLowQualityOpen((o) => !o),
                   <div className="wb-triage-bulk">
                     <span className="note">
-                      Each name here matched ONLY one acronym-style signal term — usually a string
-                      collision (a ticker or fund name carrying the letters, none of the words). Scan for
-                      real names, then clear the rest.
+                      Each name here was flagged off-thesis by the model AND matched a junk tell (acronym
+                      collision, fund-name pattern, …). Scan for real names, then clear the rest.
                     </span>
                     <button
                       type="button"
                       className="wb-mini ghost"
                       title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
-                      onClick={() => d.excludeKeys(gCollision.map(memberKey))}
+                      onClick={() => d.excludeKeys(gLowQuality.map(memberKey))}
                     >
-                      exclude all {gCollision.length}
+                      exclude all {gLowQuality.length}
                     </button>
                   </div>,
                 )}

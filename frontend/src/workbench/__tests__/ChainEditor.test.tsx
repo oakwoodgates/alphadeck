@@ -1110,7 +1110,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
   };
   const MEM_SEG = [{ label: "memory", descriptor: null }];
 
-  it("stays FLAT when the partition doesn't discriminate (no flags, no collisions)", async () => {
+  it("stays FLAT when the partition doesn't discriminate (no flags, no low-quality)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN], MEM_SEG));
     render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
@@ -1118,7 +1118,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     await screen.findByLabelText("segment for MU");
     expect(screen.queryByLabelText("toggle Placed")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("toggle Placed, flagged")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("toggle Placed, acronym-only")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("toggle Placed, low quality")).not.toBeInTheDocument();
   });
 
   it("C-B: partitions flagged names into 'Placed, flagged' — independent collapse, ONE membership on Save", async () => {
@@ -1146,21 +1146,34 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
   });
 
-  it("G: a sole-acronym match clusters into 'Placed, acronym-only' (collapsed); exclude-all clears reversibly", async () => {
+  it("G: sole-acronym without model flag stays in Placed (not low quality)", async () => {
     const user = userEvent.setup();
-    withOnSuccess();
     mockDraft(draft([P_CLEAN, P_COLLISION], MEM_SEG));
     render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
 
+    // no low-quality group — the LLM didn't flag Hudbay, so the tell alone doesn't demote
+    expect(screen.queryByLabelText("toggle Placed, low quality")).not.toBeInTheDocument();
+    expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument();
+    expect(screen.getByText("Micron Technology")).toBeInTheDocument();
+  });
+
+  it("G: model-flagged + junk tell clusters into 'Placed, low quality' (collapsed); exclude-all clears reversibly", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    mockDraft(draft([P_CLEAN, { ...P_COLLISION, off_thesis: true }], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+
     // clustered + COLLAPSED by default: the header shows, the row doesn't (a cluster to visit, not a wall)
-    expect(screen.getByLabelText("toggle Placed, acronym-only")).toBeInTheDocument();
+    expect(screen.getByLabelText("toggle Placed, low quality")).toBeInTheDocument();
     expect(screen.queryByText("Hudbay Minerals")).not.toBeInTheDocument();
     // Micron matched the acronym PLUS a corroborator → never clustered (visible in Placed)
     expect(screen.getByText("Micron Technology")).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("toggle Placed, acronym-only"));
+    await user.click(screen.getByLabelText("toggle Placed, low quality"));
     expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument();
 
     // exclude-all: greyed in place (visible + re-includable, #9); Save never sees it
@@ -1188,14 +1201,37 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     expect(mu?.archetype).toBeNull(); // un-decided rides the wire as null — the finalize rail decides later
   });
 
-  it("G precedence: an off-thesis sole-acronym row lands in the collision group, not flagged", async () => {
+  it("G precedence: off-thesis + junk tell lands in low-quality group, not flagged", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN, { ...P_COLLISION, off_thesis: true }], MEM_SEG));
     render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for MU");
-    expect(screen.getByLabelText("toggle Placed, acronym-only")).toBeInTheDocument();
+    expect(screen.getByLabelText("toggle Placed, low quality")).toBeInTheDocument();
     expect(screen.queryByLabelText("toggle Placed, flagged")).not.toBeInTheDocument();
+  });
+
+  it("G: BlackRock Trust name pattern + model flag → low quality", async () => {
+    const user = userEvent.setup();
+    const P_FUND = {
+      name: "BlackRock Multi-Asset Income Trust",
+      ticker: "BME",
+      prose: "a fund, not a memory name",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-bme",
+      candidates: [],
+      matched_terms: ["memory"],
+      off_thesis: true,
+    };
+    mockDraft(draft([P_CLEAN, P_FUND], MEM_SEG));
+    render(<ChainEditor thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for MU");
+    expect(screen.getByLabelText("toggle Placed, low quality")).toBeInTheDocument();
+    expect(screen.queryByLabelText("toggle Placed, flagged")).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("toggle Placed, low quality"));
+    expect(screen.getByText("BlackRock Multi-Asset Income Trust")).toBeInTheDocument();
   });
 });
 

@@ -89,7 +89,7 @@ one adapter away).
 | Honest discovery: coverage + retry, capped terms, tail-sweep tri-state, status strip, worker guard | #123, #124 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
 | Draft persistence: the `/data` cache volume + the write-only draft run log + the run loader | #125, #131 | `DISCOVERY.md` |
 | Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` §3, `INVARIANTS.md` #2 |
-| The three-gate TRIAGE round: board partitions + acronym lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
+| The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
