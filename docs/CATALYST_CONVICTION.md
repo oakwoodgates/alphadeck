@@ -39,11 +39,11 @@
 - **Append-only / bitemporal storage:** `fact_catalyst` (+ `horizon_end`); a correction is a new row;
   `tenant_id` per row → production is a **fresh tenant**, never a destructive wipe.
 
-**Deferred `[DEFERRED]`:** theme/group arming (a theme-conviction arms any confirmed member) is now
-`[BUILT — M5b, see docs/THEME_CONVICTION.md]`; the automated material-agreement 8-K detector; NRC license-action feed; ETF-launch-as-conviction; the
-loans award-type group in the DOE feed (the grade rule already handles loans → core, but the query group isn't
-wired — see RECALIBRATION). The age-decay-of-setup-strength refinement (`confidence` in code) stays filed
-(CALL_LOGIC §7).
+**Deferred `[DEFERRED]`:** the automated material-agreement 8-K detector; NRC license-action feed;
+ETF-launch-as-conviction; the loans award-type group in the DOE feed (the grade rule already handles loans
+→ core, but the query group isn't wired — see RECALIBRATION). The age-decay-of-setup-strength refinement
+(`confidence` in code) stays filed (CALL_LOGIC §7). Theme/group arming is `[BUILT — M5b]`; see
+`docs/THEME_CONVICTION.md`.
 
 ## Grade rule `[APPROVED]` — customer vs sponsor
 
@@ -80,8 +80,8 @@ bridge from USAspending records, both co-located with a live 2026-06-02 breakout
 
 With both seeded, the theme **headlines the binding name** (LEU `core_entry`), because the assembler arms a
 thesis on its **strongest** member — a binding revenue contract correctly out-ranks a provisional
-authorization. OKLO's starter is still computed beneath; true per-member side-by-side is the **M5** group
-view. The **setup-strength cap** (`starter_confidence_cap`) generalized with this work: it now caps **any**
+authorization. The built **M5** per-member menu keeps OKLO's starter visible beneath it. The
+**setup-strength cap** (`starter_confidence_cap`) generalized with this work: it now caps **any**
 starter (the weaker *entry
 grade*), so OKLO's provisional starter no longer reads loud just because its breakout is strong — same
 "key on the weaker key, not the kind" generalization as the verdict (CALL_LOGIC §7).
@@ -123,7 +123,7 @@ system; anchoring it to *verifiable commitment* (not narrative) is the whole poi
 | `kind` | new `catalyst` *(one kind; the specifics ride `type`)* — `TODO(operator)`: one kind vs several (`power_offtake \| regulatory_clearance \| gov_award \| etf_launch`). One-kind-plus-`type` keeps the taxonomy small; I lean that way. |
 | `type` | the catalyst nature (existing field): `regulatory \| commercial \| gov_funding \| emergence \| …`. |
 | `grade` | `core \| flip` per §1. |
-| `alpha_liveness_days` | **graded** (reuses the #30/#32 machinery): core = months, flip = weeks (§7). |
+| `alpha_liveness_days` | the agreement's relevance horizon (`horizon_end − event date`), else the configured 365d default; independent of grade. |
 | `security_id` | the **subject** of the catalyst — the 8-K filer / the awardee. Name-specific → co-locates with *that name's* breakout via the existing per-security model (§5). |
 | `provenance` | the filing accession / dataset record **+ the parsed terms** (counterparty, $ size, term) — show the work, like the converts detector. |
 | `score` | from the parsed terms (obligation magnitude / bindingness), bounded — same spirit as `insider_conviction._score`; it contributes to setup strength, not position sizing. |
@@ -151,7 +151,7 @@ the *explanation* (citing the source) but **never fires the trigger, sets the gr
    the spike; deterministic if so, else route through (5).
 4. **N-1A / 485 thematic ETF launch** — a new theme ETF = an *emergence* signal (institutions now express
    the theme). **Theme-level, not name-specific** → low-grade and a *group* signal → belongs with the ETF
-   radar + the M5 group-arming mode, **not** the single-name arm. Deferred.
+   radar + the built M5b theme path, **not** the single-name arm. The ETF-launch source remains deferred.
 5. **Operator-ratified catalyst (the human bridge)** — for catalysts the parser can't yet capture, the
    operator ratifies a specific event **once** (source URL + date + grade), stored as a fact with
    provenance. **Human-sourced, not model-sourced** → fully honors invariant #3, and it arms a theme
@@ -172,8 +172,8 @@ Catalysts are **name-specific** (the filer/awardee), so they slot into the exist
 co-location with **no new mechanism**: a catalyst on `OKLO` + a breakout on `OKLO` → `OKLO` arms. A
 catalyst alone still only **warms** (no confirmation), and a breakout alone still only **warms** (no
 conviction — today's honest nuclear state). **Theme-wide** catalysts (a sector DOE program, an ETF launch)
-need a *theme-conviction-arms-any-confirmed-member* mode — that is the **M5 group-arming** work, explicitly
-deferred (and already flagged in the assembler).
+use the **built M5b theme-conviction fallback** for eligible confirmed members; see
+`docs/THEME_CONVICTION.md`.
 
 ## 6. Grade rule  `[APPROVED — see the Grade rule section above]`
 
@@ -183,13 +183,10 @@ precedent is the **Grade rule** section
 near the top. (This section's original instinct — binding=core, soft=flip — was right; customer-vs-sponsor
 made it precise and added the loan-guarantee=core edge.)
 
-## 7. Alpha-liveness  `[SUPERSEDED by option A]`
+## 7. Alpha-liveness  `[BUILT — option A]`
 
-⚠️ This section proposed a *graded* catalyst liveness (core≈180d / flip≈21d) — **option A reversed that.** A
-catalyst's liveness is **NOT** grade-coupled; it is the agreement's **relevance horizon** (its period of
-performance from the structured record, else the `365d` default), independent of grade. Grade classifies
-call strength only; it does not size a position. (Insider liveness *stays* grade-coupled — CALL_LOGIC §3 +
-the through-line.) Kept to mark the change.
+See **Sign-off — Liveness ≠ grade** for the current rule: agreement relevance horizon, else the 365d
+default, independent of catalyst grade.
 
 ## 8. How it composes — the unlock
 
@@ -205,8 +202,8 @@ source feeding Key 1.
 
 ## 9. MVP plan — after sign-off (then code, smallest first)
 
-1. Add the `catalyst` kind (+ `type`s) to the enums; add it to `cfg.conviction_kinds`; add graded
-   `catalyst_*_alpha_liveness_days` to config.
+1. Add the `catalyst` kind (+ `type`s) to the enums; add it to `cfg.conviction_kinds`; add the structured
+   relevance horizon plus a configured default when no agreement term is published.
 2. Build **one** detector — the **material-agreement 8-K** detector (deterministic, reuses the EDGAR
    brick) — **plus** the **operator-ratified** bridge (5).
 3. **Spike first (like UNH):** does a real nuclear basket name (SMR/OKLO/NNE/LEU) have a parseable
@@ -215,18 +212,18 @@ source feeding Key 1.
 4. If the deterministic 8-K path is thin for these names, the **operator-ratified** bridge arms nuclear
    immediately (honest, human-sourced) while (1-3) mature.
 
-## 10. Open questions — sign-off before any code
+## 10. Questions resolved at sign-off
 
-1. **First source:** start with the **material-agreement 8-K** detector + the **operator-ratified** bridge
-   (my recommendation — reuses the EDGAR brick, directly arms nuclear, deterministic)? Or lead with
-   USAspending/DOE awards, or NRC?
-2. **Grade rule** (§6) — confirm core-vs-flip, or adjust.
-3. **Core liveness** (§7) — 180d, or a different merits-based horizon (longer for multi-year offtakes)?
-4. **Co-location** (§5) — confirm name-specific now, theme/group arming deferred to M5.
-5. **Kind granularity** (§2) — one `catalyst` kind (+`type`) vs several kinds.
+1. **First source:** the operator-ratified bridge plus the structured USAspending/DOE feed shipped; the
+   material-agreement 8-K and NRC feeds remain deferred.
+2. **Grade rule** (§6): customer vs sponsor, recorded on the fact by deterministic derivation or operator
+   ratification.
+3. **Liveness:** option A — agreement relevance horizon (or the 365d default), independent of grade.
+4. **Co-location** (§5): name-specific catalysts use ordinary co-location; theme/group fallback shipped in
+   M5b.
+5. **Kind granularity** (§2): one `catalyst` kind with a `type` discriminator.
 
 ## 11. Out of scope / deferred
 
-Theme / group arming (M5); ETF-launch-as-conviction (ETF radar + M5); NRC if no clean feed (→ ratified);
-the LLM-written counter-case/explanation (M4b); the Workbench UI for ratifying catalysts (later — CLI/seed
-for now).
+ETF-launch-as-conviction (ETF radar + M5); NRC if no clean feed (→ ratified); the LLM-written
+counter-case/explanation (M4b); the Workbench UI for ratifying catalysts (later — CLI/seed for now).

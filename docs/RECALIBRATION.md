@@ -18,7 +18,6 @@
 | `warming_min_entry_triggers` | 1 | Incubating → Warming | |
 | `risk_block_severity` | 0.70 | severe risk blocks the arm (timing veto) | block-vs-penalize is fixed; only the threshold tunes |
 | `risk_penalty_per_signal` | 0.10 | setup-strength cut per active risk signal (`confidence` in code) | scaled by the signal's score |
-| `dilution_block_runway_months` | 6.0 | dilution severity → block | |
 | `dilution_overhang_severe_pct` | 25.0 | gross overhang that scales to a block | HIMS ~6% lands well below |
 | **Insider conviction (grade-coupled liveness):** | | | |
 | `insider_cluster_window_days` | 30 | buys within N days = one cluster | ~7–30d is the literature window |
@@ -162,7 +161,7 @@ disciplined result on a 19-episode, mostly-UNH seed (in-sample, not validation).
   `insider_strong_single_usd`); `insider_flip_alpha_liveness_days` (no insider flip in the seed).
 - **Deferred — no live episode straddles it:** `doe_core_min_obligation_usd` (the feed emits a $500K contract +
   a $148M grant either side of the $10M floor, but neither is live at any swept asof).
-- **Deferred — no risk reaches the threshold / truncated:** `risk_block_severity`, `dilution_block_runway_months`,
+- **Deferred — no risk reaches the threshold / truncated:** `risk_block_severity`,
   `dilution_overhang_severe_pct` (HIMS ~6% ≪ 25%, no near-block); `risk_penalty_per_signal` (HIMS *arms* but its
   `exit_by` 2026-11-22 is truncated past the data end → no meaningfully-scored signal-window outcome; calibration
   insufficient regardless).

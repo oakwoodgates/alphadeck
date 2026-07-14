@@ -66,7 +66,7 @@ def _pct(terms: list[tuple[ConvertTerms, str]], shares_out: float) -> float | No
     return 100.0 * conv_shares / shares_out
 
 
-def overhang_pct(facts: list[dict[str, Any]], security_id: UUID, asof: date) -> float | None:
+def overhang_pct(facts: list[dict[str, Any]], asof: date) -> float | None:
     """The RAW convert-overhang % — the SINGLE source of overhang, shared by the dilution risk-veto
     (``score`` below) and the Workbench dilution meter. The meter buckets on this real number, NEVER backed
     out of the clamped/normalized risk ``severity`` (which saturates at the severe threshold). ``None`` when

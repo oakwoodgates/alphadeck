@@ -36,6 +36,18 @@ def test_core_when_two_senior_insiders_buy_big():
     assert len(ev.provenance) == 2  # one per accession
 
 
+def test_provenance_accessions_are_sorted_independent_of_row_order():
+    alpha = _buy("Alpha Buyer", "Chief Executive Officer", 150_000)
+    zulu = _buy("Zulu Buyer", "Chief Financial Officer", 120_000)
+
+    forward = insider_conviction.score([zulu, alpha], SID, ASOF, DEFAULT_CONFIG)
+    reverse = insider_conviction.score([alpha, zulu], SID, ASOF, DEFAULT_CONFIG)
+
+    assert forward is not None and reverse is not None
+    assert forward.model_dump() == reverse.model_dump()
+    assert [p.ref for p in forward.provenance] == ["acc-Alpha Buyer", "acc-Zulu Buyer"]
+
+
 def test_flip_when_single_insider():
     ev = insider_conviction.score([_buy("Jane Doe", "Chief Executive Officer", 50_000)], SID, ASOF)
     assert ev is not None and ev.grade is Grade.FLIP  # one insider, below the strong-single floor

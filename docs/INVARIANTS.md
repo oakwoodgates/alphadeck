@@ -185,7 +185,7 @@ overhang % — with **no `if kind ==` branch anywhere in the engine**. The 0-4 p
 
 ## 8. The dilution overhang is computed ONCE — never backed out of the clamped severity
 
-`dilution_clock.overhang_pct(facts, sid, asof)` is the **single source** of the raw convert-overhang % —
+`dilution_clock.overhang_pct(facts, asof)` is the **single source** of the raw convert-overhang % —
 read by **both** the back-half risk-veto (`dilution_clock.score`) and the Workbench dilution meter. The meter
 buckets on this raw %; it **must NEVER recover the overhang from the risk `severity`**, because severity
 *saturates*: `severity = min(overhang / dilution_overhang_severe_pct, 1) × risk_block_severity`, so above the

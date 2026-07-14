@@ -111,7 +111,7 @@ def _dilution(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
     source of overhang); the 4-pip bar reuses ``dilution_overhang_severe_pct``. No convert fact -> "—".
     """
     facts = pit.dilution_facts(sid)
-    pct = dilution_clock.overhang_pct(facts, sid, pit.asof)
+    pct = dilution_clock.overhang_pct(facts, pit.asof)
     if pct is None:
         return ScoredFigure()  # "—": no convert data (no fake zero)
     cutoffs = (*cfg.dilution_pip_pct, cfg.dilution_overhang_severe_pct)
