@@ -393,6 +393,15 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
     if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
     return true;
   };
+  const verifyAsideId = (p: ResolvedPlacement, key?: string) =>
+    p.security_id ?? p.ticker ?? p.name ?? key ?? "";
+  const matchesVerifyInclude = (p: ResolvedPlacement): boolean => {
+    if (!fInc) return true;
+    const aside = setAside.has(verifyAsideId(p));
+    if (fInc === "included") return !aside;
+    if (fInc === "excluded") return aside;
+    return true;
+  };
   const sorted = (list: BasketMember[]): BasketMember[] => {
     if (sortBy === "draft") return list;
     const cmp = (a: BasketMember, b: BasketMember): number => {
@@ -705,9 +714,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
   // signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
   // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
   // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
-  const vOffThesis = verify.filter((p) => p.off_thesis);
-  const vNoTicker = verify.filter((p) => !p.off_thesis && !p.ticker);
-  const vKeepers = verify.filter((p) => !p.off_thesis && p.ticker);
+  const verifyVisible = verify.filter(matchesVerifyInclude);
+  const vOffThesis = verifyVisible.filter((p) => p.off_thesis);
+  const vNoTicker = verifyVisible.filter((p) => !p.off_thesis && !p.ticker);
+  const vKeepers = verifyVisible.filter((p) => !p.off_thesis && p.ticker);
   const verifyRow = (p: ResolvedPlacement, key: string) => {
     const inBasket = p.security_id ? keys.has(p.security_id) : false;
     // "add" is a checkbox styled affordance (model A): checking it promotes the candidate → the row MOVES up to
@@ -722,7 +732,7 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
         ? "no listed ticker — not directly investable (add via the name search below if you need it)"
         : "check to add — moves it up to Placed (the basket)";
     // VIEW-only set-aside (#2 keep-it-visible): the ✕ greys the keeper to a stub, reversible in one click.
-    const asideId = p.security_id ?? p.ticker ?? p.name ?? key;
+    const asideId = verifyAsideId(p, key);
     const aside = setAside.has(asideId);
     return (
       <div className={`nmrow${aside ? " excluded" : ""}`} key={key}>
@@ -1282,7 +1292,10 @@ export function ChainEditor({ thesis, onDone, scoredById }: Props) {
                 </button>
               )}
               <span className="note">
-                showing {triaged.length} of {d.draft.basket.length}
+                showing {triaged.length} of {d.draft.basket.length} placed
+                {fInc && verify.length > 0
+                  ? ` · ${verifyVisible.length} of ${verify.length} to review`
+                  : ""}
               </span>
             </div>
           )}

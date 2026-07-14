@@ -958,6 +958,93 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     );
   });
 
+  // two placed names so the include filter bar renders (basket.length > 1)
+  const toReviewThesis = {
+    ...flatThesis,
+    basket: [
+      flatThesis.basket[0],
+      {
+        ticker: "CCJ",
+        role: "—",
+        archetype: "leader",
+        security_id: "s-ccj",
+        segment: "fuel",
+        authored_by: "operator_set" as const,
+        conviction: null,
+      },
+    ],
+  };
+
+  it("included filter hides a set-aside To Review row and updates counts", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Micron");
+
+    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByRole("button", { name: "set aside KR" }));
+    expect(screen.getByText("Kroger")).toBeInTheDocument(); // stub visible under "all"
+
+    await user.selectOptions(screen.getByLabelText("filter by include"), "included");
+    expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
+    expect(screen.getByText("Micron")).toBeInTheDocument();
+    expect(screen.getByText("showing 2 of 2 placed · 1 of 2 to review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /To review/ })).toHaveTextContent("· 1");
+  });
+
+  it("excluded filter shows only set-aside To Review rows", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Micron");
+
+    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByRole("button", { name: "set aside KR" }));
+    await user.selectOptions(screen.getByLabelText("filter by include"), "excluded");
+
+    expect(screen.getByText("Kroger")).toBeInTheDocument();
+    expect(screen.queryByText("Micron")).not.toBeInTheDocument();
+    expect(screen.getByText("showing 0 of 2 placed · 1 of 2 to review")).toBeInTheDocument();
+  });
+
+  it("clear filters restores set-aside To Review stubs under all", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Micron");
+
+    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByRole("button", { name: "set aside KR" }));
+    await user.selectOptions(screen.getByLabelText("filter by include"), "included");
+    expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(await screen.findByText("Kroger")).toBeInTheDocument();
+    expect(screen.getByText("set aside")).toBeInTheDocument();
+  });
+
+  it("THE #9 SPINE: included filter hiding a set-aside To Review row does not change Save", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    mockDraft(draft([VKEEP, VOFF], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor thesis={toReviewThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Micron");
+
+    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByRole("button", { name: "set aside KR" }));
+    await user.selectOptions(screen.getByLabelText("filter by include"), "included");
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
+    expect(body.basket.map((m) => m.ticker).sort()).toEqual(["CCJ", "OKLO"]);
+  });
+
   it("item 6: 'Discovered' is de-linked (unsorted tag) and the nudge prompts sorting", async () => {
     const user = userEvent.setup();
     const PLACED_DISC = {
@@ -1310,7 +1397,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
     expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument();
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // hidden
-    expect(screen.getByText("showing 1 of 3")).toBeInTheDocument();
+    expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
   });
 
   it("THE #9 SPINE: the VIEW never changes what Save persists — a filtered-out, included name still saves", async () => {
@@ -1333,7 +1420,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "clear filters" }));
     expect(screen.getByLabelText("segment for OKLO")).toBeInTheDocument();
-    expect(screen.getByText("showing 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText("showing 3 of 3 placed")).toBeInTheDocument();
   });
 
   it("compact collapses the thesis-fit prose editors (they return when toggled off)", async () => {
