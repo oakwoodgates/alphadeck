@@ -730,7 +730,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
 /* C-B + G — the placed board's display groups: one membership, up to three quiet drawers (reusing the
-   .resolve drawer idiom). The bulk bar inside the collision group hugs its rows. */
+   .resolve drawer idiom). The bulk bar inside the low-quality group hugs its rows. */
 .wb-results .wb-placed-groups { margin-top: 10px; display: flex; flex-direction: column; gap: 9px; }
 .wb-results .wb-placed-group .wb-triage-bulk { margin: 8px 0 2px; }
 

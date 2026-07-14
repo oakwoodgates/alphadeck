@@ -133,16 +133,15 @@ independently-collapsible **display groups** (same first word = same membership;
 - **"Placed"** / **"Placed, flagged"** (C-B) — a VISUAL partition by the narrator's off-thesis opinion, **not a
   second basket**: a flagged name is still in the basket and still saves; the split just lets the operator collapse
   the junk-heavy pile in one click. Both groups start open (the split itself hides nothing).
-- **"Placed, acronym-only"** (G) — the collision lens, a **cheap-cut accelerant**: a name whose ONLY discovery
-  match is a single collision-prone SIGNAL term clusters here for one scan-and-clear pass. *Collision-prone* =
-  a single all-caps token (`isAcronymTerm` in `workbench/format.ts` — HBM ✓, DRAM ✓, "high-bandwidth memory" ✗;
-  NAND-style real words cluster **by design**, the v1 rule is deliberately simple and gets tweaked on live
-  behavior). A genuine name matches the acronym PLUS the spelled-out phrases, so it never clusters. Fully
-  mechanical — derived from the row's `matched_terms` + the working term set; **no model, no authoring step**.
-  Starts **collapsed** (a cluster to visit, not a wall), with a group-level **"exclude all N"** (visible bulk;
-  every row stays greyed-in-place and re-includable — `excludeKeys`, the same additive contract as
-  clear-un-accepted).
-- **Precedence:** collision > flagged > clean (the To-Review precedence idiom). Grouping renders **only when it
+- **"Placed, low quality"** (G) — a **cheap-cut accelerant** gated on **two conditions** (both required):
+  the narrator's `off_thesis` flag **AND** any registered junk-tell from [`frontend/src/workbench/junkTells.ts`](../frontend/src/workbench/junkTells.ts).
+  The LLM flag is the recall guard — a loose tell can't demote a name the model approved (tell-only → stays in
+  **Placed**; flag-only → **Placed, flagged**). Seed tells: sole SIGNAL acronym match (`isAcronymTerm` in
+  `workbench/format.ts` — HBM ✓, DRAM ✓, "high-bandwidth memory" ✗) and name token co-occurrence pairs
+  (BlackRock+Trust, Royce+Trust). Add a tell = one registry line in `JUNK_TELLS`. Starts **collapsed** (a cluster
+  to visit, not a wall), with a group-level **"exclude all N"** (visible bulk; every row stays greyed-in-place and
+  re-includable — `excludeKeys`, the same additive contract as clear-un-accepted).
+- **Precedence:** low quality > flagged > clean (the To-Review precedence idiom). Grouping renders **only when it
   discriminates** — everything-in-one-group is just the flat list (a partition that doesn't discriminate is
   noise, #7).
 - **Run-state caveat (by design):** `matched_terms` and the off-thesis flag are draft-run provenance, never
@@ -195,6 +194,6 @@ visible inverse of Save (reversibility principle #1); cleared on any navigation 
 - **#7 (inverse loudness):** a badge true of every row doesn't render (the fundamentals gate); loudness marks the
   minority/exception per bucket — Placed flags rare junk, To-Review highlights rare keepers.
 - **#10 (recommends, operator decides):** sort/filter/include/accept/re-segment are all operator acts; the
-  off-thesis flag and the acronym-collision cluster change nothing on their own (grouping is a lens — the
+  off-thesis flag and the low-quality cluster change nothing on their own (grouping is a lens — the
   exclude is still the operator's click).
 - **#4 (deferential on thesis):** conviction is the operator's weight, never an input to the call.

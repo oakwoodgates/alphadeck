@@ -10,10 +10,9 @@ export { archLabel } from "../util/format";
 /** The basket-member archetypes the operator classifies a name as (the finalize rail's set control). */
 export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;
 
-/** The collision-lens predicate: a term that is a single all-caps token (letters+digits, ≥2 chars — HBM,
- *  DRAM) is collision-prone: it matches tickers, fund names, and boilerplate that carry the LETTERS without
- *  any of the words that would confirm the meaning. Deliberately the simple v1 rule (NAND-style real-word
- *  acronyms count too) — judged on live data, tweaked after. */
+/** A collision-prone SIGNAL acronym term (single all-caps token, letters+digits, ≥2 chars — HBM,
+ *  DRAM). Used by the low-quality junk-tell set (`junkTells.ts`). Deliberately the simple v1 rule
+ *  (NAND-style real-word acronyms count too) — judged on live data, tweaked after. */
 export const isAcronymTerm = (term: string): boolean => /^[A-Z][A-Z0-9]{1,9}$/.test(term.trim());
 
 /** Gate-3 readiness (ONE rule, three surfaces): does the scored member carry ANY confirmed SURFACE fact
