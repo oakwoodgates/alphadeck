@@ -312,6 +312,6 @@ The *structure* of the brain is built and reconciled with the code (states §2, 
 clocks §6, setup strength §7). What remains is **forward calibration, not architecture** — the threshold *values* the
 operator tunes against real outcomes once the MVP has run. Those are consolidated into one agenda in
 **`docs/RECALIBRATION.md`** (liveness windows, grade boundaries + the $10M DOE threshold, the cap values, the
-momentum-only-vs-starter split, and the filed refinements). The deferred build items (M5 group/per-member
-view, age-decay of setup strength (`confidence` in code), the loans query group) live there too. Nothing here is a guessed number
+momentum-only-vs-starter split, and the filed refinements). The deferred build items (age-decay of setup
+strength (`confidence` in code), the loans query group) live there too. Nothing here is a guessed number
 presented as decided — the dials are labelled as dials.

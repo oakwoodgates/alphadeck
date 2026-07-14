@@ -145,7 +145,7 @@ a sourced financial figure; the provenance note records what was backed out and 
 ratifies against the filing.
 
 ### The dilution overhang single-source rule
-`dilution_clock.overhang_pct(facts, sid, asof)` is the **one** raw-overhang computation, shared by the
+`dilution_clock.overhang_pct(facts, asof)` is the **one** raw-overhang computation, shared by the
 risk-veto (`score`) and the Workbench meter. **The meter buckets on this raw % and NEVER backs it out of the
 clamped risk `severity`** — because severity *saturates* at the severe threshold (`min(overhang /
 severe_pct, 1) × risk_block_severity`), so a number recovered from severity is wrong above the severe bar. A

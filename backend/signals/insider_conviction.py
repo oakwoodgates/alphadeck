@@ -89,7 +89,7 @@ def score(
             f"${total_usd:,.0f} open-market (code P) across {len(buys)} txns"
         ),
         alpha_liveness_days=liveness,
-        provenance=[source_provenance("form4", acc) for acc in by_accession],
+        provenance=[source_provenance("form4", acc) for acc in sorted(by_accession)],
         asof=anchor,
     )
 

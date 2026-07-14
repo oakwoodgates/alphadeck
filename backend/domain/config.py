@@ -33,7 +33,6 @@ class CallConfig(DomainModel):
     risk_penalty_per_signal: float = 0.10  # confidence cut per active risk signal (scaled by score)
 
     # --- dilution severity (used by the dilution detector in M4a) ---
-    dilution_block_runway_months: float = 6.0
     # gross overhang (% of shares outstanding) that scales to the block severity; a convert's potential
     # dilution is scored against this (STARTING calibration). HIMS's ~6% lands well below the block.
     dilution_overhang_severe_pct: float = 25.0
@@ -67,13 +66,13 @@ class CallConfig(DomainModel):
 
     # --- catalyst_conviction (Key 1 for theme/catalyst theses, #10) — STARTING calibration ---
     # Catalyst liveness is the catalyst's relevance HORIZON, NOT grade-coupled (unlike insider, where a
-    # weak buy is genuinely both low-conviction and fast-decaying). For a catalyst, grade sets entry SIZE
-    # (provisional -> flip -> starter) while liveness = how long the edge persists = the agreement's own
-    # term (period of performance), taken from the structured record where present (e.g. an OKLO DOE OTA
-    # -> 2029-07-01), else this default. A flat number misfit both ends (the OKLO OTA decayed too fast at
-    # flip-30; LEU's multi-year HALEU missed co-location by 48d at core-365). A long standing horizon
-    # slightly overstates conviction freshness — fine for now: arming still needs a co-located FRESH
-    # breakout, and the decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
+    # weak buy is genuinely both low-conviction and fast-decaying). For a catalyst, grade sets categorical
+    # call strength while liveness = how long the edge persists = the agreement's own term (period of
+    # performance), taken from the structured record where present (e.g. an OKLO DOE OTA -> 2029-07-01),
+    # else this default. A flat number misfit both ends (the OKLO OTA decayed too fast at flip-30; LEU's
+    # multi-year HALEU missed co-location by 48d at core-365). A long standing horizon slightly overstates
+    # conviction freshness — fine for now: arming still needs a co-located FRESH breakout, and the
+    # decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
     catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
 
     # --- theme_conviction (Key 1 FALLBACK for theme theses, M5b) — STARTING calibration ---
@@ -104,11 +103,11 @@ class CallConfig(DomainModel):
     # --- M5 per-member ranking (the theme menu) — STARTING calibration ---
     # A theme ranks its armed members on a freshness BAND (runway) primary, grade within the band — kept on
     # separate axes, never fused into one score (the through-line). "Runway" here = the call's LIVENESS
-    # horizon (exit_by - asof = the conviction hold clock, _clock over alpha_liveness_days) — NOT the
-    # dilution cash-runway risk dial (dilution_block_runway_months). An armed member with fewer than this
-    # many days of liveness runway left is "lapsing-soon" and ranks below any "fresh" member regardless of
-    # grade (so a core arm about to lapse doesn't headline over a long-runway starter). Calibration dial —
-    # Phase-1 recalibration tunes how aggressively runway demotes grade; the default isn't load-bearing.
+    # horizon (exit_by - asof = the conviction hold clock, _clock over alpha_liveness_days), not company
+    # cash runway or dilution pressure. An armed member with fewer than this many days of liveness runway
+    # left is "lapsing-soon" and ranks below any "fresh" member regardless of grade (so a core arm about to
+    # lapse doesn't headline over a long-runway starter). Calibration dial — Phase-1 recalibration tunes
+    # how aggressively runway demotes grade; the default isn't load-bearing.
     headline_lapsing_soon_days: int = 45
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---

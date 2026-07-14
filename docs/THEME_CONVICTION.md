@@ -66,9 +66,9 @@ there it is **just another conviction event**: adding `Kind.THEME_CONVICTION` to
 makes the existing co-location (`conv_secs & conf_secs`), ranking, setup-strength cap
 (`starter_confidence_cap`), watch-tier subtraction
 (`conf_secs − conv_secs`), and the per-member risk veto all work **with no change to the guarded
-`assemble_call`**. The broadcast runs in `pipeline/call_for_thesis.py` after the per-member detector loop
-(eligibility reads the assembled member stream). The entire M5b eligibility discipline (rules 4/5/7) lives
-in `broadcast`; the assembler stays generic.
+`assemble_call`**. The broadcast runs in `pipeline/core.py` (`assemble_from_pit`) after the per-member
+detector loop (eligibility reads the assembled member stream); `call_for_thesis` delegates to that shared
+core. The entire M5b eligibility discipline (rules 4/5/7) lives in `broadcast`; the assembler stays generic.
 
 *Why broadcast over a special-cased `thesis.theme_conviction` field in the assembler:* it reuses the
 persistence pattern (no new subsystem), keeps the assembler free of any `if kind == …` branch (the

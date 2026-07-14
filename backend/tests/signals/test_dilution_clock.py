@@ -83,8 +83,8 @@ def test_multi_offering_uses_latest_shares_basis_independent_of_row_order():
     )
 
     # Aggregate overhang = (10M + 5M) / the LATEST 200M shares basis = 7.5%.
-    forward_pct = dilution_clock.overhang_pct([older, newer], SID, ASOF)
-    reverse_pct = dilution_clock.overhang_pct([newer, older], SID, ASOF)
+    forward_pct = dilution_clock.overhang_pct([older, newer], ASOF)
+    reverse_pct = dilution_clock.overhang_pct([newer, older], ASOF)
     assert forward_pct == pytest.approx(7.5)
     assert reverse_pct == pytest.approx(forward_pct)
 
