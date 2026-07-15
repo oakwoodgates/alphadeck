@@ -53,7 +53,10 @@ def score(
         return None
     # FIRE date = the most-recent open-market buy; the cluster = the buys within the cohesion window
     # before it (so unrelated buys months apart aren't fused into one cluster). Stamping the event at
-    # the anchor (not the query asof) anchors exit_by/liveness to when conviction actually formed.
+    # the anchor (not the query asof) anchors exit_by/liveness to when conviction actually formed. This
+    # anchor is ALSO the date shown on the call-card trigger row (event_date) — a cluster spanning
+    # Jan 30 -> Feb 25 reads Feb 25. To display the earliest (cluster start) or the largest buy's date
+    # instead, change this one line; exit_by/liveness follow it. See docs/CALL_LOGIC.md §6.
     anchor = max(t["valid_from"] for t in p_buys)
     floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
     buys = [t for t in p_buys if t["valid_from"] >= floor]

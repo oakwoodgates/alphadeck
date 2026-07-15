@@ -64,3 +64,38 @@ describe("CallCard — TriggerRow (Tier-3 extraction)", () => {
     expect(container.querySelector(".trg-item.warn .ic")?.textContent).toBe("▲");
   });
 });
+
+describe("CallCard — trigger event dates", () => {
+  // two triggers sent OLDER-first by the backend; the card must render them newest-first, each with its
+  // own muted right-aligned date (fmtDate short style, e.g. "Jun 18").
+  const dated = {
+    ...card,
+    conviction_grade: null,
+    triggers_fired: [
+      { label: "Older insider buy", kind: "insider", grade: "core", ticker: "AAA", event_date: "2026-06-05", sources: [] },
+      { label: "Newer breakout", kind: "technical_breakout", grade: "flip", ticker: "AAA", event_date: "2026-06-18", sources: [] },
+    ],
+    risk_signals: [],
+  } as unknown as CallCardResponse;
+
+  it("renders each trigger's fire date muted and orders rows newest-first", () => {
+    const { container } = render(<CallCard card={dated} />);
+    // dates render in the muted .trg-date slot, newest-first
+    const dates = [...container.querySelectorAll(".trg-date")].map((n) => n.textContent);
+    expect(dates).toEqual(["Jun 18", "Jun 5"]);
+    // the row order matches: the newer breakout leads the older insider (backend sent them reversed)
+    const bodies = [...container.querySelectorAll(".trg-item.hit .trg-body")].map((n) => n.textContent);
+    expect(bodies[0]).toMatch(/Newer breakout/);
+    expect(bodies[1]).toMatch(/Older insider/);
+  });
+
+  it("omits the date entirely when a trigger has no event_date (nullable, graceful)", () => {
+    const noDate = {
+      ...card,
+      triggers_fired: [{ label: "No date", kind: "insider", grade: "core", ticker: "AAA", sources: [] }],
+      risk_signals: [],
+    } as unknown as CallCardResponse;
+    const { container } = render(<CallCard card={noDate} />);
+    expect(container.querySelector(".trg-date")).toBeNull();
+  });
+});

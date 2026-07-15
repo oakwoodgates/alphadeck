@@ -5,7 +5,7 @@ import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel } from "../workbench/format";
-import { archLabel, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
+import { archLabel, byEventDateDesc, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
 import type { BucketDef, BucketKey, BucketRow } from "./buckets";
 
 interface Props {
@@ -201,7 +201,8 @@ export function NamePanel({ row, def, card, thesisId, position, asof, onClose }:
 
       <div className="np-h">Triggers · this name&apos;s own</div>
       {own.length > 0 ? (
-        own.map((t, i) => (
+        // newest-first, same idiom as the rail (frontend-only display sort)
+        [...own].sort(byEventDateDesc).map((t, i) => (
           // provenance rides every row (#6); the redundant same-ticker chip is stripped
           <TriggerRow key={i} item={{ ...t, ticker: null }} icon="◉" variant="hit" showGrade />
         ))
@@ -211,7 +212,7 @@ export function NamePanel({ row, def, card, thesisId, position, asof, onClose }:
 
       <div className="np-h">Risk signals · this name</div>
       {risks.length > 0 ? (
-        risks.map((t, i) => (
+        [...risks].sort(byEventDateDesc).map((t, i) => (
           <TriggerRow key={i} item={{ ...t, ticker: null }} icon="▲" variant="warn" showGrade={false} />
         ))
       ) : (

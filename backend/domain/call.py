@@ -23,6 +23,10 @@ class TriggerRef(DomainModel):
     label: str
     kind: Kind
     grade: Grade | None = None
+    # the trigger's FIRE date (SignalEvent.asof) — the market EVENT date (insider = trade date,
+    # breakout = the breakout bar date), NOT when the platform learned of it. Nullable so a dateless
+    # trigger degrades gracefully; the assembler always populates it (every SignalEvent has an asof).
+    event_date: date | None = None
     security_id: UUID  # the security this trigger fired on — drives issuer-CIK URL resolution
     sources: list[Provenance] = Field(default_factory=list)
 

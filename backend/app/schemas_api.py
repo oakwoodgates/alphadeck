@@ -61,6 +61,7 @@ class TriggerRefOut(BaseModel):
     label: str
     kind: Kind
     grade: Grade | None = None
+    event_date: date | None = None  # the trigger's fire/event date (SignalEvent.asof)
     # the name this trigger fired on — attributes it in a multi-name basket
     ticker: str | None = None
     sources: list[ProvenanceOut] = []
@@ -85,6 +86,7 @@ def _trigger_out(
         label=t.label,
         kind=t.kind,
         grade=t.grade,
+        event_date=t.event_date,
         ticker=tickers.get(t.security_id),
         sources=[_provenance_out(p, ciks.get(t.security_id)) for p in t.sources],
     )

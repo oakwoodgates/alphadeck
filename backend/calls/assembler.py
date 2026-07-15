@@ -229,6 +229,7 @@ def assemble_call(
                 label=e.label,
                 kind=e.kind,
                 grade=e.grade,
+                event_date=e.asof,  # the trigger's fire/event date, surfaced on the row
                 security_id=e.security_id,
                 sources=list(e.provenance),
             )
@@ -239,6 +240,7 @@ def assemble_call(
                 label=r.label,
                 kind=r.kind,
                 grade=None,
+                event_date=r.asof,
                 security_id=r.security_id,
                 sources=list(r.provenance),
             )
@@ -359,6 +361,7 @@ def _member_call(
                 label=e.label,
                 kind=e.kind,
                 grade=e.grade,
+                event_date=e.asof,
                 security_id=e.security_id,
                 sources=list(e.provenance),
             )

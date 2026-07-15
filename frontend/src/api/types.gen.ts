@@ -2279,6 +2279,8 @@ export interface components {
             label: string;
             kind: components["schemas"]["Kind"];
             grade?: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date?: string | null;
             /** Ticker */
             ticker?: string | null;
             /**

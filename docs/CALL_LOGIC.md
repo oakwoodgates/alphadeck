@@ -213,6 +213,18 @@ would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_
 but excluded from the surface filter. The Cockpit flags binary events that fall within `catalyst_surface`;
 that inclusion is not an instruction to close the trade at the event or window end.
 
+**The displayed trigger date (`event_date`).** Each fired trigger on the call card carries `event_date =
+event.asof` (its fire date), rendered as a muted right-aligned date on the row and used to order the list
+**newest-first** (display only — the assembled `triggers_fired` order is unchanged, so the Scoreboard's
+arm-time snapshot stays stable). For a technical breakout that's the breakout bar date; for an **insider
+cluster** it is the **most-recent** open-market buy in the cluster (`max(valid_from)`, the anchor in §3/the
+detector), **not** the earliest or the largest — so a cluster spanning e.g. Jan 30 → Feb 25 reads **Feb 25**.
+That is the freshness anchor (when the conviction last strengthened) and is the same date the
+liveness/`exit_by` clocks key on, so the row date and the clocks never disagree. **This anchor is a
+deliberate choice**: to instead show the *earliest* buy (when the cluster began) or the *largest* buy's date,
+change the single `anchor =` line in `backend/signals/insider_conviction.py` — `event_date`, `exit_by`, and
+the liveness window all follow it.
+
 ## 7. Setup strength  `[built]` (wire field: `confidence`; values experimental)
 
 `confidence ∈ [0,1]` is rendered as the Armed card's **setup-strength** bar. The scale is a relative read of
