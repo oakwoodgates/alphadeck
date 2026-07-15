@@ -606,3 +606,48 @@ def test_assembler_has_no_magic_number_thresholds():
     code = "\n".join(line.split("#", 1)[0] for line in src.splitlines())
     floats = re.findall(r"\b\d+\.\d+\b", code)
     assert floats == [], f"thresholds must come from CallConfig; found float literals: {floats}"
+
+
+# --- event_date: each trigger row carries its own fire date (the market EVENT date, surfaced in the UI) ---
+
+
+def test_triggers_carry_fire_date_not_query_asof():
+    """event_date threads SignalEvent.asof onto every TriggerRef — the market EVENT date, NOT the query
+    asof. Proven by querying LATER than the firing: card.asof advances, but each row's event_date stays
+    pinned to the 06-02 fire. Covers both the thesis-level list and the per-member (Cockpit panel) list.
+    """
+    thesis = make_thesis()
+    events = [insider_event(), breakout_event()]  # both fire on ASOF (2026-06-02)
+    q = date(2026, 6, 5)
+    card = assemble_call(thesis, events, q, DEFAULT_CONFIG)
+    assert card.asof == q and card.state is State.ARMED
+    assert len(card.triggers_fired) == 2
+    assert all(
+        t.event_date == ASOF for t in card.triggers_fired
+    )  # the fire date, not the query asof
+    assert card.armed_members
+    assert all(t.event_date == ASOF for t in card.armed_members[0].triggers)
+
+
+def test_risk_signal_carries_its_fire_date():
+    """A risk-signal row carries event_date too (from its own asof) — same right-aligned date treatment."""
+    card = assemble_call(
+        make_thesis(),
+        [insider_event(), breakout_event(), dilution_event(score=0.3)],
+        ASOF,
+        DEFAULT_CONFIG,
+    )
+    assert len(card.risk_signals) == 1
+    assert card.risk_signals[0].event_date == ASOF
+
+
+def test_event_date_tracks_each_event_when_firings_differ():
+    """Distinct firings surface distinct dates: an EARLIER insider (05-28, still inside its multi-month
+    core window) + the 06-02 breakout -> the two rows carry their OWN dates, not a shared constant.
+    """
+    early_insider = insider_event().model_copy(update={"asof": date(2026, 5, 28)})
+    card = assemble_call(make_thesis(), [early_insider, breakout_event()], ASOF, DEFAULT_CONFIG)
+    assert card.state is State.ARMED
+    by_kind = {t.kind: t.event_date for t in card.triggers_fired}
+    assert by_kind[Kind.INSIDER] == date(2026, 5, 28)
+    assert by_kind[Kind.TECHNICAL_BREAKOUT] == ASOF

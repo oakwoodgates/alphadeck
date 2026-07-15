@@ -1,6 +1,7 @@
 import type { CallCardResponse } from "../api/hooks";
 import {
   accentVar,
+  byEventDateDesc,
   CALL_HEAD,
   daysFrom,
   fmtDate,
@@ -22,8 +23,11 @@ export function CallCard({ card, thesisId }: { card: CallCardResponse; thesisId?
   // Confidence is an Armed-state metric (§7): the backend nulls it for a not-yet card, so the bar
   // only renders when armed — a Warming card never wears the Armed card's confidence bar.
   const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
-  const triggers = card.triggers_fired ?? [];
+  // Newest-first (frontend-only display sort; the backend list order stays stable). Stable sort keeps
+  // the per-name / conviction-before-confirmation grouping within an equal date.
+  const triggers = [...(card.triggers_fired ?? [])].sort(byEventDateDesc);
   const missing = card.missing ?? [];
+  const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
   const armDays = daysFrom(card.asof, card.arm_until);
   const exitDays = daysFrom(card.asof, card.exit_by);
 
@@ -89,10 +93,10 @@ export function CallCard({ card, thesisId }: { card: CallCardResponse; thesisId?
           </div>
         )}
 
-        {(card.risk_signals ?? []).length > 0 && (
+        {risks.length > 0 && (
           <div className="trg">
             <div className="trg-h">Risk signals</div>
-            {(card.risk_signals ?? []).map((r, i) => (
+            {risks.map((r, i) => (
               <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
             ))}
           </div>
@@ -190,7 +194,7 @@ export function TriggerRow({
   return (
     <div className={`trg-item ${variant}`}>
       <span className="ic">{icon}</span>
-      <span>
+      <span className="trg-body">
         {/* dot · ticker · grade tag · text · source — the tag LEADS the text (a trailing tag
             wrapped onto its own line under a long label), same order on the rail and the panel */}
         {item.ticker && <span className="trg-tk">{item.ticker}</span>}
@@ -207,6 +211,8 @@ export function TriggerRow({
           </>
         )}
       </span>
+      {/* the fire/event date — muted, pinned top-right (timestamp idiom); omitted when absent */}
+      {item.event_date && <span className="trg-date">{fmtDate(item.event_date)}</span>}
     </div>
   );
 }

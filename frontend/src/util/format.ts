@@ -88,6 +88,16 @@ export function fmtDate(d: string | null | undefined): string {
   });
 }
 
+/** Newest-first comparator for trigger/risk rows by ISO (`YYYY-MM-DD`) event date; dateless rows sort
+ *  last. String compare == chronological for ISO dates. Array.sort is stable, so equal dates keep the
+ *  backend order (grouped by name, conviction-before-confirmation). */
+export function byEventDateDesc(
+  a: { event_date?: string | null },
+  b: { event_date?: string | null },
+): number {
+  return (b.event_date ?? "").localeCompare(a.event_date ?? "");
+}
+
 /** Today's date as YYYY-MM-DD in the user's LOCAL timezone — the default as-of on load. Built from the local
  *  Y/M/D (not toISOString(), which is UTC and can land a day off near midnight). */
 export function todayISO(): string {

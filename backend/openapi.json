@@ -5005,6 +5005,18 @@
               }
             ]
           },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
           "ticker": {
             "anyOf": [
               {
