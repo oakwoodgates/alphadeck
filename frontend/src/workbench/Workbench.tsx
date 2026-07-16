@@ -226,11 +226,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
     />
   );
   const renderEditor = (t: ThesisDetail) => {
-    // 1) loading — don't mount yet (mounting fresh then restoring would clobber the seed).
-    if (sessionQ.isLoading) {
-      return <p className="muted wb-session-note">Loading your saved prune…</p>;
-    }
-    // 2) ERROR — do NOT mount fresh: that makes a saved prune APPEAR GONE. Surface + retry.
+    // 1) ERROR — do NOT mount fresh: that makes a saved prune APPEAR GONE. Surface + retry.
     if (sessionQ.isError) {
       return (
         <div className="wb-session-note">
@@ -243,6 +239,13 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
           </button>
         </div>
       );
+    }
+    // 2) NOT SETTLED YET — wait before mounting. ChainEditor seeds its state ONCE at mount (useState
+    // initializers); if we mounted before the GET resolved, it would seed EMPTY and the restore data arriving a
+    // beat later would be ignored (same key → no remount). `isLoading` alone misses the window where the query
+    // is enabled but its data is still absent, so gate strictly on success.
+    if (!sessionQ.isSuccess) {
+      return <p className="muted wb-session-note">Loading your saved prune…</p>;
     }
     const env = sessionQ.data?.session ?? null;
     // 3) no session (or the operator chose to start fresh over an incompatible one) → seed from the thesis.

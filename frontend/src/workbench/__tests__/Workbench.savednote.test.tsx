@@ -54,7 +54,7 @@ const fx = vi.hoisted(() => {
 const h = vi.hoisted(() => ({ mutate: vi.fn() }));
 
 vi.mock("../../api/hooks", () => ({
-  useTriageSession: () => ({ data: { session: null }, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
+  useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),
   // #7: the exclusion PUT rides every ChainEditor Save (mutateAsync must resolve)

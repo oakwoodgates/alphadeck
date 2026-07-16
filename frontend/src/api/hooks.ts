@@ -524,9 +524,9 @@ export function useTriageSession(thesisId: string, enabled: boolean) {
 }
 
 // Autosave (debounced by the caller). retry:2 — a transient blip retries quietly; a sustained failure surfaces
-// as `isError` (the loud "Not saved" indicator + manual retry). No invalidate: the session is the FE's own state,
-// not server state other views read.
+// as `isError` (the loud "Not saved" indicator + manual retry).
 export function usePutTriageSession(thesisId: string) {
+  const qc = useQueryClient();
   return useMutation({
     retry: 2,
     mutationFn: async (body: TriageSessionPut) => {
@@ -537,6 +537,12 @@ export function usePutTriageSession(thesisId: string) {
       if (error) throw error;
       return data; // TriageSessionEnvelope
     },
+    // Keep the RESTORE cache in sync with every autosave. Without this, the ["triage-session", id] query holds
+    // whatever the FIRST GET returned (often {session:null}, before any prune existed) and re-opening the editor
+    // restores THAT stale value — the prune appears gone even though the server has it. Writing the fresh envelope
+    // into the cache makes a re-open (SPA nav or edit-toggle, no full reload) restore the latest saved state.
+    onSuccess: (envelope) =>
+      qc.setQueryData(["triage-session", thesisId], { session: envelope }),
   });
 }
 
