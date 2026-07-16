@@ -5,6 +5,7 @@ import {
   exportFilename,
   exportKeptNames,
   slugForFilename,
+  sortByTicker,
   toExportedName,
 } from "../exportNames";
 
@@ -77,6 +78,32 @@ describe("exportNames", () => {
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
       expect(capturedAnchor?.download).toBe("uranium-board-2026-06-08.json");
       expect(capturedAnchor?.href).toBe("blob:mock");
+    });
+  });
+
+  describe("sortByTicker", () => {
+    it("orders rows alphabetically by ticker (case-insensitive), tie-broken by name", () => {
+      const rows = [
+        { ticker: "URA", name: "Global X Uranium ETF" },
+        { ticker: "CCJ", name: "Cameco" },
+        { ticker: "ccj", name: "Cameco dup" }, // case-insensitive → groups with CCJ, tie-broken by name
+        { ticker: "NXE", name: "NexGen" },
+      ];
+      expect(sortByTicker(rows).map((r) => `${r.ticker}:${r.name}`)).toEqual([
+        "CCJ:Cameco",
+        "ccj:Cameco dup",
+        "NXE:NexGen",
+        "URA:Global X Uranium ETF",
+      ]);
+    });
+
+    it("does not mutate the input array", () => {
+      const rows = [
+        { ticker: "URA", name: null },
+        { ticker: "CCJ", name: null },
+      ];
+      sortByTicker(rows);
+      expect(rows.map((r) => r.ticker)).toEqual(["URA", "CCJ"]); // original order intact
     });
   });
 

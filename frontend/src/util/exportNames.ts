@@ -45,6 +45,17 @@ export function downloadJson(filename: string, data: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+/** Order rows alphabetically by ticker for a STABLE, diff-friendly export (the operator diffs successive
+ *  exports of the same list). Sorts a copy — never mutates the caller's array — and breaks ticker ties by
+ *  name so the order is fully deterministic. `localeCompare` gives case-insensitive alphabetical. */
+export function sortByTicker(rows: ExportedName[]): ExportedName[] {
+  return [...rows].sort(
+    (a, b) =>
+      a.ticker.localeCompare(b.ticker, undefined, { sensitivity: "base" }) ||
+      (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" }),
+  );
+}
+
 export function exportKeptNames(opts: {
   thesisName: string;
   stage: ExportStage;
@@ -53,6 +64,6 @@ export function exportKeptNames(opts: {
 }): void {
   downloadJson(
     exportFilename(opts.thesisName, opts.stage, opts.asof),
-    opts.rows,
+    sortByTicker(opts.rows),
   );
 }
