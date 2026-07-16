@@ -2,15 +2,19 @@ import { Fragment, useState } from "react";
 
 import {
   type ScoredMemberOut,
+  type ThesisDetail,
+  useDeleteTriageSession,
   usePromoteThesis,
   useSectionData,
   useTheses,
   useThesis,
+  useTriageSession,
   useWorkbenchScored,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
+import { deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
@@ -58,8 +62,14 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
   // in the active section — bounded by the section, extract-and-propose only (the operator still
   // ratifies per fact). The per-name row button stays the surgical option.
   const sectionData = useSectionData(thesisId);
-
+  // The resumable prune session (triageSession.ts + the blob store). Fetched only in edit mode; the editor
+  // mount is GATED on it settling (below) so a restore seeds at mount, and a load ERROR never looks like
+  // "no session" (which would silently discard a real prune). `dismissedIncompatible` is the operator's
+  // choice on an incompatible (schema-bumped) session — mount fresh; reset per thesis in switchThesis.
   const thesis = thesisQ.data;
+  const sessionQ = useTriageSession(thesisId, editing && Boolean(thesis));
+  const deleteSession = useDeleteTriageSession(thesisId);
+  const [dismissedIncompatible, setDismissedIncompatible] = useState(false);
   const scored = scoredQ.data;
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
@@ -88,6 +98,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
     setPickedMemberId(null);
     setEditing(false);
     setChainSaved(false);
+    setDismissedIncompatible(false); // the incompatible-session choice is per thesis
     sectionData.reset();
     promote.reset();
   };
@@ -196,6 +207,77 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
       ),
       segments: thesis.segments,
     });
+  };
+
+  // Gate the editor mount on the prune-session GET settling — the three (really four) restore cases. A restore
+  // must seed at MOUNT (the editor snapshots its state in useState initializers, no in-hook re-sync), so we don't
+  // mount ChainEditor until we know what to seed it with.
+  const mountEditor = (t: ThesisDetail, restored?: Parameters<typeof ChainEditor>[0]["restored"]) => (
+    <ChainEditor
+      key={t.id}
+      thesis={t}
+      asof={asof}
+      restored={restored}
+      onDone={(saved) => {
+        setEditing(false);
+        setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
+      }}
+      scoredById={scoredById}
+    />
+  );
+  const renderEditor = (t: ThesisDetail) => {
+    // 1) loading — don't mount yet (mounting fresh then restoring would clobber the seed).
+    if (sessionQ.isLoading) {
+      return <p className="muted wb-session-note">Loading your saved prune…</p>;
+    }
+    // 2) ERROR — do NOT mount fresh: that makes a saved prune APPEAR GONE. Surface + retry.
+    if (sessionQ.isError) {
+      return (
+        <div className="wb-session-note">
+          <ErrorToast>
+            Couldn't load your saved prune — {errText(sessionQ.error)}. Your work is safe; retry
+            rather than starting over.
+          </ErrorToast>
+          <button type="button" className="wb-mini" onClick={() => sessionQ.refetch()}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    const env = sessionQ.data?.session ?? null;
+    // 3) no session (or the operator chose to start fresh over an incompatible one) → seed from the thesis.
+    if (!env || dismissedIncompatible) return mountEditor(t);
+    const result = deserialize(env);
+    // 4) session present but INCOMPATIBLE (a breaking schema bump) — surface a choice, NEVER a silent seed-fresh.
+    if (result.status === "incompatible") {
+      return (
+        <div className="wb-session-note">
+          <p className="muted">
+            Your saved prune for this thesis was written by an older version and can't be restored
+            here. Keep editing fresh, or discard the saved session.
+          </p>
+          <button
+            type="button"
+            className="wb-mini"
+            onClick={() => setDismissedIncompatible(true)}
+          >
+            Keep editing fresh
+          </button>
+          <button
+            type="button"
+            className="wb-mini ghost"
+            onClick={() => {
+              deleteSession.mutate();
+              setDismissedIncompatible(true);
+            }}
+          >
+            Discard saved session
+          </button>
+        </div>
+      );
+    }
+    // session present + restorable → seed from the blob.
+    return mountEditor(t, result);
   };
 
   return (
@@ -319,16 +401,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
         ) : editing && thesis ? (
           <>
             <main className="wb-main">
-              <ChainEditor
-                key={thesis.id}
-                thesis={thesis}
-                asof={asof}
-                onDone={(saved) => {
-                  setEditing(false);
-                  setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
-                }}
-                scoredById={scoredById}
-              />
+              {renderEditor(thesis)}
             </main>
             <aside className="wb-rail">
               <div className="ddcard">

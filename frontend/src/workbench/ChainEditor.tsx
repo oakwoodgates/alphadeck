@@ -10,6 +10,7 @@ import type {
   TermEdit,
   TermSetEntry,
   ThesisDetail,
+  TriageSessionPut,
 } from "../api/hooks";
 import {
   useDraftJobStatus,
@@ -17,11 +18,13 @@ import {
   useProduceTerms,
   usePromoteThesis,
   usePutExclusions,
+  usePutTriageSession,
   useRecommendTiers,
   useStartDraft,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
+import { useDebouncedCallback } from "../util/useDebouncedCallback";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
@@ -32,6 +35,12 @@ import {
   type JunkTellContext,
 } from "./junkTells";
 import { RunPicker } from "./RunPicker";
+import {
+  SCHEMA_VERSION,
+  serialize,
+  type DeserializeResult,
+  type EditorRuntime,
+} from "./triageSession";
 import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
@@ -50,6 +59,10 @@ interface Props {
   // the per-row "fundamentals loaded vs not" badge. Reflects the LAST SAVED state, so a freshly-drafted (unsaved)
   // name reads "needs SURFACE" — exactly the shortlist signal. Optional (an un-scored / test render omits it).
   scoredById?: Record<string, ScoredMemberOut>;
+  // A restored triage session (the operator's autosaved prune, from `useTriageSession` → `deserialize`). When
+  // present, the whole editor working state SEEDS from it at mount instead of from the thesis — resuming the
+  // prune across a refresh. The parent gates the mount on the session GET, so this is settled before mount.
+  restored?: DeserializeResult & { status: "ok" };
 }
 
 // "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact — the shared
@@ -133,8 +146,12 @@ const NotListedFlag = () => (
  *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
  *  which honors each member's authorship and stores the thesis-fit prose). */
-export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
-  const d = useChainDraft(thesis);
+export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Props) {
+  // The restored session seeds BOTH the hook (draft/excluded/reasons) and this component's own editor cells
+  // (the draft-run buckets + term/set-aside decisions) at mount. `re` is the editor portion; `undefined` when
+  // there's no session, so every initializer falls back to its thesis-derived / empty default.
+  const re = restored?.editor;
+  const d = useChainDraft(thesis, restored?.hook);
   const save = usePromoteThesis();
   const putExclusions = usePutExclusions(thesis.id); // #7: the durable NOs ride every Save
   // The draft is a KICK-OFF + POLL job now (it takes minutes; held open it 504'd). Start it, stash the job_id,
@@ -151,7 +168,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
   // The working term set. Seeded from what loaded; after produce OR a manual edit it ADOPTS the server's
   // RE-STAMPED set (never an optimistic copy — the next edit must diff against the server's authorship, not a
   // guessed one). Both writers update it via their per-call onSuccess below.
-  const [termSet, setTermSet] = useState<TermSetEntry[]>(thesis.term_set);
+  const [termSet, setTermSet] = useState<TermSetEntry[]>(() => re?.termSet ?? thesis.term_set);
   const signalTerms = termSet.filter((e) => e.tier === "signal");
   const broadTerms = termSet.filter((e) => e.tier === "broad");
   const [termsOpen, setTermsOpen] = useState(true); // the term-set drawer — open by default
@@ -161,10 +178,12 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
   // The tier RECOMMENDER (INVARIANT #10): the LLM recommends signal/broad + a reason per term; the operator
   // confirms via the EXISTING toggle. Display-only — `recs` is stashed (like `matched`), never persisted.
   const recommendTiers = useRecommendTiers(thesis.id);
-  const [recs, setRecs] = useState<Record<string, { tier: string; reason: string }>>({});
+  const [recs, setRecs] = useState<Record<string, { tier: string; reason: string }>>(
+    () => re?.recs ?? {},
+  );
   // OFFENSE adoptions (a BROAD term the model recommended SIGNAL, then confirmed): keep a "✦ adopted" trace in
   // v1 so the model's best contribution doesn't dissolve into an indistinguishable agreement while we judge it.
-  const [adopted, setAdopted] = useState<Set<string>>(new Set());
+  const [adopted, setAdopted] = useState<Set<string>>(() => re?.adopted ?? new Set());
   const norm = (t: string) => t.trim().toLowerCase();
 
   const adopt = (t: ThesisDetail | undefined) => t && setTermSet(t.term_set);
@@ -262,43 +281,47 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
         ⚠ capped
       </span>
     ) : null;
-  const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>([]);
-  const [verify, setVerify] = useState<ResolvedPlacement[]>([]);
-  const [absent, setAbsent] = useState<ResolvedPlacement[]>([]);
+  const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>(() => re?.ambiguous ?? []);
+  const [verify, setVerify] = useState<ResolvedPlacement[]>(() => re?.verify ?? []);
+  const [absent, setAbsent] = useState<ResolvedPlacement[]>(() => re?.absent ?? []);
   // The last draft's honesty report + bucket counts (the status strip's input) and the hit-capped terms (the
   // ⚠ marker on a term chip). RUN state from the LAST completed draft — cleared on a re-draft, absent until a
   // draft carries a report, never persisted (#9 rules 2/3 made visible; the strip is quiet at 100% healthy).
   const [draftStatus, setDraftStatus] = useState<{
     counts: DraftCounts;
     report: DraftReportOut;
-  } | null>(null);
-  const [cappedTerms, setCappedTerms] = useState<Set<string>>(new Set());
+  } | null>(() => re?.draftStatus ?? null);
+  const [cappedTerms, setCappedTerms] = useState<Set<string>>(() => re?.cappedTerms ?? new Set());
   // Reversibility (principle #1): the origin placement of a name PULLED from To-Review into Placed, keyed by
   // security_id. It lets a Placed row that CAME from To-Review offer a "send back" — the visible inverse of add
   // (add ⇄ send-back). Only these names get the control (others were never in To-Review). Never persisted.
-  const [verifyOrigin, setVerifyOrigin] = useState<Record<string, ResolvedPlacement>>({});
-  const [draftEmpty, setDraftEmpty] = useState(false);
+  const [verifyOrigin, setVerifyOrigin] = useState<Record<string, ResolvedPlacement>>(
+    () => re?.verifyOrigin ?? {},
+  );
+  const [draftEmpty, setDraftEmpty] = useState(() => re?.draftEmpty ?? false);
   // Display-only provenance: security_id -> the discovery term(s) that surfaced it. Set on a draft, NOT a
   // field on BasketMember (it's draft-time discovery provenance, not a thesis fact — never promoted).
-  const [matched, setMatched] = useState<Record<string, string[]>>({});
+  const [matched, setMatched] = useState<Record<string, string[]>>(() => re?.matched ?? {});
   // Display-only provenance: the security_ids of PLACED names whose discovery_source is "off_universe" (resolved
   // outside the EDGAR-discovered universe, via the sweep-augmented context). The PLACED bucket renders
   // BasketMembers, not placements, so it bridges by security_id — same shape as `matched`. NEVER promoted.
-  const [offUniverse, setOffUniverse] = useState<Set<string>>(new Set());
+  const [offUniverse, setOffUniverse] = useState<Set<string>>(() => re?.offUniverse ?? new Set());
   // Display-only OPINION: the security_ids of PLACED names the NARRATOR judged off-thesis (a boilerplate
   // term-collision). Same bridge-by-security_id shape as `offUniverse`. A RECOMMENDATION only (#10) — the name
   // STAYS placed (#9); the reason is its prose, shown in the thesis-fit note below. NEVER promoted.
-  const [offThesisSet, setOffThesisSet] = useState<Set<string>>(new Set());
+  const [offThesisSet, setOffThesisSet] = useState<Set<string>>(
+    () => re?.offThesisSet ?? new Set(),
+  );
   // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange / category (machine-parsed from
   // EDGAR submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
   // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
   const [identity, setIdentity] = useState<
     Record<string, { sector?: string | null; exchange?: string | null; category?: string | null }>
-  >({});
+  >(() => re?.identity ?? {});
   // Display-only: security_id -> the company NAME. The PLACED bucket renders BasketMembers (which carry no name),
   // so — like `matched`/`identity` — the name is bridged by security_id from the draft placements (and captured on
   // a manual add). NEVER promoted onto a BasketMember.
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Record<string, string>>(() => re?.names ?? {});
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
@@ -340,7 +363,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
   // draft) and Save persists the UUID-keyed entries with the exclusion set. Ticker/name-keyed set-asides
   // (unresolved names) stay session-local — the flagged v1 scope cut.
   const [setAside, setSetAside] = useState<Set<string>>(
-    () => new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
+    () => re?.setAside ?? new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
   );
   const toggleSetAside = (id: string) =>
     setSetAside((prev) => {
@@ -349,6 +372,64 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
       else next.add(id);
       return next;
     });
+
+  // --- Autosave the prune session (the resumable working state; triageSession.ts + workbench/triage_store.py) ---
+  // Serialize the WHOLE editor working state (this component's cells + the hook's draft/excluded/reasons) to one
+  // opaque blob and debounced-PUT it on change. Accepted tradeoff (see the plan): every change re-PUTs the whole
+  // blob (incl. the immutable draft output) — negligible at one thesis / single operator; NOT split, by design
+  // (one self-contained blob). retry:2 in the hook rides out a transient blip; a sustained failure surfaces loud.
+  const putSession = usePutTriageSession(thesis.id);
+  const saveSession = useDebouncedCallback((state: ReturnType<typeof serialize>) => {
+    // the wire `state` is an opaque Record (the backend never interprets it); our concrete SerializedSession
+    // is the FE's private shape, so a cast bridges the two.
+    putSession.mutate({ schema_version: SCHEMA_VERSION, state: state as unknown as TriageSessionPut["state"] });
+  }, 1000);
+  const editorRuntime: EditorRuntime = {
+    ambiguous,
+    verify,
+    absent,
+    verifyOrigin,
+    matched,
+    offUniverse,
+    offThesisSet,
+    identity,
+    names,
+    draftStatus,
+    cappedTerms,
+    draftEmpty,
+    termSet,
+    recs,
+    adopted,
+    setAside,
+  };
+  const sessionBlob = serialize(
+    { draft: d.draft, excluded: d.excluded, reasons: d.reasons, reasonsDirty: d.reasonsDirty },
+    editorRuntime,
+  );
+  const sessionKey = JSON.stringify(sessionBlob); // the change signal (referentially stable across no-op renders)
+  const firstAutosave = useRef(true);
+  useEffect(() => {
+    // Hydration-race guard: the FIRST render carries the just-restored/seeded state — do NOT re-save it (that
+    // would write back what we just read). Only genuine post-mount edits autosave. The `key={thesis.id}` remount
+    // resets this ref per thesis, and the debounce timer clears on unmount, so a thesis switch never cross-saves.
+    if (firstAutosave.current) {
+      firstAutosave.current = false;
+      return;
+    }
+    saveSession(sessionBlob);
+    // sessionKey is the serialized change signal for sessionBlob; saveSession is stable (useRef).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
+  // The save-status indicator (a small, honest tri-state): Saving… / Saved / loud "Not saved" + Retry. Simple by
+  // design — no escalation state machine (the plan): a transient blip self-heals on the next change (which re-PUTs
+  // the whole blob), and nothing is destroyed in memory, so the worst case is a refresh during a sustained outage.
+  const saveStatus: "idle" | "saving" | "saved" | "error" = putSession.isPending
+    ? "saving"
+    : putSession.isError
+      ? "error"
+      : putSession.isSuccess
+        ? "saved"
+        : "idle";
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
@@ -810,6 +891,30 @@ export function ChainEditor({ thesis, asof, onDone, scoredById }: Props) {
           Build the value chain <em>— decompose the basket into links</em>
         </div>
         <div className="wb-editor-actions">
+          {/* Autosave status (the resumable prune) — DISTINCT from the promote "Save chain" below: this saves the
+              working state so a refresh resumes; that writes the spine. Loud only on a sustained failure. */}
+          {saveStatus === "saving" && (
+            <span className="wb-autosave" title="autosaving your prune…">
+              Saving…
+            </span>
+          )}
+          {saveStatus === "saved" && (
+            <span className="wb-autosave saved" title="your prune is saved — a refresh will resume it">
+              ✓ Saved
+            </span>
+          )}
+          {saveStatus === "error" && (
+            <span className="wb-autosave err" role="status">
+              ⚠ Not saved
+              <button
+                type="button"
+                className="wb-mini ghost"
+                onClick={() => saveSession(sessionBlob)}
+              >
+                Retry
+              </button>
+            </span>
+          )}
           {d.dirty && <span className="wb-dirty">unsaved</span>}
           <button type="button" className="promote" disabled={save.isPending} onClick={onSave}>
             {save.isPending ? "Saving…" : "Save chain"}

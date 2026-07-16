@@ -2010,3 +2010,152 @@ def test_draft_poll_404_for_unknown_job(client, db):
     tid = _thesis_for_draft(db)
     r = client.get(f"/workbench/theses/{tid}/draft-chain/jobs/{uuid.uuid4().hex}")
     assert r.status_code == 404
+
+
+# --- Triage session: the resumable prune (one MUTABLE opaque blob per thesis; NOT the spine) ---
+
+
+def _fat_session_state() -> dict:
+    """A realistic, fat editor working-state blob — the whole point is to prove the invariant holds for a big,
+    spine-shaped payload (placements, exclusions, the draft-run buckets), not a toy dict. The backend never
+    interprets this; it's opaque bytes to a file."""
+    return {
+        "hook": {
+            "draft": {
+                "segments": [{"label": "Enrichment", "descriptor": "SMR fuel"}],
+                "basket": [
+                    {
+                        "ticker": "OKLO",
+                        "role": "leader",
+                        "archetype": "leader",
+                        "security_id": "11111111-1111-1111-1111-111111111111",
+                        "segment": "Enrichment",
+                        "thesis_fit": "core name",
+                        "conviction": 4,
+                        "authored_by": "operator_set",
+                    }
+                ],
+            },
+            "excluded": ["22222222-2222-2222-2222-222222222222"],
+            "reasons": {"22222222-2222-2222-2222-222222222222": "off-thesis"},
+            "reasonsDirty": True,
+        },
+        "editor": {
+            "ambiguous": [],
+            "verify": [{"name": "Ghost Co", "ticker": "GHST", "status": "verify"}],
+            "absent": [],
+            "verifyOrigin": {},
+            "matched": {"11111111-1111-1111-1111-111111111111": ["nuclear"]},
+            "offUniverse": [],
+            "offThesisSet": ["22222222-2222-2222-2222-222222222222"],
+            "identity": {"11111111-1111-1111-1111-111111111111": {"sector": "Utilities"}},
+            "names": {"11111111-1111-1111-1111-111111111111": "Oklo Inc."},
+            "draftStatus": {"counts": {"placed": 1, "verify": 1, "ambiguous": 0, "absent": 0}},
+            "cappedTerms": ["nuclear power"],
+            "draftEmpty": False,
+            "termSet": [{"term": "nuclear", "tier": "signal", "authored_by": "operator_set"}],
+            "recs": {},
+            "adopted": [],
+            "setAside": ["33333333-3333-3333-3333-333333333333"],
+        },
+    }
+
+
+def test_session_put_writes_no_spine_rows(client, db):
+    """STRUCTURAL (the ``test_draft_endpoint_writes_nothing`` family): a FAT session PUT — a realistic
+    placements + exclusions + draft-buckets payload — persists ZERO ``basket_member`` and ZERO ``fact_*`` rows.
+    The blob is bytes to a file; its CONTENTS cannot write the spine regardless of payload. The promote stays the
+    only writer."""
+    tid = _thesis_for_draft(
+        db
+    )  # empty basket -> basket_member starts at 0, the assertion is unambiguous
+    r = client.put(
+        f"/workbench/theses/{tid}/triage-session",
+        json={"schema_version": 1, "state": _fat_session_state()},
+    )
+    assert r.status_code == 200, r.text
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert cur.fetchone()["n"] == 0  # the session persisted no placement
+        for table in ("fact_cash_burn", "fact_shares_outstanding", "fact_revenue_mix"):
+            cur.execute(f"SELECT count(*) AS n FROM {table}")  # noqa: S608 — fixed literal names
+            assert cur.fetchone()["n"] == 0  # and no scoring fact
+
+
+def test_session_roundtrip(client, db):
+    """PUT then GET returns the SAME opaque state, byte-for-byte, plus the envelope (thesis + version + a
+    server-stamped ``updated_at``). Loss-free restore is the whole feature: a dropped field is a silently-lost
+    exclusion/decision on the operator's next open."""
+    tid = _thesis_for_draft(db)
+    state = _fat_session_state()
+    put = client.put(
+        f"/workbench/theses/{tid}/triage-session", json={"schema_version": 3, "state": state}
+    )
+    assert put.status_code == 200, put.text
+    env = put.json()
+    assert env["thesis_id"] == str(tid) and env["schema_version"] == 3 and env["updated_at"]
+
+    got = client.get(f"/workbench/theses/{tid}/triage-session")
+    assert got.status_code == 200
+    session = got.json()["session"]
+    assert session["state"] == state  # opaque round-trip, nothing lost
+    assert session["schema_version"] == 3
+    assert session["updated_at"] == env["updated_at"]  # PUT and GET agree on the stamp
+
+
+def test_session_get_absent_returns_null(client, db):
+    """A thesis with no saved session → 200 with ``session: null`` (GENUINELY-ABSENT → the FE seeds fresh), NOT a
+    404 and NOT an error. 404 stays reserved for tenant/thesis-not-found; a load fault would be a 5xx — so the FE
+    tells "no session yet" apart from "load failed" and never silently discards a real prune on a transient
+    error."""
+    tid = _thesis_for_draft(db)
+    r = client.get(f"/workbench/theses/{tid}/triage-session")
+    assert r.status_code == 200
+    assert r.json() == {"session": None}
+
+
+def test_session_overwrite_in_place(client, db):
+    """Autosave overwrites the single ``latest.json`` — a second PUT replaces the first (one session per thesis,
+    no archive, no versioning). GET returns the latest."""
+    tid = _thesis_for_draft(db)
+    client.put(
+        f"/workbench/theses/{tid}/triage-session",
+        json={"schema_version": 1, "state": {"note": "first"}},
+    )
+    client.put(
+        f"/workbench/theses/{tid}/triage-session",
+        json={"schema_version": 1, "state": {"note": "second"}},
+    )
+    got = client.get(f"/workbench/theses/{tid}/triage-session")
+    assert got.json()["session"]["state"] == {"note": "second"}
+
+
+def test_session_delete_then_get_null(client, db):
+    """DELETE (the operator's explicit "start over") removes the session → the next GET is ``session: null``
+    (seeds fresh). Idempotent: a second DELETE on an absent session is a no-op 204."""
+    tid = _thesis_for_draft(db)
+    client.put(
+        f"/workbench/theses/{tid}/triage-session",
+        json={"schema_version": 1, "state": {"note": "x"}},
+    )
+    d = client.delete(f"/workbench/theses/{tid}/triage-session")
+    assert d.status_code == 204
+    assert client.get(f"/workbench/theses/{tid}/triage-session").json() == {"session": None}
+    # idempotent: deleting an absent session is a no-op 204, never a 404/500
+    assert client.delete(f"/workbench/theses/{tid}/triage-session").status_code == 204
+
+
+def test_session_endpoints_404_for_unknown_thesis(client, db):
+    """Tenant isolation (#5): all three verbs go through ``get_thesis_or_404`` — a thesis you can't access, you
+    can't load / write / delete the session for. An unknown thesis_id → 404 on GET, PUT, and DELETE alike.
+    """
+    ghost = uuid.uuid4()
+    assert client.get(f"/workbench/theses/{ghost}/triage-session").status_code == 404
+    assert (
+        client.put(
+            f"/workbench/theses/{ghost}/triage-session",
+            json={"schema_version": 1, "state": {}},
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/workbench/theses/{ghost}/triage-session").status_code == 404

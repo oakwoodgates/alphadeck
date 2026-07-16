@@ -29,14 +29,27 @@ function snapshot(thesis: ThesisDetail): ChainDraft {
   };
 }
 
+/** The hook portion of a restored triage session (see `triageSession.ts`). When present, `draft`/`excluded`/
+ *  `reasons`/`reasonsDirty` SEED from the blob instead of the thesis — resuming the operator's prune. `base`/
+ *  `baseExcluded` deliberately still seed from the THESIS (the persisted spine), so `dirty` stays honest: a
+ *  restored-but-unsaved prune correctly reads as dirty (it differs from what's persisted). */
+export interface RestoredChainState {
+  draft: ChainDraft;
+  excluded: Set<string>;
+  reasons: Map<string, string>;
+  reasonsDirty: boolean;
+}
+
 /** Local, editable draft of a thesis's value chain (segments + placements). All edits are LOCAL until
  *  the caller saves the whole draft through the full-replace `POST /workbench/theses` — so the mutators
  *  build the complete intended state, never a diff. Segment edits cascade to placements so the chain
  *  stays consistent (the server's orphan validator never trips). The draft is snapshotted at mount; the
- *  editor remounts (and re-snapshots) after a save, so there is no in-hook re-sync. */
-export function useChainDraft(thesis: ThesisDetail) {
+ *  editor remounts (and re-snapshots) after a save, so there is no in-hook re-sync. `restored` (an
+ *  autosaved triage session) seeds the working state at mount when present — same snapshot-at-mount
+ *  discipline, blob instead of thesis. */
+export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainState) {
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
-  const [draft, setDraft] = useState<ChainDraft>(base);
+  const [draft, setDraft] = useState<ChainDraft>(() => restored?.draft ?? base);
 
   // TRIAGE (the prune) — include is ORTHOGONAL to accept/authorship. A member starts INCLUDED (#9:
   // nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys chosen to
@@ -47,17 +60,18 @@ export function useChainDraft(thesis: ThesisDetail) {
   const [baseExcluded] = useState<Set<string>>(
     () => new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
   );
-  const [excluded, setExcluded] = useState<Set<string>>(baseExcluded);
-  // the optional "rejected because X", keyed like `excluded`; seeded from the persisted rows
+  const [excluded, setExcluded] = useState<Set<string>>(() => restored?.excluded ?? baseExcluded);
+  // the optional "rejected because X", keyed like `excluded`; seeded from the persisted rows (or the blob)
   const [reasons, setReasons] = useState<Map<string, string>>(
     () =>
+      restored?.reasons ??
       new Map(
         (thesis.exclusions ?? [])
           .filter((e) => e.reason)
           .map((e) => [e.security_id, e.reason as string]),
       ),
   );
-  const [reasonsDirty, setReasonsDirty] = useState(false);
+  const [reasonsDirty, setReasonsDirty] = useState(() => restored?.reasonsDirty ?? false);
   const editReason = (key: string, text: string) => {
     setReasons((prev) => new Map(prev).set(key, text));
     setReasonsDirty(true);
@@ -286,5 +300,8 @@ export function useChainDraft(thesis: ThesisDetail) {
     // #7: the optional rejection reasons, persisted with the exclusion set on Save
     reasons,
     editReason,
+    // exposed for the triage-session snapshot (a reason-edit on an already-excluded name is dirty but touches
+    // neither `draft` nor `excluded`, so the flag must ride the blob to survive a restore).
+    reasonsDirty,
   };
 }

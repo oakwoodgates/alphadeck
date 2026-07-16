@@ -571,6 +571,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/triage-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Triage Session
+         * @description Restore this thesis's saved prune session. ``session`` is the stored envelope, or ``null`` for
+         *     GENUINELY-ABSENT (no prune saved yet → the FE seeds fresh from the thesis). A read FAULT raises **500**, NOT
+         *     a null session — so the FE never mistakes a transient error for "no session" and silently discards a real
+         *     prune. Pure file read (no compute, no DB write).
+         */
+        get: operations["get_triage_session_workbench_theses__thesis_id__triage_session_get"];
+        /**
+         * Put Triage Session
+         * @description Autosave this thesis's prune session — overwrite the single ``latest.json`` with the FE's opaque working
+         *     state. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**
+         *     so the operator's "Not saved" indicator is honest (the deliberate contrast with the fail-open draft-run
+         *     log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact.
+         */
+        put: operations["put_triage_session_workbench_theses__thesis_id__triage_session_put"];
+        post?: never;
+        /**
+         * Delete Triage Session
+         * @description Discard this thesis's saved prune session (the operator's explicit "start over" — the ONLY remove; a
+         *     promote KEEPS the session so the operator can keep pruning the remainder). Idempotent: deleting an absent
+         *     session is a no-op. Returns **204**.
+         */
+        delete: operations["delete_triage_session_workbench_theses__thesis_id__triage_session_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts": {
         parameters: {
             query?: never;
@@ -2273,6 +2309,50 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /**
+         * TriageSessionEnvelope
+         * @description A stored session: the opaque ``state`` plus the thin envelope the store types (thesis + version +
+         *     server-stamped ``updated_at``). Returned by PUT and nested in GET when a session exists.
+         */
+        TriageSessionEnvelope: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Updated At */
+            updated_at: string;
+            /** State */
+            state: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * TriageSessionGet
+         * @description The restore body. ``session`` is the envelope when one exists, or ``null`` for GENUINELY-ABSENT (no prune
+         *     saved yet → the FE seeds fresh). A load FAILURE is a non-2xx, never ``session: null`` — so the FE never
+         *     mistakes a transient error for "no session" and silently discards a real prune.
+         */
+        TriageSessionGet: {
+            session?: components["schemas"]["TriageSessionEnvelope"] | null;
+        };
+        /**
+         * TriageSessionPut
+         * @description The autosave body: the FE's ENTIRE editor working state serialized to one opaque JSON blob. ``state`` is
+         *     ``dict`` — the backend NEVER interprets it (the FE owns and shapes it); ``schema_version`` is the FE's, so a
+         *     future breaking shape change is decidable on restore. A session is NOT a fact: this write persists zero spine
+         *     rows (``test_session_put_writes_no_spine_rows``).
+         */
+        TriageSessionPut: {
+            /** Schema Version */
+            schema_version: number;
+            /** State */
+            state: {
+                [key: string]: unknown;
+            };
+        };
         /** TriggerRefOut */
         TriggerRefOut: {
             /** Label */
@@ -3084,6 +3164,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ChainDraftOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_triage_session_workbench_theses__thesis_id__triage_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriageSessionGet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_triage_session_workbench_theses__thesis_id__triage_session_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriageSessionPut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriageSessionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_triage_session_workbench_theses__thesis_id__triage_session_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

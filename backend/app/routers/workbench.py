@@ -39,6 +39,9 @@ from app.schemas_api import (
     SecurityMatchOut,
     ThesisDetail,
     TierRecommendation,
+    TriageSessionEnvelope,
+    TriageSessionGet,
+    TriageSessionPut,
     WorkbenchScored,
 )
 from db.session import connect
@@ -68,7 +71,7 @@ from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import coherence, master
 from signals.base import PointInTimeData
-from workbench import run_loader
+from workbench import run_loader, triage_store
 from workbench.chain_draft import (
     PlacementStatus,
     proposed_from_decomposition,
@@ -721,6 +724,61 @@ def get_saved_run(run_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> C
         raise HTTPException(
             status_code=422,
             detail=f"saved run payload is incompatible with the current schema: {exc}",
+        ) from exc
+
+
+# --- Triage session: the resumable prune (one MUTABLE opaque blob per thesis; NOT the spine) ---
+# Three tenant-guarded endpoints over ``workbench/triage_store.py`` (a dumb blob store — no DB conn, no repo).
+# The operator's prune work (a large drafted universe → a shortlist) is browser state today; a refresh wipes it
+# or forces a fresh Opus re-draft. These let the FE autosave its whole working state and rehydrate on open.
+# STRUCTURAL zero-spine-write (a session is not a fact): the store cannot write ``basket_member`` / ``fact_*``
+# regardless of payload — the promote stays the ONLY writer (``test_session_put_writes_no_spine_rows``).
+# ``get_thesis_or_404`` enforces tenant ownership (the sessions dir is keyed by thesis_id alone).
+
+
+@router.get("/theses/{thesis_id}/triage-session", response_model=TriageSessionGet)
+def get_triage_session(thesis: Thesis = Depends(get_thesis_or_404)) -> TriageSessionGet:
+    """Restore this thesis's saved prune session. ``session`` is the stored envelope, or ``null`` for
+    GENUINELY-ABSENT (no prune saved yet → the FE seeds fresh from the thesis). A read FAULT raises **500**, NOT
+    a null session — so the FE never mistakes a transient error for "no session" and silently discards a real
+    prune. Pure file read (no compute, no DB write)."""
+    try:
+        env = triage_store.read_session(thesis.id)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"failed to read triage session: {exc}"
+        ) from exc
+    return TriageSessionGet(session=TriageSessionEnvelope(**env) if env is not None else None)
+
+
+@router.put("/theses/{thesis_id}/triage-session", response_model=TriageSessionEnvelope)
+def put_triage_session(
+    body: TriageSessionPut, thesis: Thesis = Depends(get_thesis_or_404)
+) -> TriageSessionEnvelope:
+    """Autosave this thesis's prune session — overwrite the single ``latest.json`` with the FE's opaque working
+    state. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**
+    so the operator's "Not saved" indicator is honest (the deliberate contrast with the fail-open draft-run
+    log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact.
+    """
+    try:
+        env = triage_store.write_session(thesis.id, body.schema_version, body.state)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"failed to write triage session: {exc}"
+        ) from exc
+    return TriageSessionEnvelope(**env)
+
+
+@router.delete("/theses/{thesis_id}/triage-session", status_code=204)
+def delete_triage_session(thesis: Thesis = Depends(get_thesis_or_404)) -> None:
+    """Discard this thesis's saved prune session (the operator's explicit "start over" — the ONLY remove; a
+    promote KEEPS the session so the operator can keep pruning the remainder). Idempotent: deleting an absent
+    session is a no-op. Returns **204**."""
+    try:
+        triage_store.delete_session(thesis.id)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"failed to delete triage session: {exc}"
         ) from exc
 
 

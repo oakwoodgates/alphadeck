@@ -597,6 +597,37 @@ class SavedRunSummary(BaseModel):
     segment_count: int
 
 
+# --- Triage session (the resumable prune) — one MUTABLE opaque blob per thesis, NOT the spine ---
+
+
+class TriageSessionPut(BaseModel):
+    """The autosave body: the FE's ENTIRE editor working state serialized to one opaque JSON blob. ``state`` is
+    ``dict`` — the backend NEVER interprets it (the FE owns and shapes it); ``schema_version`` is the FE's, so a
+    future breaking shape change is decidable on restore. A session is NOT a fact: this write persists zero spine
+    rows (``test_session_put_writes_no_spine_rows``)."""
+
+    schema_version: int
+    state: dict[str, Any]
+
+
+class TriageSessionEnvelope(BaseModel):
+    """A stored session: the opaque ``state`` plus the thin envelope the store types (thesis + version +
+    server-stamped ``updated_at``). Returned by PUT and nested in GET when a session exists."""
+
+    thesis_id: UUID
+    schema_version: int
+    updated_at: str
+    state: dict[str, Any]
+
+
+class TriageSessionGet(BaseModel):
+    """The restore body. ``session`` is the envelope when one exists, or ``null`` for GENUINELY-ABSENT (no prune
+    saved yet → the FE seeds fresh). A load FAILURE is a non-2xx, never ``session: null`` — so the FE never
+    mistakes a transient error for "no session" and silently discards a real prune."""
+
+    session: TriageSessionEnvelope | None = None
+
+
 # --- Thesis-list authoring: the catalyst SURFACE + kill criteria (spine children, operator-owned) ---
 
 
