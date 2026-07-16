@@ -1191,6 +1191,137 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/triage-session": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Triage Session",
+        "description": "Restore this thesis's saved prune session. ``session`` is the stored envelope, or ``null`` for\nGENUINELY-ABSENT (no prune saved yet \u2192 the FE seeds fresh from the thesis). A read FAULT raises **500**, NOT\na null session \u2014 so the FE never mistakes a transient error for \"no session\" and silently discards a real\nprune. Pure file read (no compute, no DB write).",
+        "operationId": "get_triage_session_workbench_theses__thesis_id__triage_session_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageSessionGet"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Put Triage Session",
+        "description": "Autosave this thesis's prune session \u2014 overwrite the single ``latest.json`` with the FE's opaque working\nstate. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**\nso the operator's \"Not saved\" indicator is honest (the deliberate contrast with the fail-open draft-run\nlog). Writes ZERO spine rows regardless of payload \u2014 the blob is bytes to a file, never a fact.",
+        "operationId": "put_triage_session_workbench_theses__thesis_id__triage_session_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriageSessionPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageSessionEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Delete Triage Session",
+        "description": "Discard this thesis's saved prune session (the operator's explicit \"start over\" \u2014 the ONLY remove; a\npromote KEEPS the session so the operator can keep pruning the remainder). Idempotent: deleting an absent\nsession is a no-op. Returns **204**.",
+        "operationId": "delete_triage_session_workbench_theses__thesis_id__triage_session_delete",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/facts": {
       "post": {
         "tags": [
@@ -4985,6 +5116,74 @@
         ],
         "title": "TierRecommendation",
         "description": "An advisory tier recommendation for ONE term (INVARIANT #10 \u2014 the LLM recommends, the operator decides).\nDISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating\n``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where\n``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type \u2014 it never rides on\n``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).\nCarries NO number (#3): a tier label + a one-line reason."
+      },
+      "TriageSessionEnvelope": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "state": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "schema_version",
+          "updated_at",
+          "state"
+        ],
+        "title": "TriageSessionEnvelope",
+        "description": "A stored session: the opaque ``state`` plus the thin envelope the store types (thesis + version +\nserver-stamped ``updated_at``). Returned by PUT and nested in GET when a session exists."
+      },
+      "TriageSessionGet": {
+        "properties": {
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriageSessionEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "TriageSessionGet",
+        "description": "The restore body. ``session`` is the envelope when one exists, or ``null`` for GENUINELY-ABSENT (no prune\nsaved yet \u2192 the FE seeds fresh). A load FAILURE is a non-2xx, never ``session: null`` \u2014 so the FE never\nmistakes a transient error for \"no session\" and silently discards a real prune."
+      },
+      "TriageSessionPut": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "state": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "state"
+        ],
+        "title": "TriageSessionPut",
+        "description": "The autosave body: the FE's ENTIRE editor working state serialized to one opaque JSON blob. ``state`` is\n``dict`` \u2014 the backend NEVER interprets it (the FE owns and shapes it); ``schema_version`` is the FE's, so a\nfuture breaking shape change is decidable on restore. A session is NOT a fact: this write persists zero spine\nrows (``test_session_put_writes_no_spine_rows``)."
       },
       "TriggerRefOut": {
         "properties": {

@@ -47,6 +47,8 @@ export type TermEdit = components["schemas"]["TermEdit"];
 export type TierRecommendation = components["schemas"]["TierRecommendation"];
 // the run-loader picker: one saved draft-run's summary (the detail endpoint returns a full ChainDraftOut)
 export type SavedRunSummary = components["schemas"]["SavedRunSummary"];
+export type TriageSessionPut = components["schemas"]["TriageSessionPut"];
+export type TriageSessionEnvelope = components["schemas"]["TriageSessionEnvelope"];
 // the per-security price pull's receipt (the finalize screen's decoupled price leg)
 export type PriceIngestOut = components["schemas"]["PriceIngestOut"];
 
@@ -490,6 +492,73 @@ export function useLoadThesisRun(thesisId: string) {
       if (error) throw error;
       return data; // ChainDraftOut — the same shape the draft endpoint returns
     },
+  });
+}
+
+// --- Triage session (the resumable prune) — GET restore / PUT autosave / DELETE start-over ---
+// The editor's whole working state, one opaque blob per thesis. The FE owns the `state` shape (triageSession.ts);
+// the backend is a dumb store. See workbench/triage_store.py.
+
+// Restore this thesis's saved prune session. Enabled only in edit mode (the caller passes `enabled`), retry:false
+// so a load fault surfaces as `isError` (the editor shows a retry, NEVER seeds fresh — a transient error must not
+// look like "no session"). `session` is the envelope, or null for genuinely-absent (→ seed fresh).
+export function useTriageSession(thesisId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["triage-session", thesisId] as const,
+    enabled: enabled && Boolean(thesisId),
+    retry: false,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET(
+        "/workbench/theses/{thesis_id}/triage-session",
+        { params: { path: { thesis_id: thesisId } } },
+      );
+      // A 404 can NEVER mask a real saved session — an existing session is 200 {session:…} and "none yet" is
+      // 200 {session:null}. A 404 means route-missing (a backend/frontend deploy skew) or thesis-not-in-tenant
+      // (then you couldn't be editing it). So treat 404 as "no session" → mount fresh, NOT a hard block. Only
+      // 5xx/network (which CAN hide an existing prune) stay `isError` → the retry gate (fix #1).
+      if (response.status === 404) return { session: null };
+      if (error) throw error;
+      return data; // TriageSessionGet { session: TriageSessionEnvelope | null }
+    },
+  });
+}
+
+// Autosave (debounced by the caller). retry:2 — a transient blip retries quietly; a sustained failure surfaces
+// as `isError` (the loud "Not saved" indicator + manual retry).
+export function usePutTriageSession(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: 2,
+    mutationFn: async (body: TriageSessionPut) => {
+      const { data, error } = await api.PUT("/workbench/theses/{thesis_id}/triage-session", {
+        params: { path: { thesis_id: thesisId } },
+        body,
+      });
+      if (error) throw error;
+      return data; // TriageSessionEnvelope
+    },
+    // Keep the RESTORE cache in sync with every autosave. Without this, the ["triage-session", id] query holds
+    // whatever the FIRST GET returned (often {session:null}, before any prune existed) and re-opening the editor
+    // restores THAT stale value — the prune appears gone even though the server has it. Writing the fresh envelope
+    // into the cache makes a re-open (SPA nav or edit-toggle, no full reload) restore the latest saved state.
+    onSuccess: (envelope) =>
+      qc.setQueryData(["triage-session", thesisId], { session: envelope }),
+  });
+}
+
+// Discard the saved session (the operator's explicit "start over"). Invalidate so a subsequent restore reads
+// the now-absent session.
+export function useDeleteTriageSession(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async () => {
+      const { error } = await api.DELETE("/workbench/theses/{thesis_id}/triage-session", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["triage-session", thesisId] }),
   });
 }
 

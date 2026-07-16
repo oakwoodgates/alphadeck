@@ -11,6 +11,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
+  usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
+  useDeleteTriageSession: () => ({ mutate: vi.fn() }),
   // zero theses — the create button must render even with an empty universe (the entry point)
   useTheses: () => ({ data: [] }),
   useThesis: () => ({ data: undefined }),

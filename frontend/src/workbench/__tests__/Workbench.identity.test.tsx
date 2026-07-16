@@ -39,6 +39,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
+  usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
+  useDeleteTriageSession: () => ({ mutate: vi.fn() }),
   useTheses: () => ({ data: [{ id: "t-semis", name: "Semis", ticker: null, basket_size: 2, narrative: "n" }] }),
   useThesis: () => ({ data: fx.thesis }),
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
