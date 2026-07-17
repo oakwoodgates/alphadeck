@@ -57,6 +57,15 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | member (kind) | reads | metrics | events | params |
 |---|---|---|---|---|
 | `sma_position` | `fact_price_eod` | close, sma50, sma200, pct_vs_sma50, pct_vs_sma200 | cross_sma50, cross_sma200, golden_cross/death_cross | fast=50, slow=200, lookback_days=600 |
+| `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
+| `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
+| `insider_flow_90d` | `fact_insider_txn` | buy/sell counts, distinct_buyers, buy/sell/net USD (P/S codes only) | last_buy, last_sell | window_days=90 |
+
+**Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
+ingested** (nothing to say) but a **quiet zero** for an ingested name with no window activity (zero
+is information); its basis note carries the "zero ingested ≠ proven-zero filings" caveat.
+`volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
+highs/lows on the most recent print and notes a sub-year window.
 
 **`sma_position` notes.** `LOOKBACK_DAYS=600` is *calendar* days (`price_history` trims by
 calendar): ≈410 trading bars → ~210 SMA200-computable bars ≈ 10 months of 50×200 cross search. A

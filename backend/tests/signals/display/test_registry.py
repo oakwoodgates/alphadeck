@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from signals import registered_detectors
-from signals.display import registered_display_members, sma
+from signals.display import insider_flow, range52w, registered_display_members, sma, volume_regime
 from signals.display.base import DisplayBasis, DisplayMember, DisplaySignal
 from signals.display.registry import register_display_member
 
@@ -19,8 +19,18 @@ _ASOF = date(2026, 7, 1)
 
 def test_registry_contains_exactly_the_members_in_display_order():
     members = registered_display_members()
-    assert [m.name for m in members] == ["sma_position"]
-    assert [m.compute for m in members] == [sma.display]
+    assert [m.name for m in members] == [
+        "sma_position",
+        "range_52w",
+        "volume_regime",
+        "insider_flow_90d",
+    ]
+    assert [m.compute for m in members] == [
+        sma.display,
+        range52w.display,
+        volume_regime.display,
+        insider_flow.display,
+    ]
 
 
 def test_registry_rejects_duplicate_member_names():

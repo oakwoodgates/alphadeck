@@ -12,7 +12,7 @@ from repositories import thesis_repo
 _ASOF = date(2026, 6, 1)
 
 
-def _price(db, security_id, d: date, close: float) -> None:
+def _price(db, security_id, d: date, close: float, volume: float | None = None) -> None:
     append_fact(
         db,
         "fact_price_eod",
@@ -21,16 +21,18 @@ def _price(db, security_id, d: date, close: float) -> None:
             "security_id": security_id,
             "d": d,
             "close": close,
+            "volume": volume,
             "valid_from": d,
         },
     )
 
 
 def _seed_bars(db, security_id, n: int, end: date = _ASOF) -> None:
-    """n consecutive-day bars ending at ``end``, closes 10.0, 10.1, … (ascending, deterministic)."""
+    """n consecutive-day bars ending at ``end``: closes 10.0, 10.1, … + a flat volume (ascending,
+    deterministic — enough for every price-fed member to compute)."""
     start = end - timedelta(days=n - 1)
     for i in range(n):
-        _price(db, security_id, start + timedelta(days=i), 10.0 + i * 0.1)
+        _price(db, security_id, start + timedelta(days=i), 10.0 + i * 0.1, volume=1000.0)
     db.commit()
 
 
@@ -84,7 +86,8 @@ def test_display_signals_happy_path(client, db, security_id):
     m = body["members"][0]
     assert m["security_id"] == str(security_id)
     assert m["ticker"] == "DEVCO"  # resolved from the master, not echoed from the basket
-    assert [s["kind"] for s in m["signals"]] == ["sma_position"]
+    # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed
+    assert [s["kind"] for s in m["signals"]] == ["sma_position", "range_52w", "volume_regime"]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
     assert sig["basis"]["window_end"] == _ASOF.isoformat()
