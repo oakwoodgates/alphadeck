@@ -47,10 +47,42 @@ class TransitionEvent:
         return f"{self.thesis_name}: {arrow}"
 
 
+@dataclass(frozen=True)
+class HealthEvent:
+    """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is wrong (R4). A silent
+    daily job is a daily job you don't have: the R1 freeze went 11+ days undetected because the operator was
+    the monitoring system. This is the page. It fires on a FREEZE (a live run that made ZERO EDGAR fetches —
+    the cache never refreshed), on WITHHELD calls (a --no-live or total-failure run that didn't record), or on
+    thesis ERRORS. A healthy run emits nothing (``assess_health`` returns None) — loudness marks the exception.
+    """
+
+    asof: date
+    theses: int
+    withheld: int
+    errored: int
+    edgar_fetches: int
+    frozen: bool  # live run + names present + ZERO edgar fetches = the R1 freeze, pageable
+
+    @property
+    def label(self) -> str:
+        bits: list[str] = []
+        if self.frozen:
+            bits.append(
+                f"FROZEN — 0 EDGAR fetches across {self.theses} theses (the cache never refreshed)"
+            )
+        if self.withheld:
+            bits.append(f"{self.withheld} call(s) WITHHELD (no-live / total ingest failure)")
+        if self.errored:
+            bits.append(f"{self.errored} thesis error(s)")
+        return f"cron {self.asof}: " + " · ".join(bits)
+
+
 class Notifier(Protocol):
     """The delivery seam — an adapter per channel; the cron never knows which one it's holding."""
 
     def notify(self, event: TransitionEvent) -> None: ...  # pragma: no cover — a Protocol
+
+    def notify_health(self, event: HealthEvent) -> None: ...  # pragma: no cover — a Protocol
 
 
 class LogNotifier:
@@ -58,6 +90,10 @@ class LogNotifier:
 
     def notify(self, event: TransitionEvent) -> None:
         _log.warning("TRANSITION %s (asof %s)", event.label, event.asof)
+
+    def notify_health(self, event: HealthEvent) -> None:
+        # a run-health page is a RECORD (a bad cron night, logged loud); delivery is the Slack adapter's job
+        _log.error("CRON HEALTH %s", event.label)
 
 
 class SlackNotifier:
@@ -100,6 +136,32 @@ class SlackNotifier:
         except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the cron/record
             _log.warning(
                 "slack notify failed for %s (fail-open, logged only)", event.label, exc_info=True
+            )
+
+    def notify_health(self, event: HealthEvent) -> None:
+        """R4 — the DURABLE page on a bad cron night. Unlike ``notify`` (which pushes only a→armed), EVERY
+        health event pushes: it fires only when something is wrong (freeze / withheld / errored), so it is by
+        construction the rare exception loudness is for. Records loud first (the log line survives regardless),
+        then best-effort pushes. FAIL-OPEN, like ``notify`` — a Slack outage can never break the cron.
+        """
+        self._log_sink.notify_health(event)  # (1) record — always, before any push
+        try:
+            import httpx  # lazy (repo convention)
+
+            s = get_settings()
+            if not s.slack_webhook_url:
+                return
+            resp = httpx.post(
+                s.slack_webhook_url,
+                json={"text": f"🚨 {event.label}"},
+                timeout=s.http_timeout_s,
+            )
+            resp.raise_for_status()
+        except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the cron
+            _log.warning(
+                "slack health notify failed for '%s' (fail-open, logged only)",
+                event.label,
+                exc_info=True,
             )
 
     @staticmethod

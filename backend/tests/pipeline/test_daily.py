@@ -177,6 +177,55 @@ def test_daily_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
     assert len(_calls(db, bad)) == 0  # the failed one wrote nothing
 
 
+# --- R4: assess_health — the pageable run-health signal (pure; no DB) ---
+
+
+def _tr(**kw):
+    return daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", **kw)
+
+
+def test_assess_health_flags_a_FREEZE():
+    # a live run, names present, ZERO EDGAR fetches summed = the cache never refreshed = the R1 freeze
+    h = daily.assess_health(
+        [_tr(edgar_fetches=0, recorded=True), _tr(edgar_fetches=0, recorded=False)],
+        asof=_ASOF,
+        allow_live=True,
+    )
+    assert h is not None and h.frozen is True and "FROZEN" in h.label
+
+
+def test_assess_health_is_NONE_when_healthy():
+    # a live run that fetched + recorded, no withheld/errors → healthy → NO page (loudness marks the exception)
+    assert (
+        daily.assess_health(
+            [_tr(edgar_fetches=88, recorded=True), _tr(edgar_fetches=90, recorded=False)],
+            asof=_ASOF,
+            allow_live=True,
+        )
+        is None
+    )
+
+
+def test_assess_health_flags_withheld_and_errors_without_freeze():
+    h = daily.assess_health(
+        [_tr(edgar_fetches=88, withheld_reason="no-live"), _tr(edgar_fetches=90, error="boom")],
+        asof=_ASOF,
+        allow_live=True,
+    )
+    assert h is not None and h.frozen is False  # fetches happened → not frozen
+    assert h.withheld == 1 and h.errored == 1
+    assert "WITHHELD" in h.label and "error" in h.label
+
+
+def test_a_no_live_run_is_withheld_NOT_flagged_frozen():
+    # --no-live legitimately makes 0 EDGAR fetches — that is EXPECTED, not a freeze. It pages via `withheld`
+    # (a dev run that recorded nothing), never as FROZEN (which requires allow_live).
+    h = daily.assess_health(
+        [_tr(edgar_fetches=0, withheld_reason="no-live")], asof=_ASOF, allow_live=False
+    )
+    assert h is not None and h.frozen is False and h.withheld == 1
+
+
 # --- R2a: the recording gate (a run that didn't refresh must not write the log of record) ---
 
 
