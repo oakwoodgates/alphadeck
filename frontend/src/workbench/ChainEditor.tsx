@@ -68,6 +68,9 @@ interface Props {
   // present, the whole editor working state SEEDS from it at mount instead of from the thesis — resuming the
   // prune across a refresh. The parent gates the mount on the session GET, so this is settled before mount.
   restored?: DeserializeResult & { status: "ok" };
+  // Wipe the saved prune session and re-seed the editor fresh from the thesis (the explicit "start over"). The
+  // parent owns it (it deletes the session + force-remounts this editor); omitted in test/un-sessioned renders.
+  onStartOver?: () => void;
 }
 
 // "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact — the shared
@@ -151,7 +154,7 @@ const NotListedFlag = () => (
  *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
  *  which honors each member's authorship and stores the thesis-fit prose). */
-export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Props) {
+export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStartOver }: Props) {
   // The restored session seeds BOTH the hook (draft/excluded/reasons) and this component's own editor cells
   // (the draft-run buckets + term/set-aside decisions) at mount. `re` is the editor portion; `undefined` when
   // there's no session, so every initializer falls back to its thesis-derived / empty default.
@@ -972,6 +975,18 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Prop
           <button type="button" className="wb-mini ghost" onClick={() => onDone(false)}>
             {d.dirty ? "Discard" : "Done"}
           </button>
+          {/* Explicit reset: wipe the autosaved prune session and re-seed fresh from the thesis. DISTINCT from
+              "Discard" (which just exits edit mode, keeping the session). The parent confirms + force-remounts. */}
+          {onStartOver && (
+            <button
+              type="button"
+              className="wb-mini ghost wb-startover"
+              title="Discard the saved prune for this thesis and start fresh from the saved basket"
+              onClick={onStartOver}
+            >
+              Start over
+            </button>
+          )}
         </div>
       </div>
       {save.isError && (
