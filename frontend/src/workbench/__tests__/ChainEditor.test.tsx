@@ -181,13 +181,13 @@ describe("ChainEditor — authoring", () => {
     expect(h.mutate).not.toHaveBeenCalled();
   });
 
-  it("Start over: renders only when onStartOver is provided, and clicking it invokes the reset", async () => {
+  it("Clear: renders only when onStartOver is provided, and clicking it invokes the reset", async () => {
     const user = userEvent.setup();
     // absent by default (no session-owning parent) — the button is opt-in
     const { unmount } = render(
       <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />,
     );
-    expect(screen.queryByRole("button", { name: "Start over" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
     unmount();
 
     const onStartOver = vi.fn();
@@ -199,7 +199,7 @@ describe("ChainEditor — authoring", () => {
         onStartOver={onStartOver}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Start over" }));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(onStartOver).toHaveBeenCalledTimes(1);
   });
 

@@ -86,6 +86,41 @@ export type DeserializeResult =
   | { status: "ok"; hook: HookRuntime; editor: EditorRuntime }
   | { status: "incompatible"; version: number };
 
+/** A synthetic "cleared" restore for the Clear action: an EMPTY value chain + companies + draft-run buckets,
+ *  but the term-set SEEDS are kept. Seeding the editor from this (instead of from the thesis's persisted
+ *  basket) gives a blank canvas to re-draft, without losing the operator's SIGNAL/BROAD seeds. */
+export function clearedRestore(
+  termSet: TermSetEntry[],
+): DeserializeResult & { status: "ok" } {
+  return {
+    status: "ok",
+    hook: {
+      draft: { segments: [], basket: [] },
+      excluded: new Set(),
+      reasons: new Map(),
+      reasonsDirty: false,
+    },
+    editor: {
+      ambiguous: [],
+      verify: [],
+      absent: [],
+      verifyOrigin: {},
+      matched: {},
+      offUniverse: new Set(),
+      offThesisSet: new Set(),
+      identity: {},
+      names: {},
+      draftStatus: null,
+      cappedTerms: new Set(),
+      draftEmpty: false,
+      termSet, // KEEP the seeds
+      recs: {},
+      adopted: new Set(),
+      setAside: new Set(),
+    },
+  };
+}
+
 export function serialize(hook: HookRuntime, editor: EditorRuntime): SerializedSession {
   return {
     hook: {

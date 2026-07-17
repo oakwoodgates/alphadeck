@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DraftReportOut, ResolvedPlacement, TermSetEntry } from "../../api/hooks";
 import {
+  clearedRestore,
   deserialize,
   SCHEMA_VERSION,
   serialize,
@@ -128,5 +129,28 @@ describe("triageSession serialize/deserialize", () => {
   it("treats a structurally-broken state as incompatible, not empty", () => {
     expect(deserialize({ schema_version: SCHEMA_VERSION, state: null }).status).toBe("incompatible");
     expect(deserialize({ schema_version: SCHEMA_VERSION, state: 42 }).status).toBe("incompatible");
+  });
+});
+
+describe("clearedRestore (the Clear action)", () => {
+  it("empties the chain, companies and buckets but KEEPS the term-set seeds", () => {
+    const seeds: TermSetEntry[] = [
+      { term: "psilocybin", tier: "signal", authored_by: "operator_set" },
+      { term: "ketamine", tier: "broad", authored_by: "operator_set" },
+    ];
+    const r = clearedRestore(seeds);
+    expect(r.status).toBe("ok");
+    // chain + companies empty
+    expect(r.hook.draft).toEqual({ segments: [], basket: [] });
+    expect(r.hook.excluded.size).toBe(0);
+    expect(r.hook.reasons.size).toBe(0);
+    // draft-run buckets empty
+    expect(r.editor.verify).toEqual([]);
+    expect(r.editor.ambiguous).toEqual([]);
+    expect(r.editor.absent).toEqual([]);
+    expect(r.editor.setAside.size).toBe(0);
+    expect(r.editor.names).toEqual({});
+    // the seeds survive
+    expect(r.editor.termSet).toBe(seeds);
   });
 });
