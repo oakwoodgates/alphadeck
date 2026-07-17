@@ -5,7 +5,13 @@ export type ExportedName = {
   name: string | null;
 };
 
-export type ExportStage = "triage" | "shortlist" | "board";
+export type ExportStage = "triage" | "shortlist" | "board" | "all";
+
+/** One named group in a segmented export (a value-chain link, the Discovered pen, or a To-Review bucket). */
+export type ExportGroup = {
+  label: string;
+  rows: ExportedName[];
+};
 
 export function toExportedName(row: {
   ticker?: string | null;
@@ -66,4 +72,24 @@ export function exportKeptNames(opts: {
     exportFilename(opts.thesisName, opts.stage, opts.asof),
     sortByTicker(opts.rows),
   );
+}
+
+/** Export a SEGMENTED name list — a JSON object keyed by group label (a value-chain link, the Discovered
+ *  pen, or a To-Review bucket), each group's rows sorted alphabetically by ticker for a stable diff. Group
+ *  ORDER is preserved as passed (the caller orders links by the chain, buckets last); empty groups are
+ *  dropped so a group only appears when it has names. Keys are de-duplicated defensively (a repeated label
+ *  merges its rows) so the object never silently loses a group. */
+export function exportSegmentedNames(opts: {
+  thesisName: string;
+  stage: ExportStage;
+  asof: string;
+  groups: ExportGroup[];
+}): void {
+  const out: Record<string, ExportedName[]> = {};
+  for (const g of opts.groups) {
+    if (g.rows.length === 0) continue;
+    const merged = out[g.label] ? [...out[g.label], ...g.rows] : g.rows;
+    out[g.label] = sortByTicker(merged);
+  }
+  downloadJson(exportFilename(opts.thesisName, opts.stage, opts.asof), out);
 }
