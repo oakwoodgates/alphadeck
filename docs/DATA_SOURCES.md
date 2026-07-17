@@ -42,6 +42,20 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
 - Respect the documented **rate limit** (token-bucket gate in the client).
 - **Cache-first** on disk (`data/edgar_cache/`); the test transport raises on cache miss so tests never hit the network.
 - Live pulls are explicit opt-in (env flag) and write only to the cache.
+- **Cache freshness is KEY-CLASSED, not permanent.** The cache is heterogeneous: a **filing document**
+  (`forms/<accession>/<doc>`) is immutable — an accession never changes — and is cached **forever**; every
+  other prefix is **mutable** and refreshes on a **12h TTL** when live (`submissions/*` = the filing index,
+  `companyfacts/*` = XBRL financials, `efts/*` = full-text-search pages). The policy lives on the cache-key
+  prefix in `EdgarClient.get_text` (default-refresh; only immutables opt out), so no caller threads a flag —
+  the next mutable endpoint is safe-by-default. **Why it exists:** a permanent cache silently froze THREE legs
+  the same way — Form 4 discovery (the daily cron couldn't see a filing newer than the cache; ~11 days stale),
+  the discovery universe (`efts` same terms → same keys → a name that starts matching next month is invisible),
+  and the extract's share counts (`companyfacts` → a stale count feeds the auto-applied market cap). Each "works
+  when you test it" because a *new* key/name fetches fresh. The TTL (< the daily cron period) makes the nightly
+  run always see an expired index. Offline (`allow_live=False`: tests, `--no-live`) a stale hit is still served
+  — better stale than a `CacheMiss`; the TTL only forces a refetch when a live pull is permitted. The #125
+  rebuild-survival win holds: a re-draft **within** 12h is still free; only a draft a day later re-enumerates,
+  which is correct — the universe drifted.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
