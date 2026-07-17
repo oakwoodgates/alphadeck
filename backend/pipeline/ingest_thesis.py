@@ -125,6 +125,7 @@ def ingest_thesis(
     force_refresh: bool = False,
     user_agent: str | None = None,
     price_source: PriceSource | None = None,
+    edgar_client: EdgarClient | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts for each RESOLVED basket member of ``thesis_id``.
 
@@ -135,11 +136,14 @@ def ingest_thesis(
     per member that had a resolved id.
 
     ``force_refresh`` makes the price leg bypass a stale cache hit (the recurring/daily path sets it; see
-    ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults to Yahoo)."""
+    ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults to Yahoo).
+    ``edgar_client`` lets the caller INJECT the client (else one is constructed) so it can read
+    ``client.live_fetches`` afterwards — the daily cron does, to record the freeze-detector count.
+    """
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
         raise LookupError(f"thesis {thesis_id} not found")
-    client = EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
     source = price_source or YahooPriceSource()
     results: list[NameResult] = []
     for m in thesis.basket:

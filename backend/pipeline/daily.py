@@ -24,14 +24,16 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 import psycopg
 
 from db.session import connect
+from ingest.edgar.client import EdgarClient
 from notify import Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
+from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
 from securities import master
@@ -49,6 +51,11 @@ class ThesisRunResult:
     recorded: bool | None = None
     transition: str | None = None
     error: str | None = None
+    # EDGAR network pulls during this thesis's ingest — the FREEZE DETECTOR. A frozen index and a healthy
+    # nothing-filed night produce identical fact tallies (0 appended); this is the one number that differs.
+    # 0 across the whole run = the cache never refreshed = the R1 freeze, visible instead of hiding behind
+    # a plausible "quiet day". Recorded into the cron run log (R3); R4 pages on it.
+    edgar_fetches: int = 0
 
 
 def run_daily(
@@ -86,6 +93,8 @@ def run_daily(
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
         # (1) refresh facts — ingest_thesis already isolates per-name; wrap defensively so even a thesis-level
         # failure (e.g. a malformed thesis) is captured, not fatal. A fact failure does NOT block the call.
+        # a fresh client PER THESIS so its live_fetches count is that thesis's own (the freeze detector)
+        edgar_client = EdgarClient(allow_live=allow_live, user_agent=user_agent)
         try:
             res.ingested = ingest_thesis(
                 conn,
@@ -93,10 +102,14 @@ def run_daily(
                 allow_live=allow_live,
                 force_refresh=force_refresh,
                 user_agent=user_agent,
+                edgar_client=edgar_client,
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
             res.error = f"ingest: {e}"
+        # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
+        # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
+        res.edgar_fetches = edgar_client.live_fetches
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
             card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
@@ -172,13 +185,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--asof", default=None, help="as-of date YYYY-MM-DD (default: today)")
     p.add_argument("--no-live", action="store_true", help="cache-only ingest (no network)")
     args = p.parse_args(argv)
-    asof = date.fromisoformat(args.asof) if args.asof else None
+    asof = date.fromisoformat(args.asof) if args.asof else date.today()
+    allow_live = not args.no_live
 
+    started_at = datetime.now(timezone.utc)
     conn = connect()
     try:
-        results = run_daily(conn, asof=asof, allow_live=not args.no_live)
+        results = run_daily(conn, asof=asof, allow_live=allow_live)
     finally:
         conn.close()
+    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
+    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
+    write_cron_run_log(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
     if _report(results):
         raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
 

@@ -45,6 +45,12 @@ class EdgarClient:
         self.cache_dir = cache_dir or _DEFAULT_CACHE
         self.allow_live = allow_live
         self.cache_ttl_s = cache_ttl_s
+        # How many times this client actually hit the NETWORK (a cache miss OR a stale-mutable refresh) — the
+        # freeze detector. A frozen index and a healthy nothing-filed night produce IDENTICAL fact tallies
+        # (0 appended); the only difference is whether a request happened. The daily cron reads this per
+        # thesis into its run log so a freeze reads 0 live fetches — visible, pageable — instead of hiding
+        # behind a plausible "quiet day". Incremented in `_fetch`, the single network chokepoint.
+        self.live_fetches = 0
         s = get_settings()
         self.user_agent = user_agent or s.user_agent
         self._rate = RateLimiter(max_per_sec if max_per_sec is not None else s.edgar_rate_per_sec)
@@ -67,6 +73,8 @@ class EdgarClient:
                 return path.read_text(encoding="utf-8")
         elif not self.allow_live:
             raise CacheMiss(f"{cache_key} not cached (live pulls disabled)")
+        # decided to hit the network (a cache miss or a stale-mutable refresh) — the freeze detector
+        self.live_fetches += 1
         text = self._fetch(url)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")  # overwrite refreshes the mtime → fresh again
