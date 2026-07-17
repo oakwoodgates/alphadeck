@@ -1371,6 +1371,57 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     expect(multi.compareDocumentPosition(one) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("C-B ordering: an explicit sort (ticker) OVERRIDES the flagged group's term-count order", async () => {
+    const user = userEvent.setup();
+    // low ticker / single term vs high ticker / two terms — the two orderings disagree, so we can tell which wins
+    const F_AAA_ONE = {
+      name: "Aaa Flag Co",
+      ticker: "AAA",
+      prose: "single hit",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-aaa",
+      candidates: [],
+      matched_terms: ["memory"],
+      off_thesis: true,
+    };
+    const F_ZZZ_MULTI = {
+      name: "Zzz Flag Co",
+      ticker: "ZZZ",
+      prose: "two hits",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-zzz",
+      candidates: [],
+      matched_terms: ["memory", "storage"],
+      off_thesis: true,
+    };
+    mockDraft(draft([P_CLEAN, F_AAA_ONE, F_ZZZ_MULTI], MEM_SEG));
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("toggle Placed, flagged");
+
+    // default (draft) order: term count wins → the 2-term ZZZ sorts ABOVE the 1-term AAA
+    expect(
+      screen.getByText("Zzz Flag Co").compareDocumentPosition(screen.getByText("Aaa Flag Co")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // pick "name" (ticker) sort → the dropdown wins: AAA sorts ABOVE ZZZ, term count no longer applies
+    await user.selectOptions(screen.getByLabelText("sort placed names"), "name");
+    expect(
+      screen.getByText("Aaa Flag Co").compareDocumentPosition(screen.getByText("Zzz Flag Co")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // clearing filters resets the sort to draft → the term-count default is RESTORED (ZZZ back above AAA)
+    await user.click(screen.getByRole("button", { name: "clear filters" }));
+    expect(
+      screen.getByText("Zzz Flag Co").compareDocumentPosition(screen.getByText("Aaa Flag Co")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("G: sole-acronym without model flag stays in Placed (not low quality)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN, P_COLLISION], MEM_SEG));
