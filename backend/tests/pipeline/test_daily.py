@@ -11,6 +11,8 @@ import uuid
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
 from ingest.edgar.form4 import ingest_form4
@@ -206,24 +208,69 @@ def test_assess_health_is_NONE_when_healthy():
     )
 
 
-def test_assess_health_flags_withheld_and_errors_without_freeze():
+def test_assess_health_splits_a_TOTAL_FAILURE_from_a_benign_no_live():
+    # a real total-ingest failure is an ALARM; a --no-live withhold is BENIGN — the page must say which
     h = daily.assess_health(
-        [_tr(edgar_fetches=88, withheld_reason="no-live"), _tr(edgar_fetches=90, error="boom")],
+        [
+            _tr(edgar_fetches=90, withheld_reason="total ingest failure"),
+            _tr(edgar_fetches=88, withheld_reason="no-live"),
+            _tr(edgar_fetches=90, error="boom"),
+        ],
         asof=_ASOF,
         allow_live=True,
     )
     assert h is not None and h.frozen is False  # fetches happened → not frozen
-    assert h.withheld == 1 and h.errored == 1
-    assert "WITHHELD" in h.label and "error" in h.label
+    assert h.withheld_failure == 1 and h.withheld_no_live == 1 and h.errored == 1
+    assert h.withheld == 2  # the property sums both reasons
+    assert "TOTAL INGEST FAILURE" in h.label  # the alarm is loud
+    assert "not an error" in h.label  # the no-live part is explicitly benign
 
 
-def test_a_no_live_run_is_withheld_NOT_flagged_frozen():
-    # --no-live legitimately makes 0 EDGAR fetches — that is EXPECTED, not a freeze. It pages via `withheld`
-    # (a dev run that recorded nothing), never as FROZEN (which requires allow_live).
+def test_a_no_live_run_is_withheld_NOT_flagged_frozen_and_reads_BENIGN():
+    # --no-live legitimately makes 0 EDGAR fetches — EXPECTED, not a freeze. It surfaces as a benign no-live
+    # note (never FROZEN, which requires allow_live), so a hand-run dev pass never reads as "failure".
     h = daily.assess_health(
         [_tr(edgar_fetches=0, withheld_reason="no-live")], asof=_ASOF, allow_live=False
     )
     assert h is not None and h.frozen is False and h.withheld == 1
+    assert "not an error" in h.label and "FAILURE" not in h.label
+
+
+# --- R6: the --catch-up guard in main (no DB — the guard returns before connect) ---
+
+
+def _no_connect(monkeypatch):
+    """Make connect() explode, so a test proves whether main proceeded PAST the R6 guard into the real run."""
+
+    def boom():
+        raise RuntimeError("reached the run")
+
+    monkeypatch.setattr(daily, "connect", boom)
+
+
+def test_catch_up_is_a_NOOP_when_a_live_pass_already_ran(monkeypatch, capsys):
+    monkeypatch.setattr(daily, "already_ran_live", lambda asof: True)
+    _no_connect(monkeypatch)  # if the guard fails, main() would connect and RuntimeError
+    daily.main(["--catch-up", "--asof", "2026-07-17"])  # returns early, never connects
+    assert "already ran" in capsys.readouterr().out
+
+
+def test_catch_up_RUNS_when_no_live_pass_yet(monkeypatch):
+    monkeypatch.setattr(daily, "already_ran_live", lambda asof: False)
+    _no_connect(monkeypatch)  # proves it proceeded past the guard into the run
+    with pytest.raises(RuntimeError, match="reached the run"):
+        daily.main(["--catch-up", "--asof", "2026-07-17"])
+
+
+def test_the_guard_is_NOT_consulted_without_catch_up(monkeypatch):
+    # a normal cron run always runs — `--catch-up` absent must short-circuit before already_ran_live
+    def guard(_asof):
+        raise AssertionError("already_ran_live consulted without --catch-up")
+
+    monkeypatch.setattr(daily, "already_ran_live", guard)
+    _no_connect(monkeypatch)
+    with pytest.raises(RuntimeError, match="reached the run"):
+        daily.main(["--asof", "2026-07-17"])
 
 
 # --- R2a: the recording gate (a run that didn't refresh must not write the log of record) ---

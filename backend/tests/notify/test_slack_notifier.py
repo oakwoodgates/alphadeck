@@ -132,8 +132,40 @@ def test_raise_for_status_error_does_not_propagate(monkeypatch):
 
 def _freeze() -> HealthEvent:
     return HealthEvent(
-        asof=date(2026, 7, 17), theses=6, withheld=0, errored=0, edgar_fetches=0, frozen=True
+        asof=date(2026, 7, 17),
+        theses=6,
+        withheld_no_live=0,
+        withheld_failure=0,
+        errored=0,
+        edgar_fetches=0,
+        frozen=True,
     )
+
+
+def test_health_label_names_the_actual_reason_not_a_generic_gloss():
+    """A manual --no-live run is BENIGN and must say so; a total ingest failure is the alarm. The label must
+    not read 'failure' when nobody failed (the operator's 'that sounds bad' on the no-live test page).
+    """
+    no_live = HealthEvent(
+        asof=date(2026, 7, 17),
+        theses=6,
+        withheld_no_live=6,
+        withheld_failure=0,
+        errored=0,
+        edgar_fetches=0,
+        frozen=False,
+    )
+    assert "not an error" in no_live.label and "FAILURE" not in no_live.label
+    fail = HealthEvent(
+        asof=date(2026, 7, 17),
+        theses=2,
+        withheld_no_live=0,
+        withheld_failure=2,
+        errored=0,
+        edgar_fetches=50,
+        frozen=False,
+    )
+    assert "TOTAL INGEST FAILURE" in fail.label
 
 
 def test_health_ALWAYS_pushes_it_only_fires_when_wrong(monkeypatch):
