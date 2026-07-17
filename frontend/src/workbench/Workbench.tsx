@@ -14,7 +14,7 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
-import { deserialize } from "./triageSession";
+import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
@@ -70,9 +70,11 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
   const sessionQ = useTriageSession(thesisId, editing && Boolean(thesis));
   const deleteSession = useDeleteTriageSession(thesisId);
   const [dismissedIncompatible, setDismissedIncompatible] = useState(false);
-  // Bumped by "Start over" to force a fresh ChainEditor remount (it seeds ONCE at mount) after the session is
-  // wiped — so the reset re-seeds from the thesis instead of the old in-memory prune.
+  // Bumped by "Clear" to force a fresh ChainEditor remount (it seeds ONCE at mount) after the session is wiped.
   const [editorNonce, setEditorNonce] = useState(0);
+  // "Clear" seeds the editor from an EMPTY chain (no companies) keeping the term-set seeds — NOT from the
+  // thesis's persisted basket. One-shot: reset on exit/switch so a later re-open shows the real saved state.
+  const [cleared, setCleared] = useState(false);
   const scored = scoredQ.data;
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
@@ -102,6 +104,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
     setEditing(false);
     setChainSaved(false);
     setDismissedIncompatible(false); // the incompatible-session choice is per thesis
+    setCleared(false); // the cleared state is per thesis / per edit session
     sectionData.reset();
     promote.reset();
   };
@@ -215,18 +218,23 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
   // Gate the editor mount on the prune-session GET settling — the three (really four) restore cases. A restore
   // must seed at MOUNT (the editor snapshots its state in useState initializers, no in-hook re-sync), so we don't
   // mount ChainEditor until we know what to seed it with.
-  // Start over: wipe the saved prune session and re-seed the editor fresh from the thesis. `deleteSession`
-  // sets the restore cache to null on success (in the hook), and here we bump the nonce — the nonce in the key
-  // force-remounts ChainEditor, which cancels the old instance's pending autosave (useDebouncedCallback clears
-  // on unmount) so it can't re-create the session, and re-seeds from the (session-less) thesis.
+  // Clear: wipe the saved prune session and re-seed the editor with an EMPTY value chain + companies, KEEPING
+  // the term-set seeds (a blank canvas to re-draft). `deleteSession` nulls the restore cache; we flip `cleared`
+  // and bump the nonce — the nonce in the key force-remounts ChainEditor (cancelling the old instance's pending
+  // autosave so it can't re-create the session), and `cleared` makes the remount seed from `clearedRestore`.
   const startOver = () => {
     if (
       !window.confirm(
-        "Discard your saved prune for this thesis and start fresh from the saved basket? This can't be undone.",
+        "Clear the value chain and all companies from the editor? Your term-set seeds are kept, and your saved prune is discarded.",
       )
     )
       return;
-    deleteSession.mutate(undefined, { onSuccess: () => setEditorNonce((n) => n + 1) });
+    deleteSession.mutate(undefined, {
+      onSuccess: () => {
+        setCleared(true);
+        setEditorNonce((n) => n + 1);
+      },
+    });
   };
   const mountEditor = (t: ThesisDetail, restored?: Parameters<typeof ChainEditor>[0]["restored"]) => (
     <ChainEditor
@@ -237,12 +245,15 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
       onStartOver={startOver}
       onDone={(saved) => {
         setEditing(false);
+        setCleared(false); // the cleared state is one-shot — re-entry shows the real saved state
         setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
       }}
       scoredById={scoredById}
     />
   );
   const renderEditor = (t: ThesisDetail) => {
+    // 0) CLEARED — the operator hit Clear: seed an EMPTY chain keeping the term seeds (overrides the session).
+    if (cleared) return mountEditor(t, clearedRestore(t.term_set));
     // 1) ERROR — do NOT mount fresh: that makes a saved prune APPEAR GONE. Surface + retry.
     if (sessionQ.isError) {
       return (

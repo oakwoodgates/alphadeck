@@ -975,16 +975,16 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           <button type="button" className="wb-mini ghost" onClick={() => onDone(false)}>
             {d.dirty ? "Discard" : "Done"}
           </button>
-          {/* Explicit reset: wipe the autosaved prune session and re-seed fresh from the thesis. DISTINCT from
-              "Discard" (which just exits edit mode, keeping the session). The parent confirms + force-remounts. */}
+          {/* Clear the working chain: empty the value chain + companies (keeping the term-set seeds) and discard
+              the saved prune. DISTINCT from "Discard" (which just exits edit mode). Parent confirms + remounts. */}
           {onStartOver && (
             <button
               type="button"
               className="wb-mini ghost wb-startover"
-              title="Discard the saved prune for this thesis and start fresh from the saved basket"
+              title="Clear the value chain and companies from the editor (keeps your term-set seeds; discards the saved prune)"
               onClick={onStartOver}
             >
-              Start over
+              Clear
             </button>
           )}
         </div>
