@@ -30,6 +30,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from ingest.edgar.client import EdgarClient
 from notify import Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import write_cron_run_log
@@ -50,6 +51,11 @@ class ThesisRunResult:
     recorded: bool | None = None
     transition: str | None = None
     error: str | None = None
+    # EDGAR network pulls during this thesis's ingest — the FREEZE DETECTOR. A frozen index and a healthy
+    # nothing-filed night produce identical fact tallies (0 appended); this is the one number that differs.
+    # 0 across the whole run = the cache never refreshed = the R1 freeze, visible instead of hiding behind
+    # a plausible "quiet day". Recorded into the cron run log (R3); R4 pages on it.
+    edgar_fetches: int = 0
 
 
 def run_daily(
@@ -87,6 +93,8 @@ def run_daily(
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
         # (1) refresh facts — ingest_thesis already isolates per-name; wrap defensively so even a thesis-level
         # failure (e.g. a malformed thesis) is captured, not fatal. A fact failure does NOT block the call.
+        # a fresh client PER THESIS so its live_fetches count is that thesis's own (the freeze detector)
+        edgar_client = EdgarClient(allow_live=allow_live, user_agent=user_agent)
         try:
             res.ingested = ingest_thesis(
                 conn,
@@ -94,10 +102,14 @@ def run_daily(
                 allow_live=allow_live,
                 force_refresh=force_refresh,
                 user_agent=user_agent,
+                edgar_client=edgar_client,
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
             res.error = f"ingest: {e}"
+        # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
+        # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
+        res.edgar_fetches = edgar_client.live_fetches
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
             card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)

@@ -108,3 +108,20 @@ def test_a_cache_MISS_still_fetches_regardless_of_ttl(tmp_path):
     client, fetched = _live_client(tmp_path)
     assert client.get_json("https://sec.gov/x", "submissions/CIK5.json") == {"fresh": True}
     assert len(fetched) == 1
+
+
+def test_live_fetches_counter_counts_network_pulls_not_cache_hits(tmp_path):
+    """The freeze detector (R3): `live_fetches` counts real network pulls — a miss and a stale-mutable
+    refresh increment it; a fresh cache hit and an immutable-forever hit do NOT. 0 across a live run is the
+    freeze fingerprint (a stale index served forever = no pulls)."""
+    _write_cache(tmp_path, "submissions/stale.json", "{}", age_s=13 * 3600)  # will refresh → +1
+    _write_cache(tmp_path, "submissions/fresh.json", "{}", age_s=1 * 3600)  # within TTL → no pull
+    _write_cache(tmp_path, "forms/acc/doc.htm", "x", age_s=999 * 3600)  # immutable → no pull
+    client, _ = _live_client(tmp_path)
+    assert client.live_fetches == 0
+
+    client.get_json("https://sec.gov/x", "submissions/miss.json")  # miss → +1
+    client.get_json("https://sec.gov/x", "submissions/stale.json")  # stale refresh → +1
+    client.get_json("https://sec.gov/x", "submissions/fresh.json")  # fresh hit → +0
+    client.get_text("https://sec.gov/x", "forms/acc/doc.htm")  # immutable hit → +0
+    assert client.live_fetches == 2  # only the two that hit the network

@@ -107,6 +107,36 @@ def test_a_zero_fact_healthy_run_is_distinguishable_from_a_no_op(tmp_path):
     assert t["names_ingested"] == 3 and t["names_errored"] == 0 and t["form4_appended"] == 0
 
 
+def test_edgar_fetches_separates_a_FREEZE_from_a_healthy_quiet_day(tmp_path):
+    """THE addition: fact tallies alone can't tell a stale-index FREEZE from a healthy nothing-filed night —
+    both show 0 appended, N skipped, names_ingested>0, names_errored 0. The ONLY difference is whether the
+    network happened. A FREEZE reads edgar_fetches 0 on a `live` run; a healthy night is nonzero — pageable.
+    """
+    frozen = _thesis_result(
+        name="Frozen", recorded=False, edgar_fetches=0, ingested=[_name(), _name()]
+    )  # served the stale cache: 0 network pulls
+    healthy = _thesis_result(
+        name="Healthy quiet", recorded=False, edgar_fetches=88, ingested=[_name(), _name()]
+    )  # refreshed the index, nothing new filed
+    doc = _read(
+        write_cron_run_log(
+            [frozen, healthy],
+            asof=date(2026, 7, 17),
+            allow_live=True,
+            started_at=_START,
+            finished_at=_END,
+            base_dir=tmp_path,
+        )
+    )
+    # identical fact tallies…
+    for t in doc["theses"]:
+        assert t["form4_appended"] == 0 and t["names_ingested"] == 2 and t["names_errored"] == 0
+    # …but the freeze detector separates them, at the run level and per thesis
+    assert doc["edgar_fetches"] == 88  # run total
+    assert next(t for t in doc["theses"] if t["name"] == "Frozen")["edgar_fetches"] == 0
+    assert next(t for t in doc["theses"] if t["name"] == "Healthy quiet")["edgar_fetches"] == 88
+
+
 def test_records_thesis_level_error_and_transition(tmp_path):
     results = [
         _thesis_result(name="Broke", error="ingest: db down", recorded=None),
