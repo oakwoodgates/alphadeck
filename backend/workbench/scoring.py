@@ -47,10 +47,19 @@ def _prov(fact: dict[str, Any], **figures: Any) -> Provenance:
     into ``detail`` so the ratify panel can show WHAT is on file instead of re-offering the stale extract
     candidate — the DB-free extract endpoint can't know a ratify happened; the scored read is the only
     DB-backed surface the panel sees. Display-only (#2): these ride provenance, they never make a number.
+
+    ``ratified_by`` rides ``detail`` too, so the panel can say "auto-applied — confirm or override" for a
+    machine-applied AUTO shares count. The panel branches ONLY on ``"auto"``: legacy rows are stamped
+    ``"operator"`` but ~108 of them were the old ceremonial AUTO confirm, so claiming "operator confirmed"
+    off this column would assert a check that never happened. Everything not-``auto`` stays a neutral
+    "on file", which is true of every row. PROVENANCE, never a scoring input — the as-of read still never
+    branches on it (this is the FIRST reader of the column, and it's display-only).
     """
     detail: dict[str, Any] = {k: v for k, v in figures.items() if v is not None}
     if fact.get("note"):
         detail["note"] = fact["note"]
+    if fact.get("ratified_by"):
+        detail["ratified_by"] = fact["ratified_by"]
     return Provenance(source=fact["source"], ref=fact["source_ref"], detail=detail)
 
 

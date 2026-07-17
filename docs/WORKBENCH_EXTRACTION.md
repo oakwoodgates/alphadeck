@@ -73,7 +73,7 @@ three candidates — one per meter: `revenue_mix` (purity), `shares_outstanding`
 
 - **AUTO — companyfacts reproduces a clean value → pre-fill, confirm-and-go.** The value is shown read-only;
   the operator confirms it as-is (no retype). Used only when the figure is unambiguous — e.g. a single-class,
-  *current* cover-share count.
+  *current* cover-share count. **AUTO shares are now APPLIED on get-data, not confirmed** — see below.
 - **FLAG — a raw value + a DETECTED risk + a LOCATED passage → the operator ratifies the composition.** The
   value is editable, pre-filled with the raw figure; the detected flag(s) and the filing passage backing them
   are shown inline. *Reading the passage IS the ratification decision.*
@@ -150,6 +150,50 @@ most needs to make:
   - → flag `no-companyfacts` — nothing observed anywhere: located-only, no value.
 
 When no flag trips, `cash_burn` / `shares_outstanding` are AUTO; `revenue_mix` is always HUMAN.
+
+## The AUTO-shares auto-confirm — removing a FAKE gate, not relaxing a real one `[BUILT]`
+
+The AUTO shares confirm was **never a verification**. The operator has no independent knowledge of a share
+count and is not going to look one up — clicking "Confirm" on the extractor's single-class cover figure
+rubber-stamped it, while stamping `ratified_by="operator"`: **provenance asserting a check that never
+happened**. So on **get-data** (both entry points — the per-name `⇣ get data` and the section runner) an
+**AUTO shares count is now applied directly**, stamped **`ratified_by="auto"`**, which is what actually
+occurs. This is a *net gain* in honesty (#6), not a loosened gate.
+
+**The real human check is downstream and unchanged:** the operator reads the resulting **market cap** — a
+figure they *do* have intuition for — and overrides the shares if it looks wrong.
+
+**Why it is not a #1/#3 violation.** The written number is the extractor's deterministic reproduction of filed
+companyfacts (the market-cap trust class) — never a model output, never a `computed`/`llm_proposed` estimate.
+The architectural constraint above is untouched: estimates stay computed-on-read and never become `fact_*`
+rows. AUTO is exactly the unambiguous case; anything ambiguous trips a FLAG and is excluded.
+
+`POST /workbench/facts/auto-confirm { security_id, fact_type: "shares_outstanding" }` — the guarantees:
+
+- **The request carries NO value** (the structural bound). The server re-extracts (cache-first) and writes its
+  **own** parse, so no caller can inject a figure under the `auto` provenance.
+- **AUTO-only, shares-only.** A FLAG (`dual-class` / `stale-cover` / `no-companyfacts`) declines with
+  `applied=false, reason="not_auto"` and stays the operator's to ratify — the machine never resolves a class
+  sum or judges cover currency. Purity is HUMAN (never auto-valued) and cash_burn stays a manual ratify;
+  `fact_type` is a one-value Literal, so extending this is a decision, not a parameter.
+- **Idempotent + never clobbers.** ANY existing shares fact (auto **or** an operator override) → no-op, so a
+  re-run appends **zero rows** and a later get-data can't re-apply the machine value over the operator's
+  decision. (Tested by COUNTING the table, not the read.)
+- **Visible, never silent.** The section report says how many were auto-applied; the FactsPanel tags the fact
+  **"✦ auto-applied — confirm or override"** and makes the field **editable** so the override is real (#1).
+  Confirming as-is still means something: it appends an `operator` fact — a human vouching for it.
+- **Legacy rows stay neutral.** ~108 historical rows carry `ratified_by="operator"` from the old ceremonial
+  confirm, so the panel asserts "auto-applied" **only** for `ratified_by="auto"` and shows every other fact the
+  neutral "✓ on file" — never "operator confirmed", which would claim a check that never happened. Those rows
+  were **deliberately not backfilled**: `ratified_by` is a write-only column (nothing reads it; the as-of read
+  never branches on it), correcting them would mean defeating the `no_update` append-only DB trigger or
+  fabricating restatement events, and the note template
+  (`Cover-page shares outstanding as of … (single class).`) identifies them provably if a consumer ever appears.
+
+**The get-data control counts what's LEFT.** It used to hide once *any* fact was confirmed — already a bug
+(ratifying one fact silenced a name with two outstanding), which auto-applying shares would have
+industrialized on every clean name. It now tracks unratified candidates, using the same on-file predicate the
+FactsPanel does.
 
 ## The located passage — deterministic retrieval, never a reading
 

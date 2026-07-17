@@ -8,9 +8,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // disappears once the member has confirmed fundamentals. The funnel line counts confirmed-data coverage.
 const fx = vi.hoisted(() => {
   const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
+  // a ratified purity, as the scored read really returns it: pips + value + the fact's PROVENANCE. The
+  // provenance is what marks a fact "on file" (`onFileValues` — the same predicate the FactsPanel uses),
+  // so a fixture with `provenance: []` would look permanently unratified to the row control.
+  const purityOnFile = {
+    pips: 4,
+    value: 100,
+    provenance: [
+      {
+        source: "10-k-segment",
+        ref: "https://sec.gov/warm-10k.htm",
+        detail: { mix_pct: 100, segment_label: "memory", ratified_by: "operator" },
+      },
+    ],
+  };
   const members = [
     // WARM: has a confirmed fact (purity) → NO get-data control; counts toward the funnel
-    { security_id: "s-warm", ticker: "WARM", archetype: "leader", archetype_hint: null, segment: null, purity: fig(4, 100), runway: fig(4, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
+    { security_id: "s-warm", ticker: "WARM", archetype: "leader", archetype_hint: null, segment: null, purity: purityOnFile, runway: fig(4, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
     // COLD: the honest cold path — nothing confirmed → the get-data control renders
     { security_id: "s-cold", ticker: "COLD", archetype: null, archetype_hint: null, segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, null), fit: "unscored" },
   ];
@@ -34,6 +48,7 @@ const fx = vi.hoisted(() => {
 const h = vi.hoisted(() => ({
   refetch: vi.fn(),
   pxMutate: vi.fn(),
+  autoMutate: vi.fn(),
   extract: {} as Record<string, { data?: unknown; error?: unknown; isFetching?: boolean }>,
   calls: [] as [string, string | undefined][],
 }));
@@ -51,6 +66,8 @@ vi.mock("../../api/hooks", () => ({
   // the surgical get-data must pull the FULL per-name set: extraction AND the price bars)
   useSectionData: () => ({ run: vi.fn(), running: false, report: null, reset: vi.fn() }),
   useIngestPrices: () => ({ mutate: h.pxMutate, isPending: false, isError: false, error: null }),
+  // the AUTO-shares auto-confirm fired by get-data — CAPTURED (the ceremonial confirm, removed)
+  useAutoConfirmShares: () => ({ mutate: h.autoMutate, isPending: false, isError: false, error: null }),
   // ONE extract mock for BOTH observers (the row control + the rail's FactsPanel). h.calls captures the
   // (securityId, thesisId) pair each caller used — the cache-key contract the instant-sharing rests on.
   useExtract: (sid: string, tid?: string) => {
@@ -73,6 +90,9 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
   beforeEach(() => {
     h.refetch.mockReset();
     h.pxMutate.mockReset();
+    h.autoMutate.mockReset();
+    // getData awaits refetch() and reads its candidates — the default resolves with none (no auto-apply)
+    h.refetch.mockResolvedValue({ data: undefined });
     h.extract = {};
     h.calls = [];
   });
@@ -96,6 +116,53 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
     expect(h.pxMutate).toHaveBeenCalledTimes(1);
     expect(h.pxMutate).toHaveBeenCalledWith("s-cold");
     expect(railTicker()).toBe("WARM"); // getting data is not opening — selection untouched
+  });
+
+  it("get-data auto-applies an AUTO (unflagged) shares count for that name", async () => {
+    const user = userEvent.setup();
+    h.refetch.mockResolvedValue({ data: [{ fact_type: "shares_outstanding", tier: "auto" }] });
+    renderWb();
+    await user.click(screen.getByRole("button", { name: "get data for COLD" }));
+    // the confirm was ceremonial — nobody knows a share count by heart — so get-data applies it
+    expect(h.autoMutate).toHaveBeenCalledTimes(1);
+    expect(h.autoMutate).toHaveBeenCalledWith("s-cold");
+  });
+
+  it("get-data does NOT auto-apply a FLAGged shares count (the operator ratifies it)", async () => {
+    const user = userEvent.setup();
+    h.refetch.mockResolvedValue({
+      data: [{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }],
+    });
+    renderWb();
+    await user.click(screen.getByRole("button", { name: "get data for COLD" }));
+    expect(h.autoMutate).not.toHaveBeenCalled(); // a class sum is a judgment, never the machine's
+    expect(h.refetch).toHaveBeenCalledTimes(1); // the extract itself still ran
+  });
+
+  it("THE BUG FIX: a name with one confirmed fact still surfaces its UNRATIFIED candidates", () => {
+    // WARM carries a confirmed purity, so the OLD rule ("ANY fact confirmed" -> hide) silenced the whole
+    // name while shares + cash were still outstanding. Auto-applying shares would have INDUSTRIALIZED that:
+    // every clean name self-confirms its shares and instantly goes quiet with two facts unratified. The
+    // control now counts what is LEFT, using the same on-file predicate the FactsPanel does.
+    h.extract["s-warm"] = {
+      data: [
+        { fact_type: "revenue_mix", tier: "human" }, // ON FILE (WARM's ratified purity)
+        { fact_type: "shares_outstanding", tier: "auto" }, // outstanding
+        { fact_type: "cash_burn", tier: "auto" }, // outstanding
+      ],
+    };
+    renderWb();
+    const ready = screen.getByRole("button", { name: /data ready for WARM/ });
+    expect(ready).toHaveTextContent("ratify 2"); // NOT hidden, and honest about how many
+    expect(ready).toHaveAttribute("title", expect.stringContaining("cash_burn"));
+  });
+
+  it("a fully-ratified name goes quiet — nothing left to ratify, no control", () => {
+    // every fetched candidate has a fact on file (WARM's purity) -> the control correctly disappears
+    h.extract["s-warm"] = { data: [{ fact_type: "revenue_mix", tier: "human" }] };
+    renderWb();
+    expect(screen.queryByRole("button", { name: /data ready for WARM/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "get data for WARM" })).not.toBeInTheDocument();
   });
 
   it("while fetching, the row says so (a per-name spinner state, not a global one)", () => {

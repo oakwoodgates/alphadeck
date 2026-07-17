@@ -499,6 +499,44 @@ class RatifiedFactOut(BaseModel):
     fact_type: str
 
 
+# --- Auto-confirm — the AUTO-tier shares fact, applied without a ceremonial confirm ---
+
+
+class AutoConfirmRequest(BaseModel):
+    """Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
+
+    NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
+    fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
+    bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
+    companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
+
+    ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
+    operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
+    decision, not a parameter.
+    """
+
+    security_id: UUID
+    fact_type: Literal["shares_outstanding"]
+
+
+class AutoConfirmOut(BaseModel):
+    """The outcome of an auto-confirm — honest about WHY nothing was written.
+
+    ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
+    the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
+    stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
+    """
+
+    applied: bool
+    # applied        — the AUTO parse was written (ratified_by="auto")
+    # already_on_file — a shares fact exists (auto OR an operator override); never re-stamped, never clobbered
+    # not_auto       — the candidate FLAGged (dual-class / stale-cover / no-companyfacts) -> the operator ratifies
+    # no_candidate   — no shares candidate (e.g. a foreign 20-F/6-K filer)
+    # no_value       — AUTO with no parsed figure (defensive; a FLAG never anchors a wrong number)
+    reason: Literal["applied", "already_on_file", "not_auto", "no_candidate", "no_value"]
+    fact_id: UUID | None = None
+
+
 # --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
 
 

@@ -22,6 +22,8 @@ from app.deps import (
     get_tier_rec_client,
 )
 from app.schemas_api import (
+    AutoConfirmOut,
+    AutoConfirmRequest,
     ChainDraftOut,
     DraftCoverageOut,
     DraftJobRef,
@@ -46,7 +48,7 @@ from app.schemas_api import (
 )
 from db.session import connect
 from domain.enums import Authorship, TermTier
-from domain.extraction import ExtractedFact
+from domain.extraction import ExtractedFact, Tier
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
@@ -792,6 +794,90 @@ def _vouched(estimate: float | None, value: float) -> str | None:
     return (
         "confirmed" if math.isclose(estimate, value, rel_tol=1e-9, abs_tol=1e-9) else "overridden"
     )
+
+
+def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUID) -> bool:
+    """Does ANY shares fact exist for this security? The auto-confirm's idempotency + no-clobber gate.
+
+    Deliberately existence-of-ANY-row, not "the latest is auto": once the operator has OVERRIDDEN an
+    auto-applied count, a later get-data must not re-apply the machine value over their decision. Cheap
+    (append-only table, indexed by tenant+security); the read never needs the value.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM fact_shares_outstanding WHERE tenant_id=%s AND security_id=%s LIMIT 1",
+            (tenant_id, security_id),
+        )
+        return cur.fetchone() is not None
+
+
+@router.post("/facts/auto-confirm", response_model=AutoConfirmOut)
+def auto_confirm_fact(
+    req: AutoConfirmRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> AutoConfirmOut:
+    """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
+
+    The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
+    share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
+    stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
+    This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
+    REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
+    have intuition for, and overrides the shares if it looks wrong.
+
+    WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
+    filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
+    estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
+    nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
+    anything ambiguous trips a FLAG and is excluded below.
+
+    THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
+    warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
+
+    Four gates, each an honest ``applied=False`` rather than an error:
+    - the security must be in this tenant's master (fail-closed, like ``/facts``);
+    - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
+      idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
+    - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
+      sum or a stale cover;
+    - ``no_candidate`` / ``no_value`` — nothing to apply.
+    """
+    if not master.exists(conn, req.security_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="security not in this tenant's master")
+    # the idempotency + no-clobber gate FIRST: cheapest, and it short-circuits before any SEC traffic
+    if _has_shares_fact(conn, req.security_id, tenant_id):
+        return AutoConfirmOut(applied=False, reason="already_on_file")
+    cik = master.ciks_for(conn, {req.security_id}, tenant_id=tenant_id).get(req.security_id)
+    if not cik:
+        raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
+    try:
+        cands = extract_for_security(EdgarClient(allow_live=True), cik)
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500
+        raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
+    cand = next((c for c in cands if c.fact_type == "shares_outstanding"), None)
+    if cand is None:
+        return AutoConfirmOut(applied=False, reason="no_candidate")
+    if cand.tier != Tier.AUTO:
+        return AutoConfirmOut(applied=False, reason="not_auto")
+    if cand.value is None:
+        return AutoConfirmOut(applied=False, reason="no_value")
+    fid = ingest_shares_outstanding(
+        conn,
+        req.security_id,
+        shares=cand.value,  # the SERVER's parse — never a client-supplied figure
+        source=cand.source,
+        source_ref=cand.source_ref,
+        event_date=cand.event_date,
+        note=cand.note,
+        ratified_by="auto",  # honest provenance: applied by the machine, NOT confirmed by a human
+        vouched=None,  # no estimate was shown to anyone -> no confirm/override to record
+        tenant_id=tenant_id,
+    )
+    conn.commit()
+    return AutoConfirmOut(applied=True, reason="applied", fact_id=fid)
 
 
 @router.post("/facts", response_model=RatifiedFactOut)

@@ -20,6 +20,7 @@ export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"]
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
+export type AutoConfirmOut = components["schemas"]["AutoConfirmOut"];
 export type LocatedPassage = components["schemas"]["LocatedPassage"];
 export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
 // the ratify body is a discriminated union (one variant per fact type)
@@ -370,18 +371,37 @@ export function useIngestPrices() {
   });
 }
 
+// Ask the server to auto-apply ONE name's AUTO shares count. No value crosses the wire — the server
+// re-extracts, gates on tier===AUTO, and writes its own parse (the #3 structural bound). Shared by the
+// per-name get-data (`useAutoConfirmShares`) and the section runner, so "get data" means the same thing
+// from both entry points.
+async function postAutoConfirmShares(securityId: string): Promise<AutoConfirmOut> {
+  const { data, error } = await api.POST("/workbench/facts/auto-confirm", {
+    body: { security_id: securityId, fact_type: "shares_outstanding" as const },
+  });
+  if (error) throw error;
+  return data;
+}
+
 export interface SectionDataReport {
   total: number;
   pricesOk: number;
   extractsOk: number;
+  // how many names had their AUTO shares count applied by the machine this run — surfaced in the report so a
+  // fact the operator didn't type is never written silently (#6)
+  sharesAuto: number;
   failures: { ticker: string; what: string }[];
 }
 
 // The SECTION runner — gate 2 at value-chain-section granularity: for every member the caller passes
 // (the ACTIVE section — a slice of the saved shortlist, never the draft), pull prices (incremental,
-// cache-first server-side) and prefetch the extract into the SAME query the rows + rail observe. It
-// EXTRACTS-AND-PROPOSES only: nothing here confirms a fact — candidates stage for the operator's per-fact
-// ratify, purity stays HUMAN. An already-fetched extract is not re-spent (client cache checked).
+// cache-first server-side) and prefetch the extract into the SAME query the rows + rail observe. An
+// already-fetched extract is not re-spent (client cache checked).
+//
+// It EXTRACTS-AND-PROPOSES, with ONE exception: an AUTO (unflagged) shares count is auto-applied, the same
+// as the per-name get-data (see `useAutoConfirmShares`) — that confirm was ceremonial, never a verification.
+// Everything that needs judgment still stages for the operator: purity stays HUMAN, cash_burn is a manual
+// ratify, and a FLAGged shares count (dual-class / stale-cover) is declined by the server.
 export function useSectionData(thesisId: string) {
   const qc = useQueryClient();
   const [running, setRunning] = useState(false);
@@ -398,7 +418,24 @@ export function useSectionData(thesisId: string) {
             ? Promise.resolve("cached" as const) // cache-first client-side too — never re-spend a fetch
             : qc.fetchQuery(extractQueryOptions(m.security_id, thesisId)),
         ]);
-        return { ticker: m.ticker ?? m.security_id.slice(0, 8), px, ex };
+        // Auto-apply the AUTO shares count. Read the candidates from the cache so this covers the fetched
+        // AND the already-cached member alike; a rejected extract leaves it undefined -> we skip. The tier
+        // check just avoids a pointless call (the server re-verifies and owns the number), and a failure is
+        // swallowed: the section run must never break because a convenience write didn't land.
+        let sharesAuto = false;
+        const cands = qc.getQueryData<ExtractedFact[]>([
+          "workbench-extract",
+          m.security_id,
+          thesisId ?? null,
+        ]);
+        if (cands?.find((f) => f.fact_type === "shares_outstanding")?.tier === "auto") {
+          try {
+            sharesAuto = (await postAutoConfirmShares(m.security_id)).applied;
+          } catch {
+            sharesAuto = false;
+          }
+        }
+        return { ticker: m.ticker ?? m.security_id.slice(0, 8), px, ex, sharesAuto };
       }),
     );
     const failures: SectionDataReport["failures"] = [];
@@ -410,6 +447,7 @@ export function useSectionData(thesisId: string) {
       total: members.length,
       pricesOk: outcomes.filter((o) => o.px.status === "fulfilled").length,
       extractsOk: outcomes.filter((o) => o.ex.status === "fulfilled").length,
+      sharesAuto: outcomes.filter((o) => o.sharesAuto).length,
       failures,
     });
     setRunning(false);
@@ -594,6 +632,27 @@ export function useRatifyFact() {
       // a ratified fact can move the CALL too (a catalyst conviction turns Key-1; a shares fact
       // completes a cap) — refresh every observed call read (partial key: all theses, all asofs)
       qc.invalidateQueries({ queryKey: ["call"] });
+    },
+  });
+}
+
+// Auto-apply a name's AUTO (unflagged) shares count — fired after get-data, for ONE name. It REMOVES a
+// ceremonial confirm: nobody independently knows a share count, so clicking "Confirm" on the extractor's
+// single-class cover figure only rubber-stamped it (while recording `ratified_by="operator"`). The server
+// re-extracts, gates on tier===AUTO, writes its OWN parse as `ratified_by="auto"`, and no-ops if any shares
+// fact is already on file (idempotent + never clobbers an operator override). We send NO value — the client
+// cannot inject a number under the auto provenance. A FLAGged name declines (`applied:false`) and stays the
+// operator's to ratify. `retry:false` + non-throwing at the call sites: a failed auto-apply is a missing
+// convenience, never a blocked get-data.
+export function useAutoConfirmShares() {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: postAutoConfirmShares,
+    onSuccess: (d) => {
+      if (!d?.applied) return; // declined (flagged / already on file) — nothing moved, nothing to refresh
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap + funnel re-derive
+      qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
     },
   });
 }

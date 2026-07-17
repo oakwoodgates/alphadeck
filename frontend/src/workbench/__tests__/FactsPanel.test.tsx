@@ -157,6 +157,34 @@ describe("FactsPanel — extract → ratify", () => {
     expect(tags[0].closest(".ratify-row")).toHaveTextContent(/market cap · shares/);
   });
 
+  it("an AUTO-APPLIED shares fact says so, and is EDITABLE so it can be overridden", async () => {
+    // ratified_by="auto" = the machine applied the cover count and NOBODY vouched for it. The operator's
+    // real check is the market cap; if it looks wrong they must be able to override here — an AUTO field
+    // that stays read-only would make the label's promise ("confirm or override") a lie (#1).
+    h.extract.data = [AUTO_SHARES];
+    render(<FactsPanel securityId={SID} onFile={{ shares_outstanding: { shares: 52_083_294, ratified_by: "auto" } }} />);
+
+    expect(screen.getByText(/auto-applied — confirm or override/)).toBeInTheDocument();
+    expect(screen.queryByText("✓ on file")).not.toBeInTheDocument(); // the honest tag replaces the neutral one
+    const input = screen.getByLabelText("shares");
+    expect(input).not.toHaveAttribute("readonly");
+    await userEvent.clear(input);
+    await userEvent.type(input, "999");
+    expect(input).toHaveValue(999); // the override is typable
+  });
+
+  it("a LEGACY operator-stamped fact stays the NEUTRAL '✓ on file' — never 'operator confirmed'", () => {
+    // ~108 legacy rows carry ratified_by="operator" from the OLD ceremonial AUTO confirm, so asserting
+    // "operator confirmed" off this column would claim a check that never happened. Only "auto" is claimed.
+    h.extract.data = [AUTO_SHARES];
+    render(
+      <FactsPanel securityId={SID} onFile={{ shares_outstanding: { shares: 1, ratified_by: "operator" } }} />,
+    );
+    expect(screen.getByText("✓ on file")).toBeInTheDocument();
+    expect(screen.queryByText(/auto-applied/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("shares")).toHaveAttribute("readonly"); // AUTO stays confirm-as-is
+  });
+
   it("re-entry shows the RATIFIED purity, not the stale LLM rec (the reversion bug)", () => {
     // the candidate still carries the ORIGINAL estimate (the DB-free extract can't know a ratify
     // happened) — the on-file values must win the seeding, and the estimate tag must NOT render
