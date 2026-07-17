@@ -31,7 +31,7 @@ import psycopg
 
 from db.session import connect
 from ingest.edgar.client import EdgarClient
-from notify import Notifier, TransitionEvent, get_notifier
+from notify import HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
@@ -177,6 +177,31 @@ def run_daily(
     return out
 
 
+def assess_health(
+    results: list[ThesisRunResult], *, asof: date, allow_live: bool
+) -> HealthEvent | None:
+    """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
+    = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
+    refreshed signal), any WITHHELD call (no-live / total ingest failure), or any thesis ERROR. Pure over the
+    collected results, so it is unit-testable without a DB; ``main`` emits it through the notifier.
+    """
+    theses = len(results)
+    withheld = sum(1 for r in results if r.withheld_reason)
+    errored = sum(1 for r in results if r.error)
+    edgar_fetches = sum(r.edgar_fetches for r in results)
+    frozen = allow_live and theses > 0 and edgar_fetches == 0
+    if not (withheld or errored or frozen):
+        return None  # healthy — no page
+    return HealthEvent(
+        asof=asof,
+        theses=theses,
+        withheld=withheld,
+        errored=errored,
+        edgar_fetches=edgar_fetches,
+        frozen=frozen,
+    )
+
+
 def _report(results: list[ThesisRunResult]) -> int:
     """Print a per-thesis summary; return the number that errored (the process exit signal)."""
     appended = sum(1 for r in results if r.recorded)
@@ -225,10 +250,11 @@ def main(argv: list[str] | None = None) -> None:
     asof = date.fromisoformat(args.asof) if args.asof else date.today()
     allow_live = not args.no_live
 
+    notifier = get_notifier()
     started_at = datetime.now(timezone.utc)
     conn = connect()
     try:
-        results = run_daily(conn, asof=asof, allow_live=allow_live)
+        results = run_daily(conn, asof=asof, allow_live=allow_live, notifier=notifier)
     finally:
         conn.close()
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
@@ -240,6 +266,12 @@ def main(argv: list[str] | None = None) -> None:
         started_at=started_at,
         finished_at=datetime.now(timezone.utc),
     )
+    # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
+    # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
+    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises).
+    health = assess_health(results, asof=asof, allow_live=allow_live)
+    if health is not None:
+        notifier.notify_health(health)
     if _report(results):
         raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
 

@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from domain.settings import get_settings
-from notify import LogNotifier, SlackNotifier, TransitionEvent, get_notifier
+from notify import HealthEvent, LogNotifier, SlackNotifier, TransitionEvent, get_notifier
 
 _WEBHOOK = "https://hooks.slack.example/T000/B000/xxxx: the webhook"
 
@@ -125,6 +125,47 @@ def test_raise_for_status_error_does_not_propagate(monkeypatch):
 
     SlackNotifier().notify(_event(to_state="armed"))  # must not raise
     assert calls == [_WEBHOOK]
+
+
+# --- R4: notify_health — the durable page on a bad cron night (freeze / withheld / errored) ---
+
+
+def _freeze() -> HealthEvent:
+    return HealthEvent(
+        asof=date(2026, 7, 17), theses=6, withheld=0, errored=0, edgar_fetches=0, frozen=True
+    )
+
+
+def test_health_ALWAYS_pushes_it_only_fires_when_wrong(monkeypatch):
+    """Unlike notify (armed-only), EVERY health event pushes — it exists only for the exception (freeze /
+    withheld / errored), so it IS the rare loud one. A freeze is exactly the page R1 lacked."""
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify_health(_freeze())
+
+    assert len(calls) == 1 and calls[0]["url"] == _WEBHOOK
+    text = calls[0]["json"]["text"]
+    assert "FROZEN" in text and "0 EDGAR fetches" in text  # the freeze, glanceable
+
+
+def test_health_push_is_FAIL_OPEN(monkeypatch):
+    """Same load-bearing contract as notify: a Slack outage must NEVER raise out of the cron."""
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch, raises=httpx.ConnectError("slack is down"))
+    SlackNotifier().notify_health(_freeze())  # must not raise
+    assert len(calls) == 1  # attempted + swallowed
+
+
+def test_health_records_loud_even_with_no_webhook(monkeypatch, caplog):
+    """No Slack configured → the LogNotifier fallback still RECORDS the bad night loudly (a log is a record)."""
+    import logging
+
+    calls = _capture_post(monkeypatch)  # webhook unset (autouse fixture) → no push
+    with caplog.at_level(logging.ERROR):
+        LogNotifier().notify_health(_freeze())
+    assert calls == []  # nothing pushed (no webhook)
+    assert any("CRON HEALTH" in r.message and "FROZEN" in r.message for r in caplog.records)
 
 
 # --- (4) get_notifier() env selection ----------------------------------------------------------------------
