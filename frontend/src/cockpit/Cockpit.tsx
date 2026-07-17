@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { flushSync } from "react-dom";
 
-import { useCall, useThesis, useWorkbenchScored } from "../api/hooks";
+import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
@@ -48,6 +48,8 @@ export function Cockpit({
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
   const scoredQ = useWorkbenchScored(thesisId, asof);
+  // read-only per-name indicators, fetched ONCE at page level (a future table cell shares this query)
+  const displayQ = useDisplaySignals(thesisId, asof);
   const thesis = thesisQ.data;
   const card = callQ.data;
 
@@ -325,6 +327,11 @@ export function Cockpit({
           card={card}
           thesisId={thesisId}
           position={thesis?.position}
+          display={
+            displayQ.data?.members.find(
+              (m) => m.security_id === selected.row.member.security_id,
+            ) ?? null
+          }
           asof={asof}
           onClose={() => onSelectName(null)}
         />

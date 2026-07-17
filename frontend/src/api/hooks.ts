@@ -123,6 +123,30 @@ export function useCalls(thesisIds: string[], asof: string) {
   return useQueries({ queries: thesisIds.map((id) => callQuery(id, asof)) });
 }
 
+// --- display signals: read-only per-name indicators (docs/DISPLAY_SIGNALS.md) ---
+export type DisplaySignalsResponse = components["schemas"]["DisplaySignalsResponse"];
+export type MemberDisplaySignalsOut = components["schemas"]["MemberDisplaySignalsOut"];
+export type DisplaySignal = components["schemas"]["DisplaySignal"];
+export type DisplayMetric = components["schemas"]["DisplayMetric"];
+export type DisplayEvent = components["schemas"]["DisplayEvent"];
+export type DisplayBasis = components["schemas"]["DisplayBasis"];
+
+// Per-name read-only indicators (SMA position/flips, …), re-derived at `asof` — quiet tape context
+// beside the call, never an input to it. Compute-on-read: a refetch / as-of scrub writes nothing.
+export function useDisplaySignals(thesisId: string, asof: string) {
+  return useQuery({
+    queryKey: ["display-signals", thesisId, asof] as const,
+    enabled: Boolean(thesisId) && Boolean(asof),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/theses/{thesis_id}/display-signals", {
+        params: { path: { thesis_id: thesisId }, query: { asof } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 // --- the Scoreboard (SCORE): the forward record scored — the calls log + the decision log ---
 export type ScoreboardResponse = components["schemas"]["ScoreboardResponse"];
 export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];

@@ -1,8 +1,14 @@
 import { useEffect } from "react";
 
-import type { CallCardResponse, ThesisDetail, TriggerRefOut } from "../api/hooks";
+import type {
+  CallCardResponse,
+  MemberDisplaySignalsOut,
+  ThesisDetail,
+  TriggerRefOut,
+} from "../api/hooks";
 import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
+import { DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel } from "../workbench/format";
 import { archLabel, byEventDateDesc, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
@@ -18,6 +24,9 @@ interface Props {
   thesisId: string;
   /** The thesis's open position — shown here only when attributed to THIS name (its security_id). */
   position: ThesisDetail["position"];
+  /** This name's read-only indicators (joined by security_id off the Cockpit-level query); null =
+   *  nothing for this name (unresolved, or the query hasn't landed) — the section degrades quietly. */
+  display: MemberDisplaySignalsOut | null;
   asof: string;
   onClose: () => void;
 }
@@ -40,7 +49,7 @@ const AUTHOR_TAG: Record<string, string> = {
  *  switching names is one click on the next row; the table itself never unmounts). READ-ONLY by
  *  design: every value is a wire field this page already fetched — sizing, facts, and archetype
  *  decisions live in the Workbench. Esc / ✕ / re-clicking the row closes it. */
-export function NamePanel({ row, def, card, thesisId, position, asof, onClose }: Props) {
+export function NamePanel({ row, def, card, thesisId, position, display, asof, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -274,6 +283,8 @@ export function NamePanel({ row, def, card, thesisId, position, asof, onClose }:
           </div>
         </>
       )}
+
+      <DisplaySignalsSection display={display} />
 
       {myDecisions.length > 0 && (
         <>
