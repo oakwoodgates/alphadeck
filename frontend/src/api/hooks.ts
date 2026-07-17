@@ -546,8 +546,8 @@ export function usePutTriageSession(thesisId: string) {
   });
 }
 
-// Discard the saved session (the operator's explicit "start over"). Invalidate so a subsequent restore reads
-// the now-absent session.
+// Discard the saved session (the operator's explicit "start over"). Set the restore cache to null (not just
+// invalidate) so a same-mount remount seeds fresh immediately — no race with a refetch re-reading the session.
 export function useDeleteTriageSession(thesisId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -558,7 +558,7 @@ export function useDeleteTriageSession(thesisId: string) {
       });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["triage-session", thesisId] }),
+    onSuccess: () => qc.setQueryData(["triage-session", thesisId], { session: null }),
   });
 }
 

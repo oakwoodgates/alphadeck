@@ -70,6 +70,9 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
   const sessionQ = useTriageSession(thesisId, editing && Boolean(thesis));
   const deleteSession = useDeleteTriageSession(thesisId);
   const [dismissedIncompatible, setDismissedIncompatible] = useState(false);
+  // Bumped by "Start over" to force a fresh ChainEditor remount (it seeds ONCE at mount) after the session is
+  // wiped — so the reset re-seeds from the thesis instead of the old in-memory prune.
+  const [editorNonce, setEditorNonce] = useState(0);
   const scored = scoredQ.data;
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
@@ -212,12 +215,26 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
   // Gate the editor mount on the prune-session GET settling — the three (really four) restore cases. A restore
   // must seed at MOUNT (the editor snapshots its state in useState initializers, no in-hook re-sync), so we don't
   // mount ChainEditor until we know what to seed it with.
+  // Start over: wipe the saved prune session and re-seed the editor fresh from the thesis. `deleteSession`
+  // sets the restore cache to null on success (in the hook), and here we bump the nonce — the nonce in the key
+  // force-remounts ChainEditor, which cancels the old instance's pending autosave (useDebouncedCallback clears
+  // on unmount) so it can't re-create the session, and re-seeds from the (session-less) thesis.
+  const startOver = () => {
+    if (
+      !window.confirm(
+        "Discard your saved prune for this thesis and start fresh from the saved basket? This can't be undone.",
+      )
+    )
+      return;
+    deleteSession.mutate(undefined, { onSuccess: () => setEditorNonce((n) => n + 1) });
+  };
   const mountEditor = (t: ThesisDetail, restored?: Parameters<typeof ChainEditor>[0]["restored"]) => (
     <ChainEditor
-      key={t.id}
+      key={`${t.id}:${editorNonce}`}
       thesis={t}
       asof={asof}
       restored={restored}
+      onStartOver={startOver}
       onDone={(saved) => {
         setEditing(false);
         setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it

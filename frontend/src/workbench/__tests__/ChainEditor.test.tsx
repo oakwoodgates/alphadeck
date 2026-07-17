@@ -181,6 +181,28 @@ describe("ChainEditor — authoring", () => {
     expect(h.mutate).not.toHaveBeenCalled();
   });
 
+  it("Start over: renders only when onStartOver is provided, and clicking it invokes the reset", async () => {
+    const user = userEvent.setup();
+    // absent by default (no session-owning parent) — the button is opt-in
+    const { unmount } = render(
+      <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: "Start over" })).toBeNull();
+    unmount();
+
+    const onStartOver = vi.fn();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={flatThesis}
+        onDone={vi.fn()}
+        onStartOver={onStartOver}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Start over" }));
+    expect(onStartOver).toHaveBeenCalledTimes(1);
+  });
+
   it("adds a name via the resolver typeahead (search → pick → classify → add), CIK shown", async () => {
     const user = userEvent.setup();
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
