@@ -28,15 +28,45 @@ def _role(rel: Element | None) -> str | None:
     return ", ".join(flags) or None
 
 
+def _aff_10b5_1(root: ET.Element) -> bool | None:
+    """The filing's Rule 10b5-1 checkbox (``<aff10b5One>``) — was this trade PRE-PLANNED or discretionary?
+
+    THREE-STATE, and the None is load-bearing: True = a planned trade, False = the box is present and clear
+    (discretionary), None = UNKNOWN — the element is absent, which is the norm for anything filed before the
+    SEC's Dec-2022 amendments added the checkbox. Absence must NEVER collapse to False: that would assert
+    "this sale was discretionary" about a filing that never said so — inventing a fact (#3).
+
+    DOCUMENT-level by construction: the element sits on the ownership document (after ``</reportingOwner>``),
+    not on a transaction, so it stamps every row parsed from the filing. A filing mixing a planned and a
+    discretionary trade is ambiguous — that is what the SEC gives us, and we record it, not resolve it.
+
+    CAPTURE-ONLY: nothing reads this. It is stored so the history accrues while the call-logic question
+    (should discretionary selling feed the counter-case?) stays open for the operator.
+    """
+    raw = root.findtext("aff10b5One")
+    if raw is None:
+        return None  # pre-2023 filing / no checkbox — UNKNOWN, never "not planned"
+    v = raw.strip().lower()
+    if v in ("1", "true"):
+        return True
+    if v in ("0", "false"):
+        return False
+    return None  # an unparseable value is unknown, not a guess
+
+
 def parse_form4(xml: str) -> list[dict]:
     """Parse a Form 4 ownership document into open-market-aware transaction rows.
 
     Returns one row per non-derivative transaction with its raw ``txn_code`` (e.g. 'P' = open-market
     purchase, 'S' = sale); the insider-conviction detector (M2b) is what isolates code 'P'.
+
+    Each row also carries the filing's ``aff_10b5_1`` (the Rule 10b5-1 checkbox, tri-state — see
+    ``_aff_10b5_1``). CAPTURE-ONLY: no detector reads it.
     """
     root = ET.fromstring(xml)
     owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
     role = _role(root.find("reportingOwner/reportingOwnerRelationship"))
+    aff = _aff_10b5_1(root)  # filing-level -> stamped onto every row below
 
     txns: list[dict] = []
     for t in root.findall("nonDerivativeTable/nonDerivativeTransaction"):
@@ -55,6 +85,7 @@ def parse_form4(xml: str) -> list[dict]:
                 "acquired_disposed": t.findtext(
                     "transactionAmounts/transactionAcquiredDisposedCode/value"
                 ),
+                "aff_10b5_1": aff,  # filing-level; tri-state (True/False/None=unknown)
             }
         )
     return txns
@@ -87,6 +118,9 @@ def ingest_form4(
             "accession": accession,
             "valid_from": t["txn_date"],
             "txn_seq": i,  # position within the filing — distinguishes same-insider same-day txns
+            # the filing's Rule 10b5-1 checkbox — CAPTURE-ONLY (no detector reads it); NULL = unknown
+            # (pre-Dec-2022 filings have no checkbox), never coerced to False
+            "aff_10b5_1": t["aff_10b5_1"],
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

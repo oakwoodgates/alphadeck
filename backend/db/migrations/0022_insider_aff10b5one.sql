@@ -1,0 +1,30 @@
+-- Alpha Deck — capture the Form 4 Rule 10b5-1 checkbox (CAPTURE-ONLY; no signal/call logic reads it).
+--
+-- WHY: insider SELLING is ~95% of Form 4 flow (AI Memory: 30,388 sells vs 1,441 open-market buys), and the
+-- bulk of it is autopilot — pre-scheduled under a Rule 10b5-1 plan adopted months earlier, executing whether
+-- the insider is euphoric or terrified. A DISCRETIONARY sale (the insider chose, now, with everything they
+-- know) is the only kind that could carry information. Without this flag the two are indistinguishable, so any
+-- sales-derived signal would be dominated by autopilot and be actively misleading.
+--
+-- SCOPE — deliberately capture-only. The detectors are UNCHANGED: `insider_conviction` reads code 'P' and
+-- never fires on sales, and `dilution_clock` remains the only RISK_SIGNAL. Nothing reads this column. It is
+-- stored now so the history ACCRUES while the call-logic question ("should discretionary insider selling feed
+-- the counter-case?") stays open for the operator to decide. Wiring it into a signal is a separate decision.
+--
+-- THREE-STATE, and the NULL is load-bearing:
+--   TRUE  — the filing's 10b5-1 checkbox is set: a planned trade
+--   FALSE — the checkbox is present and clear: NOT a planned trade
+--   NULL  — UNKNOWN. Either the filing predates the checkbox (the SEC added it in the Dec-2022 amendments,
+--           so ~everything before 2023 has no element at all), or the row was ingested before this column
+--           existed. NULL must NEVER be coerced to FALSE: that would assert "this sale was discretionary"
+--           about a 2015 filing where we simply do not know — inventing a fact the filing never stated.
+--
+-- FILING-LEVEL, not transaction-level: `<aff10b5One>` is a document-level element on the ownership document
+-- (it sits after </reportingOwner>), so it stamps every transaction row parsed from that filing. That is what
+-- the SEC gives us; a filing mixing planned and discretionary trades is ambiguous by construction.
+--
+-- Additive + idempotent; append-compatible with the `no_update` row trigger (it guards UPDATEs, not schema).
+-- Existing rows stay NULL: the ingest is incremental (`existing_accessions` skips stored filings), so the flag
+-- populates on NEWLY-ingested filings only. Backfilling the stored history is a SEPARATE decision.
+
+ALTER TABLE fact_insider_txn ADD COLUMN IF NOT EXISTS aff_10b5_1 boolean;  -- TRUE/FALSE/NULL per above

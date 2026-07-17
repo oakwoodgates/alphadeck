@@ -155,6 +155,33 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
 > + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
 
+## Form 4 — the Rule 10b5-1 checkbox `[BUILT — CAPTURE-ONLY]`
+
+`fact_insider_txn.aff_10b5_1` records the filing's **Rule 10b5-1 checkbox** (`<aff10b5One>`). **Nothing reads
+it.** It is captured so the history ACCRUES while the call-logic question stays open for the operator.
+
+**Why it exists.** Insider *selling* is ~95 % of Form 4 flow (AI Memory: **30,388 sells vs 1,441 open-market
+buys**), and much of it is **autopilot** — pre-scheduled under a 10b5-1 plan adopted months earlier, executing
+whether the insider is euphoric or terrified, so it carries ~no information about their current view. Only a
+**discretionary** sale (chosen now, with everything they know) could. Measured live: **MU had 7 of 13 recent
+filings flagged planned — every one a sale**; NVDA had 1 of 14. Without the flag those are indistinguishable,
+so any sales-derived signal would be dominated by autopilot and be actively misleading.
+
+- **Tri-state; the NULL is load-bearing.** `TRUE` = planned · `FALSE` = discretionary · **`NULL` = UNKNOWN**.
+  Absence must NEVER coerce to `FALSE` — that asserts "this sale was discretionary" about a filing that never
+  said so (inventing a fact, #3). The SEC added the checkbox in the **Dec-2022 amendments** (with cooling-off
+  periods + certifications), so ~everything filed before 2023 has no element at all.
+- **Filing-level, not transaction-level.** The element sits on the ownership document (after
+  `</reportingOwner>`), so it stamps every row from that filing. A filing mixing planned and discretionary
+  trades is ambiguous by construction — we record what the SEC gives us, we don't resolve it.
+- **Not retroactive.** The ingest is incremental (`existing_accessions` skips stored filings), so the flag
+  populates on **newly-ingested filings only**; rows already stored stay `NULL`. Backfilling is a separate
+  decision (the fact tables are append-only — a `no_update` trigger enforces it).
+- **The detectors are unchanged.** `insider_conviction` reads code `P` and never fires on sales;
+  `dilution_clock` remains the only `RISK_SIGNAL`. Whether discretionary selling should feed the counter-case
+  is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
+  whether planned, discretionary, or unknown.
+
 ## Point-in-time discipline (applies to every source)
 
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
