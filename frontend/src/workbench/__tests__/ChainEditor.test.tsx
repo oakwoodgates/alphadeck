@@ -948,10 +948,36 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     matched_terms: ["storage"],
     off_thesis: false,
   };
+  // off-thesis, but TWO discovery terms → the stronger keyword evidence → "Low signal" (2+ terms)
+  const VOFF2 = {
+    name: "Seagate",
+    ticker: "STX",
+    prose: "adjacent storage — weak thesis tie",
+    segment: "Discovered",
+    status: "verify",
+    security_id: "s-stx",
+    candidates: [],
+    matched_terms: ["memory", "storage"],
+    off_thesis: true,
+  };
+  // off-thesis with ZERO keyword provenance — an off-universe name the model surfaced on its own. Sorts to
+  // the TOP of "Lowest signal" (weakest keyword-wise, but the model's own suggestion — worth the eyeball).
+  const VOFFZERO = {
+    name: "Ghost Storage Co",
+    ticker: "GST",
+    prose: "model-surfaced, no keyword hit",
+    segment: "Discovered",
+    status: "verify",
+    security_id: "s-gst",
+    candidates: [],
+    matched_terms: [],
+    off_thesis: true,
+    discovery_source: "off_universe",
+  };
 
-  it("items 4+5: To Review surfaces keepers, collapses off-thesis (Low signal) + ticker-less (No listed ticker)", async () => {
+  it("items 4+5: To Review surfaces keepers, splits off-thesis into Low signal (2+ terms) / Lowest signal (≤1) + ticker-less", async () => {
     const user = userEvent.setup();
-    mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
+    mockDraft(draft([VKEEP, VOFF2, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
@@ -960,14 +986,21 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.getByRole("checkbox", { name: "add MU" })).toBeEnabled(); // check-to-add is live for a keeper
     expect(screen.queryByText("recommend add")).not.toBeInTheDocument();
     // the off-thesis majority + the ticker-less names are QUIET + collapsed (not visible until expanded, #7/#9)
+    expect(screen.queryByText("Seagate")).not.toBeInTheDocument();
     expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
     expect(screen.queryByText("Some Holdco LLC")).not.toBeInTheDocument();
+    // the off-thesis noise is now TWO drawers, split by keyword provenance
     expect(screen.getByText("Low signal")).toBeInTheDocument();
+    expect(screen.getByText("Lowest signal")).toBeInTheDocument();
     expect(screen.getByText("No listed ticker")).toBeInTheDocument();
-    // the To review count is KEEPERS-ONLY — the two noise buckets are nested sub-drawers with their own counts
+    // the To review count is KEEPERS-ONLY — the noise buckets are nested sub-drawers with their own counts
     expect(screen.getByRole("button", { name: /To review/ })).toHaveTextContent("· 1");
-    // expand Low signal → the off-thesis name appears, still promotable (never dropped)
+    // expand Low signal → the 2-term off-thesis name appears, still promotable (never dropped)
     await user.click(screen.getByText("Low signal"));
+    expect(screen.getByText("Seagate")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add STX" })).toBeInTheDocument();
+    // expand Lowest signal → the single-term off-thesis name appears, still promotable
+    await user.click(screen.getByText("Lowest signal"));
     expect(screen.getByText("Kroger")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "add KR" })).toBeInTheDocument();
     // expand No listed ticker → the ticker-less name shows, but its add is DISABLED (not directly investable)
@@ -975,7 +1008,23 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.getByRole("checkbox", { name: "add Some Holdco LLC" })).toBeDisabled();
     // the Discovered-segment rows never read "recommend → Discovered" (a non-recommendation), but keep `matched`
     expect(screen.queryByText(/recommend → Discovered/)).not.toBeInTheDocument();
-    expect(screen.getByText(/matched memory/)).toBeInTheDocument(); // Kroger's provenance still shows
+    expect(screen.getByText("matched memory")).toBeInTheDocument(); // Kroger's provenance (single term) still shows
+  });
+
+  it("split ordering: a 0-term off-universe name sorts to the TOP of Lowest signal, above the single-term hits", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([VOFF, VOFFZERO], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("Lowest signal");
+
+    // no "Low signal" drawer — neither name has 2+ terms (honest loudness #7: an empty bucket doesn't render)
+    expect(screen.queryByText("Low signal")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Lowest signal"));
+    // the 0-term (off-universe, no keyword provenance) name comes BEFORE the single-term hit
+    const zero = screen.getByText("Ghost Storage Co");
+    const one = screen.getByText("Kroger");
+    expect(zero.compareDocumentPosition(one) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("a keeper's ✕ sets it aside (greyed stub) and toggles back on a second click (#1/#2)", async () => {
@@ -1032,7 +1081,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
-    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByText("Lowest signal"));
     await user.click(screen.getByRole("button", { name: "set aside KR" }));
     expect(screen.getByText("Kroger")).toBeInTheDocument(); // stub visible under "all"
 
@@ -1050,7 +1099,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
-    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByText("Lowest signal"));
     await user.click(screen.getByRole("button", { name: "set aside KR" }));
     await user.selectOptions(screen.getByLabelText("filter by include"), "excluded");
 
@@ -1066,7 +1115,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
-    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByText("Lowest signal"));
     await user.click(screen.getByRole("button", { name: "set aside KR" }));
     await user.selectOptions(screen.getByLabelText("filter by include"), "included");
     expect(screen.queryByText("Kroger")).not.toBeInTheDocument();
@@ -1086,7 +1135,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByText("Micron");
 
-    await user.click(screen.getByText("Low signal"));
+    await user.click(screen.getByText("Lowest signal"));
     await user.click(screen.getByRole("button", { name: "set aside KR" }));
     await user.selectOptions(screen.getByLabelText("filter by include"), "included");
 
@@ -1144,19 +1193,21 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.getByRole("button", { name: /Placed names/ })).toBeInTheDocument();
   });
 
-  it("D: To Review nests three sub-drawers under one master (collapsing the master hides all three)", async () => {
+  it("D: To Review nests its sub-drawers under one master (collapsing the master hides them all)", async () => {
     const user = userEvent.setup();
-    mockDraft(draft([VKEEP, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
+    mockDraft(draft([VKEEP, VOFF2, VOFF, VNOTICK], [{ label: "memory", descriptor: null }]));
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    // three nested sub-drawers, mirroring the Placed section: Keepers (open) · Low signal · No listed ticker
+    // nested sub-drawers, mirroring the Placed section: Keepers (open) · Low signal · Lowest signal · No listed ticker
     await screen.findByText("Keepers");
     expect(screen.getByText("Low signal")).toBeInTheDocument();
+    expect(screen.getByText("Lowest signal")).toBeInTheDocument();
     expect(screen.getByText("No listed ticker")).toBeInTheDocument();
-    // collapsing the MASTER To review hides ALL THREE (they're children now, not top-level siblings)
+    // collapsing the MASTER To review hides them ALL (they're children now, not top-level siblings)
     await user.click(screen.getByRole("button", { name: /To review/ }));
     expect(screen.queryByText("Keepers")).not.toBeInTheDocument();
     expect(screen.queryByText("Low signal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lowest signal")).not.toBeInTheDocument();
     expect(screen.queryByText("No listed ticker")).not.toBeInTheDocument();
   });
 });

@@ -102,19 +102,27 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
   ("haven't decided" → "in the basket"). The reverse is the Placed row's **send-back / exclude** (#121/#122).
   **There is no "skip"** — a candidate is never discarded, only added or left in the queue (a skip that dropped the
   row was a silent #1/#2 violation).
-- **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed** into a "Low
-  signal" section. **No yellow flag** — flagging the majority just moves the noise around; loudness marks the rare
-  exception, which in To-Review is the *keeper*, not the junk.
+- **Off-thesis** (the narrator's `off_thesis` bool — see `CHAIN_DRAFTER.md`) → **quiet, collapsed**, and **split by
+  keyword provenance** into two drawers so the flood is read at a glance: **"Low signal"** (matched **2+** discovery
+  terms — the stronger keyword evidence, more likely a missed keeper) and **"Lowest signal"** (matched **≤1** term —
+  the weakest). Within Low signal, more terms sort first; within Lowest signal, the **zero-term names sort to the
+  top** — an off-thesis name with *no* keyword provenance is an **off-universe** name the model surfaced on its own
+  (`discovery_source="off_universe"`, no term hit), worth the eyeball above the single incidental hits. Each drawer
+  renders **only when non-empty** (honest loudness #7 — a bucket true of nothing doesn't render). **No yellow flag** —
+  flagging the majority just moves the noise around; loudness marks the rare exception, which in To-Review is the
+  *keeper*, not the junk. (The sort is drawer-local and view-only — it reads the already-present `matched_terms`,
+  writes nothing, and adds no field to the persisted prune session.)
 - **Ticker-less** (a resolved filer with no listed ticker — likely a sub / holdco / debt issuer) → collapsed into a
   "No listed ticker" section. Probably not directly investable, so its
   **check-to-add is disabled** (it never enters the basket by a stray click). Still **not dropped** (#9 — the row
   is surfaced, and a name that genuinely belongs is reachable via the master **name search**, which promotes by
   `security_id`).
 - **Precedence:** off-thesis > ticker-less > keeper.
-- **Three nested sub-drawers under one master To-Review collapsible** (mirrors the Placed section's
-  `.wb-placed-groups`): **Keepers** (open by default — the signal), **Low signal**, and **No listed ticker**
-  (both collapsed). Each is independently collapsible so a big draft's To-review block stays keeper-sized, and
-  collapsing the master hides the whole bucket in one click. The master header count is **keepers-only** (the
+- **Up to four nested sub-drawers under one master To-Review collapsible** (mirrors the Placed section's
+  `.wb-placed-groups`): **Keepers** (open by default — the signal), **Low signal**, **Lowest signal**, and **No
+  listed ticker** (the last three collapsed). Each is independently collapsible so a big draft's To-review block stays
+  keeper-sized, and collapsing the master hides the whole bucket in one click. The master header count is
+  **keepers-only** (the
   headline is the signal; each sub-drawer carries its own count).
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled

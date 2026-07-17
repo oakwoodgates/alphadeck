@@ -362,7 +362,8 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   const [reviewOpen, setReviewOpen] = useState(true); // the master To-Review section (open by default)
   const [keepersOpen, setKeepersOpen] = useState(true); // the keepers sub-drawer (the signal — open)
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
-  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (collapsed)
+  const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (2+ terms; collapsed)
+  const [lowestSignalOpen, setLowestSignalOpen] = useState(false); // the lowest-signal sub-drawer (≤1 term; collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
   // Keeper set-aside (#1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
@@ -832,7 +833,20 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
   // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
   const verifyVisible = verify.filter(matchesVerifyInclude);
+  // The off-thesis noise, split by keyword provenance so the flood is read at a glance (honest loudness #7):
+  //   Low signal    = matched 2+ discovery terms (the stronger keyword evidence — more likely a missed keeper).
+  //   Lowest signal = matched ≤1 term. Sorted 0-terms FIRST (off-universe names the model surfaced with NO
+  //     keyword provenance at all — its own suggestions, worth the eyeball), then the single incidental hits.
+  // Copy-then-sort (never mutate the source array). Within Low signal, more terms first (descending).
   const vOffThesis = verifyVisible.filter((p) => p.off_thesis);
+  const vLowSignal = vOffThesis
+    .filter((p) => p.matched_terms.length >= 2)
+    .slice()
+    .sort((a, b) => b.matched_terms.length - a.matched_terms.length);
+  const vLowestSignal = vOffThesis
+    .filter((p) => p.matched_terms.length <= 1)
+    .slice()
+    .sort((a, b) => a.matched_terms.length - b.matched_terms.length); // 0-term (off-universe) at the top
   const vNoTicker = verifyVisible.filter((p) => !p.off_thesis && !p.ticker);
   const vKeepers = verifyVisible.filter((p) => !p.off_thesis && p.ticker);
   const verifyRow = (p: ResolvedPlacement, key: string) => {
@@ -1826,11 +1840,13 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                 ) : (
                   <div className="note">
                     No clear keepers — the model didn't flag any of these as a strong fit. The Low signal /
-                    No listed ticker drawers below hold the rest.
+                    Lowest signal / No listed ticker drawers below hold the rest.
                   </div>
                 )}
-                {/* off-thesis noise — quiet, NO yellow (the majority; highlight keepers, not this) */}
-                {vOffThesis.length > 0 && (
+                {/* off-thesis noise, split by keyword provenance — quiet, NO yellow (the majority; highlight
+                    keepers, not this). Each drawer renders only when non-empty (honest loudness #7: a bucket
+                    true of nothing doesn't render). Low signal = 2+ terms; Lowest signal = ≤1 term. */}
+                {vLowSignal.length > 0 && (
                   <div className="resolve wb-placed-group">
                     <button
                       type="button"
@@ -1842,12 +1858,36 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                       <span className="chev">{lowSignalOpen ? "▾" : "▸"}</span>
                       <span className="rt">Low signal</span>
                       <span className="rm-meta">
-                        model sees no clear thesis fit · {vOffThesis.length} hidden
+                        model sees no clear thesis fit · matched 2+ terms · {vLowSignal.length} hidden
                       </span>
                     </button>
                     {lowSignalOpen && (
                       <div className="resolve-body">
-                        {vOffThesis.map((p, i) => verifyRow(p, `off-${i}`))}
+                        {vLowSignal.map((p, i) => verifyRow(p, `off-${i}`))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* the weakest — one incidental keyword hit, or an off-universe name the model surfaced with
+                    NO keyword provenance (those sort to the top of this drawer). */}
+                {vLowestSignal.length > 0 && (
+                  <div className="resolve wb-placed-group">
+                    <button
+                      type="button"
+                      className="resolve-h"
+                      aria-expanded={lowestSignalOpen}
+                      aria-label="toggle Lowest signal"
+                      onClick={() => setLowestSignalOpen((o) => !o)}
+                    >
+                      <span className="chev">{lowestSignalOpen ? "▾" : "▸"}</span>
+                      <span className="rt">Lowest signal</span>
+                      <span className="rm-meta">
+                        weakest — a single incidental keyword hit · {vLowestSignal.length} hidden
+                      </span>
+                    </button>
+                    {lowestSignalOpen && (
+                      <div className="resolve-body">
+                        {vLowestSignal.map((p, i) => verifyRow(p, `lowest-${i}`))}
                       </div>
                     )}
                   </div>
