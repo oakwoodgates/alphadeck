@@ -56,6 +56,11 @@ class ThesisRunResult:
     # 0 across the whole run = the cache never refreshed = the R1 freeze, visible instead of hiding behind
     # a plausible "quiet day". Recorded into the cron run log (R3); R4 pages on it.
     edgar_fetches: int = 0
+    # R2a — why the call-of-record was WITHHELD (not recorded), or None if it was recorded/attempted. A run
+    # that didn't meaningfully refresh has no business writing the log of record: "no-live" (a cache-only dev
+    # run, Source A) or "total ingest failure" (the ingest raised, or EVERY name errored, Source C). A healthy
+    # OR partial run still records (the partial one marked via the calls ingest_fresh column, R2b).
+    withheld_reason: str | None = None
 
 
 def run_daily(
@@ -110,6 +115,25 @@ def run_daily(
         # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
+        # R2a — THE RECORDING GATE: a run that didn't meaningfully refresh must not write the log of record.
+        # TWO conditions, closing two do-nothing shapes that a fact-count test can't (a --no-live run over a
+        # warm cache is fast, clean, appends nothing, and does NOT error):
+        #   - no-live (Source A) → allow_live False. A cache-only dev run has no business recording, period.
+        #   - total ingest failure (Source C) → the ingest raised (res.error), OR names existed and EVERY one
+        #     errored. NOT "appended 0" — a current thesis appends 0 on a HEALTHY run and MUST still record.
+        # A partial failure (some errored, some clean) DOES record, marked via ingest_fresh (R2b).
+        ingest_errors = sum(1 for x in res.ingested if x.error)
+        if res.error:
+            res.withheld_reason = "total ingest failure"  # Source C (the ingest raised)
+        elif not allow_live:
+            res.withheld_reason = "no-live"  # Source A
+        elif res.ingested and ingest_errors == len(res.ingested):
+            res.withheld_reason = "total ingest failure"  # Source C (every name errored)
+        if res.withheld_reason is not None:
+            # the missing `continue`: skip assemble/notify/record entirely — a call built on a failed or
+            # cache-only ingest is exactly the record the freeze investigation found masquerading as real
+            out.append(res)
+            continue
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
             card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
@@ -135,7 +159,16 @@ def run_daily(
                 )
                 notifier.notify(evt)
                 res.transition = evt.label
-            res.recorded = calls_repo.record_if_changed(conn, card, thesis.tenant_id)
+            # R2b — stamp the run's ingest health on the recorded row (PROVENANCE, off the card). We reach
+            # here only on a healthy OR partial ingest; ingest_fresh False marks the partial one so the
+            # Scoreboard can discount a call resting on names that failed to refresh.
+            res.recorded = calls_repo.record_if_changed(
+                conn,
+                card,
+                thesis.tenant_id,
+                ingest_fresh=(ingest_errors == 0),
+                ingest_errors=ingest_errors,
+            )
             conn.commit()
         except Exception as e:  # noqa: BLE001 — one thesis's call never aborts the cron
             conn.rollback()
@@ -148,10 +181,13 @@ def _report(results: list[ThesisRunResult]) -> int:
     """Print a per-thesis summary; return the number that errored (the process exit signal)."""
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
+    withheld = [r for r in results if r.withheld_reason]
     errored = [r for r in results if r.error]
     for r in results:
         if r.error:
             mark = f"ERROR: {r.error}"
+        elif r.withheld_reason:
+            mark = f"WITHHELD ({r.withheld_reason}) — call NOT recorded"
         elif r.recorded:
             mark = "call-of-record APPENDED"
         else:
@@ -171,8 +207,9 @@ def _report(results: list[ThesisRunResult]) -> int:
         print("TRANSITIONS:")
         for t in transitions:
             print(f"  {t}")
+    wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
-        f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged · "
+        f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "
         f"{len(transitions)} transitions · {len(errored)} errored"
     )
     return len(errored)

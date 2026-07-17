@@ -82,6 +82,8 @@ def write_cron_run_log(
                 "theses": len(results),
                 "appended": recorded,
                 "unchanged": sum(1 for r in results if r.recorded is False),
+                # R2a — calls WITHHELD (no-live / total ingest failure); R4 pages on this
+                "withheld": sum(1 for r in results if r.withheld_reason),
                 "errored": sum(1 for r in results if r.error),
                 "transitions": sum(1 for r in results if r.transition),
             },
@@ -90,6 +92,7 @@ def write_cron_run_log(
                     "id": str(r.thesis_id),
                     "name": r.name,
                     "recorded": r.recorded,
+                    "withheld_reason": r.withheld_reason,  # R2a — why the call was NOT recorded (or None)
                     "transition": r.transition,
                     "error": r.error,
                     "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector

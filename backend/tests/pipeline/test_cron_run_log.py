@@ -53,6 +53,7 @@ def test_writes_a_run_record_with_the_run_shape(tmp_path):
         "theses": 2,
         "appended": 1,
         "unchanged": 1,
+        "withheld": 0,
         "errored": 0,
         "transitions": 0,
     }
