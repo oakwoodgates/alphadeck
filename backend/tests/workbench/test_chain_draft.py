@@ -207,6 +207,53 @@ def test_discovered_chain_places_matched_by_cik(db):
     assert all(s.label != "Discovered" for s in chain.segments)
 
 
+def test_placed_name_is_the_bound_master_name_not_the_organizer_echo(db):
+    """BIND-THEN-LABEL the NAME (not just the ticker): the organizer's free-text label is non-deterministic
+    run-to-run and can be stale/wrong for a renamed CIK — the live AIBT case, where one SEC CIK the organizer
+    once called 'Mycotopia Therapies' is now 'AIBOTICS, INC.'. A PLACED row bound to a master row must DISPLAY
+    that row's SEC name, NOT the echo — deterministic, current, consistent with the ticker. The organizer's
+    LAYOUT prose is still carried; arranging the chain is its job, naming the row is not. (EDGAR-CIK path.)
+    """
+    cik = "0001763329"
+    sid = _insert(db, "AIBT", name="AIBOTICS, INC.", cik=cik)  # the CURRENT master identity
+    u = DiscoveredUniverse()
+    u.placed[cik] = sid
+    u.filers[cik] = Filer(cik=cik, name="AIBOTICS, INC.", ticker="AIBT", keywords={"kw"})
+    segs = [
+        _seg(
+            ProposedPlacement(name="Mycotopia Therapies", ticker="AIBT", prose="psychedelics play"),
+            label="Developers",
+        )
+    ]
+    chain = resolve_discovered_chain(db, segs, u, tenant_id=DEFAULT_TENANT_ID)
+    p = next(p for p in chain.placements if p.security_id == sid)
+    assert p.status is PlacementStatus.PLACED
+    assert (
+        p.name == "AIBOTICS, INC."
+    )  # the BOUND master name, NOT the organizer's stale "Mycotopia Therapies"
+    assert (
+        p.prose == "psychedelics play"
+    )  # the organizer's layout prose is still carried (that IS its job)
+
+
+def test_off_universe_placed_name_also_binds_to_master(db):
+    """The chokepoint covers BOTH resolution paths: a name with no EDGAR CIK resolves via `_resolve_one`
+    (off-universe) to a real master row and STILL takes the master name — so NO placed name (either path) rides
+    a model token. Empty discovered universe → the organizer name falls to the master resolver by exact ticker.
+    """
+    sid = _insert(db, "AIBT", name="AIBOTICS, INC.", cik="0001763329")
+    segs = [
+        _seg(ProposedPlacement(name="Mycotopia Therapies", ticker="AIBT", prose="x"), label="Devs")
+    ]
+    chain = resolve_discovered_chain(db, segs, DiscoveredUniverse(), tenant_id=DEFAULT_TENANT_ID)
+    p = next(p for p in chain.placements if p.security_id == sid)
+    assert p.status is PlacementStatus.PLACED
+    assert p.discovery_source == "off_universe"  # resolved outside the EDGAR-discovered universe
+    assert (
+        p.name == "AIBOTICS, INC."
+    )  # master name even though it resolved off-universe via _resolve_one
+
+
 def test_dropped_discovered_cik_surfaces_in_discovered_bucket(db):
     """THE completeness guarantee (per-CIK, not a count heuristic): the organizer arranges only ONE of three
     discovered names; the two it silently drops — a single miss invisible among a plausible many — BOTH reappear

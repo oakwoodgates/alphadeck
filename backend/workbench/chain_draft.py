@@ -85,10 +85,11 @@ class SecurityCandidate(DomainModel):
 
 class ResolvedPlacement(DomainModel):
     """A proposed name after resolution against the master. ``security_id`` is set IFF ``PLACED``;
-    ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``name`` / ``prose`` are preserved (so the
-    UI can show what the model proposed even when it didn't resolve); ``ticker`` on a row that carries a
-    ``security_id`` is the BOUND master row's ticker (bind-then-label — shown ≡ bound; promote persists
-    this field with the id), and only an unresolved row keeps the model's ticker guess.
+    ``candidates`` is non-empty IFF ``AMBIGUOUS``. The model's ``prose`` is always preserved (display). Both
+    ``name`` and ``ticker`` are BIND-THEN-LABEL: on a row that carries a ``security_id`` they are the BOUND
+    master row's SEC name + ticker (shown ≡ bound; ``_carry_identity_and_gate`` sets the name, promote persists
+    the ticker with the id) — never the model's echo; only an UNRESOLVED row (AMBIGUOUS / ABSENT) keeps the
+    model's proposed name + ticker guess (there is no bound row to label it from).
 
     ``matched_terms`` are the discovery keyword(s) the name's CIK hit (provenance — INVARIANT #6, and the
     on-screen tell for a colliding seed per #9: a placed name shows WHY it surfaced). Empty for an off-universe
@@ -179,13 +180,21 @@ def _conflict_candidates(
 def _carry_identity_and_gate(
     conn: psycopg.Connection, placements: list[ResolvedPlacement], *, tenant_id: UUID
 ) -> None:
-    """Carry machine-parsed IDENTITY (sector / exchange / listing status) from the master onto each resolved
-    placement (display-only), and apply the STATUS-GATE: a PLACED name whose master row reads ``"inactive"``
-    (no current listing found in EDGAR) is DOWNGRADED to AMBIGUOUS — never auto-placed — with its own row as the
-    single pick (a frictionless rescue; one click re-places it). ``listing_status`` rides the placement so the
-    FE shows a HEDGED flag, never a hard "delisted" verdict — precision is the operator deleting a visible flag,
-    never a silent drop (#9). DB-only (no network — the resolver stays pure); a placement whose row is
-    un-enriched or absent keeps ``listing_status=None`` (no flag, no gate — the honest fallback)."""
+    """Carry machine-parsed IDENTITY (name / sector / exchange / listing status) from the master onto each
+    resolved placement (display-only), and apply the STATUS-GATE: a PLACED name whose master row reads
+    ``"inactive"`` (no current listing found in EDGAR) is DOWNGRADED to AMBIGUOUS — never auto-placed — with its
+    own row as the single pick (a frictionless rescue; one click re-places it). ``listing_status`` rides the
+    placement so the FE shows a HEDGED flag, never a hard "delisted" verdict — precision is the operator deleting
+    a visible flag, never a silent drop (#9). DB-only (no network — the resolver stays pure); a placement whose
+    row is un-enriched or absent keeps ``listing_status=None`` (no flag, no gate — the honest fallback).
+
+    BIND-THEN-LABEL the NAME (not just the ticker): every placement that resolved to a master row (any PLACED /
+    VERIFY — i.e. carries a ``security_id``) takes that row's SEC ``name`` for display, replacing the organizer's
+    free-text echo. This is the SINGLE chokepoint over BOTH resolution paths (the EDGAR-CIK match and the
+    off-universe ``_resolve_one``), so the shown name is factual (the SEC master row), deterministic, and current
+    — never a model token. A name with NO single binding (AMBIGUOUS candidates / ABSENT) has no master row here
+    and keeps the proposed name (there is no factual name to use — the operator picks / it's shown-not-placed).
+    """
     secs = master.get_many(
         conn, [p.security_id for p in placements if p.security_id is not None], tenant_id=tenant_id
     )
@@ -193,6 +202,10 @@ def _carry_identity_and_gate(
         s = secs.get(p.security_id) if p.security_id is not None else None
         if s is None:
             continue
+        if s.name:
+            p.name = (
+                s.name
+            )  # the BOUND SEC name is canonical for display (not the organizer's echo)
         p.sector, p.exchange, p.listing_status = s.sector, s.exchange, s.status
         p.category = s.category
         if p.status is PlacementStatus.PLACED and s.status == "inactive":
@@ -362,7 +375,7 @@ def resolve_discovered_chain(
             f = universe.filers.get(cik)
             placements.append(
                 ResolvedPlacement(
-                    name=p.name,
+                    name=p.name,  # provisional; _carry_identity_and_gate rebinds it to the master name below
                     # the BOUND row's ticker, not the organizer's echo (bind-then-label: the universe's
                     # filers carry master identity, and promote persists this field with the security_id)
                     ticker=(f.ticker if f is not None and f.ticker else p.ticker),
