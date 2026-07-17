@@ -1334,6 +1334,43 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
   });
 
+  it("C-B ordering: 'Placed, flagged' surfaces stronger keyword provenance first (matched-term count, desc)", async () => {
+    const user = userEvent.setup();
+    // two flagged (off-thesis but placed) names; neither a junk tell (broad terms). Emit the SINGLE-term name
+    // FIRST so only the new count sort can move it BELOW the two-term name.
+    const F_ONE = {
+      name: "Beta Flag Co",
+      ticker: "BFC",
+      prose: "single broad hit",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-bfc",
+      candidates: [],
+      matched_terms: ["memory"],
+      off_thesis: true,
+    };
+    const F_MULTI = {
+      name: "Alpha Flag Co",
+      ticker: "AFC",
+      prose: "two hits — stronger provenance",
+      segment: "memory",
+      status: "placed",
+      security_id: "s-afc",
+      candidates: [],
+      matched_terms: ["memory", "storage"],
+      off_thesis: true,
+    };
+    mockDraft(draft([P_CLEAN, F_ONE, F_MULTI], MEM_SEG));
+    render(<ChainEditor asof="2026-06-08" thesis={hbmThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("toggle Placed, flagged");
+
+    // the 2-term flagged name sorts ABOVE the 1-term one, regardless of emission order
+    const multi = screen.getByText("Alpha Flag Co");
+    const one = screen.getByText("Beta Flag Co");
+    expect(multi.compareDocumentPosition(one) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("G: sole-acronym without model flag stays in Placed (not low quality)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([P_CLEAN, P_COLLISION], MEM_SEG));

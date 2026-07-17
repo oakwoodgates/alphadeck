@@ -566,6 +566,15 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     else if (m.security_id && offThesisSet.has(m.security_id)) gFlagged.push(m);
     else gClean.push(m);
   }
+  // "Placed, flagged" is a noise-review group (off-thesis, but saved) — order it by keyword provenance, the
+  // strongest evidence FIRST (mirrors the To-Review Low/Lowest split), so the most-likely-real names surface for
+  // a keep pass and the weak single/zero-term hits fall to the bottom for a scan-and-exclude. View-only: reads
+  // the already-present `matched` counts (free client-side sort), writes nothing. Ticker tie-break for stability.
+  const mtCount = (m: BasketMember): number =>
+    m.security_id ? (matched[m.security_id]?.length ?? 0) : 0;
+  gFlagged.sort(
+    (a, b) => mtCount(b) - mtCount(a) || (a.ticker || "").localeCompare(b.ticker || ""),
+  );
   const groupingActive = gFlagged.length > 0 || gLowQuality.length > 0;
   const shownRows = (gkey: string, rows: BasketMember[]) =>
     showAllGroups.has(gkey) ? rows : rows.slice(0, PLACED_PREVIEW);
