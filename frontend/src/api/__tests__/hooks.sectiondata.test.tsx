@@ -46,8 +46,48 @@ describe("useSectionData — the per-section prices + extraction runner", () => 
       total: 2,
       pricesOk: 2,
       extractsOk: 2,
+      sharesAuto: 0, // these candidates carry no AUTO shares -> nothing auto-applied
       failures: [],
     });
+  });
+
+  it("auto-applies an AUTO shares count per member, sending NO value, and reports the count", async () => {
+    const qc = new QueryClient();
+    h.get.mockResolvedValue({
+      data: [{ fact_type: "shares_outstanding", tier: "auto" }],
+      error: null,
+    });
+    h.post.mockImplementation((path: string) =>
+      path === "/workbench/facts/auto-confirm"
+        ? Promise.resolve({ data: { applied: true, reason: "applied", fact_id: "f1" }, error: null })
+        : Promise.resolve({ data: { bars_appended: 1 }, error: null }),
+    );
+    const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
+    await act(async () => {
+      await result.current.run([M("s-1", "AAA"), M("s-2", "BBB")]);
+    });
+
+    const auto = h.post.mock.calls.filter(([p]) => p === "/workbench/facts/auto-confirm");
+    expect(auto).toHaveLength(2); // one per member — the ceremonial confirm, removed
+    // THE #3 BOUND, on the wire: the body names a security + fact type and carries NO number. The server
+    // re-extracts and writes its own parse, so no client bug can inject a figure under `auto` provenance.
+    expect(auto[0][1].body).toEqual({ security_id: "s-1", fact_type: "shares_outstanding" });
+    expect(result.current.report?.sharesAuto).toBe(2); // surfaced, never a silent write
+  });
+
+  it("a FLAGged shares candidate is NEVER auto-applied — it stays the operator's to ratify", async () => {
+    const qc = new QueryClient();
+    h.get.mockResolvedValue({
+      // dual-class / stale-cover: a judgment call the machine must not make
+      data: [{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }],
+      error: null,
+    });
+    const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
+    await act(async () => {
+      await result.current.run([M("s-1", "AAA")]);
+    });
+    expect(h.post.mock.calls.filter(([p]) => p === "/workbench/facts/auto-confirm")).toHaveLength(0);
+    expect(result.current.report?.sharesAuto).toBe(0);
   });
 
   it("an already-cached extract is NOT re-spent (cache-first client-side)", async () => {

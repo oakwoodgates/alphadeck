@@ -1322,6 +1322,48 @@
         }
       }
     },
+    "/workbench/facts/auto-confirm": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Auto Confirm Fact",
+        "description": "Auto-apply a security's AUTO-tier shares count on get-data \u2014 REMOVING a ceremonial confirm, not a real one.\n\nThe AUTO shares confirm was never a human verification: the operator has no independent knowledge of a\nshare count and does not look one up, so clicking \"Confirm\" on a machine-reproduced cover figure rubber-\nstamped it while recording ``ratified_by=\"operator\"`` \u2014 provenance claiming a check that never happened.\nThis applies the value directly and stamps it ``ratified_by=\"auto\"``, which is what actually occurred. The\nREAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do\nhave intuition for, and overrides the shares if it looks wrong.\n\nWHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of\nfiled companyfacts (the market-cap trust class) \u2014 never a model output, never a computed/``llm_proposed``\nestimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);\nnothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case \u2014\nanything ambiguous trips a FLAG and is excluded below.\n\nTHE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first \u2014 get-data just\nwarmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.\n\nFour gates, each an honest ``applied=False`` rather than an error:\n- the security must be in this tenant's master (fail-closed, like ``/facts``);\n- ``already_on_file`` \u2014 ANY existing shares fact (auto or an operator override) -> no-op. This is the\n  idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;\n- ``not_auto`` \u2014 a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class\n  sum or a stale cover;\n- ``no_candidate`` / ``no_value`` \u2014 nothing to apply.",
+        "operationId": "auto_confirm_fact_workbench_facts_auto_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoConfirmOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/facts": {
       "post": {
         "tags": [
@@ -1517,6 +1559,65 @@
         ],
         "title": "Authorship",
         "description": "Who placed a basket member in its value-chain segment (the Workbench authorship seam).\n\nThe MVP writes only the operator values; ``SYSTEM_DRAFTED`` is present now so the seam already\nsupports the bounded LLM drafter (the next slice) without a later schema change."
+      },
+      "AutoConfirmOut": {
+        "properties": {
+          "applied": {
+            "type": "boolean",
+            "title": "Applied"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "already_on_file",
+              "not_auto",
+              "no_candidate",
+              "no_value"
+            ],
+            "title": "Reason"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "applied",
+          "reason"
+        ],
+        "title": "AutoConfirmOut",
+        "description": "The outcome of an auto-confirm \u2014 honest about WHY nothing was written.\n\n``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:\nthe caller fires this optimistically after get-data and the server decides. ``reason`` names which gate\nstopped it so the UI (and a test) can tell \"we declined to auto-apply\" from \"it failed\"."
+      },
+      "AutoConfirmRequest": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "fact_type": {
+            "type": "string",
+            "const": "shares_outstanding",
+            "title": "Fact Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "fact_type"
+        ],
+        "title": "AutoConfirmRequest",
+        "description": "Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).\n\nNOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number \u2014 it names a security and a\nfact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural\nbound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed\ncompanyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.\n\n``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the\noperator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify \u2014 extending this is a\ndecision, not a parameter."
       },
       "BasketMember": {
         "properties": {

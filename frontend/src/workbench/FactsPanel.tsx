@@ -107,6 +107,11 @@ function RatifyRow({
   const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
   const auto = candidate.tier === "auto";
   const isFlag = candidate.tier === "flag";
+  // The value was APPLIED by the machine (get-data auto-confirm) and no human vouched for it. This flips the
+  // AUTO field from read-only to EDITABLE — the label promises "confirm or override", and an override the
+  // operator can't type is not an override (#1 reversibility). Confirming as-is is still meaningful here: it
+  // appends an `operator` fact, upgrading a machine-applied count to one a human vouched for.
+  const autoApplied = onFile?.ratified_by === "auto";
   // SURFACE 1b — the GROUNDED purity estimate (llm-proposed, UNVERIFIED): pre-fill the % + the proposed
   // segment (parsed from the note the endpoint wrote) so "confirm as-is" is one action; the operator can
   // override either. Sending the estimate on ratify lets the server stamp `vouched` (confirmed vs overridden).
@@ -224,14 +229,27 @@ function RatifyRow({
         <span className={`rtier ${candidate.tier}`}>{candidate.tier}</span>
         {/* a ratified value already exists — confirming APPENDS a new version (latest wins on read);
             without this tag a re-open read as "the first save never happened" */}
-        {onFile && (
-          <span
-            className="ronfile"
-            title="a ratified value for this fact is already on file (see Behind the scores) — confirming appends a NEW version; latest wins on read"
-          >
-            ✓ on file
-          </span>
-        )}
+        {/* AUTO-APPLIED vs merely ON FILE. We assert "auto-applied" ONLY for `ratified_by === "auto"` — a
+            count the machine applied that no human vouched for, so the operator knows to sanity-check it
+            against the market cap. Every other fact keeps the neutral "✓ on file", which is true of all of
+            them. Deliberately NOT "operator confirmed": ~108 legacy rows carry ratified_by="operator" from
+            the OLD ceremonial AUTO confirm, so that label would claim a check that never happened. */}
+        {onFile &&
+          (onFile.ratified_by === "auto" ? (
+            <span
+              className="ronfile auto"
+              title="applied automatically from the filing's cover count (single-class, current) — nobody verified this number. It scores like any ratified fact; sanity-check it against the market cap and override here if it looks wrong."
+            >
+              ✦ auto-applied — confirm or override
+            </span>
+          ) : (
+            <span
+              className="ronfile"
+              title="a ratified value for this fact is already on file (see Behind the scores) — confirming appends a NEW version; latest wins on read"
+            >
+              ✓ on file
+            </span>
+          ))}
         {(candidate.flags ?? []).map((fl) => (
           <span className={MISSING_FLAGS.has(fl) ? "rflag missing" : "rflag"} key={fl}>
             {MISSING_FLAGS.has(fl) ? "∅" : "⚠"} {fl}
@@ -310,7 +328,7 @@ function RatifyRow({
             type="number"
             aria-label="shares"
             value={shares}
-            readOnly={auto}
+            readOnly={auto && !autoApplied}
             onChange={(e) => setShares(e.target.value)}
           />
         </label>

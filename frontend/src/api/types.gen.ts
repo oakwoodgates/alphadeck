@@ -607,6 +607,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/facts/auto-confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Confirm Fact
+         * @description Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
+         *
+         *     The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
+         *     share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
+         *     stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
+         *     This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
+         *     REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
+         *     have intuition for, and overrides the shares if it looks wrong.
+         *
+         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
+         *     filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
+         *     estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
+         *     nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
+         *     anything ambiguous trips a FLAG and is excluded below.
+         *
+         *     THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
+         *     warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
+         *
+         *     Four gates, each an honest ``applied=False`` rather than an error:
+         *     - the security must be in this tenant's master (fail-closed, like ``/facts``);
+         *     - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
+         *       idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
+         *     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
+         *       sum or a stale cover;
+         *     - ``no_candidate`` / ``no_value`` — nothing to apply.
+         */
+        post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts": {
         parameters: {
             query?: never;
@@ -723,6 +767,50 @@ export interface components {
          * @enum {string}
          */
         Authorship: "system_drafted" | "operator_set" | "operator_edited";
+        /**
+         * AutoConfirmOut
+         * @description The outcome of an auto-confirm — honest about WHY nothing was written.
+         *
+         *     ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
+         *     the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
+         *     stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
+         */
+        AutoConfirmOut: {
+            /** Applied */
+            applied: boolean;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "applied" | "already_on_file" | "not_auto" | "no_candidate" | "no_value";
+            /** Fact Id */
+            fact_id?: string | null;
+        };
+        /**
+         * AutoConfirmRequest
+         * @description Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
+         *
+         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
+         *     fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
+         *     bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
+         *     companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
+         *
+         *     ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
+         *     operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
+         *     decision, not a parameter.
+         */
+        AutoConfirmRequest: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Fact Type
+             * @constant
+             */
+            fact_type: "shares_outstanding";
+        };
         /** BasketMember */
         BasketMember: {
             /** Ticker */
@@ -3262,6 +3350,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_confirm_fact_workbench_facts_auto_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoConfirmOut"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -51,6 +51,11 @@ export interface OnFileFact {
   cash_usd?: number;
   quarterly_burn_usd?: number;
   note?: string;
+  // WHO put it on file. Read for ONE branch: `"auto"` -> the machine applied an AUTO parse and no human
+  // vouched for it, so the panel says "auto-applied — confirm or override". Anything else (incl. the legacy
+  // `"operator"`) stays a neutral "on file": ~108 legacy rows are the OLD ceremonial AUTO confirm, so
+  // claiming "operator confirmed" off this field would assert a check that never happened.
+  ratified_by?: string;
 }
 export type OnFileMap = Partial<Record<string, OnFileFact>>;
 
@@ -78,7 +83,11 @@ export function onFileValues(m: {
   }
   const sh = m.market_cap.provenance.find((p) => p.source !== "price" && p.source !== "computed");
   if (sh) {
-    map.shares_outstanding = { shares: dnum(sh.detail, "shares"), note: dstr(sh.detail, "note") };
+    map.shares_outstanding = {
+      shares: dnum(sh.detail, "shares"),
+      note: dstr(sh.detail, "note"),
+      ratified_by: dstr(sh.detail, "ratified_by"),
+    };
   }
   const cb = m.runway.provenance[0];
   if (cb) {

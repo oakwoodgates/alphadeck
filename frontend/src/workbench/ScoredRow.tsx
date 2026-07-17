@@ -1,7 +1,13 @@
 import type { ScoredMemberOut } from "../api/hooks";
-import { useExtract, useIngestPrices } from "../api/hooks";
+import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
 import { Meter } from "./Meter";
-import { archLabel, errText, formatMarketCap, memberHasFundamentals } from "./format";
+import {
+  archLabel,
+  errText,
+  formatMarketCap,
+  memberHasFundamentals,
+  onFileValues,
+} from "./format";
 
 interface Props {
   member: ScoredMemberOut;
@@ -19,22 +25,42 @@ interface Props {
  *  GATE 2 of the three-gate TRIAGE flow — "mark for data": the ⇣ get-data control fires THIS ONE name's
  *  extraction (the existing per-name endpoint; 2–4 EDGAR requests, cache-first). The mark and the spend
  *  collapse into one deliberate click — cost is the operator's to spend, never ambient. It shares the
- *  FactsPanel's query (same key), so a fetched row's candidates render in the rail instantly; once a fact
- *  is RATIFIED the control disappears (the meters + funnel take over). Failures are per-name + retryable. */
+ *  FactsPanel's query (same key), so a fetched row's candidates render in the rail instantly. The control
+ *  then tracks what is LEFT to ratify and disappears only when nothing remains. Failures are per-name +
+ *  retryable.
+ *
+ *  Get-data also AUTO-APPLIES an AUTO (unflagged) shares count — removing a ceremonial confirm, not a real
+ *  one: nobody knows a share count by heart, so confirming the extractor's cover figure only rubber-stamped
+ *  it. The server owns the number and the AUTO gate (see `useAutoConfirmShares`); a FLAGged count still goes
+ *  to the operator, and the market cap is the real check. */
 export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
   const extract = useExtract(member.security_id, thesisId);
   // the surgical get-data pulls the FULL per-name set: extraction candidates + EOD price bars (the
   // decoupled price leg) — same completeness as the section button, one name at a time
   const ingestPx = useIngestPrices();
+  const autoShares = useAutoConfirmShares();
   const loaded = memberHasFundamentals(member);
   // "data ready" means there are CANDIDATES to ratify — an empty extract (a foreign 20-F/6-K issuer with no
   // 10-K/10-Q the extractor covers) is NOT ready. `noFilings` is that honest fetched-but-empty state; without
   // it an empty result read as "✓ data ready" and opened to a blank rail (the SIMO confusion).
   const hasCandidates = (extract.data?.length ?? 0) > 0;
   const noFilings = extract.data !== undefined && !hasCandidates;
-  const getData = () => {
-    extract.refetch();
+  // The candidates STILL needing the operator, i.e. fetched but with no ratified fact of that type yet. This
+  // is the control's real subject. It used to key off `loaded` (ANY confirmed fact), which was already a bug —
+  // ratifying one fact hid the control while purity/cash were still outstanding — and auto-applying shares
+  // would have INDUSTRIALIZED it: every clean name would self-confirm its shares and instantly go quiet with
+  // two facts unratified. Counting what's left keeps the name honestly surfaced until it's actually done.
+  const onFile = onFileValues(member);
+  const remaining = (extract.data ?? []).filter((f) => !onFile[f.fact_type]);
+  const getData = async () => {
     ingestPx.mutate(member.security_id);
+    const res = await extract.refetch();
+    // Auto-apply the AUTO shares count — bound to THIS explicit get-data, never a render (the query cache can
+    // already hold candidates, and a fact must never be written just by looking at a name). We gate on the
+    // candidate's tier to skip a pointless call; the SERVER re-verifies AUTO and owns the number. `mutate`
+    // (not mutateAsync) is non-throwing: a failed auto-apply leaves today's manual confirm exactly as it is.
+    const shares = res?.data?.find((f) => f.fact_type === "shares_outstanding");
+    if (shares?.tier === "auto") autoShares.mutate(member.security_id);
   };
   return (
     // the row DIV owns the whole-surface click; the ticker block below is the real <button> (the
@@ -64,24 +90,29 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
           <small>mkt cap</small>
           {formatMarketCap(member.market_cap.value)}
         </span>
-        {/* gate 2 — per-name, opt-in, visible cost; hidden once ANY fact is confirmed (loaded) */}
-        {!loaded &&
-          (extract.isFetching ? (
-            <span className="wb-getdata busy">extracting…</span>
-          ) : hasCandidates ? (
-            <button
-              type="button"
-              className="wb-getdata ready"
-              aria-label={`data ready for ${member.ticker ?? "name"} — open to ratify`}
-              title="candidates are loaded — open the name and ratify them in the rail"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect();
-              }}
-            >
-              ✓ data ready — ratify
-            </button>
-          ) : noFilings ? (
+        {/* gate 2 — per-name, opt-in, visible cost. The control now tracks what's LEFT to ratify (not merely
+            "any fact confirmed"), so an auto-applied shares count can't silence a name whose purity/cash are
+            still outstanding. Hidden only when nothing remains: fully ratified, or never fetched + loaded. */}
+        {extract.isFetching ? (
+          <span className="wb-getdata busy">extracting…</span>
+        ) : remaining.length > 0 ? (
+          <button
+            type="button"
+            className="wb-getdata ready"
+            aria-label={`data ready for ${member.ticker ?? "name"} — open to ratify`}
+            title={`${remaining.length} candidate${remaining.length > 1 ? "s" : ""} still to ratify (${remaining
+              .map((f) => f.fact_type)
+              .join(" · ")}) — open the name and ratify them in the rail`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
+            ✓ data ready — ratify {remaining.length}
+          </button>
+        ) : loaded ? null : (
+          <>
+            {noFilings ? (
             // honest-loudness: an empty extract is NOT "data ready" and retrying won't help — say why, quietly
             <span
               className="wb-getdata none"
@@ -115,7 +146,9 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
             >
               ⇣ get data
             </button>
-          ))}
+            )}
+          </>
+        )}
         {/* the price leg's own failure — visible per name, non-blocking (extraction may still be fine) */}
         {ingestPx.isError && (
           <span
