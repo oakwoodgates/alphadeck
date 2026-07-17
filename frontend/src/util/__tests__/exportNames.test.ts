@@ -4,6 +4,7 @@ import {
   downloadJson,
   exportFilename,
   exportKeptNames,
+  exportSegmentedNames,
   slugForFilename,
   sortByTicker,
   toExportedName,
@@ -144,6 +145,70 @@ describe("exportNames", () => {
       expect(stringifySpy).toHaveBeenCalledWith(rows, null, 2);
       expect(click).toHaveBeenCalledOnce();
       expect(capturedAnchor?.download).toBe("Uranium-triage-2026-06-08.json");
+    });
+  });
+
+  describe("exportSegmentedNames", () => {
+    let click: ReturnType<typeof vi.fn>;
+    let capturedAnchor: HTMLAnchorElement | null;
+
+    beforeEach(() => {
+      capturedAnchor = null;
+      click = vi.fn();
+      vi.stubGlobal("URL", {
+        createObjectURL: vi.fn(() => "blob:mock"),
+        revokeObjectURL: vi.fn(),
+      });
+      vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
+        const el = document.createElementNS("http://www.w3.org/1999/xhtml", tagName);
+        if (tagName === "a") capturedAnchor = el as HTMLAnchorElement;
+        return el;
+      });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(click);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it("writes an object keyed by group, each group sorted, order preserved, empty groups dropped", () => {
+      const stringifySpy = vi.spyOn(JSON, "stringify");
+      exportSegmentedNames({
+        thesisName: "Uranium",
+        stage: "all",
+        asof: "2026-06-08",
+        groups: [
+          { label: "Reactors", rows: [{ ticker: "SMR", name: "NuScale" }, { ticker: "OKLO", name: "Oklo" }] },
+          { label: "Fuel", rows: [{ ticker: "URA", name: "Global X" }, { ticker: "CCJ", name: "Cameco" }] },
+          { label: "Empty", rows: [] }, // dropped
+          { label: "To Review", rows: [{ ticker: "LEU", name: "Centrus" }] },
+        ],
+      });
+
+      const written = stringifySpy.mock.calls[0][0] as Record<string, { ticker: string }[]>;
+      // group order preserved (chain order, buckets last); Empty dropped
+      expect(Object.keys(written)).toEqual(["Reactors", "Fuel", "To Review"]);
+      // each group alphabetical by ticker
+      expect(written.Reactors.map((r) => r.ticker)).toEqual(["OKLO", "SMR"]);
+      expect(written.Fuel.map((r) => r.ticker)).toEqual(["CCJ", "URA"]);
+      expect(capturedAnchor?.download).toBe("Uranium-all-2026-06-08.json");
+      expect(click).toHaveBeenCalledOnce();
+    });
+
+    it("merges rows for a repeated group label rather than dropping one", () => {
+      const stringifySpy = vi.spyOn(JSON, "stringify");
+      exportSegmentedNames({
+        thesisName: "T",
+        stage: "all",
+        asof: "2026-06-08",
+        groups: [
+          { label: "Discovered", rows: [{ ticker: "ZZZ", name: null }] },
+          { label: "Discovered", rows: [{ ticker: "AAA", name: null }] },
+        ],
+      });
+      const written = stringifySpy.mock.calls[0][0] as Record<string, { ticker: string }[]>;
+      expect(written.Discovered.map((r) => r.ticker)).toEqual(["AAA", "ZZZ"]);
     });
   });
 });

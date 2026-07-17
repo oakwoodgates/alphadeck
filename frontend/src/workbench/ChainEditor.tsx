@@ -23,7 +23,12 @@ import {
   useStartDraft,
 } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
-import { exportKeptNames, toExportedName } from "../util/exportNames";
+import {
+  exportKeptNames,
+  exportSegmentedNames,
+  toExportedName,
+  type ExportGroup,
+} from "../util/exportNames";
 import { useDebouncedCallback } from "../util/useDebouncedCallback";
 import { AddName } from "./AddName";
 import { AutoTextarea } from "./AutoTextarea";
@@ -430,6 +435,42 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Prop
       : putSession.isSuccess
         ? "saved"
         : "idle";
+
+  // "Export all" (the top-of-editor button): EVERY name this narrative surfaced, grouped for a diff-friendly
+  // dump — the whole basket (incl. excluded/set-aside — this is NOT the prune) by value-chain link in chain
+  // order, then the Discovered pen, then the To-Review pile. Each group is sorted alphabetically by ticker in
+  // exportSegmentedNames; empty groups are dropped there.
+  const nameOf = (m: { security_id?: string | null; ticker: string }): string | null =>
+    (m.security_id ? names[m.security_id] : undefined) ??
+    (m.security_id ? scoredById?.[m.security_id]?.name : undefined) ??
+    null;
+  const buildExportAllGroups = (): ExportGroup[] => {
+    const groups: ExportGroup[] = [];
+    const linkLabels = new Set(d.draft.segments.map((s) => s.label));
+    // real links, in chain order (a basket member's segment, or the Discovered pen when unset)
+    for (const seg of d.draft.segments) {
+      groups.push({
+        label: seg.label,
+        rows: d.draft.basket
+          .filter((m) => (m.segment ?? DISCOVERED) === seg.label)
+          .map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) })),
+      });
+    }
+    // basket members whose segment is null or a stale label the chain no longer has → the Discovered pen
+    const orphans = d.draft.basket
+      .filter((m) => !linkLabels.has(m.segment ?? DISCOVERED))
+      .map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) }));
+    if (orphans.length) groups.push({ label: DISCOVERED, rows: orphans });
+    // the To-Review pile — surfaced by the draft but never placed into a link
+    const bucket = (arr: ResolvedPlacement[]): ExportGroup["rows"] =>
+      arr.map((p) => toExportedName({ ticker: p.ticker, name: p.name }));
+    groups.push({ label: "To Review", rows: bucket(verify) });
+    groups.push({ label: "Ambiguous", rows: bucket(ambiguous) });
+    groups.push({ label: "Couldn't resolve", rows: bucket(absent) });
+    return groups;
+  };
+  const exportAllCount =
+    d.draft.basket.length + verify.length + ambiguous.length + absent.length;
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
@@ -891,6 +932,25 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Prop
           Build the value chain <em>— decompose the basket into links</em>
         </div>
         <div className="wb-editor-actions">
+          {/* Export ALL surfaced names (whole basket + To-Review pile), grouped by link, each alphabetical by
+              ticker — a diff-friendly dump. DISTINCT from the "Export (N)" in Placed names, which is included-only. */}
+          <button
+            type="button"
+            className="wb-mini ghost"
+            disabled={exportAllCount === 0}
+            title="Export EVERY name this narrative surfaced — the whole basket (including excluded) plus the To-Review pile — grouped by link, each alphabetical by ticker"
+            aria-label={`export all ${exportAllCount} surfaced names, segmented by link`}
+            onClick={() =>
+              exportSegmentedNames({
+                thesisName: thesis.name,
+                stage: "all",
+                asof,
+                groups: buildExportAllGroups(),
+              })
+            }
+          >
+            Export all ({exportAllCount})
+          </button>
           {/* Autosave status (the resumable prune) — DISTINCT from the promote "Save chain" below: this saves the
               working state so a refresh resumes; that writes the spine. Loud only on a sustained failure. */}
           {saveStatus === "saving" && (
