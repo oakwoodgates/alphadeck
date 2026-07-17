@@ -24,6 +24,7 @@ from domain.thesis import (
 )
 from domain.workbench import ScoredFigure, ScoredMember
 from scoreboard.schema import EpisodeOperator, OperatorSpan, ScoredEpisode, ThesisRecord
+from signals.display.base import DisplaySignal
 from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
@@ -989,3 +990,26 @@ class ScoreboardReplayResponse(BaseModel):
     n_eligible: int = 0
     metrics: list[ScoreboardMetricOut] = []
     theses: list[ScoreboardReplayThesisOut] = []
+
+
+class MemberDisplaySignalsOut(BaseModel):
+    """One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at
+    this asof (e.g. no ingested bars yet) — an honest empty, the member still shows."""
+
+    security_id: UUID
+    ticker: str | None = None
+    signals: list[DisplaySignal] = []
+
+
+class DisplaySignalsResponse(BaseModel):
+    """Read-only per-name display indicators, re-derived from the bitemporal facts at ``asof``.
+
+    Display-only tape context beside the call — NEVER a SignalEvent, never an input to the call,
+    and never recorded: a day-varying field on the recorded domain CallCard would break the daily
+    cron's ``record_if_changed`` idempotency (one appended calls row per night), so indicators ride
+    this compute-on-read endpoint instead. See ``docs/DISPLAY_SIGNALS.md``.
+    """
+
+    thesis_id: UUID
+    asof: date
+    members: list[MemberDisplaySignalsOut] = []
