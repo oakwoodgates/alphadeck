@@ -123,6 +123,12 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   read as the signal conviction beside it (the two meanings never cross), and the authored
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
+- **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
+  the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet metric chips (SMA position + % distances),
+  muted dated flip lines (price × 50d/200d crosses, golden/death), and a fine-print basis line
+  (bars used · through-date — the show-the-work, #6). Honest gaps read "—" with the why
+  ("n/a: 140/200 bars"); no data at all reads one muted line. Ambient tape context beside the call,
+  never an input to it and never loud (#7). Fetched once at Cockpit level, joined by security_id.
 
 Everything on the panel is a wire field this page already fetched; fact/archetype decisions live in the
 Workbench, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time

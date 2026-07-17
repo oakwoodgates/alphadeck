@@ -86,6 +86,39 @@ const fx = vi.hoisted(() => {
       },
     ],
   },
+  // read-only indicators — only J has a row, so the join-by-security_id and the honest-empty
+  // degrade (ZTEK) are both exercised; sma200 is a thin-history gap with its why
+  display: {
+    thesis_id: "t-nuke",
+    asof: "2026-07-11",
+    members: [
+      {
+        security_id: "s-j",
+        ticker: "J",
+        signals: [
+          {
+            kind: "sma_position",
+            label: "SMA position (50/200d)",
+            metrics: [
+              { key: "close", label: "close", value: 132.4, unit: "price", note: null },
+              { key: "sma50", label: "50d SMA", value: 120.1, unit: "price", note: null },
+              { key: "sma200", label: "200d SMA", value: null, unit: "price", note: "n/a: 140/200 bars" },
+              { key: "pct_vs_sma50", label: "vs 50d", value: 10.24, unit: "pct", note: null },
+              { key: "pct_vs_sma200", label: "vs 200d", value: null, unit: "pct", note: "n/a: 140/200 bars" },
+            ],
+            events: [
+              { key: "cross_sma50", label: "price crossed above 50d SMA", date: "2026-06-20", direction: "up" },
+            ],
+            basis: {
+              source: "fact_price_eod",
+              params: { fast: 50, slow: 200, lookback_days: 600 },
+              bars_used: 140, window_start: "2026-01-02", window_end: "2026-07-11", note: null,
+            },
+          },
+        ],
+      },
+    ],
+  },
   };
 });
 
@@ -93,6 +126,7 @@ vi.mock("../../api/hooks", () => ({
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
   useCall: () => ({ data: fx.call, isLoading: false, error: null }),
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
+  useDisplaySignals: () => ({ data: fx.display, isLoading: false, error: null }),
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   useDecisions: () => ({ data: fx.decisions, isLoading: false, error: null }),
@@ -181,6 +215,24 @@ describe("Cockpit — the per-name panel", () => {
     expect(panel(container)).toBeNull();
 
     expect(container.querySelector("table.basket")).toBe(table);
+  });
+
+  it("shows Indicators · this name — readings joined by security_id, gaps and empties said", () => {
+    const { container } = renderCockpit();
+    fireEvent.click(row(container, "bkt-armed")); // J — the one name with a display row
+    const p = within(panel(container) as HTMLElement);
+    expect(p.getByText("Indicators · this name")).toBeInTheDocument();
+    expect(p.getByText("SMA position (50/200d)")).toBeInTheDocument();
+    expect(p.getByText("+10.2%")).toBeInTheDocument(); // pct renders signed
+    expect(p.getByText("132.40")).toBeInTheDocument(); // price renders 2dp
+    expect(p.getAllByText("n/a: 140/200 bars")).toHaveLength(2); // the honest gap says WHY (#6/#7)
+    expect(p.getByText(/price crossed above 50d SMA/)).toBeInTheDocument();
+    expect(p.getByText(/140 bars · through/)).toBeInTheDocument(); // the show-the-work basis line
+
+    fireEvent.click(row(container, "bkt-watch")); // ZTEK — no row in the response
+    const p2 = within(panel(container) as HTMLElement);
+    expect(p2.getByText("No indicator data at this as-of.")).toBeInTheDocument();
+    expect(p2.queryByText(/price crossed/)).toBeNull(); // another name's tape never leaks
   });
 
   it("degrades honestly on the verdict-less buckets: watch keeps its confirmation clock, quiet says so", () => {

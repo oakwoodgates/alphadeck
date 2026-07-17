@@ -40,6 +40,7 @@ vi.mock("../../api/hooks", () => ({
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
   useCall: () => ({ data: undefined, isLoading: false, error: null }),
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
+  useDisplaySignals: () => ({ data: undefined, isLoading: false, error: null }),
   // the spine-list editors (A2) render inside the Cockpit sections — inert here
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
