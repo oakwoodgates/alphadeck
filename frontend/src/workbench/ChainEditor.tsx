@@ -436,38 +436,28 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored }: Prop
         ? "saved"
         : "idle";
 
-  // "Export all" (the top-of-editor button): EVERY name this narrative surfaced, grouped for a diff-friendly
-  // dump — the whole basket (incl. excluded/set-aside — this is NOT the prune) by value-chain link in chain
-  // order, then the Discovered pen, then the To-Review pile. Each group is sorted alphabetically by ticker in
-  // exportSegmentedNames; empty groups are dropped there.
+  // "Export all" (the top-of-editor button): EVERY name this narrative surfaced, grouped by STATUS bucket for a
+  // diff-friendly dump — NOT by value-chain link (the link labels are verbose and not what the operator diffs).
+  // The whole placed basket (incl. excluded/set-aside — this is NOT the prune) as one "Placed" group, then the
+  // To-Review pile. Each group is sorted alphabetically by ticker in exportSegmentedNames; empties are dropped.
   const nameOf = (m: { security_id?: string | null; ticker: string }): string | null =>
     (m.security_id ? names[m.security_id] : undefined) ??
     (m.security_id ? scoredById?.[m.security_id]?.name : undefined) ??
     null;
   const buildExportAllGroups = (): ExportGroup[] => {
-    const groups: ExportGroup[] = [];
-    const linkLabels = new Set(d.draft.segments.map((s) => s.label));
-    // real links, in chain order (a basket member's segment, or the Discovered pen when unset)
-    for (const seg of d.draft.segments) {
-      groups.push({
-        label: seg.label,
-        rows: d.draft.basket
-          .filter((m) => (m.segment ?? DISCOVERED) === seg.label)
-          .map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) })),
-      });
-    }
-    // basket members whose segment is null or a stale label the chain no longer has → the Discovered pen
-    const orphans = d.draft.basket
-      .filter((m) => !linkLabels.has(m.segment ?? DISCOVERED))
-      .map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) }));
-    if (orphans.length) groups.push({ label: DISCOVERED, rows: orphans });
-    // the To-Review pile — surfaced by the draft but never placed into a link
     const bucket = (arr: ResolvedPlacement[]): ExportGroup["rows"] =>
       arr.map((p) => toExportedName({ ticker: p.ticker, name: p.name }));
-    groups.push({ label: "To Review", rows: bucket(verify) });
-    groups.push({ label: "Ambiguous", rows: bucket(ambiguous) });
-    groups.push({ label: "Couldn't resolve", rows: bucket(absent) });
-    return groups;
+    return [
+      // the whole placed basket as ONE group — every basket member regardless of which link it sits in
+      {
+        label: "Placed",
+        rows: d.draft.basket.map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) })),
+      },
+      // the To-Review pile — surfaced by the draft but never placed into the basket
+      { label: "To Review", rows: bucket(verify) },
+      { label: "Ambiguous", rows: bucket(ambiguous) },
+      { label: "Couldn't resolve", rows: bucket(absent) },
+    ];
   };
   const exportAllCount =
     d.draft.basket.length + verify.length + ambiguous.length + absent.length;
