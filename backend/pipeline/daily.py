@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 import psycopg
@@ -32,6 +32,7 @@ import psycopg
 from db.session import connect
 from notify import Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
+from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
 from securities import master
@@ -172,13 +173,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--asof", default=None, help="as-of date YYYY-MM-DD (default: today)")
     p.add_argument("--no-live", action="store_true", help="cache-only ingest (no network)")
     args = p.parse_args(argv)
-    asof = date.fromisoformat(args.asof) if args.asof else None
+    asof = date.fromisoformat(args.asof) if args.asof else date.today()
+    allow_live = not args.no_live
 
+    started_at = datetime.now(timezone.utc)
     conn = connect()
     try:
-        results = run_daily(conn, asof=asof, allow_live=not args.no_live)
+        results = run_daily(conn, asof=asof, allow_live=allow_live)
     finally:
         conn.close()
+    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
+    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
+    write_cron_run_log(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
     if _report(results):
         raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
 
