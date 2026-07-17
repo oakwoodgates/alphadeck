@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,8 +13,10 @@ from app.schemas_api import (
     CatalystIn,
     DecisionIn,
     DecisionOut,
+    DisplaySignalsResponse,
     ExclusionIn,
     KillCriterionIn,
+    MemberDisplaySignalsOut,
     ThesisDetail,
     ThesisSummary,
 )
@@ -22,6 +24,8 @@ from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
+from signals.base import PointInTimeData
+from signals.display import registered_display_members
 
 router = APIRouter(prefix="/theses", tags=["theses"])
 
@@ -98,6 +102,40 @@ def get_call(
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     return CallCardResponse.from_card(card, cik_for, ticker_for)
+
+
+@router.get("/{thesis_id}/display-signals", response_model=DisplaySignalsResponse)
+def get_display_signals(
+    asof: date = Query(..., description="as-of date; indicators use no data knowable after it"),
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> DisplaySignalsResponse:
+    """Read-only per-name DISPLAY indicators (SMA position/flips, …), re-derived at ``asof`` from
+    the same bitemporal facts the detectors read — quiet tape context beside the call, never an
+    input to it (a display signal has no role; it cannot arm, veto, or grade). Computed on read and
+    never persisted, so a refetch / as-of scrub writes nothing and the call-of-record log stays
+    untouched. Covers every resolved basket member; a member with no computable indicator (e.g. no
+    ingested bars yet) shows with ``signals: []`` — an honest empty, never a dropped row.
+    """
+    pit = PointInTimeData(conn, asof=asof, tenant_id=thesis.tenant_id)
+    sids: list[UUID] = []
+    for m in thesis.basket:
+        if m.security_id is not None and m.security_id not in sids:
+            sids.append(m.security_id)
+    ticker_for = master.tickers_for(conn, set(sids), tenant_id=thesis.tenant_id)
+    members = [
+        MemberDisplaySignalsOut(
+            security_id=sid,
+            ticker=ticker_for.get(sid),
+            signals=[
+                sig
+                for member in registered_display_members()
+                if (sig := member(pit, sid, asof)) is not None
+            ],
+        )
+        for sid in sids
+    ]
+    return DisplaySignalsResponse(thesis_id=thesis.id, asof=asof, members=members)
 
 
 @router.put("/{thesis_id}/catalysts", response_model=ThesisDetail)

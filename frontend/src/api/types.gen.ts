@@ -108,6 +108,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/display-signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Display Signals
+         * @description Read-only per-name DISPLAY indicators (SMA position/flips, …), re-derived at ``asof`` from
+         *     the same bitemporal facts the detectors read — quiet tape context beside the call, never an
+         *     input to it (a display signal has no role; it cannot arm, veto, or grade). Computed on read and
+         *     never persisted, so a refetch / as-of scrub writes nothing and the call-of-record log stays
+         *     untouched. Covers every resolved basket member; a member with no computable indicator (e.g. no
+         *     ingested bars yet) shows with ``signals: []`` — an honest empty, never a dropped row.
+         */
+        get: operations["get_display_signals_theses__thesis_id__display_signals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/catalysts": {
         parameters: {
             query?: never;
@@ -955,6 +980,105 @@ export interface components {
             voided: boolean;
         };
         /**
+         * DisplayBasis
+         * @description Show-the-work for a computed indicator (#6): the fact table it read, the parameters, and the
+         *     exact bar window used — plus a staleness note when the tape lags the asof.
+         */
+        DisplayBasis: {
+            /** Source */
+            source: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Bars Used */
+            bars_used?: number | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * DisplayEvent
+         * @description A dated flip/cross the tape actually printed — display context, never a trigger.
+         */
+        DisplayEvent: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Direction */
+            direction?: ("up" | "down") | null;
+        };
+        /**
+         * DisplayMetric
+         * @description One labeled reading. ``value=None`` is an HONEST gap — the ``note`` says why ("n/a: 140/200
+         *     bars"), never a fake number (#6 show the work, #7 quiet degrade).
+         */
+        DisplayMetric: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value?: number | null;
+            /** Unit */
+            unit?: ("pct" | "usd" | "price" | "count" | "ratio") | null;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * DisplaySignal
+         * @description A display member's output: f(point_in_time_data, security_id, asof) -> DisplaySignal | None.
+         *
+         *     Structurally NOT a ``SignalEvent``: no role/fired/grade/score, so it physically cannot turn a
+         *     key, veto a window, or ride the recorded CallCard. ``kind`` is the registered member name.
+         */
+        DisplaySignal: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Metrics */
+            metrics?: components["schemas"]["DisplayMetric"][];
+            /** Events */
+            events?: components["schemas"]["DisplayEvent"][];
+            basis: components["schemas"]["DisplayBasis"];
+        };
+        /**
+         * DisplaySignalsResponse
+         * @description Read-only per-name display indicators, re-derived from the bitemporal facts at ``asof``.
+         *
+         *     Display-only tape context beside the call — NEVER a SignalEvent, never an input to the call,
+         *     and never recorded: a day-varying field on the recorded domain CallCard would break the daily
+         *     cron's ``record_if_changed`` idempotency (one appended calls row per night), so indicators ride
+         *     this compute-on-read endpoint instead. See ``docs/DISPLAY_SIGNALS.md``.
+         */
+        DisplaySignalsResponse: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["MemberDisplaySignalsOut"][];
+        };
+        /**
          * DraftCoverageOut
          * @description How much of the universe the draft's EFTS enumeration actually covered (the #9 rule-2/3 instrument on
          *     the wire): a sub-threshold gap used to pass looking complete (logged only); now the pages fetched vs
@@ -1302,6 +1426,25 @@ export interface components {
              * @default []
              */
             triggers: components["schemas"]["TriggerRefOut"][];
+        };
+        /**
+         * MemberDisplaySignalsOut
+         * @description One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at
+         *     this asof (e.g. no ingested bars yet) — an honest empty, the member still shows.
+         */
+        MemberDisplaySignalsOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Signals
+             * @default []
+             */
+            signals: components["schemas"]["DisplaySignal"][];
         };
         /**
          * OperatorSpanOut
@@ -2570,6 +2713,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallCardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_display_signals_theses__thesis_id__display_signals_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; indicators use no data knowable after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisplaySignalsResponse"];
                 };
             };
             /** @description Validation Error */

@@ -86,7 +86,8 @@ alphadeck/
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None
     │   ├── insider_conviction.py · volume_breakout.py · catalyst_conviction.py · theme_conviction.py
-    │   └── dilution_clock.py · scan.py · base.py (PointInTimeData)
+    │   ├── dilution_clock.py · base.py (PointInTimeData) · registry.py (the #176 detector registry)
+    │   └── display/                # READ-ONLY display signals (sma.py + its own registry) — off the call path; docs/DISPLAY_SIGNALS.md
     ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live; CacheMiss canonical in __init__.py)
     │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
     │   ├── edgar/{client,submissions,form4,converts,extract,fulltext}.py   # SEC client + Form 4 + converts + extractor + fulltext (the EFTS discovery enumerator: discover · classify · parallel under the shared RateLimiter)

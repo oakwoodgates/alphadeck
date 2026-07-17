@@ -243,6 +243,62 @@
         }
       }
     },
+    "/theses/{thesis_id}/display-signals": {
+      "get": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Get Display Signals",
+        "description": "Read-only per-name DISPLAY indicators (SMA position/flips, \u2026), re-derived at ``asof`` from\nthe same bitemporal facts the detectors read \u2014 quiet tape context beside the call, never an\ninput to it (a display signal has no role; it cannot arm, veto, or grade). Computed on read and\nnever persisted, so a refetch / as-of scrub writes nothing and the call-of-record log stays\nuntouched. Covers every resolved basket member; a member with no computable indicator (e.g. no\ningested bars yet) shows with ``signals: []`` \u2014 an honest empty, never a dropped row.",
+        "operationId": "get_display_signals_theses__thesis_id__display_signals_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; indicators use no data knowable after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; indicators use no data knowable after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplaySignalsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/catalysts": {
       "put": {
         "tags": [
@@ -2153,6 +2209,240 @@
         "title": "DecisionOut",
         "description": "One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was\nlogged (display denormalization \u2014 attribution re-derives from the calls-log join); ``voided``\nmarks a row a later ``void`` points at (the strip greys it \u2014 visible, never hidden)."
       },
+      "DisplayBasis": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "bars_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bars Used"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "DisplayBasis",
+        "description": "Show-the-work for a computed indicator (#6): the fact table it read, the parameters, and the\nexact bar window used \u2014 plus a staleness note when the tape lags the asof."
+      },
+      "DisplayEvent": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "date"
+        ],
+        "title": "DisplayEvent",
+        "description": "A dated flip/cross the tape actually printed \u2014 display context, never a trigger."
+      },
+      "DisplayMetric": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pct",
+                  "usd",
+                  "price",
+                  "count",
+                  "ratio"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "DisplayMetric",
+        "description": "One labeled reading. ``value=None`` is an HONEST gap \u2014 the ``note`` says why (\"n/a: 140/200\nbars\"), never a fake number (#6 show the work, #7 quiet degrade)."
+      },
+      "DisplaySignal": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/DisplayMetric"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/DisplayEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "basis": {
+            "$ref": "#/components/schemas/DisplayBasis"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "basis"
+        ],
+        "title": "DisplaySignal",
+        "description": "A display member's output: f(point_in_time_data, security_id, asof) -> DisplaySignal | None.\n\nStructurally NOT a ``SignalEvent``: no role/fired/grade/score, so it physically cannot turn a\nkey, veto a window, or ride the recorded CallCard. ``kind`` is the registered member name."
+      },
+      "DisplaySignalsResponse": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberDisplaySignalsOut"
+            },
+            "type": "array",
+            "title": "Members",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "asof"
+        ],
+        "title": "DisplaySignalsResponse",
+        "description": "Read-only per-name display indicators, re-derived from the bitemporal facts at ``asof``.\n\nDisplay-only tape context beside the call \u2014 NEVER a SignalEvent, never an input to the call,\nand never recorded: a day-varying field on the recorded domain CallCard would break the daily\ncron's ``record_if_changed`` idempotency (one appended calls row per night), so indicators ride\nthis compute-on-read endpoint instead. See ``docs/DISPLAY_SIGNALS.md``."
+      },
       "DraftCoverageOut": {
         "properties": {
           "pages_ok": {
@@ -2895,6 +3185,40 @@
         ],
         "title": "MemberCallOut",
         "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
+      },
+      "MemberDisplaySignalsOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/DisplaySignal"
+            },
+            "type": "array",
+            "title": "Signals",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "MemberDisplaySignalsOut",
+        "description": "One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at\nthis asof (e.g. no ingested bars yet) \u2014 an honest empty, the member still shows."
       },
       "OperatorSpanOut": {
         "properties": {
