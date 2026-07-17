@@ -11,10 +11,16 @@ from signals.display.registry import registered_display_members
 # Registration order is the panel's render order and must remain behavior-stable.
 # isort: off
 from signals.display import sma as sma
+from signals.display import range52w as range52w
+from signals.display import volume_regime as volume_regime
+from signals.display import insider_flow as insider_flow
 
 # isort: on
 
 __all__ = [
+    "insider_flow",
+    "range52w",
     "registered_display_members",
     "sma",
+    "volume_regime",
 ]
