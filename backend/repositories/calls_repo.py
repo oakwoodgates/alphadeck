@@ -12,7 +12,14 @@ from domain.call import CallCard
 from repositories.mappers import call_to_row, row_to_call
 
 
-def append(conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_TENANT_ID) -> UUID:
+def append(
+    conn: psycopg.Connection,
+    card: CallCard,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    *,
+    ingest_fresh: bool | None = None,
+    ingest_errors: int | None = None,
+) -> UUID:
     """Append an assembled CallCard to the write-only accountability log, under ``tenant_id`` (the call of
     record lands in the thesis's tenant). NOT the read path — the API recomputes the card live from facts.
     The caller owns the transaction (commit/rollback).
@@ -20,14 +27,26 @@ def append(conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_T
     ``tenant_id`` defaults to the demo tenant (a test/seed convenience, like the ingest fns); the production
     write path (``call_for_thesis``) always passes ``thesis.tenant_id`` explicitly, so the call of record can
     never land in the wrong tenant on that path.
+
+    ``ingest_fresh`` / ``ingest_errors`` are the run's INGEST-HEALTH provenance (cron R2b, migration 0023):
+    was every name's back-half ingest clean, and how many errored. PROVENANCE only — the scoring reads never
+    branch on them; they are stamped SEPARATELY from the card (never inside it, or a stale->fresh flip would
+    fake a change in ``_canonical``). ``None`` = not supplied (a manual/legacy append).
     """
     row = call_to_row(card, tenant_id)
     with conn.cursor() as cur:
         cur.execute(
-            """INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card)
-               VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s)
+            """INSERT INTO calls
+                   (tenant_id, thesis_id, asof, state, verdict, card, ingest_fresh, ingest_errors)
+               VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s,
+                       %(ingest_fresh)s, %(ingest_errors)s)
                RETURNING id""",
-            {**row, "card": Json(row["card"])},
+            {
+                **row,
+                "card": Json(row["card"]),
+                "ingest_fresh": ingest_fresh,
+                "ingest_errors": ingest_errors,
+            },
         )
         return cur.fetchone()["id"]
 
@@ -57,7 +76,12 @@ def _canonical(card: CallCard) -> str:
 
 
 def record_if_changed(
-    conn: psycopg.Connection, card: CallCard, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection,
+    card: CallCard,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    *,
+    ingest_fresh: bool | None = None,
+    ingest_errors: int | None = None,
 ) -> bool:
     """Append the call-of-record for ``(thesis, card.asof)`` ONLY if none exists for that as-of yet, or the
     latest logged one differs in substance (a canonical, order-independent compare). Returns ``True`` iff it
@@ -67,11 +91,17 @@ def record_if_changed(
     does not grow), while a GENUINE change (state / verdict / confidence / exit_by / provenance / members)
     appends EXACTLY ONE new versioned row (latest-append-per-asof wins on read). It is the only correct path
     because the ``calls`` log is immutable (the ``no_update`` trigger) and its ``(thesis_id, asof)`` index is
-    non-unique — so an UPSERT is impossible; we read-compare-then-conditionally-append."""
+    non-unique — so an UPSERT is impossible; we read-compare-then-conditionally-append.
+
+    ``ingest_fresh`` / ``ingest_errors`` (R2b) ride the WRITE only — they are NOT in ``_canonical``, so a
+    stale->fresh flip on an otherwise-identical card does NOT append a spurious row (freshness is provenance
+    of the run, not a change in the call). The stamp is the ingest health of the run that FIRST recorded this
+    card version; a later re-run producing the identical card doesn't re-stamp (there's no new row).
+    """
     prior = next((c for c in latest_for_thesis(conn, card.thesis_id) if c.asof == card.asof), None)
     if prior is not None and _canonical(prior) == _canonical(card):
         return False
-    append(conn, card, tenant_id)
+    append(conn, card, tenant_id, ingest_fresh=ingest_fresh, ingest_errors=ingest_errors)
     return True
 
 

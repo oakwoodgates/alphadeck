@@ -57,7 +57,7 @@ def test_daily_cron_skips_archived_theses(client, db):
     parked = _thesis(db, "skipped")
     client.post(f"/theses/{parked.id}/archive")
 
-    results = run_daily(db, allow_live=False)
+    results = run_daily(db, allow_live=True)
     assert [r.name for r in results] == ["walked"]  # the walk itself skipped the archived one
 
     with db.cursor() as cur:
