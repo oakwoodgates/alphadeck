@@ -15,6 +15,17 @@ set -u
 RUN_AT="${RUN_AT:-22:30}"
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
 
+# R6 — CATCH-UP ON START. A rebuild/restart AFTER today's RUN_AT re-anchors the loop to TOMORROW and silently
+# skips tonight (Flag 6 — every `docker compose up` after the close dropped a night, invisibly). So on boot, if
+# we are already PAST today's RUN_AT on a weekday, attempt a catch-up. `--catch-up` is a NO-OP unless a LIVE
+# pass for today is genuinely missing (the CLI checks the run log — R3's memory), so a boot BEFORE RUN_AT, or a
+# night that already ran, does nothing. Idempotent + fail-open: it never blocks the loop.
+_boot_now=$(date +%s)
+if [ "$(date -d "today ${RUN_AT}" +%s)" -le "${_boot_now}" ] && [ "$(date +%u)" -le 5 ]; then
+  echo "daily-cron: booted past today's ${RUN_AT} — attempting catch-up (no-op if today already ran live)"
+  python -m pipeline.daily --catch-up || echo "daily-cron: catch-up FAILED (continuing to the schedule)"
+fi
+
 while :; do
   now=$(date +%s)
   next=$(date -d "today ${RUN_AT}" +%s)

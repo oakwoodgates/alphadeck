@@ -114,3 +114,36 @@ def write_cron_run_log(
     except Exception:  # noqa: BLE001 — fail-open by contract: log, never fail the cron
         _log.exception("cron run log write failed (fail-open — the cron run is unaffected)")
         return None
+
+
+def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
+    """Did a LIVE cron pass already run for ``asof``? The catch-up-on-start guard (R6): a sidecar restarted
+    AFTER the scheduled time must catch the missed run up — but ONLY if it truly hasn't run, or every rebuild
+    would re-fire the whole job (and R3 said the run log is the memory that answers this).
+
+    ``mode == "live"`` is load-bearing: a ``--no-live`` dev run writes a run log too, but it must NOT count as
+    "today ran" — otherwise a hand-run ``--no-live`` (like the R4 page test) would suppress the real nightly
+    catch-up, and the real run would silently never happen. Fail-open: an unreadable artifact is skipped, so a
+    corrupt file can never make the guard falsely report "ran" and cancel a needed catch-up (it errs toward
+    running, which the write-side idempotency — ``record_if_changed`` — makes safe to repeat).
+
+    KNOWN INTERACTION (accepted, not a bug): the run-log write itself (``write_cron_run_log``) is **fail-open**
+    by contract — a cron pass runs fine but its log write fails (disk full / permissions). Then this guard sees
+    no entry for today and a post-``RUN_AT`` restart **re-fires the ~65-min ingest**. Not corrupting —
+    ``record_if_changed`` suppresses the duplicate call-of-record — just wasteful. We accept it: a re-run beats a
+    silent skip, and the failure mode is bounded to a disk problem that would page anyway.
+    """
+    run_dir = base_dir or _DEFAULT_CRON_RUNS
+    if not run_dir.exists():
+        return False
+    target = asof.isoformat()
+    for p in run_dir.glob("*.json"):
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except (
+            Exception
+        ):  # noqa: BLE001 — a bad artifact never suppresses a catch-up (err toward running)
+            continue
+        if doc.get("asof") == target and doc.get("mode") == "live":
+            return True
+    return False

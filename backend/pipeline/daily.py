@@ -33,7 +33,7 @@ from db.session import connect
 from ingest.edgar.client import EdgarClient
 from notify import HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.cron_run_log import write_cron_run_log
+from pipeline.cron_run_log import already_ran_live, write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
 from securities import master
@@ -186,16 +186,20 @@ def assess_health(
     collected results, so it is unit-testable without a DB; ``main`` emits it through the notifier.
     """
     theses = len(results)
-    withheld = sum(1 for r in results if r.withheld_reason)
+    # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
+    # must report which one, not a generic "(no-live / total ingest failure)" that reads as a fault either way
+    withheld_no_live = sum(1 for r in results if r.withheld_reason == "no-live")
+    withheld_failure = sum(1 for r in results if r.withheld_reason == "total ingest failure")
     errored = sum(1 for r in results if r.error)
     edgar_fetches = sum(r.edgar_fetches for r in results)
     frozen = allow_live and theses > 0 and edgar_fetches == 0
-    if not (withheld or errored or frozen):
+    if not (withheld_no_live or withheld_failure or errored or frozen):
         return None  # healthy — no page
     return HealthEvent(
         asof=asof,
         theses=theses,
-        withheld=withheld,
+        withheld_no_live=withheld_no_live,
+        withheld_failure=withheld_failure,
         errored=errored,
         edgar_fetches=edgar_fetches,
         frozen=frozen,
@@ -246,9 +250,23 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument("--asof", default=None, help="as-of date YYYY-MM-DD (default: today)")
     p.add_argument("--no-live", action="store_true", help="cache-only ingest (no network)")
+    p.add_argument(
+        "--catch-up",
+        action="store_true",
+        help="R6: run only if a LIVE pass for this asof hasn't already run (the sidecar's on-start "
+        "catch-up, so a rebuild after RUN_AT self-heals instead of skipping the night); a no-op otherwise",
+    )
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else date.today()
     allow_live = not args.no_live
+
+    # R6 — catch-up guard: if a LIVE pass already ran for this asof, this invocation is a no-op. The sidecar
+    # calls `--catch-up` on start ONLY when it booted past RUN_AT (Flag 6: a rebuild at 23:00 re-anchored to
+    # tomorrow and silently skipped tonight). The mode-filtered run log (R3) is the memory that answers "did
+    # it run"; a --no-live dev run never satisfies it, so a hand-run can't suppress the real catch-up.
+    if args.catch_up and already_ran_live(asof):
+        print(f"daily-cron: a live pass for {asof} already ran — catch-up is a no-op")
+        return
 
     notifier = get_notifier()
     started_at = datetime.now(timezone.utc)

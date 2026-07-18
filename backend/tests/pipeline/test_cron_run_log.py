@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from pipeline.cron_run_log import write_cron_run_log
+from pipeline.cron_run_log import already_ran_live, write_cron_run_log
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
 
@@ -156,6 +156,48 @@ def test_records_thesis_level_error_and_transition(tmp_path):
     assert doc["summary"]["errored"] == 1 and doc["summary"]["transitions"] == 1
     assert next(t for t in doc["theses"] if t["name"] == "Broke")["error"] == "ingest: db down"
     assert next(t for t in doc["theses"] if t["name"] == "Armed")["transition"] == "Warming → Armed"
+
+
+# --- R6: already_ran_live — the catch-up-on-start guard ---
+
+
+def _log_for(tmp_path, *, asof: date, allow_live: bool, at: datetime):
+    write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=asof,
+        allow_live=allow_live,
+        started_at=at,
+        finished_at=at,
+        base_dir=tmp_path,
+    )
+
+
+def test_already_ran_live_true_after_a_live_pass(tmp_path):
+    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=True, at=_START)
+    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is True
+
+
+def test_already_ran_live_false_for_a_different_day(tmp_path):
+    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=True, at=_START)
+    assert already_ran_live(date(2026, 7, 18), base_dir=tmp_path) is False
+
+
+def test_a_NO_LIVE_run_does_NOT_count_as_ran(tmp_path):
+    # THE load-bearing filter: a --no-live dev run (like the R4 page test) writes a log too, but must NOT
+    # suppress the real nightly catch-up — else the real run silently never happens.
+    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=False, at=_START)
+    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is False
+
+
+def test_already_ran_live_false_when_no_logs_dir(tmp_path):
+    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path / "nope") is False
+
+
+def test_a_corrupt_artifact_never_reports_ran(tmp_path):
+    # err toward RUNNING: a bad file must not make the guard falsely say "ran" and cancel a needed catch-up
+    # (the write side is idempotent, so a repeated run is safe; a skipped one is the silent gap R6 fixes).
+    (tmp_path / "20260717T000000Z.json").write_text("{ not json", encoding="utf-8")
+    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is False
 
 
 def test_fail_open_returns_none_never_raises(tmp_path):

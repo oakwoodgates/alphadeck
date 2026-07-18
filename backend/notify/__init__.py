@@ -49,31 +49,48 @@ class TransitionEvent:
 
 @dataclass(frozen=True)
 class HealthEvent:
-    """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is wrong (R4). A silent
+    """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is notable (R4). A silent
     daily job is a daily job you don't have: the R1 freeze went 11+ days undetected because the operator was
     the monitoring system. This is the page. It fires on a FREEZE (a live run that made ZERO EDGAR fetches —
-    the cache never refreshed), on WITHHELD calls (a --no-live or total-failure run that didn't record), or on
-    thesis ERRORS. A healthy run emits nothing (``assess_health`` returns None) — loudness marks the exception.
+    the cache never refreshed), on WITHHELD calls, or on thesis ERRORS; a healthy run emits nothing
+    (``assess_health`` returns None) — loudness marks the exception.
+
+    WITHHELD is split by its ACTUAL reason, because they are not the same news: ``withheld_failure`` (a TOTAL
+    ingest failure — the ingest raised or every name errored) is a real alarm; ``withheld_no_live`` (a manual
+    ``--no-live`` cache-only run, which the scheduled cron never does) is BENIGN and labeled so — a page must
+    not cry "failure" when someone just ran a dev pass by hand.
     """
 
     asof: date
     theses: int
-    withheld: int
+    withheld_no_live: int  # benign: a manual --no-live run (the cron never passes --no-live)
+    withheld_failure: (
+        int  # real alarm: a total ingest failure (the ingest raised / every name errored)
+    )
     errored: int
     edgar_fetches: int
     frozen: bool  # live run + names present + ZERO edgar fetches = the R1 freeze, pageable
 
     @property
+    def withheld(self) -> int:
+        return self.withheld_no_live + self.withheld_failure
+
+    @property
     def label(self) -> str:
         bits: list[str] = []
+        # alarms first, benign last — the reader should see the real problem before the dev-run note
         if self.frozen:
             bits.append(
                 f"FROZEN — 0 EDGAR fetches across {self.theses} theses (the cache never refreshed)"
             )
-        if self.withheld:
-            bits.append(f"{self.withheld} call(s) WITHHELD (no-live / total ingest failure)")
+        if self.withheld_failure:
+            bits.append(f"{self.withheld_failure} call(s) WITHHELD — TOTAL INGEST FAILURE")
         if self.errored:
             bits.append(f"{self.errored} thesis error(s)")
+        if self.withheld_no_live:
+            bits.append(
+                f"{self.withheld_no_live} call(s) withheld — no-live (a cache-only run, not an error)"
+            )
         return f"cron {self.asof}: " + " · ".join(bits)
 
 
