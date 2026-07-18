@@ -15,6 +15,7 @@ from uuid import UUID
 from signals.display.base import (
     DisplayBasis,
     DisplayEvent,
+    DisplayHeadline,
     DisplayMember,
     DisplayMetric,
     DisplayPointInTimeData,
@@ -34,6 +35,42 @@ def _usd_sum(rows: list[dict[str, Any]]) -> tuple[float, int]:
     total = sum(float(r["usd"]) for r in rows if r.get("usd") is not None)
     unpriced = sum(1 for r in rows if r.get("usd") is None)
     return total, unpriced
+
+
+def _usd_compact(v: float) -> str:
+    """$3.4M-style magnitude for the headline prose (the direction word carries the sign)."""
+    v = abs(v)
+    for div, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if v >= div:
+            s = f"{v / div:.1f}".rstrip("0").rstrip(".")
+            return f"${s}{suffix}"
+    return f"${v:.0f}"
+
+
+def _flow_headline(
+    buys: list[dict[str, Any]], sells: list[dict[str, Any]], net_usd: float, unpriced: int
+) -> DisplayHeadline | None:
+    """The at-a-glance flow state — present ONLY when the window actually has open-market flow.
+
+    A quiet name adds no "no flow" line to the panel's top strip (honest loudness: the strip marks
+    the exception; the section's zero metrics still carry the quiet-is-information read)."""
+    if not buys and not sells:
+        return None
+    if net_usd > 0:
+        key, glyph, label = "net_buying", "up", f"net buying {_usd_compact(net_usd)}"
+    elif net_usd < 0:
+        key, glyph, label = "net_selling", "down", f"net selling {_usd_compact(net_usd)}"
+    else:
+        key, glyph, label = "net_flat", "flat", "flat net flow"
+    bits = [
+        f"{len(buys)} buy{'s' if len(buys) != 1 else ''}",
+        f"{len(sells)} sell{'s' if len(sells) != 1 else ''}",
+    ]
+    if unpriced:
+        bits.append(f"{unpriced} unpriced")
+    return DisplayHeadline(
+        key=key, glyph=glyph, label=f"{label} ({WINDOW_DAYS}d)", detail=" · ".join(bits)
+    )
 
 
 def _count(key: str, label: str, value: int) -> DisplayMetric:
@@ -90,7 +127,14 @@ def compute(rows: list[dict[str, Any]], asof: date) -> DisplaySignal | None:
         window_end=asof,
         note="from ingested Form 4 only — zero is zero ingested, not proven-zero filings",
     )
-    return DisplaySignal(kind=MEMBER_NAME, label=LABEL, metrics=metrics, events=events, basis=basis)
+    return DisplaySignal(
+        kind=MEMBER_NAME,
+        label=LABEL,
+        headline=_flow_headline(buys, sells, buy_usd - sell_usd, buys_unpriced + sells_unpriced),
+        metrics=metrics,
+        events=events,
+        basis=basis,
+    )
 
 
 def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> DisplaySignal | None:

@@ -69,7 +69,11 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
 ingested** (nothing to say) but a **quiet zero** for an ingested name with no window activity (zero
-is information); its basis note carries the "zero ingested ≠ proven-zero filings" caveat.
+is information); its basis note carries the "zero ingested ≠ proven-zero filings" caveat. Its
+**headline** (`net_buying` / `net_selling` / `net_flat` — "net selling $3.4M (90d)", counts in the
+detail) renders **only when the window has actual flow**: a quiet name adds no "no flow" line to
+the panel's top strip (the strip marks the exception, #7); the section's zero metrics still carry
+the quiet read.
 `volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
 highs/lows on the most recent print and notes a sub-year window.
 
