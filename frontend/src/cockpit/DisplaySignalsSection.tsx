@@ -1,4 +1,9 @@
-import type { DisplayMetric, DisplaySignal, MemberDisplaySignalsOut } from "../api/hooks";
+import type {
+  DisplayHeadline,
+  DisplayMetric,
+  DisplaySignal,
+  MemberDisplaySignalsOut,
+} from "../api/hooks";
 import { fmtDate } from "../util/format";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
@@ -31,6 +36,19 @@ const GLYPH: Record<string, string> = {
   flat: "→",
 };
 
+/** One state-headline row — rendered in the panel's TOP strip (the operator's at-a-glance read),
+ *  hoisted out of the Indicators section at the operator's request. The stable machine key rides
+ *  the hover title; only the glyph carries a direction tint. */
+export function DisplayHeadlineRow({ headline }: { headline: DisplayHeadline }) {
+  return (
+    <div className="np-ind-headline" title={headline.key}>
+      <span className={`g ${headline.glyph ?? ""}`}>{GLYPH[headline.glyph ?? ""] ?? "·"}</span>
+      <span className="t">{headline.label}</span>
+      {headline.detail && <span className="d">{headline.detail}</span>}
+    </div>
+  );
+}
+
 function basisLine(sig: DisplaySignal): string {
   const b = sig.basis;
   const parts: string[] = [];
@@ -54,18 +72,9 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
       ) : (
         signals.map((sig) => (
           <div className="np-ind" key={sig.kind}>
+            {/* the headline renders in the panel's TOP strip, not here — this section keeps the
+                full detail: the chips, the dated flips, and the basis */}
             <div className="np-ind-label">{sig.label}</div>
-            {/* the one-glance posture: glyph = the quadrant, text = the literal statement; the
-                stable state key rides the hover title */}
-            {sig.headline && (
-              <div className="np-ind-headline" title={sig.headline.key}>
-                <span className={`g ${sig.headline.glyph ?? ""}`}>
-                  {GLYPH[sig.headline.glyph ?? ""] ?? "·"}
-                </span>
-                <span className="t">{sig.headline.label}</span>
-                {sig.headline.detail && <span className="d">{sig.headline.detail}</span>}
-              </div>
-            )}
             <div className="np-ind-chips">
               {(sig.metrics ?? []).map((m) => (
                 <span className="np-ind-chip" key={m.key} title={m.note ?? undefined}>

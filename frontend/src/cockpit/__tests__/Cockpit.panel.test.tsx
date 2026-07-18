@@ -229,7 +229,12 @@ describe("Cockpit — the per-name panel", () => {
     const p = within(panel(container) as HTMLElement);
     expect(p.getByText("Indicators · this name")).toBeInTheDocument();
     expect(p.getByText("SMA position (50/200d)")).toBeInTheDocument();
-    expect(p.getByText("50d over 200d · rising")).toBeInTheDocument(); // the posture chip leads
+    // the posture strip is hoisted to the TOP part: above "The call · this name", not in-section
+    const panelEl = panel(container) as HTMLElement;
+    const strip = panelEl.querySelector(".np-headlines") as HTMLElement;
+    expect(strip.textContent).toContain("50d over 200d · rising");
+    const firstHead = panelEl.querySelector(".np-h") as HTMLElement;
+    expect(strip.compareDocumentPosition(firstHead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     expect(p.getByText("+10.2%")).toBeInTheDocument(); // pct renders signed
     expect(p.getByText("132.40")).toBeInTheDocument(); // price renders 2dp
