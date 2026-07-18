@@ -77,6 +77,31 @@ def test_market_cap_shares_without_price_stays_visible(db, security_id):
     assert m.market_cap.provenance[0].source == "10-q-cover"  # the fact is VISIBLE
     notes = " ".join(str(p.detail.get("note", "")) for p in m.market_cap.provenance)
     assert "No price bars" in notes and "on file" in notes  # the missing half is NAMED
+    # Part B (ENDV): the share count's cover AS-OF date rides the provenance so the FE can age it (a stale
+    # count -> a plausible-but-wrong cap). Display-only; the value/pips are untouched.
+    assert m.market_cap.provenance[0].detail.get("shares_asof") == "2026-06-17"
+
+
+def test_market_cap_carries_shares_asof_when_priced(db, security_id):
+    """The computed-cap path threads shares_asof too (not just the awaiting-price path)."""
+    ingest_shares_outstanding(
+        db,
+        security_id,
+        shares=1_000_000,
+        source="10-q-cover",
+        source_ref="10-Q",
+        event_date=date(2023, 12, 28),  # the ENDV shape: a years-old cover
+        ratified_by="auto",
+    )
+    _price(db, security_id, date(2026, 7, 1), 10.0)
+    db.commit()
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
+    assert m.market_cap.value == 10_000_000  # the cap computes (1M x $10)
+    sh = next(p for p in m.market_cap.provenance if p.source == "10-q-cover")
+    assert (
+        sh.detail.get("shares_asof") == "2023-12-28"
+    )  # ...and the stale as-of is visible to the FE
 
 
 def test_market_cap_price_without_shares_stays_visible(db, security_id):

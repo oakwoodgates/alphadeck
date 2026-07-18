@@ -151,7 +151,12 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
             },
         )
         return ScoredFigure(
-            pips=None, value=None, provenance=[_prov(sh, shares=float(sh["shares"])), awaiting]
+            pips=None,
+            value=None,
+            provenance=[
+                _prov(sh, shares=float(sh["shares"]), shares_asof=sh["valid_from"].isoformat()),
+                awaiting,
+            ],
         )
     if not shares_facts:
         latest = prices[-1]
@@ -169,7 +174,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     latest = prices[-1]  # price_history is sorted ascending by date
     cap = float(sh["shares"]) * float(latest["close"])
     prov = [
-        _prov(sh, shares=float(sh["shares"])),
+        _prov(sh, shares=float(sh["shares"]), shares_asof=sh["valid_from"].isoformat()),
         Provenance(
             source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}
         ),

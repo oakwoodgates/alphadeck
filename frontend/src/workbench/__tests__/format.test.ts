@@ -9,6 +9,8 @@ import {
   onFileValues,
   provChip,
   provNotes,
+  sharesAsof,
+  staleSharesMonths,
 } from "../format";
 
 describe("formatMarketCap", () => {
@@ -185,5 +187,39 @@ describe("onFileValues", () => {
     });
     expect(map.revenue_mix?.mix_pct).toBe(77); // the figure's own value backstops purity
     expect(map.cash_burn).toEqual({ cash_usd: undefined, quarterly_burn_usd: undefined, note: undefined });
+  });
+});
+
+describe("stale-shares age (the ENDV finding — display-only)", () => {
+  const capWith = (shares_asof?: string) => ({
+    market_cap: {
+      pips: null,
+      value: 1e6,
+      provenance: [
+        { source: "price", ref: "price:2026-07-01", detail: { close: 10 } },
+        { source: "10-q-cover", ref: "Q", detail: shares_asof ? { shares: 1e6, shares_asof } : { shares: 1e6 } },
+      ],
+    } as never,
+  });
+
+  it("sharesAsof reads the cover date off the shares provenance (not the price leg)", () => {
+    expect(sharesAsof(capWith("2023-12-28"))).toBe("2023-12-28");
+    expect(sharesAsof(capWith(undefined))).toBeUndefined(); // pre-threading fact: no date
+  });
+
+  it("flags a >6-month-old count with its rounded age, stays silent for a current one", () => {
+    // ENDV: a 2023 cover against a 2026 as-of → loudly stale
+    expect(staleSharesMonths("2023-12-28", "2026-07-17")).toBe(31);
+    // a current Q1 cover (~2.6 months) → null (honest loudness: the common case shows nothing)
+    expect(staleSharesMonths("2026-04-29", "2026-07-17")).toBeNull();
+    // ~5 months old is still under the ~6-month threshold → quiet
+    expect(staleSharesMonths("2026-02-20", "2026-07-17")).toBeNull();
+    // ~6.5 months old is past it → lights (a company on schedule files a 10-Q every quarter)
+    expect(staleSharesMonths("2026-01-01", "2026-07-17")).toBe(6);
+  });
+
+  it("is null (never throws) on a missing or unparseable date", () => {
+    expect(staleSharesMonths(undefined, "2026-07-17")).toBeNull();
+    expect(staleSharesMonths("not-a-date", "2026-07-17")).toBeNull();
   });
 });

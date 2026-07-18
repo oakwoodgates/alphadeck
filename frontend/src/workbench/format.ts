@@ -100,6 +100,32 @@ export function onFileValues(m: {
   return map;
 }
 
+/** The as-of (cover) date of the ratified share count behind the market cap — threaded on the market-cap
+ *  shares provenance (`shares_asof`). Undefined when no shares fact is on file. */
+export function sharesAsof(m: { market_cap: ScoredFigureOut }): string | undefined {
+  const sh = m.market_cap.provenance.find((p) => p.source !== "price" && p.source !== "computed");
+  return sh ? dstr(sh.detail, "shares_asof") : undefined;
+}
+
+/** A STALE-SHARES warning: the rounded age (in months) of the share count's cover date IFF it is more than
+ *  ~6 months before the as-of, else null. Why it exists (the ENDV finding): the AUTO-shares auto-apply
+ *  faithfully reproduces whatever the latest filing's cover says — even a 2.5-year-old one for a delinquent
+ *  filer — with no age signal, yielding a plausible-but-WRONG market cap on a name the operator doesn't know
+ *  (the eye catches an absurd cap, not a merely old one). Honest loudness (#7): returns null for a current
+ *  count (the common case) — the flag lights ONLY for the rare stale one. Threshold ~6 months = ≥2 missed
+ *  quarterly filings; a company filing 10-Qs on schedule never trips it. Display-only; touches no signal. */
+export function staleSharesMonths(
+  sharesAsofDate: string | undefined,
+  asof: string,
+): number | null {
+  if (!sharesAsofDate) return null;
+  const cover = Date.parse(sharesAsofDate);
+  const at = Date.parse(asof);
+  if (Number.isNaN(cover) || Number.isNaN(at)) return null;
+  const months = (at - cover) / (1000 * 60 * 60 * 24 * 30.44);
+  return months > 6 ? Math.round(months) : null;
+}
+
 /** Market cap (a figure, not a meter) → "$8.0B" / "$600M"; "—" when either price or shares is missing
  *  (null value), never a fake "$0". */
 export function formatMarketCap(value: number | null | undefined): string {

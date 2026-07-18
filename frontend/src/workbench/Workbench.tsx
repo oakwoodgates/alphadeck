@@ -625,6 +625,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard }: Prop
                       selected={m.security_id === selectedMember?.security_id}
                       onSelect={() => setPickedMemberId(m.security_id)}
                       thesisId={thesisId}
+                      asof={asof}
                     />
                   ))}
                   <div className="note">
