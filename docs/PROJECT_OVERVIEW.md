@@ -17,7 +17,9 @@
 > **back half feeds itself** (the per-thesis ingest + the daily call-of-record cron, M2). The **North Star is
 > reachable end to end on real data.** *Trust caveat (kept honest):* the calls are tuned **in-sample (n=19)**,
 > and "feeds itself daily" is the DATA loop — **not** forward validation. The **live Scoreboard** (the forward
-> trust-loop instrument) is built; its forward record is still accruing. See `ROADMAP.md`.
+> trust-loop instrument) is built; its forward record is still accruing. *Freshness caveat:* "feeds itself" was
+> literally true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL
+> (`POSTMORTEM_CRON_FREEZE_2026-07.md`). See `ROADMAP.md`.
 
 ---
 

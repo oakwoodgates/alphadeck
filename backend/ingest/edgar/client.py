@@ -45,11 +45,15 @@ class EdgarClient:
         self.cache_dir = cache_dir or _DEFAULT_CACHE
         self.allow_live = allow_live
         self.cache_ttl_s = cache_ttl_s
-        # How many times this client actually hit the NETWORK (a cache miss OR a stale-mutable refresh) — the
-        # freeze detector. A frozen index and a healthy nothing-filed night produce IDENTICAL fact tallies
-        # (0 appended); the only difference is whether a request happened. The daily cron reads this per
-        # thesis into its run log so a freeze reads 0 live fetches — visible, pageable — instead of hiding
-        # behind a plausible "quiet day". Incremented in `_fetch`, the single network chokepoint.
+        # How many times this client DECIDED to go to the network (a cache miss OR a stale-mutable refresh) —
+        # the freeze detector. It counts ATTEMPTS, not successful pulls: incremented at the network-decision
+        # point in `get_text` BEFORE `_fetch` runs, so it rises even if that fetch then errors. Counting
+        # attempts (not successes) is the RIGHT thing here. A frozen index and a healthy nothing-filed night
+        # produce IDENTICAL fact tallies (0 appended); the only difference is whether a request was even
+        # attempted — so `0` on a live run == the cache never reached out == FROZEN (visible, pageable via the
+        # daily cron's per-thesis run log). An EDGAR OUTAGE is the opposite shape — many attempts, zero data —
+        # and must NOT read as a freeze: it doesn't (this counter climbs), and it's caught by `names_errored`,
+        # not the freeze predicate. So `edgar_fetches` is "times we reached out", not "times we got data".
         self.live_fetches = 0
         s = get_settings()
         self.user_agent = user_agent or s.user_agent

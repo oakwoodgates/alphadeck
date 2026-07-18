@@ -113,13 +113,19 @@ flowchart TD
 ## The feed loop (M2 — how the platform feeds itself)
 
 The create/promote path writes only the spine, so a fresh thesis has no call-engine facts and stays
-Incubating. **M2 closes that** (full detail: `FEED_LOOP.md`):
+Incubating. **M2 closes that** (full detail: `FEED_LOOP.md`). *(Freshness caveat: "feeds itself" was literally
+true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL;
+`POSTMORTEM_CRON_FREEZE_2026-07.md`.)*
 
 - **The per-thesis ingest** (`pipeline.ingest_thesis`) loops a thesis's **resolved** basket (`master.get`,
   exact membership #2) and writes the back-half **facts** (insider Form 4 → `fact_insider_txn`, EOD →
   `fact_price_eod`) — **incrementally** (only unseen accessions / bars newer than the latest stored), each leg
   fail-visible, `recorded_at=now` (no-lookahead). Prices flow through the **price-source seam** (`get_bars` —
-  Yahoo / Stooq adapters, swappable); the recurring path **force-refreshes** (a cache hit returns stale).
+  Yahoo / Stooq adapters, swappable); the recurring path **force-refreshes** the price cache (a cache hit
+  returns stale). The **EDGAR** cache is kept fresh differently — a **key-classed 12h TTL** (`forms/*`
+  immutable, `submissions`/`companyfacts`/`efts` re-fetch when live), NOT a per-call flag; before that TTL
+  (#196) the cron silently froze on cached insider indexes for ~11 days (`DATA_SOURCES.md:45–58`,
+  `POSTMORTEM_CRON_FREEZE_2026-07.md`).
 - **The daily cron** (`pipeline.daily`) does this per thesis (`list_all`), then **assembles the day's call
   WITHOUT writing** (`call_for_thesis(record=False)`) and **appends the call-of-record only if it changed**
   (`record_if_changed`; `asof=today`, `known_at=now`).

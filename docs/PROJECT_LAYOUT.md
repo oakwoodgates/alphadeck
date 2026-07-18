@@ -5,7 +5,7 @@
 > `ROADMAP.md` (sequencing), and `CLAUDE.md` (how to build). For the *why* of any subsystem, follow the doc
 > links; this is the *where*.
 >
-> **As of the MVP + the config/quick-win refactor cycle (`main` through PR #81):** both halves are built **and the platform feeds itself.** Back
+> **As of the MVP + the config/quick-win refactor cycle (`main` through PR #81; the cron-freeze remediation landed later at #196–#202):** both halves are built **and the platform feeds itself** (literally true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`). Back
 > half — the bitemporal store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed,
 > the M5 per-member menu + theme arming, the replay harness + recalibration + the production-tenant cut. Front
 > half (the Workbench) — scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, **the two
@@ -23,7 +23,7 @@
 alphadeck/
 ├── CLAUDE.md                       # agent working agreements + invariants + the live vocabulary/commands
 ├── README.md                       # what it is, the stack table, v1 scope
-├── docker-compose.yml              # full stack: Postgres + backend + SPA/nginx; + a DISABLED-by-default `cron` sidecar (M2; --profile cron)
+├── docker-compose.yml              # full stack: Postgres + backend + SPA/nginx; + the `cron` sidecar (M2; ON by default, `--scale cron=0` to skip)
 ├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, ...
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
@@ -105,7 +105,7 @@ alphadeck/
     ├── pipeline/                   # thin orchestration / CLIs
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
-    │   ├── daily.py                #   the daily call-of-record cron (ingest → assemble → TRANSITION detection → record_if_changed; archived skipped)
+    │   ├── daily.py                #   the daily call-of-record cron (ingest → assemble → TRANSITION detection → recording-GATE → record_if_changed; run log + health page; --catch-up; archived skipped) [#196-#200]
     │   ├── populate_master.py      #   the SEC-universe broadener CLI
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py             #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares)
