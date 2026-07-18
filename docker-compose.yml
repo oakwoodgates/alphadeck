@@ -48,6 +48,15 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # The process wall-clock TIMEZONE. `date.today()` (the daily-cron asof, the scoreboard/master
+      # "today") reads AMBIENT TZ; unset it defaults to UTC, so a manual `docker exec ... python -m
+      # pipeline.daily` after ~20:00 ET records TOMORROW's asof — a different call, not a mislabel: the
+      # asof is a LIVENESS PARAMETER, so a signal whose window closes that day is dropped and the derived
+      # countdowns shift a day. Pin the trading-day zone here so a manual backend run agrees with the cron
+      # sidecar (which already sets TZ). NOTE: this fixes the two CONTAINERS only — "today" is still
+      # ambient-derived at 9 call sites; the durable fix is a shared market_today() on an explicit ZoneInfo
+      # (logged, not built here).
+      TZ: ${ALPHADECK_TZ:-America/New_York}
     depends_on:
       postgres:
         condition: service_healthy
