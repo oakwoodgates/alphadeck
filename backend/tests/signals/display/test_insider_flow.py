@@ -39,6 +39,23 @@ def test_net_math_window_boundaries_and_code_filter():
     assert "zero ingested" in sig.basis.note  # the epistemics ride every payload
     assert sig.basis.window_start == _ASOF - timedelta(days=89)
     assert sig.basis.window_end == _ASOF
+    # the at-a-glance flow state: net +1.1M -> buying, magnitude compact, counts in the detail
+    assert sig.headline.key == "net_buying"
+    assert sig.headline.glyph == "up"
+    assert sig.headline.label == "net buying $1.1M (90d)"
+    assert sig.headline.detail == "3 buys · 1 sell · 1 unpriced"
+
+
+def test_net_selling_headline():
+    rows = [
+        _txn(_ASOF, usd=500_000.0, name="A"),
+        _txn(_ASOF - timedelta(days=3), code="S", usd=3_900_000.0, name="B"),
+    ]
+    sig = insider_flow.compute(rows, _ASOF)
+    assert sig.headline.key == "net_selling"
+    assert sig.headline.glyph == "down"
+    assert sig.headline.label == "net selling $3.4M (90d)"  # the word carries the sign
+    assert sig.headline.detail == "1 buy · 1 sell"
 
 
 def test_rows_outside_the_window_read_as_a_quiet_zero_not_absence():
@@ -48,6 +65,9 @@ def test_rows_outside_the_window_read_as_a_quiet_zero_not_absence():
     assert m["buy_count"].value == 0.0
     assert m["net_usd"].value == 0.0
     assert sig.events == []
+    # ...but the top strip stays quiet: no flow line on a no-flow name (honest loudness — the
+    # headline marks the exception; the section's zeros carry the quiet-is-information read)
+    assert sig.headline is None
 
 
 def test_nothing_ingested_returns_none():
