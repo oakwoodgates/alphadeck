@@ -8,7 +8,7 @@ import type {
 } from "../api/hooks";
 import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
-import { DisplaySignalsSection } from "./DisplaySignalsSection";
+import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel } from "../workbench/format";
 import { archLabel, byEventDateDesc, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
@@ -128,6 +128,18 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
         {scored?.name ??
           (member.security_id ? "—" : "unresolved — no security-master link for this row")}
       </div>
+
+      {/* the at-a-glance tape strip: every display headline, hoisted to the top part (the
+          operator's read order); the full Indicators section keeps the chips/flips/basis below */}
+      {(display?.signals ?? []).some((s) => s.headline) && (
+        <div className="np-headlines">
+          {(display?.signals ?? [])
+            .filter((s) => s.headline)
+            .map((s) => (
+              <DisplayHeadlineRow key={s.kind} headline={s.headline!} />
+            ))}
+        </div>
+      )}
 
       <div className="np-h">The call · this name</div>
       {call?.verdict ? (

@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { MemberDisplaySignalsOut } from "../../api/hooks";
-import { DisplaySignalsSection, fmtMetricValue } from "../DisplaySignalsSection";
+import type { DisplayHeadline, MemberDisplaySignalsOut } from "../../api/hooks";
+import { DisplayHeadlineRow, DisplaySignalsSection, fmtMetricValue } from "../DisplaySignalsSection";
 
 // One member's readings, exercising every unit the wire can carry plus an honest gap — the section
 // must render ANY registered member off the generic payload (no per-kind frontend code).
@@ -13,6 +13,12 @@ const member = {
     {
       kind: "sma_position",
       label: "SMA position (50/200d)",
+      headline: {
+        key: "below_rising",
+        label: "50d under 200d · rising",
+        glyph: "turn_up",
+        detail: "price above both · rising",
+      },
       metrics: [
         { key: "close", label: "close", value: 27.76, unit: "price", note: null },
         { key: "pct_vs_sma50", label: "vs 50d", value: 13.86, unit: "pct", note: null },
@@ -68,6 +74,23 @@ describe("DisplaySignalsSection — the quiet Indicators block", () => {
     expect(basis.textContent).toMatch(/248 bars · through .* · stale: last bar 14d before asof/);
     expect(basis.title).toContain("fact_price_eod");
     expect(basis.title).toContain('"lookback_days":600');
+  });
+
+  it("DisplayHeadlineRow: tinted glyph, literal label, muted detail, key on hover", () => {
+    const headline = member.signals![0].headline as DisplayHeadline;
+    const { container } = render(<DisplayHeadlineRow headline={headline} />);
+    const h = container.querySelector(".np-ind-headline") as HTMLElement;
+    expect(h.querySelector(".g")?.textContent).toBe("↗");
+    expect(h.querySelector(".g")?.className).toContain("turn_up"); // the tint class (glyph only)
+    expect(screen.getByText("50d under 200d · rising")).toBeInTheDocument();
+    expect(screen.getByText("price above both · rising")).toBeInTheDocument();
+    expect(h.title).toBe("below_rising"); // the stable machine key rides the hover
+  });
+
+  it("the section itself never renders the headline — it is hoisted to the panel's top strip", () => {
+    const { container } = render(<DisplaySignalsSection display={member} />);
+    expect(container.querySelector(".np-ind-headline")).toBeNull();
+    expect(container.querySelector(".np-ind-label")?.textContent).toBe("SMA position (50/200d)");
   });
 
   it("degrades to one muted line on empty signals and on a missing member row", () => {

@@ -38,6 +38,12 @@ member (deduped, basket order; unresolved members omitted — the Workbench-scor
 each registered member's `DisplaySignal`:
 
 - `kind` (= the registered member name) · `label`
+- `headline` (optional) — the member's **one-glance state chip**, rendered at the top of its block:
+  `{key, label, glyph: up|down|turn_up|turn_down|flat, detail}`. `key` is a STABLE machine state a
+  future Board column / basket cell can consume; `label` is the literal statement, always derived
+  from the member's params (never a hardcoded window or MA type); the FE tints the **glyph only**
+  (rising-family positive, falling-family negative — the chip stays mono, #7). A headline states
+  the tape, never a forecast (#4). Any member may send one (a quiet tape, a net-selling flow, …).
 - `metrics[]` — `{key, label, value: float|null, unit: pct|usd|price|count|ratio, note}`.
   A `null` value is an **honest gap** and the note says why (`"n/a: 140/200 bars"`) — never a fake
   number (#6/#7).
@@ -56,7 +62,7 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 
 | member (kind) | reads | metrics | events | params |
 |---|---|---|---|---|
-| `sma_position` | `fact_price_eod` | close, sma50, sma200, pct_vs_sma50, pct_vs_sma200 | cross_sma50, cross_sma200, golden_cross/death_cross | fast=50, slow=200, lookback_days=600 |
+| `sma_position` | `fact_price_eod` | close, ma_fast, ma_slow, pct_vs_fast, pct_vs_slow | cross_sma50, cross_sma200, golden_cross/death_cross | fast=50, slow=200, lookback_days=600, slope_bars=5 |
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
 | `insider_flow_90d` | `fact_insider_txn` | buy/sell counts, distinct_buyers, buy/sell/net USD (P/S codes only) | last_buy, last_sell | window_days=90 |
@@ -74,6 +80,16 @@ exactly how much tape the reading stands on, and the daily cron's incremental in
 history over time. Flip detection is a sign state machine over `close − SMA` (and `SMA50 − SMA200`):
 exact zeros are skipped — a close ON the line is not a cross (touch-and-return flips nothing; a
 cross *through* the line stamps the first bar on the far side); the most recent flip wins.
+
+**The posture headline (the operator's 2×2).** `sma_position`'s headline states
+(fast over/under slow) × (fast rising/falling), literally: `↑ 50d over 200d · rising` /
+`↘ … falling` / `↗ 50d under 200d · rising` / `↓ … falling`; the muted `detail` carries the
+secondary read (`price above both · rising`). *Rising/falling* = the line now vs `SLOPE_BARS=5`
+bars back (an exact tie reads `flat` — never a guessed direction). Stable keys: `above_rising`,
+`above_falling`, `below_rising`, `below_falling`, `level_*`, and `partial_*` when the slow line
+lacks bars (the chip degrades to the half it can say: `↑ 50d rising · 200d n/a`). Metric keys are
+window-agnostic (`ma_fast`/`ma_slow`) and every label derives from params, so changing FAST/SLOW —
+or adding an EMA sibling that reuses `_headline` on its own two series — never churns the contract.
 
 ## Adding a member (the append-one-module checklist)
 

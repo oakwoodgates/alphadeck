@@ -93,8 +93,11 @@ def test_display_signals_happy_path(client, db, security_id):
     assert sig["basis"]["window_end"] == _ASOF.isoformat()
     by_key = {mt["key"]: mt for mt in sig["metrics"]}
     assert by_key["close"]["value"] == 31.9  # 10.0 + 219*0.1
-    assert by_key["sma200"]["value"] is not None  # 220 bars -> the 200d line is real
-    assert by_key["sma200"]["note"] is None
+    assert by_key["ma_slow"]["value"] is not None  # 220 bars -> the 200d line is real
+    assert by_key["ma_slow"]["note"] is None
+    # the posture chip rides the wire: ascending fixture = the strongest quadrant
+    assert sig["headline"]["key"] == "above_rising"
+    assert sig["headline"]["glyph"] == "up"
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):

@@ -1106,6 +1106,26 @@ export interface components {
             direction?: ("up" | "down") | null;
         };
         /**
+         * DisplayHeadline
+         * @description A member's one-glance state chip, rendered at the top of its block.
+         *
+         *     ``key`` is a STABLE machine state (a future Board column / basket cell can consume the
+         *     categorical directly); ``label`` is the literal statement, always derived from the member's
+         *     params (never a hardcoded window or MA type — change fast/slow/SMA→EMA and the words follow);
+         *     ``glyph`` is a token the FE maps to a subtly-tinted arrow; ``detail`` is the muted secondary
+         *     read. A headline states the tape, it never forecasts (#4).
+         */
+        DisplayHeadline: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Glyph */
+            glyph?: ("up" | "down" | "turn_up" | "turn_down" | "flat") | null;
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
          * DisplayMetric
          * @description One labeled reading. ``value=None`` is an HONEST gap — the ``note`` says why ("n/a: 140/200
          *     bars"), never a fake number (#6 show the work, #7 quiet degrade).
@@ -1134,6 +1154,7 @@ export interface components {
             kind: string;
             /** Label */
             label: string;
+            headline?: components["schemas"]["DisplayHeadline"] | null;
             /** Metrics */
             metrics?: components["schemas"]["DisplayMetric"][];
             /** Events */

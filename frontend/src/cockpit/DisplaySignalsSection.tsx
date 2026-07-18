@@ -1,4 +1,9 @@
-import type { DisplayMetric, DisplaySignal, MemberDisplaySignalsOut } from "../api/hooks";
+import type {
+  DisplayHeadline,
+  DisplayMetric,
+  DisplaySignal,
+  MemberDisplaySignalsOut,
+} from "../api/hooks";
 import { fmtDate } from "../util/format";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
@@ -19,6 +24,29 @@ export function fmtMetricValue(m: DisplayMetric): string {
     default:
       return String(m.value);
   }
+}
+
+// The posture-glyph tokens the wire can carry -> the arrow the chip shows. Rising-family glyphs
+// tint positive, falling-family negative (glyph only — the chip itself stays mono, #7).
+const GLYPH: Record<string, string> = {
+  up: "↑",
+  turn_up: "↗",
+  turn_down: "↘",
+  down: "↓",
+  flat: "→",
+};
+
+/** One state-headline row — rendered in the panel's TOP strip (the operator's at-a-glance read),
+ *  hoisted out of the Indicators section at the operator's request. The stable machine key rides
+ *  the hover title; only the glyph carries a direction tint. */
+export function DisplayHeadlineRow({ headline }: { headline: DisplayHeadline }) {
+  return (
+    <div className="np-ind-headline" title={headline.key}>
+      <span className={`g ${headline.glyph ?? ""}`}>{GLYPH[headline.glyph ?? ""] ?? "·"}</span>
+      <span className="t">{headline.label}</span>
+      {headline.detail && <span className="d">{headline.detail}</span>}
+    </div>
+  );
 }
 
 function basisLine(sig: DisplaySignal): string {
@@ -44,6 +72,8 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
       ) : (
         signals.map((sig) => (
           <div className="np-ind" key={sig.kind}>
+            {/* the headline renders in the panel's TOP strip, not here — this section keeps the
+                full detail: the chips, the dated flips, and the basis */}
             <div className="np-ind-label">{sig.label}</div>
             <div className="np-ind-chips">
               {(sig.metrics ?? []).map((m) => (
