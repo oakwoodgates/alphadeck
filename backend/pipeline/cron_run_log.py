@@ -126,6 +126,12 @@ def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
     catch-up, and the real run would silently never happen. Fail-open: an unreadable artifact is skipped, so a
     corrupt file can never make the guard falsely report "ran" and cancel a needed catch-up (it errs toward
     running, which the write-side idempotency — ``record_if_changed`` — makes safe to repeat).
+
+    KNOWN INTERACTION (accepted, not a bug): the run-log write itself (``write_cron_run_log``) is **fail-open**
+    by contract — a cron pass runs fine but its log write fails (disk full / permissions). Then this guard sees
+    no entry for today and a post-``RUN_AT`` restart **re-fires the ~65-min ingest**. Not corrupting —
+    ``record_if_changed`` suppresses the duplicate call-of-record — just wasteful. We accept it: a re-run beats a
+    silent skip, and the failure mode is bounded to a disk problem that would page anyway.
     """
     run_dir = base_dir or _DEFAULT_CRON_RUNS
     if not run_dir.exists():
