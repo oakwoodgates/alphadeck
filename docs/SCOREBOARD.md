@@ -9,6 +9,12 @@ record (clearly separated — the record stays clean). "The platform feeds itsel
 *this* is the instrument through which forward evidence accrues. Its existence — or a small sample crossing
 a UI gate — does not by itself make the platform "validated forward."
 
+> **Freshness caveat on the early record.** The record began when the daily cron first wrote (2026-07-10 in
+> production), but the cron's insider data was **frozen** on a cache-first-forever EDGAR cache until R1's
+> key-classed 12h TTL (#196, 2026-07-17). So "feeds itself" became true as a *record* at M2 but as *fresh
+> insider data* only at #196 — the earliest cards were built on stale insider indexes. Full account:
+> `POSTMORTEM_CRON_FREEZE_2026-07.md`.
+
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
 **RH (replay-alongside): built** — RH-A (the snapshot CLI + `GET /scoreboard/replay`) + RH-B (the FE

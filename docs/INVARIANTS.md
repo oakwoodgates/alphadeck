@@ -152,6 +152,15 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
   still recomputes from facts, and the log is never read back to serve. (`_canonical` makes the compare
   order-independent so a pure reorder can't re-append; `tests/repositories/test_calls_repo.py`,
   `tests/pipeline/test_daily.py`.) See `FEED_LOOP.md`.
+- *Known gap — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
+  parameter (above). But at the **edges** that choose the `asof` for a run, "today" is derived from
+  `date.today()`, which reads the process's **ambient timezone** — at **9** non-test call sites (`pipeline/daily.py`
+  ×2 incl. the `--catch-up` default, `scoreboard/run.py`, `scoreboard/replay_snapshot.py` ×2,
+  `app/routers/theses.py` ×2, `securities/master.py` ×2). A manual `pipeline.daily` in a UTC container after
+  ~20:00 ET therefore recorded **tomorrow's** `asof` — a different call (a signal whose liveness window closed
+  that day drops; the derived countdowns shift), not a mislabel. The trading day is a domain fact, not an
+  environment fact. The `TZ` pin (#202) fixes the two containers but **not** a CLI run elsewhere; the durable
+  fix is a shared `market_today()` on an explicit `ZoneInfo`. See `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 ## 7. Factor behavior on the property that drives it — never on grade-as-a-bundle or signal kind
 
@@ -311,3 +320,26 @@ Un-decided is un-decided all the way through the spine. *Enforced by:* migration
 `tests/repositories/test_thesis_repo.py` (null round-trip, never-coerced resave) +
 `tests/app/test_workbench_api.py::test_promote_and_scored_carry_a_null_archetype`; the editor/AddName carry no
 archetype control (FE tests).
+
+## Operating principles + known gaps
+
+Not code-enforced invariants — a principle the cron-freeze episode earned, and a correctness gap the code does
+**not** yet honor. Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
+
+**A structural guard firing is information, not an obstacle.** R6's `already_ran_live(asof)` — built only to
+answer "did today's run already happen" — returned `False` after a visibly-clean run and thereby surfaced the
+timezone bug (#202), a defect it was **never designed to detect**. It caught it because it asks a question with
+a checkable answer. When a guard/assertion you added fires unexpectedly, the default is "the guard found
+something," not "the guard is in the way." This is the argument for building the boring instrument (the run
+log, the fetch counter, the recording gate): they pay off outside their brief.
+
+**Known gap — an amended-away insider buy still fires Key-1 (a false POSITIVE in the arm path).** Form 4/A
+amendments are not reconciled: `accession` is part of the `fact_insider_txn` natural key (`db/bitemporal.py`),
+so a 4/A is a *distinct* surviving row rather than a supersession; the `supersedes` column exists but has zero
+writers/readers (vestigial); and `signals/insider_conviction.py` filters on `txn_code == "P"` with no
+amendment check. So a cancelled/amended-away code-P buy remains a live open-market buy to the conviction
+detector and can turn Key-1 on its own. The fix is **non-trivial** (dropping `accession` from the key or
+naively ingesting the 4/A both *double-count*), so it is **measure-first, MARK-don't-correct**, and it is
+**held behind the operator's signal-change hold** — no change to signal/call logic until the operator lifts it.
+Measured prevalence (2026-07-17): 1,126 Form 4/A · 1.8% of Form 4s · 162 of 250 names (amended *buys* a smaller
+subset). Relates to #1 (no model-sourced firings — this is a deterministic-path gap) and #4 (no lookahead).

@@ -45,7 +45,9 @@ detection vs the prior call-of-record + a Notifier seam — delivery deliberatel
 one adapter away).
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
-> is TRUE; **"the forward trust loop is closed" is NOT** — the **Scoreboard v1** now stands as its instrument,
+> is TRUE (literally so only after #196 — the EDGAR cache silently froze insider data ~11 days until the
+> key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`); **"the forward trust loop is closed" is NOT** —
+> the **Scoreboard v1** now stands as its instrument,
 > but evidence arrives only as matured forward outcomes accrue (nothing is validated at n=0, and no small
 > threshold closes the loop). The `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading early
 > summaries, **not** an evidence threshold. The first

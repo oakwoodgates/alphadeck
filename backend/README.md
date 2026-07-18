@@ -78,10 +78,11 @@ backend\.venv\Scripts\python -m pipeline.ingest_thesis --thesis <thesis-id>   # 
 backend\.venv\Scripts\python -m pipeline.daily                                # per thesis: ingest -> assemble -> append the call-of-record
 ```
 
-Or run the daily cron as the **disabled-by-default sidecar** in the full stack (US-close schedule):
+Or let the **cron sidecar** run it on the US-close schedule — it's **on by default** in the full stack:
 
 ```powershell
-docker compose --profile cron up -d --build                                   # off unless the `cron` profile is set
+docker compose up -d --build                                                  # the cron sidecar starts with the stack
+docker compose up -d --scale cron=0                                           # ...or skip it for one run
 ```
 
 `app/openapi_export.py` dumps `openapi.json` — the frontend generates its TS types from it (`npm run gen:api`).
