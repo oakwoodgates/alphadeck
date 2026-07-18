@@ -127,6 +127,7 @@ export function useCalls(thesisIds: string[], asof: string) {
 export type DisplaySignalsResponse = components["schemas"]["DisplaySignalsResponse"];
 export type MemberDisplaySignalsOut = components["schemas"]["MemberDisplaySignalsOut"];
 export type DisplaySignal = components["schemas"]["DisplaySignal"];
+export type DisplayHeadline = components["schemas"]["DisplayHeadline"];
 export type DisplayMetric = components["schemas"]["DisplayMetric"];
 export type DisplayEvent = components["schemas"]["DisplayEvent"];
 export type DisplayBasis = components["schemas"]["DisplayBasis"];

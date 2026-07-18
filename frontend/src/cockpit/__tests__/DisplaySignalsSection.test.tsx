@@ -13,6 +13,12 @@ const member = {
     {
       kind: "sma_position",
       label: "SMA position (50/200d)",
+      headline: {
+        key: "below_rising",
+        label: "50d under 200d · rising",
+        glyph: "turn_up",
+        detail: "price above both · rising",
+      },
       metrics: [
         { key: "close", label: "close", value: 27.76, unit: "price", note: null },
         { key: "pct_vs_sma50", label: "vs 50d", value: 13.86, unit: "pct", note: null },
@@ -68,6 +74,26 @@ describe("DisplaySignalsSection — the quiet Indicators block", () => {
     expect(basis.textContent).toMatch(/248 bars · through .* · stale: last bar 14d before asof/);
     expect(basis.title).toContain("fact_price_eod");
     expect(basis.title).toContain('"lookback_days":600');
+  });
+
+  it("renders the posture headline — tinted glyph, literal label, muted detail, key on hover", () => {
+    const { container } = render(<DisplaySignalsSection display={member} />);
+    const h = container.querySelector(".np-ind-headline") as HTMLElement;
+    expect(h).not.toBeNull();
+    expect(h.querySelector(".g")?.textContent).toBe("↗");
+    expect(h.querySelector(".g")?.className).toContain("turn_up"); // the tint class (glyph only)
+    expect(screen.getByText("50d under 200d · rising")).toBeInTheDocument();
+    expect(screen.getByText("price above both · rising")).toBeInTheDocument();
+    expect(h.title).toBe("below_rising"); // the stable machine key rides the hover
+  });
+
+  it("renders no headline row when a member doesn't send one", () => {
+    const bare = {
+      ...member,
+      signals: [{ ...member.signals![0], headline: null }],
+    } as unknown as MemberDisplaySignalsOut;
+    const { container } = render(<DisplaySignalsSection display={bare} />);
+    expect(container.querySelector(".np-ind-headline")).toBeNull();
   });
 
   it("degrades to one muted line on empty signals and on a missing member row", () => {

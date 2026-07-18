@@ -21,6 +21,16 @@ export function fmtMetricValue(m: DisplayMetric): string {
   }
 }
 
+// The posture-glyph tokens the wire can carry -> the arrow the chip shows. Rising-family glyphs
+// tint positive, falling-family negative (glyph only — the chip itself stays mono, #7).
+const GLYPH: Record<string, string> = {
+  up: "↑",
+  turn_up: "↗",
+  turn_down: "↘",
+  down: "↓",
+  flat: "→",
+};
+
 function basisLine(sig: DisplaySignal): string {
   const b = sig.basis;
   const parts: string[] = [];
@@ -45,6 +55,17 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
         signals.map((sig) => (
           <div className="np-ind" key={sig.kind}>
             <div className="np-ind-label">{sig.label}</div>
+            {/* the one-glance posture: glyph = the quadrant, text = the literal statement; the
+                stable state key rides the hover title */}
+            {sig.headline && (
+              <div className="np-ind-headline" title={sig.headline.key}>
+                <span className={`g ${sig.headline.glyph ?? ""}`}>
+                  {GLYPH[sig.headline.glyph ?? ""] ?? "·"}
+                </span>
+                <span className="t">{sig.headline.label}</span>
+                {sig.headline.detail && <span className="d">{sig.headline.detail}</span>}
+              </div>
+            )}
             <div className="np-ind-chips">
               {(sig.metrics ?? []).map((m) => (
                 <span className="np-ind-chip" key={m.key} title={m.note ?? undefined}>

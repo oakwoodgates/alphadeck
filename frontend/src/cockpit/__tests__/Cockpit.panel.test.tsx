@@ -99,6 +99,12 @@ const fx = vi.hoisted(() => {
           {
             kind: "sma_position",
             label: "SMA position (50/200d)",
+            headline: {
+              key: "above_rising",
+              label: "50d over 200d · rising",
+              glyph: "up",
+              detail: "price above both · rising",
+            },
             metrics: [
               { key: "close", label: "close", value: 132.4, unit: "price", note: null },
               { key: "sma50", label: "50d SMA", value: 120.1, unit: "price", note: null },
@@ -223,6 +229,8 @@ describe("Cockpit — the per-name panel", () => {
     const p = within(panel(container) as HTMLElement);
     expect(p.getByText("Indicators · this name")).toBeInTheDocument();
     expect(p.getByText("SMA position (50/200d)")).toBeInTheDocument();
+    expect(p.getByText("50d over 200d · rising")).toBeInTheDocument(); // the posture chip leads
+
     expect(p.getByText("+10.2%")).toBeInTheDocument(); // pct renders signed
     expect(p.getByText("132.40")).toBeInTheDocument(); // price renders 2dp
     expect(p.getAllByText("n/a: 140/200 bars")).toHaveLength(2); // the honest gap says WHY (#6/#7)

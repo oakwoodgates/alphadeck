@@ -72,6 +72,21 @@ class DisplayBasis(DomainModel):
     note: str | None = None
 
 
+class DisplayHeadline(DomainModel):
+    """A member's one-glance state chip, rendered at the top of its block.
+
+    ``key`` is a STABLE machine state (a future Board column / basket cell can consume the
+    categorical directly); ``label`` is the literal statement, always derived from the member's
+    params (never a hardcoded window or MA type — change fast/slow/SMA→EMA and the words follow);
+    ``glyph`` is a token the FE maps to a subtly-tinted arrow; ``detail`` is the muted secondary
+    read. A headline states the tape, it never forecasts (#4)."""
+
+    key: str
+    label: str
+    glyph: Literal["up", "down", "turn_up", "turn_down", "flat"] | None = None
+    detail: str | None = None
+
+
 class DisplaySignal(DomainModel):
     """A display member's output: f(point_in_time_data, security_id, asof) -> DisplaySignal | None.
 
@@ -81,6 +96,7 @@ class DisplaySignal(DomainModel):
 
     kind: str
     label: str
+    headline: DisplayHeadline | None = None  # the optional at-the-top state chip (any member)
     metrics: list[DisplayMetric] = Field(default_factory=list)
     events: list[DisplayEvent] = Field(default_factory=list)
     basis: DisplayBasis
