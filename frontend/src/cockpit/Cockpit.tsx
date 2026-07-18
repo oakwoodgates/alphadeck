@@ -1,8 +1,10 @@
 import { Fragment, useState } from "react";
 import { flushSync } from "react-dom";
 
+import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
+import { PostureCell } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -48,8 +50,14 @@ export function Cockpit({
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
   const scoredQ = useWorkbenchScored(thesisId, asof);
-  // read-only per-name indicators, fetched ONCE at page level (a future table cell shares this query)
+  // read-only per-name indicators, fetched ONCE at page level — the panel's top strip and the
+  // basket table's SMA cell read the same query, bridged by security_id
   const displayQ = useDisplaySignals(thesisId, asof);
+  const smaBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "sma_position");
+    if (sig) smaBySid.set(m.security_id, sig);
+  }
   const thesis = thesisQ.data;
   const card = callQ.data;
 
@@ -182,6 +190,7 @@ export function Cockpit({
                       <th>Ticker</th>
                       <th>Name</th>
                       <th>Archetype</th>
+                      <th style={{ textAlign: "right" }}>SMA</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -190,7 +199,7 @@ export function Cockpit({
                     {groups.map(({ def, rows }) => (
                       <Fragment key={def.key}>
                         <tr className={`grp ${def.cls}`}>
-                          <td colSpan={6}>
+                          <td colSpan={7}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -242,6 +251,17 @@ export function Cockpit({
                               ) : (
                                 <span className="muted">—</span>
                               )}
+                            </td>
+                            <td className="met smac">
+                              {/* the tape posture at table grain: the panel headline's glyph + the
+                                  distance vs the slow line; the literal statement rides the hover */}
+                              <PostureCell
+                                sig={
+                                  r.member.security_id
+                                    ? (smaBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                              />
                             </td>
                             <td className="met">
                               {/* computed market cap (the scoring engine, re-derived on read),

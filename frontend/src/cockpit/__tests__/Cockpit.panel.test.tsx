@@ -107,10 +107,10 @@ const fx = vi.hoisted(() => {
             },
             metrics: [
               { key: "close", label: "close", value: 132.4, unit: "price", note: null },
-              { key: "sma50", label: "50d SMA", value: 120.1, unit: "price", note: null },
-              { key: "sma200", label: "200d SMA", value: null, unit: "price", note: "n/a: 140/200 bars" },
-              { key: "pct_vs_sma50", label: "vs 50d", value: 10.24, unit: "pct", note: null },
-              { key: "pct_vs_sma200", label: "vs 200d", value: null, unit: "pct", note: "n/a: 140/200 bars" },
+              { key: "ma_fast", label: "50d SMA", value: 120.1, unit: "price", note: null },
+              { key: "ma_slow", label: "200d SMA", value: null, unit: "price", note: "n/a: 140/200 bars" },
+              { key: "pct_vs_fast", label: "vs 50d", value: 10.24, unit: "pct", note: null },
+              { key: "pct_vs_slow", label: "vs 200d", value: null, unit: "pct", note: "n/a: 140/200 bars" },
             ],
             events: [
               { key: "cross_sma50", label: "price crossed above 50d SMA", date: "2026-06-20", direction: "up" },
@@ -246,6 +246,19 @@ describe("Cockpit — the per-name panel", () => {
     const p2 = within(panel(container) as HTMLElement);
     expect(p2.getByText("No indicator data at this as-of.")).toBeInTheDocument();
     expect(p2.queryByText(/price crossed/)).toBeNull(); // another name's tape never leaks
+  });
+
+  it("shows the SMA posture at table grain — tinted glyph + hover label, an honest dash elsewhere", () => {
+    const { container } = renderCockpit();
+    const jCell = row(container, "bkt-armed").querySelector(".smac") as HTMLElement;
+    expect(jCell.querySelector(".g")?.textContent).toBe("↑");
+    expect(jCell.querySelector(".g")?.className).toContain("dirg"); // the shared tint class
+    expect(jCell.querySelector(".sma-cell")?.getAttribute("title")).toContain(
+      "50d over 200d · rising",
+    );
+    // a name with no display row degrades to the quiet dash — never a blank cell
+    const xeCell = row(container, "bkt-warming").querySelector(".smac") as HTMLElement;
+    expect(xeCell.textContent).toBe("—");
   });
 
   it("degrades honestly on the verdict-less buckets: watch keeps its confirmation clock, quiet says so", () => {

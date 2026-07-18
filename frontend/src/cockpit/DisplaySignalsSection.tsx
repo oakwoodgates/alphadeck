@@ -42,10 +42,29 @@ const GLYPH: Record<string, string> = {
 export function DisplayHeadlineRow({ headline }: { headline: DisplayHeadline }) {
   return (
     <div className="np-ind-headline" title={headline.key}>
-      <span className={`g ${headline.glyph ?? ""}`}>{GLYPH[headline.glyph ?? ""] ?? "·"}</span>
+      <span className={`g dirg ${headline.glyph ?? ""}`}>
+        {GLYPH[headline.glyph ?? ""] ?? "·"}
+      </span>
       <span className="t">{headline.label}</span>
       {headline.detail && <span className="d">{headline.detail}</span>}
     </div>
+  );
+}
+
+/** The basket-table grain of the SMA posture: the quadrant glyph + % vs the slow line, with the
+ *  literal statement on hover. "—" when the name has no reading (no bars) — never a blank cell. */
+export function PostureCell({ sig }: { sig: DisplaySignal | null }) {
+  const h = sig?.headline;
+  const pct = (sig?.metrics ?? []).find((m) => m.key === "pct_vs_slow");
+  if (!h && pct?.value == null) return <span className="muted">—</span>;
+  return (
+    <span
+      className="sma-cell"
+      title={h ? `${h.label}${h.detail ? ` — ${h.detail}` : ""}` : undefined}
+    >
+      {h && <span className={`g dirg ${h.glyph ?? ""}`}>{GLYPH[h.glyph ?? ""] ?? "·"}</span>}
+      {pct?.value != null && <span className="pv">{fmtMetricValue(pct)}</span>}
+    </span>
   );
 }
 
