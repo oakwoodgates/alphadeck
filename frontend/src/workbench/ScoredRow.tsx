@@ -7,6 +7,8 @@ import {
   formatMarketCap,
   memberHasFundamentals,
   onFileValues,
+  sharesAsof,
+  staleSharesMonths,
 } from "./format";
 
 interface Props {
@@ -16,6 +18,9 @@ interface Props {
   // the active thesis — threaded to the extract so the row's "get data" and the rail's FactsPanel share ONE
   // query (same key, same grounded-purity behavior). Optional: an un-wired/test render omits it.
   thesisId?: string;
+  // the scored as-of — used only to age the ratified share count behind the market cap (the ENDV stale-shares
+  // flag). Optional: an un-wired/test render omits it (then no age check runs).
+  asof?: string;
 }
 
 /** One scored basket member: ticker + archetype + market-cap figure, then the four meters. purity /
@@ -33,8 +38,12 @@ interface Props {
  *  one: nobody knows a share count by heart, so confirming the extractor's cover figure only rubber-stamped
  *  it. The server owns the number and the AUTO gate (see `useAutoConfirmShares`); a FLAGged count still goes
  *  to the operator, and the market cap is the real check. */
-export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
+export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props) {
   const extract = useExtract(member.security_id, thesisId);
+  // ENDV finding (display-only): a ratified share count from a stale cover (an old/delinquent filer) yields a
+  // plausible-but-wrong market cap with no age signal. Light a WARM flag ONLY when the count is > ~6 months
+  // old (honest loudness — the common current count shows nothing). No signal touched; just the eye's catch.
+  const staleMonths = asof ? staleSharesMonths(sharesAsof(member), asof) : null;
   // the surgical get-data pulls the FULL per-name set: extraction candidates + EOD price bars (the
   // decoupled price leg) — same completeness as the section button, one name at a time
   const ingestPx = useIngestPrices();
@@ -89,6 +98,14 @@ export function ScoredRow({ member, selected, onSelect, thesisId }: Props) {
         <span className="cap">
           <small>mkt cap</small>
           {formatMarketCap(member.market_cap.value)}
+          {staleMonths != null && (
+            <span
+              className="wb-stale-shares"
+              title={`the share count behind this cap is from a filing cover ~${staleMonths} months old — an old or delinquent filer. The cap could be materially wrong; verify the current count before trusting it.`}
+            >
+              ⚠ shares ~{staleMonths}mo old
+            </span>
+          )}
         </span>
         {/* gate 2 — per-name, opt-in, visible cost. The control now tracks what's LEFT to ratify (not merely
             "any fact confirmed"), so an auto-applied shares count can't silence a name whose purity/cash are
