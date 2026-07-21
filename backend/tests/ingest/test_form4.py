@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ingest.edgar.form4 import _txn_date, existing_accessions, ingest_form4, parse_form4
+from ingest.edgar.form4 import _norm_cik, _txn_date, existing_accessions, ingest_form4, parse_form4
 
 _XML = (
     Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_sample.xml"
@@ -169,6 +169,53 @@ def test_ingest_form4_stores_a_tz_suffixed_buy(db, security_id):
         )
         row = cur.fetchone()
     assert row is not None and row["valid_from"] == date(2026, 5, 13)
+
+
+# --- issuer + reporting-owner IDENTITY capture (migration 0024) — the insider-detector self-filing screen ---
+
+
+def test_norm_cik_strips_padding_and_whitespace():
+    assert _norm_cik("0001773751") == "1773751"
+    assert _norm_cik("  0000054321 ") == "54321"
+    assert _norm_cik(None) is None and _norm_cik("") is None and _norm_cik("0000") is None
+
+
+def test_parse_form4_captures_issuer_and_owner_identity():
+    buy = next(t for t in parse_form4(_XML) if t["txn_code"] == "P")
+    # from <issuer> and <reportingOwnerId> — CIKs normalized (leading zeros stripped)
+    assert buy["issuer_cik"] == "1234567"
+    assert buy["issuer_name"] == "Devco Inc"
+    assert buy["rpt_owner_cik"] == "7654321"
+    # the sample is NOT a self-filing (owner 7654321 != issuer 1234567)
+    assert buy["rpt_owner_cik"] != buy["issuer_cik"]
+
+
+def _as_self_filing(xml: str) -> str:
+    """The sample filing rewritten as a SELF-filing: the reporting owner IS the issuer (same CIK + name) —
+    the KYOCERA-on-KYOCERA / Roivant-on-Roivant shape."""
+    return xml.replace("0007654321", "0001234567").replace("Doe Jane", "Devco Inc")
+
+
+def test_parse_form4_self_filing_has_matching_owner_and_issuer_cik():
+    buy = next(t for t in parse_form4(_as_self_filing(_XML)) if t["txn_code"] == "P")
+    assert buy["rpt_owner_cik"] == buy["issuer_cik"] == "1234567"
+    assert buy["insider_name"] == buy["issuer_name"] == "Devco Inc"
+
+
+def test_ingest_form4_stores_issuer_owner_identity(db, security_id):
+    ingest_form4(db, security_id, _XML, "acc-identity")
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT issuer_cik, issuer_name, rpt_owner_cik FROM fact_insider_txn "
+            "WHERE accession=%s AND txn_code='P'",
+            ("acc-identity",),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["issuer_cik"] == "1234567"
+    assert row["issuer_name"] == "Devco Inc"
+    assert row["rpt_owner_cik"] == "7654321"
 
 
 def test_existing_accessions_is_distinct_set(db, security_id):

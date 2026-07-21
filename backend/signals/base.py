@@ -135,6 +135,23 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def security_name(self, security_id: UUID) -> str | None:
+        """The security's display name from ``security_master`` — an IDENTITY read, NOT a bitemporal fact.
+
+        The master is identity (CIK ↔ ticker ↔ name), read directly (never as-of): the name is stable, so a
+        direct read leaks no future EVENT — the no-lookahead boundary is about facts, not identity (migration
+        0001: "nothing reads the master as-of"). The insider detector uses this to recognise a self-filing —
+        the reporting owner IS the issuer — on rows ingested before ``rpt_owner_cik``/``issuer_cik`` were
+        captured (those newer rows carry the CIKs and match canonically instead). ``None`` if unknown → the
+        name screen simply keeps the row (recall-safe, #9)."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM security_master WHERE id = %s AND tenant_id = %s",
+                (security_id, self.tenant_id),
+            )
+            row = cur.fetchone()
+        return row["name"] if row else None
+
 
 class SignalPointInTimeData(Protocol):
     """The structural fact-view contract consumed by the current signal pipeline.
@@ -159,6 +176,8 @@ class SignalPointInTimeData(Protocol):
     def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
+
+    def security_name(self, security_id: UUID) -> str | None: ...
 
 
 DetectorFn = Callable[

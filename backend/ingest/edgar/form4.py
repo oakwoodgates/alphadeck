@@ -80,17 +80,34 @@ def _aff_10b5_1(root: ET.Element) -> bool | None:
     return None  # an unparseable value is unknown, not a guess
 
 
+def _norm_cik(raw: str | None) -> str | None:
+    """Normalize an EDGAR CIK for identity comparison — strip whitespace + leading zeros ('0001773751' ->
+    '1773751'). Both the issuer CIK and the owner CIK come from the SAME filing (identically padded), so this
+    is belt-and-suspenders; it also lets a stored CIK compare equal to an unpadded one. Empty -> None.
+    """
+    if not raw:
+        return None
+    s = raw.strip().lstrip("0")
+    return s or None
+
+
 def parse_form4(xml: str) -> list[dict]:
     """Parse a Form 4 ownership document into open-market-aware transaction rows.
 
     Returns one row per non-derivative transaction with its raw ``txn_code`` (e.g. 'P' = open-market
     purchase, 'S' = sale); the insider-conviction detector (M2b) is what isolates code 'P'.
 
-    Each row also carries the filing's ``aff_10b5_1`` (the Rule 10b5-1 checkbox, tri-state — see
-    ``_aff_10b5_1``). CAPTURE-ONLY: no detector reads it.
+    Each row carries the filing's ``aff_10b5_1`` (the Rule 10b5-1 checkbox, tri-state — see ``_aff_10b5_1``;
+    CAPTURE-ONLY, no detector reads it) and the issuer + reporting-owner IDENTITY (``issuer_cik``,
+    ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognise a
+    self-filing (reporting owner IS the issuer — a buyback/treasury/ADR mechanic, never personal insider
+    conviction) and screen it out of the open-market conviction total; see ``signals/insider_conviction.py``.
     """
     root = ET.fromstring(xml)
     owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
+    owner_cik = _norm_cik(root.findtext("reportingOwner/reportingOwnerId/rptOwnerCik"))
+    issuer_name = root.findtext("issuer/issuerName")
+    issuer_cik = _norm_cik(root.findtext("issuer/issuerCik"))
     role = _role(root.find("reportingOwner/reportingOwnerRelationship"))
     aff = _aff_10b5_1(root)  # filing-level -> stamped onto every row below
 
@@ -112,6 +129,11 @@ def parse_form4(xml: str) -> list[dict]:
                     "transactionAmounts/transactionAcquiredDisposedCode/value"
                 ),
                 "aff_10b5_1": aff,  # filing-level; tri-state (True/False/None=unknown)
+                # filing-level identity (stamped on every row) — the issuer-self screen (#3); issuer-self
+                # ⇔ rpt_owner_cik == issuer_cik. Kept for the deferred affiliate-block pass too.
+                "issuer_cik": issuer_cik,
+                "issuer_name": issuer_name,
+                "rpt_owner_cik": owner_cik,
             }
         )
     return txns
@@ -147,6 +169,12 @@ def ingest_form4(
             # the filing's Rule 10b5-1 checkbox — CAPTURE-ONLY (no detector reads it); NULL = unknown
             # (pre-Dec-2022 filings have no checkbox), never coerced to False
             "aff_10b5_1": t["aff_10b5_1"],
+            # issuer + reporting-owner identity — the insider detector's issuer-self screen reads these
+            # (rpt_owner_cik == issuer_cik ⇒ the company filed on itself). NULL on rows ingested before
+            # this column existed; the detector falls back to a name match there. See migration 0024.
+            "issuer_cik": t["issuer_cik"],
+            "issuer_name": t["issuer_name"],
+            "rpt_owner_cik": t["rpt_owner_cik"],
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

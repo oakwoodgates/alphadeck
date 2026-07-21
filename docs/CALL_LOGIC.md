@@ -126,6 +126,20 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   them. This is what stops an IPO-day insider subscription from arming a fake CORE (PBLS: RA Capital's $394M
   subscription at the $20 offer vs a $29.65–34.47 tape → was a half-billion CORE, now the honest ~$473k FLIP
   from the *real* post-IPO open-market buys).
+  **Who counts as an insider (not only *what price*):** code `P` is filed by any acquirer, not just the
+  officers/directors the open-market-purchase literature is about. The detector screens out a **self-filing** —
+  the issuer filing a Form 4 on its own stock (reporting owner **==** issuer: KYOCERA-on-KYOCERA $690M @
+  $21.75, Roivant-on-Roivant $350M @ $21 — a buyback/treasury/ADR mechanic, priced *at* the market so no
+  price screen catches it), which is never personal insider conviction (#3). It recognises the self-filing by
+  **identity**, most-robust first: `rpt_owner_cik == issuer_cik` (both captured from the filing, migration
+  0024; the CIKs also flow into replay via `SELECT *`), else the **filer name == the issuer name** (the row's
+  captured `issuer_name`, or the security's `security_master` name for a row ingested before the capture — so
+  the screen works on already-ingested rows with **no backfill**). **Recall-safe (#9):** only a self-filing has
+  filer == issuer, and a missing CIK / name-format mismatch simply *keeps* the row; excluded rows **stay** in
+  `fact_insider_txn` + the display tape, only the call skips them. *(Larger 10%-owner fund/affiliate blocks —
+  Baker Bros' $190M — vs a genuine large activist/director buy — Paulson's $312M — are a **separate, deferred**
+  call: no clean structured discriminator separates a noise block from smart-money, so they are left in for now
+  pending a labeled sample; the captured CIKs set that pass up recall-safe.)*
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan
