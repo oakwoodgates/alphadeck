@@ -113,7 +113,19 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   unrelated breakout half a year later — the fix for the *"right but early"* case (UNH: CEO-led cluster in May,
   the volume-backed breakout confirms ~3 months later, still inside the core window). **Built rule:** `core` if
   a senior cluster (≥2 distinct, code `P`, CEO/CFO/director) **or** a single high-USD senior buy clears the
-  floor; else `flip`. Calibrated in `CallConfig`.
+  floor; else `flip`. Calibrated in `CallConfig`. **What counts as a code-`P` *open-market* buy:** SEC code
+  `P` is "open market **or** private purchase", so a primary-market subscription (an IPO allocation / PIPE /
+  placement at the **offer** price) files as `P` yet did not transact on the open market. The detector screens
+  these out by cross-checking each buy's price against the security's **own EOD low that day** (`day_lows`,
+  from the same point-in-time price view — no lookahead): a buy priced materially **below the day's low**
+  (`insider_offmarket_below_low_frac`) is off-market and does not feed conviction, and a physically-impossible
+  row (`usd` above `insider_max_plausible_txn_usd` — bad source data, e.g. a $100k/share price → a $2T buy) is
+  dropped too. **Recall-safe (#9):** no price bar for the day → **kept** (a genuine open-market print is inside
+  `[low, high]`, so this cannot exclude one — save a name that *reverse-split* between the buy and asof, a
+  documented limitation). Excluded rows **stay** in `fact_insider_txn` + the display tape; only the call skips
+  them. This is what stops an IPO-day insider subscription from arming a fake CORE (PBLS: RA Capital's $394M
+  subscription at the $20 offer vs a $29.65–34.47 tape → was a half-billion CORE, now the honest ~$473k FLIP
+  from the *real* post-IPO open-market buys).
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan
