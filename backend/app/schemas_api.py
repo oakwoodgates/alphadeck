@@ -756,6 +756,13 @@ class ScoreboardEpisodeOut(BaseModel):
     status: Literal["open", "closed"]
     matured: bool
     censored_start: bool
+    # record-provenance (2d) — did the ARM rest on trustworthy ingest? Honesty flags only, composed
+    # AFTER scoring (a flagged episode scores identically; it just leaves the aggregate metrics):
+    arm_ingest_fresh: bool | None = None  # the arm-date run's R2b stamp, raw (None = legacy)
+    freeze_era: bool = False  # armed inside the 2026-07 EDGAR freeze window
+    thaw_lag_days: int | None = None  # max ingest lag of the arm's cited form4 facts
+    ingest_flagged: bool = False  # the rollup: the INGEST badge + metric exclusion
+    ingest_note: str | None = None  # the composed human "why" — None when clean
     verdict: Verdict | None = None
     entry_grade: Grade | None = None
     conviction_grade: Grade | None = None
@@ -794,6 +801,11 @@ def _scoreboard_episode_out(
         status=e.status,
         matured=e.matured,
         censored_start=e.censored_start,
+        arm_ingest_fresh=e.arm_ingest_fresh,
+        freeze_era=e.freeze_era,
+        thaw_lag_days=e.thaw_lag_days,
+        ingest_flagged=e.ingest_flagged,
+        ingest_note=e.ingest_note,
         verdict=ep.verdict,
         entry_grade=ep.entry_grade,
         conviction_grade=ep.conviction_grade,
@@ -882,6 +894,7 @@ class ScoreboardSummaryOut(BaseModel):
     n_open: int
     n_matured: int
     n_censored: int
+    n_ingest_flagged: int = 0  # provenance rollup (2d): ledger-visible, out of the aggregates
     n_eligible: int
     n_takes: int = 0  # the operator track: non-voided decisions <= asof
     n_passes: int = 0
@@ -891,6 +904,12 @@ class ScoreboardSummaryOut(BaseModel):
     banner: str
     min_n: int
     metrics: list[ScoreboardMetricOut] = []
+    # 2e — the maturity horizon (asof-pure: the countdown is coherent on a scrubbed view too). The
+    # projection counts only non-censored, non-flagged future maturities — over currently-recorded
+    # episodes, never a promise (new arms or de-arms shift it).
+    next_maturity: date | None = None  # min FUTURE exit_by, ledger-wide
+    n_maturing_30d: int = 0
+    projected_min_n_date: date | None = None  # None = already cleared, or not reachable
     # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
     # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
     # exactly like AdminRecordOut. Asof-INDEPENDENT (the record edge + the clock drive it, not the

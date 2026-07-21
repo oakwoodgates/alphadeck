@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
 
 from app.routers import scoreboard
+from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from repositories import thesis_repo
 from tests.calls.factories import insider_event
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
 # GET /scoreboard — the record served: shape, asof scrubbing, the metrics gate (matured +
-# non-censored only, insufficient_n below MIN_N), the archived filter, record-freshness (2a),
-# and writes-nothing.
+# non-censored + clean-ingest only, insufficient_n below MIN_N), the archived filter,
+# record-freshness (2a), record-provenance (2d), the maturity horizon (2e), and writes-nothing.
 
 ASOF = "2026-07-15"
 
@@ -154,6 +157,213 @@ def test_include_archived_param(client, db, security_id):
     assert body["theses"] == [] and body["summary"]["n_episodes"] == 0
 
 
+# --- 2d: record provenance — flagged episodes stay in the ledger, out of the aggregates ---
+
+
+def _one_episode(client):
+    body = client.get("/scoreboard", params={"asof": ASOF}).json()
+    (t,) = body["theses"]
+    (ep,) = t["episodes"]
+    return ep
+
+
+def test_partial_ingest_arm_is_flagged_on_the_wire(client, db, security_id):
+    """A (run stamp): an arm recorded on a PARTIAL ingest (fresh=False) flags, with the note."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1), ingest_fresh=False, ingest_errors=2)
+
+    ep = _one_episode(client)
+    assert ep["arm_ingest_fresh"] is False and ep["ingest_flagged"] is True
+    assert ep["ingest_note"] == "partial ingest on the arm-date run (2 names errored)"
+    assert ep["freeze_era"] is False and ep["thaw_lag_days"] is None
+
+
+def test_freeze_window_arm_is_flagged_on_the_wire(client, db, security_id):
+    """B1: the existing launch seed arms 2026-07-10 — inside the freeze window. The legacy row's
+    stamp stays raw None (never coerced); the window alone flags it."""
+    _seed_one_open_censored(db, security_id)
+
+    ep = _one_episode(client)
+    assert ep["freeze_era"] is True and ep["ingest_flagged"] is True
+    assert "armed inside the 2026-07 EDGAR freeze window" in ep["ingest_note"]
+    assert ep["arm_ingest_fresh"] is None
+
+
+def test_thawed_late_arm_is_flagged_with_the_lag(client, db, security_id):
+    """B2: a June (pre-freeze) arm citing a form4 fact the platform first learned 10 days after
+    its event date reads thaw_lag_days=10 and flags, with the note."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1))
+    # the arm's cited accession (the factory fixture), ingested 10d after its event date
+    append_fact(
+        db,
+        "fact_insider_txn",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "accession": "0001234567-26-000123",
+            "insider_name": "A Buyer",
+            "txn_code": "P",
+            "valid_from": date(2026, 5, 25),
+            "recorded_at": datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc),
+        },
+    )
+    db.commit()
+
+    ep = _one_episode(client)
+    assert ep["thaw_lag_days"] == 10 and ep["ingest_flagged"] is True
+    assert "insider source ingested 10d after its event date" in ep["ingest_note"]
+    assert ep["freeze_era"] is False
+
+
+def test_clean_stamped_arm_is_not_flagged(client, db, security_id):
+    """A clean June arm carries NO flag and NO note — loudness marks the exception."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1), ingest_fresh=True, ingest_errors=0)
+
+    ep = _one_episode(client)
+    assert ep["arm_ingest_fresh"] is True and ep["ingest_flagged"] is False
+    assert ep["ingest_note"] is None
+    assert ep["freeze_era"] is False and ep["thaw_lag_days"] is None
+
+
+def _seed_matured_flagged_cycle(db, security_id):
+    """One matured, NON-censored arm cycle recorded on a PARTIAL ingest (fresh=False) — June dates
+    (outside the freeze window), so the run stamp alone is what flags it."""
+    thesis = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+    warm = [
+        insider_event(security_id=security_id, liveness=3).model_copy(
+            update={"asof": date(2026, 6, 14)}
+        )
+    ]
+    record_day(db, thesis, warm, date(2026, 6, 14))  # warming first: the arm is not censored
+    conv, conf = keys_fired(security_id, date(2026, 6, 15), conv_liveness=3, conf_liveness=3)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 15), ingest_fresh=False, ingest_errors=2)
+    record_day(db, thesis, [conv], date(2026, 6, 19))  # aged out -> de-arm row
+    bar(db, security_id, date(2026, 6, 15), 100.0)
+    bar(db, security_id, date(2026, 6, 17), 103.0)
+    return thesis
+
+
+def test_flagged_episode_stays_in_ledger_but_leaves_the_metrics(client, db, security_id):
+    """Recall-is-sacred cousin, proved by the COUNT: 5 matured clean + 1 matured flagged -> the
+    ledger shows 6, the eligible pool and every pooled metric read 5, and the banner names the
+    clean-ingest leg of the eligibility rule."""
+    _seed_five_matured_cycles(db, security_id)
+    _seed_matured_flagged_cycle(db, _second_security(db))
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["n_episodes"] == 6 and s["n_matured"] == 6 and s["n_censored"] == 0
+    assert s["n_ingest_flagged"] == 1
+    assert s["n_eligible"] == 5  # the flagged one is ledger-only
+    assert {m["name"]: m["n"] for m in s["metrics"]}["arm_timing_forward_return"] == 5
+    assert "clean-ingest" in s["banner"] and "NOT A CLAIM" in s["banner"]
+
+
+def test_flagged_clean_and_legacy_twins_score_identically(client, db, security_id):
+    """The migration-0023 rule, pinned: a clean-stamped, a partial-stamped (flagged), and a
+    legacy-NULL arm over IDENTICAL bars produce IDENTICAL Outcome wire fields — provenance
+    segments/annotates AFTER scoring, never inside it. Only the flags differ."""
+    stamps: dict[str, dict] = {
+        "clean": {"ingest_fresh": True, "ingest_errors": 0},
+        "flagged": {"ingest_fresh": False, "ingest_errors": 2},
+        "legacy": {},
+    }
+    ids: dict[str, str] = {}
+    for name, stamp in stamps.items():
+        t = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+        ids[name] = str(t.id)
+        conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=5, conf_liveness=5)
+        record_day(db, t, [conv, conf], date(2026, 6, 1), **stamp)
+    bar(db, security_id, date(2026, 6, 1), 100.0)
+    bar(db, security_id, date(2026, 6, 4), 108.0)
+
+    body = client.get("/scoreboard", params={"asof": ASOF}).json()
+    eps = {t["thesis_id"]: t["episodes"][0] for t in body["theses"]}
+    clean, flagged, legacy = (eps[ids[k]] for k in ("clean", "flagged", "legacy"))
+    for f in (
+        "entry_close",
+        "exit_close",
+        "exit_date",
+        "forward_return",
+        "arm_until_return",
+        "warm_return",
+        "peak_return",
+        "peak_date",
+        "exit_vs_peak_days",
+        "truncated",
+        "insufficient_prices",
+    ):
+        assert clean[f] == flagged[f] == legacy[f]
+    assert clean["forward_return"] == pytest.approx(0.08)  # a REAL scored number on all three
+    # ...and only the provenance differs
+    assert flagged["ingest_flagged"] is True and flagged["arm_ingest_fresh"] is False
+    assert clean["ingest_flagged"] is False and clean["arm_ingest_fresh"] is True
+    assert legacy["ingest_flagged"] is False
+    assert legacy["arm_ingest_fresh"] is None  # raw, never coerced
+
+
+# --- 2e: the maturity horizon — the countdown behind the mute gate ---
+
+
+def _seed_open_immature(db, security_id, arm: date, liveness: int, *, flagged: bool = False):
+    """One open, immature, NON-censored episode: warming the day before, armed on ``arm`` with
+    exit_by = arm + liveness. ``flagged`` stamps the arm row as a partial ingest (2d)."""
+    thesis = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+    warm = [
+        insider_event(security_id=security_id, liveness=liveness + 1).model_copy(
+            update={"asof": arm - timedelta(days=1)}
+        )
+    ]
+    record_day(db, thesis, warm, arm - timedelta(days=1))
+    conv, conf = keys_fired(security_id, arm, conv_liveness=liveness, conf_liveness=10)
+    stamp = {"ingest_fresh": False, "ingest_errors": 1} if flagged else {}
+    record_day(db, thesis, [conv, conf], arm, **stamp)
+    return thesis
+
+
+def test_maturity_horizon_countdown_and_projection(client, db, security_id):
+    """next_maturity/n_maturing_30d are LEDGER-WIDE (a flagged episode still matures first); the
+    n>=MIN_N projection counts only non-censored, non-flagged candidates — a flagged immature
+    episode does NOT advance it. Arms 2026-07-01 (pre-freeze); asof 2026-07-15."""
+    for liveness in (19, 25, 30, 40, 61):  # exit_by: 07-20, 07-26, 07-31, 08-10, 08-31
+        _seed_open_immature(db, security_id, date(2026, 7, 1), liveness)
+    _seed_open_immature(db, security_id, date(2026, 7, 1), 17, flagged=True)  # exit_by 07-18
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["next_maturity"] == "2026-07-18"  # the flagged one still matures first
+    assert s["n_maturing_30d"] == 5  # <= 08-14: everything but the 08-31 tail
+    # eligible = 0, so need = MIN_N = 5: the 5th CLEAN future maturity — the flagged 07-18 is
+    # skipped, which pushes the projection out to 08-31 (honest, not optimistic)
+    assert s["projected_min_n_date"] == "2026-08-31"
+    assert s["n_ingest_flagged"] == 1
+
+
+def test_maturity_projection_none_when_unreachable(client, db, security_id):
+    """One clean immature episode cannot reach n >= MIN_N: the projection is honestly None while
+    the countdown itself still renders (next_maturity set)."""
+    _seed_open_immature(db, security_id, date(2026, 7, 1), 30)
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["next_maturity"] == "2026-07-31"
+    assert s["n_maturing_30d"] == 1
+    assert s["projected_min_n_date"] is None
+
+
+def test_maturity_horizon_quiet_when_cleared_and_nothing_future(client, db, security_id):
+    """need <= 0 (the strip already shows real metrics) and no future exit_by: every horizon field
+    is quiet — None/0, never a stale countdown."""
+    _seed_five_matured_cycles(db, security_id)
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["n_eligible"] == 5  # cleared: need <= 0
+    assert s["projected_min_n_date"] is None
+    assert s["next_maturity"] is None and s["n_maturing_30d"] == 0
+
+
 # --- 2a: the record-freshness (staleness) line on the summary ---
 
 
@@ -218,10 +428,11 @@ def test_scoreboard_get_writes_nothing(client, db, security_id, monkeypatch):
             cur.execute(
                 "SELECT (SELECT count(*) FROM calls) AS c,"
                 " (SELECT count(*) FROM operator_decision) AS d,"
-                " (SELECT count(*) FROM fact_price_eod) AS p"
+                " (SELECT count(*) FROM fact_price_eod) AS p,"
+                " (SELECT count(*) FROM fact_insider_txn) AS i"  # the 2d thaw-lag read path
             )
             r = cur.fetchone()
-            return (r["c"], r["d"], r["p"])
+            return (r["c"], r["d"], r["p"], r["i"])
 
     before = counts()
     resp = client.get("/scoreboard", params={"asof": ASOF})

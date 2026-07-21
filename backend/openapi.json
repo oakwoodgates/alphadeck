@@ -4754,6 +4754,49 @@
             "type": "boolean",
             "title": "Censored Start"
           },
+          "arm_ingest_fresh": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Ingest Fresh"
+          },
+          "freeze_era": {
+            "type": "boolean",
+            "title": "Freeze Era",
+            "default": false
+          },
+          "thaw_lag_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thaw Lag Days"
+          },
+          "ingest_flagged": {
+            "type": "boolean",
+            "title": "Ingest Flagged",
+            "default": false
+          },
+          "ingest_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Note"
+          },
           "verdict": {
             "anyOf": [
               {
@@ -5263,6 +5306,11 @@
             "type": "integer",
             "title": "N Censored"
           },
+          "n_ingest_flagged": {
+            "type": "integer",
+            "title": "N Ingest Flagged",
+            "default": 0
+          },
           "n_eligible": {
             "type": "integer",
             "title": "N Eligible"
@@ -5314,6 +5362,35 @@
             "type": "array",
             "title": "Metrics",
             "default": []
+          },
+          "next_maturity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Maturity"
+          },
+          "n_maturing_30d": {
+            "type": "integer",
+            "title": "N Maturing 30D",
+            "default": 0
+          },
+          "projected_min_n_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Min N Date"
           },
           "record_edge": {
             "anyOf": [

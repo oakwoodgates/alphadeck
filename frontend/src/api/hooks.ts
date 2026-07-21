@@ -150,6 +150,7 @@ export function useDisplaySignals(thesisId: string, asof: string) {
 
 // --- the Scoreboard (SCORE): the forward record scored — the calls log + the decision log ---
 export type ScoreboardResponse = components["schemas"]["ScoreboardResponse"];
+export type ScoreboardSummaryOut = components["schemas"]["ScoreboardSummaryOut"];
 export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
 export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];

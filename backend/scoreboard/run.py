@@ -56,6 +56,11 @@ def _episode_lines(e: ScoredEpisode, ticker: str) -> list[str]:
     lines = [head, body]
     if e.censored_start:
         lines.append("         * censored: the record began mid-arm (true arm date unknowable)")
+    if e.ingest_flagged:
+        lines.append(
+            f"         ! ingest: {e.ingest_note or 'partial or late-ingested arm data'}"
+            " (excluded from metrics)"
+        )
     for t in e.triggers_at_arm:
         lines.append(f"         why: {t.label} [{t.kind.value if t.kind else '?'}]")
     return lines
@@ -66,7 +71,7 @@ def render(result: ScoreboardResult, tickers: dict[UUID, str]) -> str:
         f"SCOREBOARD as-of {result.asof} — the record, scored (never a recompute)",
         f"theses {result.n_theses} (with record {result.n_with_record}) · "
         f"episodes {result.n_episodes} (open {result.n_open}, matured {result.n_matured}, "
-        f"censored {result.n_censored})",
+        f"censored {result.n_censored}, ingest-flagged {result.n_ingest_flagged})",
     ]
     for t in result.theses:
         lines.append("")

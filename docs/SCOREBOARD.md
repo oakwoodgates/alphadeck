@@ -13,7 +13,9 @@ a UI gate — does not by itself make the platform "validated forward."
 > production), but the cron's insider data was **frozen** on a cache-first-forever EDGAR cache until R1's
 > key-classed 12h TTL (#196, 2026-07-17). So "feeds itself" became true as a *record* at M2 but as *fresh
 > insider data* only at #196 — the earliest cards were built on stale insider indexes. Full account:
-> `POSTMORTEM_CRON_FREEZE_2026-07.md`.
+> `POSTMORTEM_CRON_FREEZE_2026-07.md`. **Now marked per-episode (Slice 3):** the record-provenance flags
+> below carry this caveat onto each episode (`ingest_flagged` + the INGEST badge) — freeze-era and
+> thawed/partial-ingest arms stay ledger-visible but are excluded from the aggregate metrics.
 
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
@@ -50,9 +52,34 @@ record, per episode:
 | Flag | Meaning |
 |---|---|
 | `status` open/closed | open = still armed at the record edge ≤ asof (replay's `window_end`, read live); its return is a RUNNING return, not a verdict |
-| `matured` | the episode's own `exit_by` signal-validity endpoint has elapsed (≤ asof). **Metrics judge only matured, non-censored episodes** — a running return must never drift inside `false_arm_rate` before the scoring window ends |
+| `matured` | the episode's own `exit_by` signal-validity endpoint has elapsed (≤ asof). **Metrics judge only matured, non-censored, clean-ingest episodes** — a running return must never drift inside `false_arm_rate` before the scoring window ends |
 | `censored_start` | armed since before the record began (above) |
+| `arm_ingest_fresh` | **provenance A (run stamp):** the arm-date row's ingest health (migration 0023, cron R2b), read raw off the same winning row the scored card comes from — `false` = the arm rested on a PARTIAL ingest; `NULL` (legacy/manual append) is never coerced to a judgement |
+| `freeze_era` | **provenance B1 (freeze window):** the arm falls inside the 2026-07 EDGAR cache freeze `[2026-07-10, 2026-07-17]` (`provenance.FREEZE_WINDOW`, dates per the postmortem) — the cohort-level marker B2 cannot see: an arm inside the window may rest on promptly-ingested older facts while the frozen index hid newer filings |
+| `thaw_lag_days` | **provenance B2 (derived thaw marker):** max calendar-day ingest lag — first `recorded_at` vs latest `valid_from` — across the arm triggers' cited form4 accessions (`fact_insider_txn`'s bitemporal axes; the derivation the 0023 comment promises). Beyond `THAW_LAG_DAYS = 7` marks a thawed-late arm; `NULL` = no form4 sources or no fact rows (unknown, un-flagged). Deliberately also flags arms resting on facts backfilled at basket-add time — same semantics |
 | `triggers_at_arm` | the arm-date card's member trigger evidence — the WHY rides every row (invariant #6) |
+
+The three mechanisms roll up into `ingest_flagged` (+ the backend-authored `ingest_note`, the one
+authority for the "why"): partial stamp OR freeze-era OR thawed-late. A flagged episode carries the
+**INGEST** badge and is **excluded from the aggregate metrics, ON by default (no toggle)** — the
+same conservative posture as `censored_start` — while staying **ledger-visible always** (the
+recall-is-sacred cousin: nothing drops from the ledger). The banner's eligibility parenthetical
+reads `matured + non-censored + clean-ingest`. Consequence, stated plainly: the launch record is
+12/12 freeze-touched, so the metrics stay honestly empty until the first clean-data arm matures.
+The flags are composed AFTER `score_episode`, from reads the scoring path never sees
+(`scoreboard/provenance.py` imports nothing from `calls/`, and nothing on the call/write path
+imports it) — a clean, flagged, and legacy-NULL episode score identically, pinned by test.
+**Named limitation (deliberate):** the withheld-arm metric's warming-run timelines are NOT
+provenance-filtered — episodes are the provenance unit.
+
+The summary also carries a **maturity horizon** (2e), turning the mute "0 eligible" gate into a
+countdown: `next_maturity` (the earliest FUTURE `exit_by`, ledger-wide — every episode is still
+judged at its own deadline), `n_maturing_30d`, and `projected_min_n_date` — the date the ELIGIBLE
+pool could reach `MIN_N`, counting only non-censored, non-flagged future maturities (a flagged
+immature episode does not advance it); `null` when already cleared or not reachable from current
+episodes. Asof-pure, derived from episodes already in hand; **a projection over currently-recorded
+episodes, never a promise** (new arms or de-arms shift it). The FE renders it as one quiet line
+beside the metrics gate.
 
 `Outcome.insufficient_prices` on a fresh arm means "no bar on/after the arm yet" (an arm recorded
 Friday has no entry bar until the next trading close lands) — awaiting data, not an error.

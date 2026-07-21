@@ -30,6 +30,11 @@ const EP = {
   status: "open",
   matured: false,
   censored_start: true,
+  arm_ingest_fresh: null,
+  freeze_era: false,
+  thaw_lag_days: null,
+  ingest_flagged: false,
+  ingest_note: null,
   verdict: "core_entry",
   entry_grade: "core",
   conviction_grade: "core",
@@ -64,11 +69,16 @@ const PAYLOAD = {
     n_open: 1,
     n_matured: 0,
     n_censored: 1,
+    n_ingest_flagged: 0,
     n_eligible: 0,
     n_takes: 1,
     n_passes: 0,
     n_overrides: 1,
     n_voided: 0,
+    // the maturity horizon (2e) — the open EP's exit_by lies ahead; no projection reachable
+    next_maturity: "2026-11-22",
+    n_maturing_30d: 0,
+    projected_min_n_date: null,
     record_began: "2026-07-10",
     banner: "FORWARD RECORD, NOT A CLAIM — record began 2026-07-10; 0 episodes eligible…",
     min_n: 5,
@@ -288,5 +298,40 @@ describe("Scoreboard", () => {
     });
     // asof 2026-07-11 < today 2026-07-20 → neither tone renders
     expect(container.querySelector(".sb-fresh, .sb-stale")).toBeNull();
+  });
+
+  it("2e: renders the maturity-horizon countdown beside the metrics gate", () => {
+    const { container } = renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: {
+          ...PAYLOAD.summary,
+          next_maturity: "2026-07-18",
+          n_maturing_30d: 5,
+          projected_min_n_date: "2026-08-31",
+        },
+      },
+    });
+    const line = container.querySelector(".sb-horizon");
+    expect(line?.textContent).toBe(
+      "next episode matures 2026-07-18 · 5 mature within 30d · first metric could clear n ≥ 5 around 2026-08-31",
+    );
+    expect(line?.getAttribute("title")).toContain("projection over currently-recorded episodes");
+  });
+
+  it("2e: no horizon line when nothing lies ahead (null next_maturity)", () => {
+    const { container } = renderBoard({
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, next_maturity: null } },
+    });
+    expect(container.querySelector(".sb-horizon")).toBeNull();
+  });
+
+  it("2d: the ingest-flagged count rides only when > 0 (honest loudness)", () => {
+    renderBoard(); // the fixture's n_ingest_flagged is 0
+    expect(screen.queryByText(/ingest-flagged/)).not.toBeInTheDocument();
+    renderBoard({
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, n_ingest_flagged: 1 } },
+    });
+    expect(screen.getByText("1 ingest-flagged")).toBeInTheDocument();
   });
 });

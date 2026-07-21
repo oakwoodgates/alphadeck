@@ -38,8 +38,23 @@ def persist_thesis(db, security_id: UUID, thesis_id: UUID | None = None) -> Thes
     return thesis_repo.get(db, thesis.id)  # reload: tenant_id stamped by the repo
 
 
-def record_day(db, thesis: Thesis, events: list[SignalEvent], asof: date) -> None:
-    calls_repo.append(db, assemble_call(thesis, events, asof, DEFAULT_CONFIG))
+def record_day(
+    db,
+    thesis: Thesis,
+    events: list[SignalEvent],
+    asof: date,
+    *,
+    ingest_fresh: bool | None = None,
+    ingest_errors: int | None = None,
+) -> None:
+    """Assemble + append one call-of-record row, optionally stamped with the run's R2b ingest
+    health (migration 0023) — the default (None, None) is the legacy/manual-append shape."""
+    calls_repo.append(
+        db,
+        assemble_call(thesis, events, asof, DEFAULT_CONFIG),
+        ingest_fresh=ingest_fresh,
+        ingest_errors=ingest_errors,
+    )
     db.commit()
 
 

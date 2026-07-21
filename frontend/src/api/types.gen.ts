@@ -2262,6 +2262,22 @@ export interface components {
             matured: boolean;
             /** Censored Start */
             censored_start: boolean;
+            /** Arm Ingest Fresh */
+            arm_ingest_fresh?: boolean | null;
+            /**
+             * Freeze Era
+             * @default false
+             */
+            freeze_era: boolean;
+            /** Thaw Lag Days */
+            thaw_lag_days?: number | null;
+            /**
+             * Ingest Flagged
+             * @default false
+             */
+            ingest_flagged: boolean;
+            /** Ingest Note */
+            ingest_note?: string | null;
             verdict?: components["schemas"]["Verdict"] | null;
             entry_grade?: components["schemas"]["Grade"] | null;
             conviction_grade?: components["schemas"]["Grade"] | null;
@@ -2468,6 +2484,11 @@ export interface components {
             n_matured: number;
             /** N Censored */
             n_censored: number;
+            /**
+             * N Ingest Flagged
+             * @default 0
+             */
+            n_ingest_flagged: number;
             /** N Eligible */
             n_eligible: number;
             /**
@@ -2501,6 +2522,15 @@ export interface components {
              * @default []
              */
             metrics: components["schemas"]["ScoreboardMetricOut"][];
+            /** Next Maturity */
+            next_maturity?: string | null;
+            /**
+             * N Maturing 30D
+             * @default 0
+             */
+            n_maturing_30d: number;
+            /** Projected Min N Date */
+            projected_min_n_date?: string | null;
             /** Record Edge */
             record_edge: string | null;
             /**

@@ -139,3 +139,23 @@ def latest_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCar
             (thesis_id,),
         )
         return [row_to_call(r) for r in cur.fetchall()]
+
+
+def ingest_health_for_thesis(
+    conn: psycopg.Connection, thesis_id: UUID
+) -> dict[date, tuple[bool | None, int | None]]:
+    """The R2b ingest-health stamp of the WINNING row per as-of: asof -> ``(ingest_fresh,
+    ingest_errors)`` (migration 0023). The IDENTICAL dedup as ``latest_for_thesis`` (latest append
+    per as-of wins), so the stamp read here belongs to the same row as the scored card — the health
+    of the run that FIRST recorded that card version. ``(None, None)`` = a legacy/manual append,
+    never coerced to a judgement. The stamps live deliberately OFF the card (a freshness field IN it
+    would fake a change in ``_canonical``), which is why this is a separate, narrow peer read — its
+    only consumer is the Scoreboard's provenance layer; the as-of/scoring reads never branch on it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (asof) asof, ingest_fresh, ingest_errors FROM calls "
+            "WHERE thesis_id = %s ORDER BY asof DESC, seq DESC",
+            (thesis_id,),
+        )
+        return {r["asof"]: (r["ingest_fresh"], r["ingest_errors"]) for r in cur.fetchall()}

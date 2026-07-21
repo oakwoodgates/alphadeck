@@ -209,6 +209,29 @@ def test_triggers_at_arm_carry_the_why(db, security_id):
     assert any("insider" in label.lower() or "bought" in label.lower() for label in labels)
 
 
+def test_freeze_era_arm_is_flagged_visible_and_counted(db, security_id):
+    """2d spot check at the record level: an arm inside the 2026-07 freeze window flags (B1, with
+    its note; the legacy stamp stays raw None) while a pre-freeze arm stays clean; the rollup count
+    rides the result and the ledger keeps BOTH episodes (recall-is-sacred cousin)."""
+    frozen = _thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 7, 10), conv_liveness=30, conf_liveness=10)
+    _record_day(db, frozen, [conv, conf], date(2026, 7, 10))
+
+    clean = _thesis(db, security_id, thesis_id=uuid.uuid4())
+    conv2, conf2 = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    _record_day(db, clean, [conv2, conf2], date(2026, 6, 1))
+
+    result, _, _ = scoreboard_records(db, date(2026, 7, 15))
+    by_id = {t.thesis_id: t for t in result.theses}
+    (flagged,) = by_id[frozen.id].episodes
+    assert flagged.freeze_era is True and flagged.ingest_flagged is True
+    assert flagged.arm_ingest_fresh is None  # legacy append: raw, never coerced to a judgement
+    assert "freeze window" in (flagged.ingest_note or "")
+    (ok,) = by_id[clean.id].episodes
+    assert ok.freeze_era is False and ok.ingest_flagged is False and ok.ingest_note is None
+    assert result.n_ingest_flagged == 1 and result.n_episodes == 2
+
+
 def test_zero_episode_thesis_reports_coverage_and_warming(db, security_id):
     """A never-armed thesis still reports its record span and the accruing warming window — the
     honest launch state is a first-class render, not an empty error."""

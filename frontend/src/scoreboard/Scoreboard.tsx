@@ -6,7 +6,7 @@ import { fmtDate } from "../util/format";
 import { EpisodeRow } from "./EpisodeRow";
 import { MetricsStrip } from "./MetricsStrip";
 import { ReplayPanel } from "./ReplayPanel";
-import { fmtReturn, groupCount, groupHint, groupToneClass } from "./rows";
+import { fmtReturn, groupCount, groupHint, groupToneClass, maturityHorizon } from "./rows";
 
 // The Scoreboard (SCORE) — the episode ledger over the forward record: what the platform said,
 // what the operator did, what happened. Ledger-first (the aggregate strip stays quiet until n
@@ -160,6 +160,9 @@ export function Scoreboard({
             <span>{summary.n_open} open</span>
             <span>{summary.n_matured} matured</span>
             <span>{summary.n_censored} censored</span>
+            {summary.n_ingest_flagged > 0 && (
+              <span>{summary.n_ingest_flagged} ingest-flagged</span>
+            )}
             <span className="sb-sep">·</span>
             <span>{summary.n_takes} takes</span>
             <span>{summary.n_passes} passes</span>
@@ -168,6 +171,18 @@ export function Scoreboard({
           </div>
 
           <MetricsStrip metrics={summary.metrics} minN={summary.min_n} />
+
+          {/* the maturity horizon (2e) — the countdown behind the mute gate. Asof-pure (a scrubbed
+              view's countdown from that asof is coherent), so no today-gate — unlike the 2a
+              staleness line above. Rendered only when something lies ahead (honest loudness). */}
+          {maturityHorizon(summary) != null && (
+            <div
+              className="sb-horizon"
+              title="a projection over currently-recorded episodes — new arms or de-arms shift it"
+            >
+              {maturityHorizon(summary)}
+            </div>
+          )}
 
           {summary.n_episodes === 0 && summary.n_takes === 0 && (
             <div className="sb-empty">
