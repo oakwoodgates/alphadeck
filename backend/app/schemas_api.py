@@ -1013,3 +1013,92 @@ class DisplaySignalsResponse(BaseModel):
     thesis_id: UUID
     asof: date
     members: list[MemberDisplaySignalsOut] = []
+
+
+# --- Admin ops surface (Slice 1): freshness/health READS + the explicit "run now" trigger ---
+
+
+class AdminRunOut(BaseModel):
+    """One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
+    field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
+    ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
+    (``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row — a
+    bad run can never hide behind a green history. ``mode`` is ``"live" | "no-live"`` (the R2
+    recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO)."""
+
+    ran_at: str
+    finished_at: str
+    duration_s: float
+    asof: date
+    mode: str
+    theses: int
+    appended: int
+    unchanged: int
+    withheld: int
+    errored: int
+    transitions: int
+    edgar_fetches: int
+    healthy: bool
+    problems: list[str] = []
+
+
+class AdminRecordOut(BaseModel):
+    """The record's freshness vs the LAST EXPECTED scheduled run — never raw ``today - edge``: a
+    Friday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1
+    behind (stale). ``edge is None`` = the record has never begun — a QUIET state (``days_behind``
+    None, ``stale`` False), never an alarm on a fresh install."""
+
+    edge: date | None
+    today: date
+    expected_asof: date
+    days_behind: int | None
+    stale: bool
+    reason: str
+
+
+class AdminCronOut(BaseModel):
+    """The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
+    withheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` — a bad run
+    must read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign
+    ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet)."""
+
+    status: Literal["healthy", "stale", "never_ran", "unhealthy"]
+    detail: str
+
+
+class AdminStatusOut(BaseModel):
+    """The admin page's one-GET summary: record freshness + the newest run + the cron verdict.
+    READ-ONLY — the endpoint owns no tables and writes nothing (test-proved)."""
+
+    record: AdminRecordOut
+    last_run: AdminRunOut | None = None
+    cron: AdminCronOut
+
+
+class AdminRunsOut(BaseModel):
+    """The run history — parsed run-of-record artifacts, newest first. An unreadable artifact is
+    SKIPPED fail-open (a corrupt night never blanks the history)."""
+
+    runs: list[AdminRunOut] = []
+
+
+class AdminRunJobRef(BaseModel):
+    """The 202 kick-off body — the daily pass started as a background JOB (a cold pass runs ~65 min;
+    held open it would 504 at the proxy). Poll ``GET /admin/run-daily/jobs/{job_id}`` for the result.
+    """
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+
+
+class AdminRunJobStatus(BaseModel):
+    """The poll body. ``done`` carries the finished pass as ``result`` (the same ``AdminRunOut`` shape
+    the run history shows — the pass also wrote the durable artifact + calls rows itself); ``failed``
+    carries an operator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job —
+    the FE shows a visible "lost from view" and points at the run history, never an infinite spinner.
+    """
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+    result: AdminRunOut | None = None
+    error: str | None = None

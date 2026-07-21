@@ -756,6 +756,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin Status
+         * @description The freshness + health summary the admin page opens on — READ-ONLY (writes nothing, owns no
+         *     tables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run
+         *     (container-local clock; a Friday edge on a Monday morning is CURRENT — never a weekend false
+         *     alarm); ``edge: null`` is the quiet "record has never begun" state. ``last_run`` is the newest
+         *     readable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no
+         *     artifact), ``unhealthy`` (the last run froze / errored / totally failed — as loud as stale, so a
+         *     bad run can't hide behind green), ``stale`` (the record missed an expected run), else ``healthy``.
+         */
+        get: operations["get_admin_status_admin_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin Runs
+         * @description The run history — the last N run-of-record artifacts parsed, newest first. A pure FILE read (no
+         *     DB, no network, writes nothing); an unreadable/malformed artifact is skipped fail-open so a corrupt
+         *     night never blanks the history.
+         */
+        get: operations["get_admin_runs_admin_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/run-daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run Daily
+         * @description KICK OFF the full daily pass as a background JOB and return immediately (**202** + ``job_id``);
+         *     poll ``GET /admin/run-daily/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page
+         *     load, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run
+         *     ~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +
+         *     the run-log artifact + the health page — a manual run lands in the run history like the nightly
+         *     one. **409** when a run is already in progress (the single-slot in-process guard; a double-click
+         *     can never stack a second pass). Safe to re-click once finished: the pass is idempotent
+         *     (``record_if_changed`` appends nothing on unchanged facts). KNOWN LIMITATION (accepted): the guard
+         *     cannot see the cron SIDECAR's own run in its separate container — an overlap is wasteful, never
+         *     corrupting. The job opens its OWN DB connection (it outlives this request).
+         */
+        post: operations["start_run_daily_admin_run_daily_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/run-daily/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Daily Job
+         * @description POLL a kicked-off daily run. ``done`` → ``result`` (the finished pass, the run-history row
+         *     shape); ``failed`` → an operator-facing ``error``. **404** if the job is unknown / expired, or the
+         *     registry was wiped by a restart — the run itself may still have completed server-side (the run
+         *     history + record edge are the durable authority), so the FE shows "lost from view", never an
+         *     infinite spinner.
+         */
+        get: operations["get_run_daily_job_admin_run_daily_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -777,6 +878,149 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AdminCronOut
+         * @description The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
+         *     withheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` — a bad run
+         *     must read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign
+         *     ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet).
+         */
+        AdminCronOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "healthy" | "stale" | "never_ran" | "unhealthy";
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * AdminRecordOut
+         * @description The record's freshness vs the LAST EXPECTED scheduled run — never raw ``today - edge``: a
+         *     Friday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1
+         *     behind (stale). ``edge is None`` = the record has never begun — a QUIET state (``days_behind``
+         *     None, ``stale`` False), never an alarm on a fresh install.
+         */
+        AdminRecordOut: {
+            /** Edge */
+            edge: string | null;
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
+            /**
+             * Expected Asof
+             * Format: date
+             */
+            expected_asof: string;
+            /** Days Behind */
+            days_behind: number | null;
+            /** Stale */
+            stale: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * AdminRunJobRef
+         * @description The 202 kick-off body — the daily pass started as a background JOB (a cold pass runs ~65 min;
+         *     held open it would 504 at the proxy). Poll ``GET /admin/run-daily/jobs/{job_id}`` for the result.
+         */
+        AdminRunJobRef: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+        };
+        /**
+         * AdminRunJobStatus
+         * @description The poll body. ``done`` carries the finished pass as ``result`` (the same ``AdminRunOut`` shape
+         *     the run history shows — the pass also wrote the durable artifact + calls rows itself); ``failed``
+         *     carries an operator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job —
+         *     the FE shows a visible "lost from view" and points at the run history, never an infinite spinner.
+         */
+        AdminRunJobStatus: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+            result?: components["schemas"]["AdminRunOut"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * AdminRunOut
+         * @description One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
+         *     field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
+         *     ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
+         *     (``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row — a
+         *     bad run can never hide behind a green history. ``mode`` is ``"live" | "no-live"`` (the R2
+         *     recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO).
+         */
+        AdminRunOut: {
+            /** Ran At */
+            ran_at: string;
+            /** Finished At */
+            finished_at: string;
+            /** Duration S */
+            duration_s: number;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Mode */
+            mode: string;
+            /** Theses */
+            theses: number;
+            /** Appended */
+            appended: number;
+            /** Unchanged */
+            unchanged: number;
+            /** Withheld */
+            withheld: number;
+            /** Errored */
+            errored: number;
+            /** Transitions */
+            transitions: number;
+            /** Edgar Fetches */
+            edgar_fetches: number;
+            /** Healthy */
+            healthy: boolean;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: string[];
+        };
+        /**
+         * AdminRunsOut
+         * @description The run history — parsed run-of-record artifacts, newest first. An unreadable artifact is
+         *     SKIPPED fail-open (a corrupt night never blanks the history).
+         */
+        AdminRunsOut: {
+            /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["AdminRunOut"][];
+        };
+        /**
+         * AdminStatusOut
+         * @description The admin page's one-GET summary: record freshness + the newest run + the cron verdict.
+         *     READ-ONLY — the endpoint owns no tables and writes nothing (test-proved).
+         */
+        AdminStatusOut: {
+            record: components["schemas"]["AdminRecordOut"];
+            last_run?: components["schemas"]["AdminRunOut"] | null;
+            cron: components["schemas"]["AdminCronOut"];
+        };
         /**
          * Archetype
          * @description A basket member's role in expressing the thesis.
@@ -3676,6 +3920,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScoreboardReplayResponse"];
+                };
+            };
+        };
+    };
+    get_admin_status_admin_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminStatusOut"];
+                };
+            };
+        };
+    };
+    get_admin_runs_admin_runs_get: {
+        parameters: {
+            query?: {
+                /** @description how many runs, newest first */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRunsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_daily_admin_run_daily_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRunJobRef"];
+                };
+            };
+        };
+    };
+    get_run_daily_job_admin_run_daily_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRunJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

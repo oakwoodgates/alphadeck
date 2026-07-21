@@ -17,8 +17,9 @@ Access rule (LOAD-BEARING — D5 of the refactor plan):
   truncates. So: cached for stable config, late at the edge for the toggled three.
 
 Env names: generic fields read ``ALPHADECK_<FIELD>`` (``env_prefix``) so a stray ``MODEL`` / ``TZ`` / ``HOST``
-in CI or Docker can't accidentally capture one (and the compose sidecar's ``ALPHADECK_CRON_*`` vars are simply
-ignored). The legacy-named vars keep their EXACT current names via an explicit alias (CI + docker-compose
+in CI or Docker can't accidentally capture one (the compose sidecar's ``ALPHADECK_CRON_TZ`` is simply ignored;
+``ALPHADECK_CRON_AT`` is deliberately READ — ``cron_run_at``'s alias — so the admin schedule read models the
+same RUN_AT the sidecar runs). The legacy-named vars keep their EXACT current names via an explicit alias (CI + docker-compose
 inject them under those names; the prefix would otherwise demand ``ALPHADECK_DATABASE_URL`` — a different,
 wrong var). ``env_file`` is deliberately NOT enabled — nothing reads a ``.env`` at the Python layer today
 (compose injects env); enabling it would be a silent behavior change.
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ALPHADECK_",
         case_sensitive=False,
-        extra="ignore",  # the process env carries many unrelated vars (incl. ALPHADECK_CRON_*) — ignore them
+        extra="ignore",  # the process env carries many unrelated vars (incl. ALPHADECK_CRON_TZ) — ignore them
     )
 
     # --- LLM seam (M4b — the FLAG-explanation drafter, the FIRST LLM call) — operational dials only ---
@@ -126,6 +127,20 @@ class Settings(BaseSettings):
     # max_retries=0 + 300s SDK timeout — one bounded pass per job; this TTL is only the leak/stuck-thread backstop.)
     draft_job_running_ttl_s: float = 900.0
     draft_job_finished_ttl_s: float = 1800.0
+
+    # --- Admin ops surface (Slice 1) — the "Run daily now" job registry + the schedule read ---
+    # The daily-run job's OWN reaper TTLs (pipeline/daily_job.py — deliberately NOT the drafter's dials
+    # above: a COLD daily pass measured ~65 min, so the drafter's 900s running TTL would flip a healthy
+    # run to "failed" mid-pass). RUNNING sits well above the worst cold pass; FINISHED keeps the result
+    # pollable for an hour after it lands (the run-log artifact is the durable record regardless).
+    daily_job_running_ttl_s: float = 7200.0
+    daily_job_finished_ttl_s: float = 3600.0
+    # The cron sidecar's RUN_AT wall time ("HH:MM" in the container TZ), mirrored to the backend so the
+    # admin staleness read (pipeline/schedule.py) models the SAME schedule the trigger runs — ONE host
+    # var (ALPHADECK_CRON_AT) feeds both services via compose, so the two can't drift. The alias keeps
+    # the sidecar's exact env name (the prefix would otherwise read ALPHADECK_CRON_RUN_AT — a different,
+    # wrong var). Parsed at the edge by schedule.parse_run_at (a malformed value fails LOUD there).
+    cron_run_at: str = Field(default="22:30", validation_alias=AliasChoices("ALPHADECK_CRON_AT"))
 
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench

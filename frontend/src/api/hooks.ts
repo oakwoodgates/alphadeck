@@ -736,3 +736,70 @@ export function usePutKillCriteria(thesisId: string) {
     },
   });
 }
+
+// --- Admin (ops surface, Slice 1): freshness/health READS + the explicit "Run daily now" trigger ---
+export type AdminStatusOut = components["schemas"]["AdminStatusOut"];
+export type AdminRunOut = components["schemas"]["AdminRunOut"];
+export type AdminRunsOut = components["schemas"]["AdminRunsOut"];
+export type AdminRunJobRef = components["schemas"]["AdminRunJobRef"];
+export type AdminRunJobStatus = components["schemas"]["AdminRunJobStatus"];
+
+// The freshness + cron-health summary. POLLS at 60s — a READ only: the operator-initiated invariant
+// governs the run TRIGGER, never reads, and the refresh keeps the dead-man's readout honest while the
+// tab sits open (a stale "current" would defeat the page's whole point).
+export function useAdminStatus() {
+  return useQuery({
+    queryKey: ["admin-status"] as const,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/status");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// The run history — parsed run-of-record artifacts, newest first (a pure file read server-side).
+export function useAdminRuns(limit = 20) {
+  return useQuery({
+    queryKey: ["admin-runs", limit] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/runs", { params: { query: { limit } } });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Kick off the full daily pass (live EDGAR ingest + call-of-record + run log). retry:false — an
+// expensive multi-minute live pull must NEVER auto-retry (the server 409s a parallel run); the
+// operator re-clicks. Fired ONLY by the explicit button — never on mount/render (the invariant).
+export function useStartDailyRun() {
+  return useMutation({
+    retry: false,
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/admin/run-daily");
+      if (error) throw error;
+      return data; // AdminRunJobRef { job_id, status: "running" }
+    },
+  });
+}
+
+// Poll a kicked-off daily run every 5s WHILE it is "running"; stops on a terminal status. retry:false —
+// a 404 (expired/restart-wiped registry) is a terminal, VISIBLE "lost from view" (the run itself may
+// still finish server-side; the run history is the durable authority), never an infinite spinner.
+export function useDailyRunJob(jobId: string | null) {
+  return useQuery({
+    queryKey: ["admin-run-job", jobId] as const,
+    enabled: !!jobId,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 5000 : false),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/run-daily/jobs/{job_id}", {
+        params: { path: { job_id: jobId as string } },
+      });
+      if (error) throw error;
+      return data; // AdminRunJobStatus { job_id, status, result, error }
+    },
+  });
+}

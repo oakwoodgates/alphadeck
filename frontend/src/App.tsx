@@ -8,10 +8,20 @@ import {
   useSearchParams,
 } from "react-router";
 
+import { Admin } from "./admin/Admin";
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import { ASOF, NAME, boardPath, scoreboardPath, thesisPath, validAsof, workbenchPath } from "./nav";
+import {
+  ASOF,
+  NAME,
+  adminPath,
+  boardPath,
+  scoreboardPath,
+  thesisPath,
+  validAsof,
+  workbenchPath,
+} from "./nav";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
@@ -58,6 +68,7 @@ function BoardRoute() {
       onSelect={(id) => navigate(thesisPath(id, { asof: asofParam }), { state: { from: here } })}
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
       onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
+      onOpenAdmin={() => navigate(adminPath(asofParam))}
     />
   );
 }
@@ -72,6 +83,7 @@ function ScoreboardRoute() {
       onAsofChange={setAsof}
       onBack={() => navigate(boardPath(asofParam))}
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
+      onOpenAdmin={() => navigate(adminPath(asofParam))}
       onSelect={(id, nameKey) =>
         navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
           state: { from: here },
@@ -89,6 +101,21 @@ function WorkbenchRoute() {
       asof={asof}
       onAsofChange={setAsof}
       onBack={() => navigate(boardPath(asofParam))}
+      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
+      onOpenAdmin={() => navigate(adminPath(asofParam))}
+    />
+  );
+}
+
+function AdminRoute() {
+  const navigate = useNavigate();
+  const { asofParam } = useAsof();
+  // The Admin page is a "now" ops surface — no as-of dial of its own; the param rides the nav
+  // callbacks so tabbing back to a scrubbed view keeps the operator's as-of.
+  return (
+    <Admin
+      onBack={() => navigate(boardPath(asofParam))}
+      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
       onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
     />
   );
@@ -147,6 +174,7 @@ export function App() {
       <Route path="/" element={<BoardRoute />} />
       <Route path="/workbench" element={<WorkbenchRoute />} />
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
+      <Route path="/admin" element={<AdminRoute />} />
       <Route path="/thesis/:thesisId" element={<CockpitRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

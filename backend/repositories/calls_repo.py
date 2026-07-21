@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -103,6 +104,18 @@ def record_if_changed(
         return False
     append(conn, card, tenant_id, ingest_fresh=ingest_fresh, ingest_errors=ingest_errors)
     return True
+
+
+def record_edge(conn: psycopg.Connection) -> date | None:
+    """The record's EDGE — the latest call-of-record ``asof`` across every thesis (all tenants: the cron
+    walks them all), or ``None`` when the log is empty (the record has never begun). THE dead-man's
+    signal for the admin freshness read: ``record_if_changed`` always appends the FIRST row at a new
+    as-of (its prior-compare matches on the same ``asof``), so every completed daily pass advances this
+    even on an all-quiet night — a stuck edge means the cron is not completing. Read-only.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(asof) AS edge FROM calls")
+        return cur.fetchone()["edge"]
 
 
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:

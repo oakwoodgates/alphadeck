@@ -16,6 +16,7 @@ interface Props {
   onSelect: (thesisId: string) => void;
   onOpenWorkbench: () => void;
   onOpenScoreboard: () => void;
+  onOpenAdmin: () => void;
 }
 
 interface Row {
@@ -23,7 +24,14 @@ interface Row {
   call: CallCardResponse;
 }
 
-export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench, onOpenScoreboard }: Props) {
+export function Board({
+  asof,
+  onAsofChange,
+  onSelect,
+  onOpenWorkbench,
+  onOpenScoreboard,
+  onOpenAdmin,
+}: Props) {
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
@@ -54,6 +62,7 @@ export function Board({ asof, onAsofChange, onSelect, onOpenWorkbench, onOpenSco
           <a className="on">Board</a>
           <a onClick={onOpenWorkbench}>Workbench</a>
           <a onClick={onOpenScoreboard}>Scoreboard</a>
+          <a onClick={onOpenAdmin}>Admin</a>
         </nav>
         <div className="spacer" />
         <label className="asof">
