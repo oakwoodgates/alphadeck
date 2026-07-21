@@ -65,7 +65,7 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | `sma_position` | `fact_price_eod` | close, ma_fast, ma_slow, pct_vs_fast, pct_vs_slow | cross_sma50, cross_sma200, golden_cross/death_cross | fast=50, slow=200, lookback_days=600, slope_bars=5 |
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
-| `insider_flow_90d` | `fact_insider_txn` | buy/sell counts, distinct_buyers, buy/sell/net USD (P/S codes only) | last_buy, last_sell | window_days=90 |
+| `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
 ingested** (nothing to say) but a **quiet zero** for an ingested name with no window activity (zero
@@ -74,6 +74,24 @@ is information); its basis note carries the "zero ingested ≠ proven-zero filin
 detail) renders **only when the window has actual flow**: a quiet name adds no "no flow" line to
 the panel's top strip (the strip marks the exception, #7); the section's zero metrics still carry
 the quiet read.
+
+**The open-market screen (agreeing with the call).** Because the block is LABELED "open-market", its
+code-P buys are screened the **same way `backend/signals/insider_conviction.py` screens the call** —
+SEC code `P` is "open market **or private** purchase", so an offer-price primary-market subscription
+(an IPO allocation / PIPE / placement) files as code P yet never traded on the open market. A buy
+priced `offmarket_below_low_frac` (10%) or more **below the security's own EOD low that day** is such
+a subscription, and a row above `max_plausible_txn_usd` ($2B) is bad source data; both drop out of the
+buy total, and the **set-aside subscription $ is named in the basis note** (never silently dropped, #9
+/ show-the-work #6). This is what stops the NamePanel from reading "net buying ~$434M" next to the
+call's honest "~$473K FLIP" (PBLS: RA Capital's $394M IPO subscription at the $20 offer vs a
+$29.65–34.47 tape). **Recall-safe:** no price bar for the day → **kept** (a genuine open-market print
+sits inside `[low, high]`, so this cannot exclude a real one — save a name that reverse-split between
+the buy and asof, a documented limitation shared with the call). The two dials are **display module
+constants**, deliberately **not `CallConfig`** — the display seam cannot import the call's dial set
+(`base.py` + the `test_registry.py` pin) — so they intentionally *mirror* the call's and are re-tuned
+by hand if it recalibrates. **Only buys are screened**: the offer-price conflation is a buy-side
+phenomenon; sells are the raw code-S tape.
+
 `volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
 highs/lows on the most recent print and notes a sub-year window.
 
