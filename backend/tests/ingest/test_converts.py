@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import httpx
+import pytest
+
+from ingest import CacheMiss
 from ingest.edgar.converts import (
+    ConvertScanDegraded,
     _is_convert_issuance,
     clean_filing_text,
     discover_convert_issuance,
@@ -91,3 +96,76 @@ def test_discover_convert_issuance_finds_and_parses_from_just_the_cik():
     terms, accession = found
     assert accession == "0001193125-26-234847"  # discovered, not handed in
     assert terms.principal_total_usd == 402_500_000.0 and terms.coupon_pct == 0.0
+
+
+class _InjectClient:
+    """EDGAR stand-in: canned submissions + a per-accession doc that is either raw text (returned) or an
+    Exception (raised) — for exercising the scan's fail-visible fetch handling."""
+
+    def __init__(self, submissions: dict, docs: dict[str, str | Exception]):
+        self._submissions = submissions
+        self._docs = docs
+
+    def get_json(self, url: str, cache_key: str) -> dict:
+        return self._submissions
+
+    def get_text(self, url: str, cache_key: str) -> str:
+        for accession, val in self._docs.items():
+            if accession.replace("-", "") in url:
+                if isinstance(val, Exception):
+                    raise val
+                return val
+        raise KeyError(url)
+
+
+def _two_8k_submissions() -> dict:
+    return {
+        "filings": {
+            "recent": {
+                "form": ["8-K", "8-K"],
+                "accessionNumber": ["0001773751-26-000091", "0001193125-26-234847"],
+                "primaryDocument": ["a.htm", "b.htm"],
+            }
+        }
+    }
+
+
+def test_convert_scan_raises_when_every_fetch_fails_never_false_empty():
+    """The masking regression: if EVERY 8-K fetch fails (a systematic outage — each an individually
+    'tolerable' httpx error), the scan must RAISE ConvertScanDegraded, never return None. A None here would
+    read as 'this company issued no convertibles' and silently drop a real dilution signal — the Form 4
+    skip-and-count masking shape. (Pre-hardening code swallowed all and returned None.)"""
+    docs = {
+        "0001773751-26-000091": httpx.ConnectError("EDGAR unreachable"),
+        "0001193125-26-234847": httpx.ConnectError("EDGAR unreachable"),
+    }
+    with pytest.raises(ConvertScanDegraded) as exc:
+        discover_convert_issuance(_InjectClient(_two_8k_submissions(), docs), 1773751)
+    assert (
+        exc.value.scanned == 2 and exc.value.failed == 2
+    )  # counted + auditable, never a silent skip
+
+
+def test_convert_scan_tolerates_one_unreadable_filing_and_still_finds_the_convert():
+    """A single unreadable 8-K (an httpx fetch error) is skipped-and-counted, not fatal — a LATER real
+    convert issuance is still found. Recall of the real filing survives one bad fetch."""
+    issuance_html = (_SEED / "hims_converts_8k.htm").read_text(encoding="utf-8")
+    docs = {
+        "0001773751-26-000091": httpx.ConnectError(
+            "one flaky doc"
+        ),  # first 8-K unreadable → tolerated
+        "0001193125-26-234847": issuance_html,  # second 8-K: the real convert issuance → found
+    }
+    found = discover_convert_issuance(_InjectClient(_two_8k_submissions(), docs), 1773751)
+    assert found is not None
+    terms, accession = found
+    assert accession == "0001193125-26-234847"
+    assert terms.principal_total_usd == 402_500_000.0
+
+
+def test_convert_scan_reraises_a_systemic_fault_immediately():
+    """A SYSTEMIC fault (CacheMiss — live disabled + not cached, hits every doc) is NOT one filing's fault:
+    it must propagate loud, never be swallowed as a skip nor reshaped into ConvertScanDegraded."""
+    docs = {"0001773751-26-000091": CacheMiss("forms/... not cached (live pulls disabled)")}
+    with pytest.raises(CacheMiss):
+        discover_convert_issuance(_InjectClient(_two_8k_submissions(), docs), 1773751)
