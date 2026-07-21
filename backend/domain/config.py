@@ -53,6 +53,30 @@ class CallConfig(DomainModel):
     insider_senior_role_keywords: frozenset[str] = frozenset(
         {"chief executive", "ceo", "chief financial", "cfo", "president", "director", "officer"}
     )
+    # --- what counts as an OPEN-MARKET purchase (§3) — STARTING calibration ---
+    # SEC transaction code 'P' is "open market OR PRIVATE purchase" — it is NOT a synonym for open-market.
+    # A primary-market subscription (an IPO allocation, a PIPE, a private placement) by a pre-IPO holder /
+    # crossover fund files as code P at the OFFER price, which sits BELOW the stock's public trading range
+    # that day. Counting it as open-market insider conviction inflated the call (PBLS: RA Capital's $394M
+    # IPO subscription at $20 vs a $29.65-$34.47 tape → a fake half-billion CORE). We recover the intent of
+    # the Lakonishok-Lee open-market literature by cross-checking each buy's price against the security's
+    # OWN EOD low for that day — the only structured field that separates a subscription from an open-market
+    # buy (code P alone cannot). A buy priced this fraction or more BELOW the day's actual low did not
+    # transact on the open market → it does NOT feed conviction (it STAYS in fact_insider_txn + the display
+    # tape; only the CALL skips it). Recall-safe by construction (#9): no price bar for the day → KEEP
+    # (never silently drop); a genuine open-market print is within the day's [low, high], so this cannot
+    # exclude one — EXCEPT a name that did a REVERSE split between the buy and asof (the bar is restated UP;
+    # a documented limitation tied to the deferred price-restatement slice). Directional on purpose: the
+    # ABOVE-high side is NOT guarded here because a FORWARD split (common) restates the bar DOWN and would
+    # false-reject a real pre-split buy — physically-impossible HIGH prices are caught by the ceiling below.
+    insider_offmarket_below_low_frac: float = 0.10
+    # A single insider "purchase" above this $ is not a personal open-market conviction buy: it is bad
+    # source data (CNBX: a $100,000/share price → a $2 TRILLION row) or a strategic/primary block — either
+    # way a physically-implausible number must never reach the call (#3). Set FAR above any real single
+    # insider buy (the largest plausible in-universe is ~$300M) and above any split-inflated as-filed price,
+    # so it catches only the absurd. Belt-and-suspenders to the below-low check (which misses garbage-HIGH
+    # prices and any name with no price bar). Excluded rows are KEPT in history; only conviction skips them.
+    insider_max_plausible_txn_usd: float = 2_000_000_000.0  # $2B
     # Conviction (insider) alpha-liveness window is GRADED by grade — the window over which the edge stays
     # live (a hard liveness window here, NOT an exponential 50%-decay point, so it is the FULL
     # edge-persistence horizon). The insider open-market-purchase literature (Lakonishok-Lee 2001;
