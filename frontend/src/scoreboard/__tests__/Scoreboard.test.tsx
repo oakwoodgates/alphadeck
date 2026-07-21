@@ -76,6 +76,12 @@ const PAYLOAD = {
       { name: "arm_timing_forward_return", claim: "timing", n: 0, insufficient_n: true, summary: {}, detail: [], note: "" },
       { name: "false_arm_rate", claim: "precision", n: 0, insufficient_n: true, summary: {}, detail: [], note: "" },
     ],
+    // record freshness (2a) — a current, live view by default (asof 2026-07-11 == today)
+    record_edge: "2026-07-11",
+    expected_asof: "2026-07-11",
+    days_behind: 0,
+    stale: false,
+    today: "2026-07-11",
   },
   theses: [
     {
@@ -244,5 +250,43 @@ describe("Scoreboard", () => {
       },
     });
     expect(screen.getByText(/record error: ValidationError/)).toBeInTheDocument();
+  });
+
+  it("2a: shows the quiet 'record current' freshness line on the live view", () => {
+    const { container } = renderBoard(); // asof 2026-07-11 == today, stale false
+    const line = container.querySelector(".sb-fresh");
+    expect(line?.textContent).toContain("record current");
+    expect(line?.textContent).toContain("2026-07-11");
+    expect(container.querySelector(".sb-stale")).toBeNull();
+  });
+
+  it("2a: goes loud when the record is stale — 'N expected run(s) behind'", () => {
+    const { container } = renderBoard({
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, stale: true, days_behind: 2 } },
+    });
+    const line = container.querySelector(".sb-stale");
+    expect(line?.textContent).toContain("expected run(s) behind");
+    expect(line?.textContent).toMatch(/· 2 expected/); // the days_behind count
+    expect(container.querySelector(".sb-fresh")).toBeNull();
+  });
+
+  it("2a: a never-begun record reads quiet, not an alarm", () => {
+    const { container } = renderBoard({
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, record_edge: null } },
+    });
+    expect(container.querySelector(".sb-fresh")?.textContent).toMatch(/hasn.t begun/);
+    expect(container.querySelector(".sb-stale")).toBeNull();
+  });
+
+  it("2a: suppresses the freshness line on a scrubbed-past view (asof < today)", () => {
+    // even a STALE record is hidden when viewing the past — staleness is a "now" fact (decision #2)
+    const { container } = renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: { ...PAYLOAD.summary, today: "2026-07-20", stale: true, days_behind: 1 },
+      },
+    });
+    // asof 2026-07-11 < today 2026-07-20 → neither tone renders
+    expect(container.querySelector(".sb-fresh, .sb-stale")).toBeNull();
   });
 });

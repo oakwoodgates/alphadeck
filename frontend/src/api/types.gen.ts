@@ -2501,6 +2501,25 @@ export interface components {
              * @default []
              */
             metrics: components["schemas"]["ScoreboardMetricOut"][];
+            /** Record Edge */
+            record_edge: string | null;
+            /**
+             * Expected Asof
+             * Format: date
+             */
+            expected_asof: string;
+            /** Days Behind */
+            days_behind: number | null;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
         };
         /**
          * ScoreboardThesisOut

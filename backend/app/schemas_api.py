@@ -891,6 +891,16 @@ class ScoreboardSummaryOut(BaseModel):
     banner: str
     min_n: int
     metrics: list[ScoreboardMetricOut] = []
+    # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
+    # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
+    # exactly like AdminRecordOut. Asof-INDEPENDENT (the record edge + the clock drive it, not the
+    # scrubbed view); the FE shows it only on the live view (asof >= today). ``record_edge`` None =
+    # the record has never begun — the QUIET state (``days_behind`` None, ``stale`` False).
+    record_edge: date | None
+    expected_asof: date
+    days_behind: int | None
+    stale: bool = False
+    today: date
 
 
 class ScoreboardResponse(BaseModel):

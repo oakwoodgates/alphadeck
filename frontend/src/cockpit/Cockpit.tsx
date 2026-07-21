@@ -39,6 +39,21 @@ interface Props {
   onSelectName: (key: string | null) => void;
 }
 
+/** The entry-window (confirmation) clock, rendered inside an armed-family member's exit-by cell.
+ *  This is the clock that actually governs how long the member STAYS armed — a member de-arms on
+ *  `arm_until`, which can be a month before the exit_by "lapses" date the cell leads with (the live
+ *  CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19). Loud (`.closing`) inside a week or
+ *  once lapsed; muted otherwise. Mirrors the NamePanel two-clock idiom. */
+function EntryWindow({ asof, armUntil }: { asof: string; armUntil: string }) {
+  const armDays = daysFrom(asof, armUntil);
+  return (
+    <span className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}>
+      entry closes {fmtDate(armUntil)}
+      {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
+    </span>
+  );
+}
+
 export function Cockpit({
   thesisId,
   asof,
@@ -272,6 +287,17 @@ export function Cockpit({
                               {r.call?.exit_by
                                 ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
                                 : "—"}
+                              {/* the entry-window (confirmation) clock — the clock that governs how
+                                  long an armed-family member STAYS armed (it de-arms on arm_until,
+                                  often well before exit_by). Armed / Lapsing / Theme-armed only; a
+                                  Watch row also carries arm_until on the wire but must NOT light up
+                                  (honest loudness). */}
+                              {(def.key === "armed" ||
+                                def.key === "lapsing" ||
+                                def.key === "theme_armed") &&
+                                r.call?.arm_until && (
+                                  <EntryWindow asof={asof} armUntil={r.call.arm_until} />
+                                )}
                             </td>
                           </tr>
                         ))}

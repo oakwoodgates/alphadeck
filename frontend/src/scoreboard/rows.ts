@@ -16,11 +16,23 @@ export function fmtReturn(x: number | null | undefined): { text: string; cls: st
   return { text: signed, cls: x > 0 ? "pos" : x < 0 ? "neg" : "" };
 }
 
+/** True when the only bar on/after the arm is the arm-day bar itself — the last bar ≤ asof IS the
+ *  arm bar (`exit_date === arm_date`), so `forward_return` is a degenerate 0.0% over a single bar,
+ *  not a flat move. Distinct from `insufficient_prices` (no bar at all). Once a forward bar lands,
+ *  `exit_date > arm_date` and the return is a real (running) number, even if ~0%. */
+export function awaitingForwardBar(e: ScoreboardEpisodeOut): boolean {
+  return e.exit_date != null && e.exit_date === e.arm_date;
+}
+
 /** The episode's return, labeled for what it IS: realized only once closed AND matured; running
- *  (to the last bar ≤ asof) otherwise; "awaiting first bar" for a day-1 arm with no bar yet. */
+ *  (to the last bar ≤ asof) otherwise; "awaiting first bar" for a day-1 arm with no bar yet;
+ *  "awaiting forward bar" for a single-bar arm (only the arm-day bar — 0.0% is not a flat move).
+ *  The single-bar check runs AFTER the realized check, so a degenerate matured single-bar episode
+ *  still reads "realized" (it overrides only the "running" outcome). */
 export function returnLabel(e: ScoreboardEpisodeOut): string {
   if (e.insufficient_prices) return "awaiting first bar";
   if (e.status === "closed" && e.matured) return "realized";
+  if (awaitingForwardBar(e)) return "awaiting forward bar";
   return "running";
 }
 

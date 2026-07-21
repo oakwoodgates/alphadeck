@@ -1,6 +1,6 @@
 import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { fmtDate } from "../util/format";
-import { episodeBadges, fmtReturn, operatorLine, returnLabel } from "./rows";
+import { awaitingForwardBar, episodeBadges, fmtReturn, operatorLine, returnLabel } from "./rows";
 
 // One episode ledger row — shared by the live record table and the historical (replayed) panel.
 // `historical` swaps the operator cell: history predates decision capture, so it says so
@@ -20,6 +20,9 @@ export function EpisodeRow({
   historical?: boolean;
 }) {
   const ret = fmtReturn(ep.forward_return);
+  // a single-bar arm carries forward_return 0.0 (only the arm-day bar) — show "—", not a false flat
+  // "0.0%"; the label ("awaiting forward bar") carries the reason, mirroring the insufficient-prices dash
+  const awaiting = awaitingForwardBar(ep);
   const op = operatorLine(ep);
   return (
     <tr
@@ -58,7 +61,7 @@ export function EpisodeRow({
         {ep.status === "closed" && <span className="sb-reason">{ep.close_reason}</span>}
       </td>
       <td className="sb-ret">
-        <span className={`ret ${ret.cls}`}>{ret.text}</span>
+        <span className={`ret ${ret.cls}`}>{awaiting ? "—" : ret.text}</span>
         <span className="sb-retlabel"> {returnLabel(ep)}</span>
       </td>
       {historical ? (

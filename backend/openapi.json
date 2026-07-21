@@ -5314,6 +5314,44 @@
             "type": "array",
             "title": "Metrics",
             "default": []
+          },
+          "record_edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Edge"
+          },
+          "expected_asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Expected Asof"
+          },
+          "days_behind": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Behind"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "default": false
+          },
+          "today": {
+            "type": "string",
+            "format": "date",
+            "title": "Today"
           }
         },
         "type": "object",
@@ -5326,7 +5364,11 @@
           "n_censored",
           "n_eligible",
           "banner",
-          "min_n"
+          "min_n",
+          "record_edge",
+          "expected_asof",
+          "days_behind",
+          "today"
         ],
         "title": "ScoreboardSummaryOut",
         "description": "The aggregate strip: counts + the honesty banner + the gated metric set."

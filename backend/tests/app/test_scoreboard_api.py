@@ -1,17 +1,36 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from app.routers import scoreboard
 from db.session import DEFAULT_TENANT_ID
 from repositories import thesis_repo
 from tests.calls.factories import insider_event
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
 # GET /scoreboard — the record served: shape, asof scrubbing, the metrics gate (matured +
-# non-censored only, insufficient_n below MIN_N), the archived filter, and writes-nothing.
+# non-censored only, insufficient_n below MIN_N), the archived filter, record-freshness (2a),
+# and writes-nothing.
 
 ASOF = "2026-07-15"
+
+# The staleness pins mirror test_admin_api's: 2026-07-17 is a Friday, 07-20 the following Monday
+# (the don't-cry-wolf weekend pair; RUN_AT defaults to 22:30).
+_FRI = date(2026, 7, 17)
+
+
+def _pin(monkeypatch, now: datetime) -> None:
+    """Pin the scoreboard router's container-local clock seam (the schedule math is pure over it)."""
+    monkeypatch.setattr(scoreboard, "_now", lambda: now)
+
+
+def _seed_record_edge(db, security_id, edge: date):
+    """One thesis with a single call-of-record at ``edge`` — so the calls-log MAX(asof) lands there."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, edge, conv_liveness=120, conf_liveness=120)
+    record_day(db, thesis, [conv, conf], edge)
+    return thesis
 
 
 def _seed_one_open_censored(db, security_id):
@@ -135,8 +154,64 @@ def test_include_archived_param(client, db, security_id):
     assert body["theses"] == [] and body["summary"]["n_episodes"] == 0
 
 
-def test_scoreboard_get_writes_nothing(client, db, security_id):
+# --- 2a: the record-freshness (staleness) line on the summary ---
+
+
+def test_scoreboard_staleness_fri_edge_monday_morning_current_monday_night_stale(
+    client, db, security_id, monkeypatch
+):
+    """THE spec case, mirrored on the Scoreboard summary: freshness is measured against the last
+    EXPECTED Mon-Fri+RUN_AT run, never raw (today - edge) — a Friday edge Monday 09:00 is CURRENT
+    (quiet); the same edge Monday 23:00 (past the 22:30 RUN_AT) is 1 behind (loud)."""
+    _seed_record_edge(db, security_id, _FRI)
+
+    _pin(monkeypatch, datetime(2026, 7, 20, 9, 0))  # Monday morning, before RUN_AT
+    s = client.get("/scoreboard", params={"asof": "2026-07-20"}).json()["summary"]
+    assert s["record_edge"] == "2026-07-17"
+    assert s["expected_asof"] == "2026-07-17"  # Monday's run isn't due yet
+    assert s["days_behind"] == 0
+    assert s["stale"] is False  # don't cry wolf over a weekend
+    assert s["today"] == "2026-07-20"
+
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))  # Monday night, past RUN_AT
+    s = client.get("/scoreboard", params={"asof": "2026-07-20"}).json()["summary"]
+    assert s["expected_asof"] == "2026-07-20"
+    assert s["days_behind"] == 1
+    assert s["stale"] is True
+
+
+def test_scoreboard_staleness_never_begun_is_quiet(client, db, security_id, monkeypatch):
+    """A thesis with NO call-of-record → the record edge is None: the QUIET never-begun state
+    (days_behind None, stale False), never an alarm on a fresh install."""
+    persist_thesis(db, security_id)  # a thesis, but no call recorded
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
+    s = client.get("/scoreboard", params={"asof": "2026-07-20"}).json()["summary"]
+    assert s["record_edge"] is None
+    assert s["days_behind"] is None
+    assert s["stale"] is False
+
+
+def test_scoreboard_staleness_is_asof_independent(client, db, security_id, monkeypatch):
+    """The staleness answers "is the record current NOW" — it must be IDENTICAL whether the view is
+    scrubbed to the past or to today (only the FE suppresses it on a past view, decision #2). Clock
+    pinned Monday night → 1 behind, regardless of the request asof; record_edge is the UNCAPPED
+    calls-log MAX(asof), not the asof-capped view."""
+    _seed_record_edge(db, security_id, _FRI)
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
+
+    today_view = client.get("/scoreboard", params={"asof": "2026-07-20"}).json()["summary"]
+    past_view = client.get("/scoreboard", params={"asof": "2026-07-09"}).json()["summary"]
+    for key in ("record_edge", "expected_asof", "days_behind", "stale", "today"):
+        assert today_view[key] == past_view[key]
+    assert today_view["stale"] is True and today_view["days_behind"] == 1
+    # and the asof genuinely scrubbed the VIEW (only the freshness fields are shared) — the past view
+    # sees no record, proving the freshness edge is not the capped read
+    assert past_view["n_with_record"] == 0 and today_view["n_with_record"] == 1
+
+
+def test_scoreboard_get_writes_nothing(client, db, security_id, monkeypatch):
     _seed_one_open_censored(db, security_id)
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))  # a pinned clock so the freshness read runs
 
     def counts():
         with db.cursor() as cur:
@@ -149,5 +224,8 @@ def test_scoreboard_get_writes_nothing(client, db, security_id):
             return (r["c"], r["d"], r["p"])
 
     before = counts()
-    assert client.get("/scoreboard", params={"asof": ASOF}).status_code == 200
-    assert counts() == before
+    resp = client.get("/scoreboard", params={"asof": ASOF})
+    assert resp.status_code == 200
+    # the compute-on-read freshness fields were traversed (record_edge is a pure SELECT) …
+    assert "stale" in resp.json()["summary"] and "record_edge" in resp.json()["summary"]
+    assert counts() == before  # … and the read wrote NOTHING
