@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ScoreboardEpisodeOut, ScoreboardMetricOut, ScoreboardThesisOut } from "../../api/hooks";
 import {
+  awaitingForwardBar,
   episodeBadges,
   fmtReturn,
   gateMetrics,
@@ -82,6 +83,28 @@ describe("returnLabel — a return is labeled for what it IS", () => {
   });
   it("a day-1 arm with no bar yet says so", () => {
     expect(returnLabel(ep({ insufficient_prices: true }))).toBe("awaiting first bar");
+  });
+  it("a single-bar arm (only the arm-day bar) awaits a forward bar, not a flat 0.0%", () => {
+    // exit_date === arm_date: the last bar ≤ asof IS the arm bar → one bar, no forward move yet
+    expect(returnLabel(ep({ status: "open", exit_date: "2026-07-10" }))).toBe(
+      "awaiting forward bar",
+    );
+  });
+  it("once a forward bar lands (exit_date > arm_date) it is a real running return", () => {
+    expect(returnLabel(ep({ status: "open", exit_date: "2026-07-13" }))).toBe("running");
+  });
+  it("a matured single-bar episode stays realized (the check runs AFTER realized)", () => {
+    expect(
+      returnLabel(ep({ status: "closed", matured: true, exit_date: "2026-07-10" })),
+    ).toBe("realized");
+  });
+});
+
+describe("awaitingForwardBar — the single-bar signal", () => {
+  it("true only when exit_date equals arm_date", () => {
+    expect(awaitingForwardBar(ep({ exit_date: "2026-07-10" }))).toBe(true); // == arm_date
+    expect(awaitingForwardBar(ep({ exit_date: "2026-07-13" }))).toBe(false); // a forward bar landed
+    expect(awaitingForwardBar(ep({ exit_date: null }))).toBe(false); // no bar at all
   });
 });
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 import psycopg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn
 from app.schemas_api import (
@@ -16,12 +16,35 @@ from app.schemas_api import (
     _scoreboard_thesis_out,
 )
 from db.session import DEFAULT_TENANT_ID
+from domain.settings import get_settings
+from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from replay.metrics import MetricResult
+from repositories import calls_repo
 from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
 from securities import master
 
 router = APIRouter(prefix="/scoreboard", tags=["scoreboard"])
+
+
+def _now() -> datetime:
+    """Container-local wall clock (compose pins ``TZ=America/New_York``) — a seam so tests pin the
+    clock; the schedule math itself is pure over the injected now. Copied from ``admin.py`` (one
+    contract, two surfaces — the earmark until a durable ``market_today()`` lands)."""
+    return datetime.now()
+
+
+def _run_at() -> time:
+    """The schedule wall time off ``Settings.cron_run_at`` (env ``ALPHADECK_CRON_AT`` — the same var
+    the sidecar + admin read), so the Scoreboard's staleness models the SAME schedule. A malformed
+    value is a DEPLOY error → a loud, actionable 500. Copied from ``admin.py``."""
+    raw = get_settings().cron_run_at
+    try:
+        return parse_run_at(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"ALPHADECK_CRON_AT is malformed ({raw!r}): {exc}"
+        ) from exc
 
 
 @router.get("", response_model=ScoreboardResponse)
@@ -55,6 +78,19 @@ def get_scoreboard(
         tickers = master.tickers_for(conn, sids, tenant_id=tenant)
         theses_out.append(_scoreboard_thesis_out(t, ciks, tickers))
     summary = result.summary  # assemble_scoreboard always fills it
+
+    # Record freshness (compute-on-read; the read still writes nothing) — the same staleness the admin
+    # page shows, surfaced where the Board-vs-Scoreboard confusion happened. record_edge is the
+    # UNCAPPED calls-log MAX(asof) ("is the record current NOW"), independent of the request asof — so
+    # it is identical whether the view is scrubbed to the past or to today; the FE shows it only on the
+    # live view (asof >= today). Measured vs the last EXPECTED Mon-Fri+RUN_AT run (never raw
+    # today - edge); edge None = the record has never begun (quiet: days_behind None, stale False).
+    run_at = _run_at()
+    now = _now()
+    edge = calls_repo.record_edge(conn)
+    expected = last_expected_asof(now, run_at)
+    days_behind = expected_runs_behind(edge, expected)
+
     return ScoreboardResponse(
         asof=result.asof,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -85,6 +121,11 @@ def get_scoreboard(
                 )
                 for m in (summary.metrics if summary else [])
             ],
+            record_edge=edge,
+            expected_asof=expected,
+            days_behind=days_behind,
+            stale=bool(days_behind),  # None (never begun) and 0 (current) are both quiet
+            today=now.date(),
         ),
         theses=theses_out,
     )

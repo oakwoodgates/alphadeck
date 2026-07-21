@@ -136,6 +136,11 @@ table.basket { view-transition-name: cp-basket; }
 tr.bkt-quiet td { color: var(--txt-3); }
 tr.bkt-quiet .tk { color: var(--txt-2); }
 table.basket td.exitby.lapse { color: var(--warm); }
+/* the entry-window (confirmation) clock: a muted second line under the exit-by date — the clock that
+   actually governs how long an armed-family member stays armed (arm_until). Quiet by default; loud
+   (--warm, matching the lapse tint) once the window is within a week or already lapsed. */
+.entry-window { display: block; margin-top: 2px; font-size: 11px; color: var(--txt-3); }
+.entry-window.closing { color: var(--warm); }
 
 /* a folded bucket's rows COLLAPSE, never unmount: per CSS tables, a collapsed row still feeds the
    column-width algorithm, so folding the bucket that holds the widest cells (Quiet's long names)
@@ -901,6 +906,14 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-banner { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; }
 .sb-counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
 .sb-counts .sb-sep { color: var(--txt-4); }
+/* the record-freshness marker (2a): a compact one-line "is the record current NOW" — quiet by
+   default (current / never-begun), loud (--warm, the lapse/closing tint) only when the record is
+   stale (honest loudness). Mirrors the Admin freshness readout; shown only on the live view. */
+.sb-freshline { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; }
+.sb-freshline b { font-weight: 700; }
+.sb-fresh { color: var(--txt-3); }
+.sb-fresh b { color: var(--txt-2); }
+.sb-stale, .sb-stale b { color: var(--warm); }
 .sb-metrics { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .sb-metric { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .sb-mname { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); }

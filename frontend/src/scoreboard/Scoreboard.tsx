@@ -138,6 +138,23 @@ export function Scoreboard({
       {data && summary && (
         <div className="sb-body">
           <div className="sb-banner">{summary.banner}</div>
+          {/* the record-freshness marker (2a) — is the call-of-record current NOW? Shown ONLY on the
+              live view (asof >= today): staleness answers "current now", not "as of a past date", so a
+              scrubbed-back view suppresses it (decision #2). Loud only when stale; quiet when current
+              or never-begun (honest loudness). Mirrors the Admin page's freshness copy. */}
+          {asof >= summary.today &&
+            (summary.record_edge == null ? (
+              <div className="sb-freshline sb-fresh">record hasn&apos;t begun yet</div>
+            ) : summary.stale ? (
+              <div className="sb-freshline sb-stale">
+                record last advanced <b>{summary.record_edge}</b> · <b>{summary.days_behind}</b>{" "}
+                expected run(s) behind
+              </div>
+            ) : (
+              <div className="sb-freshline sb-fresh">
+                record current · last advanced <b>{summary.record_edge}</b>
+              </div>
+            ))}
           <div className="sb-counts">
             <span>{summary.n_episodes} episodes</span>
             <span>{summary.n_open} open</span>
