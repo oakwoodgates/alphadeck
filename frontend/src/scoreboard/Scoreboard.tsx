@@ -18,6 +18,7 @@ type Props = {
   onAsofChange: (v: string) => void;
   onBack: () => void;
   onOpenWorkbench: () => void;
+  onOpenAdmin: () => void;
   /** nameKey (when the row has a name) deep-links that member's panel in the Cockpit (?name=). */
   onSelect: (thesisId: string, nameKey?: string) => void;
 };
@@ -87,7 +88,14 @@ function SpanRow({
   );
 }
 
-export function Scoreboard({ asof, onAsofChange, onBack, onOpenWorkbench, onSelect }: Props) {
+export function Scoreboard({
+  asof,
+  onAsofChange,
+  onBack,
+  onOpenWorkbench,
+  onOpenAdmin,
+  onSelect,
+}: Props) {
   const { data, isLoading, error } = useScoreboard(asof);
   // fold state per thesis (archived groups START folded — present, quiet, never dropped)
   const [toggled, setToggled] = useState<Set<string>>(new Set());
@@ -113,6 +121,7 @@ export function Scoreboard({ asof, onAsofChange, onBack, onOpenWorkbench, onSele
           <a onClick={onBack}>Board</a>
           <a onClick={onOpenWorkbench}>Workbench</a>
           <a className="on">Scoreboard</a>
+          <a onClick={onOpenAdmin}>Admin</a>
         </nav>
         <div className="spacer" />
         <label className="asof">

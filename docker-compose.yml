@@ -21,6 +21,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # Self-recover after a Docker daemon / VM / laptop restart. Without this, only the cron came back
+    # and the rest of the stack stayed down until a hand-run `up` — on the laptop deploy that read as
+    # "the platform is broken" every morning. `unless-stopped` honors an explicit `docker compose stop`.
+    restart: unless-stopped
 
   backend:
     build: ./backend
@@ -57,6 +61,10 @@ services:
       # ambient-derived at 9 call sites; the durable fix is a shared market_today() on an explicit ZoneInfo
       # (logged, not built here).
       TZ: ${ALPHADECK_TZ:-America/New_York}
+      # The cron's RUN_AT wall time, mirrored to the backend (Settings.cron_run_at) so the admin page's
+      # staleness read models the SAME Mon-Fri+RUN_AT schedule the sidecar (below) actually runs — one
+      # host var, no drift between the trigger and its readout.
+      ALPHADECK_CRON_AT: ${ALPHADECK_CRON_AT:-22:30}
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +88,10 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s # cover migrate + seed before failures count
+    # Self-recover after a daemon/VM restart — and the reboot race: `depends_on` orders only the
+    # INITIAL `up`, not restarts, so on a reboot the backend can beat postgres; the restart policy
+    # retries until postgres is up and the healthcheck passes.
+    restart: unless-stopped
 
   # The daily call-of-record cron — "the platform feeds itself" (M2d). ON BY DEFAULT: it comes up with the
   # normal `docker compose up`, so the platform notifies itself with no extra command to remember. (Local dev
@@ -113,6 +125,7 @@ services:
         condition: service_healthy
     ports:
       - "8080:80" # the app
+    restart: unless-stopped # match the rest of the stack — the SPA comes back after a reboot too
 
 volumes:
   pgdata:

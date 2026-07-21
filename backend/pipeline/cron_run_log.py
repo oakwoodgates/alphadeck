@@ -40,16 +40,16 @@ _log = logging.getLogger("alphadeck.cron")
 _DEFAULT_CRON_RUNS = Path(__file__).resolve().parents[2] / "data" / "cron_runs"
 
 
-def write_cron_run_log(
+def build_run_payload(
     results: list[ThesisRunResult],
     *,
     asof: date,
     allow_live: bool,
     started_at: datetime,
     finished_at: datetime,
-    base_dir: Path | None = None,
-) -> Path | None:
-    """Dump one cron pass to ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open).
+) -> dict:
+    """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
+    "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
 
     The payload answers, from a file read, every question the freeze investigation answered by forensics:
     *did it run* (`started_at`/`finished_at`), *for real or cache-only* (`mode` — the R2 no-live signal),
@@ -65,46 +65,68 @@ def write_cron_run_log(
       indistinguishable from we stopped looking" would have reproduced that very blindness.
     - a **total-ingest failure** (`names_errored == names_ingested`, the Source-C shape R2 gates on).
     """
+    recorded = sum(1 for r in results if r.recorded)
+    edgar_fetches = sum(r.edgar_fetches for r in results)
+    return {
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_s": round((finished_at - started_at).total_seconds(), 3),
+        "asof": asof.isoformat(),
+        "mode": "live" if allow_live else "no-live",  # the R2 recording-gate signal
+        # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
+        # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
+        # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
+        "edgar_fetches": edgar_fetches,
+        "summary": {
+            "theses": len(results),
+            "appended": recorded,
+            "unchanged": sum(1 for r in results if r.recorded is False),
+            # R2a — calls WITHHELD (no-live / total ingest failure); R4 pages on this
+            "withheld": sum(1 for r in results if r.withheld_reason),
+            "errored": sum(1 for r in results if r.error),
+            "transitions": sum(1 for r in results if r.transition),
+        },
+        "theses": [
+            {
+                "id": str(r.thesis_id),
+                "name": r.name,
+                "recorded": r.recorded,
+                "withheld_reason": r.withheld_reason,  # R2a — why the call was NOT recorded (or None)
+                "transition": r.transition,
+                "error": r.error,
+                "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector
+                "names_ingested": len(r.ingested),
+                "names_errored": sum(1 for x in r.ingested if x.error),
+                "form4_appended": sum(x.form4_appended for x in r.ingested),
+                "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
+                "form4_skipped": sum(x.form4_skipped for x in r.ingested),
+            }
+            for r in results
+        ],
+    }
+
+
+def write_cron_run_log(
+    results: list[ThesisRunResult],
+    *,
+    asof: date,
+    allow_live: bool,
+    started_at: datetime,
+    finished_at: datetime,
+    base_dir: Path | None = None,
+) -> Path | None:
+    """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
+    ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
+    build included — stays inside the fail-open try: a run-log fault is a logged exception, never a
+    failed cron."""
     try:
-        recorded = sum(1 for r in results if r.recorded)
-        edgar_fetches = sum(r.edgar_fetches for r in results)
-        payload = {
-            "started_at": started_at.isoformat(),
-            "finished_at": finished_at.isoformat(),
-            "duration_s": round((finished_at - started_at).total_seconds(), 3),
-            "asof": asof.isoformat(),
-            "mode": "live" if allow_live else "no-live",  # the R2 recording-gate signal
-            # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
-            # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
-            # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
-            "edgar_fetches": edgar_fetches,
-            "summary": {
-                "theses": len(results),
-                "appended": recorded,
-                "unchanged": sum(1 for r in results if r.recorded is False),
-                # R2a — calls WITHHELD (no-live / total ingest failure); R4 pages on this
-                "withheld": sum(1 for r in results if r.withheld_reason),
-                "errored": sum(1 for r in results if r.error),
-                "transitions": sum(1 for r in results if r.transition),
-            },
-            "theses": [
-                {
-                    "id": str(r.thesis_id),
-                    "name": r.name,
-                    "recorded": r.recorded,
-                    "withheld_reason": r.withheld_reason,  # R2a — why the call was NOT recorded (or None)
-                    "transition": r.transition,
-                    "error": r.error,
-                    "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector
-                    "names_ingested": len(r.ingested),
-                    "names_errored": sum(1 for x in r.ingested if x.error),
-                    "form4_appended": sum(x.form4_appended for x in r.ingested),
-                    "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
-                    "form4_skipped": sum(x.form4_skipped for x in r.ingested),
-                }
-                for r in results
-            ],
-        }
+        payload = build_run_payload(
+            results,
+            asof=asof,
+            allow_live=allow_live,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
         # %H%M%S, no colons — legal on Windows too; the started-at instant names the run
@@ -147,3 +169,26 @@ def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
         if doc.get("asof") == target and doc.get("mode") == "live":
             return True
     return False
+
+
+def list_run_logs(*, base_dir: Path | None = None, limit: int | None = None) -> list[dict]:
+    """Parsed run-of-record payloads, NEWEST-FIRST — the admin surface's read side (``/admin/status`` +
+    ``/admin/runs``). The artifact filename IS the started-at instant (``%Y%m%dT%H%M%SZ``), so the name
+    sort is the time sort. Fail-open PER ARTIFACT, mirroring ``already_ran_live``: an unreadable or
+    non-object file is SKIPPED (a corrupt night must not blank the whole history), and a missing dir is
+    an empty history. ``limit`` bounds how many parseable payloads are returned (None = all). Pure file
+    read — no DB, no network, nothing written."""
+    run_dir = base_dir or _DEFAULT_CRON_RUNS
+    if not run_dir.exists():
+        return []
+    out: list[dict] = []
+    for p in sorted(run_dir.glob("*.json"), reverse=True):
+        if limit is not None and len(out) >= limit:
+            break
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — skip-unreadable, never a failed read
+            continue
+        if isinstance(doc, dict):
+            out.append(doc)
+    return out

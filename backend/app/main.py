@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.routers import scoreboard, theses, workbench
+from app.routers import admin, scoreboard, theses, workbench
 from workbench.draft_jobs import assert_single_worker
 
 
@@ -28,6 +28,7 @@ app = FastAPI(
 app.include_router(theses.router)
 app.include_router(workbench.router)
 app.include_router(scoreboard.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["meta"])

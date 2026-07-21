@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from pathlib import Path
 from uuid import UUID
 
 import psycopg
@@ -206,6 +207,65 @@ def assess_health(
     )
 
 
+@dataclass
+class DailyPassOutcome:
+    """One COMPLETED daily pass: the per-thesis results plus the run metadata the artifact carries —
+    what the admin "run now" job needs to shape its poll result exactly like a parsed run log.
+    ``log_path`` is the written run-of-record artifact (or ``None`` — the write is fail-open)."""
+
+    results: list[ThesisRunResult]
+    asof: date
+    allow_live: bool
+    started_at: datetime
+    finished_at: datetime
+    log_path: Path | None
+
+
+def run_daily_pass(
+    *,
+    asof: date | None = None,
+    allow_live: bool = True,
+    notifier: Notifier | None = None,
+) -> DailyPassOutcome:
+    """The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the run-of-record
+    artifact (R3, fail-open) → emit the health page (R4). Extracted from ``main`` UNCHANGED so the admin
+    "Run daily now" trigger fires the exact pass the nightly cron does — a manual run writes the same
+    artifact (it shows in the run history) and pages through the same health seam. ``main`` keeps the CLI
+    concerns only (args, the R6 catch-up guard, the printed report + exit code)."""
+    asof = asof or date.today()
+    notifier = notifier or get_notifier()
+    started_at = datetime.now(timezone.utc)
+    conn = connect()
+    try:
+        results = run_daily(conn, asof=asof, allow_live=allow_live, notifier=notifier)
+    finally:
+        conn.close()
+    finished_at = datetime.now(timezone.utc)
+    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
+    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
+    log_path = write_cron_run_log(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+    # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
+    # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
+    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises).
+    health = assess_health(results, asof=asof, allow_live=allow_live)
+    if health is not None:
+        notifier.notify_health(health)
+    return DailyPassOutcome(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=started_at,
+        finished_at=finished_at,
+        log_path=log_path,
+    )
+
+
 def _report(results: list[ThesisRunResult]) -> int:
     """Print a per-thesis summary; return the number that errored (the process exit signal)."""
     appended = sum(1 for r in results if r.recorded)
@@ -268,29 +328,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"daily-cron: a live pass for {asof} already ran — catch-up is a no-op")
         return
 
-    notifier = get_notifier()
-    started_at = datetime.now(timezone.utc)
-    conn = connect()
-    try:
-        results = run_daily(conn, asof=asof, allow_live=allow_live, notifier=notifier)
-    finally:
-        conn.close()
-    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
-    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
-    write_cron_run_log(
-        results,
-        asof=asof,
-        allow_live=allow_live,
-        started_at=started_at,
-        finished_at=datetime.now(timezone.utc),
-    )
-    # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
-    # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
-    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises).
-    health = assess_health(results, asof=asof, allow_live=allow_live)
-    if health is not None:
-        notifier.notify_health(health)
-    if _report(results):
+    outcome = run_daily_pass(asof=asof, allow_live=allow_live)
+    if _report(outcome.results):
         raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
 
 

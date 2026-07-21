@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.deps import get_conn
 from app.main import app
+from pipeline import cron_run_log
 from workbench import draft_run_log, triage_store
 
 
@@ -38,4 +39,16 @@ def triage_sessions_dir(tmp_path, monkeypatch):
     Autouse so no test can forget it; request it by name to assert on the written session."""
     d = tmp_path / "triage_sessions"
     monkeypatch.setattr(triage_store, "_DEFAULT_TRIAGE", d)
+    return d
+
+
+@pytest.fixture(autouse=True)
+def cron_runs_dir(tmp_path, monkeypatch):
+    """Redirect the cron run-of-record home (``pipeline/cron_run_log``) to a per-test tmp dir for EVERY app
+    test — the admin surface READS it (``/admin/status``, ``/admin/runs``) and the run-daily job WRITES it,
+    so without this a dev machine's REAL ``data/cron_runs`` artifacts would leak into assertions (and a test
+    run would litter them). Autouse so no admin test can forget it; request it by name to seed/assert
+    artifacts."""
+    d = tmp_path / "cron_runs"
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", d)
     return d

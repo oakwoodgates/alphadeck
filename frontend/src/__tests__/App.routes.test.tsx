@@ -32,6 +32,18 @@ vi.mock("../board/Board", () => ({
       <button onClick={() => p.onSelect("t-9")}>board-select</button>
       <button onClick={() => p.onOpenScoreboard()}>board-to-scoreboard</button>
       <button onClick={() => p.onOpenWorkbench()}>board-to-workbench</button>
+      <button onClick={() => p.onOpenAdmin()}>board-to-admin</button>
+    </div>
+  ),
+}));
+
+vi.mock("../admin/Admin", () => ({
+  Admin: (p: any) => (
+    <div>
+      <h1>ADMIN</h1>
+      <button onClick={() => p.onBack()}>adm-back</button>
+      <button onClick={() => p.onOpenWorkbench()}>adm-to-workbench</button>
+      <button onClick={() => p.onOpenScoreboard()}>adm-to-scoreboard</button>
     </div>
   ),
 }));
@@ -103,6 +115,11 @@ describe("App routes — path → page", () => {
     expect(screen.getByText("WORKBENCH")).toBeInTheDocument();
   });
 
+  it("/admin renders the Admin", () => {
+    renderAt("/admin");
+    expect(screen.getByText("ADMIN")).toBeInTheDocument();
+  });
+
   it("/thesis/:thesisId renders the Cockpit with the id from the path", () => {
     renderAt("/thesis/t-42");
     expect(screen.getByText("COCKPIT")).toBeInTheDocument();
@@ -145,6 +162,25 @@ describe("App routes — ?asof=", () => {
     await user.click(screen.getByText("board-to-scoreboard"));
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
     await user.click(screen.getByText("sb-to-workbench"));
+    expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
+  });
+});
+
+describe("App routes — the Admin tab", () => {
+  it("Board → Admin → Back round-trips with asof intact", async () => {
+    const user = userEvent.setup();
+    renderAt("/?asof=2026-06-01");
+    await user.click(screen.getByText("board-to-admin"));
+    expect(screen.getByText("ADMIN")).toBeInTheDocument();
+    await user.click(screen.getByText("adm-back"));
+    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
+  });
+
+  it("Admin → Workbench keeps the asof param riding", async () => {
+    const user = userEvent.setup();
+    renderAt("/admin?asof=2026-06-01");
+    await user.click(screen.getByText("adm-to-workbench"));
     expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
   });
 });

@@ -1565,6 +1565,141 @@
         }
       }
     },
+    "/admin/status": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Admin Status",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed \u2014 as loud as stale, so a\nbad run can't hide behind green), ``stale`` (the record missed an expected run), else ``healthy``.",
+        "operationId": "get_admin_status_admin_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatusOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/runs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Admin Runs",
+        "description": "The run history \u2014 the last N run-of-record artifacts parsed, newest first. A pure FILE read (no\nDB, no network, writes nothing); an unreadable/malformed artifact is skipped fail-open so a corrupt\nnight never blanks the history.",
+        "operationId": "get_admin_runs_admin_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "how many runs, newest first",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "how many runs, newest first"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRunsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/run-daily": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Start Run Daily",
+        "description": "KICK OFF the full daily pass as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/run-daily/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page\nload, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run\n~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +\nthe run-log artifact + the health page \u2014 a manual run lands in the run history like the nightly\none. **409** when a run is already in progress (the single-slot in-process guard; a double-click\ncan never stack a second pass). Safe to re-click once finished: the pass is idempotent\n(``record_if_changed`` appends nothing on unchanged facts). KNOWN LIMITATION (accepted): the guard\ncannot see the cron SIDECAR's own run in its separate container \u2014 an overlap is wasteful, never\ncorrupting. The job opens its OWN DB connection (it outlives this request).",
+        "operationId": "start_run_daily_admin_run_daily_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRunJobRef"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/run-daily/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Run Daily Job",
+        "description": "POLL a kicked-off daily run. ``done`` \u2192 ``result`` (the finished pass, the run-history row\nshape); ``failed`` \u2192 an operator-facing ``error``. **404** if the job is unknown / expired, or the\nregistry was wiped by a restart \u2014 the run itself may still have completed server-side (the run\nhistory + record edge are the durable authority), so the FE shows \"lost from view\", never an\ninfinite spinner.",
+        "operationId": "get_run_daily_job_admin_run_daily_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRunJobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1593,6 +1728,281 @@
   },
   "components": {
     "schemas": {
+      "AdminCronOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "stale",
+              "never_ran",
+              "unhealthy"
+            ],
+            "title": "Status"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "detail"
+        ],
+        "title": "AdminCronOut",
+        "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet)."
+      },
+      "AdminRecordOut": {
+        "properties": {
+          "edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge"
+          },
+          "today": {
+            "type": "string",
+            "format": "date",
+            "title": "Today"
+          },
+          "expected_asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Expected Asof"
+          },
+          "days_behind": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Behind"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "edge",
+          "today",
+          "expected_asof",
+          "days_behind",
+          "stale",
+          "reason"
+        ],
+        "title": "AdminRecordOut",
+        "description": "The record's freshness vs the LAST EXPECTED scheduled run \u2014 never raw ``today - edge``: a\nFriday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1\nbehind (stale). ``edge is None`` = the record has never begun \u2014 a QUIET state (``days_behind``\nNone, ``stale`` False), never an alarm on a fresh install."
+      },
+      "AdminRunJobRef": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "AdminRunJobRef",
+        "description": "The 202 kick-off body \u2014 the daily pass started as a background JOB (a cold pass runs ~65 min;\nheld open it would 504 at the proxy). Poll ``GET /admin/run-daily/jobs/{job_id}`` for the result."
+      },
+      "AdminRunJobStatus": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "AdminRunJobStatus",
+        "description": "The poll body. ``done`` carries the finished pass as ``result`` (the same ``AdminRunOut`` shape\nthe run history shows \u2014 the pass also wrote the durable artifact + calls rows itself); ``failed``\ncarries an operator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job \u2014\nthe FE shows a visible \"lost from view\" and points at the run history, never an infinite spinner."
+      },
+      "AdminRunOut": {
+        "properties": {
+          "ran_at": {
+            "type": "string",
+            "title": "Ran At"
+          },
+          "finished_at": {
+            "type": "string",
+            "title": "Finished At"
+          },
+          "duration_s": {
+            "type": "number",
+            "title": "Duration S"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "theses": {
+            "type": "integer",
+            "title": "Theses"
+          },
+          "appended": {
+            "type": "integer",
+            "title": "Appended"
+          },
+          "unchanged": {
+            "type": "integer",
+            "title": "Unchanged"
+          },
+          "withheld": {
+            "type": "integer",
+            "title": "Withheld"
+          },
+          "errored": {
+            "type": "integer",
+            "title": "Errored"
+          },
+          "transitions": {
+            "type": "integer",
+            "title": "Transitions"
+          },
+          "edgar_fetches": {
+            "type": "integer",
+            "title": "Edgar Fetches"
+          },
+          "healthy": {
+            "type": "boolean",
+            "title": "Healthy"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "ran_at",
+          "finished_at",
+          "duration_s",
+          "asof",
+          "mode",
+          "theses",
+          "appended",
+          "unchanged",
+          "withheld",
+          "errored",
+          "transitions",
+          "edgar_fetches",
+          "healthy"
+        ],
+        "title": "AdminRunOut",
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row \u2014 a\nbad run can never hide behind a green history. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO)."
+      },
+      "AdminRunsOut": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/AdminRunOut"
+            },
+            "type": "array",
+            "title": "Runs",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "AdminRunsOut",
+        "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
+      },
+      "AdminStatusOut": {
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/AdminRecordOut"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cron": {
+            "$ref": "#/components/schemas/AdminCronOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "record",
+          "cron"
+        ],
+        "title": "AdminStatusOut",
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict.\nREAD-ONLY \u2014 the endpoint owns no tables and writes nothing (test-proved)."
+      },
       "Archetype": {
         "type": "string",
         "enum": [
