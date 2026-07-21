@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ScoreboardEpisodeOut, ScoreboardMetricOut, ScoreboardThesisOut } from "../../api/hooks";
+import type {
+  ScoreboardEpisodeOut,
+  ScoreboardMetricOut,
+  ScoreboardSummaryOut,
+  ScoreboardThesisOut,
+} from "../../api/hooks";
 import {
   awaitingForwardBar,
   episodeBadges,
@@ -9,6 +14,7 @@ import {
   groupCount,
   groupHint,
   groupToneClass,
+  maturityHorizon,
   metricHeadline,
   operatorLine,
   returnLabel,
@@ -27,6 +33,11 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
     status: "open",
     matured: false,
     censored_start: false,
+    arm_ingest_fresh: null,
+    freeze_era: false,
+    thaw_lag_days: null,
+    ingest_flagged: false,
+    ingest_note: null,
     verdict: "core_entry",
     entry_grade: "core",
     conviction_grade: "core",
@@ -121,6 +132,22 @@ describe("episodeBadges — marks are exceptions, not constants", () => {
     ).map((b) => b.label);
     expect(labels).toEqual(["MATURED"]);
   });
+  it("INGEST rides iff flagged — the backend note becomes the title with the excluded suffix", () => {
+    const badge = episodeBadges(
+      ep({ ingest_flagged: true, ingest_note: "armed inside the 2026-07 EDGAR freeze window" }),
+    ).find((b) => b.label === "INGEST");
+    expect(badge?.cls).toBe("b-ing");
+    expect(badge?.title).toBe(
+      "armed inside the 2026-07 EDGAR freeze window — excluded from metrics",
+    );
+    expect(episodeBadges(ep()).map((b) => b.label)).not.toContain("INGEST");
+  });
+  it("INGEST falls back to the generic title when no note rides", () => {
+    const badge = episodeBadges(ep({ ingest_flagged: true })).find((b) => b.label === "INGEST");
+    expect(badge?.title).toBe(
+      "the arm rested on partial or late-ingested data — excluded from metrics",
+    );
+  });
 });
 
 describe("operatorLine", () => {
@@ -206,6 +233,42 @@ describe("metricHeadline", () => {
   });
   it("falls back to n when the summary has no known key", () => {
     expect(metricHeadline(metric({ n: 4, summary: {} }))).toBe("n=4");
+  });
+});
+
+function summ(over: Partial<ScoreboardSummaryOut> = {}): ScoreboardSummaryOut {
+  return {
+    min_n: 5,
+    next_maturity: null,
+    n_maturing_30d: 0,
+    projected_min_n_date: null,
+    ...over,
+  } as ScoreboardSummaryOut;
+}
+
+describe("maturityHorizon — the countdown behind the mute gate (2e)", () => {
+  it("renders all three fields when a projection exists", () => {
+    expect(
+      maturityHorizon(
+        summ({
+          next_maturity: "2026-07-18",
+          n_maturing_30d: 5,
+          projected_min_n_date: "2026-08-31",
+        }),
+      ),
+    ).toBe(
+      "next episode matures 2026-07-18 · 5 mature within 30d · first metric could clear n ≥ 5 around 2026-08-31",
+    );
+  });
+  it("says honestly when n ≥ min_n is not reachable from current episodes", () => {
+    expect(
+      maturityHorizon(summ({ next_maturity: "2026-07-31", n_maturing_30d: 1 })),
+    ).toBe(
+      "next episode matures 2026-07-31 · 1 mature within 30d · n ≥ 5 not reachable from current episodes",
+    );
+  });
+  it("no future maturity → no line at all (null, not an empty shell)", () => {
+    expect(maturityHorizon(summ())).toBeNull();
   });
 });
 

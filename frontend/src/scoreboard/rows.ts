@@ -1,6 +1,7 @@
 import type {
   ScoreboardEpisodeOut,
   ScoreboardMetricOut,
+  ScoreboardSummaryOut,
   ScoreboardThesisOut,
 } from "../api/hooks";
 
@@ -49,6 +50,14 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
       cls: "b-cen",
       title: "the record began mid-arm — the true arm date is unknowable (excluded from metrics)",
     });
+  if (e.ingest_flagged)
+    out.push({
+      label: "INGEST",
+      cls: "b-ing",
+      title:
+        (e.ingest_note ?? "the arm rested on partial or late-ingested data") +
+        " — excluded from metrics",
+    });
   if (e.truncated && !e.insufficient_prices)
     out.push({ label: "to last bar", cls: "b-trunc", title: "measured to the last bar ≤ as-of" });
   return out;
@@ -91,6 +100,19 @@ export function gateMetrics(
     shown,
     gatedLine: `${gated} of ${metrics.length} metrics await n ≥ ${minN} (largest today: n=${maxN})`,
   };
+}
+
+/** The maturity-horizon countdown line (2e) — null when nothing lies ahead (no line at all, not an
+ *  empty shell). Asof-pure: derived fields, coherent on a scrubbed view too. The projection wording
+ *  stays honest — over currently-recorded episodes; "not reachable" when the clean pool can't get
+ *  the eligible count to min_n. */
+export function maturityHorizon(s: ScoreboardSummaryOut): string | null {
+  if (s.next_maturity == null) return null;
+  const projection =
+    s.projected_min_n_date != null
+      ? `first metric could clear n ≥ ${s.min_n} around ${s.projected_min_n_date}`
+      : `n ≥ ${s.min_n} not reachable from current episodes`;
+  return `next episode matures ${s.next_maturity} · ${s.n_maturing_30d} mature within 30d · ${projection}`;
 }
 
 /** One headline number per sufficient metric (median first, then the metric's own summary keys). */
