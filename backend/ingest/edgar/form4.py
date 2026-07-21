@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from datetime import date
 from uuid import UUID
@@ -10,6 +11,31 @@ import psycopg
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.coerce import to_float
+
+# A Form 4 transactionDate is a calendar date ('YYYY-MM-DD'). Some filing agents serialize it with a
+# trailing UTC offset (e.g. '2026-05-13-05:00') or time/'Z' suffix, which ``date.fromisoformat`` rejects —
+# an offset is only valid on a datetime, not a date. That silently skipped RECENT, valid Form 4s (the offset
+# suffix showed up on 2026 filings from agent 0001654954 and others), dropping open-market buys before they
+# could reach the Key-1 insider detector (#3-adjacent: a real number lost). The leading ``YYYY-MM-DD`` IS the
+# trade date the filer stated; the offset is spurious agent metadata that must be discarded, never used to
+# shift the calendar date (there is no time component to shift). ``datetime.fromisoformat().date()`` is NOT a
+# safe substitute: it rejects 'YYYY-MM-DDZ' and misreads the bare offset '-05:00' as a 5 a.m. time.
+_ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _txn_date(raw: str | None) -> date | None:
+    """Parse a Form 4 transaction date, tolerating a spurious trailing tz-offset / time suffix.
+
+    Returns ``None`` for an empty value. Takes the leading ``YYYY-MM-DD`` when present (discarding any
+    offset/time the agent tacked on); a value with no ISO date prefix falls through to ``date.fromisoformat``
+    so a genuinely malformed date still raises ``ValueError`` — which the ingest leg tolerates as one
+    skipped-and-counted filing (``pipeline.ingest_thesis._tolerable_filing_error``), never a silent drop.
+    """
+    if not raw:
+        return None
+    s = raw.strip()
+    m = _ISO_DATE_PREFIX.match(s)
+    return date.fromisoformat(m.group(0) if m else s)
 
 
 def _role(rel: Element | None) -> str | None:
@@ -81,7 +107,7 @@ def parse_form4(xml: str) -> list[dict]:
                 "shares": shares,
                 "price": price,
                 "usd": (shares or 0.0) * (price or 0.0),
-                "txn_date": date.fromisoformat(d) if d else None,
+                "txn_date": _txn_date(d),
                 "acquired_disposed": t.findtext(
                     "transactionAmounts/transactionAcquiredDisposedCode/value"
                 ),
