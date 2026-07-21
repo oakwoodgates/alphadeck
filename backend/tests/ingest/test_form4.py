@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from ingest.edgar.form4 import existing_accessions, ingest_form4, parse_form4
+import pytest
+
+from ingest.edgar.form4 import _txn_date, existing_accessions, ingest_form4, parse_form4
 
 _XML = (
     Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_sample.xml"
@@ -101,6 +103,72 @@ def test_the_flag_changes_NO_signal_logic(security_id):
     assert all(e is not None and e.fired for e in events)
     # identical scoring across all three states — the flag is inert on the call path
     assert len({(e.score, e.grade, e.kind, e.role) for e in events}) == 1
+
+
+# --- the tz-offset transactionDate (a RECENT valid Form 4 must not be silently skipped) ---
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("2026-05-13-05:00", date(2026, 5, 13)),  # the AEHR case: a UTC offset on a date-only field
+        ("2026-05-14-05:00", date(2026, 5, 14)),  # EST offset, the second skipped AEHR filing
+        ("2026-06-01-04:00", date(2026, 6, 1)),  # EDT offset
+        ("2026-06-01+00:00", date(2026, 6, 1)),  # a positive offset
+        ("2026-06-01Z", date(2026, 6, 1)),  # a 'Z' suffix (datetime.fromisoformat rejects this one)
+        ("2026-06-01T00:00:00-05:00", date(2026, 6, 1)),  # a full datetime with offset
+        ("2026-06-01", date(2026, 6, 1)),  # the plain, well-formed case still works
+        ("  2026-06-01  ", date(2026, 6, 1)),  # surrounding whitespace tolerated
+        (None, None),  # absent date -> None (row later dropped by ingest_form4)
+        ("", None),  # empty -> None
+    ],
+)
+def test_txn_date_strips_tz_offset(raw, expected):
+    """The offset never SHIFTS the calendar trade date — '2026-05-13-05:00' is the 13th, not the 12th/14th."""
+    assert _txn_date(raw) == expected
+
+
+def test_txn_date_still_raises_on_genuinely_malformed():
+    """A value with no leading ISO date is still a ValueError — so the ingest leg skips-and-COUNTS that one
+    filing (loud), rather than the fix swallowing a real parse failure into a silent success."""
+    with pytest.raises(ValueError):
+        _txn_date("not-a-date")
+
+
+def _with_txn_date(value: str) -> str:
+    """The sample filing with the open-market BUY's transactionDate replaced by ``value`` (e.g. a
+    tz-offset-suffixed date)."""
+    return _XML.replace(
+        "<transactionDate><value>2026-06-01</value></transactionDate>",
+        f"<transactionDate><value>{value}</value></transactionDate>",
+    )
+
+
+def test_parse_form4_keeps_the_buy_when_the_date_carries_a_tz_offset():
+    """THE REGRESSION: a tz-suffixed transactionDate ('YYYY-MM-DD-05:00') used to raise inside parse_form4,
+    which the ingest leg tolerated by skipping the ENTIRE filing — dropping the open-market buy before it
+    could reach the Key-1 insider detector. The buy must survive with its date intact, and so must the sale.
+    """
+    txns = parse_form4(_with_txn_date("2026-05-13-05:00"))
+    assert len(txns) == 2  # nothing dropped — the whole filing still parses
+    buy = next(t for t in txns if t["txn_code"] == "P")
+    assert buy["txn_date"] == date(2026, 5, 13)  # the calendar date, NOT shifted by the offset
+    assert buy["shares"] == 10000 and buy["usd"] == 210000.0  # the buy the detector needs, intact
+
+
+def test_ingest_form4_stores_a_tz_suffixed_buy(db, security_id):
+    """End-to-end: a filing whose buy carries a tz-offset date now reaches ``fact_insider_txn`` (before the
+    fix the whole accession was skipped-and-counted, so the row never landed)."""
+    n = ingest_form4(db, security_id, _with_txn_date("2026-05-13-05:00"), "acc-tzoffset")
+    db.commit()
+    assert n == 2  # both rows stored
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT valid_from FROM fact_insider_txn WHERE accession=%s AND txn_code='P'",
+            ("acc-tzoffset",),
+        )
+        row = cur.fetchone()
+    assert row is not None and row["valid_from"] == date(2026, 5, 13)
 
 
 def test_existing_accessions_is_distinct_set(db, security_id):
