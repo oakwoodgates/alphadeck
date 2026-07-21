@@ -15,10 +15,13 @@ from scoreboard.schema import ScoreboardResult, ScoreboardSummary
 
 # The full assembly: the record walk + replay's claim-tied metric set over ELIGIBLE outcomes only —
 # matured (the episode's own exit_by elapsed; a running return must never drift inside a metric
-# before the claim's own deadline) AND non-censored (the record saw the arm). The timeline handed to
-# the withheld-arm metric is censor-trimmed the same way: a warming run already open on the record's
-# FIRST card has an unknowable start — dropped, never guessed. The banner keeps the whole layer
-# honest: an instrument, not a claim, until n accrues.
+# before the claim's own deadline) AND non-censored (the record saw the arm) AND clean-ingest (2d:
+# the arm's provenance is un-flagged — a freeze-era/partial/thawed-late arm stays ledger-visible but
+# never shapes an aggregate). The timeline handed to the withheld-arm metric is censor-trimmed the
+# same way: a warming run already open on the record's FIRST card has an unknowable start — dropped,
+# never guessed (deliberate, named limitation: those warming-run timelines are NOT provenance-
+# filtered — episodes are the provenance unit; see docs/SCOREBOARD.md). The banner keeps the whole
+# layer honest: an instrument, not a claim, until n accrues.
 
 
 class _RoutedPrices:
@@ -81,7 +84,10 @@ def assemble_scoreboard(
         conn, asof, include_archived=include_archived, known_at=known_at
     )
     eligible = [
-        e.outcome for t in result.theses for e in t.episodes if e.matured and not e.censored_start
+        e.outcome
+        for t in result.theses
+        for e in t.episodes
+        if e.matured and not e.censored_start and not e.ingest_flagged
     ]
     trimmed = {tid: _censor_leading_warming(snaps) for tid, snaps in timelines.items()}
     tenant_by_thesis = {t.thesis_id: t.tenant_id for t in result.theses}
@@ -101,8 +107,8 @@ def assemble_scoreboard(
     result.summary = ScoreboardSummary(
         banner=(
             f"FORWARD RECORD, NOT A CLAIM — {began}; {len(eligible)} episodes eligible for "
-            f"metrics (matured + non-censored; gate n<{MIN_N}); open, immature, and censored "
-            "episodes are ledger-only."
+            f"metrics (matured + non-censored + clean-ingest; gate n<{MIN_N}); open, immature, "
+            "censored, and ingest-flagged episodes are ledger-only."
         ),
         min_n=MIN_N,
         n_eligible=len(eligible),

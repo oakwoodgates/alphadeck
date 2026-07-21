@@ -3,15 +3,18 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from app.routers import scoreboard
 from db.session import DEFAULT_TENANT_ID
 from repositories import thesis_repo
+from scoreboard.assemble import assemble_scoreboard
 from tests.calls.factories import insider_event
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
 # GET /scoreboard — the record served: shape, asof scrubbing, the metrics gate (matured +
-# non-censored only, insufficient_n below MIN_N), the archived filter, record-freshness (2a),
-# and writes-nothing.
+# non-censored + clean-ingest only, insufficient_n below MIN_N), the archived filter,
+# record-freshness (2a), record-provenance (2d), the maturity horizon (2e), and writes-nothing.
 
 ASOF = "2026-07-15"
 
@@ -154,6 +157,88 @@ def test_include_archived_param(client, db, security_id):
     assert body["theses"] == [] and body["summary"]["n_episodes"] == 0
 
 
+# --- 2d: record provenance — flagged episodes stay in the ledger, out of the aggregates ---
+
+
+def _seed_matured_flagged_cycle(db, security_id):
+    """One matured, NON-censored arm cycle recorded on a PARTIAL ingest (fresh=False) — June dates
+    (outside the freeze window), so the run stamp alone is what flags it."""
+    thesis = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+    warm = [
+        insider_event(security_id=security_id, liveness=3).model_copy(
+            update={"asof": date(2026, 6, 14)}
+        )
+    ]
+    record_day(db, thesis, warm, date(2026, 6, 14))  # warming first: the arm is not censored
+    conv, conf = keys_fired(security_id, date(2026, 6, 15), conv_liveness=3, conf_liveness=3)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 15), ingest_fresh=False, ingest_errors=2)
+    record_day(db, thesis, [conv], date(2026, 6, 19))  # aged out -> de-arm row
+    bar(db, security_id, date(2026, 6, 15), 100.0)
+    bar(db, security_id, date(2026, 6, 17), 103.0)
+    return thesis
+
+
+def test_flagged_episode_stays_in_ledger_but_leaves_the_metrics(client, db, security_id):
+    """Recall-is-sacred cousin, proved by the COUNT: 5 matured clean + 1 matured flagged -> the
+    ledger shows 6, the eligible pool and every pooled metric read 5, and the banner names the
+    clean-ingest leg of the eligibility rule."""
+    _seed_five_matured_cycles(db, security_id)
+    _seed_matured_flagged_cycle(db, _second_security(db))
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["n_episodes"] == 6 and s["n_matured"] == 6 and s["n_censored"] == 0
+    assert s["n_eligible"] == 5  # the flagged one is ledger-only
+    assert {m["name"]: m["n"] for m in s["metrics"]}["arm_timing_forward_return"] == 5
+    assert "clean-ingest" in s["banner"] and "NOT A CLAIM" in s["banner"]
+    result = assemble_scoreboard(db, asof=date.fromisoformat(ASOF))
+    assert result.n_ingest_flagged == 1
+
+
+def test_flagged_clean_and_legacy_twins_score_identically(client, db, security_id):
+    """The migration-0023 rule, pinned: a clean-stamped, a partial-stamped (flagged), and a
+    legacy-NULL arm over IDENTICAL bars produce IDENTICAL Outcome wire fields — provenance
+    segments/annotates AFTER scoring, never inside it. Only the flags differ."""
+    stamps: dict[str, dict] = {
+        "clean": {"ingest_fresh": True, "ingest_errors": 0},
+        "flagged": {"ingest_fresh": False, "ingest_errors": 2},
+        "legacy": {},
+    }
+    ids: dict[str, str] = {}
+    for name, stamp in stamps.items():
+        t = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+        ids[name] = str(t.id)
+        conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=5, conf_liveness=5)
+        record_day(db, t, [conv, conf], date(2026, 6, 1), **stamp)
+    bar(db, security_id, date(2026, 6, 1), 100.0)
+    bar(db, security_id, date(2026, 6, 4), 108.0)
+
+    body = client.get("/scoreboard", params={"asof": ASOF}).json()
+    eps = {t["thesis_id"]: t["episodes"][0] for t in body["theses"]}
+    clean, flagged, legacy = (eps[ids[k]] for k in ("clean", "flagged", "legacy"))
+    for f in (
+        "entry_close",
+        "exit_close",
+        "exit_date",
+        "forward_return",
+        "arm_until_return",
+        "warm_return",
+        "peak_return",
+        "peak_date",
+        "exit_vs_peak_days",
+        "truncated",
+        "insufficient_prices",
+    ):
+        assert clean[f] == flagged[f] == legacy[f]
+    assert clean["forward_return"] == pytest.approx(0.08)  # a REAL scored number on all three
+    # ...and only the provenance differs (asserted on the assembled result; the wire mirrors it)
+    result = assemble_scoreboard(db, asof=date.fromisoformat(ASOF))
+    by_id = {str(t.thesis_id): t.episodes[0] for t in result.theses}
+    assert by_id[ids["flagged"]].ingest_flagged is True
+    assert by_id[ids["clean"]].ingest_flagged is False
+    assert by_id[ids["legacy"]].ingest_flagged is False
+    assert by_id[ids["legacy"]].arm_ingest_fresh is None  # raw, never coerced
+
+
 # --- 2a: the record-freshness (staleness) line on the summary ---
 
 
@@ -218,10 +303,11 @@ def test_scoreboard_get_writes_nothing(client, db, security_id, monkeypatch):
             cur.execute(
                 "SELECT (SELECT count(*) FROM calls) AS c,"
                 " (SELECT count(*) FROM operator_decision) AS d,"
-                " (SELECT count(*) FROM fact_price_eod) AS p"
+                " (SELECT count(*) FROM fact_price_eod) AS p,"
+                " (SELECT count(*) FROM fact_insider_txn) AS i"  # the 2d thaw-lag read path
             )
             r = cur.fetchone()
-            return (r["c"], r["d"], r["p"])
+            return (r["c"], r["d"], r["p"], r["i"])
 
     before = counts()
     resp = client.get("/scoreboard", params={"asof": ASOF})
