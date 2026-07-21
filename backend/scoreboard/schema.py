@@ -153,14 +153,22 @@ class ReplaySnapshot(BaseModel):
 
 class ScoreboardSummary(BaseModel):
     """The aggregate layer: replay's claim-tied metric set over ELIGIBLE outcomes only — matured
-    (judged at the episode's own exit_by) AND non-censored (the record saw the arm) — plus the
-    banner that keeps it honest. Metrics below ``min_n`` are an instrument, never a claim."""
+    (judged at the episode's own exit_by) AND non-censored (the record saw the arm) AND clean-ingest
+    (2d) — plus the banner that keeps it honest. Metrics below ``min_n`` are an instrument, never a
+    claim. The 2e maturity-horizon fields turn the mute gate into a countdown: asof-pure, derived
+    from the episodes already in hand — a projection over currently-recorded episodes, never a
+    promise (new arms or de-arms shift it)."""
 
     banner: str
     min_n: int
     n_eligible: int = 0
     record_began: date | None = None
     metrics: list[MetricResult] = []
+    # 2e — the maturity horizon (all derived from episodes' exit_by vs asof):
+    next_maturity: date | None = None  # min FUTURE exit_by, ledger-wide (flagged/censored too)
+    n_maturing_30d: int = 0  # future maturities within asof + 30d
+    # when the ELIGIBLE pool could reach min_n — None = already cleared, or not reachable
+    projected_min_n_date: date | None = None
 
 
 class ScoreboardResult(BaseModel):

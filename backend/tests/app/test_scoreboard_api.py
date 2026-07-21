@@ -239,6 +239,66 @@ def test_flagged_clean_and_legacy_twins_score_identically(client, db, security_i
     assert by_id[ids["legacy"]].arm_ingest_fresh is None  # raw, never coerced
 
 
+# --- 2e: the maturity horizon — the countdown behind the mute gate ---
+
+
+def _seed_open_immature(db, security_id, arm: date, liveness: int, *, flagged: bool = False):
+    """One open, immature, NON-censored episode: warming the day before, armed on ``arm`` with
+    exit_by = arm + liveness. ``flagged`` stamps the arm row as a partial ingest (2d)."""
+    thesis = persist_thesis(db, security_id, thesis_id=uuid.uuid4())
+    warm = [
+        insider_event(security_id=security_id, liveness=liveness + 1).model_copy(
+            update={"asof": arm - timedelta(days=1)}
+        )
+    ]
+    record_day(db, thesis, warm, arm - timedelta(days=1))
+    conv, conf = keys_fired(security_id, arm, conv_liveness=liveness, conf_liveness=10)
+    stamp = {"ingest_fresh": False, "ingest_errors": 1} if flagged else {}
+    record_day(db, thesis, [conv, conf], arm, **stamp)
+    return thesis
+
+
+def test_maturity_horizon_countdown_and_projection(db, security_id):
+    """next_maturity/n_maturing_30d are LEDGER-WIDE (a flagged episode still matures first); the
+    n>=MIN_N projection counts only non-censored, non-flagged candidates — a flagged immature
+    episode does NOT advance it. Arms 2026-07-01 (pre-freeze); asof 2026-07-15."""
+    for liveness in (19, 25, 30, 40, 61):  # exit_by: 07-20, 07-26, 07-31, 08-10, 08-31
+        _seed_open_immature(db, security_id, date(2026, 7, 1), liveness)
+    _seed_open_immature(db, security_id, date(2026, 7, 1), 17, flagged=True)  # exit_by 07-18
+
+    summary = assemble_scoreboard(db, asof=date.fromisoformat(ASOF)).summary
+    assert summary is not None
+    assert summary.next_maturity == date(2026, 7, 18)  # the flagged one still matures first
+    assert summary.n_maturing_30d == 5  # <= 08-14: everything but the 08-31 tail
+    # eligible = 0, so need = MIN_N = 5: the 5th CLEAN future maturity — the flagged 07-18 is
+    # skipped, which pushes the projection out to 08-31 (honest, not optimistic)
+    assert summary.projected_min_n_date == date(2026, 8, 31)
+
+
+def test_maturity_projection_none_when_unreachable(db, security_id):
+    """One clean immature episode cannot reach n >= MIN_N: the projection is honestly None while
+    the countdown itself still renders (next_maturity set)."""
+    _seed_open_immature(db, security_id, date(2026, 7, 1), 30)
+
+    summary = assemble_scoreboard(db, asof=date.fromisoformat(ASOF)).summary
+    assert summary is not None
+    assert summary.next_maturity == date(2026, 7, 31)
+    assert summary.n_maturing_30d == 1
+    assert summary.projected_min_n_date is None
+
+
+def test_maturity_horizon_quiet_when_cleared_and_nothing_future(db, security_id):
+    """need <= 0 (the strip already shows real metrics) and no future exit_by: every horizon field
+    is quiet — None/0, never a stale countdown."""
+    _seed_five_matured_cycles(db, security_id)
+
+    summary = assemble_scoreboard(db, asof=date.fromisoformat(ASOF)).summary
+    assert summary is not None
+    assert summary.n_eligible == 5  # cleared: need <= 0
+    assert summary.projected_min_n_date is None
+    assert summary.next_maturity is None and summary.n_maturing_30d == 0
+
+
 # --- 2a: the record-freshness (staleness) line on the summary ---
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 import psycopg
@@ -104,6 +104,28 @@ def assemble_scoreboard(
         (t.first_call_asof for t in result.theses if t.first_call_asof), default=None
     )
     began = f"record began {record_began}" if record_began else "no call-of-record yet"
+    # 2e — the maturity horizon: the countdown behind the mute gate, derived from episodes already
+    # in hand (asof-pure — a scrubbed view's countdown is coherent from that asof). next_maturity /
+    # n_maturing_30d are LEDGER-WIDE (open or closed, flagged or not: every episode is still judged
+    # at its own deadline); the PROJECTION respects the eligibility rule — only non-censored,
+    # non-flagged future maturities can advance the eligible pool toward MIN_N. A projection over
+    # currently-recorded episodes, never a promise.
+    future = sorted(
+        e.episode.exit_by
+        for t in result.theses
+        for e in t.episodes
+        if e.episode.exit_by is not None and e.episode.exit_by > asof
+    )
+    candidates = sorted(
+        e.episode.exit_by
+        for t in result.theses
+        for e in t.episodes
+        if e.episode.exit_by is not None
+        and e.episode.exit_by > asof
+        and not e.censored_start
+        and not e.ingest_flagged
+    )
+    need = MIN_N - len(eligible)
     result.summary = ScoreboardSummary(
         banner=(
             f"FORWARD RECORD, NOT A CLAIM — {began}; {len(eligible)} episodes eligible for "
@@ -114,5 +136,8 @@ def assemble_scoreboard(
         n_eligible=len(eligible),
         record_began=record_began,
         metrics=metrics.metrics,
+        next_maturity=future[0] if future else None,
+        n_maturing_30d=sum(1 for d in future if d <= asof + timedelta(days=30)),
+        projected_min_n_date=candidates[need - 1] if 0 < need <= len(candidates) else None,
     )
     return result
