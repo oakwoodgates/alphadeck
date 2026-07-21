@@ -214,6 +214,10 @@ class _FakePit:
     def price_history(self, security_id, lookback_days=None):
         return self._bars
 
+    def security_name(self, security_id):
+        # this fake exercises the PRICE screen (PBLS day-lows); no issuer-self identity here -> None
+        return None
+
 
 def test_detect_builds_day_lows_from_price_history_and_filters():
     # end-to-end through detect(): the price bars feed the day-low map, so PBLS de-inflates to the FLIP.
@@ -228,3 +232,72 @@ def test_detect_builds_day_lows_from_price_history_and_filters():
     assert ev.label == (
         "1 insider incl. senior officer bought $473,529 open-market (code P) across 3 txns"
     )
+
+
+# --- issuer-self screen (§3): the ISSUER filing a Form 4 on ITSELF is a buyback/treasury/ADR mechanic,
+# never personal insider conviction — it does NOT feed Key-1, even though it prices AT the market. The
+# excluded row STAYS in the txn stream (the display tape); only the conviction total skips it. Recall-safe:
+# only a self-filing has filer==issuer, and a missing CIK / name mismatch just KEEPS the row (#9). ---
+
+
+def _self_buy(name, *, issuer_name=None, owner_cik=None, issuer_cik=None, usd=690_000_000):
+    # a large AT-MARKET code-P block (the class the price screen does NOT catch — KYOCERA-on-KYOCERA)
+    t = _buy(name, "10% owner", usd)
+    if issuer_name is not None:
+        t["issuer_name"] = issuer_name
+    if owner_cik is not None:
+        t["rpt_owner_cik"] = owner_cik
+    if issuer_cik is not None:
+        t["issuer_cik"] = issuer_cik
+    return t
+
+
+def test_excludes_issuer_self_by_cik():
+    # rpt_owner_cik == issuer_cik → the company filed on itself (canonical match; no name needed)
+    txn = _self_buy("KYOCERA CORP", owner_cik="0000054321", issuer_cik="0000054321")
+    assert insider_conviction.score([txn], SID, ASOF) is None
+
+
+def test_excludes_issuer_self_by_cik_ignoring_zero_padding():
+    # the CIKs compare equal despite different zero-padding (normalized both sides)
+    txn = _self_buy("Roivant Sciences Ltd.", owner_cik="1479290", issuer_cik="0001479290")
+    assert insider_conviction.score([txn], SID, ASOF) is None
+
+
+def test_excludes_issuer_self_by_name_via_row_issuer_name():
+    # no CIKs on the row (a pre-capture row), but the filer name == the row's captured issuer name
+    txn = _self_buy("Roivant Sciences Ltd.", issuer_name="Roivant Sciences Ltd.")
+    assert insider_conviction.score([txn], SID, ASOF) is None
+
+
+def test_excludes_issuer_self_by_name_via_issuer_name_param():
+    # the already-ingested path: no CIKs, no row issuer_name — the security-master name is passed in
+    txn = _self_buy("KYOCERA CORP")  # no identity fields on the row at all
+    assert (
+        insider_conviction.score([txn], SID, ASOF, issuer_name="Kyocera Corp") is None
+    )  # casefold
+
+
+def test_keeps_genuine_activist_buy_not_self():
+    # BHC/Paulson: a large at-market director buy whose filer != issuer — a REAL signal, must NOT be screened
+    txn = _self_buy("Paulson John", issuer_name="Bausch Health Companies Inc.", usd=312_500_000)
+    ev = insider_conviction.score([txn], SID, ASOF, issuer_name="Bausch Health Companies Inc.")
+    assert ev is not None and ev.fired  # kept (recall-safe): the screen isolates self-filings only
+
+
+def test_recall_safe_when_no_identity_present():
+    # a plain buy with no CIKs, no issuer_name, no issuer_name param → kept (the screen never over-excludes)
+    assert insider_conviction.score([_buy("Jane Doe", "CEO", 700_000)], SID, ASOF) is not None
+
+
+def test_self_filing_does_not_drop_the_real_buys_beside_it():
+    # a mixed stream: the issuer's self-buy is screened out, the real senior cluster still fires on its own
+    txns = [
+        _self_buy("Devco Inc", owner_cik="111", issuer_cik="111", usd=500_000_000),
+        _buy("Jane Doe", "Chief Executive Officer", 150_000),
+        _buy("John Roe", "Chief Financial Officer", 120_000),
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
+    assert ev is not None and ev.grade is Grade.CORE
+    # the $500M self-block is NOT in the total (2 real insiders, $270k), and not in provenance
+    assert "270,000" in ev.label and len(ev.provenance) == 2

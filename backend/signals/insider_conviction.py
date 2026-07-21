@@ -59,24 +59,71 @@ def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float], cfg: C
     return True
 
 
+def _norm_entity(name: str | None) -> str:
+    """Minimal normalization for a self-filing name match: casefold + collapse whitespace + drop a trailing
+    period ('Roivant Sciences Ltd.' -> 'roivant sciences ltd'). Deliberately does NOT strip corporate
+    suffixes (CORP/INC/LP): a self-filing has the SAME name on both sides, so no stripping is needed to match
+    — and stripping would only widen the match and risk excluding a real, non-self buy (recall-safe, #9).
+    """
+    if not name:
+        return ""
+    return " ".join(name.strip().casefold().rstrip(".").split())
+
+
+def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
+    """Did the ISSUER file this Form 4 on ITSELF (reporting owner == issuer)?
+
+    SEC code 'P' is filed by any acquirer, not just the officers/directors the open-market-purchase
+    literature (Lakonishok-Lee) is about. The cleanest false positive is the company filing on its own stock
+    — KYOCERA-on-KYOCERA ($690M @ $21.75), Roivant-on-Roivant ($350M @ $21): a buyback / treasury / ADR
+    mechanic priced AT the market (so the price screen keeps it), never personal insider conviction (#3). We
+    recognise it two ways, most-robust first:
+
+    - **CIK equality** — ``rpt_owner_cik == issuer_cik`` (both captured from the filing; migration 0024). The
+      canonical match; present on rows ingested after the capture, and it flows into replay via ``SELECT *``.
+    - **name equality** — the filer name equals the issuer name (the row's captured ``issuer_name`` or, for a
+      row ingested before the capture, the security's ``security_master`` name passed as ``issuer_name``).
+      This is what makes the screen effective on ALREADY-ingested rows with no backfill.
+
+    Recall-safe (#9): a self-filing is the ONLY time the filer name equals the issuer name, and the failure
+    mode is one-directional — a missing CIK / name-format mismatch simply KEEPS the row (never drops a real
+    buy). Excluded rows STAY in ``fact_insider_txn`` + the display tape; only the open-market conviction total
+    skips them.
+    """
+    oc, ic = txn.get("rpt_owner_cik"), txn.get("issuer_cik")
+    if oc and ic and str(oc).strip().lstrip("0") == str(ic).strip().lstrip("0"):
+        return True
+    filer = _norm_entity(txn.get("insider_name"))
+    issuer = _norm_entity(txn.get("issuer_name") or issuer_name)
+    return bool(filer) and filer == issuer
+
+
 def score(
     txns: list[dict[str, Any]],
     security_id: UUID,
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
     day_lows: dict[date, float] | None = None,
+    issuer_name: str | None = None,
 ) -> SignalEvent | None:
     """Pure: score an open-market insider cluster into a Key-1 SignalEvent (or None).
 
-    Reads only open-market purchases (code 'P'); never fires on sales. ``day_lows`` maps a trade date to
-    the security's EOD low that day (built by ``detect`` from the point-in-time price view); it screens
-    out primary-market subscriptions (IPO/PIPE offer-price buys that file as code P but transact below the
-    public tape) and physically-impossible rows — see ``_is_open_market_buy``. Empty/absent ``day_lows``
-    means no price context, so nothing is screened out on price (recall-safe, #9). The cluster is anchored
-    on the most-recent buy (its FIRE date) and gathers the buys within the cohesion window before it — one
-    episode of buying. It stays in the re-derived stream until its GRADED alpha horizon decays (a flip
-    in weeks, a CORE cluster over months), so the lookback never drops a still-live conviction.
-    Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
+    Reads only open-market purchases (code 'P'); never fires on sales. Two screens keep a code-P row OUT of
+    the open-market conviction total (both supplied by ``detect`` from the point-in-time view; both
+    recall-safe, #9):
+
+    - ``day_lows`` maps a trade date to the security's EOD low that day → screens out primary-market
+      subscriptions (IPO/PIPE offer-price buys that file as code P but transact below the public tape) and
+      physically-impossible rows (see ``_is_open_market_buy``).
+    - ``issuer_name`` is the security's name → screens out a SELF-FILING (the issuer filing a Form 4 on its
+      own stock — a buyback/treasury/ADR mechanic, priced AT market so the price screen keeps it), see
+      ``_is_issuer_self``.
+
+    Absent/``None`` ``day_lows``/``issuer_name`` only disables that one screen (nothing over-excluded). The
+    cluster is anchored on the most-recent buy (its FIRE date) and gathers the buys within the cohesion
+    window before it — one episode of buying. It stays in the re-derived stream until its GRADED alpha
+    horizon decays (a flip in weeks, a CORE cluster over months), so the lookback never drops a still-live
+    conviction. Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
     """
     lows = day_lows or {}
     p_buys = [
@@ -86,6 +133,7 @@ def score(
         and t.get("valid_from") is not None
         and t["valid_from"] <= asof
         and _is_open_market_buy(t, lows, cfg)
+        and not _is_issuer_self(t, issuer_name)
     ]
     if not p_buys:
         return None
@@ -143,14 +191,23 @@ def detect(
 ) -> SignalEvent | None:
     """Key 1 — insider conviction (warms). Reads open-market purchases via the point-in-time view.
 
-    Also reads the security's price history (same as-of view — no lookahead) to build the per-day low
-    map that screens primary-market/off-market code-P rows out of the open-market total (see ``score`` /
-    ``_is_open_market_buy``). A buy older than the earliest bar we hold simply has no low → kept (#9).
+    From the SAME as-of view (no lookahead) it also builds the two screens for the open-market total: the
+    per-day low map (``price_history``) that drops primary-market/off-market code-P rows
+    (``_is_open_market_buy``), and the security's name (identity, not a bitemporal fact) that drops a
+    self-filing — the issuer filing a Form 4 on its own stock (``_is_issuer_self``; rows carrying the
+    issuer/owner CIKs match canonically without the name). A buy older than the earliest bar has no low → kept (#9).
     """
     day_lows = {
         b["d"]: float(b["low"]) for b in pit.price_history(security_id) if b.get("low") is not None
     }
-    return score(pit.insider_txns(security_id), security_id, asof, cfg, day_lows=day_lows)
+    return score(
+        pit.insider_txns(security_id),
+        security_id,
+        asof,
+        cfg,
+        day_lows=day_lows,
+        issuer_name=pit.security_name(security_id),
+    )
 
 
 DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))

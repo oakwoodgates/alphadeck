@@ -93,3 +93,12 @@ class ReplayPointInTimeData:
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
+
+    def security_name(self, security_id: UUID) -> str | None:
+        """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``
+        (identity). Returns ``None`` — the insider-detector's issuer-self screen falls back here to the
+        CANONICAL CIK match (``rpt_owner_cik == issuer_cik``), which flows into the replay rows via the
+        ``SELECT *`` insider-txn read, so a self-filing captured with CIKs is still excluded in replay.
+        (A pre-capture row with no CIKs is not excluded in replay until the mirror is re-exported — a
+        documented, rebuildable-mirror limitation, never a silent live-path drop.)"""
+        return None

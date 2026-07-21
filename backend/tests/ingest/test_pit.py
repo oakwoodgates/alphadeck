@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_stooq_csv
 from signals.base import PointInTimeData
@@ -42,6 +44,44 @@ def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
     ev = insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG)
     assert ev is not None and ev.grade is Grade.CORE
     assert "1,172,974" in ev.label
+
+
+def test_security_name_reads_the_master(db):
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "KYOCY", "0000054321", "KYOCERA CORP", "2020-01-01"),
+        )
+    db.commit()
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    assert pit.security_name(sid) == "KYOCERA CORP"
+    assert pit.security_name(uuid.uuid4()) is None  # unknown id -> None (screen keeps the row)
+
+
+def test_pit_self_filing_excluded_from_call_but_kept_on_tape(db, security_id):
+    # the issuer files a Form 4 on ITSELF (owner CIK == issuer CIK): a big at-market code-P block that the
+    # price screen would NOT catch. It must NOT feed Key-1 — but it must STAY in the txn stream (the tape).
+    from domain.config import DEFAULT_CONFIG
+    from signals import insider_conviction
+
+    xml = (_F / "edgar" / "form4_sample.xml").read_text(encoding="utf-8")
+    self_xml = xml.replace("0007654321", "0001234567").replace("Doe Jane", "Devco Inc")
+    # make the buy a large at-market block so only the self-screen (not size/price) can suppress it
+    self_xml = self_xml.replace(
+        "<transactionShares><value>10000</value></transactionShares>",
+        "<transactionShares><value>30000000</value></transactionShares>",
+    )
+    assert ingest_form4(db, security_id, self_xml, "acc-self") == 2
+    db.commit()
+
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    # kept on the tape: the self-filing rows are still returned by the point-in-time read (recall #9)
+    txns = pit.insider_txns(security_id)
+    assert any(t["accession"] == "acc-self" for t in txns)
+    # but the call does not fire — the only buy is the issuer's self-filing, screened out of Key-1
+    assert insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG) is None
 
 
 def test_pit_price_history_has_no_lookahead(db, security_id):
