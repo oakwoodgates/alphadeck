@@ -5,6 +5,7 @@ from uuid import UUID
 
 import psycopg
 
+from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, TriggerRef
 from domain.enums import State
 from domain.thesis import Thesis
@@ -12,6 +13,7 @@ from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot
 from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, thesis_repo
+from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
 from scoreboard.prices import PgRealizedPrices
 from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord
@@ -90,7 +92,28 @@ def derive_thesis_record(
     prices = PgRealizedPrices(conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at)
     if snaps:
         first_recorded = snaps[0].asof
-        for ep in derive_episodes(snaps):
+        episodes = list(derive_episodes(snaps))
+        triggers = [
+            _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
+        ]
+        # Record-provenance (2d) — composed AFTER scoring, from reads the scoring path never sees:
+        # the winning arm-date rows' R2b stamps + ONE batched thaw-lag query over every cited form4
+        # accession. The flags segment/annotate only; ``score_episode``'s inputs are untouched.
+        health = calls_repo.ingest_health_for_thesis(conn, thesis.id) if episodes else {}
+        lags = (
+            provenance.thaw_lags(
+                conn,
+                provenance.form4_accessions([t for ts in triggers for t in ts]),
+                tenant_id=thesis.tenant_id or DEFAULT_TENANT_ID,
+                known_at=known_at,
+            )
+            if episodes
+            else {}
+        )
+        for ep, trigs in zip(episodes, triggers):
+            prov = provenance.derive_episode_provenance(
+                ep.arm_date, trigs, health=health, lags=lags
+            )
             record.episodes.append(
                 ScoredEpisode(
                     episode=ep,
@@ -98,9 +121,12 @@ def derive_thesis_record(
                     status="open" if ep.dearm_date is None else "closed",
                     matured=ep.exit_by is not None and ep.exit_by <= asof,
                     censored_start=ep.arm_date == first_recorded,
-                    triggers_at_arm=_triggers_at_arm(
-                        cards_by_asof.get(ep.arm_date), ep.security_id
-                    ),
+                    arm_ingest_fresh=prov.arm_ingest_fresh,
+                    freeze_era=prov.freeze_era,
+                    thaw_lag_days=prov.thaw_lag_days,
+                    ingest_flagged=prov.ingest_flagged,
+                    ingest_note=prov.ingest_note,
+                    triggers_at_arm=trigs,
                 )
             )
 
@@ -160,6 +186,7 @@ def scoreboard_records(
     result.n_open = sum(1 for t in result.theses for e in t.episodes if e.status == "open")
     result.n_matured = sum(1 for t in result.theses for e in t.episodes if e.matured)
     result.n_censored = sum(1 for t in result.theses for e in t.episodes if e.censored_start)
+    result.n_ingest_flagged = sum(1 for t in result.theses for e in t.episodes if e.ingest_flagged)
     result.n_takes = sum(t.n_takes for t in result.theses)
     result.n_passes = sum(t.n_passes for t in result.theses)
     result.n_overrides = sum(t.n_overrides for t in result.theses)

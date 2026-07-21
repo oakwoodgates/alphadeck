@@ -21,6 +21,10 @@ from replay.schema import Episode, Outcome
 # - ``censored_start``  the member was already armed on the thesis's FIRST recorded card, so the true
 #                       arm date is unknowable from the record (the record began mid-arm). Ledger-
 #                       visible, excluded from arm-anchored metrics — marked, never reconstructed.
+# - the provenance flags (2d, ``scoreboard/provenance.py``) — did the ARM rest on trustworthy
+#                       ingest? Composed AFTER scoring, never an input to it (the migration-0023
+#                       rule); ``ingest_flagged`` episodes stay ledger-visible and leave the
+#                       aggregate metrics only.
 
 
 class EpisodeOperator(BaseModel):
@@ -76,6 +80,12 @@ class ScoredEpisode(BaseModel):
     status: Literal["open", "closed"]
     matured: bool
     censored_start: bool
+    # Record-provenance (2d) — the ingest-honesty flags, composed AFTER scoring (never an input):
+    arm_ingest_fresh: bool | None = None  # the arm-date run's R2b stamp, raw (None = legacy)
+    freeze_era: bool = False  # armed inside the 2026-07 EDGAR freeze window (B1)
+    thaw_lag_days: int | None = None  # max ingest lag of the arm's cited form4 facts (B2)
+    ingest_flagged: bool = False  # the rollup: badge + excluded from aggregate metrics
+    ingest_note: str | None = None  # the composed human "why" — None when clean
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
 
@@ -165,6 +175,7 @@ class ScoreboardResult(BaseModel):
     n_open: int = 0
     n_matured: int = 0
     n_censored: int = 0
+    n_ingest_flagged: int = 0  # provenance rollup (2d): ledger-visible, out of the aggregates
     n_takes: int = 0  # the operator track (SB3): non-voided decisions <= asof
     n_passes: int = 0
     n_overrides: int = 0  # off-record takes against a not-armed stance
