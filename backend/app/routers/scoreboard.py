@@ -101,6 +101,7 @@ def get_scoreboard(
             n_open=result.n_open,
             n_matured=result.n_matured,
             n_censored=result.n_censored,
+            n_ingest_flagged=result.n_ingest_flagged,
             n_takes=result.n_takes,
             n_passes=result.n_passes,
             n_overrides=result.n_overrides,
@@ -109,6 +110,9 @@ def get_scoreboard(
             record_began=summary.record_began if summary else None,
             banner=summary.banner if summary else "",
             min_n=summary.min_n if summary else 0,
+            next_maturity=summary.next_maturity if summary else None,
+            n_maturing_30d=summary.n_maturing_30d if summary else 0,
+            projected_min_n_date=summary.projected_min_n_date if summary else None,
             metrics=[
                 ScoreboardMetricOut(
                     name=m.name,
