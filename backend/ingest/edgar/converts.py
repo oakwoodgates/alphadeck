@@ -11,6 +11,7 @@ class; generalizing across every dilution flavor/name is deferred.
 from __future__ import annotations
 
 import html as _html
+import logging
 import re
 from datetime import date, datetime
 from uuid import UUID
@@ -22,6 +23,10 @@ from pydantic import BaseModel
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
+
+# Scoped logger so a skipped/failed filing during a convert scan is VISIBLE in the logs (it propagates to
+# the root handler), mirroring the discovery path — a tolerated skip is never silent.
+_log = logging.getLogger("alphadeck.ingest.converts")
 
 
 class ConvertTerms(BaseModel):
@@ -168,6 +173,39 @@ def _is_convert_issuance(text: str) -> bool:
     )
 
 
+class ConvertScanDegraded(RuntimeError):
+    """Every 8-K a convert scan fetched FAILED (after ``polite_get``'s retries) — a SYSTEMATIC fault (EDGAR
+    unreachable / throttled out), NOT "this company issued no convertibles". Returning ``None`` here would
+    masquerade a fetch outage as a clean "no convert found" — the exact skip-and-count masking the Form 4
+    tz-offset drop taught: a nonzero (or invisible) skip count is not proof the skips are benign. So the scan
+    RAISES instead, and the caller sees the fault rather than a false-empty dilution read. (Mirrors
+    ``ingest.edgar.fulltext.DiscoveryDegraded`` — degradation is LOUD, INVARIANT #9 rule 3/5.)
+    """
+
+    def __init__(self, cik: str | int, failed: int, scanned: int) -> None:
+        self.cik, self.failed, self.scanned = cik, failed, scanned
+        super().__init__(
+            f"convert scan for CIK {cik} degraded: all {failed}/{scanned} 8-K fetches failed after retries"
+        )
+
+
+def _tolerable_fetch_error(e: Exception) -> bool:
+    """Is ``e`` ONE filing's fetch failure (skip-and-count) rather than a SYSTEMIC fault?
+
+    Tolerated: a single unreadable document — a live fetch that still failed after ``polite_get``'s 429/5xx
+    retries (an ancient accession 404s, a transient network error) → ``httpx.HTTPError``. NOT tolerated
+    (re-raised loud): ``CacheMiss`` (live disabled + not cached — hits every doc, not one), a missing
+    User-Agent (``RuntimeError``), DB errors, anything unexpected. Mirrors the fetch half of
+    ``pipeline.ingest_thesis._tolerable_filing_error``; the parse errors it also tolerates can't fire here —
+    the filing is parsed OUTSIDE the fetch ``try`` and a malformed match is meant to propagate.
+    """
+    try:
+        import httpx  # lazy, mirroring the clients — the package imports without it
+    except ImportError:  # pragma: no cover — with httpx absent, no httpx error can have been raised
+        return False
+    return isinstance(e, httpx.HTTPError)
+
+
 def discover_convert_issuance(
     client, cik: str | int, *, max_scan: int = 40
 ) -> tuple[ConvertTerms, str] | None:
@@ -177,6 +215,12 @@ def discover_convert_issuance(
     the first convert issuance found, else None. The platform finds the filing itself — no accession is
     handed in. Live/network (cache-first). The pricing-release enrichment (conversion premium +
     reference price) lives in a separate exhibit and is left to the seed/fixtures for now.
+
+    FAIL-VISIBLE, never false-empty: one unreadable 8-K (``_tolerable_fetch_error``) is skipped-and-COUNTED
+    with a warning, so a single bad filing can't abort the scan; a SYSTEMIC fault (``CacheMiss`` / missing
+    UA / DB) re-raises immediately; and if EVERY fetched 8-K failed the scan raises ``ConvertScanDegraded``
+    rather than returning ``None`` — a fetch outage must not read as "no convert issued" (the Form 4
+    skip-and-count masking lesson; INVARIANT #9 rule 3/5).
     """
     from ingest.edgar.submissions import fetch_submissions
 
@@ -184,17 +228,27 @@ def discover_convert_issuance(
     forms = recent.get("form", [])
     accns = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
-    scanned = 0
+    scanned = 0  # 8-Ks we ATTEMPTED to fetch (bounded by max_scan)
+    fetch_failed = 0  # of those, how many failed the fetch (tolerated + counted)
     for form, accession, doc in zip(forms, accns, docs):
         if form != "8-K" or not doc:
             continue
-        scanned += 1
-        if scanned > max_scan:
+        if scanned >= max_scan:
             break
+        scanned += 1
         try:
             raw = client.get_text(_filing_doc_url(cik, accession, doc), f"forms/{accession}/{doc}")
-        except Exception:
-            continue  # a single unreadable filing shouldn't abort the scan
-        if _is_convert_issuance(clean_filing_text(raw)):
-            return parse_convert_terms(clean_filing_text(raw)), accession
+        except Exception as e:
+            # One unreadable filing is skipped-and-COUNTED (never silently); a systemic fault is re-raised.
+            if not _tolerable_fetch_error(e):
+                raise
+            fetch_failed += 1
+            _log.warning("convert-scan: 8-K %s fetch failed for CIK %s: %s", accession, cik, e)
+            continue
+        text = clean_filing_text(raw)
+        if _is_convert_issuance(text):
+            return parse_convert_terms(text), accession
+    if scanned and fetch_failed == scanned:
+        # EVERY fetched 8-K failed — systematic, not "no converts issued". Surface it; never a false-empty.
+        raise ConvertScanDegraded(cik, fetch_failed, scanned)
     return None
