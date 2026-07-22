@@ -32,8 +32,9 @@ Postgres runs via Docker Compose (host port 5544 to avoid clashing with a local 
 docker compose -f ..\infra\docker-compose.yml up -d
 ```
 
-`DATABASE_URL` defaults to `postgresql://alphadeck:alphadeck@localhost:5544/alphadeck`. Migrations are
-idempotent and apply from `db/migrations/`:
+`DATABASE_URL` defaults to `postgresql://alphadeck:alphadeck@localhost:5544/alphadeck`. (Under `pytest` this
+is overridden to an auto-derived, per-worktree `alphadeck_test_<hash>` — see `db/testdb.py`; the default above
+is the app/dev URL.) Migrations are idempotent and apply from `db/migrations/`:
 
 ```powershell
 $env:PYTHONPATH = "backend"; backend\.venv\Scripts\python -m db.migrate

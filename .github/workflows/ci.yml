@@ -33,6 +33,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://alphadeck:alphadeck@localhost:5544/alphadeck
+      ALPHADECK_TEST_DB: alphadeck_test   # the per-worktree test-DB hook pins CI to a stable, demo-safe name
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
