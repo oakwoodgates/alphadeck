@@ -22,7 +22,7 @@ framed by **stage**, not by surface.
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
 | **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → monitor after an operator-entered position. The two-key call loop; `Managing` is thesis monitoring, not portfolio risk management. | System times and watches the thesis; operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
-| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) |
+| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). The record is now **instrumented**: per-episode record-provenance + a maturity horizon, an operator **ops surface** (freshness/health + Run-daily-now), and a DB-snapshot safety net. *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) · `ADMIN.md` (the ops surface) |
 
 ## The trust gradient
 
