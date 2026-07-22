@@ -207,6 +207,36 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   idempotent). *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
+## Backups & restore (Slice 4)  `[BUILT]`
+
+The 2026-07-21 truncation cost the whole demo DB; recovery only worked because an **ad-hoc** `pg_dump`
+happened to exist. So a snapshot is now a one-click safety net — and a nightly one.
+
+- **Create + list, from the Admin page.** `POST /admin/backup` kicks a background job (202 → poll
+  `GET /admin/backup/jobs/{job_id}`, single-slot 409 guard) that shells `pg_dump` (**read-only** — the runner
+  opens no app connection and mutates no row) to `./data/backups/alphadeck-<UTC>[-<label>].sql`;
+  `GET /admin/backups` lists them newest-first, and `/admin/status` carries the last-snapshot age. The trigger
+  is **operator-initiated only** (never on load/mount/poll — the same cost-thread as "Run daily now"); the
+  reads may poll. The runner + registry mirror the daily ones (`pipeline/backup.py` + `pipeline/backup_job.py`,
+  peers of `daily.py` + `daily_job.py`).
+- **Nightly, in the cron sidecar.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the
+  scheduled `pipeline.daily` (weekday branch), fail-open (a failed backup never kills the loop). It is
+  deliberately **not** folded into `run_daily_pass`, so a manual "Run daily now" does not also dump.
+- **Retention = keep-last-N, labeled EXEMPT.** After a *successful* dump the newest `ALPHADECK_BACKUP_KEEP`
+  (default **7**) UNLABELED snapshots are kept and older unlabeled ones pruned (each prune logged); a
+  **labeled** dump (created with a `label`, e.g. `pre-migration`) is never auto-deleted. A **failed** dump
+  never prunes (it must not shrink the safety net), and the atomic `tmp → os.replace` means a crashed dump
+  never lists.
+- **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
+  idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
+  share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from
+  `postgresql-client-16` (PGDG apt repo, matching server 16 — Debian's default client lags and refuses a newer
+  server).
+- **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
+  human hands. The documented sequence (the one used on 2026-07-21):
+  `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
+  replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
+
 ## Known gaps (as of 2026-07-17)
 
 Two are recorded here where a builder of the pager/scheduler will hit them; the full account of each is in

@@ -82,6 +82,10 @@ services:
       # lacks), so this one subpath overlays the appdata volume with a READ-ONLY bind of the host
       # dir: the container serves the artifact but physically cannot write it.
       - ./data/scoreboard_replay:/data/scoreboard_replay:ro
+      # Operator DB snapshots (Slice 4) — a WRITABLE host bind (the scoreboard_replay idiom minus :ro),
+      # so a dump is copyable off-box + restorable with the documented `psql < ./data/backups/<f>`. On
+      # BOTH backend (the button + the list) and cron (the nightly dump) so the two share ONE directory.
+      - ./data/backups:/data/backups
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -115,6 +119,9 @@ services:
         condition: service_healthy # the API migrates + seeds on start; the cron needs the ready DB
     volumes:
       - appdata:/data # the SAME runtime-data home as the backend — the daily ingest shares the caches
+      # Slice 4 — the SAME host backups dir the backend lists from: the nightly dump runs HERE (in cron),
+      # the list runs in backend, so both MUST bind this or the backend never sees the nightly snapshots.
+      - ./data/backups:/data/backups
     command: ["sh", "/app/scripts/daily_cron.sh"]
     restart: unless-stopped
 

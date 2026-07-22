@@ -8,6 +8,19 @@ WORKDIR /app
 # silently fall back to UTC and the job would fire at the wrong hour. The API service ignores it.
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
 
+# pg_dump for the operator DB-snapshot button (Slice 4). Debian's default postgresql-client LAGS the
+# server (bookworm=15) and pg_dump REFUSES a newer server (16), so pin the MATCHING major from PGDG.
+# The repo codename is derived from the base image ($VERSION_CODENAME) so a base bump doesn't break it.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
+ && rm -rf /var/lib/apt/lists/*
+
 # Editable install so the source tree at /app is what runs: the migrations (db/migrations/*.sql) and
 # the demo seed samples (seed_data/) are read from the filesystem relative to the package, not
 # packaged into site-packages. psycopg[binary] bundles its own libpq, so no system deps are needed.
