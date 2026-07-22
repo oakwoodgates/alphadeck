@@ -142,6 +142,19 @@ class Settings(BaseSettings):
     # wrong var). Parsed at the edge by schedule.parse_run_at (a malformed value fails LOUD there).
     cron_run_at: str = Field(default="22:30", validation_alias=AliasChoices("ALPHADECK_CRON_AT"))
 
+    # --- Admin ops surface (Slice 4) — the DB-snapshot job registry + retention ---
+    # The snapshot job's OWN reaper TTLs (pipeline/backup_job.py — deliberately NOT the daily dials: a
+    # pg_dump runs ~30-90s, far below the ~65-min daily pass, so it warrants a tighter running TTL). A
+    # snapshot overrunning 10 min is stuck -> free the slot; the finished result stays pollable an hour
+    # (the .sql on disk is the durable record regardless).
+    backup_job_running_ttl_s: float = 600.0
+    backup_job_finished_ttl_s: float = 3600.0
+    # Retention: keep the newest N UNLABELED snapshots (a rolling week of nightlies); LABELED/named dumps
+    # are EXEMPT. Override with ALPHADECK_BACKUP_KEEP (e.g. =5 for a button-only deploy).
+    backup_keep: int = 7
+    # pg_dump wall ceiling — a hang becomes a LOUD failed job rather than a held slot.
+    backup_timeout_s: float = 300.0
+
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench
     # instead of paying for a fresh Opus draft. OFF by default (a testing utility, absent in a normal deploy);
