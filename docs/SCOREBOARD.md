@@ -85,6 +85,15 @@ beside the metrics gate.
 Friday has no entry bar until the next trading close lands) — awaiting data, not an error.
 `truncated` = the signal-validity horizon ran past the available (asof-capped) bars: the running-return shape.
 
+A related **single-bar** case gets its own honest label (Slice 2, #209): when the ONLY bar on/after the arm
+is the arm-day bar itself (`exit_date === arm_date`), `forward_return` is a degenerate `0.0%` over one bar —
+**not a flat move** — so the ledger reads **"awaiting forward bar"** and shows `—`, distinct from
+`insufficient_prices`'s **"awaiting first bar"** (no bar at all). Once a forward bar lands
+(`exit_date > arm_date`) the return becomes a real (running) number, even if ~0%. The check
+(`frontend/src/scoreboard/rows.ts::awaitingForwardBar`) runs AFTER the realized check, so a degenerate
+matured single-bar episode still reads "realized" — it only overrides the "running" label. Same instinct as
+the arm-day dash: never let a mechanical 0.0% read as a real return.
+
 ## Setup strength and the small-sample gate
 
 The per-call display is **setup strength**; its stable wire field remains `confidence`. It is an experimental
@@ -162,6 +171,18 @@ has depth while the forward record accrues — without polluting it. Structure o
   non-censored only; the WHY rides each episode from the arm-date snapshot (`MemberRow.triggers`,
   the one additive replay-schema change). Platform track only — decision capture post-dates
   history, so the operator column is structurally absent.
+
+## Record freshness on the live view (Slice 2, #209)
+
+The Scoreboard also answers **"is the call-of-record current *now*?"** — the same question the Admin page
+asks (`ADMIN.md`), surfaced here because the Board-vs-Scoreboard confusion happened on this page.
+`GET /scoreboard` carries `record_edge` (the **uncapped** calls-log `MAX(asof)` — independent of the request
+as-of, so it reads the same whether the view is scrubbed to the past or to today) measured against the last
+**expected** Mon-Fri + `RUN_AT` run (`pipeline/schedule.py` — ONE contract shared with the Admin surface,
+never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`): staleness answers
+"current now", not "as of a past date", so a scrubbed-back view suppresses it. It goes **loud only when
+stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
+(honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.
 
 ## Reading it
 

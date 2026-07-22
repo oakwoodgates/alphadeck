@@ -34,6 +34,12 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   forgotten. A multi-name theme shows its **single top-ranked actionable name** with a quiet `+N` hint
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
   Nothing to do. ✓"* — a calm board is a working board.
+- **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
+  **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
+  vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't
+  compute — see below."): a broken call might have been armed, so the calm empty state must not lie. A
+  failed call is an exception the operator must see, never a quietly-dropped card — the same
+  recall-is-sacred instinct as the basket's Quiet bucket.
 - **The ThesisCard**: ticker (or a basket marker for a theme), name, narrative, and a state-appropriate
   footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
   with the conviction grade as secondary context ("core setup"); neither label sizes a trade. A bare CORE
@@ -96,7 +102,13 @@ Wire rank is preserved inside the armed/watch buckets (the call machinery alread
 FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order. Columns:
 `Dot · Ticker · Name · Archetype (only if decided — an unset one renders "—", never a default) ·
 Mkt cap (bridged from the scoring read) · Exit-by` (the member's **own** signal-validity horizon; amber
-"lapses ‹date›" on a Lapsing row). The old Role/Detail columns are gone from the table; the
+"lapses ‹date›" on a Lapsing row). **Inside that exit-by cell, an armed-family row (Armed / Lapsing /
+Theme-armed) also carries its entry-window (`arm_until`) clock** — "entry closes ‹date› · Nd", loud within a
+week or once lapsed (Slice 2, #209). That is the **confirmation** clock, which actually governs how long the
+member STAYS armed and can fall a month before the `exit_by` "lapses" date the cell leads with (the live
+CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19). A **Watch**-tier row carries `arm_until` on the
+wire too but must NOT light it up — the gate is bucket-based, not presence-based (the load-bearing negative).
+The old Role/Detail columns are gone from the table; the
 authored text survives on the per-name panel. No card yet (loading/error) → everything reads
 Quiet, honestly.
 
@@ -116,7 +128,10 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   (`Position.security_id`), and the **decision rows logged on this name** (`DecisionOut.security_id`)
   with voided rows greyed, never hidden. Display-only slices of the rail's log (the same query, no
   new fetch): thesis-level rows — and acting / passing / undo — stay on the rail, the one write
-  surface.
+  surface. *(This block only renders on real data because `GET /theses/{id}` now threads the
+  decisions-log-derived position (`effective_position`, the SAME source the call path uses) onto the
+  thesis, so `Position.security_id` is populated for an attributed take — #216. Before that the read path
+  built the position from the seed columns alone, which carry no name, and the block sat dead.)*
 - **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): archetype
   (+ the enrichment's quiet "figures suggest …" line when undecided, #10), segment, sector,
   exchange, category, mkt cap, the operator's **size weight — labeled "yours"** so it can never

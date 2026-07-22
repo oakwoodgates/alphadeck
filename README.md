@@ -61,12 +61,13 @@ See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lens
 
 ## Surfaces (UI)
 
-Four surfaces; clickable mockups live in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, a segment cockpit, the Workbench, and the Cockpit per-name build).
+Four decision surfaces (plus an operator ops page); clickable mockups live in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, a segment cockpit, the Workbench, and the Cockpit per-name build).
 
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
 - **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
 - **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own `exit_by` signal-validity yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. Setup strength remains experimental until this forward record supports calibration; the `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading a tiny sample, not an evidence threshold. *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2, replay-history-alongside is built.)*
+- **Admin** — the operator ops page (no as-of dial): record freshness + a cron-health verdict, a **Run daily now** trigger, and the **DB-snapshot** button (create / list / keep-last-7 / nightly; restore stays CLI-only). A read surface over the cron's own instrumentation plus two explicit triggers ([`docs/ADMIN.md`](docs/ADMIN.md)).
 
 **Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm thesis-monitoring panel for a position the operator entered. The UI *is* the gate.
 

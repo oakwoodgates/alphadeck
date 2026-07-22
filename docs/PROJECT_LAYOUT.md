@@ -30,7 +30,8 @@ alphadeck/
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order
-│   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm)   # the back half
+│   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
+│   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
 │   ├── RECALIBRATION.md   # the post-MVP tuning agenda (pass-001 record retired into ROADMAP's trust box)
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
@@ -114,6 +115,8 @@ alphadeck/
     │   ├── openapi_export.py        #   dumps backend/openapi.json (the frontend's type source)
     │   ├── routers/theses.py        #   GET /theses · /theses/{id} · /theses/{id}/call?asof=
     │   ├── routers/workbench.py     #   /workbench: scored · securities · extract · facts(+/explain) · theses(promote) · theses/{id}/terms (produce the term set) · theses/{id}/draft-chain (EDGAR-first)
+    │   ├── routers/scoreboard.py    #   GET /scoreboard?asof= (the forward record + the staleness line) · /scoreboard/replay (the historical panel artifact)
+    │   ├── routers/admin.py         #   the ops surface (ADMIN.md): /admin/status · /runs · /run-daily(+jobs) · /backup(+jobs) · /backups — reads own no tables
     │   └── schemas_api.py           #   the WIRE contracts (ThesisDetail · WorkbenchScored · ChainDraftOut · …)
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · run.py
