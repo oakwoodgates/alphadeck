@@ -37,6 +37,10 @@ while :; do
   if [ "$(date +%u)" -le 5 ]; then
     echo "daily-cron: $(date) — running pipeline.daily"
     python -m pipeline.daily || echo "daily-cron: run FAILED (continuing to the next day)"
+    # Slice 4 — a nightly DB snapshot right after the daily pass, fail-open (a failed backup never kills
+    # the loop). Deliberately in the SCHEDULING layer, NOT folded into run_daily_pass (so the manual "Run
+    # daily now" button does not also dump). Retention (keep-last-N, labeled exempt) is pipeline.backup's.
+    python -m pipeline.backup || echo "daily-cron: nightly backup FAILED (continuing)"
   else
     echo "daily-cron: $(date) — weekend, skipping"
   fi

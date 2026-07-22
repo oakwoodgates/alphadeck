@@ -1700,6 +1700,120 @@
         }
       }
     },
+    "/admin/backup": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Start Backup",
+        "description": "KICK OFF a ``pg_dump`` snapshot as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page load,\nmount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump\nis READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host\nbind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a\nprune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process\nguard \u2014 a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a\ndestructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U\nalphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this\nrequest).",
+        "operationId": "start_backup_admin_backup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BackupCreateIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupJobRef"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/backup/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Backup Job Status",
+        "description": "POLL a kicked-off snapshot. ``done`` \u2192 ``result`` (the finished ``BackupOut``, the same shape the\nlist shows \u2014 the ``.sql`` on disk is the durable record regardless); ``failed`` \u2192 an operator-facing\n``error``. **404** if the job is unknown / expired, or the registry was wiped by a restart \u2014 the dump\nmay still have completed server-side (the backups list is the durable authority), so the FE shows\n\"lost from view\", never an infinite spinner.",
+        "operationId": "get_backup_job_status_admin_backup_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupJobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/backups": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Admin Backups",
+        "description": "The snapshot list \u2014 every ``.sql`` under the backups dir, NEWEST-FIRST. A pure FILE read (no DB,\nno network, writes nothing); an unreadable/foreign entry is skipped fail-open so a stray file never\nblanks the list. RESTORE stays a documented CLI act (see ``POST /admin/backup``); this endpoint only\nsurfaces what exists.",
+        "operationId": "get_admin_backups_admin_backups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1993,6 +2107,16 @@
           },
           "cron": {
             "$ref": "#/components/schemas/AdminCronOut"
+          },
+          "last_backup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2001,7 +2125,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict.\nREAD-ONLY \u2014 the endpoint owns no tables and writes nothing (test-proved)."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot. READ-ONLY \u2014 the endpoint owns no tables and writes nothing (test-proved; the\n``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet \"no\nsnapshots yet\" state."
       },
       "Archetype": {
         "type": "string",
@@ -2084,6 +2208,138 @@
         ],
         "title": "AutoConfirmRequest",
         "description": "Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).\n\nNOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number \u2014 it names a security and a\nfact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural\nbound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed\ncompanyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.\n\n``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the\noperator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify \u2014 extending this is a\ndecision, not a parameter."
+      },
+      "BackupCreateIn": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "title": "BackupCreateIn",
+        "description": "The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a\ndeliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump."
+      },
+      "BackupJobRef": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "BackupJobRef",
+        "description": "The 202 kick-off body \u2014 the snapshot started as a background JOB (``pg_dump`` runs ~30-90s). Poll\n``GET /admin/backup/jobs/{job_id}`` for the result."
+      },
+      "BackupJobStatus": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "BackupJobStatus",
+        "description": "The poll body. ``done`` carries the finished snapshot as ``result`` (the same ``BackupOut`` the\nlist shows \u2014 the ``.sql`` on disk is the durable record regardless); ``failed`` carries an\noperator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job \u2014 the FE shows a\nvisible \"lost from view\", never an infinite spinner."
+      },
+      "BackupOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "labeled": {
+            "type": "boolean",
+            "title": "Labeled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "bytes",
+          "created_at",
+          "labeled"
+        ],
+        "title": "BackupOut",
+        "description": "One snapshot as a value-free file listing \u2014 ``name`` (``alphadeck-<UTC>[-<label>].sql``),\n``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``\n(a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing."
+      },
+      "BackupsOut": {
+        "properties": {
+          "backups": {
+            "items": {
+              "$ref": "#/components/schemas/BackupOut"
+            },
+            "type": "array",
+            "title": "Backups",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "BackupsOut",
+        "description": "The snapshot list \u2014 newest first. A pure directory read; an unreadable/foreign entry is skipped\nfail-open (the run-log read discipline)."
       },
       "BasketMember": {
         "properties": {

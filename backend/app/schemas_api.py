@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -1044,6 +1044,55 @@ class DisplaySignalsResponse(BaseModel):
     members: list[MemberDisplaySignalsOut] = []
 
 
+# --- Backups (Slice 4): the operator DB-snapshot button — create + list + retain (NEVER restore) ---
+# Defined BEFORE the Admin ops block so BackupOut is in scope for AdminStatusOut.last_backup (below).
+
+
+class BackupOut(BaseModel):
+    """One snapshot as a value-free file listing — ``name`` (``alphadeck-<UTC>[-<label>].sql``),
+    ``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``
+    (a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing."""
+
+    name: str
+    bytes: int
+    created_at: datetime
+    labeled: bool
+
+
+class BackupsOut(BaseModel):
+    """The snapshot list — newest first. A pure directory read; an unreadable/foreign entry is skipped
+    fail-open (the run-log read discipline)."""
+
+    backups: list[BackupOut] = []
+
+
+class BackupCreateIn(BaseModel):
+    """The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a
+    deliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump."""
+
+    label: str | None = None
+
+
+class BackupJobRef(BaseModel):
+    """The 202 kick-off body — the snapshot started as a background JOB (``pg_dump`` runs ~30-90s). Poll
+    ``GET /admin/backup/jobs/{job_id}`` for the result."""
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+
+
+class BackupJobStatus(BaseModel):
+    """The poll body. ``done`` carries the finished snapshot as ``result`` (the same ``BackupOut`` the
+    list shows — the ``.sql`` on disk is the durable record regardless); ``failed`` carries an
+    operator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job — the FE shows a
+    visible "lost from view", never an infinite spinner."""
+
+    job_id: str
+    status: Literal["running", "done", "failed"]
+    result: BackupOut | None = None
+    error: str | None = None
+
+
 # --- Admin ops surface (Slice 1): freshness/health READS + the explicit "run now" trigger ---
 
 
@@ -1096,12 +1145,15 @@ class AdminCronOut(BaseModel):
 
 
 class AdminStatusOut(BaseModel):
-    """The admin page's one-GET summary: record freshness + the newest run + the cron verdict.
-    READ-ONLY — the endpoint owns no tables and writes nothing (test-proved)."""
+    """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
+    newest DB snapshot. READ-ONLY — the endpoint owns no tables and writes nothing (test-proved; the
+    ``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet "no
+    snapshots yet" state."""
 
     record: AdminRecordOut
     last_run: AdminRunOut | None = None
     cron: AdminCronOut
+    last_backup: BackupOut | None = None
 
 
 class AdminRunsOut(BaseModel):

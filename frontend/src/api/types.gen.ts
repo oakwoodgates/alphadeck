@@ -857,6 +857,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Backup
+         * @description KICK OFF a ``pg_dump`` snapshot as a background JOB and return immediately (**202** + ``job_id``);
+         *     poll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page load,
+         *     mount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump
+         *     is READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host
+         *     bind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a
+         *     prune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process
+         *     guard — a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a
+         *     destructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U
+         *     alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
+         *     request).
+         */
+        post: operations["start_backup_admin_backup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/backup/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Backup Job Status
+         * @description POLL a kicked-off snapshot. ``done`` → ``result`` (the finished ``BackupOut``, the same shape the
+         *     list shows — the ``.sql`` on disk is the durable record regardless); ``failed`` → an operator-facing
+         *     ``error``. **404** if the job is unknown / expired, or the registry was wiped by a restart — the dump
+         *     may still have completed server-side (the backups list is the durable authority), so the FE shows
+         *     "lost from view", never an infinite spinner.
+         */
+        get: operations["get_backup_job_status_admin_backup_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin Backups
+         * @description The snapshot list — every ``.sql`` under the backups dir, NEWEST-FIRST. A pure FILE read (no DB,
+         *     no network, writes nothing); an unreadable/foreign entry is skipped fail-open so a stray file never
+         *     blanks the list. RESTORE stays a documented CLI act (see ``POST /admin/backup``); this endpoint only
+         *     surfaces what exists.
+         */
+        get: operations["get_admin_backups_admin_backups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1013,13 +1089,16 @@ export interface components {
         };
         /**
          * AdminStatusOut
-         * @description The admin page's one-GET summary: record freshness + the newest run + the cron verdict.
-         *     READ-ONLY — the endpoint owns no tables and writes nothing (test-proved).
+         * @description The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
+         *     newest DB snapshot. READ-ONLY — the endpoint owns no tables and writes nothing (test-proved; the
+         *     ``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet "no
+         *     snapshots yet" state.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
             last_run?: components["schemas"]["AdminRunOut"] | null;
             cron: components["schemas"]["AdminCronOut"];
+            last_backup?: components["schemas"]["BackupOut"] | null;
         };
         /**
          * Archetype
@@ -1079,6 +1158,79 @@ export interface components {
              * @constant
              */
             fact_type: "shares_outstanding";
+        };
+        /**
+         * BackupCreateIn
+         * @description The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a
+         *     deliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump.
+         */
+        BackupCreateIn: {
+            /** Label */
+            label?: string | null;
+        };
+        /**
+         * BackupJobRef
+         * @description The 202 kick-off body — the snapshot started as a background JOB (``pg_dump`` runs ~30-90s). Poll
+         *     ``GET /admin/backup/jobs/{job_id}`` for the result.
+         */
+        BackupJobRef: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+        };
+        /**
+         * BackupJobStatus
+         * @description The poll body. ``done`` carries the finished snapshot as ``result`` (the same ``BackupOut`` the
+         *     list shows — the ``.sql`` on disk is the durable record regardless); ``failed`` carries an
+         *     operator-facing ``error``. A 404 on the poll = unknown / expired / restart-wiped job — the FE shows a
+         *     visible "lost from view", never an infinite spinner.
+         */
+        BackupJobStatus: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+            result?: components["schemas"]["BackupOut"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * BackupOut
+         * @description One snapshot as a value-free file listing — ``name`` (``alphadeck-<UTC>[-<label>].sql``),
+         *     ``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``
+         *     (a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing.
+         */
+        BackupOut: {
+            /** Name */
+            name: string;
+            /** Bytes */
+            bytes: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Labeled */
+            labeled: boolean;
+        };
+        /**
+         * BackupsOut
+         * @description The snapshot list — newest first. A pure directory read; an unreadable/foreign entry is skipped
+         *     fail-open (the run-log read discipline).
+         */
+        BackupsOut: {
+            /**
+             * Backups
+             * @default []
+             */
+            backups: components["schemas"]["BackupOut"][];
         };
         /** BasketMember */
         BasketMember: {
@@ -4072,6 +4224,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_backup_admin_backup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["BackupCreateIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupJobRef"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_backup_job_status_admin_backup_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_admin_backups_admin_backups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupsOut"];
                 };
             };
         };
