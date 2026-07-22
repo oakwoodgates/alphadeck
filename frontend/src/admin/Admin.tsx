@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 
 import type { AdminRunOut } from "../api/hooks";
-import { useAdminRuns, useAdminStatus, useDailyRunJob, useStartDailyRun } from "../api/hooks";
+import {
+  useAdminRuns,
+  useAdminStatus,
+  useBackupJob,
+  useBackups,
+  useCreateBackup,
+  useDailyRunJob,
+  useStartDailyRun,
+} from "../api/hooks";
 import { errText } from "../workbench/format";
 
 interface Props {
@@ -14,6 +22,25 @@ interface Props {
 const fmtStamp = (iso: string) => iso.replace("T", " ").slice(0, 16) + "Z";
 
 const fmtDur = (s: number) => (s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)}s`);
+
+/** Bytes -> a compact human size ("512 B" / "3.4 KB" / "18.0 MB"). */
+const fmtBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+/** A UTC ISO instant -> a compact "how long ago" ("40s" / "12 min" / "3h" / "2d"); "recently" if
+ *  unparseable. The last-snapshot line uses it; the exact stamp still shows in the list. */
+const fmtAge = (iso: string) => {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "recently";
+  const secs = Math.max(0, (Date.now() - then) / 1000);
+  if (secs < 90) return `${Math.round(secs)}s`;
+  if (secs < 5400) return `${Math.round(secs / 60)} min`;
+  if (secs < 129600) return `${Math.round(secs / 3600)}h`;
+  return `${Math.round(secs / 86400)}d`;
+};
 
 /** One run's counts, the artifact's own vocabulary — shared by the last-run line, the run-now result,
  *  and (column-by-column) the history table. */
@@ -56,6 +83,19 @@ export function Admin({ onBack, onOpenWorkbench, onOpenScoreboard }: Props) {
   // kicked off and not yet terminal: the first poll in flight (job null) counts as running
   const running = jobId !== null && !jobQ.isError && (job === null || job.status === "running");
 
+  // Backups (Slice 4): the Create-snapshot trigger + its poll + the list. Same operator-initiated
+  // discipline as the run trigger — the create fires ONLY on the click; the list + age are reads.
+  const backupsQ = useBackups();
+  const createBackup = useCreateBackup();
+  const [backupJobId, setBackupJobId] = useState<string | null>(null);
+  const [backupLabel, setBackupLabel] = useState("");
+  const backupJobQ = useBackupJob(backupJobId);
+  const backupJob = backupJobQ.data ?? null;
+  const backupRunning =
+    backupJobId !== null &&
+    !backupJobQ.isError &&
+    (backupJob === null || backupJob.status === "running");
+
   // when a run lands (done OR failed), the freshness + history reads are stale — refresh them.
   // A READ refresh only: nothing here can re-fire the trigger.
   const jobStatus = job?.status;
@@ -68,8 +108,20 @@ export function Admin({ onBack, onOpenWorkbench, onOpenScoreboard }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobStatus]);
 
+  // when a snapshot lands (done OR failed), refresh the list + the last-snapshot age. A READ refresh
+  // only: nothing here re-fires the create trigger (the operator-initiated invariant).
+  const backupJobStatus = backupJob?.status;
+  useEffect(() => {
+    if (backupJobStatus === "done" || backupJobStatus === "failed") {
+      void backupsQ.refetch();
+      void statusQ.refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backupJobStatus]);
+
   const status = statusQ.data;
   const runs = runsQ.data?.runs ?? [];
+  const backups = backupsQ.data?.backups ?? [];
 
   return (
     <div className="board-shell adm-shell">
@@ -180,6 +232,91 @@ export function Admin({ onBack, onOpenWorkbench, onOpenScoreboard }: Props) {
                 done — <RunSummaryLine run={job.result} />
                 {!job.result.healthy && <Problems problems={job.result.problems} />}
               </div>
+            )}
+          </section>
+
+          {/* 3b — Backups: create a DB snapshot (operator-initiated) + the list + last-snapshot age.
+              CREATE + LIST only; RESTORE is a deliberate CLI act, never a button. */}
+          <section className="adm-card" data-testid="adm-backups">
+            <div className="adm-h">Backups</div>
+            {status.last_backup == null ? (
+              <div className="adm-line adm-quiet">no snapshots yet — create one</div>
+            ) : (
+              <div className="adm-line adm-quiet">
+                last snapshot <b>{fmtAge(status.last_backup.created_at)}</b> ago
+              </div>
+            )}
+            <div className="adm-runrow">
+              <button
+                type="button"
+                className="adm-runbtn"
+                disabled={backupRunning || createBackup.isPending}
+                onClick={() =>
+                  createBackup.mutate(
+                    { label: backupLabel },
+                    { onSuccess: (ref) => setBackupJobId(ref.job_id) },
+                  )
+                }
+              >
+                {backupRunning ? "Creating…" : "Create snapshot"}
+              </button>
+              <input
+                className="adm-input"
+                type="text"
+                placeholder="optional label (e.g. pre-migration)"
+                value={backupLabel}
+                onChange={(e) => setBackupLabel(e.target.value)}
+                disabled={backupRunning}
+              />
+              <span className="adm-note">
+                pg_dump to ./data/backups — a labeled dump is kept (never auto-pruned); restore is CLI-only
+              </span>
+            </div>
+            {createBackup.isError && <div className="adm-err">{errText(createBackup.error)}</div>}
+            {backupRunning && <div className="adm-progress">running pg_dump…</div>}
+            {backupJobQ.isError && (
+              <div className="adm-err">
+                the snapshot was lost from view (the server restarted or the job expired) — it may
+                still have completed; check the list below.
+              </div>
+            )}
+            {backupJob?.status === "failed" && (
+              <div className="adm-err">snapshot failed: {backupJob.error}</div>
+            )}
+            {backupJob?.status === "done" && backupJob.result && (
+              <div className="adm-done" data-testid="adm-backup-result">
+                done — {backupJob.result.name} ({fmtBytes(backupJob.result.bytes)})
+              </div>
+            )}
+
+            {backupsQ.isLoading && <div className="adm-sub">loading…</div>}
+            {backupsQ.error != null && <div className="adm-err">backups unavailable</div>}
+            {backupsQ.data && backups.length === 0 && (
+              <div className="adm-line adm-quiet">no snapshots yet</div>
+            )}
+            {backups.length > 0 && (
+              <table className="basket adm-histtbl">
+                <thead>
+                  <tr>
+                    <th>snapshot</th>
+                    <th>size</th>
+                    <th>created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((b) => (
+                    <tr key={b.name}>
+                      <td className="adm-mono">{b.name}</td>
+                      <td className="adm-num">{fmtBytes(b.bytes)}</td>
+                      <td className="adm-mono">{fmtStamp(b.created_at)}</td>
+                      <td>
+                        {b.labeled && <span className="adm-badge b-labeled">labeled</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </section>
 

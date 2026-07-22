@@ -75,11 +75,27 @@ const STATUS_NEVER = {
   cron: { status: "never_ran", detail: "no daily run has been recorded yet" },
 };
 
+const BACKUP = {
+  name: "alphadeck-20260721T143000.sql",
+  bytes: 2048,
+  created_at: "2026-07-21T14:30:00+00:00",
+  labeled: false,
+};
+const BACKUP_LABELED = {
+  name: "alphadeck-20260717T025757-pre-shares-backfill.sql",
+  bytes: 5_242_880,
+  created_at: "2026-07-17T02:57:57+00:00",
+  labeled: true,
+};
+
 const h = vi.hoisted(() => ({
   status: {} as Record<string, unknown>,
   runs: {} as Record<string, unknown>,
   start: {} as Record<string, unknown>,
   job: {} as Record<string, unknown>,
+  backups: {} as Record<string, unknown>,
+  createBackup: {} as Record<string, unknown>,
+  backupJob: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -87,6 +103,9 @@ vi.mock("../../api/hooks", () => ({
   useAdminRuns: () => h.runs,
   useStartDailyRun: () => h.start,
   useDailyRunJob: () => h.job,
+  useBackups: () => h.backups,
+  useCreateBackup: () => h.createBackup,
+  useBackupJob: () => h.backupJob,
 }));
 
 beforeEach(() => {
@@ -104,6 +123,14 @@ beforeEach(() => {
   };
   h.start = { mutate: vi.fn(), isPending: false, isError: false, error: null };
   h.job = { data: undefined, isError: false };
+  h.backups = {
+    data: { backups: [] },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(() => Promise.resolve()),
+  };
+  h.createBackup = { mutate: vi.fn(), isPending: false, isError: false, error: null };
+  h.backupJob = { data: undefined, isError: false };
 });
 
 function renderAdmin() {
@@ -286,6 +313,129 @@ describe("Admin — run history", () => {
     h.runs = { ...h.runs, data: { runs: [] } };
     renderAdmin();
     expect(screen.getByText("no runs recorded yet")).toBeInTheDocument();
+  });
+});
+
+describe("Admin — backups (create + list, operator-initiated)", () => {
+  it("NEVER creates a snapshot on mount/render — the invariant test", () => {
+    renderAdmin();
+    expect((h.createBackup.mutate as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("the null last_backup state prompts to create one; a set one shows an age", () => {
+    renderAdmin();
+    expect(screen.getByTestId("adm-backups").textContent).toContain("no snapshots yet — create one");
+
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, last_backup: BACKUP } };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-backups")[1].textContent).toContain("last snapshot");
+    expect(screen.getAllByTestId("adm-backups")[1].textContent).toContain("ago");
+  });
+
+  it("the click fires the create mutation; while it runs the button disables and progress shows", async () => {
+    const user = userEvent.setup();
+    const mutate = vi.fn(
+      (_vars: unknown, opts?: { onSuccess?: (ref: { job_id: string }) => void }) =>
+        opts?.onSuccess?.({ job_id: "b1" }),
+    );
+    h.createBackup = { mutate, isPending: false, isError: false, error: null };
+    h.backupJob = {
+      data: { job_id: "b1", status: "running", result: null, error: null },
+      isError: false,
+    };
+    renderAdmin();
+    await user.click(screen.getByRole("button", { name: "Create snapshot" }));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const btn = screen.getByRole("button", { name: "Creating…" });
+    expect(btn).toBeDisabled();
+    expect(screen.getByText(/running pg_dump/)).toBeInTheDocument();
+  });
+
+  it("renders the snapshot name + size when the job lands done", async () => {
+    const user = userEvent.setup();
+    h.createBackup = {
+      mutate: vi.fn((_v: unknown, o?: { onSuccess?: (r: { job_id: string }) => void }) =>
+        o?.onSuccess?.({ job_id: "b1" }),
+      ),
+      isPending: false,
+      isError: false,
+      error: null,
+    };
+    h.backupJob = {
+      data: { job_id: "b1", status: "done", result: BACKUP, error: null },
+      isError: false,
+    };
+    renderAdmin();
+    await user.click(screen.getByRole("button", { name: "Create snapshot" }));
+    const result = screen.getByTestId("adm-backup-result");
+    expect(result.textContent).toContain("done");
+    expect(result.textContent).toContain(BACKUP.name);
+    expect(result.textContent).toContain("2.0 KB"); // fmtBytes(2048)
+    // the read refresh fired once the snapshot landed (a READ, not a re-kick)
+    expect((h.backups.refetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("renders a loud error when the snapshot fails", async () => {
+    const user = userEvent.setup();
+    h.createBackup = {
+      mutate: vi.fn((_v: unknown, o?: { onSuccess?: (r: { job_id: string }) => void }) =>
+        o?.onSuccess?.({ job_id: "b1" }),
+      ),
+      isPending: false,
+      isError: false,
+      error: null,
+    };
+    h.backupJob = {
+      data: { job_id: "b1", status: "failed", result: null, error: "disk full" },
+      isError: false,
+    };
+    renderAdmin();
+    await user.click(screen.getByRole("button", { name: "Create snapshot" }));
+    expect(screen.getByText(/snapshot failed: disk full/)).toBeInTheDocument();
+  });
+
+  it("a lost snapshot job (poll 404) is a visible message, never a spinner", async () => {
+    const user = userEvent.setup();
+    h.createBackup = {
+      mutate: vi.fn((_v: unknown, o?: { onSuccess?: (r: { job_id: string }) => void }) =>
+        o?.onSuccess?.({ job_id: "b1" }),
+      ),
+      isPending: false,
+      isError: false,
+      error: null,
+    };
+    h.backupJob = { data: undefined, isError: true };
+    renderAdmin();
+    await user.click(screen.getByRole("button", { name: "Create snapshot" }));
+    expect(screen.getByText(/lost from view/)).toBeInTheDocument();
+  });
+
+  it("a rejected create (409) surfaces the server detail", () => {
+    h.createBackup = {
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: { detail: "a snapshot is already in progress" },
+    };
+    renderAdmin();
+    expect(screen.getByText("a snapshot is already in progress")).toBeInTheDocument();
+  });
+
+  it("renders the list newest-first with the labeled badge and sizes", () => {
+    h.backups = { ...h.backups, data: { backups: [BACKUP, BACKUP_LABELED] } };
+    renderAdmin();
+    const sec = screen.getByTestId("adm-backups");
+    expect(sec.textContent).toContain(BACKUP.name);
+    expect(sec.textContent).toContain(BACKUP_LABELED.name);
+    expect(sec.textContent).toContain("2.0 KB"); // fmtBytes(2048)
+    expect(sec.textContent).toContain("5.0 MB"); // fmtBytes(5 MiB)
+    expect(screen.getByText("labeled")).toBeInTheDocument(); // the prune-exempt marker
+  });
+
+  it("an empty snapshot list is an honest quiet line", () => {
+    h.backups = { ...h.backups, data: { backups: [] } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-backups").textContent).toContain("no snapshots yet");
   });
 });
 

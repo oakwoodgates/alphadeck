@@ -804,3 +804,57 @@ export function useDailyRunJob(jobId: string | null) {
     },
   });
 }
+
+// --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
+export type BackupOut = components["schemas"]["BackupOut"];
+export type BackupsOut = components["schemas"]["BackupsOut"];
+export type BackupJobRef = components["schemas"]["BackupJobRef"];
+export type BackupJobStatus = components["schemas"]["BackupJobStatus"];
+export type BackupCreateIn = components["schemas"]["BackupCreateIn"];
+
+// The DB-snapshot list — newest-first (a pure file read server-side). NO polling: a list refetched on a
+// successful create (like useAdminRuns), never on a timer — the trigger is what stays operator-initiated.
+export function useBackups() {
+  return useQuery({
+    queryKey: ["admin-backups"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/backups");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Kick off a pg_dump snapshot (optional label -> a prune-EXEMPT named dump). retry:false — an expensive
+// op must NEVER auto-retry (the server 409s a parallel run); the operator re-clicks. Fired ONLY by the
+// explicit button — never on mount/render (the operator-initiated invariant).
+export function useCreateBackup() {
+  return useMutation({
+    retry: false,
+    mutationFn: async (vars?: { label?: string }) => {
+      const label = vars?.label?.trim();
+      const { data, error } = await api.POST("/admin/backup", label ? { body: { label } } : {});
+      if (error) throw error;
+      return data; // BackupJobRef { job_id, status: "running" }
+    },
+  });
+}
+
+// Poll a kicked-off snapshot every 5s WHILE it is "running"; stops on a terminal status. retry:false — a
+// 404 (expired/restart-wiped registry) is a terminal, VISIBLE "lost from view" (the .sql on disk is the
+// durable authority), never an infinite spinner (the useDailyRunJob idiom exactly).
+export function useBackupJob(jobId: string | null) {
+  return useQuery({
+    queryKey: ["admin-backup-job", jobId] as const,
+    enabled: !!jobId,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 5000 : false),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/backup/jobs/{job_id}", {
+        params: { path: { job_id: jobId as string } },
+      });
+      if (error) throw error;
+      return data; // BackupJobStatus { job_id, status, result, error }
+    },
+  });
+}
