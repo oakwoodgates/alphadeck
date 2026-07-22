@@ -44,6 +44,29 @@ archive-never-delete; the cron walks only the live board); and the **notify PIPE
 detection vs the prior call-of-record + a Notifier seam — delivery deliberately deferred; a channel is
 one adapter away).
 
+**Post-MVP — SCORE, then honesty + ops hardening (through #217).** The sixth stage shipped: the
+**Scoreboard v1** (SCORE) — the episode ledger over the call-of-record + the operator track + gated
+aggregate metrics, with **replay-history-alongside** now built beside it (#158–#164; `SCOREBOARD.md`).
+Then, now that the platform is live, a run of **honesty + ops** work: the read-only **display-signal
+framework** (SMA / 52-week / volume-regime / insider-flow tape context beside the call, never an input;
+#192–#194, #204–#206, `DISPLAY_SIGNALS.md`); the **cron-freeze remediation** (R1–R8 — the ~11-day insider
+freeze that made "feeds itself" only *literally* true at #196: the key-classed EDGAR TTL + a recording gate
++ a run-of-record log + a health pager + catch-up-on-boot + the backend TZ pin; #195–#203,
+`POSTMORTEM_CRON_FREEZE_2026-07.md`); and the recent **ops + honesty batch (Slices 1–4)** — the operator
+**admin ops surface** (freshness/health readout + Run-daily-now; `ADMIN.md`); **clock honesty** (the Cockpit
+entry-window `arm_until` clock, the Scoreboard "awaiting forward bar" over a misleading 0.0%, and a record
+staleness line); the **insider open-market + issuer-self screens** (SEC code-`P` primary-market subscriptions
+and a company's Form 4 on *its own* stock, both screened out of Key-1); the **Scoreboard record-provenance +
+maturity horizon** (freeze-touched episodes stay ledger-visible but leave the aggregate metrics); the
+operator **DB-snapshot button + nightly backup**; and the **Board view fixes** (the dead per-name Position,
+the silent error-vanish, the Decision-Queue deep-link) (#207–#216). The insider screens are **preventive and
+currently latent** — correctness/honesty layers whose live payoff waits on matching live data, not fixes to a
+visible number. Along the way the **demo DB was truncated by a shared-Postgres pytest hazard and RECOVERED
+from a 2026-07-17 `pg_dump` — a REAL restore, not a synthetic rebuild** (all six theses + the real
+call-of-record, migrations `0021→0024`; Rainbow Rush re-armed on a forward `daily` run), and **#217 removed
+the root cause** (a per-worktree test DB + a fail-closed guard that refuses to truncate any
+non-`alphadeck_test` name).
+
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE (literally so only after #196 — the EDGAR cache silently froze insider data ~11 days until the
 > key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`); **"the forward trust loop is closed" is NOT** —
@@ -58,7 +81,9 @@ one adapter away).
 > — the insider-core signal-validity window ended ~35d past the realized peak — is a setup-strength *shape*
 > problem [wire field `confidence`; age-decay, `RECALIBRATION.md` B.4], not
 > a magnitude the binary liveness window can fix). The daily call-of-record is the forward RECORD the Scoreboard
-> now tracks. Do not round "feeds itself" up to
+> now tracks — which **began 2026-07-10 and is still accruing.** That launch record is itself freeze-touched, so
+> Slice 3's per-episode provenance flags (#214) hold it out of the aggregate metrics: they stay **honestly
+> empty** until the first clean-data arm matures (`SCOREBOARD.md`). Do not round "feeds itself" up to
 > "validated forward."
 
 ## Organizing principle — two halves on one spine
@@ -99,6 +124,17 @@ one adapter away).
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Excluded-name permanence (#7): the durable NO + optional reason, seeded greyed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
 | Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
+| Cockpit per-name build: grouped per-member buckets + the read-only NamePanel + per-member Managing attribution | #153–#157 | `BOARD.md` |
+| **Scoreboard v1 (SCORE)**: the episode ledger over the call-of-record + the operator track + gated metrics + replay-history-alongside | #158–#164 | `SCOREBOARD.md`, `REPLAY.md` |
+| Ops/UX round: Slack notify adapter · cron-on-by-default · URL routing + name deep-links · seed rename · the ID-misbind (canonical-primary) fix | #165–#175 | `DISCOVERY.md`, `BOARD.md` |
+| Signal + Workbench cleanup: detector-seam formalize + dilution parity · triage polish (junk tells, include filter, exports, prune-session persistence, Placed-from-master) | #176–#191 | `TRIAGE.md` |
+| Display-signal framework: read-only NamePanel indicators (SMA / 52-week / volume / insider-flow) + the SMA posture headline/column + the insider-flow headline | #192–#194, #204–#206 | `DISPLAY_SIGNALS.md` |
+| Cron-freeze remediation (R1–R8): key-classed EDGAR TTL · recording gate · run-of-record log · health pager · catch-up-on-boot · backend TZ pin | #195–#203 | `FEED_LOOP.md`, `POSTMORTEM_CRON_FREEZE_2026-07.md` |
+| Form 4 ingest: strip the tz-offset `transactionDate` suffix (49 open-market buys were silently dropped) | #207 | `FEED_LOOP.md` |
+| **Ops surface (Slice 1)** + **clock honesty (Slice 2)**: the admin freshness/health readout + Run-daily-now · the Cockpit entry-window (`arm_until`) clock, "awaiting forward bar", the record staleness line | #208, #209 | `ADMIN.md`, `BOARD.md`, `SCOREBOARD.md` |
+| Insider honesty screens (preventive, latent): code-`P` open-market (call #210 + display #211) · issuer-self exclusion (#213) · discovery-walk audit — delete `scan.py`, harden convert-scan (#212) | #210–#213 | `CALL_LOGIC.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
+| **Scoreboard record-provenance + maturity (Slice 3)** + the operator **DB-snapshot button + nightly (Slice 4)** | #214, #215 | `SCOREBOARD.md`, `FEED_LOOP.md`, `ADMIN.md` |
+| Board view fixes (dead per-name Position, silent error-vanish, DQ deep-link) · per-worktree test-DB isolation (the shared-Postgres root-cause fix) | #216, #217 | `BOARD.md`, `PROJECT_LAYOUT.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -125,9 +161,13 @@ one adapter away).
    aggregate metrics below `n=5` and metrics include only matured, non-censored episodes. That gate prevents
    premature display; it is not an evidence threshold, and passing it does not establish calibration. The
    growing record still unlocks the **second, out-of-sample
-   recalibration** — that arrives as the record accrues. Next here: **replay-history-alongside** (the
-   immediate follow-up), then the v2 follow-blindly track + deltas (+ a metrics-led second view behind a
-   toggle once n accrues).
+   recalibration** — that arrives as the record accrues. **Replay-history-alongside is now built** beside
+   the record (#163/#164, a collapsed historical panel served from an operator-kicked snapshot artifact).
+   Next here: the v2 follow-blindly track + deltas (+ a metrics-led second view behind a toggle once n
+   accrues); **2f "the real WHY"** — a deeper per-episode Scoreboard explanation (never specced, an open
+   design question, not a committed feature); and the **replay-regenerate button** — regenerating the
+   historical snapshot from the app is **deferred to the replay-panel work** (it needs DuckDB in the lean
+   image + a replay-perf fix; today the snapshot is a dev-venv CLI artifact the app only reads).
 2. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
    transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
    Deferred by operator call ("other things coming").
@@ -139,6 +179,17 @@ one adapter away).
 5. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
    send-back discoverability, accept-color decoupling, pre-revenue purity chip, explain transport-error,
    FE async-boundary tests, off-universe label copy, dilution polarity styling.
+6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load): a **durable
+   `market_today()` / trading-day helper** so the Mon-Fri + `RUN_AT` schedule contract has ONE home (today
+   it lives in both `scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand); the **R4
+   0-fetch false-positive** (a run entirely inside the 12h EDGAR TTL looks like a freeze — page on 0 only
+   when the cache was outside its TTL, or restrict the freeze page to scheduled runs); and an **external
+   dead-man's-switch** heartbeat (a run that never happens produces no page — the sidecar can't alert about
+   its own absence). Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`, `FEED_LOOP.md` "Known gaps".
+7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
+   fund/affiliate blocks (Baker Bros / Paulson-style) that are portfolio moves, not conviction, screened
+   from Key-1; and the **`insider_flow` sell-side ceiling** (the display headline's symmetric guard). Both
+   are preventive precision on the insider key, as-encountered against real filings.
 
 ### Filed, post-MVP (additive)
 
