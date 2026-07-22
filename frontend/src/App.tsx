@@ -65,7 +65,11 @@ function BoardRoute() {
     <Board
       asof={asof}
       onAsofChange={setAsof}
-      onSelect={(id) => navigate(thesisPath(id, { asof: asofParam }), { state: { from: here } })}
+      onSelect={(id, nameKey) =>
+        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
+          state: { from: here },
+        })
+      }
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
       onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
       onOpenAdmin={() => navigate(adminPath(asofParam))}

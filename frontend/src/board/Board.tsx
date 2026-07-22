@@ -13,7 +13,10 @@ const COLUMNS = [
 interface Props {
   asof: string;
   onAsofChange: (asof: string) => void;
-  onSelect: (thesisId: string) => void;
+  /** Open the Cockpit for a thesis. `nameKey` (optional) deep-links a member's panel (?name=) —
+   *  the Decision Queue passes the armed headline name so the Cockpit lands on it (same idiom as
+   *  the Scoreboard's row click). A column card omits it (opens the thesis, no name pre-selected). */
+  onSelect: (thesisId: string, nameKey?: string) => void;
   onOpenWorkbench: () => void;
   onOpenScoreboard: () => void;
   onOpenAdmin: () => void;
@@ -48,6 +51,10 @@ export function Board({
   const rows: Row[] = theses
     .map((thesis, i) => ({ thesis, call: callResults[i]?.data }))
     .filter((r): r is Row => Boolean(r.call));
+  // keep-it-visible (#2 + BOARD.md "no silent loudness"): a thesis whose /call ERRORED (a 500, a
+  // mid-flight delete) must NOT drop off the board with no trace — surface it as a placeholder with
+  // an error affordance instead of filtering it into oblivion. Errored = isError with no data.
+  const erroredRows = theses.filter((_t, i) => callResults[i]?.isError && !callResults[i]?.data);
   const armedRows = rows.filter((r) => r.call.state === "armed");
   const computing = callResults.some((r) => r.isLoading);
 
@@ -79,32 +86,44 @@ export function Board({
         </div>
         <div className="dq-items">
           {armedRows.length > 0 ? (
-            armedRows.map(({ thesis, call }) => (
-              <button
-                type="button"
-                className="dq-item"
-                key={thesis.id}
-                onClick={() => onSelect(thesis.id)}
-              >
-                {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
-                    "+N" hint that a ranked menu sits behind it — never every member in the queue */}
-                <b>{call.armed_members[0]?.ticker ?? tickerLabel(thesis.ticker, thesis.basket_size)}</b>
-                {call.armed_members.length > 1 && (
-                  <span className="dq-more">+{call.armed_members.length - 1}</span>
-                )}
-                {call.conviction_grade && (
-                  <span className={`grade ${call.conviction_grade}`}>
-                    {call.conviction_grade.toUpperCase()}
+            armedRows.map(({ thesis, call }) => {
+              // deep-link the headline armed NAME (?name=) so the Cockpit opens on it — ticker
+              // preferred, security_id as the precise fallback (the Scoreboard row idiom + what
+              // resolveNameKey resolves against); a single-name thesis just carries its own ticker
+              const headline = call.armed_members[0];
+              const nameKey = headline?.ticker ?? headline?.security_id ?? undefined;
+              return (
+                <button
+                  type="button"
+                  className="dq-item"
+                  key={thesis.id}
+                  onClick={() => onSelect(thesis.id, nameKey)}
+                >
+                  {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
+                      "+N" hint that a ranked menu sits behind it — never every member in the queue */}
+                  <b>{headline?.ticker ?? tickerLabel(thesis.ticker, thesis.basket_size)}</b>
+                  {call.armed_members.length > 1 && (
+                    <span className="dq-more">+{call.armed_members.length - 1}</span>
+                  )}
+                  {call.conviction_grade && (
+                    <span className={`grade ${call.conviction_grade}`}>
+                      {call.conviction_grade.toUpperCase()}
+                    </span>
+                  )}
+                  <span>
+                    {verdictLabel(call.verdict)} · {thesis.name}
                   </span>
-                )}
-                <span>
-                  {verdictLabel(call.verdict)} · {thesis.name}
-                </span>
-              </button>
-            ))
+                </button>
+              );
+            })
           ) : (
             <span className="dq-empty">
-              {computing ? "Computing…" : "Nothing armed. Nothing to do. ✓"}
+              {computing
+                ? "Computing…"
+                : erroredRows.length > 0
+                  ? // don't sound the all-clear when a call didn't compute — it might have been armed
+                    "Some calls didn't compute — see below."
+                  : "Nothing armed. Nothing to do. ✓"}
             </span>
           )}
         </div>
@@ -145,6 +164,30 @@ export function Board({
           );
         })}
       </div>
+
+      {/* errored calls — VISIBLE, never silently dropped (#2). An exception that wants the operator's
+          eyes (honest loudness), so it renders loud, not tucked away. Each row opens the Cockpit,
+          which mirrors the error on its rail (callQ.error) and refetches. */}
+      {erroredRows.length > 0 && (
+        <div className="board-errs" role="alert">
+          <div className="be-label">⚠ Calls that didn&apos;t compute ({erroredRows.length})</div>
+          <div className="be-items">
+            {erroredRows.map((t) => (
+              <button
+                type="button"
+                className="be-item"
+                key={t.id}
+                title="the call failed to compute — open the thesis to see the error / retry"
+                onClick={() => onSelect(t.id)}
+              >
+                <b>{tickerLabel(t.ticker, t.basket_size)}</b>
+                <span className="be-nm">{t.name}</span>
+                <span className="be-tag">call failed to compute</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* archived — visible + restorable, never vanished (an explicit, reversible filter; their
           calls are not computed). Quiet by design: collapsed, grey, out of the columns. */}

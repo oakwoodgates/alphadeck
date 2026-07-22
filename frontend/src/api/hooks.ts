@@ -226,6 +226,9 @@ export function usePostDecision(thesisId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["decisions", thesisId] });
       qc.invalidateQueries({ queryKey: ["call", thesisId] });
+      // ThesisDetail carries the derived position too (its security_id drives the per-name panel's
+      // "Position · this name" block) — refresh it so a logged take/close reflects immediately.
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
     },
   });
 }
