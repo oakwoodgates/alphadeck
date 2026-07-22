@@ -127,16 +127,18 @@ def run_backup(
     base_dir: Path | None = None,
     keep: int | None = None,
     now: datetime | None = None,
-    dump_runner: Callable[..., None] = _pg_dump,
+    dump_runner: Callable[..., None] | None = None,
 ) -> BackupResult:
     """Create ONE snapshot: dump to ``<name>.tmp``, then atomically ``os.replace`` it to ``<name>`` (so a
     crashed dump never lists), then prune — ONLY after the dump succeeds. ``dump_runner`` is the
-    testability hinge (the ``daily_job._DEFAULT_EXECUTOR`` / ``PriceSource`` seam): CI injects a fake that
-    writes a dummy ``.sql`` (or raises), so no test needs the real binary. A raising ``dump_runner``
+    testability hinge (the ``daily_job._DEFAULT_EXECUTOR`` / ``PriceSource`` seam); when ``None`` it falls
+    back to the module-level ``_pg_dump`` resolved AT CALL TIME (so a test that monkeypatches
+    ``pipeline.backup._pg_dump`` takes effect, and no unit test needs the real binary). A raising runner
     propagates BEFORE the replace + prune — no ``.sql`` is published and the keep-window is untouched.
     """
     now = now or datetime.now(timezone.utc)  # ONE timestamp: names the file AND is created_at
     settings = get_settings()
+    runner = dump_runner or _pg_dump  # resolved here, so a monkeypatched _pg_dump is honored
     slug = _slugify(label) if label else ""
     name = f"{_PREFIX}{now.strftime(_TS)}" + (f"-{slug}" if slug else "") + _SUFFIX
     d = base_dir or _DEFAULT_BACKUPS
@@ -144,7 +146,7 @@ def run_backup(
     dest = d / name
     tmp = d / f"{name}.tmp"
 
-    dump_runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s)
+    runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s)
     os.replace(tmp, dest)  # atomic publish — the *.sql glob only ever sees a COMPLETE dump
     size = dest.stat().st_size
 

@@ -34,9 +34,17 @@ from app.schemas_api import (
     AdminRunOut,
     AdminRunsOut,
     AdminStatusOut,
+    BackupCreateIn,
+    BackupJobRef,
+    BackupJobStatus,
+    BackupOut,
+    BackupsOut,
 )
 from domain.settings import get_settings
 from notify import HealthEvent
+from pipeline.backup import BackupInfo, list_backups, run_backup
+from pipeline.backup_job import BackupRunInFlight, start_backup_job
+from pipeline.backup_job import get_job as get_backup_job
 from pipeline.cron_run_log import build_run_payload, list_run_logs
 from pipeline.daily import ThesisRunResult, assess_health, run_daily_pass
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
@@ -118,6 +126,14 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     )
 
 
+def _backup_out(info: BackupInfo) -> BackupOut:
+    """One pipeline-layer ``BackupInfo`` -> the wire row (value-free: name, size, created_at, labeled).
+    Shared by the create job's result, the list endpoint, and the status ``last_backup`` join."""
+    return BackupOut(
+        name=info.name, bytes=info.bytes, created_at=info.created_at, labeled=info.labeled
+    )
+
+
 def _run_at() -> time:
     """The schedule wall time off ``Settings.cron_run_at`` (env ``ALPHADECK_CRON_AT`` — the same host
     var the sidecar runs on). A malformed value is a DEPLOY error → a loud, actionable 500."""
@@ -196,6 +212,12 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                 f"{edge.isoformat() if edge else 'not begun yet'}",
             )
 
+    # The newest DB snapshot (honest visibility — the page shows the last-snapshot age). A pure directory
+    # read (list_backups is skip-unreadable fail-open); None = the quiet "no snapshots yet" state. Writes
+    # nothing, so the test_admin_reads_write_NOTHING gate still holds (no table is touched).
+    backups = list_backups()
+    last_backup = _backup_out(backups[0]) if backups else None
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -207,6 +229,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         ),
         last_run=last_run,
         cron=cron,
+        last_backup=last_backup,
     )
 
 
@@ -274,3 +297,60 @@ def get_run_daily_job(job_id: str) -> AdminRunJobStatus:
     return AdminRunJobStatus(
         job_id=job.job_id, status=job.status, result=job.result, error=job.error
     )
+
+
+# --- Backups (Slice 4): the operator DB-snapshot button — create + list + retain (NEVER restore) ---
+# Like /admin/runs, none of these takes a get_conn dep: create kicks a job (the job shells pg_dump with
+# its OWN connection), the poll reads the in-process registry, and the list is a pure file read — so the
+# router still owns no tables (reinforces the writes-nothing bound).
+
+
+@router.post("/backup", status_code=202, response_model=BackupJobRef)
+def start_backup(body: BackupCreateIn | None = None) -> BackupJobRef:
+    """KICK OFF a ``pg_dump`` snapshot as a background JOB and return immediately (**202** + ``job_id``);
+    poll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page load,
+    mount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump
+    is READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host
+    bind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a
+    prune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process
+    guard — a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a
+    destructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U
+    alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
+    request)."""
+    label = body.label if body else None
+
+    def _run() -> BackupOut:
+        result = run_backup(label=label)  # read-only pg_dump -> a file; mutates no row
+        return _backup_out(result)
+
+    try:
+        job_id = start_backup_job(_run)
+    except BackupRunInFlight as exc:
+        raise HTTPException(status_code=409, detail="a snapshot is already in progress") from exc
+    return BackupJobRef(job_id=job_id, status="running")
+
+
+@router.get("/backup/jobs/{job_id}", response_model=BackupJobStatus)
+def get_backup_job_status(job_id: str) -> BackupJobStatus:
+    """POLL a kicked-off snapshot. ``done`` → ``result`` (the finished ``BackupOut``, the same shape the
+    list shows — the ``.sql`` on disk is the durable record regardless); ``failed`` → an operator-facing
+    ``error``. **404** if the job is unknown / expired, or the registry was wiped by a restart — the dump
+    may still have completed server-side (the backups list is the durable authority), so the FE shows
+    "lost from view", never an infinite spinner."""
+    job = get_backup_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="snapshot job not found (it may have expired or the server restarted — "
+            "check the backups list)",
+        )
+    return BackupJobStatus(job_id=job.job_id, status=job.status, result=job.result, error=job.error)
+
+
+@router.get("/backups", response_model=BackupsOut)
+def get_admin_backups() -> BackupsOut:
+    """The snapshot list — every ``.sql`` under the backups dir, NEWEST-FIRST. A pure FILE read (no DB,
+    no network, writes nothing); an unreadable/foreign entry is skipped fail-open so a stray file never
+    blanks the list. RESTORE stays a documented CLI act (see ``POST /admin/backup``); this endpoint only
+    surfaces what exists."""
+    return BackupsOut(backups=[_backup_out(i) for i in list_backups()])

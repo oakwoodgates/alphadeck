@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.deps import get_conn
 from app.main import app
-from pipeline import cron_run_log
+from pipeline import backup, cron_run_log
 from workbench import draft_run_log, triage_store
 
 
@@ -51,4 +51,16 @@ def cron_runs_dir(tmp_path, monkeypatch):
     artifacts."""
     d = tmp_path / "cron_runs"
     monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", d)
+    return d
+
+
+@pytest.fixture(autouse=True)
+def backups_dir(tmp_path, monkeypatch):
+    """Redirect the DB-snapshot home (``pipeline/backup``) to a per-test tmp dir for EVERY app test — the
+    admin surface READS it (``/admin/status`` last_backup, ``/admin/backups``) and the create job WRITES
+    it, so without this a dev machine's REAL ``data/backups`` dumps would leak into assertions (and a test
+    run would litter them). Autouse so no backup test can forget it; request it by name to seed/assert
+    snapshots. Defaults ``last_backup`` to null (an empty dir)."""
+    d = tmp_path / "backups"
+    monkeypatch.setattr(backup, "_DEFAULT_BACKUPS", d)
     return d
