@@ -109,3 +109,20 @@ def test_test_db_url_keeps_host_swaps_name(monkeypatch):
     monkeypatch.setattr(testdb, "_worktree_root", lambda: "/root")
     h = hashlib.sha1(b"/root").hexdigest()[:8]
     assert testdb.test_db_url() == f"postgresql://u:p@h:5544/alphadeck_test_{h}"
+
+
+# ---- Postgres-gated smoke (uses the db/_migrated fixtures -> skips if Postgres is unreachable) ----
+
+
+def test_hook_lands_on_test_db(db):
+    """After the live pytest_configure hook, the suite connects to an alphadeck_test* DB, never the demo."""
+    with db.cursor() as cur:
+        cur.execute("SELECT current_database()")
+        current = cur.fetchone()["current_database"]
+    assert current.startswith("alphadeck_test")  # the override reached the fixture's connection
+    assert current != "alphadeck"  # never the demo
+
+
+def test_ensure_test_db_is_idempotent(_migrated):
+    """A second ensure_test_db on the already-created DB is a no-op (DuplicateDatabase swallowed, no raise)."""
+    testdb.ensure_test_db(testdb.test_db_url())

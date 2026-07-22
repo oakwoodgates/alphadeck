@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 
 import psycopg
@@ -7,6 +8,26 @@ import pytest
 
 from db.migrate import apply_migrations
 from db.session import DEFAULT_TENANT_ID, connect
+
+
+def pytest_configure(config):
+    """Point the WHOLE suite at a per-worktree, HARD-GUARDED test DB before any test/fixture/``connect()``.
+
+    Fires at session startup (the configure phase, before collection imports any test module). Resolving
+    the name (``test_db_url``) applies the fail-closed guard: a name that doesn't start with
+    ``alphadeck_test`` raises HERE — before ``os.environ`` is touched — so a forgotten or stale
+    ``DATABASE_URL`` can never truncate the demo. Then it overrides ``DATABASE_URL`` (which BOTH the ``db``
+    fixture AND the app-under-test read late) and creates the per-worktree DB if absent. A Postgres-down
+    ``OperationalError`` is swallowed so the existing ``_migrated`` SKIP still fires (suite runs offline).
+    """
+    from db.testdb import ensure_test_db, test_db_url
+
+    url = test_db_url()  # resolves + HARD GUARD; a bad name raises HERE, before os.environ
+    os.environ["DATABASE_URL"] = url  # both the db fixture and the app-under-test read this late
+    try:
+        ensure_test_db(url)  # create the per-worktree DB if absent (idempotent, race-tolerant)
+    except psycopg.OperationalError:
+        pass  # Postgres down -> the _migrated fixture SKIPs cleanly (unchanged)
 
 
 @pytest.fixture(scope="session")
