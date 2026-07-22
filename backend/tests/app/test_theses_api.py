@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from pathlib import Path
 
 from app.openapi_export import export
@@ -127,6 +128,49 @@ def test_list_and_get_thesis(client, db, security_id):
     assert detail["ticker"] == "HIMS"
     assert detail["basket"][0]["ticker"] == "HIMS"
     assert "tenant_id" not in detail  # the wire schema must not leak the domain's tenant_id
+
+
+def test_get_thesis_populates_attributed_position_security_id(client, db, security_id):
+    """The #1 fix, at the API boundary: GET /theses/{id} threads the decisions-log-derived position
+    onto the detail, so an ATTRIBUTED take's ``security_id`` reaches ``ThesisDetail.position`` — the
+    field the Cockpit per-name panel gates its "Position · this name" block on. The masking test
+    (Cockpit.panel.test.tsx) hand-injected this shape; the read path never emitted it, because
+    ``_row_to_position`` built the position from only the seed columns (which carry no name). Prove
+    the previously-broken path now works: the name AND the entry/opened come through."""
+    tid = uuid.uuid4()
+    thesis_repo.upsert(
+        db,
+        Thesis(
+            id=tid,
+            tenant_id=DEFAULT_TENANT_ID,
+            name="attributed position",
+            narrative="x",
+            basket=[BasketMember(ticker="DEVCO", role="the name", security_id=security_id)],
+        ),
+    )
+    db.commit()
+
+    # detail before any fill: no decision rows, no seed position → position is null (the honest empty)
+    assert client.get(f"/theses/{tid}").json()["position"] is None
+
+    # a take logged ON the member (its security_id) — the attributed fill
+    take = client.post(
+        f"/theses/{tid}/decisions",
+        json={
+            "action": "take",
+            "decision_date": str(date.today()),
+            "security_id": str(security_id),
+            "price": 12.5,
+        },
+    )
+    assert take.status_code == 200
+
+    detail = client.get(f"/theses/{tid}").json()
+    assert detail["position"] is not None
+    # the previously-structurally-null field, now populated from the log's authoritative position
+    assert detail["position"]["security_id"] == str(security_id)
+    assert detail["position"]["entry_price"] == 12.5
+    assert detail["position"]["opened_on"] == str(date.today())
 
 
 def test_call_endpoint_unknown_thesis_404(client):

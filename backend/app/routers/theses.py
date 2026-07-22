@@ -71,7 +71,22 @@ def unarchive_thesis(
 
 
 @router.get("/{thesis_id}", response_model=ThesisDetail)
-def get_thesis(thesis: Thesis = Depends(get_thesis_or_404)) -> ThesisDetail:
+def get_thesis(
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisDetail:
+    # NB: intentionally NO docstring — it would become the operation `description` and drift the
+    # OpenAPI contract; this fix only POPULATES an existing wire field (zero-diff by design).
+    # Thread the decisions-log-derived position onto the thesis — the SAME source of truth the call
+    # path uses (``call_for_thesis``) — so ``position.security_id`` is populated for an attributed
+    # take. Without it the read path built the position from only the seed columns (which carry no
+    # name), leaving the per-name panel's "Position · this name" block dead on real data.
+    # ``effective_position`` falls back to the stored seed position when there are no decision rows,
+    # so nothing regresses; ``known_at=None`` reads decisions as of current knowledge (no-lookahead
+    # #1 holds — a fill can't be dated in the future).
+    thesis.position = decisions_repo.effective_position(
+        conn, thesis, asof=date.today(), known_at=None
+    )
     return ThesisDetail.from_thesis(thesis)
 
 
