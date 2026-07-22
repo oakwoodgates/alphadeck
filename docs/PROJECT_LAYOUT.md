@@ -5,7 +5,7 @@
 > `ROADMAP.md` (sequencing), and `CLAUDE.md` (how to build). For the *why* of any subsystem, follow the doc
 > links; this is the *where*.
 >
-> **As of the MVP + the config/quick-win refactor cycle (`main` through PR #81; the cron-freeze remediation landed later at #196–#202):** both halves are built **and the platform feeds itself** (literally true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`). Back
+> **As of the post-MVP honesty + ops arc (`main` through #218 — MVP at #73, the refactor cycle #75–#81, the Scoreboard #158–#164, cron-freeze remediation #196–#203, and Slices 1–4 + the Board fixes + test-DB isolation #207–#217):** both halves are built, the **sixth stage (SCORE) shipped**, and the platform **feeds itself** (literally true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`). Back
 > half — the bitemporal store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed,
 > the M5 per-member menu + theme arming, the replay harness + recalibration + the production-tenant cut. Front
 > half (the Workbench) — scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, **the two
@@ -13,9 +13,9 @@
 > feed loop** — the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the
 > scheduling sidecar — makes it **feed itself** (`FEED_LOOP.md`). The front-half loop closes end to end
 > (**narrative → draft → ratify → promote → extract → score**) and the back half feeds the promoted thesis its
-> call-engine facts. Suite: **283 backend** (pytest; DB-backed tests skip without Postgres) + **39 frontend**
-> (vitest); `ruff` + `black` + `tsc` + `vite build` clean; CI runs them + the openapi↔types drift guard on
-> every PR.
+> call-engine facts. Suite: **backend pytest** (DB-backed tests auto-derive a per-worktree DB — `db/testdb.py`
+> — so they never touch the demo; they SKIP only when Postgres is unreachable) + **frontend vitest**; `ruff` +
+> `black` + `tsc` + `vite build` clean; CI runs them + the openapi↔types drift guard on every PR.
 
 ## Tracked hierarchy
 
@@ -162,18 +162,32 @@ alphadeck/
   then the quick-win dedups (Tier 1 `coerce.to_float` / `RateLimiter` / `CacheMiss`; Tier 2 the
   `get_thesis_or_404` dependency + `_provenance_out`; Tier 3 the FE shared bits + as-of-defaults-to-today;
   Tier 4 the shared `client` test fixture). No behavior change; gated by the suite + the openapi↔types guard.
-- **Not built yet:** the **live Scoreboard** (the forward trust loop — parked, arrives with live use → the
-  second, out-of-sample recalibration); the **deferred restatement re-version** + the **source-strategy A/B
+- **Post-MVP — the SCORE stage + the honesty/ops arc (#158–#217):** the **Scoreboard v1** (the forward-record
+  episode ledger + the operator track + gated aggregate metrics + replay-history-alongside — #158–#164,
+  `SCOREBOARD.md`); the read-only **display-signal framework** (SMA/52-week/volume/insider-flow tape context —
+  #192–#206, `DISPLAY_SIGNALS.md`); the **cron-freeze remediation** (#196–#203,
+  `POSTMORTEM_CRON_FREEZE_2026-07.md`); and the **Slices 1–4 + Board fixes + test-DB isolation** batch
+  (#207–#217) — the admin **ops surface** (`ADMIN.md`), clock honesty, the insider open-market + issuer-self
+  screens, Scoreboard record-provenance + maturity, the **DB-snapshot button + nightly backup**, the Board
+  view fixes, and the per-worktree test-DB fix.
+- **Not built yet:** the record's **forward validation** (the Scoreboard now tracks the record, which began
+  2026-07-10 and is still accruing — the aggregate metrics stay honestly empty until clean-data arms mature,
+  #214) → the second, out-of-sample recalibration; the **restatement re-version** + the **source-strategy A/B
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
-  the **cron-scaling refinement** (ingest active theses daily, dormant less); Phase-3 breadth (laggard scanner,
-  ETF radar, more catalyst sources, umbrella hierarchy, live LLM counter-case) — by appetite. See `ROADMAP.md`.
+  **cron-scaling** (active theses daily, dormant less) + **cron-ops hardening** (a durable `market_today()`,
+  the R4 0-fetch false-positive, a dead-man's-switch); **2f "the real WHY"** + the deferred
+  **replay-regenerate button**; **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
+  (laggard scanner, ETF radar, more catalyst sources, umbrella hierarchy, live LLM counter-case) — by
+  appetite. See `ROADMAP.md`.
 
 ## Flags for the reviewer (current)
 
 1. **Dials are STARTING calibration, not precision** — everything in `domain/config.py` (`CallConfig` /
    `ExtractorConfig`); pass 001 was in-sample (n=19), not forward-validated. `RECALIBRATION.md`.
-2. **Trust is in-sample.** The replay harness validated the edge over history; the **live Scoreboard** (forward
-   validation) is parked. Don't overclaim the calls until it lives with them.
+2. **Trust is in-sample.** The replay harness validated the edge over history; the **live Scoreboard is BUILT
+   and now tracks the forward record** (#158–#164), but that record **began 2026-07-10 and is still accruing**
+   (freeze-touched → the aggregate metrics are honestly empty until the first clean-data arm matures, #214).
+   Forward VALIDATION is the open item — don't overclaim the calls until the record lives with them.
 3. **The Board is not tenant-scoped** (`thesis_repo.list_all` is all-tenants) — a display limitation, not a
    fact leak (per-call reads are isolated); deferred to the auth era. No RLS — isolation is discipline + the
    poison-row test (`PRODUCTION_TENANT.md`).
