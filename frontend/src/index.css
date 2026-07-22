@@ -859,6 +859,17 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .arch-row .arch-nm { min-width: 220px; }
 .arch-row .arch-sz { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
 
+/* errored calls — a thesis whose /call failed stays VISIBLE here (#2), loud (an exception wanting
+   eyes), never silently dropped from the columns. */
+.board-errs { margin: 10px 14px 4px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--neg) 40%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--neg) 6%, transparent); }
+.be-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--neg); margin-bottom: 8px; }
+.be-items { display: flex; flex-wrap: wrap; gap: 9px; }
+.be-item { display: flex; align-items: center; gap: 9px; padding: 5px 12px; border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent); border-radius: 8px; background: var(--panel); cursor: pointer; white-space: nowrap; transition: 0.15s; font: inherit; color: inherit; }
+.be-item:hover { border-color: var(--neg); background: var(--panel-2); }
+.be-item b { font-family: var(--mono); font-weight: 700; font-size: 12px; }
+.be-item .be-nm { color: var(--txt-2); font-size: 11.5px; }
+.be-item .be-tag { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--neg); }
+
 /* --- decision capture: the CallCard action row + the operator-decision log --- */
 .dc { display: flex; flex-direction: column; gap: 8px; }
 .dc-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); }
