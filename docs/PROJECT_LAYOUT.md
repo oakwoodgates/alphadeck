@@ -137,8 +137,10 @@ alphadeck/
 - `backend/.venv/` — the project venv (stdlib venv + pip; the image pins Python 3.11, `requires-python >=3.11`).
 - `data/` — on-disk caches of live pulls (`edgar_cache/`, `price_cache/`, `figi_cache/`, `sec_cache/`, `doe_cache/`).
 - Local **Postgres** via Docker Compose (`localhost:5544`, the shared `pgdata` volume). The demo DB
-  (`alphadeck`) holds the seed + the populated master; **tests run against `alphadeck_test`** (the `db`
-  fixture truncates, so it must never point at the demo DB).
+  (`alphadeck`) holds the seed + the populated master; **tests auto-derive a per-worktree
+  `alphadeck_test_<hash>`** (a `pytest_configure` hook in `backend/db/testdb.py`) — the `db` fixture
+  truncates, and the demo is unreachable from the suite **by construction** (a fail-closed guard refuses any
+  non-`alphadeck_test` name). Just run `pytest`; `python -m db.drop_test_dbs` cleans up stale ones.
 - `docs/temp/` — scratch (this file was promoted out of it).
 
 ## State — built vs. not
