@@ -195,6 +195,54 @@ rows. AUTO is exactly the unambiguous case; anything ambiguous trips a FLAG and 
 industrialized on every clean name. It now tracks unratified candidates, using the same on-file predicate the
 FactsPanel does.
 
+## The annual-cover path — shares for a filer with NO 10-K/10-Q `[BUILT]`
+
+A **foreign private issuer** files a **20-F** (or **40-F** under the Canadian MJDS) instead of a 10-K/10-Q,
+so `extract_for_security` had nothing to read and returned `[]` — no shares, therefore no market cap, for
+roughly a fifth of a real basket. `annual_shares.py` reads the **annual cover** instead. Ground truth is
+pinned in `backend/tests/ingest/test_annual_shares.py` + `tests/fixtures/sec_extractor/annual/` — one test
+per hazard below; the tests are the oracle, not this page.
+
+**AUTO is structurally unreachable here, and that is the point.** The `_shares` AUTO gate
+(`latest_end >= period_end`) is justified on a 10-Q premise: *a cover is dated "as of the latest practicable
+date" — after the period end.* **A 20-F cover is dated AT the period end, by SEC form instruction**, so that
+gate passes **trivially, always**, while the value is a fiscal year old (measured: 204–569 days). Routing an
+annual filer through it would pre-fill a year-old share count at the *lowest-friction* tier. The annual path
+therefore lives in its own module and emits **FLAG only** — enforced by both a behavioral test and a
+source-scan asserting the token `AUTO` never appears in it.
+
+**Locating the cover = matching the SEC form instruction, not a keyword.** Three arms, each load-bearing:
+
+- **`issuer` OR `registrant`** — the 40-F cover says *"of the Registrant's classes"* where the 20-F says
+  *"of the issuer's classes"*. Matching only `issuer` silently drops every 40-F filer.
+- **`each of` is optional** — some covers omit it.
+- **possessive as `\W{0,3}s`** — the apostrophe survives as `'`, a space, or `&rsquo;` depending on filer.
+  Only `clean_filing_text`'s `html.unescape` normalises it; a hand-rolled entity strip misses those names.
+
+**Fail CLOSED.** No instruction match → **no value**, never a looser fallback. The trap is a *confident wrong
+match*: `"number of outstanding shares - basic and diluted"` is an **EPS note**, and in a 25 MB filing a loose
+pattern finds it hundreds of thousands of characters in. Note `_locate`'s ±110 window is too narrow for these
+covers (they run long), so the annual passage is purpose-built rather than reusing it.
+
+**Never sum the numbers on an annual cover.** A cover may read *"N shares of common stock, **including** M
+ADSs"* — M is a **subset**, not a second class, and ADRs are common among foreign filers. Take the first
+number; >1 number trips `multi-value-cover` for the operator to ratify against the passage. (This
+deliberately differs from the 10-Q `_cover_class_sum`, which *does* sum genuine dual-class counts — a
+different form with a different convention. Do not unify them.)
+
+**Neither source dominates — the later as-of date wins.** `companyfacts` sometimes **lags** the filing (its
+`dei` still on last year's annual report) and is sometimes **fresher** than the newest annual filing (a 40-F
+landing after the last 20-F). So the rule is *later-as-of*, **not** *prefer-the-document*; ties go to the
+cover, which carries the passage. Any value disagreement trips `source-disagreement` and states both. A
+`companyfacts` value can also simply be **garbage** (a filer's own XBRL error) — hence an implausibility
+floor that **flags rather than drops** (#9: never silently discard).
+
+**Three empty states, kept distinct** (interaction #2 — "we couldn't read it" must never masquerade as
+"there is nothing"): `no-annual-filing` (nothing on EDGAR — the only case where "nothing to extract" is
+true) · `cover-not-located` (a filing exists but its cover is unread — still a live candidate) · covered
+(shares emitted; **cash and purity remain uncovered for these names**, and the UI says so rather than
+letting a `—` imply zero).
+
 ## The located passage — deterministic retrieval, never a reading
 
 A `LocatedPassage` is **deterministic keyword/section retrieval** over the cleaned filing text (`_locate`:

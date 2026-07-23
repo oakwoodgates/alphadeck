@@ -2,13 +2,15 @@
 
 A basket name with NO 10-K/10-Q (a foreign private issuer) gets an honest, current shares-outstanding
 count — and therefore a market cap — from the cover of its latest annual foreign filing (20-F or 40-F),
-at tier FLAG, carrying its located cover passage and its age. 48 of 250 resolved names were dark
-(``docs/RETRIEVAL_ANSWER_KEY.md`` §0); this lights up shares for 43 of them.
+at tier FLAG, carrying its located cover passage and its age. Roughly a fifth of a real basket was dark
+this way. The rules below are canon in ``docs/WORKBENCH_EXTRACTION.md`` ("The annual-cover path"); the
+dated measurement that established them is PR #221, and the values are pinned in
+``tests/ingest/test_annual_shares.py`` + its fixtures — the tests are the oracle, not a prose doc.
 
 THE STRUCTURAL BOUND — why this is its own module, not a branch inside ``extract_facts``: the periodic
 extractor's confirm-and-go gate (``extract.py::_shares``) passes when the cover as-of >= the period end,
 which is TRUE BY SEC FORM INSTRUCTION on every annual cover ("…as of the close of the period covered by
-the annual report") while the value is 204-569 days old (answer key Finding A). An annual filer routed
+the annual report") while the value is a fiscal year or more old (measured 204-569 days; PR #221). An annual filer routed
 through it would pre-fill a year-old count at the lowest-friction tier. This module is structurally
 unable to do that: the pre-fill tier's token appears NOWHERE in this file (a source-scan test asserts
 it — the display-signals idiom), and every emitted fact is ``Tier.FLAG`` — the operator ratifies, always.

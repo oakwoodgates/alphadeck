@@ -1,10 +1,14 @@
 """Annual-cover shares (Retrieval Slice 1) — one test per hazard, each tied to a REAL name.
 
-The oracle is ``docs/RETRIEVAL_ANSWER_KEY.md`` (hand-verified against the filings, 2026-07-23); the
-fixtures under ``fixtures/sec_extractor/annual/`` are REAL filing text, trimmed with the trims verified
-to reproduce the full-document result before commit. OFFLINE — no network, no DB.
+THIS MODULE IS THE ORACLE. Its expected values were hand-verified against the filings themselves (not
+against companyfacts — checking a source against itself proves nothing) on 2026-07-23; the dated
+measurement that produced them is PR #221 and the rules they encode are canon in
+``docs/WORKBENCH_EXTRACTION.md`` ("The annual-cover path"). The fixtures under
+``fixtures/sec_extractor/annual/`` are REAL filing text, trimmed with the trims verified to reproduce the
+full-document result before commit. Both sides are pinned — frozen input, frozen expectation — so these
+assertions stay true regardless of what the issuers file next. OFFLINE — no network, no DB.
 
-Fixture ages are pinned to ``_TODAY`` (the answer key's measurement date) so staleness is deterministic.
+Fixture ages are pinned to ``_TODAY`` (the verification date) so staleness is deterministic.
 """
 
 from __future__ import annotations

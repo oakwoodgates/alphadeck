@@ -264,7 +264,7 @@ class ExtractorConfig(DomainModel):
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence
     # ends and the count follows within a sentence or a short per-class table; measured sufficient
-    # across all 43 readable 20-F/40-F covers (docs/RETRIEVAL_ANSWER_KEY.md §6).
+    # across every readable 20-F/40-F cover in a real basket (measured; PR #221).
     annual_cover_segment_chars: int = 900
     # A chosen count older than this (days, aged against the request's `today`) wears `stale-cover` —
     # mirroring the FE's ">~6mo old" `.wb-stale-shares` badge (`staleSharesMonths`), so the backend
