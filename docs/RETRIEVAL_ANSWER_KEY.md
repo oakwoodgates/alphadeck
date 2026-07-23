@@ -166,6 +166,53 @@ auditable, not so it is binding.
 
 ---
 
+## 6. The locatability probe — can the cover be read across ALL 48? (measured 2026-07-23)
+
+§1 verified six names by hand. That proves the cover is *readable*, not that it is *reliably locatable*. So a
+probe ran the same locate-and-compare over **all 48 dark names**, with the Finding-C fixes applied
+(comma **and** space separators).
+
+| Outcome | Count |
+|---|---|
+| Cue located, number extracted | **43** |
+| No 20-F **or** 40-F on file (the honest-empty set) | 4 — OPTH, AGNPF, PBLS, SKHY |
+| Cue found but no parseable number | 1 — SPRC |
+
+Of the 43 located: **31 exactly match `companyfacts`**, 9 disagree, 3 have no companyfacts to compare.
+A 9-digit exact agreement is not plausible by chance, so **the 31 agreements are strong evidence the
+approach works.** Total corpus: **197 MB across 43 documents** (0.2 MB – 25.2 MB; ASML the largest).
+
+### The 9 disagreements — and 3 of them were the PROBE'S OWN BUGS
+
+Recorded honestly, because "my tool found 9 problems" was wrong; it found 6, and made 3.
+
+| Name | Cause | Whose fault |
+|---|---|---|
+| NVMI, OGI, CURLD, HELP | **companyfacts lags the filing** — the cover is fresher | genuine (Finding B) |
+| QNTM | **companyfacts carries garbage** — `dei` says **12 shares** (cover: 3,887,729) | genuine |
+| CAJPY | **ADS subset mis-read as a second class** — cover says *"1,015,513,368 shares of common stock, **including 17,371,450 ADSs**"*. The second number is a SUBSET, not a class. Summing it would be badly wrong. | genuine |
+| CRDL | **probe bug** — `filings_of('20-F') or filings_of('40-F')` short-circuits, so it read a **2023** 20-F while a **2025** 40-F existed. companyfacts was right. | **mine** |
+| CMND, PBM | **probe bug — confidently WRONG values.** Neither filing contains the cover cue at all; the regex matched deep in the document (PBM at char **400,658**, in an EPS note: *"number of outstanding shares - basic and diluted"*) and returned a number that is not a share count. | **mine** |
+
+### What the probe therefore imposes on the build
+
+The CMND/PBM failures are the important ones: not "no match" but **confident wrong match**. That is the
+`_locate` weakness in production form — `_locate` (`extract.py:93`) returns the first anchor found
+*anywhere* in the document, and its anchor set (`"shares of Class"`, `"Class A"`, `"outstanding"`) is tuned
+to a 10-Q cover. In a 25 MB 20-F it will match a footnote.
+
+1. **Pick the latest filing across 20-F AND 40-F by report date** — never prefer one form (the CRDL bug).
+2. **Bound the cover match by position** — verify the hit is the cover, not a match anywhere in 25 MB.
+   A cue-miss must fail CLOSED (no value) rather than fall through to a wrong number.
+3. **Parse both separators** — `1,234,567` and `1 234 567` (NVS).
+4. **Tolerate tag-split words** — `clean_filing_text` (`converts.py:77`) replaces every tag with a SPACE,
+   so `Comm<span>on</span>` → `Comm on`. **This is production behavior, not a probe artifact** — verified.
+5. **"including N ADSs" is a subset, never a second class** (CAJPY). ADRs are common among foreign filers.
+6. **Sanity-floor companyfacts** — QNTM's `dei` value of 12 must not be servable.
+7. **Neither source dominates.** companyfacts sometimes lags the filing (NVMI) and is sometimes FRESHER
+   than the latest annual filing (CRDL, via a 40-F newer than the 20-F). The rule must therefore be
+   **"the later as-of date wins, and show both when they disagree"** — *not* "prefer the document."
+
 ## Reproducing this key
 
 Every number above came from live EDGAR via the container. The pattern:
