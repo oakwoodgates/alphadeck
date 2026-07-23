@@ -1821,6 +1821,10 @@ export interface components {
             located_passages?: components["schemas"]["LocatedPassage"][];
             /** Estimate Source */
             estimate_source?: string | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
         };
         /**
          * ExtractionResult
@@ -2290,6 +2294,10 @@ export interface components {
             fact_type: "shares_outstanding";
             /** Shares */
             shares: number;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: ("known" | "unread") | null;
         };
         /**
          * ResolvedPlacement

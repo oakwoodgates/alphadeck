@@ -74,6 +74,16 @@ class ExtractedFact(DomainModel):
     # Display-only provenance so the operator (and the UI) can see WHERE a proposed number came from before
     # they confirm/override; it never makes the value a fact (only the operator's ratify does).
     estimate_source: str | None = None
+    # The ADS/ADR ratio for an ANNUAL-cover shares candidate (Retrieval Slice 1 §10): ordinary shares
+    # per ADS. The cover states ORDINARY shares while the price feed carries the ADS price — they only
+    # multiply at 1:1, so the ratio modulates the market-cap DERIVATION (never the count itself; the
+    # value stays the cover's true ordinary count, married to its located passage).
+    # ``ads_ratio_status``: "known" (a ratio N>=1 was READ from the filing — the scorer divides by it)
+    # | "unread" (ADR evidence present but no defensible ratio: missing, fractional, or CONFLICTING —
+    # the scorer SUPPRESSES the cap rather than guess 1:1) | None (no ADR evidence — 1:1; also every
+    # 10-Q candidate). Rides the ratify body into ``fact_shares_outstanding`` as derivation metadata.
+    ads_ratio: int | None = None
+    ads_ratio_status: str | None = None
 
 
 class ExtractionResult(DomainModel):

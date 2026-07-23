@@ -204,7 +204,20 @@ function RatifyRow({
         estimate: purityEstimate ?? undefined,
       });
     else if (candidate.fact_type === "shares_outstanding")
-      ratify.mutate({ ...common, fact_type: "shares_outstanding", shares: Number(shares) });
+      ratify.mutate({
+        ...common,
+        fact_type: "shares_outstanding",
+        shares: Number(shares),
+        // the ADS-ratio derivation metadata rides through from the candidate (spec §10) — like
+        // `source`, carried, never retyped: "known" divides the cap, "unread" withholds it, absent
+        // (every 10-Q name) computes 1:1. The note above states which; the operator ratifies it all.
+        // (The write accepts only the two meaningful stamps — anything else stays off the wire.)
+        ads_ratio: candidate.ads_ratio ?? undefined,
+        ads_ratio_status:
+          candidate.ads_ratio_status === "known" || candidate.ads_ratio_status === "unread"
+            ? candidate.ads_ratio_status
+            : undefined,
+      });
     else
       ratify.mutate({
         ...common,

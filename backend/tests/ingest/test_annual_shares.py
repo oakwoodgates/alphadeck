@@ -58,6 +58,7 @@ def _one(
     form: str = "20-F",
     raw: bool = False,
     today: date = _TODAY,
+    has_f6: bool = False,
 ):
     text = _text(fname)
     if raw:
@@ -69,6 +70,7 @@ def _one(
         annual_form=form,
         report_date=report_date,
         today=today,
+        has_f6_filing=has_f6,
     )
     assert len(facts) <= 1
     return facts[0] if facts else None
@@ -425,3 +427,111 @@ def test_stale_cover_ages_against_today_and_marks_the_exception():
     assert "204 days old" in stale.note
     fresh = _one("ASML-20f.txt", cf=_cf("ASML"), today=date(2026, 1, 15))
     assert fresh is not None and "stale-cover" not in fresh.flags
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the ADS ratio (spec §10) — apply where READ, SUPPRESS where not. The cover states ORDINARY shares;
+# the price feed carries the ADS price; a defaulted 1:1 is a silent multiplicative error.
+# ---------------------------------------------------------------------------------------------------------
+
+
+def test_tsm_prose_ratio_is_read_and_f6_absence_never_implies_no_adr():
+    """TSM states *"each ADS represents five (5) common shares"* in prose — word + parenthesized
+    digits agreeing — and has NO F-6-family filing on record. The ratio must still be read: F-6 is a
+    POSITIVE evidence signal only; inferring "no F-6 ⇒ not an ADR" would have priced TSM 5x high
+    ($10.9T instead of ~$2.2T — the defect that motivated §10)."""
+    f = _one("TSM-20f.txt", cf=_cf("TSM"), has_f6=False)
+    assert f is not None
+    assert f.ads_ratio == 5 and f.ads_ratio_status == "known"
+    assert "ADS ratio 5:1" in f.note
+    assert f.value == 25_932_524_521  # the fact stays the TRUE ordinary count — never pre-divided
+
+
+def test_simo_securities_table_ratio_is_read():
+    """SIMO's 4:1 sits in the cover's *securities-registered table* — *"American Depositary Shares,
+    each representing four ordinary shares"* — not a prose sentence; the form the first (prose-only)
+    parser missed. The division's own evidence rides as a second located passage (#6)."""
+    f = _one("SIMO-20f.txt", has_f6=True)
+    assert f is not None
+    assert f.ads_ratio == 4 and f.ads_ratio_status == "known"
+    assert any("each representing four" in p.excerpt for p in f.located_passages)
+
+
+def test_adxn_nounless_table_row_and_change_history_read_120():
+    """ADXN's registration row reads *"… The Nasdaq Stock Market LLC each representing 120 ordinary
+    shares"* — the ADS noun sits in a DIFFERENT table cell, so a parser demanding an adjacent noun
+    misses it (the region-scoped table arm exists for exactly this). Its prose also narrates a ratio
+    CHANGE ("from one ADS representing six shares to a new ratio of … one hundred and twenty") — the
+    historical from-arm must not read as a conflict. 120:1 is the current, correct ratio."""
+    f = _one("ADXN-20f.txt", report_date=date(2025, 12, 31), has_f6=True)
+    assert f is not None
+    assert f.ads_ratio == 120 and f.ads_ratio_status == "known"
+
+
+def test_bway_ratio_change_history_is_not_a_conflict():
+    """BWAY's prose narrates *"changed from one ADS representing two ordinary shares to a new ratio of
+    one ADS representing one ordinary share"* while its registration row says 1:1. The FROM-arm is
+    history: reading it as a live value would manufacture a {1, 2} conflict and wrongly suppress a
+    readable 1:1 name."""
+    f = _one("BWAY-20f.txt", report_date=date(2025, 12, 31))
+    assert f is not None
+    assert f.ads_ratio == 1 and f.ads_ratio_status == "known"
+
+
+def test_imos_twenty_to_one_is_read():
+    """IMOS: 20 ordinary shares per ADS ("each ADS represents 20 ordinary shares") — the ratio whose
+    omission displayed a $44.1B cap for a ~$2.2B company."""
+    f = _one("IMOS-20f-raw.htm", cf=_cf("IMOS"), raw=True, has_f6=True)
+    assert f is not None
+    assert f.ads_ratio == 20 and f.ads_ratio_status == "known"
+
+
+def test_one_to_one_ratio_names_read_one():
+    """NVS / ARM / KYOCY are genuinely 1:1 — the ratio is READ (status known, divisor 1), never merely
+    assumed: a 1:1 read and a no-evidence 1:1 assumption are different provenance."""
+    for fname, kwargs in (
+        ("NVS-20f.txt", dict(cf=_cf("NVS"), has_f6=True)),
+        ("ARM-20f.txt", dict(has_f6=True)),
+        ("KYOCY-20f.txt", dict(report_date=date(2018, 3, 31), has_f6=True)),
+    ):
+        f = _one(fname, **kwargs)
+        assert f is not None, fname
+        assert f.ads_ratio == 1 and f.ads_ratio_status == "known", fname
+
+
+def test_adr_evidence_without_readable_ratio_is_unread_and_flagged():
+    """The fail-closed floor: ADR evidence with NO defensible ratio -> `unread` + the
+    `ads-ratio-unread` flag (the scorer withholds the cap; a guessed 1:1 would be silently wrong).
+    SPRC: an F-6 on file but no ratio statement anywhere. EVO: a FRACTIONAL ratio ("each representing
+    one-half of one ordinary share") — real, but never a divisor we apply."""
+    sprc = _one("SPRC-20f.txt", has_f6=True)
+    assert sprc is not None
+    assert sprc.ads_ratio is None and sprc.ads_ratio_status == "unread"
+    assert "ads-ratio-unread" in sprc.flags
+    assert "WITHHELD" in sprc.note and "F-6" in sprc.note
+    evo = _one("EVO-20f.txt", has_f6=True)
+    assert evo is not None
+    assert evo.ads_ratio is None and evo.ads_ratio_status == "unread"
+    assert "ads-ratio-unread" in evo.flags
+
+
+def test_xtlb_conflicting_in_document_ratios_are_unread():
+    """XTLB's registration row says 100:1 while its 2026-financing prose says 400:1 ("Each ADS
+    represents four hundred (400) ordinary shares" — a mid-cycle ratio change). DISTINCT values in one
+    document = a conflict the parser must not adjudicate: unread, cap withheld, both values named.
+    (Also pins compound word-numbers: a single-token map read "four hundred" as 4.)"""
+    f = _one("XTLB-20f.txt", report_date=date(2025, 12, 31), has_f6=True)
+    assert f is not None
+    assert f.ads_ratio is None and f.ads_ratio_status == "unread"
+    assert "CONFLICTING ratios stated (100, 400)" in f.note
+
+
+def test_no_adr_evidence_reads_not_applicable():
+    """No ADS/ADR evidence at all (ASML, CAMT, NVMI — ordinary shares listed directly): status None,
+    the 1:1 assumption recorded in the note so it rides provenance into the scored read (#6)."""
+    for fname in ("ASML-20f.txt", "CAMT-20f.txt", "NVMI-20f.txt"):
+        f = _one(fname)
+        assert f is not None, fname
+        assert f.ads_ratio is None and f.ads_ratio_status is None, fname
+        assert "No ADS/ADR evidence" in f.note, fname
+        assert "ads-ratio-unread" not in f.flags, fname

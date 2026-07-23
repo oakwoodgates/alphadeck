@@ -61,6 +61,153 @@ _COUNT_RE = re.compile(r"\b\d{1,3}(?:[,\s ]\d{3})+\b")
 _EXCERPT_PRE_CHARS = 60
 _EXCERPT_TAIL_CHARS = 140
 
+# ---------------------------------------------------------------------------------------------------------
+# the ADS ratio (spec §10) — apply where READ, SUPPRESS where not
+# ---------------------------------------------------------------------------------------------------------
+# The cover states ORDINARY shares; the price feed carries the ADS price. Ratios measured from the
+# filings' own words run 1:1 up to 120:1 — a raw shares×price overstates the cap N-fold, and the mid-size
+# errors (2x, 5x) are exactly the ones the operator's market-cap intuition does NOT catch. Detection can
+# never be proven complete, so the rule is fail-closed one layer down from the cover cue: a READ ratio is
+# applied; ADR evidence WITHOUT a defensible ratio (missing / fractional / CONFLICTING statements)
+# suppresses the cap; no evidence at all computes 1:1 with the assumption recorded. Better detection later
+# moves a name from suppressed→correct, never from wrong→right.
+
+# word-numbers: covers spelled ratios ("five", "ten", "twenty") and compounds ("four hundred",
+# "one hundred and twenty" — both real; a naive single-token map read "four hundred" as 4).
+_RATIO_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+    "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}  # fmt: skip
+_RATIO_MULT = {"hundred": 100, "thousand": 1000}
+
+# the number-phrase chunk each arm captures: lazily up to the word "share(s)"
+_NP = r"(.{1,40}?)\s*(?:new\s+)?(?:ordinary|common|equity|Ordinary|Common)?\s*[Ss]hares?\b"
+# arm A — an explicit ADS/ADR noun then "represents/representing" (doc-wide prose): "each ADS
+# represents five (5) common shares", "each of which represents ten shares". ("deposit[ao]r?y" nets
+# the real "depository" misspelling seen in the wild.)
+_ADS_ARM_A = re.compile(
+    r"each (?:of which |of our )?(?:ADSs?|ADRs?|American [Dd]eposit[ao]r?y (?:Shares?|Receipts?))?"
+    r"\s*(?:will )?represent(?:s|ing)?\s+" + _NP,
+    re.IGNORECASE,
+)
+# arm C — "one ADS represents/representing N shares" (price-table footnotes; the TARGET of a
+# ratio-change sentence). The "changed FROM one ADS representing X" arm is HISTORY and is excluded at
+# match time (a from-preceded match) — real filings state both the old and new ratio in one sentence.
+_ADS_ARM_C = re.compile(
+    r"one (?:ADS|ADR|American Depositary Share)\s+(?:will )?represent(?:s|ing)?\s+" + _NP,
+    re.IGNORECASE,
+)
+# arm D — the noun-BEFORE-each form: "American Depositary Shares, each representing one share"
+# (the noun and "each" straddle a comma/paren) — doc-wide, noun explicit.
+_ADS_ARM_D = re.compile(
+    r"(?:ADSs?|ADRs?|American [Dd]eposit[ao]r?y (?:Shares?|Receipts?))[^.]{0,40}?[,)]\s*"
+    r"each representing\s+" + _NP,
+    re.IGNORECASE,
+)
+# arm B — the securities-registered TABLE row: "each representing four ordinary shares" with NO
+# adjacent ADS noun (table-cell boundaries separate them — the form a prose-only parser misses).
+# REGION-SCOPED to the cover's registration block, never doc-wide (elsewhere "each representing"
+# belongs to warrants/units).
+_ADS_ARM_B = re.compile(r"each (?:of which )?represent(?:s|ing)\s+" + _NP, re.IGNORECASE)
+
+_ADS_MENTION_RE = re.compile(r"American Depositar|\bADSs?\b|\bADRs?\b", re.IGNORECASE)
+# The registration block starts at the FIRST "Securities registered" heading — the 12(b) table (where
+# the ADS row lives) precedes the 12(g)/15(d) ones, so `find`, never `rfind` (the last heading sits
+# PAST the ADS row and hid it). Retrieval windows (the `_PURITY_WINDOW` precedent), not match bounds:
+_SR_ANCHOR = "securities registered"
+_SR_MAX_SPAN = (
+    8000  # a "Securities registered" further than this from the cue isn't the cover's block
+)
+_SR_FALLBACK_PRE = (
+    4000  # no heading found -> the window just before the cue stands in for the block
+)
+
+
+def _parse_ratio_phrase(chunk: str) -> int | None:
+    """``'five (5)'``->5 · ``'20'``->20 · ``'four hundred ( 400 )'``->400 · ``'one hundred and
+    twenty'``->120 · fractional (``'one-half of one'``) or junk -> None (never a guess). Parenthesized
+    digits must AGREE with the words — a disagreement is unparseable, not a choice."""
+    if re.search(r"\bhalf\b|\bquarter\b|\bthird\b", chunk, re.IGNORECASE):
+        return (
+            None  # a fractional ratio is real (1 ADS = half a share) but never a divisor we apply
+        )
+    paren = re.search(r"\(\s*([\d,]+)\s*\)", chunk)
+    paren_val = int(paren.group(1).replace(",", "")) if paren else None
+    tokens = re.findall(r"[a-z]+|\d[\d,]*", chunk.lower().replace("-", " "))
+    cur = 0
+    seen = False
+    for t in tokens:
+        if t == "and":
+            continue
+        if t[0].isdigit():
+            if (
+                seen
+            ):  # a bare digit AFTER words is the parenthesized restatement, cross-checked below
+                continue
+            cur += int(t.replace(",", ""))
+            seen = True
+        elif t in _RATIO_WORDS:
+            cur += _RATIO_WORDS[t]
+            seen = True
+        elif t in _RATIO_MULT:
+            cur = max(cur, 1) * _RATIO_MULT[t]
+            seen = True
+        else:
+            break  # a non-number word ends the phrase ("the right to receive …" never starts one)
+    if not seen or (paren_val is not None and paren_val != cur):
+        return None
+    return cur
+
+
+def _detect_ads_ratio(
+    text: str, cue_start: int, has_f6_filing: bool, cfg: ExtractorConfig
+) -> tuple[str | None, int | None, list[tuple[str, int, int | None]]]:
+    """(status, ratio, hits) over the CLEANED annual text. status: ``"known"`` (exactly one defensible
+    ratio read) · ``"unread"`` (ADR evidence but no/fractional/CONFLICTING ratio — suppress the cap) ·
+    ``None`` (no ADR evidence — 1:1). ``hits`` = (matched text, offset, parsed value|None) for the
+    note + the evidence passage. Evidence = any ratio-shaped phrase, an ADS/ADR mention inside the
+    cover's securities-registered block, or an F-6-family filing on record — F-6 is a POSITIVE signal
+    only; its absence never implies "not an ADR" (a 5:1 name with no recent F-6 was measured)."""
+    sr = text.lower().find(_SR_ANCHOR)
+    if 0 <= sr < cue_start and cue_start - sr <= _SR_MAX_SPAN:
+        region_start, region = sr, text[sr:cue_start]
+    else:
+        region_start = max(0, cue_start - _SR_FALLBACK_PRE)
+        region = text[region_start:cue_start]
+
+    values: set[int] = set()
+    hits: list[tuple[str, int, int | None]] = []
+    evidence = has_f6_filing or bool(_ADS_MENTION_RE.search(region))
+    for arm, scope, base in (
+        (_ADS_ARM_A, text, 0),
+        (_ADS_ARM_C, text, 0),
+        (_ADS_ARM_D, text, 0),
+        (_ADS_ARM_B, region, region_start),
+    ):
+        for h in arm.finditer(scope):
+            # "changed FROM one ADS representing X … to a new ratio of …" — the from-arm is history
+            if scope[max(0, h.start() - 8) : h.start()].lower().endswith("from "):
+                continue
+            if arm is not _ADS_ARM_B and not re.search(
+                r"ADS|ADR|American [Dd]epositar", h.group(0)
+            ):
+                continue  # the noun group is optional in arm A's grammar; outside the block, demand it
+            v = _parse_ratio_phrase(h.group(1))
+            hits.append((re.sub(r"\s+", " ", h.group(0))[:120], base + h.start(), v))
+            evidence = True
+            if v is not None:
+                values.add(v)
+    if len(values) == 1:
+        v = next(iter(values))
+        if 1 <= v <= cfg.annual_ads_ratio_max:
+            return "known", v, hits
+        return "unread", None, hits  # absurd — evidence yes, defensible divisor no
+    if evidence:  # zero parses, or CONFLICTING distinct values (a mid-change filing states both)
+        return "unread", None, hits
+    return None, None, hits
+
 
 def _latest_dei_cover(companyfacts: dict[str, Any] | None) -> tuple[float, date] | None:
     """The latest ``dei:EntityCommonStockSharesOutstanding`` (value, as-of end date). ``dei`` is
@@ -90,13 +237,16 @@ def extract_annual_shares(
     annual_form: str,
     report_date: date,
     today: date,
+    has_f6_filing: bool = False,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
 ) -> list[ExtractedFact]:
     """Pure + deterministic: (companyfacts-or-None + the CLEANED annual filing text) -> the one
     shares_outstanding FLAG candidate, or ``[]`` when the cover cannot be read (FAIL CLOSED — the
     caller stamps the honest empty reason). ``report_date`` is the filing's PERIOD OF REPORT — what
     the SEC instruction dates the cover count to; ``today`` ages the chosen count for the staleness
-    flag + the note (time is a parameter, never an implicit now).
+    flag + the note (time is a parameter, never an implicit now). ``has_f6_filing`` = an F-6-family
+    registration exists on EDGAR for this issuer — POSITIVE ADR evidence for the ratio detector
+    (spec §10; its absence proves nothing and is never used as a negative).
     """
     m = _COVER_INSTRUCTION_RE.search(annual_text)
     if m is None:
@@ -168,19 +318,63 @@ def extract_annual_shares(
             "the FIRST is offered, never a sum; ratify the composition against the passage."
         )
 
+    # the ADS ratio (spec §10) — the count stays the true ORDINARY count; the ratio rides as
+    # derivation metadata for the market-cap scorer (apply where read, suppress where not).
+    ads_status, ads_ratio, ads_hits = _detect_ads_ratio(annual_text, m.start(), has_f6_filing, cfg)
+    if ads_status == "known":
+        note += (
+            f" ADS ratio {ads_ratio}:1 read from the filing — the market cap divides this ordinary "
+            f"count by {ads_ratio} to price against the ADS."
+        )
+    elif ads_status == "unread":
+        flags.append("ads-ratio-unread")
+        distinct = sorted({v for _, _, v in ads_hits if v is not None})
+        why = (
+            f"CONFLICTING ratios stated ({', '.join(str(v) for v in distinct)})"
+            if len(distinct) > 1
+            else "no defensible ratio statement found"
+            + (" (an F-6 is on file)" if has_f6_filing else "")
+        )
+        note += (
+            f" ADR evidence present but the ADS ratio is UNREAD — {why}. The market cap is "
+            "WITHHELD rather than guessed at 1:1; the ordinary count above is still the fact."
+        )
+    else:
+        note += " No ADS/ADR evidence on the cover — the count prices 1:1 against the listed line."
+
     # the located passage — REQUIRED evidence (no passage -> no fact, enforced by the fail-closed
     # returns above): a bit before the instruction, through the LAST matched count + a tail, so the
     # subset/class wording is readable where the operator ratifies. Offset recorded, never filtered on.
     start = max(0, m.start() - _EXCERPT_PRE_CHARS)
     end = m.end() + nums[-1].end() + _EXCERPT_TAIL_CHARS
     excerpt = re.sub(r"\s+", " ", annual_text[start:end]).strip()
-    passage = LocatedPassage(
-        kind="cover",
-        source_ref=annual_ref,
-        anchor=m.group(0),
-        excerpt=f"… {excerpt} …",
-        offset=m.start(),
-    )
+    passages = [
+        LocatedPassage(
+            kind="cover",
+            source_ref=annual_ref,
+            anchor=m.group(0),
+            excerpt=f"… {excerpt} …",
+            offset=m.start(),
+        )
+    ]
+    if ads_hits:
+        # the ratio's OWN evidence rides too (#6): the first parsed statement (the one that set the
+        # value), else the first ratio-shaped hit — so the operator ratifies the division against the
+        # filing's words, not a bare number. F-6-only evidence has no text site; the note carries it.
+        best = next((h for h in ads_hits if h[2] is not None), ads_hits[0])
+        htext, hoff, _ = best
+        hexcerpt = re.sub(
+            r"\s+", " ", annual_text[max(0, hoff - 60) : hoff + len(htext) + 100]
+        ).strip()
+        passages.append(
+            LocatedPassage(
+                kind="cover",
+                source_ref=annual_ref,
+                anchor=htext[:80],
+                excerpt=f"… {hexcerpt} …",
+                offset=hoff,
+            )
+        )
 
     return [
         ExtractedFact(
@@ -191,13 +385,17 @@ def extract_annual_shares(
             source_ref=annual_ref,
             event_date=asof,
             flags=flags,
-            located_passages=[passage],
+            located_passages=passages,
             note=note,
+            ads_ratio=ads_ratio,
+            ads_ratio_status=ads_status,
         )
     ]
 
 
-def _latest_annual_filing(client: EdgarClient, cik: int) -> tuple[str, str, date, str] | None:
+def _latest_annual_filing(
+    client: EdgarClient, cik: int, *, subs: dict[str, Any] | None = None
+) -> tuple[str, str, date, str] | None:
     """(doc_url, CLEANED text, report_date, form) of the latest annual foreign filing across 20-F AND
     40-F — selected from submissions METADATA first, then ONE document fetched (these run 0.2-25 MB;
     fetching both to compare would double the spend the cost thread bounds).
@@ -205,8 +403,10 @@ def _latest_annual_filing(client: EdgarClient, cik: int) -> tuple[str, str, date
     Never prefer a form: ``filings_of('20-F') or filings_of('40-F')`` short-circuits — CRDL files
     both, and its non-empty 20-F list (2023) hid a newer 2025 40-F (the answer-key probe's own bug).
     Compare report dates; a tie keeps the 20-F (iteration order — date-identical either way).
+    ``subs``: an already-fetched submissions JSON (the wrapper shares one read across selection and
+    the F-6 scan); fetched here when omitted.
     """
-    subs = fetch_submissions(client, cik)
+    subs = subs if subs is not None else fetch_submissions(client, cik)
     best: tuple[date, str, dict[str, str]] | None = None
     for form in ("20-F", "40-F"):
         hits = filings_of(subs, form)
@@ -257,10 +457,16 @@ def annual_shares_for_security(
     An EXPLICIT operator action via the extract endpoint, never fired on a render (the cost thread).
     """
     cik = int(cik)
-    filing = _latest_annual_filing(client, cik)
+    subs = fetch_submissions(client, cik)
+    filing = _latest_annual_filing(client, cik, subs=subs)
     if filing is None:
         return ExtractionResult(facts=[], empty_reason="no-annual-filing")
     url, text, report_dt, form = filing
+    # F-6-family registrations (F-6, F-6/A, F-6EF, F-6 POS) = POSITIVE ADR evidence for the ratio
+    # detector. Positive only — a real 5:1 name with no recent F-6 was measured, so absence proves
+    # nothing (spec §10).
+    forms = subs.get("filings", {}).get("recent", {}).get("form", [])
+    has_f6 = any(str(f).startswith("F-6") for f in forms)
     facts = extract_annual_shares(
         _companyfacts_or_none(client, cik),
         text,
@@ -268,6 +474,7 @@ def annual_shares_for_security(
         annual_form=form,
         report_date=report_dt,
         today=today or date.today(),
+        has_f6_filing=has_f6,
         cfg=cfg,
     )
     if not facts:

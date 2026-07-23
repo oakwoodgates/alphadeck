@@ -274,6 +274,11 @@ class ExtractorConfig(DomainModel):
     # suppressed (recall #9 — a suppressed value is worse than a flagged one). QNTM's companyfacts
     # `dei` claims 12 shares against a cover of 3,887,729. PROPOSED dial (spec §9), not a measured fact.
     annual_implausible_floor_shares: float = 1_000.0
+    # The ADS-ratio absurdity ceiling (spec §10.3): a parsed ratio above this is treated as UNREAD
+    # (suppress), never applied. Real ratios in the measured universe run 1..120; deep-discount ADRs
+    # can genuinely reach several hundred (a 400:1 was measured mid-conflict), so the ceiling sits an
+    # order above the observed range rather than hugging it.
+    annual_ads_ratio_max: int = 1000
 
 
 DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()

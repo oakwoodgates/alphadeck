@@ -160,6 +160,36 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.getByLabelText("shares")).not.toHaveAttribute("readonly");
   });
 
+  it("a shares confirm carries the candidate's ADS-ratio metadata through — like source, never retyped", async () => {
+    // spec §10: the ratio modulates the market-cap DERIVATION server-side; the ratify body must carry
+    // the candidate's read ("known" 5 here) or the cap silently reverts to a 1:1 multiply — the 5x
+    // TSM-shaped error this addendum exists to kill. The count itself stays the operator's field.
+    const user = userEvent.setup();
+    const ANNUAL_5TO1 = {
+      ...AUTO_SHARES,
+      tier: "flag",
+      source: "annual-cover",
+      source_ref: "https://sec.gov/tsm-20f",
+      event_date: "2025-12-31",
+      value: 25932524521,
+      flags: ["annual-cover"],
+      note: "20-F cover count … ADS ratio 5:1 read from the filing …",
+      located_passages: [],
+      ads_ratio: 5,
+      ads_ratio_status: "known",
+    };
+    h.extract.data = env([ANNUAL_5TO1]);
+    render(<FactsPanel securityId={SID} />);
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "shares_outstanding",
+      shares: 25932524521, // the TRUE ordinary count — never pre-divided client-side
+      ads_ratio: 5,
+      ads_ratio_status: "known",
+    });
+  });
+
   it("missing-data flags render grey (∅), judgment flags warm (⚠) — honest loudness", () => {
     // one candidate can carry both: a derived burn with an anomalous line (judgment) + no cash
     // instant (a data gap). The gap is an authoring state, not an alarm — grey, never warm.

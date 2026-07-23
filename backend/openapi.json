@@ -3724,6 +3724,28 @@
               }
             ],
             "title": "Estimate Source"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "ads_ratio_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio Status"
           }
         },
         "additionalProperties": false,
@@ -4762,6 +4784,32 @@
           "shares": {
             "type": "number",
             "title": "Shares"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "ads_ratio_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "known",
+                  "unread"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio Status"
           }
         },
         "type": "object",

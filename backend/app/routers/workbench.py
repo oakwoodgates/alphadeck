@@ -929,6 +929,10 @@ def ratify_fact(
             req.security_id,
             shares=req.shares,
             vouched=_vouched(req.estimate, req.shares),
+            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on
+            # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
+            ads_ratio=req.ads_ratio,
+            ads_ratio_status=req.ads_ratio_status,
             **common,
         )
     elif req.fact_type == "catalyst":

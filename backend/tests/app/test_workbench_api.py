@@ -1293,6 +1293,30 @@ def test_auto_confirm_rejects_security_not_in_tenant(client):
     assert r.status_code == 404
 
 
+def test_ratify_shares_persists_ads_ratio_metadata(client, db, security_id):
+    """The ADS-ratio derivation metadata (spec §10) rides the shares ratify into the fact row —
+    carried from the candidate like `source`, never retyped — while a plain 10-Q-shaped ratify leaves
+    both NULL (the not-applicable → 1:1 encoding every legacy row already has)."""
+    body = {
+        "fact_type": "shares_outstanding",
+        "security_id": str(security_id),
+        "source": "annual-cover",
+        "source_ref": "https://www.sec.gov/tsm-20f.htm",
+        "event_date": "2025-12-31",
+        "shares": 25_932_524_521,
+        "ads_ratio": 5,
+        "ads_ratio_status": "known",
+    }
+    assert client.post("/workbench/facts", json=body).status_code == 200
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT ads_ratio, ads_ratio_status FROM fact_shares_outstanding WHERE security_id=%s",
+            (security_id,),
+        )
+        row = cur.fetchone()
+    assert row["ads_ratio"] == 5 and row["ads_ratio_status"] == "known"
+
+
 def test_ratify_rejects_security_not_in_tenant(client):
     """Write-side tenant discipline: a security_id not in THIS tenant's master fails closed (no junk fact)."""
     r = client.post(

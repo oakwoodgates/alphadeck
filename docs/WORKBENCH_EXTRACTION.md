@@ -243,6 +243,37 @@ true) · `cover-not-located` (a filing exists but its cover is unread — still 
 (shares emitted; **cash and purity remain uncovered for these names**, and the UI says so rather than
 letting a `—` imply zero).
 
+**The ADS ratio — apply where READ, SUPPRESS where not.** The annual cover states **ordinary** shares,
+but the price feed carries the **ADR/ADS** price — they only multiply at 1:1, and real ratios run 1:1 to
+three digits ("each ADS represents N ordinary/common shares"). A raw `shares × price` therefore overstates
+the cap N-fold — and the mid-size errors (2×, 5×) are exactly the ones the operator's market-cap intuition
+does **not** catch, on the one figure the extractor design leans on as the human check. The rules, each
+pinned by a test:
+
+- **Detection reads the filing already fetched** (no extra network): the ratio phrase in prose, the
+  **securities-registered table row** (where the ADS noun sits in a *different table cell* — the form a
+  prose-only parser misses), and word-numbers including **compounds** ("four hundred", "one hundred and
+  twenty" — a single-token map reads "four hundred" as 4). A ratio-**change** narration ("changed *from*
+  one ADS representing X … *to* …") contributes only its target — history is not a conflict.
+- **`known`** (exactly one defensible ratio) → the market cap divides the ordinary count by it. **The fact
+  keeps the true ordinary count** — the ratio modulates the *derivation*, never the value, or the fact
+  divorces from its located passage. The division's evidence rides as its own located passage (#6).
+- **`unread`** (ADR evidence but no defensible ratio: missing, **fractional** — "one-half of one share" is
+  real — or **conflicting** statements in one document) → the cap is **WITHHELD** in the awaiting-price
+  shape (value None, shares provenance visible, a note naming the missing half), never guessed at 1:1.
+  Detection can never be proven complete, and a defaulted 1:1 is a *multiplicative, silent, permanent*
+  error — the same fail-closed principle as the cover cue, one layer down. Better detection later moves a
+  name **suppressed → correct**, never *wrong → right*.
+- **not applicable** (no ADR evidence) → 1:1, the assumption recorded in the fact's note. **`NULL/NULL`
+  MUST read as not-applicable** — every legacy row and every domestic 10-Q name has NULL, so a
+  NULL-means-suppress encoding would blank every market cap in the app (the storage trap; a domestic-name
+  byte-identity regression test guards it).
+- **F-6 is a positive ADR signal only** — a real 5:1 name with no recent F-6 was measured. Never infer
+  "no F-6 ⇒ not an ADR".
+- Known limitation: a ratio **change** is picked up at the next annual filing (≤ ~a year of lag; the
+  in-between filing that states both old and new reads as a conflict → suppressed, honestly). A ratio is a
+  multiplicative input — it gets its own staleness thinking in a later pass.
+
 ## The located passage — deterministic retrieval, never a reading
 
 A `LocatedPassage` is **deterministic keyword/section retrieval** over the cleaned filing text (`_locate`:
