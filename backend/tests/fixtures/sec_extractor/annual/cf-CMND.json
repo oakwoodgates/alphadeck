@@ -1,0 +1,74 @@
+{
+ "cik": "0001892500",
+ "entityName": "Clearmind Medicine Inc.",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2022-10-31",
+       "val": 1319770,
+       "accn": "0001213900-23-008056",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2023-02-06",
+       "frame": "CY2022Q3I"
+      },
+      {
+       "end": "2023-10-31",
+       "val": 607337,
+       "accn": "0001213900-24-007413",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-01-29"
+      },
+      {
+       "end": "2023-10-31",
+       "val": 607337,
+       "accn": "0001213900-24-023593",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2024-03-18"
+      },
+      {
+       "end": "2023-10-31",
+       "val": 607337,
+       "accn": "0001213900-24-026622",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2024-03-27",
+       "frame": "CY2023Q3I"
+      },
+      {
+       "end": "2024-10-31",
+       "val": 4265186,
+       "accn": "0001213900-25-005490",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-01-22",
+       "frame": "CY2024Q3I"
+      },
+      {
+       "end": "2026-01-19",
+       "val": 158076,
+       "accn": "0001213900-26-005665",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-01-20",
+       "frame": "CY2025Q4I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -37,6 +37,11 @@ class LocatedPassage(DomainModel):
     source_ref: str  # the filing URL the excerpt came from
     anchor: str  # the keyword / heading that matched
     excerpt: str  # the surrounding text (deterministic window)
+    # The anchor match's character offset in the CLEANED filing text — recorded for AUDITABILITY (the
+    # annual-cover path stamps it), never filtered on: an offset bound is a tuned magic number that
+    # drops real covers (CAJPY's genuine cover sits ~52k chars deep behind the inline-XBRL context
+    # block). None on the passages that predate it.
+    offset: int | None = None
 
 
 class ExtractedFact(DomainModel):
@@ -69,3 +74,24 @@ class ExtractedFact(DomainModel):
     # Display-only provenance so the operator (and the UI) can see WHERE a proposed number came from before
     # they confirm/override; it never makes the value a fact (only the operator's ratify does).
     estimate_source: str | None = None
+
+
+class ExtractionResult(DomainModel):
+    """The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when
+    there are none. The three empty states are DISTINCT (interaction #2 — "we couldn't read it" must
+    never masquerade as "there is nothing"; the old bare ``[]`` + the FE's *"nothing to extract or
+    ratify here"* copy was false for 44 of the 48 dark names):
+
+    - ``facts`` non-empty → covered. For an annual-cover name that is SHARES ONLY — cash + purity are
+      still not covered for it (the FE says so rather than implying the data doesn't exist).
+    - ``empty_reason="no-annual-filing"`` → no 10-K/10-Q AND no 20-F/40-F: genuinely nothing on EDGAR
+      the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where "nothing to
+      extract" is true.
+    - ``empty_reason="cover-not-located"`` → an annual filing EXISTS but its cover instruction could
+      not be matched (PBM): the name is UNREAD, not empty — it stays a visible candidate for the next
+      pass, and companyfacts alone is deliberately NOT served (a fact without its located passage
+      would break the no-passage-no-fact contract).
+    """
+
+    facts: list[ExtractedFact] = Field(default_factory=list)
+    empty_reason: str | None = None  # "no-annual-filing" | "cover-not-located" | None

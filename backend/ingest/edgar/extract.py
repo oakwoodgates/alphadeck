@@ -29,7 +29,7 @@ from datetime import date
 from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
-from domain.extraction import ExtractedFact, LocatedPassage, Tier
+from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
@@ -655,9 +655,11 @@ def extract_for_security(
     """Live (cache-first) wrapper: CIK -> companyfacts + the latest 10-Q and/or 10-K -> candidates.
     An EXPLICIT operator action (the extract endpoint), never auto-fired on a render.
 
-    COVERAGE: an empty list means the issuer has NO 10-K/10-Q at all — a foreign private issuer files
-    20-F/6-K, which this extractor doesn't parse — so the caller can surface an honest "not covered"
-    message instead of a silent empty rail (and the FE stops calling an empty result "data ready").
+    COVERAGE: an empty list means the issuer has NO 10-K/10-Q at all (a foreign private issuer files
+    20-F/6-K instead). The extract ROUTE no longer stops there — ``extract_with_annual_fallback``
+    (below) routes those names through the annual-cover shares path (``annual_shares.py``, Slice 1)
+    with an honest, distinct empty reason when even that has nothing to read. THIS function stays
+    10-Q/10-K-only (the auto-confirm path keys off it — annual candidates are FLAG, never applied).
 
     BOTH-FORMS RELAXATION: it no longer requires BOTH forms. Each role falls back to whichever exists —
     a 10-K carries a cover-share count (shares) + a cash-flow statement (burn); a 10-Q carries interim
@@ -690,4 +692,29 @@ def extract_for_security(
     )
 
 
-__all__ = ["extract_facts", "extract_for_security", "ExtractedFact"]
+def extract_with_annual_fallback(
+    client: EdgarClient,
+    cik: str | int,
+    *,
+    cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+) -> ExtractionResult:
+    """The extract ROUTE's entry (Retrieval Slice 1): the existing 10-Q/10-K path whenever a domestic
+    periodic filing exists — UNCHANGED — else the annual-cover shares path (20-F/40-F, FLAG-only) with
+    an honest, DISTINCT empty reason (``ExtractionResult.empty_reason``; the three empty states).
+
+    The dark-name trigger is the SAME condition the periodic path bails on (no 10-Q AND no 10-K), but
+    it is checked FIRST from submissions because the periodic path fetches companyfacts up front and
+    fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
+    the annual path must still serve cover-only.
+    """
+    cik = int(cik)
+    subs = fetch_submissions(client, cik)
+    if filings_of(subs, "10-Q") or filings_of(subs, "10-K"):
+        return ExtractionResult(facts=extract_for_security(client, cik, cfg=cfg))
+    # Lazy import keeps the module DAG acyclic: annual_shares imports this module's URL helpers.
+    from ingest.edgar.annual_shares import annual_shares_for_security
+
+    return annual_shares_for_security(client, cik, cfg=cfg)
+
+
+__all__ = ["extract_facts", "extract_for_security", "extract_with_annual_fallback", "ExtractedFact"]

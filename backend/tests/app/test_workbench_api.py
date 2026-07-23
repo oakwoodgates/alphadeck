@@ -655,37 +655,59 @@ def test_securities_search_serves_the_master(client, db):
 def test_extract_endpoint_serves_candidates(client, security_id, monkeypatch):
     """The extract route resolves the security's CIK, runs the extractor, and serves the candidate facts
     (the extraction LOGIC is covered by the offline golden test; this covers the route + CIK resolution +
-    the wire shape). The live SEC fetch is monkeypatched so the test stays offline."""
+    the wire shape — now the ExtractionResult ENVELOPE: facts + the honest empty_reason). The live SEC
+    fetch is monkeypatched so the test stays offline."""
     from app.routers import workbench as wb
-    from domain.extraction import ExtractedFact, LocatedPassage, Tier
+    from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 
-    fake = [
-        ExtractedFact(
-            fact_type="cash_burn",
-            tier=Tier.FLAG,
-            source="10-q",
-            source_ref="https://sec.gov/x.htm",
-            event_date=date(2026, 3, 31),
-            cash_usd=1_000.0,
-            quarterly_burn_usd=314_678_000.0,
-            flags=["possible-one-time"],
-            located_passages=[
-                LocatedPassage(
-                    kind="cash-flow",
-                    source_ref="https://sec.gov/x.htm",
-                    anchor="264,195",
-                    excerpt="… accrued (264,195) …",
-                )
-            ],
-        )
-    ]
-    monkeypatch.setattr(wb, "extract_for_security", lambda client, cik: fake)
+    fake = ExtractionResult(
+        facts=[
+            ExtractedFact(
+                fact_type="cash_burn",
+                tier=Tier.FLAG,
+                source="10-q",
+                source_ref="https://sec.gov/x.htm",
+                event_date=date(2026, 3, 31),
+                cash_usd=1_000.0,
+                quarterly_burn_usd=314_678_000.0,
+                flags=["possible-one-time"],
+                located_passages=[
+                    LocatedPassage(
+                        kind="cash-flow",
+                        source_ref="https://sec.gov/x.htm",
+                        anchor="264,195",
+                        excerpt="… accrued (264,195) …",
+                    )
+                ],
+            )
+        ]
+    )
+    monkeypatch.setattr(wb, "extract_with_annual_fallback", lambda client, cik: fake)
     r = client.get(f"/workbench/securities/{security_id}/extract")
     assert r.status_code == 200
-    f = r.json()[0]
+    assert r.json()["empty_reason"] is None
+    f = r.json()["facts"][0]
     assert f["fact_type"] == "cash_burn" and f["tier"] == "flag"
     assert f["flags"] == ["possible-one-time"]
     assert f["located_passages"][0]["anchor"] == "264,195"
+
+
+def test_extract_endpoint_serves_the_distinct_empty_reasons(client, security_id, monkeypatch):
+    """The three empty states must be DISTINCT on the wire (spec §5): `no-annual-filing` (genuinely
+    nothing on EDGAR — SKHY) vs `cover-not-located` (an annual filing exists but its cover could not
+    be read — PBM; the name is UNREAD, not empty). The FE renders them differently; a bare [] cannot.
+    """
+    from app.routers import workbench as wb
+    from domain.extraction import ExtractionResult
+
+    for reason in ("no-annual-filing", "cover-not-located"):
+        monkeypatch.setattr(
+            wb,
+            "extract_with_annual_fallback",
+            lambda client, cik, r=reason: ExtractionResult(facts=[], empty_reason=r),
+        )
+        body = client.get(f"/workbench/securities/{security_id}/extract").json()
+        assert body == {"facts": [], "empty_reason": reason}
 
 
 def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security_id, monkeypatch):
@@ -694,7 +716,7 @@ def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security
     HUMAN (located, no value). The estimate never persists (the endpoint writes nothing)."""
     from app.deps import get_purity_client
     from app.routers import workbench as wb
-    from domain.extraction import ExtractedFact, LocatedPassage, Tier
+    from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 
     purity = ExtractedFact(
         fact_type="revenue_mix",
@@ -713,7 +735,9 @@ def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security
     )
     # a FRESH candidate per call — the endpoint mutates the purity candidate in place
     monkeypatch.setattr(
-        wb, "extract_for_security", lambda client, cik: [purity.model_copy(deep=True)]
+        wb,
+        "extract_with_annual_fallback",
+        lambda client, cik: ExtractionResult(facts=[purity.model_copy(deep=True)]),
     )
 
     class _FakePurity:
@@ -731,7 +755,7 @@ def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security
     # WITH thesis_id -> the grounded estimate attaches (value + tag), still carrying the passage it read
     f = client.get(
         f"/workbench/securities/{security_id}/extract", params={"thesis_id": str(tid)}
-    ).json()[0]
+    ).json()["facts"][0]
     assert f["fact_type"] == "revenue_mix"
     assert f["value"] == 77.0 and f["estimate_source"] == "llm_proposed"
     assert (
@@ -739,7 +763,7 @@ def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security
     )  # the estimate carries its passage
 
     # WITHOUT thesis_id -> purity stays HUMAN (located, no value); the seam is never consulted
-    g = client.get(f"/workbench/securities/{security_id}/extract").json()[0]
+    g = client.get(f"/workbench/securities/{security_id}/extract").json()["facts"][0]
     assert g["value"] is None and g["estimate_source"] is None
 
 

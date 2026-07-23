@@ -20,6 +20,10 @@ export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"]
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
+// the extract envelope (Retrieval Slice 1): candidates + the honest empty reason — the three empty
+// states are distinct ("no-annual-filing" = genuinely nothing on EDGAR; "cover-not-located" = an
+// annual filing exists but its cover couldn't be read: UNREAD, not empty)
+export type ExtractionResult = components["schemas"]["ExtractionResult"];
 export type AutoConfirmOut = components["schemas"]["AutoConfirmOut"];
 export type LocatedPassage = components["schemas"]["LocatedPassage"];
 export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
@@ -450,14 +454,15 @@ export function useSectionData(thesisId: string) {
         // Auto-apply the AUTO shares count. Read the candidates from the cache so this covers the fetched
         // AND the already-cached member alike; a rejected extract leaves it undefined -> we skip. The tier
         // check just avoids a pointless call (the server re-verifies and owns the number), and a failure is
-        // swallowed: the section run must never break because a convenience write didn't land.
+        // swallowed: the section run must never break because a convenience write didn't land. An
+        // annual-cover name can never take this branch — its shares candidate is ALWAYS "flag".
         let sharesAuto = false;
-        const cands = qc.getQueryData<ExtractedFact[]>([
+        const cands = qc.getQueryData<ExtractionResult>([
           "workbench-extract",
           m.security_id,
           thesisId ?? null,
         ]);
-        if (cands?.find((f) => f.fact_type === "shares_outstanding")?.tier === "auto") {
+        if (cands?.facts?.find((f) => f.fact_type === "shares_outstanding")?.tier === "auto") {
           try {
             sharesAuto = (await postAutoConfirmShares(m.security_id)).applied;
           } catch {

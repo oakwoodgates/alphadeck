@@ -261,5 +261,19 @@ class ExtractorConfig(DomainModel):
         "contribution",
     )
 
+    # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
+    # The window AFTER the located cover instruction searched for the count. The instruction sentence
+    # ends and the count follows within a sentence or a short per-class table; measured sufficient
+    # across all 43 readable 20-F/40-F covers (docs/RETRIEVAL_ANSWER_KEY.md §6).
+    annual_cover_segment_chars: int = 900
+    # A chosen count older than this (days, aged against the request's `today`) wears `stale-cover` —
+    # mirroring the FE's ">~6mo old" `.wb-stale-shares` badge (`staleSharesMonths`), so the backend
+    # flag and the UI badge tell ONE staleness story rather than two.
+    annual_stale_cover_days: int = 183
+    # The implausibility floor: a WINNING value below this is emitted WITH `implausible-count`, never
+    # suppressed (recall #9 — a suppressed value is worse than a flagged one). QNTM's companyfacts
+    # `dei` claims 12 shares against a cover of 3,887,729. PROPOSED dial (spec §9), not a measured fact.
+    annual_implausible_floor_shares: float = 1_000.0
+
 
 DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()
