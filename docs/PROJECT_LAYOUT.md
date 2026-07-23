@@ -34,6 +34,7 @@ alphadeck/
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md
 │   ├── RECALIBRATION.md   # the post-MVP tuning agenda (pass-001 record retired into ROADMAP's trust box)
+│   ├── RETRIEVAL_ANSWER_KEY.md   # RETRIEVAL: hand-verified filing-vs-companyfacts ground truth for the 48 dark names (the falsifiable oracle, built before the code)
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/
