@@ -23,6 +23,9 @@ function wrapperWith(qc: QueryClient) {
 
 const M = (sid: string, ticker: string) => ({ security_id: sid, ticker });
 
+// the wire shape is the ExtractionResult ENVELOPE (Retrieval Slice 1): facts + the honest empty reason
+const env = (facts: unknown[], empty_reason: string | null = null) => ({ facts, empty_reason });
+
 beforeEach(() => {
   h.post.mockReset();
   h.get.mockReset();
@@ -30,7 +33,7 @@ beforeEach(() => {
     data: { security_id: "x", ticker: "X", bars_appended: 2, latest_bar: "2026-07-08" },
     error: null,
   });
-  h.get.mockResolvedValue({ data: [], error: null });
+  h.get.mockResolvedValue({ data: env([]), error: null });
 });
 
 describe("useSectionData — the per-section prices + extraction runner", () => {
@@ -54,7 +57,7 @@ describe("useSectionData — the per-section prices + extraction runner", () => 
   it("auto-applies an AUTO shares count per member, sending NO value, and reports the count", async () => {
     const qc = new QueryClient();
     h.get.mockResolvedValue({
-      data: [{ fact_type: "shares_outstanding", tier: "auto" }],
+      data: env([{ fact_type: "shares_outstanding", tier: "auto" }]),
       error: null,
     });
     h.post.mockImplementation((path: string) =>
@@ -79,7 +82,7 @@ describe("useSectionData — the per-section prices + extraction runner", () => 
     const qc = new QueryClient();
     h.get.mockResolvedValue({
       // dual-class / stale-cover: a judgment call the machine must not make
-      data: [{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }],
+      data: env([{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }]),
       error: null,
     });
     const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
@@ -93,7 +96,7 @@ describe("useSectionData — the per-section prices + extraction runner", () => 
   it("an already-cached extract is NOT re-spent (cache-first client-side)", async () => {
     const qc = new QueryClient();
     // seed the SHARED query cache for s-1 (what a prior row-click / section run left behind)
-    qc.setQueryData(extractQueryOptions("s-1", "t1").queryKey, []);
+    qc.setQueryData(extractQueryOptions("s-1", "t1").queryKey, env([]));
     const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
     await act(async () => {
       await result.current.run([M("s-1", "AAA"), M("s-2", "BBB")]);

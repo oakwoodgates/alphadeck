@@ -38,6 +38,11 @@ export function FactsPanel({
 }) {
   // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
   const extract = useExtract(securityId, thesisId);
+  const facts = extract.data?.facts ?? [];
+  // an annual-cover name (a foreign 20-F/40-F filer): shares came through, but cash + purity are NOT
+  // covered for it yet — say so, or the "—" meters imply the data doesn't exist (spec §5.3)
+  const annualOnly = facts.length > 0 && facts.every((f) => f.source === "annual-cover");
+  const settled = extract.data !== undefined && !extract.isFetching && !extract.error;
   return (
     <div className="facts-panel">
       <button
@@ -49,9 +54,9 @@ export function FactsPanel({
         {extract.isFetching ? "Extracting…" : "↻ Extract from filings"}
       </button>
       <div className="note">
-        Auto-extract the scoring facts from the latest 10-Q/10-K — you confirm each (AUTO as-is, FLAG the
-        composition, purity you author). An explicit call (cache-first); the operator ratifies, the model
-        never does.
+        Auto-extract the scoring facts from the latest SEC filings — 10-Q/10-K, or a foreign filer's
+        20-F/40-F cover (shares only, always FLAG) — you confirm each (AUTO as-is, FLAG the composition,
+        purity you author). An explicit call (cache-first); the operator ratifies, the model never does.
       </div>
       {extract.error && (
         <div className="note err">
@@ -59,7 +64,7 @@ export function FactsPanel({
           ALPHADECK_USER_AGENT.)
         </div>
       )}
-      {(extract.data ?? []).map((f) => (
+      {facts.map((f) => (
         // Key by securityId TOO (not fact_type alone): RatifyRow seeds its editable inputs from `candidate`
         // via useState (once, on mount). The rail stays mounted when the operator clicks name→name (only
         // `securityId` changes), so a fact_type-only key made React REUSE the row and keep the PRIOR name's
@@ -75,17 +80,29 @@ export function FactsPanel({
           estimateAttempted={thesisId != null}
         />
       ))}
-      {/* honest-loudness (the SIMO case): an extract that came back EMPTY isn't a silent blank rail — the
-          issuer has no 10-K/10-Q the extractor covers (a foreign 20-F/6-K filer). Name it, don't hide it. */}
-      {extract.data !== undefined &&
-        extract.data.length === 0 &&
-        !extract.isFetching &&
-        !extract.error && (
-          <div className="note">
-            No 10-K/10-Q on file for this name — foreign issuers file <b>20-F / 6-K</b>, which the extractor
-            doesn't cover yet. Nothing to extract or ratify here.
-          </div>
-        )}
+      {/* the coverage note for an annual-cover name: PURITY — / RUNWAY — means NOT COVERED, not zero */}
+      {annualOnly && (
+        <div className="note">
+          Annual-filer coverage is <b>shares only</b> for now — cash/runway and purity aren't extracted
+          from a 20-F/40-F yet, so those meters stay "—" (not covered), never a judged zero.
+        </div>
+      )}
+      {/* honest-loudness: an extract that came back EMPTY isn't a silent blank rail — and the TWO empty
+          reasons are DISTINCT (interaction #2): "nothing on EDGAR" is true absence; "cover unread" is a
+          retrieval gap that must not masquerade as absence (the name stays a candidate). */}
+      {settled && facts.length === 0 && extract.data?.empty_reason === "no-annual-filing" && (
+        <div className="note">
+          Nothing on EDGAR the extractor can read — no 10-K/10-Q and no annual foreign filing
+          (20-F/40-F) on file for this issuer. Nothing to extract or ratify here.
+        </div>
+      )}
+      {settled && facts.length === 0 && extract.data?.empty_reason === "cover-not-located" && (
+        <div className="note">
+          This issuer's annual filing (<b>20-F/40-F</b>) is on file, but its cover share count couldn't
+          be read this pass — the name is <b>unread, not empty</b>. A count without its located cover
+          passage is deliberately not offered; author the count from the filing if you need it now.
+        </div>
+      )}
     </div>
   );
 }
@@ -187,7 +204,20 @@ function RatifyRow({
         estimate: purityEstimate ?? undefined,
       });
     else if (candidate.fact_type === "shares_outstanding")
-      ratify.mutate({ ...common, fact_type: "shares_outstanding", shares: Number(shares) });
+      ratify.mutate({
+        ...common,
+        fact_type: "shares_outstanding",
+        shares: Number(shares),
+        // the ADS-ratio derivation metadata rides through from the candidate (spec §10) — like
+        // `source`, carried, never retyped: "known" divides the cap, "unread" withholds it, absent
+        // (every 10-Q name) computes 1:1. The note above states which; the operator ratifies it all.
+        // (The write accepts only the two meaningful stamps — anything else stays off the wire.)
+        ads_ratio: candidate.ads_ratio ?? undefined,
+        ads_ratio_status:
+          candidate.ads_ratio_status === "known" || candidate.ads_ratio_status === "unread"
+            ? candidate.ads_ratio_status
+            : undefined,
+      });
     else
       ratify.mutate({
         ...common,

@@ -289,11 +289,17 @@ export interface paths {
         };
         /**
          * Extract Scoring Facts
-         * @description Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) —
-         *     the three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the
-         *     located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
-         *     auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
-         *     never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+         * @description Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
+         *     Retrieval Slice 1). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts, FLAG
+         *     carries the raw value + a detected risk + the located passage (the operator ratifies the composition),
+         *     HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a foreign private
+         *     issuer) gets honest, current shares from its latest annual filing's cover (20-F/40-F) — ALWAYS tier
+         *     FLAG, carrying the located cover passage, its as-of and its age; shares only (cash + purity stay
+         *     uncovered for those names). When even that has nothing to read, ``empty_reason`` says WHICH nothing:
+         *     ``no-annual-filing`` (genuinely nothing on EDGAR) vs ``cover-not-located`` (an annual filing exists but
+         *     its cover could not be read — the name is unread, not empty). An EXPLICIT operator action (cache-first,
+         *     live SEC), never fired on a render. The extractor never DECIDES — the operator confirms (hybrid-2).
+         *     Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
          *
          *     PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
          *     on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis
@@ -1815,6 +1821,33 @@ export interface components {
             located_passages?: components["schemas"]["LocatedPassage"][];
             /** Estimate Source */
             estimate_source?: string | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+        };
+        /**
+         * ExtractionResult
+         * @description The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when
+         *     there are none. The three empty states are DISTINCT (interaction #2 — "we couldn't read it" must
+         *     never masquerade as "there is nothing"; the old bare ``[]`` + the FE's *"nothing to extract or
+         *     ratify here"* copy was false for 44 of the 48 dark names):
+         *
+         *     - ``facts`` non-empty → covered. For an annual-cover name that is SHARES ONLY — cash + purity are
+         *       still not covered for it (the FE says so rather than implying the data doesn't exist).
+         *     - ``empty_reason="no-annual-filing"`` → no 10-K/10-Q AND no 20-F/40-F: genuinely nothing on EDGAR
+         *       the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where "nothing to
+         *       extract" is true.
+         *     - ``empty_reason="cover-not-located"`` → an annual filing EXISTS but its cover instruction could
+         *       not be matched (PBM): the name is UNREAD, not empty — it stays a visible candidate for the next
+         *       pass, and companyfacts alone is deliberately NOT served (a fact without its located passage
+         *       would break the no-passage-no-fact contract).
+         */
+        ExtractionResult: {
+            /** Facts */
+            facts?: components["schemas"]["ExtractedFact"][];
+            /** Empty Reason */
+            empty_reason?: string | null;
         };
         /**
          * FlagExplanationOut
@@ -1892,6 +1925,8 @@ export interface components {
             anchor: string;
             /** Excerpt */
             excerpt: string;
+            /** Offset */
+            offset?: number | null;
         };
         /**
          * MemberCallOut
@@ -2259,6 +2294,10 @@ export interface components {
             fact_type: "shares_outstanding";
             /** Shares */
             shares: number;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: ("known" | "unread") | null;
         };
         /**
          * ResolvedPlacement
@@ -3572,7 +3611,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExtractedFact"][];
+                    "application/json": components["schemas"]["ExtractionResult"];
                 };
             };
             /** @description Validation Error */

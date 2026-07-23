@@ -48,13 +48,13 @@ from app.schemas_api import (
 )
 from db.session import connect
 from domain.enums import Authorship, TermTier
-from domain.extraction import ExtractedFact, Tier
+from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import extract_for_security
+from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
@@ -138,7 +138,7 @@ def search_securities(
     ]
 
 
-@router.get("/securities/{security_id}/extract", response_model=list[ExtractedFact])
+@router.get("/securities/{security_id}/extract", response_model=ExtractionResult)
 def extract_scoring_facts(
     security_id: UUID,
     thesis_id: UUID | None = Query(
@@ -148,12 +148,18 @@ def extract_scoring_facts(
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
     purity_llm: LLMClient = Depends(get_purity_client),
-) -> list[ExtractedFact]:
-    """Auto-EXTRACT candidate scoring facts for a security from its latest SEC 10-Q/10-K (Slice hybrid-1) —
-    the three-tier hybrid: AUTO pre-fills the clean facts, FLAG carries the raw value + a detected risk + the
-    located passage (the operator ratifies the composition), HUMAN (purity) is LOCATED only and never
-    auto-valued. An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
-    never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+) -> ExtractionResult:
+    """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
+    Retrieval Slice 1). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts, FLAG
+    carries the raw value + a detected risk + the located passage (the operator ratifies the composition),
+    HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a foreign private
+    issuer) gets honest, current shares from its latest annual filing's cover (20-F/40-F) — ALWAYS tier
+    FLAG, carrying the located cover passage, its as-of and its age; shares only (cash + purity stay
+    uncovered for those names). When even that has nothing to read, ``empty_reason`` says WHICH nothing:
+    ``no-annual-filing`` (genuinely nothing on EDGAR) vs ``cover-not-located`` (an annual filing exists but
+    its cover could not be read — the name is unread, not empty). An EXPLICIT operator action (cache-first,
+    live SEC), never fired on a render. The extractor never DECIDES — the operator confirms (hybrid-2).
+    Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
 
     PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
     on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis
@@ -165,7 +171,7 @@ def extract_scoring_facts(
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
     try:
-        cands = extract_for_security(EdgarClient(allow_live=True), cik)
+        result = extract_with_annual_fallback(EdgarClient(allow_live=True), cik)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
@@ -177,7 +183,7 @@ def extract_scoring_facts(
     # ratify (never here — this endpoint writes nothing).
     thesis = thesis_repo.get(conn, thesis_id) if thesis_id is not None else None
     if thesis is not None:
-        for c in cands:
+        for c in result.facts:
             if c.fact_type != "revenue_mix":
                 continue
             prop = propose_purity(purity_llm, thesis.narrative, c)
@@ -188,7 +194,7 @@ def extract_scoring_facts(
                     f"LLM-PROPOSED purity (UNVERIFIED — confirm or override): {prop.reason} "
                     f"[on-thesis segment: {prop.segment}]. Grounded in the located segment passage."
                 )
-    return cands
+    return result
 
 
 @router.post("/securities/{security_id}/ingest-prices", response_model=PriceIngestOut)
@@ -923,6 +929,10 @@ def ratify_fact(
             req.security_id,
             shares=req.shares,
             vouched=_vouched(req.estimate, req.shares),
+            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on
+            # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
+            ads_ratio=req.ads_ratio,
+            ads_ratio_status=req.ads_ratio_status,
             **common,
         )
     elif req.fact_type == "catalyst":

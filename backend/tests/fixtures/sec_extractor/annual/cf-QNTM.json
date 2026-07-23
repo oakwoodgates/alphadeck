@@ -1,0 +1,74 @@
+{
+ "cik": 1771885,
+ "entityName": "Quantum BioPharma Ltd.",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2019-12-31",
+       "val": 7056245,
+       "accn": "0001062993-20-001241",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "40-F",
+       "filed": "2020-03-04"
+      },
+      {
+       "end": "2019-12-31",
+       "val": 7056245,
+       "accn": "0001062993-20-001379",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "40-F/A",
+       "filed": "2020-03-17",
+       "frame": "CY2019Q4I"
+      },
+      {
+       "end": "2020-12-31",
+       "val": 19161620,
+       "accn": "0001062993-21-002769",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "40-F",
+       "filed": "2021-03-17",
+       "frame": "CY2020Q4I"
+      },
+      {
+       "end": "2023-12-31",
+       "val": 72,
+       "accn": "0001654954-24-004067",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-04-02"
+      },
+      {
+       "end": "2023-12-31",
+       "val": 72,
+       "accn": "0001654954-25-003516",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-03-28",
+       "frame": "CY2023Q4I"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 12,
+       "accn": "0001654954-25-003693",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2025-03-31",
+       "frame": "CY2024Q4I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

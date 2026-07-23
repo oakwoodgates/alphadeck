@@ -75,3 +75,66 @@ def test_no_periodic_filing_returns_empty(monkeypatch):
         ex, "extract_facts", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run"))
     )
     assert ex.extract_for_security(_client(), 444) == []
+
+
+# --- extract_with_annual_fallback (Retrieval Slice 1) — the route's entry, wiring only ---
+
+
+def _subs_with(forms: list[str]) -> dict:
+    n = len(forms)
+    return {
+        "filings": {
+            "recent": {
+                "form": forms,
+                "accessionNumber": [f"a-{i}" for i in range(n)],
+                "primaryDocument": [f"d{i}.htm" for i in range(n)],
+                "filingDate": ["2026-01-01"] * n,
+                "reportDate": ["2025-12-31"] * n,
+            }
+        }
+    }
+
+
+def test_fallback_domestic_filer_rides_the_periodic_path_unchanged(monkeypatch):
+    """A 10-Q/10-K filer takes the EXISTING path verbatim (facts passthrough, no empty_reason) — the
+    annual path must not even be consulted."""
+    import ingest.edgar.annual_shares as annual
+    from domain.extraction import ExtractedFact, Tier
+
+    fake = [
+        ExtractedFact(
+            fact_type=ft,
+            tier=Tier.HUMAN,
+            source="10-q",
+            source_ref="r",
+            event_date=date(2026, 3, 31),
+        )
+        for ft in ("revenue_mix", "shares_outstanding", "cash_burn")
+    ]
+    monkeypatch.setattr(ex, "fetch_submissions", lambda client, cik: _subs_with(["10-Q", "8-K"]))
+    monkeypatch.setattr(ex, "extract_for_security", lambda client, cik, cfg: fake)
+    monkeypatch.setattr(
+        annual,
+        "annual_shares_for_security",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("annual path must not run")),
+    )
+    out = ex.extract_with_annual_fallback(_client(), 111)
+    assert out.facts == fake and out.empty_reason is None
+
+
+def test_fallback_dark_name_routes_to_the_annual_path(monkeypatch):
+    """No 10-Q AND no 10-K -> the annual-cover result (facts OR its honest empty reason) passes through
+    verbatim. The periodic extractor must NOT run — it fetches companyfacts up front, which 404s for
+    the no-companyfacts names the annual path serves cover-only (GLAS/CRLBF/TRSG)."""
+    import ingest.edgar.annual_shares as annual
+    from domain.extraction import ExtractionResult
+
+    sentinel = ExtractionResult(facts=[], empty_reason="cover-not-located")
+    monkeypatch.setattr(ex, "fetch_submissions", lambda client, cik: _subs_with(["20-F", "6-K"]))
+    monkeypatch.setattr(
+        ex,
+        "extract_for_security",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("periodic path must not run")),
+    )
+    monkeypatch.setattr(annual, "annual_shares_for_security", lambda client, cik, cfg: sentinel)
+    assert ex.extract_with_annual_fallback(_client(), 222) is sentinel

@@ -30,6 +30,8 @@ def ingest_shares_outstanding(
     note: str | None = None,
     ratified_by: str | None = None,
     vouched: str | None = None,
+    ads_ratio: int | None = None,
+    ads_ratio_status: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
 ) -> UUID:
@@ -38,6 +40,10 @@ def ingest_shares_outstanding(
     ``source_ref`` is the 10-Q cover / XBRL fact (provenance + identity); a restatement is a NEW row with a
     later ``recorded_at`` (latest-version-wins on the as-of read). ``vouched`` is confirm/override PROVENANCE
     ('confirmed' | 'overridden' | None) — never a scoring input. Returns the new fact id.
+
+    ``ads_ratio`` / ``ads_ratio_status`` (annual-cover names, spec §10): derivation metadata for the
+    market-cap scorer — ``shares`` stays the TRUE ordinary count from the cover; the ratio modulates the
+    derivation, never the fact. None/None (every 10-Q name, every legacy row) = not applicable -> 1:1.
     """
     values = {
         "tenant_id": tenant_id,
@@ -48,6 +54,8 @@ def ingest_shares_outstanding(
         "note": note,
         "ratified_by": ratified_by,
         "vouched": vouched,
+        "ads_ratio": ads_ratio,
+        "ads_ratio_status": ads_ratio_status,
         "valid_from": event_date,
     }
     if recorded_at is not None:

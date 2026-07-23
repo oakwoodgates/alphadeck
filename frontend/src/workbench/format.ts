@@ -153,6 +153,10 @@ export function meterValueLabel(meter: string, figure: ScoredFigureOut): string 
       return v == null ? "no convert data" : `${v}% overhang`;
     case "market cap": {
       if (v == null && figure.provenance.length > 0) {
+        // the ADS-ratio withheld state (spec §10): BOTH inputs are on file but the ordinary-per-ADS
+        // ratio couldn't be read — the cap is withheld, not missing; say which nothing this is.
+        if (figure.provenance.some((p) => p.ref === "market-cap:ads-ratio-unread"))
+          return "ADS ratio unread · cap withheld";
         const hasPrice = figure.provenance.some((p) => p.source === "price");
         const hasShares = figure.provenance.some(
           (p) => p.source !== "price" && p.source !== "computed",
@@ -173,6 +177,7 @@ const SOURCE_LABEL: Record<string, string> = {
   "10-q": "cash/burn (10-Q)",
   "10-q-cover": "shares (10-Q cover)",
   "10-k-cover": "shares (10-K cover)",
+  "annual-cover": "shares (20-F/40-F cover)",
   "10-k": "10-K",
   "8-k": "8-K",
   form4: "Form 4",

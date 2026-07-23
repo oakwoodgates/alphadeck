@@ -464,6 +464,11 @@ class RatifyRevenueMix(_RatifyBase):
 class RatifyShares(_RatifyBase):
     fact_type: Literal["shares_outstanding"]
     shares: float
+    # ADS-ratio derivation metadata, carried through from the annual-cover candidate (spec §10) —
+    # None/None for every 10-Q name and any hand-authored fact (the scorer then computes at 1:1).
+    # "known" divides the ordinary count by the ratio; "unread" SUPPRESSES the cap (never a 1:1 guess).
+    ads_ratio: int | None = None
+    ads_ratio_status: Literal["known", "unread"] | None = None
 
 
 class RatifyCashBurn(_RatifyBase):

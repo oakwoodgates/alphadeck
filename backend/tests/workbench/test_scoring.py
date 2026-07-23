@@ -118,6 +118,131 @@ def test_market_cap_price_without_shares_stays_visible(db, security_id):
     )
 
 
+# ---------------------------------------------------------------------------------------------------------
+# the ADS ratio in the cap derivation (spec §10) — apply where read, SUPPRESS where not, NULL = 1:1
+# ---------------------------------------------------------------------------------------------------------
+
+
+def _annual_shares(db, sid, shares, ratio, status, event=date(2025, 12, 31)):
+    ingest_shares_outstanding(
+        db,
+        sid,
+        shares=shares,
+        source="annual-cover",
+        source_ref="https://sec.gov/20f",
+        event_date=event,
+        ratified_by="operator",
+        ads_ratio=ratio,
+        ads_ratio_status=status,
+    )
+
+
+def _mcap(db, sid):
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    return score_member(pit, _member(sid), DEFAULT_CONFIG).market_cap
+
+
+def test_tsm_five_to_one_ratio_divides_cap(db, security_id):
+    """THE DEFECT, fixed: TSM's fact is 25.93B ORDINARY shares while the price feed carries the ADS
+    (5 ordinary each). The cap divides by the read ratio — ~$2.2T, never the raw ~$10.9T product a
+    1:1 multiply displayed. The fact itself stays the true ordinary count (provenance shows both).
+    """
+    _annual_shares(db, security_id, 25_932_524_521, 5, "known")
+    _price(db, security_id, date(2026, 6, 20), 420.0)  # the ADS price
+    db.commit()
+    cap = _mcap(db, security_id)
+    assert cap.value == round(25_932_524_521 / 5 * 420.0)  # ≈ $2.18T
+    assert cap.value < 3e12  # sanity: the $10.9T-shaped raw product must be impossible
+    sh = cap.provenance[0]
+    assert sh.detail["shares"] == 25_932_524_521  # the fact is NEVER pre-divided
+    assert sh.detail["ads_ratio"] == 5 and sh.detail["ads_ratio_status"] == "known"
+
+
+def test_imos_twenty_to_one_divides_cap(db, security_id):
+    """IMOS at 20:1 — the ratio whose omission showed $44.1B for a ~$2.2B company."""
+    _annual_shares(db, security_id, 699_983_126, 20, "known")
+    _price(db, security_id, date(2026, 6, 20), 63.0)
+    db.commit()
+    assert _mcap(db, security_id).value == round(699_983_126 / 20 * 63.0)  # ≈ $2.2B
+
+
+def test_one_to_one_ratio_leaves_cap_unchanged(db, security_id):
+    """A READ 1:1 (NVS / ARM / KYOCY) divides by one — same number as the plain product, with the read
+    ratio visible in provenance (a 1:1 read and a no-evidence assumption are different provenance).
+    """
+    _annual_shares(db, security_id, 1_908_151_679, 1, "known")
+    _price(db, security_id, date(2026, 6, 20), 110.0)
+    db.commit()
+    cap = _mcap(db, security_id)
+    assert cap.value == round(1_908_151_679 * 110.0)
+    assert cap.provenance[0].detail["ads_ratio"] == 1
+
+
+def test_adr_without_readable_ratio_suppresses_cap(db, security_id):
+    """`unread` (ADR evidence, no defensible ratio — SPRC/EVO/XTLB): the cap is WITHHELD, never guessed
+    at 1:1 — a wrong ratio is a multiplicative, silent, permanent error. The §10.5 shape is the
+    awaiting-price idiom reused: value None, pips None, the ratified shares fact still VISIBLE, and a
+    note naming the missing half (the ratio). Better detection later moves a name suppressed→correct,
+    never wrong→right."""
+    _annual_shares(db, security_id, 365_444, None, "unread")
+    _price(db, security_id, date(2026, 6, 20), 4.2)
+    db.commit()
+    cap = _mcap(db, security_id)
+    assert cap.value is None and cap.pips is None  # withheld — NOT a computed guess
+    sh = cap.provenance[0]
+    assert sh.source == "annual-cover"  # the shares provenance is still present (visible, on file)
+    assert sh.detail["shares"] == 365_444
+    assert sh.detail["ads_ratio_status"] == "unread"
+    withheld = next(p for p in cap.provenance if p.ref == "market-cap:ads-ratio-unread")
+    assert "WITHHELD" in str(withheld.detail["note"])  # the missing half is NAMED
+
+
+def test_no_adr_evidence_computes_at_one_to_one(db, security_id):
+    """Not applicable (ASML / CAMT / NVMI — no ADR evidence): NULL/NULL computes at 1:1; the 1:1
+    assumption travels in the FACT's note (written at extract), which rides provenance detail (#6).
+    """
+    ingest_shares_outstanding(
+        db,
+        security_id,
+        shares=385_417_665,
+        source="annual-cover",
+        source_ref="https://sec.gov/asml-20f",
+        event_date=date(2025, 12, 31),
+        note="20-F cover count … No ADS/ADR evidence on the cover — the count prices 1:1.",
+        ratified_by="operator",
+    )
+    _price(db, security_id, date(2026, 6, 20), 700.0)
+    db.commit()
+    cap = _mcap(db, security_id)
+    assert cap.value == round(385_417_665 * 700.0)
+    assert "No ADS/ADR evidence" in str(cap.provenance[0].detail.get("note", ""))
+
+
+def test_domestic_10q_market_cap_unchanged(db, security_id):
+    """THE §10.4 REGRESSION GUARD: every legacy row and every domestic 10-Q name has NULL/NULL, which
+    MUST read as not-applicable → 1:1 — byte-identical to the pre-ratio derivation. (Encoding "unread"
+    as a NULL ratio would have blanked every market cap in the app.) Asserts the exact value AND that
+    no ads_* keys leak into the provenance detail of a NULL/NULL row."""
+    ingest_shares_outstanding(
+        db,
+        security_id,
+        shares=1_129_393_151,
+        source="10-q-cover",
+        source_ref="10-Q",
+        event_date=date(2026, 6, 17),
+        ratified_by="operator",
+    )
+    _price(db, security_id, date(2026, 6, 20), 120.5)
+    db.commit()
+    cap = _mcap(db, security_id)
+    assert cap.value == round(1_129_393_151 * 120.5)  # the pre-change number, exactly
+    assert [p.source for p in cap.provenance] == ["10-q-cover", "price"]  # no extra entries
+    sh = cap.provenance[0]
+    assert (
+        "ads_ratio" not in sh.detail and "ads_ratio_status" not in sh.detail
+    )  # byte-identical shape
+
+
 def test_score_member_golden(db, security_id):
     """Fixed facts -> exact pips / values / provenance (deterministic; the magic-number behavioral guard
     below proves the cutoffs are config-driven, not these specific numbers)."""

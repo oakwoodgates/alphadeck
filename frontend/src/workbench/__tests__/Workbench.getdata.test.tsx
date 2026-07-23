@@ -81,6 +81,9 @@ vi.mock("../../api/hooks", () => ({
 
 import { Workbench } from "../Workbench";
 
+// the wire shape is the ExtractionResult ENVELOPE (Retrieval Slice 1): facts + the honest empty reason
+const env = (facts: unknown[], empty_reason: string | null = null) => ({ facts, empty_reason });
+
 const renderWb = () =>
   render(<Workbench asof="2026-06-08" onAsofChange={() => {}} onBack={() => {}} />);
 
@@ -120,7 +123,7 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
 
   it("get-data auto-applies an AUTO (unflagged) shares count for that name", async () => {
     const user = userEvent.setup();
-    h.refetch.mockResolvedValue({ data: [{ fact_type: "shares_outstanding", tier: "auto" }] });
+    h.refetch.mockResolvedValue({ data: env([{ fact_type: "shares_outstanding", tier: "auto" }]) });
     renderWb();
     await user.click(screen.getByRole("button", { name: "get data for COLD" }));
     // the confirm was ceremonial — nobody knows a share count by heart — so get-data applies it
@@ -131,7 +134,7 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
   it("get-data does NOT auto-apply a FLAGged shares count (the operator ratifies it)", async () => {
     const user = userEvent.setup();
     h.refetch.mockResolvedValue({
-      data: [{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }],
+      data: env([{ fact_type: "shares_outstanding", tier: "flag", flags: ["dual-class"] }]),
     });
     renderWb();
     await user.click(screen.getByRole("button", { name: "get data for COLD" }));
@@ -145,11 +148,11 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
     // every clean name self-confirms its shares and instantly goes quiet with two facts unratified. The
     // control now counts what is LEFT, using the same on-file predicate the FactsPanel does.
     h.extract["s-warm"] = {
-      data: [
+      data: env([
         { fact_type: "revenue_mix", tier: "human" }, // ON FILE (WARM's ratified purity)
         { fact_type: "shares_outstanding", tier: "auto" }, // outstanding
         { fact_type: "cash_burn", tier: "auto" }, // outstanding
-      ],
+      ]),
     };
     renderWb();
     const ready = screen.getByRole("button", { name: /data ready for WARM/ });
@@ -159,7 +162,7 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
 
   it("a fully-ratified name goes quiet — nothing left to ratify, no control", () => {
     // every fetched candidate has a fact on file (WARM's purity) -> the control correctly disappears
-    h.extract["s-warm"] = { data: [{ fact_type: "revenue_mix", tier: "human" }] };
+    h.extract["s-warm"] = { data: env([{ fact_type: "revenue_mix", tier: "human" }]) };
     renderWb();
     expect(screen.queryByRole("button", { name: /data ready for WARM/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "get data for WARM" })).not.toBeInTheDocument();
@@ -174,19 +177,30 @@ describe("Workbench — the per-name get-data opt-in (gate 2 of the three-gate f
 
   it("fetched candidates flip the control to '✓ data ready — ratify', which OPENS the name", async () => {
     const user = userEvent.setup();
-    h.extract["s-cold"] = { data: [{ fact_type: "shares_outstanding" }] }; // the query holds ≥1 candidate
+    h.extract["s-cold"] = { data: env([{ fact_type: "shares_outstanding" }]) }; // the query holds ≥1 candidate
     renderWb();
     await user.click(screen.getByRole("button", { name: /data ready for COLD/ }));
     expect(railTicker()).toBe("COLD"); // ready → open → ratify in the rail
   });
 
-  it("an EMPTY extract shows the honest '— no 10-K/10-Q' state, never the false 'data ready'", () => {
-    // a foreign 20-F/6-K issuer (e.g. SIMO) returns [] — fetched, but nothing the extractor covers
-    h.extract["s-cold"] = { data: [] };
+  it("a genuinely-empty extract shows '— nothing on EDGAR', never the false 'data ready'", () => {
+    // no 10-K/10-Q AND no 20-F/40-F (SKHY, a brand-new listing) — the ONLY truly-empty case now
+    h.extract["s-cold"] = { data: env([], "no-annual-filing") };
     renderWb();
-    expect(screen.getByText(/no 10-K\/10-Q/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing on EDGAR/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /data ready for COLD/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "get data for COLD" })).not.toBeInTheDocument();
+  });
+
+  it("an unreadable annual cover shows the DISTINCT 'unread' state — never absence (interaction #2)", () => {
+    // PBM: a 20-F exists but its cover couldn't be read — the name is UNREAD, not empty, and must not
+    // wear the same badge as genuinely-nothing (a retrieval gap masquerading as absence closes the
+    // question for the operator).
+    h.extract["s-cold"] = { data: env([], "cover-not-located") };
+    renderWb();
+    expect(screen.getByText(/annual filing unread/)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing on EDGAR/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /data ready for COLD/ })).not.toBeInTheDocument();
   });
 
   it("a per-name failure is visible + retryable, never silent", async () => {

@@ -512,8 +512,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nmrow span.wb-getdata.busy { border-style: dashed; cursor: default; }
 /* ENDV finding: a stale-cover share count behind the market cap — warm, only shown when >~6mo old (honest loudness) */
 .nmrow .cap .wb-stale-shares { margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 5px; padding: 1px 5px; white-space: nowrap; cursor: help; }
-/* the honest empty-extract state (no 10-K/10-Q for this issuer) — muted, non-actionable, never "ready" */
+/* the honest empty-extract states (Retrieval Slice 1 — the three empty reasons are DISTINCT):
+   `.none` = genuinely nothing on EDGAR (no 10-K/10-Q and no 20-F/40-F) — muted, non-actionable;
+   `.unread` = an annual filing EXISTS but its cover couldn't be read — the name is unread, not empty,
+   so it reads a shade warmer (dotted, help cursor) and never masquerades as absence. */
 .nmrow span.wb-getdata.none { color: var(--txt-4); border-style: dashed; border-color: var(--line); cursor: default; }
+.nmrow span.wb-getdata.unread { color: var(--txt-3); border-style: dotted; border-color: var(--line-2); cursor: help; }
 .arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
 .arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
 /* item F — not-yet-characterized (the rail's "unclassified"): quiet, dashed, no risk-class color */

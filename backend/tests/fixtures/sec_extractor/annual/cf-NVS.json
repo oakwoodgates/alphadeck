@@ -1,0 +1,134 @@
+{
+ "cik": 1114448,
+ "entityName": "Novartis AG",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2017-12-31",
+       "val": 2317456499,
+       "accn": "0001370368-18-000005",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "6-K",
+       "filed": "2018-01-24",
+       "frame": "CY2017Q4I"
+      },
+      {
+       "end": "2018-06-30",
+       "val": 2317456499,
+       "accn": "0001370368-18-000037",
+       "fy": 2018,
+       "fp": "Q2",
+       "form": "6-K",
+       "filed": "2018-07-18",
+       "frame": "CY2018Q2I"
+      },
+      {
+       "end": "2018-12-31",
+       "val": 2311171429,
+       "accn": "0001370368-19-000002",
+       "fy": 2018,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2019-01-30",
+       "frame": "CY2018Q4I"
+      },
+      {
+       "end": "2019-12-31",
+       "val": 2265008488,
+       "accn": "0001370368-20-000003",
+       "fy": 2019,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2020-01-29",
+       "frame": "CY2019Q4I"
+      },
+      {
+       "end": "2020-12-31",
+       "val": 2256822048,
+       "accn": "0001370368-21-000006",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2021-01-26",
+       "frame": "CY2020Q4I"
+      },
+      {
+       "end": "2021-12-31",
+       "val": 2234939948,
+       "accn": "0001370368-22-000010",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2022-02-02"
+      },
+      {
+       "end": "2021-12-31",
+       "val": 2234939948,
+       "accn": "0001104659-22-050394",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2022-04-26",
+       "frame": "CY2021Q4I"
+      },
+      {
+       "end": "2022-12-31",
+       "val": 2119609057,
+       "accn": "0001370368-23-000006",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2023-02-01"
+      },
+      {
+       "end": "2022-12-31",
+       "val": 2119609057,
+       "accn": "0001370368-23-000048",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F/A",
+       "filed": "2023-05-15",
+       "frame": "CY2022Q4I"
+      },
+      {
+       "end": "2023-12-31",
+       "val": 2044033986,
+       "accn": "0001370368-24-000004",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-01-31",
+       "frame": "CY2023Q4I"
+      },
+      {
+       "end": "2024-12-31",
+       "val": 1975089248,
+       "accn": "0001370368-25-000004",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-01-31",
+       "frame": "CY2024Q4I"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 1908151679,
+       "accn": "0001114448-26-000004",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-02-04",
+       "frame": "CY2025Q4I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

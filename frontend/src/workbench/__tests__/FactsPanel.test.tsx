@@ -73,6 +73,9 @@ const HUMAN_PURITY = {
 
 const SID = "00000000-0000-0000-0000-000000000abc";
 
+// the wire shape is the ExtractionResult ENVELOPE (Retrieval Slice 1): facts + the honest empty reason
+const env = (facts: unknown[], empty_reason: string | null = null) => ({ facts, empty_reason });
+
 beforeEach(() => {
   h.refetch.mockReset();
   h.mutate.mockReset();
@@ -84,7 +87,7 @@ beforeEach(() => {
 
 describe("FactsPanel — extract → ratify", () => {
   it("renders a candidate per tier: AUTO value read-only, located excerpt inline, purity gated", () => {
-    h.extract.data = [AUTO_SHARES, FLAG_BURN, HUMAN_PURITY];
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN, HUMAN_PURITY]);
     render(<FactsPanel securityId={SID} />);
 
     // AUTO — the value is shown but read-only (confirm-as-is; the operator doesn't retype it)
@@ -107,17 +110,90 @@ describe("FactsPanel — extract → ratify", () => {
     expect(confirms[2]).toBeDisabled(); // the purity row (third candidate)
   });
 
-  it("an EMPTY extract shows the honest 'no 10-K/10-Q' note, not a silent blank rail", () => {
-    h.extract.data = []; // fetched, but the issuer has no covered filing (a foreign 20-F/6-K filer)
-    render(<FactsPanel securityId={SID} />);
-    expect(screen.getByText(/No 10-K\/10-Q on file/)).toBeInTheDocument();
+  it("an EMPTY extract names WHICH nothing — 'nothing on EDGAR' vs 'cover unread' (never one blur)", () => {
+    // Retrieval Slice 1, spec §5: the empty reasons are DISTINCT. "no-annual-filing" = genuinely
+    // nothing on EDGAR (SKHY) — the ONLY case where "nothing to extract" is true.
+    h.extract.data = env([], "no-annual-filing");
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Nothing on EDGAR the extractor can read/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+    unmount();
+
+    // "cover-not-located" (PBM): the annual filing EXISTS but its cover couldn't be read — the name
+    // is UNREAD, not empty, and companyfacts alone is deliberately not offered (no passage, no fact).
+    h.extract.data = env([], "cover-not-located");
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/unread, not empty/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing on EDGAR/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+  });
+
+  it("an annual-cover name says shares-only coverage — '—' meters mean NOT COVERED, never zero", () => {
+    // a dark name lit up by the 20-F/40-F cover path: ONE candidate (shares, FLAG, annual-cover).
+    // The panel must say cash/purity aren't covered rather than imply the data doesn't exist (§5.3).
+    const ANNUAL_SHARES = {
+      ...AUTO_SHARES,
+      tier: "flag",
+      source: "annual-cover",
+      source_ref: "https://sec.gov/asml-20f",
+      event_date: "2025-12-31",
+      value: 385417665,
+      flags: ["annual-cover", "stale-cover"],
+      note: "20-F cover count 385,417,665 as of 2025-12-31 (204 days old); companyfacts agrees.",
+      located_passages: [
+        {
+          kind: "cover",
+          source_ref: "https://sec.gov/asml-20f",
+          anchor: "outstanding shares of each of the issuer’s classes",
+          excerpt: "… 385,417,665 ordinary shares …",
+          offset: 39323,
+        },
+      ],
+    };
+    h.extract.data = env([ANNUAL_SHARES]);
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Annual-filer coverage is/)).toBeInTheDocument(); // the coverage note renders
+    expect(screen.getByText(/never a judged zero/)).toBeInTheDocument();
+    // and the candidate itself is a ratifiable FLAG with its cover passage inline
+    expect(screen.getByText("⚠ annual-cover")).toBeInTheDocument();
+    expect(screen.getByText(/385,417,665 ordinary shares/)).toBeInTheDocument();
+    expect(screen.getByLabelText("shares")).not.toHaveAttribute("readonly");
+  });
+
+  it("a shares confirm carries the candidate's ADS-ratio metadata through — like source, never retyped", async () => {
+    // spec §10: the ratio modulates the market-cap DERIVATION server-side; the ratify body must carry
+    // the candidate's read ("known" 5 here) or the cap silently reverts to a 1:1 multiply — the 5x
+    // TSM-shaped error this addendum exists to kill. The count itself stays the operator's field.
+    const user = userEvent.setup();
+    const ANNUAL_5TO1 = {
+      ...AUTO_SHARES,
+      tier: "flag",
+      source: "annual-cover",
+      source_ref: "https://sec.gov/tsm-20f",
+      event_date: "2025-12-31",
+      value: 25932524521,
+      flags: ["annual-cover"],
+      note: "20-F cover count … ADS ratio 5:1 read from the filing …",
+      located_passages: [],
+      ads_ratio: 5,
+      ads_ratio_status: "known",
+    };
+    h.extract.data = env([ANNUAL_5TO1]);
+    render(<FactsPanel securityId={SID} />);
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "shares_outstanding",
+      shares: 25932524521, // the TRUE ordinary count — never pre-divided client-side
+      ads_ratio: 5,
+      ads_ratio_status: "known",
+    });
   });
 
   it("missing-data flags render grey (∅), judgment flags warm (⚠) — honest loudness", () => {
     // one candidate can carry both: a derived burn with an anomalous line (judgment) + no cash
     // instant (a data gap). The gap is an authoring state, not an alarm — grey, never warm.
-    h.extract.data = [{ ...FLAG_BURN, flags: ["possible-one-time", "no-cash-instant"] }];
+    h.extract.data = env([{ ...FLAG_BURN, flags: ["possible-one-time", "no-cash-instant"] }]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText("⚠ possible-one-time").className).toBe("rflag");
     expect(screen.getByText("∅ no-cash-instant").className).toBe("rflag missing");
@@ -130,12 +206,12 @@ describe("FactsPanel — extract → ratify", () => {
     // DRAM names showed MU's 1,129,393,151). The composite key (securityId:fact_type) must remount it.
     const SID_A = "00000000-0000-0000-0000-00000000aaaa";
     const SID_B = "00000000-0000-0000-0000-00000000bbbb";
-    h.extract.data = [{ ...AUTO_SHARES, value: 1129393151 }]; // MU
+    h.extract.data = env([{ ...AUTO_SHARES, value: 1129393151 }]); // MU
     const { rerender } = render(<FactsPanel securityId={SID_A} />);
     expect(screen.getByLabelText("shares")).toHaveValue(1129393151);
 
     // switch to a DIFFERENT member (rail still mounted) — its own cached candidate
-    h.extract = { data: [{ ...AUTO_SHARES, value: 38246573 }], error: null, isFetching: false }; // GSIT
+    h.extract = { data: env([{ ...AUTO_SHARES, value: 38246573 }]), error: null, isFetching: false }; // GSIT
     rerender(<FactsPanel securityId={SID_B} />);
     expect(screen.getByLabelText("shares")).toHaveValue(38246573); // B's value, NOT A's stale one
   });
@@ -149,7 +225,7 @@ describe("FactsPanel — extract → ratify", () => {
   });
 
   it("a candidate whose fact is already ON FILE is tagged (a re-confirm appends, never 'never saved')", () => {
-    h.extract.data = [AUTO_SHARES, FLAG_BURN];
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN]);
     // presence of the (possibly empty) on-file object = a ratified fact exists; absence = not on file
     render(<FactsPanel securityId={SID} onFile={{ shares_outstanding: {} }} />);
     const tags = screen.getAllByText("✓ on file");
@@ -161,7 +237,7 @@ describe("FactsPanel — extract → ratify", () => {
     // ratified_by="auto" = the machine applied the cover count and NOBODY vouched for it. The operator's
     // real check is the market cap; if it looks wrong they must be able to override here — an AUTO field
     // that stays read-only would make the label's promise ("confirm or override") a lie (#1).
-    h.extract.data = [AUTO_SHARES];
+    h.extract.data = env([AUTO_SHARES]);
     render(<FactsPanel securityId={SID} onFile={{ shares_outstanding: { shares: 52_083_294, ratified_by: "auto" } }} />);
 
     expect(screen.getByText(/auto-applied — confirm or override/)).toBeInTheDocument();
@@ -176,7 +252,7 @@ describe("FactsPanel — extract → ratify", () => {
   it("a LEGACY operator-stamped fact stays the NEUTRAL '✓ on file' — never 'operator confirmed'", () => {
     // ~108 legacy rows carry ratified_by="operator" from the OLD ceremonial AUTO confirm, so asserting
     // "operator confirmed" off this column would claim a check that never happened. Only "auto" is claimed.
-    h.extract.data = [AUTO_SHARES];
+    h.extract.data = env([AUTO_SHARES]);
     render(
       <FactsPanel securityId={SID} onFile={{ shares_outstanding: { shares: 1, ratified_by: "operator" } }} />,
     );
@@ -194,7 +270,7 @@ describe("FactsPanel — extract → ratify", () => {
       estimate_source: "llm_proposed",
       note: "LLM-PROPOSED purity (UNVERIFIED — confirm or override): x [on-thesis segment: HBM]. Grounded.",
     };
-    h.extract.data = [ESTIMATED];
+    h.extract.data = env([ESTIMATED]);
     render(
       <FactsPanel
         securityId={SID}
@@ -210,7 +286,7 @@ describe("FactsPanel — extract → ratify", () => {
   });
 
   it("re-entry seeds shares and cash/burn from the on-file values too (same family)", () => {
-    h.extract.data = [AUTO_SHARES, FLAG_BURN];
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN]);
     render(
       <FactsPanel
         securityId={SID}
@@ -238,7 +314,7 @@ describe("FactsPanel — extract → ratify", () => {
         },
       ],
     };
-    h.extract.data = [AUTO_WITH_COVER];
+    h.extract.data = env([AUTO_WITH_COVER]);
     render(<FactsPanel securityId={SID} />);
     // collapsed by default — AUTO doesn't demand reading, but the source is one click away
     expect(screen.queryByText(/shares of common stock outstanding/)).not.toBeInTheDocument();
@@ -249,7 +325,7 @@ describe("FactsPanel — extract → ratify", () => {
   });
 
   it("FLAG's passage stays INLINE — no toggle (reading it IS the decision)", () => {
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(/Partnership milestone payment/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show the source/ })).not.toBeInTheDocument();
@@ -257,13 +333,13 @@ describe("FactsPanel — extract → ratify", () => {
 
   it("an empty purity names WHY it's empty: pre-revenue vs couldn't-ground (missing ≠ blank)", () => {
     // pre-revenue: the business-description basis has no segment revenue to read
-    h.extract.data = [HUMAN_PURITY]; // source: 10-k-business-description
+    h.extract.data = env([HUMAN_PURITY]); // source: 10-k-business-description
     const { unmount } = render(<FactsPanel securityId={SID} thesisId="t-1" />);
     expect(screen.getByText(/no revenue data on file — pre-revenue/)).toBeInTheDocument();
     unmount();
 
     // a revenue name, thesis-scoped, but the grounded estimate declined (fail-open) — a different why
-    h.extract.data = [{ ...HUMAN_PURITY, source: "10-k-segment" }];
+    h.extract.data = env([{ ...HUMAN_PURITY, source: "10-k-segment" }]);
     render(<FactsPanel securityId={SID} thesisId="t-1" />);
     expect(screen.getByText(/couldn't ground a purity estimate/)).toBeInTheDocument();
   });
@@ -281,7 +357,7 @@ describe("FactsPanel — extract → ratify", () => {
         },
       ],
     };
-    h.extract.data = [LONG];
+    h.extract.data = env([LONG]);
     render(<FactsPanel securityId={SID} />);
     const excerpt = screen.getByText(/Revenue by segment/);
     expect(excerpt).toHaveClass("clamped");
@@ -292,7 +368,7 @@ describe("FactsPanel — extract → ratify", () => {
   });
 
   it("a SHORT passage renders unclamped with no expand control (the clamp marks the exception)", () => {
-    h.extract.data = [FLAG_BURN]; // its excerpt is well under the clamp threshold
+    h.extract.data = env([FLAG_BURN]); // its excerpt is well under the clamp threshold
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(/Partnership milestone payment/)).not.toHaveClass("clamped");
     expect(screen.queryByRole("button", { name: /show the full passage/ })).not.toBeInTheDocument();
@@ -310,7 +386,7 @@ describe("FactsPanel — extract → ratify", () => {
     };
     // a dual-class candidate whose cover yielded no sum: shares BLANK by design
     const SHARES_BLANK = { ...AUTO_SHARES, tier: "flag", value: null, flags: ["dual-class"] };
-    h.extract.data = [SHARES_BLANK, CASH_ONLY];
+    h.extract.data = env([SHARES_BLANK, CASH_ONLY]);
     render(<FactsPanel securityId={SID} />);
 
     const confirms = screen.getAllByRole("button", { name: "Confirm" });
@@ -324,7 +400,7 @@ describe("FactsPanel — extract → ratify", () => {
 
   it("the note is a growable TEXTAREA — a truncated single line hid the basis being ratified", async () => {
     const user = userEvent.setup();
-    h.extract.data = [FLAG_BURN]; // FLAG rows carry a pre-filled composition note
+    h.extract.data = env([FLAG_BURN]); // FLAG rows carry a pre-filled composition note
     render(<FactsPanel securityId={SID} />);
     const note = screen.getByLabelText("note") as HTMLTextAreaElement;
     expect(note.tagName).toBe("TEXTAREA");
@@ -335,7 +411,7 @@ describe("FactsPanel — extract → ratify", () => {
 
   it("a FLAG confirm posts the EDITED recurring burn, not the raw value", async () => {
     const user = userEvent.setup();
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
 
     const burn = screen.getByLabelText("quarterly burn");
@@ -355,7 +431,7 @@ describe("FactsPanel — extract → ratify", () => {
 
   it("a HUMAN purity confirm requires an operator-entered % (no pre-fill)", async () => {
     const user = userEvent.setup();
-    h.extract.data = [HUMAN_PURITY];
+    h.extract.data = env([HUMAN_PURITY]);
     render(<FactsPanel securityId={SID} />);
 
     const confirm = screen.getByRole("button", { name: "Confirm" });
@@ -381,7 +457,7 @@ describe("FactsPanel — extract → ratify", () => {
 
 describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
   it("offers Explain on FLAG rows only — not AUTO, not HUMAN", () => {
-    h.extract.data = [AUTO_SHARES, FLAG_BURN, HUMAN_PURITY];
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN, HUMAN_PURITY]);
     render(<FactsPanel securityId={SID} />);
     // exactly one Explain affordance — the FLAG (burn) row; AUTO is clean, HUMAN/purity is the operator's edge
     expect(screen.getAllByRole("button", { name: /Explain/ })).toHaveLength(1);
@@ -392,7 +468,7 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
       explanation: "The cash use includes a one-time ~$264M ENTRA1 milestone; recurring is lower.",
       grounded: true,
     };
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
 
     expect(h.explainRefetch).not.toHaveBeenCalled(); // never auto-fired on render
@@ -406,7 +482,7 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
     // the model's text even names a number; the burn input still shows the RAW value, untouched —
     // the ratified number is the operator's to type (the explanation rides no rail into the field)
     h.explain.data = { explanation: "Strip the 264,195 milestone and recurring is lower.", grounded: true };
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(/Strip the 264,195 milestone/)).toBeInTheDocument(); // the aid is shown
     const burn = screen.getByLabelText("quarterly burn") as HTMLInputElement;
@@ -415,7 +491,7 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
 
   it("grounded=false is a say-so, never a fabricated explanation", () => {
     h.explain.data = { explanation: "", grounded: false };
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(/No plain-English read grounded in the passage/)).toBeInTheDocument();
     expect(screen.queryByText("drafted")).not.toBeInTheDocument();
@@ -423,7 +499,7 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
 
   it("fail-open: an explain error leaves the raw passage + manual ratify fully working", async () => {
     h.explain = { data: undefined, error: new Error("LLM down"), isFetching: false };
-    h.extract.data = [FLAG_BURN];
+    h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     // no drafted block, but the located passage is still readable and the ratify still posts
     expect(screen.queryByText("drafted")).not.toBeInTheDocument();
@@ -455,7 +531,7 @@ const PURITY_EST = {
 
 describe("FactsPanel — the grounded purity estimate (SURFACE 1b)", () => {
   it("renders the estimate (unverified tag, % + segment pre-filled) and confirms it as-is WITH the estimate", async () => {
-    h.extract.data = [PURITY_EST];
+    h.extract.data = env([PURITY_EST]);
     const user = userEvent.setup();
     render(<FactsPanel securityId={SID} thesisId="t-nuke" />);
 
@@ -478,7 +554,7 @@ describe("FactsPanel — the grounded purity estimate (SURFACE 1b)", () => {
   });
 
   it("an override sends the shown estimate but a different % (→ vouched=overridden)", async () => {
-    h.extract.data = [PURITY_EST];
+    h.extract.data = env([PURITY_EST]);
     const user = userEvent.setup();
     render(<FactsPanel securityId={SID} thesisId="t-nuke" />);
 

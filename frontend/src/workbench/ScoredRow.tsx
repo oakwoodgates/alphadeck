@@ -49,18 +49,22 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
   const ingestPx = useIngestPrices();
   const autoShares = useAutoConfirmShares();
   const loaded = memberHasFundamentals(member);
-  // "data ready" means there are CANDIDATES to ratify — an empty extract (a foreign 20-F/6-K issuer with no
-  // 10-K/10-Q the extractor covers) is NOT ready. `noFilings` is that honest fetched-but-empty state; without
-  // it an empty result read as "✓ data ready" and opened to a blank rail (the SIMO confusion).
-  const hasCandidates = (extract.data?.length ?? 0) > 0;
-  const noFilings = extract.data !== undefined && !hasCandidates;
+  // "data ready" means there are CANDIDATES to ratify. An empty extract now says WHICH nothing
+  // (Retrieval Slice 1 — the three empty states): `no-annual-filing` = genuinely nothing on EDGAR
+  // (the only case where the old "no filings" read was true); `cover-not-located` = an annual filing
+  // exists but its cover couldn't be read — the name is UNREAD, not empty, and stays a visible
+  // candidate for the next pass (interaction #2). A foreign 20-F/40-F filer with a readable cover now
+  // yields a FLAG shares candidate like any other name.
+  const facts = extract.data?.facts;
+  const hasCandidates = (facts?.length ?? 0) > 0;
+  const emptyReason = extract.data !== undefined && !hasCandidates ? extract.data.empty_reason : null;
   // The candidates STILL needing the operator, i.e. fetched but with no ratified fact of that type yet. This
   // is the control's real subject. It used to key off `loaded` (ANY confirmed fact), which was already a bug —
   // ratifying one fact hid the control while purity/cash were still outstanding — and auto-applying shares
   // would have INDUSTRIALIZED it: every clean name would self-confirm its shares and instantly go quiet with
   // two facts unratified. Counting what's left keeps the name honestly surfaced until it's actually done.
   const onFile = onFileValues(member);
-  const remaining = (extract.data ?? []).filter((f) => !onFile[f.fact_type]);
+  const remaining = (facts ?? []).filter((f) => !onFile[f.fact_type]);
   const getData = async () => {
     ingestPx.mutate(member.security_id);
     const res = await extract.refetch();
@@ -68,7 +72,8 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
     // already hold candidates, and a fact must never be written just by looking at a name). We gate on the
     // candidate's tier to skip a pointless call; the SERVER re-verifies AUTO and owns the number. `mutate`
     // (not mutateAsync) is non-throwing: a failed auto-apply leaves today's manual confirm exactly as it is.
-    const shares = res?.data?.find((f) => f.fact_type === "shares_outstanding");
+    // An annual-cover shares candidate is ALWAYS "flag", so a dark name can never take this branch.
+    const shares = res?.data?.facts?.find((f) => f.fact_type === "shares_outstanding");
     if (shares?.tier === "auto") autoShares.mutate(member.security_id);
   };
   return (
@@ -129,13 +134,23 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
           </button>
         ) : loaded ? null : (
           <>
-            {noFilings ? (
-            // honest-loudness: an empty extract is NOT "data ready" and retrying won't help — say why, quietly
+            {emptyReason === "no-annual-filing" ? (
+            // honest-loudness: fetched and GENUINELY empty — no 10-K/10-Q and no 20-F/40-F either
+            // (a brand-new or non-reporting listing); retrying won't help — say why, quietly
             <span
               className="wb-getdata none"
-              title="no 10-K/10-Q filing for this issuer — foreign names file 20-F/6-K, which the extractor doesn't cover yet; nothing to extract"
+              title="nothing on EDGAR the extractor can read — no 10-K/10-Q and no annual foreign filing (20-F/40-F) on file for this issuer"
             >
-              — no 10-K/10-Q
+              — nothing on EDGAR
+            </span>
+          ) : emptyReason === "cover-not-located" ? (
+            // DISTINCT from genuinely-empty (interaction #2): the annual filing EXISTS but its cover
+            // couldn't be read this pass — the name is UNREAD, not empty; it stays a visible candidate
+            <span
+              className="wb-getdata unread"
+              title="this issuer's annual filing (20-F/40-F) is on file, but its cover share count couldn't be read this pass — unread, not empty; it stays a candidate for a future extractor pass"
+            >
+              ◌ annual filing unread
             </span>
           ) : extract.error ? (
             <button
@@ -155,7 +170,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
               type="button"
               className="wb-getdata"
               aria-label={`get data for ${member.ticker ?? "name"}`}
-              title="pull this name's latest 10-Q/10-K (2–4 EDGAR requests) + its EOD price bars — cache-first; the candidates land in the rail for you to ratify"
+              title="pull this name's latest SEC filings (10-Q/10-K; a foreign filer's 20-F/40-F cover for shares) + its EOD price bars — cache-first, 2–4 EDGAR requests; the candidates land in the rail for you to ratify"
               onClick={(e) => {
                 e.stopPropagation();
                 getData();

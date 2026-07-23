@@ -129,12 +129,34 @@ def _dilution(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
     return ScoredFigure(pips=_bucket(pct, cutoffs), value=round(pct, 1), provenance=prov)
 
 
+def _shares_prov(sh: dict[str, Any]) -> Provenance:
+    """The shares fact's provenance entry, ADS-ratio metadata riding along WHEN PRESENT (spec §10):
+    ``_prov`` drops None figures, so a legacy / domestic NULL-NULL row renders byte-identically to the
+    pre-ratio shape — the regression guarantee the NULL encoding exists for."""
+    return _prov(
+        sh,
+        shares=float(sh["shares"]),
+        shares_asof=sh["valid_from"].isoformat(),
+        ads_ratio=sh.get("ads_ratio"),
+        ads_ratio_status=sh.get("ads_ratio_status"),
+    )
+
+
 def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     """A FIGURE, not a meter: latest close x latest shares (total-economic). One input alone can't
     compute a cap — but a RATIFIED input must stay VISIBLE (value None + its provenance + a note naming
     the missing half). A bare "—" here made a confirm on a price-less fresh name read as a silent no-op
     (the gate-3 finding: the operator ratified MU's shares three times looking for ANY change — the
     fact was on file all along; the other input, price, comes from the per-thesis back-half ingest).
+
+    THE ADS RATIO (spec §10): an annual foreign filer's fact is the ORDINARY count while the price feed
+    carries the ADS price — they only multiply at 1:1. ``ads_ratio_status`` on the fact modulates the
+    DERIVATION (never the fact): ``"known"`` divides the count by the ratio; ``"unread"`` (ADR evidence,
+    no defensible ratio) WITHHOLDS the cap in the same visible shape as awaiting-price — a defaulted 1:1
+    would be a multiplicative, silent, permanent error, and better detection later must move a name from
+    suppressed→correct, never wrong→right. ``NULL/NULL`` is NOT APPLICABLE -> 1:1: every legacy row and
+    every domestic 10-Q name has NULL, so a NULL-means-suppress encoding would blank every cap in the app
+    (the storage trap the spec's §10 storage section names).
     """
     shares_facts = pit.shares_outstanding_facts(sid)
     prices = pit.price_history(sid)
@@ -150,14 +172,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
                 "per-thesis ingest (the back half) pulls prices. The ratified shares fact IS on file."
             },
         )
-        return ScoredFigure(
-            pips=None,
-            value=None,
-            provenance=[
-                _prov(sh, shares=float(sh["shares"]), shares_asof=sh["valid_from"].isoformat()),
-                awaiting,
-            ],
-        )
+        return ScoredFigure(pips=None, value=None, provenance=[_shares_prov(sh), awaiting])
     if not shares_facts:
         latest = prices[-1]
         awaiting = Provenance(
@@ -172,14 +187,30 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
         return ScoredFigure(pips=None, value=None, provenance=[awaiting])
     sh = max(shares_facts, key=lambda f: f["valid_from"])
     latest = prices[-1]  # price_history is sorted ascending by date
-    cap = float(sh["shares"]) * float(latest["close"])
-    prov = [
-        _prov(sh, shares=float(sh["shares"]), shares_asof=sh["valid_from"].isoformat()),
-        Provenance(
-            source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}
-        ),
-    ]
-    return ScoredFigure(pips=None, value=round(cap), provenance=prov)
+    price_prov = Provenance(
+        source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}
+    )
+    status = sh.get("ads_ratio_status")
+    ratio = sh.get("ads_ratio")
+    if status == "unread" or (status == "known" and not (ratio and float(ratio) >= 1)):
+        # ("known" with a missing/absurd ratio is a corrupt pairing the writer never produces —
+        # treated as unread, because fail-closed is the only safe read of an inconsistent row.)
+        withheld = Provenance(
+            source="computed",
+            ref="market-cap:ads-ratio-unread",
+            detail={
+                "note": "This name trades as an ADR/ADS but the ordinary-shares-per-ADS ratio could "
+                "not be read from its filing — the cap is WITHHELD rather than guessed at 1:1 (a "
+                "wrong ratio is a silent multiplicative error). The ratified ordinary count IS on "
+                "file; ratify a count with a known ratio (or 1:1 evidence) to light the cap."
+            },
+        )
+        return ScoredFigure(
+            pips=None, value=None, provenance=[_shares_prov(sh), price_prov, withheld]
+        )
+    divisor = float(ratio) if status == "known" else 1  # NULL/NULL -> not applicable -> 1:1
+    cap = float(sh["shares"]) / divisor * float(latest["close"])
+    return ScoredFigure(pips=None, value=round(cap), provenance=[_shares_prov(sh), price_prov])
 
 
 def _fit(purity_pips: int | None, runway_pips: int | None, dilution_pips: int | None) -> str:

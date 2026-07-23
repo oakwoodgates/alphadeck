@@ -261,5 +261,24 @@ class ExtractorConfig(DomainModel):
         "contribution",
     )
 
+    # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
+    # The window AFTER the located cover instruction searched for the count. The instruction sentence
+    # ends and the count follows within a sentence or a short per-class table; measured sufficient
+    # across every readable 20-F/40-F cover in a real basket (measured; PR #221).
+    annual_cover_segment_chars: int = 900
+    # A chosen count older than this (days, aged against the request's `today`) wears `stale-cover` —
+    # mirroring the FE's ">~6mo old" `.wb-stale-shares` badge (`staleSharesMonths`), so the backend
+    # flag and the UI badge tell ONE staleness story rather than two.
+    annual_stale_cover_days: int = 183
+    # The implausibility floor: a WINNING value below this is emitted WITH `implausible-count`, never
+    # suppressed (recall #9 — a suppressed value is worse than a flagged one). QNTM's companyfacts
+    # `dei` claims 12 shares against a cover of 3,887,729. PROPOSED dial (spec §9), not a measured fact.
+    annual_implausible_floor_shares: float = 1_000.0
+    # The ADS-ratio absurdity ceiling (spec §10.3): a parsed ratio above this is treated as UNREAD
+    # (suppress), never applied. Real ratios in the measured universe run 1..120; deep-discount ADRs
+    # can genuinely reach several hundred (a 400:1 was measured mid-conflict), so the ceiling sits an
+    # order above the observed range rather than hugging it.
+    annual_ads_ratio_max: int = 1000
+
 
 DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()
