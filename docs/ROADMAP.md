@@ -183,9 +183,16 @@ non-`alphadeck_test` name).
    `market_today()` / trading-day helper** so the Mon-Fri + `RUN_AT` schedule contract has ONE home (today
    it lives in both `scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand); the **R4
    0-fetch false-positive** (a run entirely inside the 12h EDGAR TTL looks like a freeze — page on 0 only
-   when the cache was outside its TTL, or restrict the freeze page to scheduled runs); and an **external
-   dead-man's-switch** heartbeat (a run that never happens produces no page — the sidecar can't alert about
-   its own absence). Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`, `FEED_LOOP.md` "Known gaps".
+   when the cache was outside its TTL, or restrict the freeze page to scheduled runs); the **fetch counter
+   counts ATTEMPTS, not successes** — `EdgarClient.get_text` does `live_fetches += 1` immediately *before*
+   `_fetch`, so a run whose every pull RAISES still reports a large, reassuring number, and `frozen` (which
+   trips only at exactly 0) can never fire. Observed **2026-07-22**: an empty `ALPHADECK_USER_AGENT` failed
+   all 255 pulls before a byte left the box and the run still logged `255 EDGAR fetches`; only the R2
+   withhold guard caught it, never the detector built to catch exactly this. Count *completions* (or carry
+   a failure tally beside the attempt count) so the freeze detector reports the network rather than the
+   intent. And an **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
+   sidecar can't alert about its own absence). Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
+   `FEED_LOOP.md` "Known gaps".
 7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
    fund/affiliate blocks (Baker Bros / Paulson-style) that are portfolio moves, not conviction, screened
    from Key-1; and the **`insider_flow` sell-side ceiling** (the display headline's symmetric guard). Both

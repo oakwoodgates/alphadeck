@@ -237,9 +237,9 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
   replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
 
-## Known gaps (as of 2026-07-17)
+## Known gaps (as of 2026-07-22)
 
-Two are recorded here where a builder of the pager/scheduler will hit them; the full account of each is in
+Three are recorded here where a builder of the pager/scheduler will hit them; the full account of each is in
 `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 - **The R4 freeze page has a false-positive path.** It fires on `edgar_fetches == 0`, but ~0 is *also* what a
@@ -249,6 +249,17 @@ Two are recorded here where a builder of the pager/scheduler will hit them; the 
   `edgar_fetches = 1`, one short of a false page). Two fixes when built: (A, more correct) page on 0 only when
   the cache was *outside* its TTL for the names touched; (B, simpler) restrict the freeze page to *scheduled*
   runs (catch-ups/manual stay quiet on fetch count, still page on withheld/errors).
+- **`edgar_fetches` counts ATTEMPTS, not successes.** `EdgarClient.get_text` does `live_fetches += 1`
+  immediately *before* calling `_fetch`, so a pull that RAISES still increments the counter. A run whose every
+  fetch fails therefore reports a large, reassuring number, and `frozen` (which trips only at exactly 0) can
+  never fire — the freeze detector reports *intent to fetch*, not network. Observed **2026-07-22**: an empty
+  `ALPHADECK_USER_AGENT` (the stack had been rebuilt from a git worktree, where the gitignored `.env` does not
+  exist, so compose resolved `${ALPHADECK_USER_AGENT:-}` to empty) raised on all 255 pulls before a byte left
+  the box — and the run logged `255 EDGAR fetches`, `frozen = false`. What actually caught it was the **R2
+  withhold guard** (every name errored → *total ingest failure* → 5 calls correctly withheld), not the detector
+  built for exactly this. Fix when built: count *completions*, or carry a failure tally beside the attempt
+  count, and let the freeze verdict read the former. Note this gap **compounds** with the false-positive above —
+  the same number is unreliable in both directions.
 - **A missing run doesn't page (dead-man's switch).** `restart: unless-stopped` restarts the sidecar on
   crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside* a run, so a
   run that never happens produces no results → no run log → no page — byte-identical to a healthy silent night.
