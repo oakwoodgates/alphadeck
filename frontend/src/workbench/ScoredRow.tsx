@@ -170,7 +170,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
               type="button"
               className="wb-getdata"
               aria-label={`get data for ${member.ticker ?? "name"}`}
-              title="pull this name's latest SEC filings (10-Q/10-K; a foreign filer's 20-F/40-F cover for shares) + its EOD price bars — cache-first, 2–4 EDGAR requests; the candidates land in the rail for you to ratify"
+              title="pull this name's latest SEC filings (10-Q/10-K; a foreign filer's 20-F/40-F cover for shares + statements for cash/runway) + its EOD price bars — cache-first, 2–4 EDGAR requests; the candidates land in the rail for you to ratify"
               onClick={(e) => {
                 e.stopPropagation();
                 getData();

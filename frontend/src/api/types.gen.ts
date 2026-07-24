@@ -290,16 +290,20 @@ export interface paths {
         /**
          * Extract Scoring Facts
          * @description Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
-         *     Retrieval Slice 1). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts, FLAG
-         *     carries the raw value + a detected risk + the located passage (the operator ratifies the composition),
-         *     HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a foreign private
-         *     issuer) gets honest, current shares from its latest annual filing's cover (20-F/40-F) — ALWAYS tier
-         *     FLAG, carrying the located cover passage, its as-of and its age; shares only (cash + purity stay
-         *     uncovered for those names). When even that has nothing to read, ``empty_reason`` says WHICH nothing:
-         *     ``no-annual-filing`` (genuinely nothing on EDGAR) vs ``cover-not-located`` (an annual filing exists but
-         *     its cover could not be read — the name is unread, not empty). An EXPLICIT operator action (cache-first,
-         *     live SEC), never fired on a render. The extractor never DECIDES — the operator confirms (hybrid-2).
-         *     Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+         *     Retrieval Slices 1/A). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts,
+         *     FLAG carries the raw value + a detected risk + the located passage (the operator ratifies the
+         *     composition), HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a
+         *     foreign private issuer) reads its latest annual filing (20-F/40-F) ONCE and gets — ALWAYS tier FLAG —
+         *     honest, current shares from the cover (Slice 1) PLUS cash + span-normalized burn from the financial
+         *     statements (Slice A: the RUNWAY meter's inputs, with the located balance-sheet and cash-flow rows as
+         *     passages; a cash-GENERATIVE name carries a cash-generative note, never a bogus runway). Purity stays
+         *     uncovered for annual filers. ``empty_reason`` says WHICH nothing when there are no facts at all
+         *     (``no-annual-filing`` vs ``cover-not-located``); ``runway_empty_reason`` is the runway leg's own state
+         *     when an annual filing exists but no cash_burn candidate could be read: ``cash-generative`` (a state,
+         *     not a gap) · ``financials-in-exhibit`` (a burning 40-F/MJDS name whose statements live in an exhibit
+         *     document — deferred, never a companyfacts-only number) · ``statements-not-located`` (unread, not
+         *     empty). An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
+         *     never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
          *
          *     PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
          *     on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis
@@ -1839,15 +1843,30 @@ export interface components {
          *       the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where "nothing to
          *       extract" is true.
          *     - ``empty_reason="cover-not-located"`` → an annual filing EXISTS but its cover instruction could
-         *       not be matched (PBM): the name is UNREAD, not empty — it stays a visible candidate for the next
+         *       not be matched: the name is UNREAD, not empty — it stays a visible candidate for the next
          *       pass, and companyfacts alone is deliberately NOT served (a fact without its located passage
          *       would break the no-passage-no-fact contract).
+         *
+         *     ``runway_empty_reason`` (Retrieval Slice A) is the RUNWAY leg's own honest state for an annual
+         *     filer whose filing exists but yielded no cash_burn candidate — kept SEPARATE from ``empty_reason``
+         *     because the shares leg usually still emits (facts non-empty), and the three states must stay
+         *     distinct (interaction #2):
+         *
+         *     - ``"cash-generative"`` → operating cash flow is positive: a STATE, not a gap — no runway applies
+         *       and none is computed (a finite number here would be bogus).
+         *     - ``"financials-in-exhibit"`` → a BURNING name whose financial statements live outside the fetched
+         *       main document (the 40-F/MJDS wrapper shape, or a 20-F with exhibit-only statements): runway
+         *       needs the exhibit document — deferred, never a companyfacts-only number (no passage → no fact).
+         *     - ``"statements-not-located"`` → neither the statements nor a companyfacts sign could be read:
+         *       unread, not empty.
          */
         ExtractionResult: {
             /** Facts */
             facts?: components["schemas"]["ExtractedFact"][];
             /** Empty Reason */
             empty_reason?: string | null;
+            /** Runway Empty Reason */
+            runway_empty_reason?: string | null;
         };
         /**
          * FlagExplanationOut

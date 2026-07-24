@@ -150,16 +150,20 @@ def extract_scoring_facts(
     purity_llm: LLMClient = Depends(get_purity_client),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
-    Retrieval Slice 1). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts, FLAG
-    carries the raw value + a detected risk + the located passage (the operator ratifies the composition),
-    HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a foreign private
-    issuer) gets honest, current shares from its latest annual filing's cover (20-F/40-F) — ALWAYS tier
-    FLAG, carrying the located cover passage, its as-of and its age; shares only (cash + purity stay
-    uncovered for those names). When even that has nothing to read, ``empty_reason`` says WHICH nothing:
-    ``no-annual-filing`` (genuinely nothing on EDGAR) vs ``cover-not-located`` (an annual filing exists but
-    its cover could not be read — the name is unread, not empty). An EXPLICIT operator action (cache-first,
-    live SEC), never fired on a render. The extractor never DECIDES — the operator confirms (hybrid-2).
-    Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
+    Retrieval Slices 1/A). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean facts,
+    FLAG carries the raw value + a detected risk + the located passage (the operator ratifies the
+    composition), HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a
+    foreign private issuer) reads its latest annual filing (20-F/40-F) ONCE and gets — ALWAYS tier FLAG —
+    honest, current shares from the cover (Slice 1) PLUS cash + span-normalized burn from the financial
+    statements (Slice A: the RUNWAY meter's inputs, with the located balance-sheet and cash-flow rows as
+    passages; a cash-GENERATIVE name carries a cash-generative note, never a bogus runway). Purity stays
+    uncovered for annual filers. ``empty_reason`` says WHICH nothing when there are no facts at all
+    (``no-annual-filing`` vs ``cover-not-located``); ``runway_empty_reason`` is the runway leg's own state
+    when an annual filing exists but no cash_burn candidate could be read: ``cash-generative`` (a state,
+    not a gap) · ``financials-in-exhibit`` (a burning 40-F/MJDS name whose statements live in an exhibit
+    document — deferred, never a companyfacts-only number) · ``statements-not-located`` (unread, not
+    empty). An EXPLICIT operator action (cache-first, live SEC), never fired on a render. The extractor
+    never DECIDES — the operator confirms (hybrid-2). Requires ``ALPHADECK_USER_AGENT`` (SEC etiquette).
 
     PURITY ESTIMATE (SURFACE 1b): with ``thesis_id``, the grounded purity seam proposes an UNVERIFIED
     on-thesis % for the revenue_mix candidate — read ONLY from its located segment passage, with the thesis

@@ -98,10 +98,26 @@ class ExtractionResult(DomainModel):
       the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where "nothing to
       extract" is true.
     - ``empty_reason="cover-not-located"`` → an annual filing EXISTS but its cover instruction could
-      not be matched (PBM): the name is UNREAD, not empty — it stays a visible candidate for the next
+      not be matched: the name is UNREAD, not empty — it stays a visible candidate for the next
       pass, and companyfacts alone is deliberately NOT served (a fact without its located passage
       would break the no-passage-no-fact contract).
+
+    ``runway_empty_reason`` (Retrieval Slice A) is the RUNWAY leg's own honest state for an annual
+    filer whose filing exists but yielded no cash_burn candidate — kept SEPARATE from ``empty_reason``
+    because the shares leg usually still emits (facts non-empty), and the three states must stay
+    distinct (interaction #2):
+
+    - ``"cash-generative"`` → operating cash flow is positive: a STATE, not a gap — no runway applies
+      and none is computed (a finite number here would be bogus).
+    - ``"financials-in-exhibit"`` → a BURNING name whose financial statements live outside the fetched
+      main document (the 40-F/MJDS wrapper shape, or a 20-F with exhibit-only statements): runway
+      needs the exhibit document — deferred, never a companyfacts-only number (no passage → no fact).
+    - ``"statements-not-located"`` → neither the statements nor a companyfacts sign could be read:
+      unread, not empty.
     """
 
     facts: list[ExtractedFact] = Field(default_factory=list)
     empty_reason: str | None = None  # "no-annual-filing" | "cover-not-located" | None
+    # "cash-generative" | "financials-in-exhibit" | "statements-not-located" | None (covered, or a
+    # domestic 10-Q/10-K name — the periodic path never sets it)
+    runway_empty_reason: str | None = None

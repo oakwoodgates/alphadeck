@@ -98,7 +98,7 @@ def _subs_with(forms: list[str]) -> dict:
 def test_fallback_domestic_filer_rides_the_periodic_path_unchanged(monkeypatch):
     """A 10-Q/10-K filer takes the EXISTING path verbatim (facts passthrough, no empty_reason) — the
     annual path must not even be consulted."""
-    import ingest.edgar.annual_shares as annual
+    import ingest.edgar.annual_runway as annual
     from domain.extraction import ExtractedFact, Tier
 
     fake = [
@@ -115,26 +115,30 @@ def test_fallback_domestic_filer_rides_the_periodic_path_unchanged(monkeypatch):
     monkeypatch.setattr(ex, "extract_for_security", lambda client, cik, cfg: fake)
     monkeypatch.setattr(
         annual,
-        "annual_shares_for_security",
+        "annual_facts_for_security",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("annual path must not run")),
     )
     out = ex.extract_with_annual_fallback(_client(), 111)
     assert out.facts == fake and out.empty_reason is None
+    assert out.runway_empty_reason is None  # the periodic path never sets the annual runway state
 
 
 def test_fallback_dark_name_routes_to_the_annual_path(monkeypatch):
-    """No 10-Q AND no 10-K -> the annual-cover result (facts OR its honest empty reason) passes through
-    verbatim. The periodic extractor must NOT run — it fetches companyfacts up front, which 404s for
-    the no-companyfacts names the annual path serves cover-only (GLAS/CRLBF/TRSG)."""
-    import ingest.edgar.annual_shares as annual
+    """No 10-Q AND no 10-K -> the combined annual result (shares + runway candidates, OR their honest
+    empty/deferral reasons) passes through verbatim. The periodic extractor must NOT run — it fetches
+    companyfacts up front, which 404s for the no-companyfacts names the annual path serves cover-only
+    (GLAS/CRLBF/TRSG)."""
+    import ingest.edgar.annual_runway as annual
     from domain.extraction import ExtractionResult
 
-    sentinel = ExtractionResult(facts=[], empty_reason="cover-not-located")
+    sentinel = ExtractionResult(
+        facts=[], empty_reason="cover-not-located", runway_empty_reason="financials-in-exhibit"
+    )
     monkeypatch.setattr(ex, "fetch_submissions", lambda client, cik: _subs_with(["20-F", "6-K"]))
     monkeypatch.setattr(
         ex,
         "extract_for_security",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("periodic path must not run")),
     )
-    monkeypatch.setattr(annual, "annual_shares_for_security", lambda client, cik, cfg: sentinel)
+    monkeypatch.setattr(annual, "annual_facts_for_security", lambda client, cik, cfg: sentinel)
     assert ex.extract_with_annual_fallback(_client(), 222) is sentinel

@@ -698,9 +698,10 @@ def extract_with_annual_fallback(
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
 ) -> ExtractionResult:
-    """The extract ROUTE's entry (Retrieval Slice 1): the existing 10-Q/10-K path whenever a domestic
-    periodic filing exists — UNCHANGED — else the annual-cover shares path (20-F/40-F, FLAG-only) with
-    an honest, DISTINCT empty reason (``ExtractionResult.empty_reason``; the three empty states).
+    """The extract ROUTE's entry (Retrieval Slices 1 + A): the existing 10-Q/10-K path whenever a
+    domestic periodic filing exists — UNCHANGED — else the annual path (20-F/40-F, FLAG-only): the
+    cover SHARES candidate (Slice 1) plus the statements CASH/RUNWAY candidate or its honest
+    ``runway_empty_reason`` (Slice A), with the DISTINCT empty reasons on ``ExtractionResult``.
 
     The dark-name trigger is the SAME condition the periodic path bails on (no 10-Q AND no 10-K), but
     it is checked FIRST from submissions because the periodic path fetches companyfacts up front and
@@ -711,10 +712,12 @@ def extract_with_annual_fallback(
     subs = fetch_submissions(client, cik)
     if filings_of(subs, "10-Q") or filings_of(subs, "10-K"):
         return ExtractionResult(facts=extract_for_security(client, cik, cfg=cfg))
-    # Lazy import keeps the module DAG acyclic: annual_shares imports this module's URL helpers.
-    from ingest.edgar.annual_shares import annual_shares_for_security
+    # Lazy import keeps the module DAG acyclic: the annual modules import this module's URL helpers.
+    # annual_facts_for_security fetches the annual document ONCE and feeds BOTH the cover-shares and
+    # the statements-runway extractors from that one text (never a second multi-MB pull).
+    from ingest.edgar.annual_runway import annual_facts_for_security
 
-    return annual_shares_for_security(client, cik, cfg=cfg)
+    return annual_facts_for_security(client, cik, cfg=cfg)
 
 
 __all__ = ["extract_facts", "extract_for_security", "extract_with_annual_fallback", "ExtractedFact"]

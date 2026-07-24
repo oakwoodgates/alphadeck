@@ -246,8 +246,8 @@ floor that **flags rather than drops** (#9: never silently discard).
 **Three empty states, kept distinct** (interaction #2 — "we couldn't read it" must never masquerade as
 "there is nothing"): `no-annual-filing` (nothing on EDGAR — the only case where "nothing to extract" is
 true) · `cover-not-located` (a filing exists but its cover is unread — still a live candidate) · covered
-(shares emitted; **cash and purity remain uncovered for these names**, and the UI says so rather than
-letting a `—` imply zero).
+(shares emitted; **purity remains uncovered for these names** — cash/runway is now covered by the
+annual-statements path below — and the UI says so rather than letting a `—` imply zero).
 
 **The ADS ratio — apply where READ, SUPPRESS where not.** The annual cover states **ordinary** shares,
 but the price feed carries the **ADR/ADS** price — they only multiply at 1:1, and real ratios run 1:1 to
@@ -279,6 +279,68 @@ pinned by a test:
 - Known limitation: a ratio **change** is picked up at the next annual filing (≤ ~a year of lag; the
   in-between filing that states both old and new reads as a conflict → suppressed, honestly). A ratio is a
   multiplicative input — it gets its own staleness thinking in a later pass.
+
+## The annual-statements runway path — cash + burn for a filer with NO 10-K/10-Q `[BUILT]`
+
+The sibling of the annual-cover shares path (Retrieval Slice A): a dark name's **runway** — cash and a
+span-normalized operating-cash burn — read from the financial statements of the SAME 20-F/40-F document
+the shares path fetches (**one fetch feeds both**; `annual_facts_for_security` in
+`backend/ingest/edgar/annual_runway.py`). Ground truth is pinned in
+`backend/tests/ingest/test_annual_runway.py` + its fixtures (real trimmed statement text, every trim
+verified to reproduce the full-document result) — the tests are the oracle, not this page.
+
+**FLAG only, structurally** — the same bound as the shares path: the pre-fill tier's token appears
+nowhere in the module (source-scan test), and every emitted fact carries **both** located statement
+rows (the balance-sheet cash row + the cash-flow operating total) as passages. No passage → no fact.
+
+**The sign IS the state.** Positive operating cash flow → **cash-generative**: no runway is computed
+(a finite number would be bogus); the fact goes out with a negative quarterly burn and a
+cash-generative note, and the meter reads it as the existing burn ≤ 0 top-pip. Negative → a finite
+runway, span-normalized.
+
+**Span-normalize is the core computation.** `burn_per_day = |OCF| / span_days` — a 3/6/9-month column
+(a 6-K interim served by companyfacts, or a transition-period statement) read as a year puts runway
+off 2–4×. The span comes from, in order: an exact companyfacts row match **ending at the period of
+report** (filed dates — reproducible arithmetic, immune to a mislabeled period phrase; the end-date
+pin defeats coincidentally-equal old rows); the statement's own period phrase; a bare fiscal-year
+column on an annual form (annual by form semantics, stated in the note).
+
+**Unit scale is read, never assumed.** Statement values sit under a `$'000` / `$000s` / `in thousands`
+/ `in € thousand` / `k€` / `in millions` header; the nearest marker above the row (its own table
+header) is applied, and one filing's statements share one declaration — a side missing its marker
+inherits the companion statement's, noted. No marker anywhere → the figures go out **as printed** with
+flag `unit-scale-unread` — stated, never guessed.
+
+**The current column is picked, never assumed.** Statements print 2–3 fiscal years side by side —
+ascending or descending, sometimes with a convenience second-currency column — and the report year is
+matched against the column-year headers located above the row. An ambiguous mapping (a duplicated
+report-year header) withholds the value with flag `column-ambiguous`; when every column shares one
+sign, the generative/burning **state** still reads (a state is sign-only).
+
+**Currency discipline.** IFRS filers report in native currency. Runway is a ratio — months are
+currency-independent **if** cash and burn share a currency — so companyfacts is consulted only in the
+unit matching the statement's own detected currency (a mixed-currency ratio is unrepresentable). The
+stored `*_usd` fields carry statement-currency values for a native-currency filer; the note names the
+currency, and the meter's months stay honest. (A cross-currency absolute-$ display is a known,
+documented limitation.)
+
+**Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
+a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
+**fresher** (a 6-K interim landing after the last annual — the interim then wins and is normalized by
+its own exact span). `source-disagreement` fires only on a **same-date** value contradiction —
+deliberately quieter than the shares flag, because cross-date lag is the *rule* for annual filers and
+a flag true of every name carries no information. The cross-date lag is stated in the note instead.
+
+**Three runway empty states, kept distinct** (`ExtractionResult.runway_empty_reason` — separate from
+`empty_reason` because the shares leg usually still emits): **`cash-generative`** (a state, not a gap
+— no runway applies; shown even when the statements aren't in-doc, from the companyfacts sign) ·
+**`financials-in-exhibit`** (a *burning* name whose statements live outside the fetched main document
+— the 40-F/MJDS wrapper shape; runway needs the exhibit doc, deferred, never a companyfacts-only
+number) · **`statements-not-located`** (sign unknowable — unread, not empty).
+
+**Staleness is annual-calibrated** (honest loudness): an annual reading is inherently up to ~a year
+old, so `stale-runway` fires only past `annual_stale_runway_days` (~1.5 annual cycles) — a delinquent
+or stopped filer, never the ordinary annual rhythm.
 
 ## The located passage — deterministic retrieval, never a reading
 

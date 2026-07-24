@@ -178,6 +178,7 @@ const SOURCE_LABEL: Record<string, string> = {
   "10-q-cover": "shares (10-Q cover)",
   "10-k-cover": "shares (10-K cover)",
   "annual-cover": "shares (20-F/40-F cover)",
+  "annual-statements": "cash/burn (20-F/40-F statements)",
   "10-k": "10-K",
   "8-k": "8-K",
   form4: "Form 4",
