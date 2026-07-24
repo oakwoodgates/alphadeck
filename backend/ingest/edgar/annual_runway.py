@@ -743,6 +743,9 @@ def extract_annual_runway(
             tier=Tier.FLAG,  # ALWAYS — an annual statement's composition is the operator's to ratify
             cash_usd=cash_value,
             quarterly_burn_usd=burn,
+            # the already-detected statement currency, carried DISPLAY-ONLY so the FE labels cash/burn
+            # in the filer's native currency (cash NT$ …) — never converted, never a scoring input
+            statement_currency=currency,
             source="annual-statements",
             source_ref=annual_ref,
             event_date=age_ref,

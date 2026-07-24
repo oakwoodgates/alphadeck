@@ -329,6 +329,20 @@ def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
     assert {p.kind for p in cb.located_passages} == {"balance-sheet", "cash-flow"}
 
 
+def test_us_gaap_cash_burn_never_sets_statement_currency():
+    """The domestic-default regression guard for the native-currency LABEL (Slice A follow-up): the
+    us-gaap ``_cash_burn`` path is a domestic USD filer, so it must leave ``statement_currency`` None —
+    the FE then renders the plain ``$``. Only the IFRS annual-statements path (native TWD/EUR/…) ever
+    sets a currency; nothing here changed. Pinned across the composed AND the no-data (located-only)
+    shapes so a stray currency can never leak onto a us-gaap fact."""
+    clean = _cb(
+        _facts(ocf=[_dur("2026-03-01", "2026-05-28", -5e6)], cash=[_inst("2026-05-28", 100e6)])
+    )
+    assert clean.statement_currency is None
+    empty = _cb(_facts())  # no cash instant, no OCF column — the located-only FLAG
+    assert empty.statement_currency is None
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Tier 1/2 — cash: composition (cash-only OR + same-dated marketable) -> AUTO; flags mark exceptions
 # ---------------------------------------------------------------------------------------------------------

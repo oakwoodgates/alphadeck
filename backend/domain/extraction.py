@@ -59,6 +59,13 @@ class ExtractedFact(DomainModel):
     value: float | None = None  # shares_outstanding
     cash_usd: float | None = None  # cash_burn
     quarterly_burn_usd: float | None = None  # cash_burn
+    # The statement's own ISO currency (Retrieval Slice A follow-up), set ONLY by the IFRS annual-
+    # statements runway path — an IFRS filer reports in its native currency (TWD/EUR/CAD/…) and the
+    # ``*_usd`` fields then carry native-currency values (the runway RATIO stays currency-correct). This
+    # rides through DISPLAY-ONLY so the FE can label cash/burn honestly (``cash NT$`` — never a misread
+    # ``$2.77T``); it is NEVER converted to USD and NEVER a scoring input. None for every domestic/us-gaap
+    # filer (the periodic ``_cash_burn`` path leaves it unset) → the FE defaults the label to ``$``.
+    statement_currency: str | None = None  # cash_burn (annual-statements path only)
     # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
     # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no

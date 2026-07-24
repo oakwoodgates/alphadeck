@@ -1819,6 +1819,8 @@ export interface components {
             cash_usd?: number | null;
             /** Quarterly Burn Usd */
             quarterly_burn_usd?: number | null;
+            /** Statement Currency */
+            statement_currency?: string | null;
             /** Flags */
             flags?: string[];
             /** Located Passages */

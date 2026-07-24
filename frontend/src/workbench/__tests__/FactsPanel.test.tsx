@@ -200,6 +200,36 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.getByText(/246,251 100,791/)).toBeInTheDocument(); // the cash row, inline
   });
 
+  it("labels cash/burn in the filer's NATIVE currency (Slice A) — NT$ for TWD, $ for a domestic name", () => {
+    // The IFRS annual path carries statement_currency; the FE LABELS the value in that currency, it
+    // never CONVERTS it (runway is a ratio — the months are currency-correct as-is). TSM's cash is
+    // NT$2,767,856,400,000 (~US$88B): a bare `$` misread it as $2.77T — so the label reads `cash NT$`
+    // while the value stays untouched. A null/USD name is the domestic default: the label stays `$`.
+    const ANNUAL_TWD = {
+      ...FLAG_BURN,
+      source: "annual-statements",
+      cash_usd: 2767856400000,
+      quarterly_burn_usd: -50000, // TSM is cash-generative (negative burn); value untouched by the label
+      flags: ["annual-statements"],
+      statement_currency: "TWD",
+      located_passages: [],
+    };
+    h.extract.data = env([ANNUAL_TWD]);
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/cash NT\$/)).toBeInTheDocument();
+    expect(screen.getByText(/burn NT\$\/qtr/)).toBeInTheDocument();
+    // the VALUE rides through unchanged — the label moved, the number did not
+    expect((screen.getByLabelText("cash") as HTMLInputElement).value).toBe("2767856400000");
+    unmount();
+
+    // a domestic/us-gaap name leaves statement_currency null → the label defaults to `$` (unchanged)
+    h.extract = { data: env([{ ...FLAG_BURN }]), error: null, isFetching: false };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/cash \$/)).toBeInTheDocument();
+    expect(screen.getByText(/burn \$\/qtr/)).toBeInTheDocument();
+    expect(screen.queryByText(/NT\$/)).not.toBeInTheDocument();
+  });
+
   it("the runway leg's non-fact states render DISTINCT honest notes (Slice A)", () => {
     // "cash-generative" is a STATE (no runway applies), "financials-in-exhibit" a DEFERRAL, and
     // "statements-not-located" an UNREAD — three different sentences, never one blur (§Empty states).

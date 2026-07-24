@@ -3700,6 +3700,17 @@
             ],
             "title": "Quarterly Burn Usd"
           },
+          "statement_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statement Currency"
+          },
           "flags": {
             "items": {
               "type": "string"

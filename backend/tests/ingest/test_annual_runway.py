@@ -295,6 +295,24 @@ def test_evo_burning_despite_lagged_generative_companyfacts():
     assert "18,220,000" in f.note  # the lagged positive is named
 
 
+def test_statement_currency_rides_the_fact_for_the_native_label():
+    """DISPLAY-ONLY currency LABEL (Slice A follow-up): the statement's already-detected ISO currency is
+    carried onto the emitted fact so the FE can label cash/burn in the filer's OWN currency (``cash NT$
+    …``) instead of a misread ``$`` (TSM's cash is NT$2,767,856,400,000 — ~US$88B, not $2.77T). It is
+    NEVER converted and NEVER a scoring input — the value is untouched. A USD-stated annual filer carries
+    ``"USD"`` (the FE then renders the plain ``$``, same as every domestic 10-Q/10-K name → None).
+    """
+    tsm, _ = _one("TSM-20f-fin.txt", cf=_cf("TSM"), report_date=date(2025, 12, 31))
+    assert tsm is not None and tsm.statement_currency == "TWD"
+    assert tsm.cash_usd == pytest.approx(
+        2_767_856.4e6
+    )  # the value is UNTOUCHED — only the label moves
+    hyft, _ = _one("HYFT-20f-fin.txt", report_date=date(2026, 4, 30))
+    assert hyft is not None and hyft.statement_currency == "CAD"
+    ghrs, _ = _one("GHRS-20f-fin.txt", cf=_cf("GHRS"), report_date=date(2025, 12, 31))
+    assert ghrs is not None and ghrs.statement_currency == "USD"
+
+
 # ---------------------------------------------------------------------------------------------------------
 # the empty states — a state is named, never silently blank and never a wrong number
 # ---------------------------------------------------------------------------------------------------------
