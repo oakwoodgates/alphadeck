@@ -16,6 +16,26 @@ const METER_LABEL: Record<string, string> = {
  *  on a mere data gap drowns the flags that mark real composition risk. */
 const MISSING_FLAGS = new Set(["no-companyfacts", "no-cashflow-column", "no-cash-instant"]);
 
+/** The cash/burn LABEL currency (Retrieval Slice A follow-up). The IFRS annual-statements runway path
+ *  reports in the filer's NATIVE currency (TWD/EUR/CAD/…), so the raw value is New Taiwan Dollars, not
+ *  USD — labelling it a bare `$` read `$2.77T` for what is really ~US$88B. The value is NEVER converted
+ *  (runway is a ratio — the months are currency-correct as-is); only the LABEL names the currency. A
+ *  small static ISO→symbol map, falling back to the raw ISO code (honest, never an invented symbol). */
+const CURRENCY_SYMBOL: Record<string, string> = {
+  TWD: "NT$",
+  EUR: "€",
+  CAD: "C$",
+  CHF: "CHF",
+  GBP: "£",
+  INR: "₹",
+};
+/** `$` for a domestic/us-gaap filer (statement_currency null or "USD" — the periodic path never sets it);
+ *  the native symbol (or raw ISO fallback) for an IFRS annual filer. */
+function cashSymbol(currency: string | null | undefined): string {
+  if (!currency || currency === "USD") return "$";
+  return CURRENCY_SYMBOL[currency] ?? currency;
+}
+
 /** The facts panel (hybrid-2b) — extract the scoring facts from the latest filings and RATIFY them, closing
  *  the extract → ratify → re-score loop in the UI. The operator confirms each candidate (AUTO as-is, FLAG
  *  the composition, HUMAN purity authored); on confirm the fact is written and the meter re-derives. The
@@ -215,6 +235,8 @@ function RatifyRow({
   const showPassages = passages.length > 0 && (!auto || srcOpen);
 
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
+  // the cash/burn label currency (Slice A) — native for an IFRS annual filer, `$` for a domestic name
+  const cashSym = cashSymbol(candidate.statement_currency);
   const common = {
     security_id: securityId,
     source: candidate.source, // the candidate's BASIS, carried through (not retyped)
@@ -396,7 +418,7 @@ function RatifyRow({
       {candidate.fact_type === "cash_burn" && (
         <>
           <label className="rf">
-            cash $
+            cash {cashSym}
             <input
               type="number"
               aria-label="cash"
@@ -406,7 +428,7 @@ function RatifyRow({
             />
           </label>
           <label className="rf">
-            burn $/qtr
+            burn {cashSym}/qtr
             <input
               type="number"
               aria-label="quarterly burn"
