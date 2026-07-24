@@ -6,9 +6,18 @@ import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
 import { EpisodeRow } from "./EpisodeRow";
 import { EpisodeScorecard } from "./EpisodeScorecard";
+import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
 import { ReplayPanel } from "./ReplayPanel";
-import { fmtReturn, groupCount, groupHint, groupToneClass, maturityHorizon } from "./rows";
+import {
+  fmtReturn,
+  groupCount,
+  groupHint,
+  groupToneClass,
+  ledgerColCount,
+  maturityHorizon,
+  type LedgerView,
+} from "./rows";
 
 // The Scoreboard (SCORE) — the episode ledger over the forward record: what the platform said,
 // what the operator did, what happened. Ledger-first (the aggregate strip stays quiet until n
@@ -28,15 +37,35 @@ type Props = {
 function SpanRow({
   t,
   onSelect,
+  view,
 }: {
   t: ScoreboardThesisOut;
   onSelect: (id: string, nameKey?: string) => void;
+  view: LedgerView;
 }) {
   // off-record spans (overrides live here) — rendered per span under the thesis group
   return (
     <>
       {t.operator_spans.map((s) => {
         const ret = fmtReturn(s.operator_return);
+        // the OVERRIDE / THESIS-LEVEL marks are the span's status — identical in both views
+        const statusCell = (
+          <td className="sb-status">
+            {s.override && (
+              <span
+                className="sb-badge b-ovr"
+                title="entered while the platform withheld — the logged override, with its outcome"
+              >
+                OVERRIDE
+              </span>
+            )}
+            {s.thesis_level && (
+              <span className="sb-badge b-lvl" title="logged without a name — unpriced, never guessed">
+                THESIS-LEVEL
+              </span>
+            )}
+          </td>
+        );
         return (
           <tr
             key={s.take_id}
@@ -46,43 +75,47 @@ function SpanRow({
           >
             <td className="tk">{s.ticker ?? (s.thesis_level ? "◇" : "—")}</td>
             <td className="sb-armed">{fmtDate(s.take_date)}</td>
-            <td className="sb-why">
-              <span className="sb-stance">
-                platform said {s.call_verdict_at_take ?? s.call_state_at_take ?? "—"}
-              </span>
-            </td>
-            <td className="exitby">—</td>
-            <td className="sb-status">
-              {s.override && (
-                <span
-                  className="sb-badge b-ovr"
-                  title="entered while the platform withheld — the logged override, with its outcome"
-                >
-                  OVERRIDE
-                </span>
-              )}
-              {s.thesis_level && (
-                <span className="sb-badge b-lvl" title="logged without a name — unpriced, never guessed">
-                  THESIS-LEVEL
-                </span>
-              )}
-            </td>
-            <td className="sb-ret">
-              <span className={`ret ${ret.cls}`}>{ret.text}</span>
-              {s.operator_return != null && (
-                <span className="sb-retlabel"> {s.running ? "running" : "realized"}</span>
-              )}
-            </td>
-            <td className="sb-op sb-op-took">
-              took {s.take_date}
-              {s.entry_price != null && ` @ ${s.entry_price}`}
-              {(s.entry_inferred || s.exit_inferred) && (
-                <span className="sb-inf" title="no fill price logged — the close stands in">
-                  ≈
-                </span>
-              )}
-              {s.reason && <span className="sb-reason"> · {s.reason}</span>}
-            </td>
+            {view === "timing" ? (
+              <>
+                {/* an operator span carries NO platform timing lens (forward / peak / past-peak are
+                    episode-level, not a logged take) — dash the timing columns, keep the row visible
+                    (interaction principle #2 — pruning hides, it never vanishes). */}
+                <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
+                <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
+                <td className="sb-pp">—</td>
+                {statusCell}
+              </>
+            ) : (
+              <>
+                <td className="sb-why">
+                  <span className="sb-stance">
+                    platform said {s.call_verdict_at_take ?? s.call_state_at_take ?? "—"}
+                  </span>
+                </td>
+                <td className="exitby">—</td>
+                {statusCell}
+                <td className="sb-ret">
+                  <span className={`ret ${ret.cls}`}>{ret.text}</span>
+                  {s.operator_return != null && (
+                    <span className="sb-retlabel"> {s.running ? "running" : "realized"}</span>
+                  )}
+                </td>
+                <td className="sb-op sb-op-took">
+                  took {s.take_date}
+                  {s.entry_price != null && ` @ ${s.entry_price}`}
+                  {(s.entry_inferred || s.exit_inferred) && (
+                    <span className="sb-inf" title="no fill price logged — the close stands in">
+                      ≈
+                    </span>
+                  )}
+                  {s.reason && <span className="sb-reason"> · {s.reason}</span>}
+                </td>
+              </>
+            )}
           </tr>
         );
       })}
@@ -102,6 +135,10 @@ export function Scoreboard({
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
+  // the Summary | Timing ledger view (Slice 2) — local component state, no URL param this slice; a
+  // pure VIEW control that swaps the ledger's middle columns (never the rows or the data).
+  const [view, setView] = useState<LedgerView>("summary");
+  const cols = ledgerColCount(view); // the group/note-row colSpan tracks the rendered column count
   // fold state per thesis (archived groups START folded — present, quiet, never dropped)
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const isOpen = (t: ScoreboardThesisOut) => toggled.has(t.thesis_id) === t.archived;
@@ -175,6 +212,28 @@ export function Scoreboard({
             {summary.n_voided > 0 && <span>{summary.n_voided} voided</span>}
           </div>
 
+          {/* the Summary | Timing view toggle (Slice 2) — a VIEW control, so it renders ALWAYS (the
+              honest-loudness "a control that doesn't discriminate shouldn't render" rule is about
+              per-row badges, not a view switch). Flips which columns render; the rows never move. */}
+          <div className="sb-viewtoggle" role="group" aria-label="ledger view">
+            <button
+              type="button"
+              className={view === "summary" ? "on" : ""}
+              aria-pressed={view === "summary"}
+              onClick={() => setView("summary")}
+            >
+              Summary
+            </button>
+            <button
+              type="button"
+              className={view === "timing" ? "on" : ""}
+              aria-pressed={view === "timing"}
+              onClick={() => setView("timing")}
+            >
+              Timing
+            </button>
+          </div>
+
           <MetricsStrip metrics={summary.metrics} minN={summary.min_n} />
 
           {/* the maturity horizon (2e) — the countdown behind the mute gate. Asof-pure (a scrubbed
@@ -199,31 +258,12 @@ export function Scoreboard({
           )}
 
           <table className="basket sb-ledger">
-            <colgroup>
-              <col className="c-tk" />
-              <col className="c-armed" />
-              <col className="c-why" />
-              <col className="c-exit" />
-              <col className="c-status" />
-              <col className="c-ret" />
-              <col className="c-op" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Armed</th>
-                <th>Why</th>
-                <th>Exit-by</th>
-                <th>Status</th>
-                <th>Record return</th>
-                <th>Operator</th>
-              </tr>
-            </thead>
+            <LedgerHead view={view} returnHeader="Record return" />
             <tbody>
               {data.theses.map((t) => (
                 <Fragment key={t.thesis_id}>
                   <tr className={`grp ${groupToneClass(t)}`}>
-                    <td colSpan={7}>
+                    <td colSpan={cols}>
                       <button
                         type="button"
                         className="grp-h"
@@ -240,14 +280,14 @@ export function Scoreboard({
                   </tr>
                   {t.record_error && isOpen(t) && (
                     <tr className="sb-note-row">
-                      <td colSpan={7} className="sb-error">
+                      <td colSpan={cols} className="sb-error">
                         record error: {t.record_error}
                       </td>
                     </tr>
                   )}
                   {t.decision_anomaly && isOpen(t) && (
                     <tr className="sb-note-row">
-                      <td colSpan={7} className="sb-anomaly">
+                      <td colSpan={cols} className="sb-anomaly">
                         decision log anomaly: {t.decision_anomaly}
                       </td>
                     </tr>
@@ -260,12 +300,13 @@ export function Scoreboard({
                         thesisId={t.thesis_id}
                         onSelect={onSelect}
                         onOpenScorecard={setOpenEp}
+                        view={view}
                       />
                     ))}
-                  {isOpen(t) && <SpanRow t={t} onSelect={onSelect} />}
+                  {isOpen(t) && <SpanRow t={t} onSelect={onSelect} view={view} />}
                   {isOpen(t) && !groupCount(t) && !t.record_error && (
                     <tr className="sb-note-row">
-                      <td colSpan={7} className="sb-quietline">
+                      <td colSpan={cols} className="sb-quietline">
                         {t.warming_since
                           ? `warming since ${fmtDate(t.warming_since)} — the withheld window is accruing`
                           : "no arm episodes on this record"}
@@ -277,7 +318,7 @@ export function Scoreboard({
             </tbody>
           </table>
 
-          <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} />
+          <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} view={view} />
         </div>
       )}
 
