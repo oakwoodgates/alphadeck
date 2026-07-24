@@ -116,15 +116,19 @@ class ExtractionResult(DomainModel):
 
     - ``"cash-generative"`` → operating cash flow is positive: a STATE, not a gap — no runway applies
       and none is computed (a finite number here would be bogus).
-    - ``"financials-in-exhibit"`` → a BURNING name whose financial statements live outside the fetched
-      main document (the 40-F/MJDS wrapper shape, or a 20-F with exhibit-only statements): runway
-      needs the exhibit document — deferred, never a companyfacts-only number (no passage → no fact).
+    - ``"financials-in-exhibit"`` → a BURNING name whose financial statements were found in NEITHER
+      the main document NOR any EX-99 exhibit the bounded scan read (Retrieval Slice A-2 hunts the
+      exhibits by content signature — both statement rows — before this reason fires): deferred,
+      never a companyfacts-only number (no passage → no fact).
+    - ``"exhibit-ambiguous"`` → MORE THAN ONE exhibit carries the statement signature (Slice A-2's
+      fail-closed rule): deferred rather than guessed — a wrong statement source is the runway
+      analog of a confident-wrong cover match.
     - ``"statements-not-located"`` → neither the statements nor a companyfacts sign could be read:
       unread, not empty.
     """
 
     facts: list[ExtractedFact] = Field(default_factory=list)
     empty_reason: str | None = None  # "no-annual-filing" | "cover-not-located" | None
-    # "cash-generative" | "financials-in-exhibit" | "statements-not-located" | None (covered, or a
-    # domestic 10-Q/10-K name — the periodic path never sets it)
+    # "cash-generative" | "financials-in-exhibit" | "exhibit-ambiguous" | "statements-not-located"
+    # | None (covered, or a domestic 10-Q/10-K name — the periodic path never sets it)
     runway_empty_reason: str | None = None

@@ -64,9 +64,11 @@ export function FactsPanel({
   const annualOnly =
     facts.length > 0 &&
     facts.every((f) => f.source === "annual-cover" || f.source === "annual-statements");
-  // the RUNWAY leg's own honest state for an annual filer with no cash_burn candidate (Slice A):
-  // "cash-generative" (a STATE — no runway applies) · "financials-in-exhibit" (deferred — the
-  // statements live in a separate exhibit doc) · "statements-not-located" (unread, not empty)
+  // the RUNWAY leg's own honest state for an annual filer with no cash_burn candidate (Slices A +
+  // A-2): "cash-generative" (a STATE — no runway applies) · "financials-in-exhibit" (deferred —
+  // statements in neither the main doc nor any exhibit the bounded scan read) · "exhibit-ambiguous"
+  // (more than one exhibit reads as the statements — deferred, never guessed) ·
+  // "statements-not-located" (unread, not empty)
   const runwayReason = extract.data?.runway_empty_reason ?? null;
   const settled = extract.data !== undefined && !extract.isFetching && !extract.error;
   return (
@@ -113,8 +115,9 @@ export function FactsPanel({
           20-F/40-F yet, so that meter stays "—" (not covered), never a judged zero.
         </div>
       )}
-      {/* the runway leg's own states (Slice A) — three DISTINCT non-fact outcomes, each named
-          honestly (interaction #2): a STATE (cash-generative), a DEFERRAL (exhibit), an UNREAD. */}
+      {/* the runway leg's own states (Slices A + A-2) — DISTINCT non-fact outcomes, each named
+          honestly (interaction #2): a STATE (cash-generative), the two DEFERRALS (exhibit not
+          found / exhibit ambiguous), an UNREAD. */}
       {settled && runwayReason === "cash-generative" && (
         <div className="note">
           <b>Cash-generative</b> — this filer's operating cash flow is positive, so no runway applies
@@ -125,10 +128,19 @@ export function FactsPanel({
       )}
       {settled && runwayReason === "financials-in-exhibit" && (
         <div className="note">
-          This filer <b>burns cash</b>, but its financial statements live in a separate{" "}
-          <b>exhibit document</b> (the 40-F/MJDS shape) — runway needs the exhibit doc, which this
-          pass doesn't fetch. <b>Deferred, not judged</b>: the RUNWAY meter stays "—" rather than
-          carrying a number without its statement passage.
+          This filer <b>burns cash</b>, but its financial statements were found in{" "}
+          <b>neither the main annual document nor any EX-99 exhibit</b> the bounded scan read (the
+          40-F/MJDS shape; the exhibit hunt identifies the statements by their actual statement
+          rows). <b>Deferred, not judged</b>: the RUNWAY meter stays "—" rather than carrying a
+          number without its statement passage.
+        </div>
+      )}
+      {settled && runwayReason === "exhibit-ambiguous" && (
+        <div className="note">
+          <b>More than one exhibit</b> in this filer's annual filing reads as the financial
+          statements — the extractor <b>defers rather than guesses</b> between them (a wrong
+          statement source would be a confidently wrong runway). The RUNWAY meter stays "—"; read
+          the filing's EX-99 exhibits directly if you need the number now.
         </div>
       )}
       {settled && runwayReason === "statements-not-located" && (
