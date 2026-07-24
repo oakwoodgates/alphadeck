@@ -9,11 +9,13 @@ import type {
 import {
   awaitingForwardBar,
   episodeBadges,
+  fmtPastPeak,
   fmtReturn,
   gateMetrics,
   groupCount,
   groupHint,
   groupToneClass,
+  ledgerColCount,
   maturityHorizon,
   metricHeadline,
   operatorLine,
@@ -81,6 +83,22 @@ describe("fmtReturn", () => {
     expect(fmtReturn(-0.021)).toEqual({ text: "-2.1%", cls: "neg" });
     expect(fmtReturn(0)).toEqual({ text: "0.0%", cls: "" });
     expect(fmtReturn(null)).toEqual({ text: "—", cls: "" });
+  });
+});
+
+describe("fmtPastPeak — the Timing view's past-peak gap cell (Slice 2)", () => {
+  it("renders the day gap as Nd; a real 0d (exited AT the peak) is kept, dash when unknowable", () => {
+    expect(fmtPastPeak(7)).toBe("7d");
+    expect(fmtPastPeak(0)).toBe("0d"); // exited at the peak — meaningful, not zero-filled away
+    expect(fmtPastPeak(null)).toBe("—");
+    expect(fmtPastPeak(undefined)).toBe("—");
+  });
+});
+
+describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", () => {
+  it("summary spans 7 columns, timing 6", () => {
+    expect(ledgerColCount("summary")).toBe(7);
+    expect(ledgerColCount("timing")).toBe(6);
   });
 });
 

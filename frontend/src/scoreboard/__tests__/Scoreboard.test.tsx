@@ -166,6 +166,41 @@ const PAYLOAD = {
   ],
 };
 
+// A SCORED episode (real forward bars → a peak to judge) for the Timing view (Slice 2). The base EP
+// above is still-awaiting (insufficient_prices), so it exercises the honest "—" path; this one carries
+// the computed timing lens.
+const SCORED_EP = {
+  ...EP,
+  security_id: "s-matr",
+  ticker: "MATR",
+  status: "closed",
+  matured: true,
+  censored_start: false,
+  insufficient_prices: false,
+  exit_date: "2026-08-20",
+  forward_return: 0.123,
+  peak_return: 0.204,
+  peak_date: "2026-08-10",
+  exit_vs_peak_days: 7,
+  triggers_at_arm: [
+    { label: "50d breakout", kind: "technical_breakout", grade: "flip", ticker: "MATR", sources: [] },
+  ],
+};
+
+// one thesis, two episodes: the scored MATR + the still-awaiting HIMS — lets Timing assert both the
+// computed lens AND the honest "—" for an episode with no forward bar yet.
+const TIMING_PAYLOAD = {
+  ...PAYLOAD,
+  theses: [
+    {
+      ...PAYLOAD.theses[0],
+      name: "Timing check",
+      episodes: [SCORED_EP, EP],
+      operator_spans: [],
+    },
+  ],
+};
+
 function renderBoard(over: Partial<typeof fx> = {}) {
   Object.assign(fx, { data: PAYLOAD, isLoading: false, error: null }, over);
   const onSelect = vi.fn();
@@ -379,5 +414,72 @@ describe("Scoreboard", () => {
     // the label flips with the state → collapse it back
     fireEvent.click(screen.getByRole("button", { name: "collapse drawer" }));
     expect(container.querySelector(".drawer-panel.expanded")).toBeNull();
+  });
+
+  // -------- Slice 2: the Summary | Timing view toggle --------------------------------------------
+
+  it("Slice 2: the toggle swaps the ledger's middle columns, reversibly", () => {
+    renderBoard({ data: TIMING_PAYLOAD });
+    // Summary (default): summary-only headers present, timing ones absent
+    expect(screen.getByText("Why")).toBeInTheDocument();
+    expect(screen.getByText("Exit-by")).toBeInTheDocument();
+    expect(screen.getByText("Operator")).toBeInTheDocument();
+    expect(screen.queryByText("Peak")).not.toBeInTheDocument();
+    expect(screen.queryByText("Past peak")).not.toBeInTheDocument();
+
+    // flip to Timing → the timing headers appear, the summary-only ones are gone
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    expect(screen.getByText("Peak")).toBeInTheDocument();
+    expect(screen.getByText("Past peak")).toBeInTheDocument();
+    expect(screen.queryByText("Why")).not.toBeInTheDocument();
+    expect(screen.queryByText("Exit-by")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operator")).not.toBeInTheDocument();
+
+    // reversible: flip back to Summary
+    fireEvent.click(screen.getByRole("button", { name: "Summary" }));
+    expect(screen.getByText("Why")).toBeInTheDocument();
+    expect(screen.queryByText("Peak")).not.toBeInTheDocument();
+  });
+
+  it("Slice 2: Timing view renders a scored episode's Return / Peak / Past peak", () => {
+    renderBoard({ data: TIMING_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    const row = screen.getByText("MATR").closest("tr")!;
+    expect(within(row).getByText("+12.3%")).toBeInTheDocument(); // forward_return
+    expect(within(row).getByText("+20.4%")).toBeInTheDocument(); // peak_return
+    expect(within(row).getByText("7d")).toBeInTheDocument(); // exit_vs_peak_days
+    // Summary shows the Why chip + the operator cell for the same episode
+    fireEvent.click(screen.getByRole("button", { name: "Summary" }));
+    const srow = screen.getByText("MATR").closest("tr")!;
+    expect(within(srow).getByText("technical_breakout")).toBeInTheDocument(); // Why
+    expect(within(srow).getByText("no decision logged")).toBeInTheDocument(); // Operator
+  });
+
+  it("Slice 2: honest loudness — an awaiting episode dashes Peak / Past peak (never a false 0)", () => {
+    renderBoard({ data: TIMING_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    // HIMS is still-awaiting (insufficient_prices) — its timing cells read "—", not "0.0%" / "0d"
+    const row = screen.getByText("HIMS").closest("tr")!;
+    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2); // Peak + Past peak (+ Return)
+    expect(within(row).queryByText("0.0%")).not.toBeInTheDocument();
+    expect(within(row).queryByText("0d")).not.toBeInTheDocument();
+  });
+
+  it("Slice 2: the ⤢ still opens the scorecard drawer in Timing view (Slice 1 intact)", () => {
+    const { container, onSelect } = renderBoard({ data: TIMING_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    expect(container.querySelector(".drawer-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "open scorecard for MATR" }));
+    expect(onSelect).not.toHaveBeenCalled(); // the ⤢ stops the bubble — no Cockpit nav
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(within(panel).getByText("The move")).toBeInTheDocument(); // the scorecard mounted
+  });
+
+  it("Slice 2: the row click still deep-links to the Cockpit in Timing view", () => {
+    const { onSelect } = renderBoard({ data: TIMING_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    fireEvent.click(screen.getByText("MATR").closest("tr")!);
+    expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
 });

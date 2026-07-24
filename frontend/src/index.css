@@ -921,6 +921,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-banner { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; }
 .sb-counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
 .sb-counts .sb-sep { color: var(--txt-4); }
+/* the Summary | Timing view toggle (Slice 2) — a compact segmented control that swaps the ledger's
+   middle columns; harmonizes with the mono counts line, borrows the topbar's `.on` active idiom. */
+.sb-viewtoggle { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.sb-viewtoggle button { font: inherit; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: none; padding: 4px 13px; cursor: pointer; transition: 0.14s; }
+.sb-viewtoggle button + button { border-left: 1px solid var(--line); }
+.sb-viewtoggle button:hover { color: var(--txt-2); background: var(--panel-2); }
+.sb-viewtoggle button.on { color: var(--txt); background: var(--panel-2); }
 /* the record-freshness marker (2a): a compact one-line "is the record current NOW" — quiet by
    default (current / never-begun), loud (--warm, the lapse/closing tint) only when the record is
    stale (honest loudness). Mirrors the Admin freshness readout; shown only on the live view. */
@@ -948,7 +955,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 tr.sb-row { cursor: pointer; }
 tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent); }
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
-.sb-armed, .sb-ret, .exitby { font-family: var(--mono); font-size: 11px; }
+.sb-armed, .sb-ret, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
+/* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
+.sb-pp { color: var(--txt-3); }
 .sb-dearm { color: var(--txt-3); }
 .sb-cen { color: var(--warm); font-weight: 700; margin-left: 1px; cursor: help; }
 .sb-why .sb-trig { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin-right: 4px; cursor: help; }

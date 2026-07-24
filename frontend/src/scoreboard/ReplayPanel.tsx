@@ -3,7 +3,9 @@ import { Fragment, useState } from "react";
 import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { useScoreboardReplay } from "../api/hooks";
 import { EpisodeRow } from "./EpisodeRow";
+import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
+import { ledgerColCount, type LedgerView } from "./rows";
 
 // The HISTORICAL (replayed) section — replayed history below the live ledger, clearly separated
 // and QUIET: a RECOMPUTE (today's code + dials over historical facts), never the record. Collapsed
@@ -16,10 +18,14 @@ import { MetricsStrip } from "./MetricsStrip";
 export function ReplayPanel({
   onSelect,
   onOpenScorecard,
+  view = "summary",
 }: {
   onSelect: (thesisId: string, nameKey?: string) => void;
   /** Same drawer, same scorecard — replayed episodes carry the outcome fields too. */
   onOpenScorecard?: (ep: ScoreboardEpisodeOut) => void;
+  /** The page's Summary | Timing view (Slice 2) — the replay ledger follows the same toggle.
+   *  Optional (defaults to summary) so the panel stays renderable in isolation. */
+  view?: LedgerView;
 }) {
   const { data } = useScoreboardReplay();
   const [open, setOpen] = useState(false); // collapsed by default: context, not action
@@ -57,31 +63,12 @@ export function ReplayPanel({
           <div className="sb-banner rp-banner">{data.banner}</div>
           <MetricsStrip metrics={data.metrics} minN={data.min_n} />
           <table className="basket sb-ledger">
-            <colgroup>
-              <col className="c-tk" />
-              <col className="c-armed" />
-              <col className="c-why" />
-              <col className="c-exit" />
-              <col className="c-status" />
-              <col className="c-ret" />
-              <col className="c-op" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Armed</th>
-                <th>Why</th>
-                <th>Exit-by</th>
-                <th>Status</th>
-                <th>Replayed return</th>
-                <th>Operator</th>
-              </tr>
-            </thead>
+            <LedgerHead view={view} returnHeader="Replayed return" />
             <tbody>
               {data.theses.map((t) => (
                 <Fragment key={t.thesis_id}>
                   <tr className="grp rp-grp">
-                    <td colSpan={7}>
+                    <td colSpan={ledgerColCount(view)}>
                       <div className="grp-h rp-grp-h">
                         <span className="lbl">{t.name}</span>
                         <em className="hint">· replayed</em>
@@ -97,6 +84,7 @@ export function ReplayPanel({
                       onSelect={onSelect}
                       onOpenScorecard={onOpenScorecard}
                       historical
+                      view={view}
                     />
                   ))}
                 </Fragment>

@@ -17,6 +17,14 @@ export function fmtReturn(x: number | null | undefined): { text: string; cls: st
   return { text: signed, cls: x > 0 ? "pos" : x < 0 ? "neg" : "" };
 }
 
+/** The Timing view's "Past peak" cell (Slice 2): `exit_vs_peak_days` as a compact `Nd` gap; "—"
+ *  when the horizon-vs-peak gap is unknowable. A real 0 ("0d" — exited AT the peak) is meaningful,
+ *  so it stays; the degenerate no-forward-bar case is dashed at the call site (see `noForwardBar`). */
+export function fmtPastPeak(days: number | null | undefined): string {
+  if (days === null || days === undefined) return "—";
+  return `${days}d`;
+}
+
 /** True when the only bar on/after the arm is the arm-day bar itself — the last bar ≤ asof IS the
  *  arm bar (`exit_date === arm_date`), so `forward_return` is a degenerate 0.0% over a single bar,
  *  not a flat move. Distinct from `insufficient_prices` (no bar at all). Once a forward bar lands,
@@ -151,4 +159,15 @@ export function groupToneClass(t: ScoreboardThesisOut): string {
 /** Rows-worth of content a group has (episodes + off-record spans) — drives the header count. */
 export function groupCount(t: ScoreboardThesisOut): number {
   return t.episodes.length + t.operator_spans.length;
+}
+
+// -------- Slice 2: the Summary | Timing ledger view ------------------------------------------------
+
+/** Which lens the ledger renders — a VIEW control (swaps the middle columns), never a data change. */
+export type LedgerView = "summary" | "timing";
+
+/** The ledger's column count for the current view — the group-row/note-row `colSpan` tracks it so a
+ *  full-width group header spans exactly the rendered columns (Summary = 7, Timing = 6). */
+export function ledgerColCount(view: LedgerView): number {
+  return view === "timing" ? 6 : 7;
 }
