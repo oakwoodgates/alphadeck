@@ -10,6 +10,7 @@ export function EpisodeRow({
   ep,
   thesisId,
   onSelect,
+  onOpenScorecard,
   historical = false,
 }: {
   ep: ScoreboardEpisodeOut;
@@ -17,6 +18,10 @@ export function EpisodeRow({
   /** nameKey deep-links the clicked NAME's panel in the Cockpit (?name=) — the ticker when
    *  resolved, else the security_id (always present on an episode). */
   onSelect: (id: string, nameKey?: string) => void;
+  /** Opens the episode scorecard drawer. A DISTINCT affordance from the row's click-to-Cockpit:
+   *  its handler stops propagation so it never also fires onSelect. Omitted → the control is not
+   *  rendered (no dead affordance). */
+  onOpenScorecard?: (ep: ScoreboardEpisodeOut) => void;
   historical?: boolean;
 }) {
   const ret = fmtReturn(ep.forward_return);
@@ -30,7 +35,24 @@ export function EpisodeRow({
       onClick={() => onSelect(thesisId, ep.ticker ?? ep.security_id)}
       tabIndex={0}
     >
-      <td className="tk">{ep.ticker ?? "—"}</td>
+      <td className="tk">
+        {onOpenScorecard && (
+          <button
+            type="button"
+            className="sb-expand"
+            aria-label={`open scorecard for ${ep.ticker ?? "this name"}`}
+            title="open scorecard"
+            // a distinct affordance: stop the bubble so the row's click-to-Cockpit never fires too
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenScorecard(ep);
+            }}
+          >
+            ⤢
+          </button>
+        )}
+        {ep.ticker ?? "—"}
+      </td>
       <td className="sb-armed">
         {fmtDate(ep.arm_date)}
         {ep.censored_start && (

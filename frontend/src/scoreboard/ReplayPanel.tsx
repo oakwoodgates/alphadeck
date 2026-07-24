@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 
+import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { useScoreboardReplay } from "../api/hooks";
 import { EpisodeRow } from "./EpisodeRow";
 import { MetricsStrip } from "./MetricsStrip";
@@ -14,8 +15,11 @@ import { MetricsStrip } from "./MetricsStrip";
 
 export function ReplayPanel({
   onSelect,
+  onOpenScorecard,
 }: {
   onSelect: (thesisId: string, nameKey?: string) => void;
+  /** Same drawer, same scorecard — replayed episodes carry the outcome fields too. */
+  onOpenScorecard?: (ep: ScoreboardEpisodeOut) => void;
 }) {
   const { data } = useScoreboardReplay();
   const [open, setOpen] = useState(false); // collapsed by default: context, not action
@@ -91,6 +95,7 @@ export function ReplayPanel({
                       ep={ep}
                       thesisId={t.thesis_id}
                       onSelect={onSelect}
+                      onOpenScorecard={onOpenScorecard}
                       historical
                     />
                   ))}

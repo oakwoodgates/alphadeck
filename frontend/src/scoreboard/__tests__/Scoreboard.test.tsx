@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Scoreboard } from "../Scoreboard";
@@ -333,5 +333,51 @@ describe("Scoreboard", () => {
       data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, n_ingest_flagged: 1 } },
     });
     expect(screen.getByText("1 ingest-flagged")).toBeInTheDocument();
+  });
+
+  it("the ⤢ control opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {
+    const { container, onSelect } = renderBoard();
+    expect(container.querySelector(".drawer-panel")).toBeNull(); // closed by default
+    fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
+    // the distinct affordance stopped the bubble — the row's click-to-Cockpit never fired
+    expect(onSelect).not.toHaveBeenCalled();
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(within(panel).getByText("The move")).toBeInTheDocument(); // the scorecard mounted
+    expect(panel.querySelector(".drawer-title")?.textContent).toContain("HIMS"); // drawer title
+  });
+
+  it("the drawer is reversible: ✕, backdrop, and Escape each close it, the ledger untouched", () => {
+    const { container } = renderBoard();
+    const open = () =>
+      fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
+    const isOpen = () => container.querySelector(".drawer-panel") != null;
+
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "close drawer" }));
+    expect(isOpen()).toBe(false);
+
+    open();
+    fireEvent.click(container.querySelector(".drawer-backdrop") as HTMLElement);
+    expect(isOpen()).toBe(false);
+
+    open();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+
+    // the ledger survives every exit — the table element never went away
+    expect(container.querySelector("table.sb-ledger")).not.toBeNull();
+  });
+
+  it("the expand toggle flips the drawer's full-width class and back", () => {
+    const { container } = renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
+    expect(container.querySelector(".drawer-panel.expanded")).toBeNull(); // default width
+    const toggle = screen.getByRole("button", { name: "expand drawer to full width" });
+    fireEvent.click(toggle);
+    expect(container.querySelector(".drawer-panel.expanded")).not.toBeNull();
+    // the label flips with the state → collapse it back
+    fireEvent.click(screen.getByRole("button", { name: "collapse drawer" }));
+    expect(container.querySelector(".drawer-panel.expanded")).toBeNull();
   });
 });
