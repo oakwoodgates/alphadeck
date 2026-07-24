@@ -987,6 +987,44 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .rp-grp-h { cursor: default; }
 .rp-grp-h .lbl { color: var(--txt-3); }
 
+/* the episode-row scorecard affordance (⤢) — a DISTINCT control from the row's click-to-Cockpit;
+   quiet by default, only tints on hover (it's an every-row utility, not a loudness mark) */
+.sb-expand { font: inherit; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: none; padding: 0; margin-right: 7px; cursor: pointer; vertical-align: baseline; }
+.sb-expand:hover { color: var(--leader); }
+
+/* -------- The slide-out Drawer + the episode scorecard it hosts (Slice 1) ---------------------- */
+.drawer-overlay { position: fixed; inset: 0; z-index: 60; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.drawer-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 600px; max-width: 100vw; background: var(--bg-2); border-left: 1px solid var(--line-2); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); overflow-y: auto; padding: 16px 20px 40px; animation: drawer-in 0.18s ease-out; transition: width 0.16s ease; }
+.drawer-panel.expanded { width: 100vw; }
+@keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.drawer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.drawer-title { font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; }
+.drawer-expand, .drawer-close { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; line-height: 1; }
+.drawer-expand { margin-left: auto; }
+.drawer-expand:hover, .drawer-close:hover { color: var(--txt); }
+@media (max-width: 880px) { .drawer-panel { width: min(600px, 92vw); } }
+
+.sc-sub { color: var(--txt-3); font-weight: 600; font-size: 12px; }
+.sc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px; color: var(--txt-2); margin-bottom: 2px; }
+.sc-head .sc-tk { font-family: var(--mono); font-weight: 800; font-size: 15px; color: var(--txt); }
+.sc-head .sc-span { font-family: var(--mono); font-size: 11px; color: var(--txt-3); }
+.sc-badges { margin: 8px 0 2px; }
+.sc-reason { font-size: 11px; color: var(--txt-3); }
+.sc-lens { margin-top: 16px; }
+.sc-h { font-size: 9.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--txt-4); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+.sc-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.sc-flow { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--txt-2); }
+.sc-flow .sc-arrow { color: var(--txt-4); }
+.sc-ret { display: flex; align-items: baseline; gap: 7px; margin-top: 6px; font-family: var(--mono); font-size: 12px; color: var(--txt-2); }
+.sc-ret .ret.pos, .sc-cmp .ret.pos { color: var(--pos); }
+.sc-ret .ret.neg, .sc-cmp .ret.neg { color: var(--neg); }
+.sc-retlabel { color: var(--txt-4); font-size: 9.5px; letter-spacing: 0.04em; }
+.sc-line { margin-top: 6px; font-size: 12px; color: var(--txt-2); }
+.sc-muted { margin-top: 6px; font-size: 11px; color: var(--txt-4); font-style: italic; }
+.sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
+.sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
+
 /* ================= The Operator Admin (ops surface) — honest loudness by construction ================
    Quiet cards by default; the armed red is RESERVED for stale/unhealthy, the warm amber for problems.
    "Current", "never begun", and "never ran" all stay grey — loudness marks the exception. */

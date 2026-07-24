@@ -1,9 +1,11 @@
 import { Fragment, useState } from "react";
 
-import type { ScoreboardThesisOut } from "../api/hooks";
+import type { ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
 import { useScoreboard } from "../api/hooks";
+import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
 import { EpisodeRow } from "./EpisodeRow";
+import { EpisodeScorecard } from "./EpisodeScorecard";
 import { MetricsStrip } from "./MetricsStrip";
 import { ReplayPanel } from "./ReplayPanel";
 import { fmtReturn, groupCount, groupHint, groupToneClass, maturityHorizon } from "./rows";
@@ -97,6 +99,9 @@ export function Scoreboard({
   onSelect,
 }: Props) {
   const { data, isLoading, error } = useScoreboard(asof);
+  // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
+  // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
+  const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
   // fold state per thesis (archived groups START folded — present, quiet, never dropped)
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const isOpen = (t: ScoreboardThesisOut) => toggled.has(t.thesis_id) === t.archived;
@@ -249,7 +254,13 @@ export function Scoreboard({
                   )}
                   {isOpen(t) &&
                     t.episodes.map((ep, i) => (
-                      <EpisodeRow key={i} ep={ep} thesisId={t.thesis_id} onSelect={onSelect} />
+                      <EpisodeRow
+                        key={i}
+                        ep={ep}
+                        thesisId={t.thesis_id}
+                        onSelect={onSelect}
+                        onOpenScorecard={setOpenEp}
+                      />
                     ))}
                   {isOpen(t) && <SpanRow t={t} onSelect={onSelect} />}
                   {isOpen(t) && !groupCount(t) && !t.record_error && (
@@ -266,9 +277,31 @@ export function Scoreboard({
             </tbody>
           </table>
 
-          <ReplayPanel onSelect={onSelect} />
+          <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} />
         </div>
       )}
+
+      {/* the episode scorecard, in a reusable slide-out. A sibling overlay (like the Cockpit's
+          NamePanel): opening/closing never touches the ledger. Guarded content so a null episode
+          is never constructed while the drawer is closed. */}
+      <Drawer
+        open={openEp != null}
+        onClose={() => setOpenEp(null)}
+        title={
+          openEp ? (
+            <>
+              {openEp.ticker ?? "—"} <span className="sc-sub">scorecard</span>
+            </>
+          ) : undefined
+        }
+      >
+        {openEp && (
+          <EpisodeScorecard
+            ep={openEp}
+            thesisName={data?.theses.find((t) => t.thesis_id === openEp.thesis_id)?.name}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }
