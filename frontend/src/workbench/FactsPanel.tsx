@@ -39,9 +39,15 @@ export function FactsPanel({
   // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
   const extract = useExtract(securityId, thesisId);
   const facts = extract.data?.facts ?? [];
-  // an annual-cover name (a foreign 20-F/40-F filer): shares came through, but cash + purity are NOT
-  // covered for it yet — say so, or the "—" meters imply the data doesn't exist (spec §5.3)
-  const annualOnly = facts.length > 0 && facts.every((f) => f.source === "annual-cover");
+  // an annual-filer name (20-F/40-F): shares (Slice 1) and now cash/runway (Slice A) come through, but
+  // PURITY is still not covered — say so, or the "—" meter implies the data doesn't exist (spec §5.3)
+  const annualOnly =
+    facts.length > 0 &&
+    facts.every((f) => f.source === "annual-cover" || f.source === "annual-statements");
+  // the RUNWAY leg's own honest state for an annual filer with no cash_burn candidate (Slice A):
+  // "cash-generative" (a STATE — no runway applies) · "financials-in-exhibit" (deferred — the
+  // statements live in a separate exhibit doc) · "statements-not-located" (unread, not empty)
+  const runwayReason = extract.data?.runway_empty_reason ?? null;
   const settled = extract.data !== undefined && !extract.isFetching && !extract.error;
   return (
     <div className="facts-panel">
@@ -80,11 +86,35 @@ export function FactsPanel({
           estimateAttempted={thesisId != null}
         />
       ))}
-      {/* the coverage note for an annual-cover name: PURITY — / RUNWAY — means NOT COVERED, not zero */}
+      {/* the coverage note for an annual-filer name: PURITY — means NOT COVERED, not zero */}
       {annualOnly && (
         <div className="note">
-          Annual-filer coverage is <b>shares only</b> for now — cash/runway and purity aren't extracted
-          from a 20-F/40-F yet, so those meters stay "—" (not covered), never a judged zero.
+          Annual-filer coverage is <b>shares + cash/runway</b> — purity isn't extracted from a
+          20-F/40-F yet, so that meter stays "—" (not covered), never a judged zero.
+        </div>
+      )}
+      {/* the runway leg's own states (Slice A) — three DISTINCT non-fact outcomes, each named
+          honestly (interaction #2): a STATE (cash-generative), a DEFERRAL (exhibit), an UNREAD. */}
+      {settled && runwayReason === "cash-generative" && (
+        <div className="note">
+          <b>Cash-generative</b> — this filer's operating cash flow is positive, so no runway applies
+          (and none is computed; a finite number here would be bogus). Shown as a state, not a fact:
+          its financial statements aren't in the main filing document, so there is no passage to
+          ratify a cash/burn fact against.
+        </div>
+      )}
+      {settled && runwayReason === "financials-in-exhibit" && (
+        <div className="note">
+          This filer <b>burns cash</b>, but its financial statements live in a separate{" "}
+          <b>exhibit document</b> (the 40-F/MJDS shape) — runway needs the exhibit doc, which this
+          pass doesn't fetch. <b>Deferred, not judged</b>: the RUNWAY meter stays "—" rather than
+          carrying a number without its statement passage.
+        </div>
+      )}
+      {settled && runwayReason === "statements-not-located" && (
+        <div className="note">
+          The financial statements couldn't be located in this filer's annual document this pass —
+          the runway is <b>unread, not empty</b>; it stays a candidate for a future extractor pass.
         </div>
       )}
       {/* honest-loudness: an extract that came back EMPTY isn't a silent blank rail — and the TWO empty

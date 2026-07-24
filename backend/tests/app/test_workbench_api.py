@@ -693,10 +693,11 @@ def test_extract_endpoint_serves_candidates(client, security_id, monkeypatch):
 
 
 def test_extract_endpoint_serves_the_distinct_empty_reasons(client, security_id, monkeypatch):
-    """The three empty states must be DISTINCT on the wire (spec §5): `no-annual-filing` (genuinely
+    """The empty states must be DISTINCT on the wire (spec §5): `no-annual-filing` (genuinely
     nothing on EDGAR — SKHY) vs `cover-not-located` (an annual filing exists but its cover could not
-    be read — PBM; the name is UNREAD, not empty). The FE renders them differently; a bare [] cannot.
-    """
+    be read; the name is UNREAD, not empty). The FE renders them differently; a bare [] cannot.
+    The runway leg's own state (Slice A) rides `runway_empty_reason` — distinct from both, and
+    passed through verbatim (a shares-covered name can still carry a runway deferral)."""
     from app.routers import workbench as wb
     from domain.extraction import ExtractionResult
 
@@ -707,7 +708,15 @@ def test_extract_endpoint_serves_the_distinct_empty_reasons(client, security_id,
             lambda client, cik, r=reason: ExtractionResult(facts=[], empty_reason=r),
         )
         body = client.get(f"/workbench/securities/{security_id}/extract").json()
-        assert body == {"facts": [], "empty_reason": reason}
+        assert body == {"facts": [], "empty_reason": reason, "runway_empty_reason": None}
+    for runway_reason in ("cash-generative", "financials-in-exhibit", "statements-not-located"):
+        monkeypatch.setattr(
+            wb,
+            "extract_with_annual_fallback",
+            lambda client, cik, r=runway_reason: ExtractionResult(facts=[], runway_empty_reason=r),
+        )
+        body = client.get(f"/workbench/securities/{security_id}/extract").json()
+        assert body == {"facts": [], "empty_reason": None, "runway_empty_reason": runway_reason}
 
 
 def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security_id, monkeypatch):

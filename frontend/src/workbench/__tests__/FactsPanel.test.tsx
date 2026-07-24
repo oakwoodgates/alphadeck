@@ -128,9 +128,9 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
   });
 
-  it("an annual-cover name says shares-only coverage — '—' meters mean NOT COVERED, never zero", () => {
-    // a dark name lit up by the 20-F/40-F cover path: ONE candidate (shares, FLAG, annual-cover).
-    // The panel must say cash/purity aren't covered rather than imply the data doesn't exist (§5.3).
+  it("an annual-filer name names its coverage — the '—' purity meter means NOT COVERED, never zero", () => {
+    // a dark name lit up by the 20-F/40-F path. Shares (Slice 1) and cash/runway (Slice A) are
+    // covered; the panel must say PURITY isn't, rather than imply the data doesn't exist (§5.3).
     const ANNUAL_SHARES = {
       ...AUTO_SHARES,
       tier: "flag",
@@ -158,6 +158,70 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.getByText("⚠ annual-cover")).toBeInTheDocument();
     expect(screen.getByText(/385,417,665 ordinary shares/)).toBeInTheDocument();
     expect(screen.getByLabelText("shares")).not.toHaveAttribute("readonly");
+  });
+
+  it("an annual RUNWAY candidate renders as a ratifiable FLAG with both statement passages (Slice A)", () => {
+    // a burning 20-F name: the cash_burn candidate from the annual statements — editable cash + burn
+    // pre-filled with the span-normalized figures, both located rows readable inline.
+    const ANNUAL_BURN = {
+      ...FLAG_BURN,
+      source: "annual-statements",
+      source_ref: "https://sec.gov/ghrs-20f",
+      event_date: "2025-12-31",
+      cash_usd: 246251000,
+      quarterly_burn_usd: 10925390,
+      flags: ["annual-statements"],
+      note: "20-F financial statements (USD, “$’000”). Operating cash flow -43,552,000 over 364 days …",
+      located_passages: [
+        {
+          kind: "cash-flow",
+          source_ref: "https://sec.gov/ghrs-20f",
+          anchor: "Net cash used in operating activities",
+          excerpt: "… Net cash used in operating activities ( 43,552 ) ( 42,285 ) ( 33,336 ) …",
+          offset: 735440,
+        },
+        {
+          kind: "balance-sheet",
+          source_ref: "https://sec.gov/ghrs-20f",
+          anchor: "Cash and cash equivalents",
+          excerpt: "… Cash and cash equivalents 8 246,251 100,791 …",
+          offset: 731633,
+        },
+      ],
+    };
+    h.extract.data = env([ANNUAL_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    const cash = screen.getByLabelText("cash") as HTMLInputElement;
+    const burn = screen.getByLabelText("quarterly burn") as HTMLInputElement;
+    expect(cash.value).toBe("246251000");
+    expect(burn.value).toBe("10925390");
+    expect(cash.readOnly).toBe(false); // FLAG — the operator ratifies the composition
+    expect(screen.getByText(/\( 43,552 \)/)).toBeInTheDocument(); // the OCF row, inline
+    expect(screen.getByText(/246,251 100,791/)).toBeInTheDocument(); // the cash row, inline
+  });
+
+  it("the runway leg's non-fact states render DISTINCT honest notes (Slice A)", () => {
+    // "cash-generative" is a STATE (no runway applies), "financials-in-exhibit" a DEFERRAL, and
+    // "statements-not-located" an UNREAD — three different sentences, never one blur (§Empty states).
+    const withReason = (runway_empty_reason: string, facts: unknown[] = []) => ({
+      facts,
+      empty_reason: null,
+      runway_empty_reason,
+    });
+    h.extract.data = withReason("cash-generative");
+    const first = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/no runway applies/)).toBeInTheDocument();
+    first.unmount();
+
+    h.extract.data = withReason("financials-in-exhibit");
+    const second = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Deferred, not judged/)).toBeInTheDocument();
+    expect(screen.getByText(/exhibit document/)).toBeInTheDocument();
+    second.unmount();
+
+    h.extract.data = withReason("statements-not-located");
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/unread, not empty/)).toBeInTheDocument();
   });
 
   it("a shares confirm carries the candidate's ADS-ratio metadata through — like source, never retyped", async () => {

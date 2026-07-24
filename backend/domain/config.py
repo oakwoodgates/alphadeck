@@ -280,5 +280,13 @@ class ExtractorConfig(DomainModel):
     # order above the observed range rather than hugging it.
     annual_ads_ratio_max: int = 1000
 
+    # --- annual-statements runway (Retrieval Slice A — ingest/edgar/annual_runway.py) ---
+    # Stale-runway threshold: an annual filer's burn reading is inherently up to ~a year old between
+    # filings, so the shares-style ~6-month bar would cry wolf on EVERY name (honest loudness — a flag
+    # true of every row carries no information). 550 days ≈ one annual cycle + a filing-lag allowance:
+    # only a name whose newest operating-cash reading is older than even the annual rhythm allows wears
+    # `stale-runway` (a delinquent or stopped filer). PROPOSED dial (spec §Open dials), not measured.
+    annual_stale_runway_days: int = 550
+
 
 DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()
