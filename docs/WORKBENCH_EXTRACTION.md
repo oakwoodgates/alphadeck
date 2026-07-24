@@ -219,10 +219,16 @@ source-scan asserting the token `AUTO` never appears in it.
 - **possessive as `\W{0,3}s`** — the apostrophe survives as `'`, a space, or `&rsquo;` depending on filer.
   Only `clean_filing_text`'s `html.unescape` normalises it; a hand-rolled entity strip misses those names.
 
-**Fail CLOSED.** No instruction match → **no value**, never a looser fallback. The trap is a *confident wrong
-match*: `"number of outstanding shares - basic and diluted"` is an **EPS note**, and in a 25 MB filing a loose
-pattern finds it hundreds of thousands of characters in. Note `_locate`'s ±110 window is too narrow for these
-covers (they run long), so the annual passage is purpose-built rather than reusing it.
+A **secondary** strict instruction catches the direct-count phrasing some filers use instead of enumerating
+classes — *"The number of the issuer's outstanding common shares … was 2,293,277"* — tried only when the
+primary fails (so the primary names are untouched, and no filer matches both).
+
+**Fail CLOSED.** No instruction match — *primary or secondary* — → **no value**, never a looser fallback. The
+trap is a *confident wrong match*: `"number of outstanding shares - basic and diluted"` is an **EPS note**,
+and in a 25 MB filing a loose pattern finds it hundreds of thousands of characters in. Both strict
+instructions require *"the issuer's/registrant's"*, which the EPS note lacks, so it matches neither. Note
+`_locate`'s ±110 window is too narrow for these covers (they run long), so the annual passage is
+purpose-built rather than reusing it.
 
 **Never sum the numbers on an annual cover.** A cover may read *"N shares of common stock, **including** M
 ADSs"* — M is a **subset**, not a second class, and ADRs are common among foreign filers. Take the first

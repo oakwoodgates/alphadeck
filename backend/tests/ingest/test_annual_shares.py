@@ -231,42 +231,50 @@ def test_crlbf_multiclass_cover_flags_not_sums():
 
 
 # ---------------------------------------------------------------------------------------------------------
-# fail closed — PBM, the one cover-not-located name
+# fail closed — the direct-count secondary cover (PBM) and the synthetic unread cover
 # ---------------------------------------------------------------------------------------------------------
 
 
-def test_pbm_eps_note_yields_no_share_count():
-    """PBM's document contains a cue-LOOKALIKE deep inside — *"number of outstanding shares - basic
-    and diluted"*, an EPS note ~400k chars in — and its real cover uses nonstandard phrasing outside
-    the SEC instruction. Both must yield NOTHING (fail closed): a looser pattern here returned a
-    confidently-wrong number in the probe. The fixture deliberately RETAINS both hazard regions —
-    asserted below so a future trim can't hollow the test out (spec §8.4)."""
+def test_pbm_direct_count_cover_recovered_never_the_eps_note():
+    """PBM uses the DIRECT-COUNT cover phrasing — *"The number of the issuer's outstanding common shares
+    … was 2,293,277"* — matched by the SECONDARY instruction, while a cue-LOOKALIKE sits ~400k chars deep
+    (an EPS note, *"number of outstanding shares - basic and diluted"*). The secondary must recover the
+    real cover and NEVER the EPS note (it lacks *"the issuer's"*): the confidently-wrong number the probe's
+    loose pattern returned there must stay impossible. The fixture RETAINS both hazard regions — asserted
+    so a future trim can't hollow the test out (spec §8.4)."""
     text = _text("PBM-20f.txt")
     # fixture integrity: the trim trap — both regions the test exists to guard must still be present
     assert "number of outstanding shares - basic and diluted" in text.lower()
     assert "outstanding common shares as of March 31, 2026 was 2,293,277" in text
-    facts = extract_annual_shares(
-        None, text, annual_ref="x", annual_form="20-F", report_date=date(2026, 3, 31), today=_TODAY
-    )
-    assert facts == []  # NO value — never the EPS figure, never the nonstandard-cover figure
+    f = _one("PBM-20f.txt", cf=None, report_date=date(2026, 3, 31), form="20-F")
+    assert f is not None
+    assert f.value == 2_293_277  # the real cover — NEVER an EPS figure (552,282 / 30,887 / 1,744)
+    assert f.tier is Tier.FLAG and f.source == "annual-cover"
+    assert "2,293,277" in f.located_passages[0].excerpt
 
 
-def test_pbm_wrapper_stamps_cover_not_located():
-    """The wrapper distinguishes PBM's empty from SKHY's: an annual filing EXISTS but its cover was
-    not read -> `cover-not-located` (the name is UNREAD, not empty), and companyfacts is deliberately
-    NOT served alone (no passage -> no fact — the Option-B contract)."""
+def test_wrapper_stamps_cover_not_located_when_no_instruction_matches():
+    """The wrapper distinguishes an UNREAD cover from a MISSING filing (SKHY): an annual filing EXISTS
+    but NEITHER cover instruction matched -> `cover-not-located` (the name is UNREAD, not empty), and
+    companyfacts is deliberately NOT served alone (no passage -> no fact — the Option-B contract). No
+    real dark name currently trips this (PBM is recovered by the secondary pattern), so the empty state
+    is proven with a synthetic cover that uses neither instruction — the case still guards future
+    filings with unrecognised cover phrasing."""
     subs = {
         "filings": {
             "recent": {
                 "form": ["20-F"],
-                "accessionNumber": ["0001213900-26-070607"],
-                "primaryDocument": ["ea0294983-20f_psyence.htm"],
-                "filingDate": ["2026-07-15"],
+                "accessionNumber": ["0009999999-26-000001"],
+                "primaryDocument": ["synthetic-20f.htm"],
+                "filingDate": ["2026-03-31"],
                 "reportDate": ["2026-03-31"],
             }
         }
     }
-    client = _FakeClient(subs=subs, texts={"ea0294983-20f_psyence.htm": _text("PBM-20f.txt")})
+    unreadable = (
+        "Cover Page. This annual report states no share count in any recognised instruction."
+    )
+    client = _FakeClient(subs=subs, texts={"synthetic-20f.htm": unreadable})
     res = annual_shares_for_security(client, 1234, today=_TODAY)
     assert res.facts == [] and res.empty_reason == "cover-not-located"
 

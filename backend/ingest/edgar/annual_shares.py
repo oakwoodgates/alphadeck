@@ -15,11 +15,14 @@ through it would pre-fill a year-old count at the lowest-friction tier. This mod
 unable to do that: the pre-fill tier's token appears NOWHERE in this file (a source-scan test asserts
 it — the display-signals idiom), and every emitted fact is ``Tier.FLAG`` — the operator ratifies, always.
 
-FAIL CLOSED: no cover-instruction match -> NO value. Never a looser pattern, and never companyfacts
-alone — a fact without its located passage would break the no-passage-no-fact contract the operator
-chose (Option B). PBM is the proof case: its cue-lookalike is an EPS note ~400k chars deep ("number of
-outstanding shares - basic and diluted") and its real cover uses nonstandard phrasing outside the SEC
-instruction — both yield nothing. Deterministic parse only (#3): no LLM anywhere on this path.
+FAIL CLOSED: no cover-instruction match (PRIMARY or SECONDARY) -> NO value. Never a looser pattern, and
+never companyfacts alone — a fact without its located passage would break the no-passage-no-fact contract
+the operator chose (Option B). Two STRICT instructions, tried in order: the class-enumeration primary and
+the direct-count secondary (PBM). PBM is the discriminator: its cue-lookalike is an EPS note ~400k chars
+deep ("number of outstanding shares - basic and diluted", which lacks "the issuer's" and so matches
+NEITHER instruction), while its real cover ("The number of the issuer's outstanding common shares … was
+2,293,277") is read by the secondary — the deep lookalike must stay unmatched. Deterministic parse only
+(#3): no LLM anywhere on this path.
 """
 
 from __future__ import annotations
@@ -47,6 +50,17 @@ from ingest.edgar.submissions import fetch_submissions, filings_of
 # silently dropped four real names during validation.
 _COVER_INSTRUCTION_RE = re.compile(
     r"outstanding shares of (?:each of )?the (?:issuer|registrant)\W{0,3}s classes", re.IGNORECASE
+)
+# The SECONDARY cover instruction — the DIRECT-COUNT phrasing some FPIs use instead of enumerating
+# classes: "The number of the issuer's outstanding common shares as of March 31, 2026 was 2,293,277"
+# (PBM). Tried ONLY when the primary fails (the `or` short-circuits, so the primary names are untouched),
+# and just as strict/fail-closed: it requires "the issuer's|registrant's outstanding … shares", so PBM's
+# deep EPS lookalike ("number of outstanding shares - basic and diluted", which lacks "the issuer's") does
+# NOT match. Validated live across all 48 dark names: recovers PBM and nothing else (43 primary + PBM =
+# 44/44 annual filings; no dark name matches BOTH, so the fallback order can never mis-pick).
+_COVER_INSTRUCTION_ALT_RE = re.compile(
+    r"number of the (?:issuer|registrant)\W{0,3}s outstanding (?:common |ordinary )?shares",
+    re.IGNORECASE,
 )
 
 # A share count with grouped thousands — BOTH separators: `385,417,665` and NVS's European-convention
@@ -248,11 +262,13 @@ def extract_annual_shares(
     registration exists on EDGAR for this issuer — POSITIVE ADR evidence for the ratio detector
     (spec §10; its absence proves nothing and is never used as a negative).
     """
-    m = _COVER_INSTRUCTION_RE.search(annual_text)
+    # primary (class-enumeration) instruction, then the secondary (direct-count) phrasing. The primary
+    # short-circuits, so the 43 primary names keep their exact behaviour; PBM is read by the secondary.
+    m = _COVER_INSTRUCTION_RE.search(annual_text) or _COVER_INSTRUCTION_ALT_RE.search(annual_text)
     if m is None:
         return (
             []
-        )  # fail closed — no instruction, no value (PBM: nonstandard cover + a deep EPS lookalike)
+        )  # fail closed — neither cover instruction matched; never a looser fallback pattern
     segment = annual_text[m.end() : m.end() + cfg.annual_cover_segment_chars]
     nums = list(_COUNT_RE.finditer(segment))
     if not nums:
@@ -450,9 +466,10 @@ def annual_shares_for_security(
     the one FLAG shares candidate, or an honest, DISTINCT empty reason (the three empty states):
 
     - ``no-annual-filing``  — no 20-F/40-F either: genuinely nothing on EDGAR to read (SKHY, AGNPF).
-    - ``cover-not-located`` — an annual filing exists but its cover instruction wasn't matched (PBM),
-      or matched with no parseable count: the name is UNREAD, not empty. companyfacts is deliberately
-      NOT served alone here (no passage -> no fact).
+    - ``cover-not-located`` — an annual filing exists but NEITHER cover instruction matched, or one
+      matched with no parseable count: the name is UNREAD, not empty. companyfacts is deliberately NOT
+      served alone here (no passage -> no fact). No current dark name trips this — PBM, once the sole
+      case, is now read by the secondary instruction — but a future unrecognised cover still can.
 
     An EXPLICIT operator action via the extract endpoint, never fired on a render (the cost thread).
     """
