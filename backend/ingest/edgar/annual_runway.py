@@ -43,10 +43,18 @@ annual XBRL lag is the RULE here, and a flag true of every name carries no infor
 
 FAIL CLOSED: no located statement rows -> NO fact (no passage -> no fact), with an honest, distinct
 ``runway_empty_reason``: ``cash-generative`` (positive operating cash flow — a state, not a gap) ·
-``financials-in-exhibit`` (a burning name whose statements live outside the fetched document — the
-40-F/MJDS wrapper shape; runway needs the exhibit doc, deferred) · ``statements-not-located`` (sign
-unknowable — unread, not empty). Deterministic parse only (#3): no LLM anywhere on this path; ``today``
-and ``report_date`` are parameters (no implicit now).
+``financials-in-exhibit`` (a burning name whose statements live outside every document read — the
+40-F/MJDS wrapper shape after the exhibit hunt too came back empty) · ``exhibit-ambiguous`` (more
+than one exhibit carries the statement signature — deferred, never a guessed exhibit; stamped by the
+statement-source seam, Slice A-2) · ``statements-not-located`` (sign unknowable — unread, not
+empty). Deterministic parse only (#3): no LLM anywhere on this path; ``today`` and ``report_date``
+are parameters (no implicit now).
+
+WHERE THE STATEMENT TEXT COMES FROM is the statement-source seam's job (Slice A-2,
+``ingest/edgar/statement_sources.py``): the primary document first (the text already fetched for the
+cover — fetch-once), else the EX-99 exhibit hunt (bounded, content-signature, fail-closed). This
+module consumes whatever text the seam resolves and extracts from it UNCHANGED — the passages cite
+the winning document.
 """
 
 from __future__ import annotations
@@ -64,7 +72,7 @@ from ingest.edgar.annual_shares import (
 )
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import _days
-from ingest.edgar.submissions import fetch_submissions
+from ingest.edgar.submissions import fetch_submissions, filings_of
 
 _DAYS_PER_YEAR = 365.25
 _DAYS_PER_QUARTER = _DAYS_PER_YEAR / 4  # the meter's quarterly-burn basis (months = cash/(q/3))
@@ -769,15 +777,34 @@ def annual_facts_for_security(
     today: date | None = None,
 ) -> ExtractionResult:
     """Live (cache-first) wrapper for a DARK name: CIK -> the latest 20-F/40-F, fetched ONCE -> the
-    annual-cover shares candidate (``annual_shares.extract_annual_shares``, behavior unchanged) PLUS
-    the annual-statements cash/runway candidate, or their honest, DISTINCT empty reasons.
+    annual-cover shares candidate (``annual_shares.extract_annual_shares``, behavior unchanged —
+    cover shares ALWAYS reads the primary document, never routed through the seam) PLUS the
+    annual-statements cash/runway candidate, or their honest, DISTINCT empty reasons.
+
+    The statements TEXT is resolved through the statement-source seam (Slice A-2): the primary
+    document first (the SAME text the cover just read — no second fetch), else the EX-99 exhibit
+    hunt (bounded, content-signature, fail-closed). The extraction then runs UNCHANGED on whatever
+    text won, with ``annual_ref`` = the winning document's URL, so a CRDL runway passage cites the
+    statements exhibit, not the 40-F wrapper. When NOTHING resolves, the extractor still reads the
+    primary text for the honest tri-state (the sign logic above); an ambiguous exhibit scan defers
+    with its own distinct reason.
 
     ``empty_reason`` keeps its Slice-1 semantics (set only when NO facts at all):
     ``no-annual-filing`` · ``cover-not-located``. ``runway_empty_reason`` is the runway leg's own
     state whenever an annual filing exists but no cash_burn fact could be emitted:
-    ``cash-generative`` · ``financials-in-exhibit`` · ``statements-not-located`` (see the module
-    docstring). An EXPLICIT operator action via the extract endpoint, never fired on a render.
+    ``cash-generative`` · ``financials-in-exhibit`` · ``exhibit-ambiguous`` ·
+    ``statements-not-located`` (see the module docstring). An EXPLICIT operator action via the
+    extract endpoint, never fired on a render.
     """
+    # Lazy import (the extract.py idiom): statement_sources imports this module's locators, so a
+    # module-level import here would be a cycle.
+    from ingest.edgar.statement_sources import (
+        AnnualFiling,
+        ResolvedStatements,
+        StatementsDeferred,
+        resolve_statements,
+    )
+
     cik = int(cik)
     subs = fetch_submissions(client, cik)
     filing = _latest_annual_filing(client, cik, subs=subs)
@@ -798,15 +825,39 @@ def annual_facts_for_security(
         has_f6_filing=has_f6,
         cfg=cfg,
     )
-    runway, runway_reason = extract_annual_runway(
-        cf,
-        text,
-        annual_ref=url,
-        annual_form=form,
-        report_date=report_dt,
-        today=when,
+    # the accession of the row _latest_annual_filing selected: the newest filing of the WINNING form
+    # (same submissions list, same first-row pick — no second selection logic to drift)
+    accession = filings_of(subs, form)[0]["accession"]
+    resolved = resolve_statements(
+        client,
+        AnnualFiling(
+            cik=cik,
+            accession=accession,
+            primary_url=url,
+            primary_text=text,
+            report_date=report_dt,
+            form=form,
+        ),
         cfg=cfg,
     )
+    if isinstance(resolved, StatementsDeferred):
+        runway: list[ExtractedFact] = []
+        runway_reason: str | None = resolved.reason
+    else:
+        # a ResolvedStatements extracts from the WINNING text (primary or exhibit — the ref follows);
+        # None falls back to the primary text, whose rowless extraction yields the honest tri-state
+        # (cash-generative / financials-in-exhibit / statements-not-located).
+        stmt_text = resolved.text if isinstance(resolved, ResolvedStatements) else text
+        stmt_ref = resolved.source_ref if isinstance(resolved, ResolvedStatements) else url
+        runway, runway_reason = extract_annual_runway(
+            cf,
+            stmt_text,
+            annual_ref=stmt_ref,
+            annual_form=form,
+            report_date=report_dt,
+            today=when,
+            cfg=cfg,
+        )
     facts = shares + runway
     if not facts:
         return ExtractionResult(

@@ -283,11 +283,13 @@ pinned by a test:
 ## The annual-statements runway path — cash + burn for a filer with NO 10-K/10-Q `[BUILT]`
 
 The sibling of the annual-cover shares path (Retrieval Slice A): a dark name's **runway** — cash and a
-span-normalized operating-cash burn — read from the financial statements of the SAME 20-F/40-F document
-the shares path fetches (**one fetch feeds both**; `annual_facts_for_security` in
-`backend/ingest/edgar/annual_runway.py`). Ground truth is pinned in
-`backend/tests/ingest/test_annual_runway.py` + its fixtures (real trimmed statement text, every trim
-verified to reproduce the full-document result) — the tests are the oracle, not this page.
+span-normalized operating-cash burn — read from the filer's annual financial statements
+(`annual_facts_for_security` in `backend/ingest/edgar/annual_runway.py`). When the statements live in
+the main 20-F/40-F document, the SAME fetch feeds cover-shares and runway (**one fetch feeds both**);
+when they live in an `EX-99` exhibit (the 40-F/MJDS wrapper shape), the **statement-source seam**
+below resolves the exhibit. Ground truth is pinned in `backend/tests/ingest/test_annual_runway.py` +
+`test_statement_sources.py` and their fixtures (real trimmed statement text, every trim verified to
+reproduce the full-document result) — the tests are the oracle, not this page.
 
 **FLAG only, structurally** — the same bound as the shares path: the pre-fill tier's token appears
 nowhere in the module (source-scan test), and every emitted fact carries **both** located statement
@@ -331,12 +333,46 @@ its own exact span). `source-disagreement` fires only on a **same-date** value c
 deliberately quieter than the shares flag, because cross-date lag is the *rule* for annual filers and
 a flag true of every name carries no information. The cross-date lag is stated in the note instead.
 
-**Three runway empty states, kept distinct** (`ExtractionResult.runway_empty_reason` — separate from
+**The statement-source seam — WHERE the statements come from is an ordered chain, not a nested if**
+(Retrieval Slice A-2; `backend/ingest/edgar/statement_sources.py`). The runway extractor consumes
+statement TEXT resolved by a **light ordered chain of source functions** — a list + a first-hit-wins
+loop, deliberately NOT a registry or class framework (3–5 sources are ever expected; the
+revenue-segment passages are the intended next user). Order = priority: **`main_doc_statements`**
+(the statements in the already-fetched primary document — it re-reads the SAME text the cover-shares
+leg fetched and **never re-fetches**; the fetch-once discipline is provable by handing the source no
+client at all) then **`exhibit_statements`** (below). The seam changes *where* the text comes from,
+never *what* is done to it: the resolved text flows into the unchanged Slice A extraction, and every
+located passage cites the **winning document** — an exhibit-resolved runway passage cites the
+exhibit, never the wrapper. **Cover shares stay on the primary document** (the 40-F cover carries
+the count) — the seam governs statements only.
+
+**The exhibit source — statements identified by CONTENT, strictly.** The 40-F/MJDS wrapper shape
+puts the financial statements in an `EX-99.x` exhibit. `exhibit_statements` enumerates the filing's
+documents (the accession `index.json`, cached under a **mutable** prefix — the key-classed 12h-TTL
+freshness rule), identifies the EX-99 `.htm` candidates by their **SGML-header TYPE** (the
+accession's `-index-headers.html`; exhibit *filenames* are NOT trustworthy — real filer agents name
+exhibits with no "99" anywhere, so a filename pattern survives only as a recall fallback when the
+header yields nothing), and fetches them **bounded**: candidates order unknown-size-first then
+largest-first (a statements exhibit is a big document; the EX-99 tail is tiny certifications) and
+cap at `exhibit_scan_max`, every capped-out candidate **logged, never silently dropped**. Each
+document fetch is cache-first under the immutable `forms/*` prefix — paid once per accession, ever;
+the XBRL/graphic/R-page army (90–110 documents per 40-F) is never touched. The **winner is the one
+exhibit whose cleaned text carries BOTH statement rows** — the balance-sheet
+cash-and-cash-equivalents row AND the operating-activities total, located by the extractor's own
+row locators (signature and extraction can never disagree). A keyword *mention* fails it: the AIF
+carries the statement headings with no rows, and the MD&A quotes the very numbers in prose — a
+liquidity summary table can even hit the *cash* locator alone, which is why the signature demands
+**both** rows. **Fail closed:** zero matches → the honest deferral below; **more than one** match →
+`exhibit-ambiguous`, never a guess — a wrong statement source is the runway analog of a
+confident-wrong cover match.
+
+**Four runway empty states, kept distinct** (`ExtractionResult.runway_empty_reason` — separate from
 `empty_reason` because the shares leg usually still emits): **`cash-generative`** (a state, not a gap
 — no runway applies; shown even when the statements aren't in-doc, from the companyfacts sign) ·
-**`financials-in-exhibit`** (a *burning* name whose statements live outside the fetched main document
-— the 40-F/MJDS wrapper shape; runway needs the exhibit doc, deferred, never a companyfacts-only
-number) · **`statements-not-located`** (sign unknowable — unread, not empty).
+**`financials-in-exhibit`** (a *burning* name whose statements were found in **neither** the main
+document **nor** any exhibit the bounded scan read — deferred, never a companyfacts-only number) ·
+**`exhibit-ambiguous`** (more than one exhibit carries the statement signature — deferred, never
+guessed) · **`statements-not-located`** (sign unknowable — unread, not empty).
 
 **Staleness is annual-calibrated** (honest loudness): an annual reading is inherently up to ~a year
 old, so `stale-runway` fires only past `annual_stale_runway_days` (~1.5 annual cycles) — a delinquent

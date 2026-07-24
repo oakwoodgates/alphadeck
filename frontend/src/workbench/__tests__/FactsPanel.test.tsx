@@ -230,9 +230,11 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByText(/NT\$/)).not.toBeInTheDocument();
   });
 
-  it("the runway leg's non-fact states render DISTINCT honest notes (Slice A)", () => {
-    // "cash-generative" is a STATE (no runway applies), "financials-in-exhibit" a DEFERRAL, and
-    // "statements-not-located" an UNREAD — three different sentences, never one blur (§Empty states).
+  it("the runway leg's non-fact states render DISTINCT honest notes (Slices A + A-2)", () => {
+    // "cash-generative" is a STATE (no runway applies), "financials-in-exhibit" a DEFERRAL (the
+    // exhibit hunt too came back empty), "exhibit-ambiguous" its own DEFERRAL (more than one
+    // statements-shaped exhibit — never guessed), and "statements-not-located" an UNREAD — four
+    // different sentences, never one blur (§Empty states).
     const withReason = (runway_empty_reason: string, facts: unknown[] = []) => ({
       facts,
       empty_reason: null,
@@ -246,8 +248,14 @@ describe("FactsPanel — extract → ratify", () => {
     h.extract.data = withReason("financials-in-exhibit");
     const second = render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(/Deferred, not judged/)).toBeInTheDocument();
-    expect(screen.getByText(/exhibit document/)).toBeInTheDocument();
+    expect(screen.getByText(/EX-99 exhibit/)).toBeInTheDocument();
     second.unmount();
+
+    h.extract.data = withReason("exhibit-ambiguous");
+    const third = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/defers rather than guesses/)).toBeInTheDocument();
+    expect(screen.getByText(/More than one exhibit/)).toBeInTheDocument();
+    third.unmount();
 
     h.extract.data = withReason("statements-not-located");
     render(<FactsPanel securityId={SID} />);

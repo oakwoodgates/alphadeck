@@ -287,6 +287,15 @@ class ExtractorConfig(DomainModel):
     # only a name whose newest operating-cash reading is older than even the annual rhythm allows wears
     # `stale-runway` (a delinquent or stopped filer). PROPOSED dial (spec §Open dials), not measured.
     annual_stale_runway_days: int = 550
+    # --- exhibit statement source (Retrieval Slice A-2 — ingest/edgar/statement_sources.py) ---
+    # The cost-thread cap on how many EX-99 exhibit documents one filing may FETCH while hunting the
+    # financial statements (a 40-F carries 90-110 documents; the EX-99 family alone ran 7-8 on every
+    # measured name, most of them tiny certifications). Candidates are ordered unknown-size-first then
+    # LARGEST-first before capping (a statements exhibit is a big document; certifications are tiny),
+    # so the cap sheds the boilerplate tail, never the statements — and every skipped candidate is
+    # LOGGED (a bounded scan is never a silent one). Each fetch is cache-first under the immutable
+    # forms/ prefix, so the cost is paid once per accession, ever.
+    exhibit_scan_max: int = 6
 
 
 DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig()

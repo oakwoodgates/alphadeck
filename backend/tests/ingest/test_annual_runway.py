@@ -320,8 +320,10 @@ def test_statement_currency_rides_the_fact_for_the_native_label():
 
 def test_exhibit_40f_name_defers_honestly():
     """CRDL and DRUG (40-F/MJDS): the main document is a wrapper — no statement rows exist in it —
-    and companyfacts says they BURN. No passage → no fact; the runway leg defers with the distinct
-    honest reason (`financials-in-exhibit`), never a companyfacts-only number."""
+    and companyfacts says they BURN. No passage → no fact; the PURE extractor defers with the
+    distinct honest reason (`financials-in-exhibit`), never a companyfacts-only number. (The LIVE
+    wrapper now resolves the statements from the EX-99 exhibit via the statement-source seam —
+    Slice A-2, `test_statement_sources.py` — this pins the fallback when nothing resolves.)"""
     for fname, cfname, rd in (
         ("CRDL-40f.txt", "CRDL", date(2025, 12, 31)),
         ("DRUG-40f.txt", "DRUG", date(2025, 9, 30)),
@@ -453,22 +455,11 @@ class _FakeClient:
         return self._texts[doc]
 
 
-def test_wrapper_fetches_once_and_merges_shares_with_runway_reason():
-    """``annual_facts_for_security`` (the route's dark-name entry): ONE submissions read + ONE
-    document fetch feed BOTH extractors — CRDL yields its Slice-1 shares candidate PLUS the runway
-    leg's honest deferral, in one ``ExtractionResult``. The fake raises on any unexpected fetch, so a
-    second document pull fails the test by construction."""
-    subs = json.loads((_FX / "subs-CRDL.json").read_text(encoding="utf-8"))
-    client = _FakeClient(
-        subs=subs,
-        texts={"crdl-20251231x40f.htm": _text("CRDL-40f.txt")},
-        cf=_cf("CRDL"),
-    )
-    res = annual_facts_for_security(client, 1702123, today=_TODAY)
-    assert [f.fact_type for f in res.facts] == ["shares_outstanding"]
-    assert res.facts[0].tier is Tier.FLAG
-    assert res.empty_reason is None  # facts are non-empty — the Slice-1 semantics hold
-    assert res.runway_empty_reason == "financials-in-exhibit"
+# NOTE (Slice A-2): the old `test_wrapper_fetches_once_and_merges_shares_with_runway_reason` lived
+# here — CRDL's wrapper-level call now RESOLVES its statements from the EX-99 exhibit through the
+# statement-source seam instead of deferring, so the wrapper end-to-end (fetch-once for the primary,
+# the exhibit hunt, the honest deferral when nothing resolves) is pinned in
+# `test_statement_sources.py::test_wrapper_40f_name_emits_runway_from_its_exhibit` and siblings.
 
 
 def test_wrapper_no_annual_filing_keeps_slice1_shape():
