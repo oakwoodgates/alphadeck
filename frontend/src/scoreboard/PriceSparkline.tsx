@@ -63,11 +63,20 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
       handleScroll: false, // a sparkline, not an interactive chart
       handleScale: false,
     });
+    // Pin the price scale to the actual close range. Otherwise lightweight-charts folds the marker
+    // LABEL space into its autoscale and, on a ~132px sparkline, inflates the axis to ~2x the data
+    // (measured: 179–238 for a 206–219 series) — squashing the line + peak into a narrow middle band
+    // so a small move's peak reads flat/off. `data.length >= 2` holds here (the guard above).
+    const closes = data.map((b) => b.close);
+    const lo = Math.min(...closes);
+    const hi = Math.max(...closes);
+    const pad = (hi - lo) * 0.15 || 1; // a flat series still gets a sane band, never a zero range
     const series: ISeriesApi<"Line"> = chart.addLineSeries({
       color: LINE,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
+      autoscaleInfoProvider: () => ({ priceRange: { minValue: lo - pad, maxValue: hi + pad } }),
     });
     series.setData(data.map((b) => ({ time: b.d as Time, value: b.close })));
 
