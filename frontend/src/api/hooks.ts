@@ -164,6 +164,11 @@ export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 export type ScoreboardReplayResponse = components["schemas"]["ScoreboardReplayResponse"];
 export type ScoreboardReplayThesisOut = components["schemas"]["ScoreboardReplayThesisOut"];
 
+// the episode price-window (Slice 3): the drawer sparkline's on-demand OHLCV series (line draws close;
+// OHLC/volume ride the wire for a later candlestick), capped at asof server-side (no-lookahead)
+export type ScoreboardPriceWindow = components["schemas"]["ScoreboardPriceWindowOut"];
+export type PriceBar = components["schemas"]["PriceBar"];
+
 // The HISTORICAL (replayed) panel — served from the operator-kicked artifact, so it is
 // asof-INDEPENDENT (the artifact is what it is; no asof in the key). available:false = no
 // artifact yet; the panel renders nothing at all (absence, not an empty shell).
@@ -187,6 +192,32 @@ export function useScoreboard(asof: string, includeArchived = true) {
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
         params: { query: { asof, include_archived: includeArchived } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// One episode's asof-capped price window (Slice 3) — the drawer sparkline's on-demand read. ENABLED only
+// when the drawer is open for THIS episode AND there's a forward path to draw (the caller passes `enabled`;
+// a no-forward-bar episode never fetches). Keyed by (thesis, security, arm_date, asof): arm_date pins the
+// episode, asof caps the series (no-lookahead is enforced server-side too). Read-only; a refetch/asof-scrub
+// writes nothing. `end` (the episode's exit_by) rides the query but not the key — it's fixed by arm_date and
+// the server caps at asof regardless, so it can't vary the result for a given key.
+export function useEpisodePriceWindow(
+  args: { thesisId: string; securityId: string; armDate: string; end: string; asof: string },
+  enabled: boolean,
+) {
+  const { thesisId, securityId, armDate, end, asof } = args;
+  return useQuery({
+    queryKey: ["episode-price-window", thesisId, securityId, armDate, asof] as const,
+    enabled: enabled && Boolean(thesisId) && Boolean(securityId) && Boolean(asof),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/scoreboard/price-window", {
+        params: {
+          query: { thesis_id: thesisId, security_id: securityId, start: armDate, end, asof },
+        },
       });
       if (error) throw error;
       return data;

@@ -340,6 +340,7 @@ export function Scoreboard({
           <EpisodeScorecard
             ep={openEp}
             thesisName={data?.theses.find((t) => t.thesis_id === openEp.thesis_id)?.name}
+            asof={asof}
           />
         )}
       </Drawer>
