@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from app.deps import get_current_tenant
 from app.main import app
@@ -26,6 +26,47 @@ def ohlcv_bar(db, security_id, d, o, h, low, c, v):
             "close": c,
             "volume": v,
             "valid_from": d,
+        },
+    )
+    db.commit()
+
+
+def insider_buy(
+    db,
+    security_id,
+    *,
+    accession,
+    valid_from,
+    recorded_at,
+    insider_name="A Buyer",
+    role="CEO",
+    txn_code="P",
+    shares=1000.0,
+    price=50.0,
+    usd=50_000.0,
+    aff_10b5_1=None,
+    txn_seq=0,
+):
+    """Seed one ``fact_insider_txn`` row with an EXPLICIT recorded_at (the disclosure axis is the
+    whole point of the no-lookahead-on-insider test — the shared ``bar`` helper is close-only prices).
+    """
+    append_fact(
+        db,
+        "fact_insider_txn",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "insider_name": insider_name,
+            "insider_role": role,
+            "txn_code": txn_code,
+            "shares": shares,
+            "price": price,
+            "usd": usd,
+            "accession": accession,
+            "valid_from": valid_from,
+            "recorded_at": recorded_at,
+            "aff_10b5_1": aff_10b5_1,
+            "txn_seq": txn_seq,
         },
     )
     db.commit()
@@ -120,14 +161,25 @@ def test_price_window_unknown_thesis_404(client, db, security_id):
 def test_price_window_single_arm_bar_one_point(client, db, security_id):
     """Only the arm-day bar has landed → a 1-bar series (the honest thin-data case the FE draws
     as 'no price path yet', never a fake line). A close-only bar surfaces null OHL/volume, never
-    invented values."""
+    invented values; sma50/sma200 are null (one bar is far short of either window — the honest gap).
+    """
     thesis = persist_thesis(db, security_id)
     bar(db, security_id, date(2026, 6, 1), 100.0)  # the arm-day bar only (close-only)
     r = _get(client, thesis.id, security_id, "2026-07-15")
     assert r.status_code == 200
     assert r.json()["bars"] == [
-        {"d": "2026-06-01", "open": None, "high": None, "low": None, "close": 100.0, "volume": None}
+        {
+            "d": "2026-06-01",
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 100.0,
+            "volume": None,
+            "sma50": None,
+            "sma200": None,
+        }
     ]
+    assert r.json()["insider_buys"] == []  # nothing ingested — an honest empty overlay
 
 
 def test_price_window_full_ohlcv_bar_rides_the_wire(client, db, security_id):
@@ -145,6 +197,8 @@ def test_price_window_full_ohlcv_bar_rides_the_wire(client, db, security_id):
             "low": 98.0,
             "close": 101.25,
             "volume": 1250000.0,
+            "sma50": None,
+            "sma200": None,
         }
     ]
 
@@ -160,3 +214,205 @@ def test_price_window_null_close_skipped(client, db, security_id):
     bars = r.json()["bars"]
     assert [b["d"] for b in bars] == ["2026-06-01", "2026-06-03"]
     assert all(b["close"] is not None for b in bars)
+
+
+# --- Slice A: SMA context + the insider-buy overlay (both under the SAME asof discipline) ---
+
+
+def _set_created_at(db, thesis_id, when: date) -> None:
+    """Pin the thesis's created_at so the relevance floor (max(created_at−365d, first_bar)) is deterministic
+    (the thesis table is mutable operational state — no append-only trigger)."""
+    with db.cursor() as cur:
+        cur.execute("UPDATE thesis SET created_at = %s WHERE id = %s", (when, thesis_id))
+    db.commit()
+
+
+def test_price_window_sma_warm_up_makes_the_left_edge_honest(client, db, security_id):
+    """R1: the window starts at the RELEVANCE FLOOR (created_at−365d here), and the bar AT that floor
+    already carries a non-null sma50 — the WARM-UP read BEHIND the floor supplied its prior closes (without
+    it the left edge would be a false None). The value matches a hand-computed rolling mean; sma200 stays
+    None (< 200 prior bars — the honest gap, never padded)."""
+    thesis = persist_thesis(db, security_id)
+    _set_created_at(db, thesis.id, date(2026, 6, 1))  # floor = created−365 = 2025-06-01
+    base = date(2025, 4, 1)  # 61 bars of warm-up BEFORE the floor (2025-04-01 .. 2025-05-31)
+    for i in range(
+        90
+    ):  # close_i = 100 + i on consecutive days from 2025-04-01 (through 2025-06-29)
+        bar(db, security_id, base + timedelta(days=i), 100.0 + i)
+    r = _get(client, thesis.id, security_id, "2026-07-15", start="2025-01-01", end="2026-09-01")
+    assert r.status_code == 200
+    body = r.json()
+    assert (
+        body["start"] == "2025-06-01"
+    )  # the EFFECTIVE floor, echoed (not the requested 2025-01-01)
+    bars = body["bars"]
+    assert bars[0]["d"] == "2025-06-01"  # only [floor, end] returned (warm-up bars trimmed off)
+    # 2025-06-01 is index 61 (closes 112..161) → sma50 = mean(112..161) = 136.5 (honest, from the warm-up)
+    assert bars[0]["sma50"] == 136.5
+    assert bars[0]["sma200"] is None  # < 200 prior bars
+    # and the SMA tracks forward: the next bar (close 162) → mean(113..162) = 137.5
+    assert bars[1]["sma50"] == 137.5
+
+
+def test_price_window_universe_floor_excludes_a_pre_thesis_buy(client, db, security_id):
+    """R1 relevance floor: a buy transacted BEFORE max(created_at−365d, first_bar) is off-story and excluded
+    (a thesis born 2026-06 does not plot a 2020 buy) — NOT a recall cut, the event is genuinely pre-thesis.
+    A buy inside the window survives. No price bars → the floor is created_at−365d."""
+    thesis = persist_thesis(db, security_id)
+    _set_created_at(db, thesis.id, date(2026, 6, 1))  # floor = 2025-06-01 (no bars → created−365)
+    disc = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000008-26-000008",
+        valid_from=date(2020, 1, 15),
+        recorded_at=disc,
+        insider_name="Ancient Buyer",
+    )
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000009-26-000009",
+        valid_from=date(2025, 8, 1),
+        recorded_at=disc,
+        insider_name="Recent Buyer",
+    )
+
+    body = _get(client, thesis.id, security_id, "2026-07-15").json()
+    assert body["start"] == "2025-06-01"  # the effective floor
+    buys = body["insider_buys"]
+    assert [b["insider_name"] for b in buys] == [
+        "Recent Buyer"
+    ]  # the 2020 buy is off-story, excluded
+    assert all(b["d"] >= "2025-06-01" for b in buys)
+
+
+def test_price_window_insider_no_lookahead_on_transaction_and_disclosure(client, db, security_id):
+    """The event twin of the price no-lookahead test — BOTH axes:
+    - transaction axis: a buy transacted 06-05 but DISCLOSED 06-20 is ABSENT at as-of 06-10 (we hadn't
+      learned it yet) and PRESENT at 06-25 (we had) — the disclosure-lag honesty (the IBM 166-day case).
+    - valid axis: a buy transacted 08-15 (future vs both as-ofs) NEVER appears — no `valid_from > asof`.
+    """
+    thesis = persist_thesis(db, security_id)
+    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # the Form 4 hits EDGAR 06-20
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000001-26-000001",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+    )
+    # a FUTURE-transaction buy (disclosed early) — the valid axis must hide it at both as-ofs
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000002-26-000002",
+        valid_from=date(2026, 8, 15),
+        recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        insider_name="Future Buyer",
+    )
+
+    early = _get(client, thesis.id, security_id, "2026-06-10").json()["insider_buys"]
+    late = _get(client, thesis.id, security_id, "2026-06-25").json()["insider_buys"]
+
+    assert (
+        early == []
+    )  # disclosed 06-20 is after known_at(06-10); the 08-15 buy is past the valid cap
+    assert len(late) == 1  # the 06-05 buy is now known; the 08-15 buy still hasn't transacted
+    (buy,) = late
+    assert buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"
+    assert buy["insider_name"] == "A Buyer" and buy["usd"] == 50000.0
+    # the load-bearing assertion: no returned buy is ever transacted after the as-of
+    for asof, buys in (("2026-06-10", early), ("2026-06-25", late)):
+        assert all(b["d"] <= asof for b in buys)
+
+
+def test_price_window_insider_superseded_row_no_double_count(client, db, security_id):
+    """A corrected insider txn (same natural key, later recorded_at) does NOT double-count — the latest
+    version wins, exactly the bitemporal `as_of` dedup the scorer relies on."""
+    thesis = persist_thesis(db, security_id)
+    nk = dict(accession="0000000003-26-000003", valid_from=date(2026, 6, 5), insider_name="A Buyer")
+    insider_buy(
+        db,
+        security_id,
+        recorded_at=datetime(2026, 6, 20, tzinfo=timezone.utc),
+        usd=50_000.0,
+        shares=1000.0,
+        **nk,
+    )
+    # the correction: same (accession, insider_name, valid_from, txn_seq), later recorded_at, new figures
+    insider_buy(
+        db,
+        security_id,
+        recorded_at=datetime(2026, 6, 22, tzinfo=timezone.utc),
+        usd=60_000.0,
+        shares=1200.0,
+        **nk,
+    )
+
+    buys = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+    assert len(buys) == 1  # ONE logical fact, not two
+    assert buys[0]["usd"] == 60_000.0 and buys[0]["shares"] == 1200.0  # the corrected version
+
+
+def test_price_window_insider_open_market_screen_reconciles_with_the_panel(client, db, security_id):
+    """The chip screen mirrors the NamePanel's open-market definition: a below-the-day's-low code-P
+    subscription is SET ASIDE, an open-market code-P buy is KEPT, and a code-S sell never appears — so a
+    dot on the chart is a dot in the panel's net-flow (recall-safe: code-P alone is the floor)."""
+    thesis = persist_thesis(db, security_id)
+    ohlcv_bar(
+        db, security_id, date(2026, 6, 5), 42.0, 46.0, 40.0, 45.0, 1_000.0
+    )  # the day's low = 40
+    disc = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    # open-market: price 45 >= low*0.9 (36) → kept
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000004-26-000004",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+        price=45.0,
+        usd=45_000.0,
+    )
+    # offer-price subscription: price 30 < low*0.9 (36) → set aside (files as code P below the public tape)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000005-26-000005",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+        price=30.0,
+        usd=30_000.0,
+    )
+    # a sell is not a buy — never an overlay chip
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000006-26-000006",
+        valid_from=date(2026, 6, 6),
+        recorded_at=disc,
+        txn_code="S",
+        price=44.0,
+        usd=44_000.0,
+    )
+
+    buys = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+    assert len(buys) == 1  # only the open-market code-P buy
+    assert buys[0]["usd"] == 45_000.0 and buys[0]["d"] == "2026-06-05"
+
+
+def test_price_window_insider_carries_the_10b5_1_and_role(client, db, security_id):
+    """Provenance rides every chip (invariant #6): the 10b5-1 plan flag and the role reach the wire so the
+    tooltip can state them — an automatic-plan buy is not the same conviction signal."""
+    thesis = persist_thesis(db, security_id)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000007-26-000007",
+        valid_from=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 20, tzinfo=timezone.utc),
+        role="CFO",
+        aff_10b5_1=True,
+    )
+    (buy,) = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+    assert buy["insider_role"] == "CFO" and buy["aff_10b5_1"] is True

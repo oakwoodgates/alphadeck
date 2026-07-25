@@ -779,19 +779,33 @@ export interface paths {
         };
         /**
          * Get Price Window
-         * @description One episode's realized daily OHLCV bars over ``[start, end]``, for the Scoreboard drawer's
-         *     sparkline (Slice 3) — the SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between``
-         *     shares ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload
-         *     (which stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
+         * @description One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and the
+         *     window's open-market insider buys — for the Scoreboard drawer's chart (Slice 3, extended in Slice A).
+         *     The SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between`` shares
+         *     ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload (which
+         *     stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
          *
-         *     No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client: the reader caps
-         *     the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a future ``end`` still gets
-         *     only bars ``<= asof`` — the window can never be widened past the as-of. ``known_at`` is left at the
-         *     reader's default (now), matching the live scorer's own construction (``derive_thesis_record`` passes
-         *     ``known_at=None``), so the sparkline shows exactly the realized bars the ledger's numbers were computed
-         *     from. Prices read under the THESIS'S tenant; a thesis the deployment tenant can't see is a 404.
-         *     ``source`` names the fact table the bars came from (invariant #6). ``start``/``end``/``security_id``
-         *     ride as bound params — the SQL range fragment stays a trusted literal (as ``closes_between`` documents).
+         *     No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client, on BOTH axes:
+         *     - the price reader caps the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a
+         *       future ``end`` still gets only bars ``<= asof`` — the window can never be widened past the as-of. Its
+         *       ``known_at`` stays the reader's default (now), matching the live scorer's construction, so the line
+         *       matches the bars behind the ledger's numbers.
+         *     - the insider read caps the transaction axis too (``known_at_for_asof(asof)`` = ``min(now, asof-EOD)``),
+         *       so a scrubbed-back as-of hides not just later bars but later-DISCLOSED buys — the honesty a filing's
+         *       days-to-months disclosure lag demands (the IBM 166-day case), the price bar's ``valid_from == d`` does
+         *       not need.
+         *
+         *     RELEVANCE FLOOR (Slice A R1): the server bounds the whole window (bars + SMA + insider_buys) to
+         *     ``[floor, end]`` where ``floor = max(thesis.created_at − 365d, first_bar)`` — a thesis born 2026-07 does
+         *     not plot a 2020 buy (off-story, NOT a recall cut). The requested ``start`` is advisory; the response
+         *     ``start`` is the effective floor so the FE knows the loaded extent (it loads the whole universe and pans
+         *     the visible range). The floor is ADDITIVE to the no-lookahead caps above, never a replacement.
+         *
+         *     SMA is computed over a WARM-UP read (``floor − SMA_WARMUP_DAYS`` through ``end``, asof-capped) so the
+         *     left edge is honest, then only bars ``>= floor`` are returned, each annotated (``None`` where too little
+         *     history exists — never padded). Prices read under the THESIS'S tenant; a thesis the deployment
+         *     tenant can't see is a 404. ``source`` names the fact table the bars came from (invariant #6).
+         *     ``start``/``end``/``security_id`` ride as bound params — the SQL range fragment stays a trusted literal.
          */
         get: operations["get_price_window_scoreboard_price_window_get"];
         put?: never;
@@ -1936,6 +1950,39 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * InsiderBuyOut
+         * @description One code-P open-market insider purchase inside an episode's window (Slice A) — an overlay chip.
+         *
+         *     ``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested
+         *     it (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM
+         *     "ingested 166d after its event date" case — invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a
+         *     Rule 10b5-1 pre-scheduled plan (a note, never a different number). Every field traces to a real
+         *     ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead, #1). Screened to open-market by
+         *     the SAME definition the NamePanel uses, so the chart's dots reconcile with the panel's net-flow.
+         */
+        InsiderBuyOut: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Insider Name */
+            insider_name?: string | null;
+            /** Insider Role */
+            insider_role?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Usd */
+            usd?: number | null;
+            /** Aff 10B5 1 */
+            aff_10b5_1?: boolean | null;
+            /**
+             * Disclosed
+             * Format: date
+             */
+            disclosed: string;
+        };
+        /**
          * KeyState
          * @description One of the two keys (Conviction / Confirmation) rendered on the call card.
          */
@@ -2137,6 +2184,9 @@ export interface components {
          *     full bar rides the wire so a later candlestick is a pure-frontend swap — no second contract change).
          *     ``close`` is non-null (null-close rows are skipped); ``open``/``high``/``low``/``volume`` are nullable
          *     per-column — a close-only free-EOD bar surfaces them as ``null``, never invented (invariant #6).
+         *     ``sma50``/``sma200`` are the trailing simple moving averages of ``close``, server-computed over a
+         *     warm-up read so the window's LEFT edge is honest; ``null`` where too little history precedes the bar
+         *     (a young security / early history) — an honest gap the context line simply begins after, never padded.
          */
         PriceBar: {
             /**
@@ -2154,6 +2204,10 @@ export interface components {
             close: number;
             /** Volume */
             volume?: number | null;
+            /** Sma50 */
+            sma50?: number | null;
+            /** Sma200 */
+            sma200?: number | null;
         };
         /**
          * PriceIngestOut
@@ -2638,10 +2692,15 @@ export interface components {
         /**
          * ScoreboardPriceWindowOut
          * @description One episode's realized daily OHLCV series over ``[start, end]``, CAPPED at ``asof`` server-side —
-         *     the drawer sparkline's on-demand read (Slice 3). It is the SAME asof-capped window the scorer runs
-         *     (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at), exposed on request
-         *     rather than embedded in the ledger payload. Invariant #1: no bar with ``d > asof`` is ever returned,
-         *     whatever ``end`` the client passes. ``source`` names the fact table the bars came from (invariant #6).
+         *     the drawer sparkline's on-demand read (Slice 3, extended in Slice A). It is the SAME asof-capped window
+         *     the scorer runs (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at),
+         *     exposed on request rather than embedded in the ledger payload. Each bar also carries ``sma50``/``sma200``
+         *     context, and ``insider_buys`` lists the window's open-market purchases as overlay chips — both under the
+         *     identical no-lookahead discipline as the bars. Invariant #1: no bar with ``d > asof`` and no buy
+         *     disclosed after the as-of is ever returned, whatever ``end`` the client passes. ``source`` names the
+         *     fact table the bars came from (invariant #6). ``start`` is the EFFECTIVE relevance floor the server
+         *     computed (``max(thesis.created_at − 365d, first_bar)``), NOT the requested start — the loaded extent the
+         *     FE numbers the overlay universe over (Slice A R1).
          */
         ScoreboardPriceWindowOut: {
             /**
@@ -2676,6 +2735,11 @@ export interface components {
              * @default []
              */
             bars: components["schemas"]["PriceBar"][];
+            /**
+             * Insider Buys
+             * @default []
+             */
+            insider_buys: components["schemas"]["InsiderBuyOut"][];
         };
         /**
          * ScoreboardReplayResponse
@@ -4296,7 +4360,7 @@ export interface operations {
             query: {
                 /** @description the episode's basket-member security to chart */
                 security_id: string;
-                /** @description window start — the episode's arm_date */
+                /** @description ADVISORY window start (the FE's per-episode cache anchor). The server owns the effective floor = max(thesis.created_at − 365d, first_bar) and loads [floor, end] regardless; the response echoes that effective floor as ``start`` */
                 start: string;
                 /** @description window end — the episode's exit_by; the series is still capped at asof server-side, so a future exit_by never widens it past asof */
                 end: string;

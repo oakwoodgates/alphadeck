@@ -1031,10 +1031,57 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .sc-retlabel { color: var(--txt-4); font-size: 9.5px; letter-spacing: 0.04em; }
 .sc-line { margin-top: 6px; font-size: 12px; color: var(--txt-2); }
 .sc-muted { margin-top: 6px; font-size: 11px; color: var(--txt-4); font-style: italic; }
-/* Slice-3 price sparkline: fills the drawer width (responsive to default vs expanded via ResizeObserver). */
+/* Slice-3 price chart: fills the drawer width (responsive to default vs expanded via ResizeObserver). */
 .sc-spark { margin-top: 12px; }
+.sc-spark-plot { position: relative; width: 100%; }
 .sc-spark-chart { width: 100%; min-height: 132px; }
 .sc-spark-empty { font-size: 11px; color: var(--txt-4); font-style: italic; }
+
+/* Slice A: the numbered-chip event overlay — a positioned DOM layer over the canvas (lightweight-charts'
+   built-in markers have no hover). Chips read CSS vars, so they stay theme-aware (the canvas lines can't). */
+/* z-index ABOVE the lightweight-charts canvas (z:1) so the chips paint on top and a real mouse can reach
+   them — the layer itself is pointer-events:none (empty areas pass the mouse through to the canvas for
+   pan/zoom), and each chip re-enables pointer-events:auto. Without this the canvas grabs every hover and the
+   tooltip never fires. */
+.ov-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.ov-chip {
+  position: absolute; transform: translate(-50%, 0); pointer-events: auto;
+  font: 700 9.5px var(--mono); line-height: 1; min-width: 15px; height: 15px; padding: 0 3px;
+  border: 1px solid transparent; border-radius: 8px; color: #08090b; cursor: default;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ov-chip:hover, .ov-chip:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(154, 163, 176, 0.35); }
+.ov-chip.ov-insider { background: var(--pos); }
+.ov-chip.ov-trigger { background: var(--warm); }
+.ov-chip.ov-lifecycle { background: var(--txt-2); }
+.ov-more {
+  position: absolute; transform: translate(-50%, 0); pointer-events: auto;
+  font: 700 9px var(--mono); line-height: 1; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--txt-2);
+  display: inline-flex; align-items: center;
+}
+/* the hover guide-line: a thin dashed vertical rule from the chip down to its point on the price line */
+.ov-guide {
+  position: absolute; width: 0; transform: translateX(-0.5px); pointer-events: none;
+  border-left: 1px dashed var(--line-2);
+}
+.ov-tip {
+  position: absolute; z-index: 5; pointer-events: none; transform: translate(-50%, 0); max-width: 240px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px;
+  font-size: 11px; color: var(--txt); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.ov-tip-title { font-weight: 700; font-size: 11.5px; margin-bottom: 3px; }
+.ov-tip-n { color: var(--txt-3); }
+.ov-tip-line { color: var(--txt-2); }
+.ov-legend {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 7px;
+  font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.ov-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.ov-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.ov-dot.ov-insider { background: var(--pos); }
+.ov-dot.ov-trigger { background: var(--warm); }
+.ov-dot.ov-lifecycle { background: var(--txt-2); }
 .sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
 .sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
 
