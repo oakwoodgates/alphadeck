@@ -256,12 +256,13 @@ describe("Scoreboard", () => {
     expect(screen.getAllByText(/awaiting first bar/).length).toBe(2);
   });
 
-  it("drills into the Cockpit on row click — carrying the clicked NAME for the ?name= deep link", () => {
-    const { onSelect } = renderBoard();
-    // an episode row: thesis id + its ticker as the name key
-    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+  it("the ↗ icon drills into the Cockpit — carrying the NAME for ?name=, without opening the drawer", () => {
+    const { container, onSelect } = renderBoard();
+    // an episode's ↗ icon: thesis id + its ticker as the name key (the row opens the scorecard instead)
+    fireEvent.click(screen.getByRole("button", { name: "open HIMS in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "HIMS");
-    // a span row: same contract (this one has a name)
+    expect(container.querySelector(".drawer-panel")).toBeNull(); // the icon stops the bubble — no drawer
+    // a span row has no scorecard — its row click still deep-links the Cockpit (same contract)
     fireEvent.click(screen.getByText(/platform said watching/).closest("tr")!);
     expect(onSelect).toHaveBeenCalledWith("t-5b", "J");
   });
@@ -273,7 +274,8 @@ describe("Scoreboard", () => {
         theses: [{ ...PAYLOAD.theses[0], episodes: [{ ...EP, ticker: null }] }],
       },
     });
-    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+    // ticker null → the ↗ aria-label reads "this name"; onSelect still carries the security_id
+    fireEvent.click(screen.getByRole("button", { name: "open this name in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "s1");
   });
 
@@ -373,11 +375,11 @@ describe("Scoreboard", () => {
     expect(screen.getByText("1 ingest-flagged")).toBeInTheDocument();
   });
 
-  it("the ⤢ control opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {
+  it("a row click opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {
     const { container, onSelect } = renderBoard();
     expect(container.querySelector(".drawer-panel")).toBeNull(); // closed by default
-    fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
-    // the distinct affordance stopped the bubble — the row's click-to-Cockpit never fired
+    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+    // the row opens the drawer; the Cockpit jump is the ↗ icon's job, not the row's
     expect(onSelect).not.toHaveBeenCalled();
     const panel = container.querySelector(".drawer-panel") as HTMLElement;
     expect(panel).not.toBeNull();
@@ -387,8 +389,7 @@ describe("Scoreboard", () => {
 
   it("the drawer is reversible: ✕, backdrop, and Escape each close it, the ledger untouched", () => {
     const { container } = renderBoard();
-    const open = () =>
-      fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
+    const open = () => fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
     const isOpen = () => container.querySelector(".drawer-panel") != null;
 
     open();
@@ -409,7 +410,7 @@ describe("Scoreboard", () => {
 
   it("the expand toggle flips the drawer's full-width class and back", () => {
     const { container } = renderBoard();
-    fireEvent.click(screen.getByRole("button", { name: "open scorecard for HIMS" }));
+    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
     expect(container.querySelector(".drawer-panel.expanded")).toBeNull(); // default width
     const toggle = screen.getByRole("button", { name: "expand drawer to full width" });
     fireEvent.click(toggle);
@@ -468,21 +469,21 @@ describe("Scoreboard", () => {
     expect(within(row).queryByText("0d")).not.toBeInTheDocument();
   });
 
-  it("Slice 2: the ⤢ still opens the scorecard drawer in Timing view (Slice 1 intact)", () => {
+  it("Slice 2: a row click still opens the scorecard drawer in Timing view (Slice 1 intact)", () => {
     const { container, onSelect } = renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
     expect(container.querySelector(".drawer-panel")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "open scorecard for MATR" }));
-    expect(onSelect).not.toHaveBeenCalled(); // the ⤢ stops the bubble — no Cockpit nav
+    fireEvent.click(screen.getByText("MATR").closest("tr")!);
+    expect(onSelect).not.toHaveBeenCalled(); // the row opens the drawer, not the Cockpit
     const panel = container.querySelector(".drawer-panel") as HTMLElement;
     expect(panel).not.toBeNull();
     expect(within(panel).getByText("The move")).toBeInTheDocument(); // the scorecard mounted
   });
 
-  it("Slice 2: the row click still deep-links to the Cockpit in Timing view", () => {
+  it("Slice 2: the ↗ icon still deep-links to the Cockpit in Timing view", () => {
     const { onSelect } = renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
-    fireEvent.click(screen.getByText("MATR").closest("tr")!);
+    fireEvent.click(screen.getByRole("button", { name: "open MATR in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
 });

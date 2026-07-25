@@ -998,8 +998,8 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 
 /* the episode-row scorecard affordance (⤢) — a DISTINCT control from the row's click-to-Cockpit;
    quiet by default, only tints on hover (it's an every-row utility, not a loudness mark) */
-.sb-expand { font: inherit; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: none; padding: 0; margin-right: 7px; cursor: pointer; vertical-align: baseline; }
-.sb-expand:hover { color: var(--leader); }
+.sb-gocockpit { font: inherit; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: none; padding: 0; margin-right: 7px; cursor: pointer; vertical-align: baseline; }
+.sb-gocockpit:hover { color: var(--leader); }
 
 /* -------- The slide-out Drawer + the episode scorecard it hosts (Slice 1) ---------------------- */
 .drawer-overlay { position: fixed; inset: 0; z-index: 60; }
