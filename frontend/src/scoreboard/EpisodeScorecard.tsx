@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+
 import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { fmtDate, gradeClass } from "../util/format";
 import { episodeBadges, fmtReturn, returnLabel } from "./rows";
@@ -10,6 +12,12 @@ import {
   setupStrengthPct,
 } from "./scorecard";
 
+// lightweight-charts (~150kB) is drawer-only + on-demand — code-split it into its own async chunk so it
+// never bloats the initial bundle (loaded the first time a drawer's scorecard renders with an asof).
+const PriceSparkline = lazy(() =>
+  import("./PriceSparkline").then((m) => ({ default: m.PriceSparkline })),
+);
+
 // The Slice-1 scorecard mounted inside the Drawer: the richer per-episode outcome the backend
 // already ships but the ledger row never showed — four timing lenses that let the operator judge
 // whether the platform's TIMING was any good. Read-only, provenance-first, honest loudness: a lens
@@ -19,9 +27,13 @@ import {
 export function EpisodeScorecard({
   ep,
   thesisName,
+  asof,
 }: {
   ep: ScoreboardEpisodeOut;
   thesisName?: string;
+  /** The page-level scoreboard as-of. Present → the price sparkline mounts (on-demand, drawer-open
+   *  only) and its series is capped here. Absent → no chart (the pure-render tests pass no asof). */
+  asof?: string;
 }) {
   // A just-armed episode (no forward bar yet) carries degenerate 0.0% forward/peak/arm_until
   // returns; mirror the ledger row and never render those as a flat move (fix: false-flat 0.0%).
@@ -64,8 +76,6 @@ export function EpisodeScorecard({
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">
         <div className="sc-h">The move</div>
-        {/* Slice-3 seam: the intra-window [arm → exit_by] price SERIES is not on the wire yet — the
-            sparkline mounts here, and the drawer's expanded mode gives it room. Not built now. */}
         {noBar
           ? // no forward bar yet: the ENTRY only — an exit "@ arm_date" would be the same bar (a
             // false round-trip). No arrow, no exit.
@@ -93,6 +103,14 @@ export function EpisodeScorecard({
           <span className="sc-retlabel">{returnLabel(ep)}</span>
         </div>
         {note && <div className="sc-muted">{note}</div>}
+        {/* Slice-3: the intra-window [arm → last real bar] price path. On-demand (drawer-open only),
+            capped at asof server-side; the drawer's expanded mode gives it room. Rendered only when
+            the page-level asof is threaded in (the pure-render scorecard tests pass none → no chart). */}
+        {asof && (
+          <Suspense fallback={<div className="sc-spark sc-spark-empty">reading the price path…</div>}>
+            <PriceSparkline ep={ep} asof={asof} />
+          </Suspense>
+        )}
       </section>
 
       {/* Lens 2 — Horizon calibration: is exit_by well-timed? Hidden entirely without a peak. */}

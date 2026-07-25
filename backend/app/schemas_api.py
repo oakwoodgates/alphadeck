@@ -936,6 +936,38 @@ class ScoreboardResponse(BaseModel):
     theses: list[ScoreboardThesisOut] = []
 
 
+class PriceBar(BaseModel):
+    """One realized daily OHLCV bar in an episode's price window (the sparkline draws ``close``; the
+    full bar rides the wire so a later candlestick is a pure-frontend swap — no second contract change).
+    ``close`` is non-null (null-close rows are skipped); ``open``/``high``/``low``/``volume`` are nullable
+    per-column — a close-only free-EOD bar surfaces them as ``null``, never invented (invariant #6).
+    """
+
+    d: date
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float
+    volume: float | None = None
+
+
+class ScoreboardPriceWindowOut(BaseModel):
+    """One episode's realized daily OHLCV series over ``[start, end]``, CAPPED at ``asof`` server-side —
+    the drawer sparkline's on-demand read (Slice 3). It is the SAME asof-capped window the scorer runs
+    (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at), exposed on request
+    rather than embedded in the ledger payload. Invariant #1: no bar with ``d > asof`` is ever returned,
+    whatever ``end`` the client passes. ``source`` names the fact table the bars came from (invariant #6).
+    """
+
+    thesis_id: UUID
+    security_id: UUID
+    start: date
+    end: date
+    asof: date
+    source: str
+    bars: list[PriceBar] = []
+
+
 class EpisodeOperatorOut(BaseModel):
     """The operator's answer to an arm episode: took (with the operator's own prices/return —
     ``inferred`` marks a close used where no fill price was logged) or passed (no prices; the

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn
+from app.deps import get_conn, get_current_tenant, get_thesis_or_404
 from app.schemas_api import (
+    PriceBar,
     ScoreboardMetricOut,
+    ScoreboardPriceWindowOut,
     ScoreboardReplayResponse,
     ScoreboardReplayThesisOut,
     ScoreboardResponse,
@@ -17,11 +20,13 @@ from app.schemas_api import (
 )
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
+from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from replay.metrics import MetricResult
 from repositories import calls_repo
 from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
+from scoreboard.prices import PgRealizedPrices
 from securities import master
 
 router = APIRouter(prefix="/scoreboard", tags=["scoreboard"])
@@ -195,4 +200,54 @@ def get_scoreboard_replay(
         n_eligible=snap.n_eligible,
         metrics=[_metric_out(m) for m in snap.metrics],
         theses=theses_out,
+    )
+
+
+@router.get("/price-window", response_model=ScoreboardPriceWindowOut)
+def get_price_window(
+    security_id: UUID = Query(..., description="the episode's basket-member security to chart"),
+    start: date = Query(..., description="window start — the episode's arm_date"),
+    end: date = Query(
+        ...,
+        description="window end — the episode's exit_by; the series is still capped at asof "
+        "server-side, so a future exit_by never widens it past asof",
+    ),
+    asof: date = Query(
+        ..., description="score as-of this date — the series is CAPPED here (no-lookahead)"
+    ),
+    thesis: Thesis = Depends(get_thesis_or_404),
+    current_tenant: UUID = Depends(get_current_tenant),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> ScoreboardPriceWindowOut:
+    """One episode's realized daily OHLCV bars over ``[start, end]``, for the Scoreboard drawer's
+    sparkline (Slice 3) — the SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between``
+    shares ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload
+    (which stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
+
+    No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client: the reader caps
+    the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a future ``end`` still gets
+    only bars ``<= asof`` — the window can never be widened past the as-of. ``known_at`` is left at the
+    reader's default (now), matching the live scorer's own construction (``derive_thesis_record`` passes
+    ``known_at=None``), so the sparkline shows exactly the realized bars the ledger's numbers were computed
+    from. Prices read under the THESIS'S tenant; a thesis the deployment tenant can't see is a 404.
+    ``source`` names the fact table the bars came from (invariant #6). ``start``/``end``/``security_id``
+    ride as bound params — the SQL range fragment stays a trusted literal (as ``closes_between`` documents).
+    """
+    tenant = thesis.tenant_id or DEFAULT_TENANT_ID
+    if tenant != current_tenant:
+        # Deferred auth: ``get_thesis_or_404`` loads by id only (no tenant filter), so scope the read to
+        # the deployment's tenant HERE — a thesis owned by another tenant is not visible (404, not a leak).
+        raise HTTPException(status_code=404, detail="thesis not found")
+    # cap=asof carries the no-lookahead guarantee on the valid axis; known_at defaults to now (the scorer's
+    # transaction-axis config), so the chart matches the bars behind the ledger's numbers.
+    reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)
+    bars = reader.bars_between(security_id, start, end)
+    return ScoreboardPriceWindowOut(
+        thesis_id=thesis.id,
+        security_id=security_id,
+        start=start,
+        end=end,
+        asof=asof,
+        source="fact_price_eod",
+        bars=[PriceBar(**b) for b in bars],
     )

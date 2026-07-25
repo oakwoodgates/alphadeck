@@ -770,6 +770,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scoreboard/price-window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Price Window
+         * @description One episode's realized daily OHLCV bars over ``[start, end]``, for the Scoreboard drawer's
+         *     sparkline (Slice 3) — the SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between``
+         *     shares ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload
+         *     (which stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
+         *
+         *     No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client: the reader caps
+         *     the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a future ``end`` still gets
+         *     only bars ``<= asof`` — the window can never be widened past the as-of. ``known_at`` is left at the
+         *     reader's default (now), matching the live scorer's own construction (``derive_thesis_record`` passes
+         *     ``known_at=None``), so the sparkline shows exactly the realized bars the ledger's numbers were computed
+         *     from. Prices read under the THESIS'S tenant; a thesis the deployment tenant can't see is a 404.
+         *     ``source`` names the fact table the bars came from (invariant #6). ``start``/``end``/``security_id``
+         *     ride as bound params — the SQL range fragment stays a trusted literal (as ``closes_between`` documents).
+         */
+        get: operations["get_price_window_scoreboard_price_window_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/status": {
         parameters: {
             query?: never;
@@ -2100,6 +2132,30 @@ export interface components {
             security_id?: string | null;
         };
         /**
+         * PriceBar
+         * @description One realized daily OHLCV bar in an episode's price window (the sparkline draws ``close``; the
+         *     full bar rides the wire so a later candlestick is a pure-frontend swap — no second contract change).
+         *     ``close`` is non-null (null-close rows are skipped); ``open``/``high``/``low``/``volume`` are nullable
+         *     per-column — a close-only free-EOD bar surfaces them as ``null``, never invented (invariant #6).
+         */
+        PriceBar: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Open */
+            open?: number | null;
+            /** High */
+            high?: number | null;
+            /** Low */
+            low?: number | null;
+            /** Close */
+            close: number;
+            /** Volume */
+            volume?: number | null;
+        };
+        /**
          * PriceIngestOut
          * @description The per-security price pull's receipt (the finalize screen's decoupled price leg): how many EOD
          *     bars appended (0 = already current — the ingest is incremental), how many overlap bars were
@@ -2578,6 +2634,48 @@ export interface components {
              * @default
              */
             note: string;
+        };
+        /**
+         * ScoreboardPriceWindowOut
+         * @description One episode's realized daily OHLCV series over ``[start, end]``, CAPPED at ``asof`` server-side —
+         *     the drawer sparkline's on-demand read (Slice 3). It is the SAME asof-capped window the scorer runs
+         *     (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at), exposed on request
+         *     rather than embedded in the ledger payload. Invariant #1: no bar with ``d > asof`` is ever returned,
+         *     whatever ``end`` the client passes. ``source`` names the fact table the bars came from (invariant #6).
+         */
+        ScoreboardPriceWindowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Source */
+            source: string;
+            /**
+             * Bars
+             * @default []
+             */
+            bars: components["schemas"]["PriceBar"][];
         };
         /**
          * ScoreboardReplayResponse
@@ -4189,6 +4287,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScoreboardReplayResponse"];
+                };
+            };
+        };
+    };
+    get_price_window_scoreboard_price_window_get: {
+        parameters: {
+            query: {
+                /** @description the episode's basket-member security to chart */
+                security_id: string;
+                /** @description window start — the episode's arm_date */
+                start: string;
+                /** @description window end — the episode's exit_by; the series is still capped at asof server-side, so a future exit_by never widens it past asof */
+                end: string;
+                /** @description score as-of this date — the series is CAPPED here (no-lookahead) */
+                asof: string;
+                thesis_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreboardPriceWindowOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

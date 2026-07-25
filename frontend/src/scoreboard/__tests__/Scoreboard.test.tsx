@@ -16,6 +16,9 @@ const fx: { data: unknown; isLoading: boolean; error: unknown } = {
 vi.mock("../../api/hooks", () => ({
   useScoreboard: () => fx,
   useScoreboardReplay: () => ({ data: null, isLoading: false, error: null }),
+  // the drawer's sparkline hook — stubbed no-data so the scorecard renders its quiet "no price path"
+  // line (and never reaches real lightweight-charts) when a test opens the drawer
+  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 const EP = {
