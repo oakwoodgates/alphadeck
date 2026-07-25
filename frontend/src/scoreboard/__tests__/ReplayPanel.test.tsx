@@ -143,10 +143,12 @@ describe("ReplayPanel", () => {
     expect(screen.getByText("OVERLAPS RECORD")).toBeInTheDocument();
   });
 
-  it("drills into the Cockpit on row click — carrying the clicked NAME for the ?name= deep link", () => {
+  it("the ↗ icon drills into the Cockpit — carrying the NAME for the ?name= deep link", () => {
+    // the row opens the scorecard (when a drawer is wired); the ↗ icon is the Cockpit jump — and it
+    // navigates even here, where no onOpenScorecard is passed (the row is inert without a drawer)
     const { onSelect } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /Historical — replayed/ }));
-    fireEvent.click(screen.getByText("+27.7%").closest("tr")!);
+    fireEvent.click(screen.getByRole("button", { name: "open HIMS in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "HIMS");
   });
 });

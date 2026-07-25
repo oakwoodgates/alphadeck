@@ -16,7 +16,9 @@ import { noForwardBar } from "./scorecard";
 // (structurally absent) instead of faking a "no decision logged" capture gap.
 // `view` (Slice 2) swaps the middle cells: Summary keeps today's Why · Exit-by · Status · Return ·
 // Operator; Timing shows the timing-calibration lens Return · Peak · Past peak · Status. Name (with
-// the ⤢) + Armed lead both; the Status cell is identical in both (built once, placed per view).
+// the ↗ cockpit jump) + Armed lead both; the Status cell is identical in both (built once, placed per
+// view). The ROW opens the episode scorecard (the scoreboard's own drill-down); the ↗ jumps to the
+// fuller per-name Cockpit.
 
 export function EpisodeRow({
   ep,
@@ -28,12 +30,13 @@ export function EpisodeRow({
 }: {
   ep: ScoreboardEpisodeOut;
   thesisId: string;
-  /** nameKey deep-links the clicked NAME's panel in the Cockpit (?name=) — the ticker when
-   *  resolved, else the security_id (always present on an episode). */
+  /** nameKey deep-links the NAME's panel in the Cockpit (?name=) — the ticker when resolved, else
+   *  the security_id (always present on an episode). Fired by the ↗ icon (not the row). */
   onSelect: (id: string, nameKey?: string) => void;
-  /** Opens the episode scorecard drawer. A DISTINCT affordance from the row's click-to-Cockpit:
-   *  its handler stops propagation so it never also fires onSelect. Omitted → the control is not
-   *  rendered (no dead affordance). */
+  /** Opens the episode scorecard drawer — the ROW's click (the scoreboard's own drill-down). The ↗
+   *  icon is the distinct affordance to the fuller Cockpit; its handler stops propagation so opening
+   *  the Cockpit never also opens the drawer. Optional so a caller without a drawer leaves the row
+   *  inert rather than dead-linking. */
   onOpenScorecard?: (ep: ScoreboardEpisodeOut) => void;
   historical?: boolean;
   view?: LedgerView;
@@ -65,25 +68,24 @@ export function EpisodeRow({
   return (
     <tr
       className="sb-row"
-      onClick={() => onSelect(thesisId, ep.ticker ?? ep.security_id)}
+      onClick={() => onOpenScorecard?.(ep)}
       tabIndex={0}
     >
       <td className="tk">
-        {onOpenScorecard && (
-          <button
-            type="button"
-            className="sb-expand"
-            aria-label={`open scorecard for ${ep.ticker ?? "this name"}`}
-            title="open scorecard"
-            // a distinct affordance: stop the bubble so the row's click-to-Cockpit never fires too
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenScorecard(ep);
-            }}
-          >
-            ⤢
-          </button>
-        )}
+        <button
+          type="button"
+          className="sb-gocockpit"
+          aria-label={`open ${ep.ticker ?? "this name"} in the cockpit`}
+          title="open in cockpit"
+          // a distinct affordance from the row's click-to-scorecard: stop the bubble so opening the
+          // Cockpit never also opens the scorecard drawer
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(thesisId, ep.ticker ?? ep.security_id);
+          }}
+        >
+          ↗
+        </button>
         {ep.ticker ?? "—"}
       </td>
       <td className="sb-armed">
