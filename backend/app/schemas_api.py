@@ -941,6 +941,9 @@ class PriceBar(BaseModel):
     full bar rides the wire so a later candlestick is a pure-frontend swap — no second contract change).
     ``close`` is non-null (null-close rows are skipped); ``open``/``high``/``low``/``volume`` are nullable
     per-column — a close-only free-EOD bar surfaces them as ``null``, never invented (invariant #6).
+    ``sma50``/``sma200`` are the trailing simple moving averages of ``close``, server-computed over a
+    warm-up read so the window's LEFT edge is honest; ``null`` where too little history precedes the bar
+    (a young security / early history) — an honest gap the context line simply begins after, never padded.
     """
 
     d: date
@@ -949,23 +952,51 @@ class PriceBar(BaseModel):
     low: float | None = None
     close: float
     volume: float | None = None
+    sma50: float | None = None
+    sma200: float | None = None
+
+
+class InsiderBuyOut(BaseModel):
+    """One code-P open-market insider purchase inside an episode's window (Slice A) — an overlay chip.
+
+    ``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested
+    it (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM
+    "ingested 166d after its event date" case — invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a
+    Rule 10b5-1 pre-scheduled plan (a note, never a different number). Every field traces to a real
+    ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead, #1). Screened to open-market by
+    the SAME definition the NamePanel uses, so the chart's dots reconcile with the panel's net-flow.
+    """
+
+    d: date
+    insider_name: str | None = None
+    insider_role: str | None = None
+    shares: float | None = None
+    usd: float | None = None
+    aff_10b5_1: bool | None = None
+    disclosed: date
 
 
 class ScoreboardPriceWindowOut(BaseModel):
     """One episode's realized daily OHLCV series over ``[start, end]``, CAPPED at ``asof`` server-side —
-    the drawer sparkline's on-demand read (Slice 3). It is the SAME asof-capped window the scorer runs
-    (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at), exposed on request
-    rather than embedded in the ledger payload. Invariant #1: no bar with ``d > asof`` is ever returned,
-    whatever ``end`` the client passes. ``source`` names the fact table the bars came from (invariant #6).
+    the drawer sparkline's on-demand read (Slice 3, extended in Slice A). It is the SAME asof-capped window
+    the scorer runs (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at),
+    exposed on request rather than embedded in the ledger payload. Each bar also carries ``sma50``/``sma200``
+    context, and ``insider_buys`` lists the window's open-market purchases as overlay chips — both under the
+    identical no-lookahead discipline as the bars. Invariant #1: no bar with ``d > asof`` and no buy
+    disclosed after the as-of is ever returned, whatever ``end`` the client passes. ``source`` names the
+    fact table the bars came from (invariant #6). ``start`` is the EFFECTIVE relevance floor the server
+    computed (``max(thesis.created_at − 365d, first_bar)``), NOT the requested start — the loaded extent the
+    FE numbers the overlay universe over (Slice A R1).
     """
 
     thesis_id: UUID
     security_id: UUID
-    start: date
+    start: date  # the effective relevance floor (R1), not the requested start
     end: date
     asof: date
     source: str
     bars: list[PriceBar] = []
+    insider_buys: list[InsiderBuyOut] = []
 
 
 class EpisodeOperatorOut(BaseModel):

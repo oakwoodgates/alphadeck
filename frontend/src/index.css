@@ -1031,12 +1031,103 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .sc-retlabel { color: var(--txt-4); font-size: 9.5px; letter-spacing: 0.04em; }
 .sc-line { margin-top: 6px; font-size: 12px; color: var(--txt-2); }
 .sc-muted { margin-top: 6px; font-size: 11px; color: var(--txt-4); font-style: italic; }
-/* Slice-3 price sparkline: fills the drawer width (responsive to default vs expanded via ResizeObserver). */
+/* Slice-3 price chart: fills the drawer width (responsive to default vs expanded via ResizeObserver). */
 .sc-spark { margin-top: 12px; }
+.sc-spark-plot { position: relative; width: 100%; }
 .sc-spark-chart { width: 100%; min-height: 132px; }
 .sc-spark-empty { font-size: 11px; color: var(--txt-4); font-style: italic; }
+
+/* Slice A: the numbered-chip event overlay — a positioned DOM layer over the canvas (lightweight-charts'
+   built-in markers have no hover). Chips read CSS vars, so they stay theme-aware (the canvas lines can't). */
+/* z-index ABOVE the lightweight-charts canvas (z:1) so the chips paint on top and a real mouse can reach
+   them — the layer itself is pointer-events:none (empty areas pass the mouse through to the canvas for
+   pan/zoom), and each chip re-enables pointer-events:auto. Without this the canvas grabs every hover and the
+   tooltip never fires. */
+.ov-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.ov-chip {
+  position: absolute; transform: translate(-50%, 0); pointer-events: auto;
+  font: 700 9.5px var(--mono); line-height: 1; min-width: 15px; height: 15px; padding: 0 3px;
+  border: 1px solid transparent; border-radius: 8px; color: #08090b; cursor: default;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ov-chip:hover, .ov-chip:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(154, 163, 176, 0.35); }
+/* Slice B cross-highlight: a ledger-row hover rings its chip (a halo + a slight grow). Driven by `activeN`
+   in the JSX render only — NEVER the chart-building effect (the anti-storm invariant). */
+.ov-chip.active { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--txt-2); transform: translate(-50%, 0) scale(1.18); z-index: 1; }
+.ov-chip.ov-insider { background: var(--pos); }
+.ov-chip.ov-trigger { background: var(--warm); }
+.ov-chip.ov-lifecycle { background: var(--txt-2); }
+.ov-more {
+  position: absolute; transform: translate(-50%, 0); pointer-events: auto;
+  font: 700 9px var(--mono); line-height: 1; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--txt-2);
+  display: inline-flex; align-items: center;
+}
+/* the hover guide-line: a thin dashed vertical rule from the chip down to its point on the price line */
+.ov-guide {
+  position: absolute; width: 0; transform: translateX(-0.5px); pointer-events: none;
+  border-left: 1px dashed var(--line-2);
+}
+.ov-tip {
+  position: absolute; z-index: 5; pointer-events: none; transform: translate(-50%, 0); max-width: 240px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px;
+  font-size: 11px; color: var(--txt); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.ov-tip-title { font-weight: 700; font-size: 11.5px; margin-bottom: 3px; }
+.ov-tip-n { color: var(--txt-3); }
+.ov-tip-line { color: var(--txt-2); }
+.ov-legend {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 7px;
+  font-size: 10px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.ov-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.ov-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.ov-dot.ov-insider { background: var(--pos); }
+.ov-dot.ov-trigger { background: var(--warm); }
+.ov-dot.ov-lifecycle { background: var(--txt-2); }
 .sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
 .sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ===== Slice B: the per-episode event LEDGER — the tabular companion to the chart (row #N ↔ chip #N). ===
+   A scannable table (the number IS the order — no sort control) + a compact Cockpit strip (identity line +
+   present-only signal headlines). The active-row tint ⇄ active-chip ring is the lightweight cross-highlight;
+   the full tooltip stays chart-hover-only. Read-only — every row traces to a recorded fact (#6). */
+.evled-scroll { max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.evled-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.evled-tbl thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--bg-2); text-align: left;
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4);
+  padding: 5px 8px; border-bottom: 1px solid var(--line);
+}
+.evled-tbl tbody td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--txt-2); }
+.evled-tbl tbody tr:last-child td { border-bottom: none; }
+.evled-tbl tbody tr { cursor: default; transition: background 0.1s; }
+.evled-tbl tbody tr:hover, .evled-tbl tbody tr.active { background: color-mix(in srgb, var(--txt-2) 11%, transparent); }
+.evled-tbl tbody tr:focus-visible { outline: none; background: color-mix(in srgb, var(--txt-2) 14%, transparent); }
+.evled-tbl tbody tr.active td.evled-n { font-weight: 800; }
+/* the number, tinted by family — the SAME hue as its chip */
+td.evled-n, th.evled-n { width: 26px; text-align: right; font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+td.evled-n.ov-insider { color: var(--pos); }
+td.evled-n.ov-trigger { color: var(--warm); }
+td.evled-n.ov-lifecycle { color: var(--txt-2); }
+.evled-d { font-family: var(--mono); white-space: nowrap; color: var(--txt-3); }
+.evled-t { white-space: nowrap; color: var(--txt-2); }
+.evled-x { color: var(--txt-3); line-height: 1.35; } /* detail wraps */
+/* the Cockpit strip: the identity line + the present-only signal headlines */
+.evled-cockpit { margin-top: 10px; }
+.evled-identity { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; }
+.evled-idcell { display: inline-flex; align-items: baseline; gap: 5px; }
+.evled-idcell .k { font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.evled-idcell .v { font-family: var(--mono); color: var(--txt-2); }
+.evled-tape { margin-top: 6px; font-size: 10px; color: var(--txt-4); font-style: italic; }
+.evled-headlines { margin-top: 8px; }
+/* Expanded drawer (100vw): widen the detail + float the Cockpit strip BESIDE the table — pure CSS off the
+   existing .drawer-panel.expanded class, no new prop. The header spans; the scroll + strip sit side by side. */
+.drawer-panel.expanded .sb-evledger { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+.drawer-panel.expanded .sb-evledger .sc-h { grid-column: 1 / -1; }
+.drawer-panel.expanded .evled-scroll { max-height: 460px; }
+.drawer-panel.expanded .evled-cockpit { margin-top: 0; }
+.drawer-panel.expanded .evled-identity { flex-direction: column; gap: 8px; }
 
 /* ================= The Operator Admin (ops surface) — honest loudness by construction ================
    Quiet cards by default; the armed red is RESERVED for stale/unhealthy, the warm amber for problems.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 import psycopg
@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn, get_current_tenant, get_thesis_or_404
 from app.schemas_api import (
+    InsiderBuyOut,
     PriceBar,
     ScoreboardMetricOut,
     ScoreboardPriceWindowOut,
@@ -26,6 +27,15 @@ from replay.metrics import MetricResult
 from repositories import calls_repo
 from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
+from scoreboard.overlays import (
+    SMA_WARMUP_DAYS,
+    UNIVERSE_LOOKBACK_DAYS,
+    annotate_sma,
+    episode_insider_buys,
+    known_at_for_asof,
+    thesis_created_at,
+    universe_floor,
+)
 from scoreboard.prices import PgRealizedPrices
 from securities import master
 
@@ -206,7 +216,12 @@ def get_scoreboard_replay(
 @router.get("/price-window", response_model=ScoreboardPriceWindowOut)
 def get_price_window(
     security_id: UUID = Query(..., description="the episode's basket-member security to chart"),
-    start: date = Query(..., description="window start — the episode's arm_date"),
+    start: date = Query(
+        ...,
+        description="ADVISORY window start (the FE's per-episode cache anchor). The server owns the "
+        "effective floor = max(thesis.created_at − 365d, first_bar) and loads [floor, end] regardless; "
+        "the response echoes that effective floor as ``start``",
+    ),
     end: date = Query(
         ...,
         description="window end — the episode's exit_by; the series is still capped at asof "
@@ -219,19 +234,33 @@ def get_price_window(
     current_tenant: UUID = Depends(get_current_tenant),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardPriceWindowOut:
-    """One episode's realized daily OHLCV bars over ``[start, end]``, for the Scoreboard drawer's
-    sparkline (Slice 3) — the SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between``
-    shares ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload
-    (which stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
+    """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and the
+    window's open-market insider buys — for the Scoreboard drawer's chart (Slice 3, extended in Slice A).
+    The SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between`` shares
+    ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload (which
+    stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
 
-    No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client: the reader caps
-    the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a future ``end`` still gets
-    only bars ``<= asof`` — the window can never be widened past the as-of. ``known_at`` is left at the
-    reader's default (now), matching the live scorer's own construction (``derive_thesis_record`` passes
-    ``known_at=None``), so the sparkline shows exactly the realized bars the ledger's numbers were computed
-    from. Prices read under the THESIS'S tenant; a thesis the deployment tenant can't see is a 404.
-    ``source`` names the fact table the bars came from (invariant #6). ``start``/``end``/``security_id``
-    ride as bound params — the SQL range fragment stays a trusted literal (as ``closes_between`` documents).
+    No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client, on BOTH axes:
+    - the price reader caps the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a
+      future ``end`` still gets only bars ``<= asof`` — the window can never be widened past the as-of. Its
+      ``known_at`` stays the reader's default (now), matching the live scorer's construction, so the line
+      matches the bars behind the ledger's numbers.
+    - the insider read caps the transaction axis too (``known_at_for_asof(asof)`` = ``min(now, asof-EOD)``),
+      so a scrubbed-back as-of hides not just later bars but later-DISCLOSED buys — the honesty a filing's
+      days-to-months disclosure lag demands (the IBM 166-day case), the price bar's ``valid_from == d`` does
+      not need.
+
+    RELEVANCE FLOOR (Slice A R1): the server bounds the whole window (bars + SMA + insider_buys) to
+    ``[floor, end]`` where ``floor = max(thesis.created_at − 365d, first_bar)`` — a thesis born 2026-07 does
+    not plot a 2020 buy (off-story, NOT a recall cut). The requested ``start`` is advisory; the response
+    ``start`` is the effective floor so the FE knows the loaded extent (it loads the whole universe and pans
+    the visible range). The floor is ADDITIVE to the no-lookahead caps above, never a replacement.
+
+    SMA is computed over a WARM-UP read (``floor − SMA_WARMUP_DAYS`` through ``end``, asof-capped) so the
+    left edge is honest, then only bars ``>= floor`` are returned, each annotated (``None`` where too little
+    history exists — never padded). Prices read under the THESIS'S tenant; a thesis the deployment
+    tenant can't see is a 404. ``source`` names the fact table the bars came from (invariant #6).
+    ``start``/``end``/``security_id`` ride as bound params — the SQL range fragment stays a trusted literal.
     """
     tenant = thesis.tenant_id or DEFAULT_TENANT_ID
     if tenant != current_tenant:
@@ -241,13 +270,37 @@ def get_price_window(
     # cap=asof carries the no-lookahead guarantee on the valid axis; known_at defaults to now (the scorer's
     # transaction-axis config), so the chart matches the bars behind the ledger's numbers.
     reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)
-    bars = reader.bars_between(security_id, start, end)
+    # R1: the BACKEND owns the relevance floor (it has the thesis) = max(created_at − 365d, first_bar). The
+    # loaded window is [floor, end] REGARDLESS of the requested ``start`` (advisory now — the FE loads the
+    # whole universe and pans to it). Warm-up reads BEHIND the created floor so an SMA at ``floor`` sees its
+    # real prior closes (the same asof-capped ``bars_between`` — never a forked as-of path). The relevance
+    # floor is ADDITIVE to the no-lookahead caps (cap=asof, known_at≤asof), never a replacement.
+    created_at = thesis_created_at(conn, thesis.id)
+    created_floor = created_at - timedelta(days=UNIVERSE_LOOKBACK_DAYS)
+    warmup = reader.bars_between(security_id, created_floor - timedelta(days=SMA_WARMUP_DAYS), end)
+    floor = universe_floor(created_at, warmup[0]["d"] if warmup else None)
+    annotated = annotate_sma(warmup)
+    window_bars = [b for b in annotated if b["d"] >= floor]
+    # The offer-price insider screen needs the EOD low on each trade date — built from the SAME asof-capped
+    # price view (no lookahead); an absent low keeps the buy (recall-safe, #9).
+    day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
+    buys = episode_insider_buys(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,  # events bounded to the relevance window, regardless of the requested start
+        end=end,
+        asof=asof,
+        known_at=known_at_for_asof(asof),
+        day_lows=day_lows,
+    )
     return ScoreboardPriceWindowOut(
         thesis_id=thesis.id,
         security_id=security_id,
-        start=start,
+        start=floor,  # the EFFECTIVE floor — the FE reads it to know the loaded extent (R1)
         end=end,
         asof=asof,
         source="fact_price_eod",
-        bars=[PriceBar(**b) for b in bars],
+        bars=[PriceBar(**b) for b in window_bars],
+        insider_buys=[InsiderBuyOut(**b) for b in buys],
     )

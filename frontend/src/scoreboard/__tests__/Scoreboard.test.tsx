@@ -19,6 +19,10 @@ vi.mock("../../api/hooks", () => ({
   // the drawer's sparkline hook — stubbed no-data so the scorecard renders its quiet "no price path"
   // line (and never reaches real lightweight-charts) when a test opens the drawer
   useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
+  // Slice B lifted the Cockpit identity + signal-headline reads into the drawer's scorecard — stub them
+  // no-data so the ledger's strip degrades to "—" (and no ledger renders without a price window anyway)
+  useWorkbenchScored: () => ({ data: undefined, isLoading: false, isError: false }),
+  useDisplaySignals: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 const EP = {

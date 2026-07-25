@@ -164,10 +164,12 @@ export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 export type ScoreboardReplayResponse = components["schemas"]["ScoreboardReplayResponse"];
 export type ScoreboardReplayThesisOut = components["schemas"]["ScoreboardReplayThesisOut"];
 
-// the episode price-window (Slice 3): the drawer sparkline's on-demand OHLCV series (line draws close;
-// OHLC/volume ride the wire for a later candlestick), capped at asof server-side (no-lookahead)
+// the episode price-window (Slice 3, extended in Slice A): the drawer chart's on-demand OHLCV series
+// (line draws close; OHLC/volume ride the wire for a later candlestick), each bar carrying sma50/sma200
+// context, plus the window's open-market insider_buys — all capped at asof server-side (no-lookahead)
 export type ScoreboardPriceWindow = components["schemas"]["ScoreboardPriceWindowOut"];
 export type PriceBar = components["schemas"]["PriceBar"];
+export type InsiderBuyOut = components["schemas"]["InsiderBuyOut"];
 
 // The HISTORICAL (replayed) panel — served from the operator-kicked artifact, so it is
 // asof-INDEPENDENT (the artifact is what it is; no asof in the key). available:false = no
@@ -199,24 +201,26 @@ export function useScoreboard(asof: string, includeArchived = true) {
   });
 }
 
-// One episode's asof-capped price window (Slice 3) — the drawer sparkline's on-demand read. ENABLED only
-// when the drawer is open for THIS episode AND there's a forward path to draw (the caller passes `enabled`;
-// a no-forward-bar episode never fetches). Keyed by (thesis, security, arm_date, asof): arm_date pins the
-// episode, asof caps the series (no-lookahead is enforced server-side too). Read-only; a refetch/asof-scrub
-// writes nothing. `end` (the episode's exit_by) rides the query but not the key — it's fixed by arm_date and
-// the server caps at asof regardless, so it can't vary the result for a given key.
+// One episode's asof-capped price window (Slice 3, extended in Slice A / R1) — the drawer chart's on-demand
+// read. ENABLED only when the drawer is open for THIS episode AND there's a forward path to draw (the
+// caller passes `enabled`; a no-forward-bar episode never fetches). Keyed by (thesis, security, start,
+// asof): `start` is ADVISORY now (the FE sends the arm_date as a stable per-episode anchor) — the SERVER
+// owns the effective relevance floor and returns the whole [floor, end] universe regardless (Slice A R1),
+// so one cache entry per episode (expand changes the canvas size, not the window). asof caps the series
+// (no-lookahead is enforced server-side too). Read-only; a refetch/asof-scrub writes nothing. `end` (the
+// episode's exit_by) rides the query but not the key — the server caps at asof, so it can't vary the result.
 export function useEpisodePriceWindow(
-  args: { thesisId: string; securityId: string; armDate: string; end: string; asof: string },
+  args: { thesisId: string; securityId: string; start: string; end: string; asof: string },
   enabled: boolean,
 ) {
-  const { thesisId, securityId, armDate, end, asof } = args;
+  const { thesisId, securityId, start, end, asof } = args;
   return useQuery({
-    queryKey: ["episode-price-window", thesisId, securityId, armDate, asof] as const,
+    queryKey: ["episode-price-window", thesisId, securityId, start, asof] as const,
     enabled: enabled && Boolean(thesisId) && Boolean(securityId) && Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard/price-window", {
         params: {
-          query: { thesis_id: thesisId, security_id: securityId, start: armDate, end, asof },
+          query: { thesis_id: thesisId, security_id: securityId, start, end, asof },
         },
       });
       if (error) throw error;
