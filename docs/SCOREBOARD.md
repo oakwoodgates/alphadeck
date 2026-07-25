@@ -21,6 +21,11 @@ Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard`
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
 **RH (replay-alongside): built** — RH-A (the snapshot CLI + `GET /scoreboard/replay`) + RH-B (the FE
 historical section: collapsed-by-default below the live ledger, `frontend/src/scoreboard/ReplayPanel.tsx`).
+**The episode drill-down: built** — the row-opened drawer + four timing lenses + Summary|Timing toggle
+(#227–228), the row/icon split (row → drawer, ↗ → Cockpit; #230), the episode price chart with a numbered
+event overlay (SMA context + insider/trigger/lifecycle chips, relevance-floored + as-of-correct on both axes;
+Slice A), and the event ledger sharing the chart's numbering + a Cockpit strip (Slice B). See
+§"The episode drill-down".
 
 ## The one rule everything hangs on
 
@@ -184,6 +189,64 @@ never raw `today − edge`). The FE shows it **only on the live view** (`asof >=
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
 (honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.
 
+## The episode drill-down: drawer, chart, ledger
+
+Every ledger row opens a **drill-down drawer** (`components/Drawer.tsx` — a reusable slide-out, ~600px with
+expand-to-full-screen; ✕/backdrop/Esc close, focus returns to the opener; read-only, a sibling overlay so
+opening it never re-renders the ledger). A **row click** opens it; the row's **↗** icon is the distinct jump
+to the fuller per-name Cockpit (#227–#230). It surfaces the per-episode `Outcome` fields the row can't fit.
+
+**Four timing lenses** (`EpisodeScorecard.tsx`) — all from already-computed `Outcome` fields (it surfaces
+more of what is computed; it changes no computation): *The move* (entry/exit close + the return — the
+"show the prices" gap), *Horizon calibration* (`peak_return`/`peak_date`/`exit_vs_peak_days` — was `exit_by`
+well-timed? hidden without a peak), *Edge preservation* (`warm_return` vs `forward_return` — armed in time or
+missed the early move?), *Entry window + setup* (`arm_until_return` + grades + setup strength). A
+**Summary | Timing** column toggle (`LedgerHead.tsx`) swaps the ledger's middle columns so one timing lens
+(Return · Peak · Past-peak) can be scanned down the whole universe (#228).
+
+### The episode chart — a numbered event overlay (Slice A)
+
+The *move* lens mounts a **price chart**: an on-demand read (`GET /scoreboard/price-window` — the SAME
+asof-capped `PgRealizedPrices`, served on request so the ledger payload stays lean; lightweight-charts,
+lazy-loaded). It draws the **close line + faint SMA 50/200 context**, and overlays the episode's **recorded
+events** as **colored numbered chips**:
+
+- **What rides on it** — insider **open-market buys** (`fact_insider_txn`, code-P, reusing the NamePanel's
+  `_is_open_market_buy` screen so the dots reconcile with its net-flow figure), the **arm's triggers**, and
+  the **lifecycle** moments (warm/arm/dearm/exit).
+- **The relevance floor** — the loaded universe is `[max(thesis.created_at − 365d, first_bar), now]`: a thesis
+  born in 2026 does not plot a 2020 buy. A *relevance* bound on off-story events, never a recall cut (#9); the
+  server owns it and echoes the effective floor.
+- **Stable unified numbering** — the events number chronologically **1..N once over the whole universe** — a
+  STABLE per-event id, identical across the compact/expanded views and shared with the ledger. The default
+  visible range is the recent episode; **pan/zoom** reveals earlier events and de-crowds dense clusters
+  (collision-stacking spills to a visible "+N", never a silent drop).
+- **No-lookahead on both axes** — an insider buy is **positioned by its transaction date** (`valid_from`) but
+  **gated by disclosure** (`recorded_at ≤ known_at`, capped at the as-of), so a scrubbed-back Scoreboard hides
+  later bars AND later-*disclosed* buys — the honesty a filing's days-to-months lag demands (the price bar's
+  `valid_from == d` needs only the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
+  history is short (`scoreboard/overlays.py`).
+- **Explainability (#6)** — hover any chip for the buyer/$/date, the **disclosure lag**, and the market-price
+  context (the close that day, % vs now), with a guide-line to the price point; every chip traces to a
+  recorded row. A legend names only the present families (#7).
+
+### The event ledger + Cockpit strip (Slice B)
+
+Below the chart, an **event ledger** (`EventLedger.tsx`) lists the **SAME numbered events** — **row #N is
+chip #N** (one shared array, built once in `EpisodeScorecard`, never re-numbered). It is the *complete* list,
+the antidote to the chart's focused view (which hides off-view chips and clusters dense ones into "+N"). Hover
+a row → its chip rings; hover a chip → the row tints (a lifted `activeN`, kept OUT of the chart's canvas
+effect, so highlighting never rebuilds it).
+
+A **Cockpit strip** brings over *some* per-name context without duplicating the NamePanel: an identity line
+(archetype · sector · exchange · market-cap, from the workbench-scored read) + the present-only display-signal
+**headlines** (SMA position · 52-week range · volume regime · insider-flow 90d, reusing the Cockpit's
+`DisplayHeadlineRow`). For a **closed** episode those trailing windows are labeled **"current tape · as-of X"**
+— a name-current 90d figure is not the episode's own period. Read-only, FE-only (reuses the workbench-scored
+and display-signals endpoints; no new backend). **Deferred:** the finer intra-run calls-log transitions
+(verdict/confidence changes *within* an arm run) have no chip, so the numbered ledger stays chip-events-only; a
+later un-numbered "record trail" can surface them (needs a `transitions[]` field on the episode).
+
 ## Reading it
 
 ```powershell
@@ -204,6 +267,8 @@ keep `CallCard` evolution **additive-only** so old cards stay loadable.
 ## Deliberately NOT here (v1)
 
 Follow-blindly track + deltas (v2) · a second metrics-led view behind a toggle (v2, once n
-accrues) · charts · persistence/caching of scores · cron changes · notifications · the second
+accrues) · persistence/caching of scores · cron changes · notifications · the second
 recalibration (unlocked by this, not part of it) · a transaction-time (`known_at`) scrub
-parameter · stitching replayed and recorded episodes across the seam (noted, never merged).
+parameter · stitching replayed and recorded episodes across the seam (noted, never merged) ·
+the chip-less intra-run "record trail" (deferred — see §"The event ledger"). *(Charts moved from
+this list to built — the episode drill-down chart, Slice A.)*

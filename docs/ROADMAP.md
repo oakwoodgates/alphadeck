@@ -135,6 +135,7 @@ non-`alphadeck_test` name).
 | Insider honesty screens (preventive, latent): code-`P` open-market (call #210 + display #211) · issuer-self exclusion (#213) · discovery-walk audit — delete `scan.py`, harden convert-scan (#212) | #210–#213 | `CALL_LOGIC.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
 | **Scoreboard record-provenance + maturity (Slice 3)** + the operator **DB-snapshot button + nightly (Slice 4)** | #214, #215 | `SCOREBOARD.md`, `FEED_LOOP.md`, `ADMIN.md` |
 | Board view fixes (dead per-name Position, silent error-vanish, DQ deep-link) · per-worktree test-DB isolation (the shared-Postgres root-cause fix) | #216, #217 | `BOARD.md`, `PROJECT_LAYOUT.md` |
+| **Scoreboard episode drill-down (SCORE)**: the row-opened drawer + 4 timing lenses + Summary\|Timing toggle + row/icon split · the price chart with a numbered insider/trigger/lifecycle overlay (relevance-floored, as-of-correct on both axes) · the event ledger sharing the chart's numbering + a Cockpit strip | #227–#230 + the chart/ledger (Slice A/B) | `SCOREBOARD.md` |
 
 ## Standing design decisions (made once, still steering)
 
