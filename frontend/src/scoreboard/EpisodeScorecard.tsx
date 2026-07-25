@@ -1,7 +1,11 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
-import type { ScoreboardEpisodeOut } from "../api/hooks";
+import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
+import { useDisplaySignals, useEpisodePriceWindow, useWorkbenchScored } from "../api/hooks";
 import { fmtDate, gradeClass } from "../util/format";
+import { EventLedger } from "./EventLedger";
+import { identityCells, signalHeadlines } from "./ledger";
+import { buildOverlayEvents } from "./overlay";
 import { episodeBadges, fmtReturn, returnLabel } from "./rows";
 import {
   edgeLens,
@@ -11,6 +15,10 @@ import {
   noForwardBar,
   setupStrengthPct,
 } from "./scorecard";
+
+// A shared empty-bars const so a still-loading window keeps a STABLE reference (never a fresh `[]` each
+// render), which keeps the chart effect from re-running on an unrelated re-render.
+const NO_BARS: PriceBar[] = [];
 
 // lightweight-charts (~150kB) is drawer-only + on-demand — code-split it into its own async chunk so it
 // never bloats the initial bundle (loaded the first time a drawer's scorecard renders with an asof).
@@ -50,6 +58,39 @@ export function EpisodeScorecard({
   const showArmUntil = !noBar && (ep.arm_until != null || ep.arm_until_return != null);
   const showGrades = ep.entry_grade != null || ep.conviction_grade != null || strength != null;
   const hasSetup = showArmUntil || showGrades;
+
+  // --- Slice B: lift the price window + the unified numbered events HERE so the chart and the ledger share
+  // the ONE array (row #N ↔ chip #N, built once). The window request mirrors the old in-PriceSparkline gate
+  // (asof present AND a forward bar exists); the server owns the effective floor and asof cap (invariant #1).
+  const end = ep.exit_by ?? asof ?? "";
+  const windowQ = useEpisodePriceWindow(
+    { thesisId: ep.thesis_id, securityId: ep.security_id, start: ep.arm_date, end, asof: asof ?? "" },
+    Boolean(asof) && !noBar,
+  );
+  const bars = windowQ.data?.bars ?? NO_BARS;
+  const events = useMemo(
+    () => buildOverlayEvents(ep, windowQ.data?.insider_buys ?? [], windowQ.data?.bars ?? []),
+    [ep, windowQ.data],
+  );
+  // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
+  // the other child rings/tints the match. Held here so both children read one source of truth.
+  const [activeN, setActiveN] = useState<number | null>(null);
+
+  // The Cockpit strip's two reads (identity + signal headlines) — same asof, drawer-open gated (the hooks
+  // disable themselves without an asof), joined to THIS episode by security_id. A missing field → "—".
+  const scoredMember =
+    useWorkbenchScored(ep.thesis_id, asof ?? "").data?.members.find(
+      (m) => m.security_id === ep.security_id,
+    ) ?? null;
+  const memberSignals =
+    useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
+      (m) => m.security_id === ep.security_id,
+    ) ?? null;
+  const identity = identityCells(scoredMember);
+  const signals = signalHeadlines(memberSignals);
+  // A closed/matured episode's display signals are trailing windows re-derived at the drawer's asof, NOT the
+  // episode's period — caption them so a name-current 90d figure isn't misread as the episode's own.
+  const tapeAsof = asof && (ep.status === "closed" || ep.matured) ? asof : null;
 
   return (
     <div className="sc">
@@ -108,7 +149,15 @@ export function EpisodeScorecard({
             the page-level asof is threaded in (the pure-render scorecard tests pass none → no chart). */}
         {asof && (
           <Suspense fallback={<div className="sc-spark sc-spark-empty">reading the price path…</div>}>
-            <PriceSparkline ep={ep} asof={asof} />
+            <PriceSparkline
+              ep={ep}
+              bars={bars}
+              events={events}
+              activeN={activeN}
+              onActivate={setActiveN}
+              loading={windowQ.isLoading}
+              error={windowQ.isError}
+            />
           </Suspense>
         )}
       </section>
@@ -188,6 +237,21 @@ export function EpisodeScorecard({
             </div>
           )}
         </section>
+      )}
+
+      {/* Slice B — the event ledger + Cockpit strip: the SAME numbered events the chart drew (row #N ↔ chip
+          #N, one shared array), cross-highlighting with it. Gated exactly as the chart is (asof + a forward
+          bar); a no-forward-bar episode gets neither. Empty events (still loading) → the ledger renders
+          nothing yet. */}
+      {asof && !noBar && (
+        <EventLedger
+          events={events}
+          activeN={activeN}
+          onActivate={setActiveN}
+          identity={identity}
+          signals={signals}
+          tapeAsof={tapeAsof}
+        />
       )}
     </div>
   );

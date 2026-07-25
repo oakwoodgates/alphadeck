@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ColorType, createChart, type ISeriesApi, type Time } from "lightweight-charts";
 
-import type { ScoreboardEpisodeOut } from "../api/hooks";
-import { useEpisodePriceWindow } from "../api/hooks";
+import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import {
-  buildOverlayEvents,
   defaultVisibleRange,
   familyCls,
   legendEntries,
@@ -14,16 +12,22 @@ import {
 } from "./overlay";
 import { noForwardBar } from "./scorecard";
 
-// The drawer's episode chart (Slice 3, evolved in Slice A + Revision 1). It loads the WHOLE relevance
-// universe (the backend floors it to max(created_at−365d, first_bar)) and draws the CLOSE line with faint
-// SMA 50/200 context behind it, plus a CUSTOM numbered-chip overlay for the three RECORDED event families
-// (insider buy / arm trigger / lifecycle). The DEFAULT visible range is the recent episode; the user
-// pans/zooms to reach earlier dots (zoom de-crowds a dense cluster). Each chip is hoverable (a tooltip with
-// the disclosure lag + the market-price context, and a guide-line to its point on the price), a legend
-// names the present families, and collision-stacking never drops a chip (a hidden one shows as "+N").
-// #229 lessons preserved: the close series pins the y-axis autoscale (SMA lines + chips never re-inflate
-// it), a no-forward-bar episode draws NO chart (and never fetches), and the chart disposes on unmount.
+// The drawer's episode chart (Slice 3, evolved in Slice A/R1, and — Slice B — lifted onto shared props). It
+// draws the CLOSE line with faint SMA 50/200 context behind it, plus a CUSTOM numbered-chip overlay for the
+// three RECORDED event families (insider buy / arm trigger / lifecycle). The DEFAULT visible range is the
+// recent episode; the user pans/zooms to reach earlier dots (zoom de-crowds a dense cluster). Each chip is
+// hoverable (a tooltip with the disclosure lag + market-price context, and a guide-line to its point on the
+// price), a legend names the present families, and collision-stacking never drops a chip (a hidden one shows
+// as "+N"). #229 lessons preserved: the close series pins the y-axis autoscale (SMA lines + chips never
+// re-inflate it), a no-forward-bar episode draws NO chart, and the chart disposes on unmount.
 // lightweight-charts' built-in setMarkers is static + hover-less, so the chips are a positioned DOM layer.
+//
+// Slice B: the price WINDOW fetch and the ONE `buildOverlayEvents` numbering now live in the parent
+// (EpisodeScorecard), which passes `bars` + `events` down so the chart and the ledger share the exact same
+// numbered array (row #N ↔ chip #N, built once). This component owns only the imperative chart, the chip
+// positioning, and the lightweight cross-highlight — the `active` chip ring driven by `activeN`. ANTI-STORM
+// INVARIANT: `activeN` is NOT a chart-effect dependency — an active change re-runs only the cheap chip-class
+// render (a map over ~N buttons), NEVER the canvas rebuild.
 
 // Canvas can't read CSS vars → the LINE colors are hard-coded (the chip DOM reads vars, so it stays
 // theme-aware). SMA lines sit BEHIND the close, fainter the longer the window.
@@ -59,19 +63,28 @@ interface Hover {
   priceY: number | null; // the y of the close on the event's date — the guide-line's foot
 }
 
-export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: string }) {
+export function PriceSparkline({
+  ep,
+  bars,
+  events,
+  activeN,
+  onActivate,
+  loading = false,
+  error = false,
+}: {
+  ep: ScoreboardEpisodeOut;
+  /** The whole loaded price window [floor, end], fetched by the parent (EpisodeScorecard). */
+  bars: PriceBar[];
+  /** The unified numbered events, built ONCE in the parent so this chart and the ledger share the array. */
+  events: OverlayEvent[];
+  /** The currently cross-highlighted event number (from a ledger-row hover), or null. */
+  activeN: number | null;
+  /** Report a chip hover up so the paired ledger row highlights (and clear on leave). */
+  onActivate: (n: number | null) => void;
+  loading?: boolean;
+  error?: boolean;
+}) {
   const noBar = noForwardBar(ep);
-  // A running/truncated episode has exit_by possibly in the future; the server caps at asof, so the line
-  // stops at the last real bar. `end` falls back to asof when exit_by is unset (server caps there anyway).
-  const end = ep.exit_by ?? asof;
-  // R1/R2: the FE requests with an ADVISORY start (arm_date, a stable per-episode cache anchor) — the
-  // server owns the effective floor and returns the whole [floor, end] universe. One data window, and the
-  // canvas SIZE (not the window) changes on expand.
-  const q = useEpisodePriceWindow(
-    { thesisId: ep.thesis_id, securityId: ep.security_id, start: ep.arm_date, end, asof },
-    !noBar, // honest loudness: a no-forward-bar episode never even fetches
-  );
-  const bars = q.data?.bars ?? [];
   const hasPath = bars.length >= 2;
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -82,12 +95,11 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
   const [hover, setHover] = useState<Hover | null>(null);
   // Legend reflects every family PRESENT in the loaded universe (not just the placed chips): a family
   // entirely off the visible range or in the "+N" overflow must still name itself (honest loudness #7).
-  const [families, setFamilies] = useState<OverlayEvent[]>([]);
-  const legend = legendEntries(families);
+  const legend = legendEntries(events);
 
   useEffect(() => {
     const el = boxRef.current;
-    const data = q.data?.bars ?? [];
+    const data = bars;
     if (!el || data.length < 2) return; // nothing to draw — the quiet line renders instead (below)
     setHover(null);
     const width0 = el.clientWidth || 320;
@@ -156,11 +168,6 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
     const vis = defaultVisibleRange(data, ep.arm_date);
     if (vis) chart.timeScale().setVisibleRange({ from: vis.from as Time, to: vis.to as Time });
     else chart.timeScale().fitContent();
-
-    // R1: number the WHOLE universe ONCE — stable numbers, never per-window. The component renders whichever
-    // fall in the current visible range.
-    const events = buildOverlayEvents(ep, q.data?.insider_buys ?? [], data);
-    setFamilies(events); // the legend names every present family, even one off-view or in overflow
 
     // The nearest bar to a date (either side) → a real x on the business-day scale; timeToCoordinate
     // returns null when that bar is OUTSIDE the visible range (R5: a chip fully off-view is hidden).
@@ -231,23 +238,24 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
       seriesRef.current = null;
       setChips([]);
       setOverflow([]);
-      setFamilies([]);
     };
-    // q.data is referentially stable per fetch (react-query). ep is stable per drawer-open.
-  }, [q.data, ep]);
+    // `bars` + `events` are referentially stable per fetch (parent memoizes them off react-query's stable
+    // q.data). ep is stable per drawer-open. `activeN` is DELIBERATELY absent — it drives only the chip-class
+    // render below, never a canvas rebuild (the anti-storm invariant).
+  }, [bars, events, ep]);
 
   if (noBar) return <div className="sc-spark sc-spark-empty">no price path yet</div>;
-  if (q.isError) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
+  if (error) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
   if (!hasPath)
     return (
       <div className="sc-spark sc-spark-empty">
-        {q.isLoading ? "reading the price path…" : "no price path yet"}
+        {loading ? "reading the price path…" : "no price path yet"}
       </div>
     );
 
   const tip = hover ? overlayTooltip(hover.event) : null;
   const tipX = hover ? Math.min(Math.max(hover.x, 76), plotWRef.current - 76) : 0;
-  const onEnter = (c: Chip) =>
+  const onEnter = (c: Chip) => {
     setHover({
       event: c.event,
       x: c.x,
@@ -258,6 +266,12 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
           ? (seriesRef.current?.priceToCoordinate(c.event.closeThatDay) ?? null)
           : null,
     });
+    onActivate(c.event.n); // cross-highlight: light up the paired ledger row
+  };
+  const onLeave = () => {
+    setHover(null);
+    onActivate(null);
+  };
   return (
     <div className="sc-spark">
       <div className="sc-spark-plot">
@@ -278,12 +292,12 @@ export function PriceSparkline({ ep, asof }: { ep: ScoreboardEpisodeOut; asof: s
             <button
               key={c.event.n}
               type="button"
-              className={`ov-chip ${familyCls(c.event.family)}`}
+              className={`ov-chip ${familyCls(c.event.family)}${c.event.n === activeN ? " active" : ""}`}
               style={{ left: c.x, top: c.y }}
               onMouseEnter={() => onEnter(c)}
-              onMouseLeave={() => setHover(null)}
+              onMouseLeave={onLeave}
               onFocus={() => onEnter(c)}
-              onBlur={() => setHover(null)}
+              onBlur={onLeave}
               aria-label={`event ${c.event.n}: ${overlayTooltip(c.event).title}`}
             >
               {c.event.n}
