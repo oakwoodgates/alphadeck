@@ -1950,6 +1950,23 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * HealthResponse
+         * @description The ``/health`` body. ``status`` is ``"ok"`` or ``"degraded"``; ``degraded`` maps each degraded
+         *     subsystem to a short reason (empty when healthy). The compose healthcheck only needs the HTTP 200 —
+         *     ``degraded`` is a body flag an operator or agent can SEE, never a failed check (fail-open).
+         */
+        HealthResponse: {
+            /**
+             * Status
+             * @default ok
+             */
+            status: string;
+            /** Degraded */
+            degraded?: {
+                [key: string]: string;
+            };
+        };
+        /**
          * InsiderBuyOut
          * @description One code-P open-market insider purchase inside an episode's window (Slice A) — an overlay chip.
          *
@@ -4596,9 +4613,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };

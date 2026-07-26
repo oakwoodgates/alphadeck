@@ -167,7 +167,19 @@ docker compose up -d --scale cron=0                      # ...skip the cron side
 # NB "feeds itself" was literally true only after #196: the EDGAR cache froze insider data ~11 days (cache-first
 # forever) until the key-classed 12h TTL. See docs/FEED_LOOP.md + docs/POSTMORTEM_CRON_FREEZE_2026-07.md.
 
-# infra only — Postgres for the local backend dev loop
+# --- DEV / PROD SPLIT — two isolated stacks, side by side (full model: docs/DEV_PROD.md) ------------
+# PROD is the plain `docker compose up` above (project alphadeck · cron ON · auto-loads .env).
+# DEV = base + the dev override under its OWN project name -> Compose namespaces containers/network/volumes,
+# so dev physically cannot reach prod's pgdata; distinct ports let both run at once; cron is OFF in dev.
+# Run from the MAIN checkout — WORKTREES NEVER RUN THE STACK (that's the worktree-.env gap this closes).
+# Needs .env (prod) + .env.dev (dev) at the main-checkout root (copy .env.example; .env.dev is gitignored).
+#   ports  →  app / api / postgres    PROD = 8080 / 8000 / 5544    DEV = 8081 / 8001 / 5545
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev up -d --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev down   # stop dev (KEEPS its volumes)
+bash scripts/refresh-dev.sh                             # ONE-WAY prod->dev data refresh (pg_dump READ; never writes prod)
+# If `make` is installed (often not on Windows): make prod-up · make dev-up · make dev-down · make refresh-dev
+
+# infra only — Postgres for the local backend dev loop (SHARES prod's DB/volume — a footgun; see DEV_PROD.md)
 docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
 
 # backend setup (once)

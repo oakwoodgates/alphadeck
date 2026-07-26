@@ -1915,11 +1915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Health Health Get"
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             }
@@ -3939,6 +3935,25 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "ok"
+          },
+          "degraded": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Degraded"
+          }
+        },
+        "type": "object",
+        "title": "HealthResponse",
+        "description": "The ``/health`` body. ``status`` is ``\"ok\"`` or ``\"degraded\"``; ``degraded`` maps each degraded\nsubsystem to a short reason (empty when healthy). The compose healthcheck only needs the HTTP 200 \u2014\n``degraded`` is a body flag an operator or agent can SEE, never a failed check (fail-open)."
       },
       "InsiderBuyOut": {
         "properties": {
