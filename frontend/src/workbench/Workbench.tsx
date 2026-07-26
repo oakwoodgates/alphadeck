@@ -229,6 +229,51 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
     });
   };
 
+  // Slice 2b — INCLUDE an available N-PORT holding into the basket (from the SleeveRail). Persists via the
+  // SAME promote writer as applyArchetype (a scored-view change persists immediately), but APPENDS a member
+  // in AddName's shape — an include IS a placement: role "—", archetype unset (the finalize rail
+  // characterizes it, item F / #10), authored_by operator_set. Idempotent: a name already in the basket is a
+  // no-op. The scored read re-derives (the new name joins its master identity + scores); the holdings overlap
+  // is a PULL SNAPSHOT and deliberately does NOT re-fetch (cost thread) — the button reflects the live basket.
+  const includeHolding = (securityId: string, ticker: string) => {
+    if (!thesis) return;
+    if (thesis.basket.some((b) => b.security_id === securityId)) return;
+    promote.mutate({
+      id: thesis.id,
+      name: thesis.name,
+      narrative: thesis.narrative,
+      ticker: thesis.ticker ?? null,
+      basket: [
+        ...thesis.basket,
+        {
+          ticker,
+          role: "—",
+          archetype: null,
+          security_id: securityId,
+          segment: null,
+          conviction: null,
+          authored_by: "operator_set" as const,
+        },
+      ],
+      segments: thesis.segments,
+    });
+  };
+
+  // The include's visible inverse (#1): drop a member from the basket (returns to the prior state, destroys
+  // nothing — facts/prices stay in the bitemporal store; re-including re-binds the same id). Same promote
+  // writer, resending the chain minus that member.
+  const removeMember = (securityId: string) => {
+    if (!thesis) return;
+    promote.mutate({
+      id: thesis.id,
+      name: thesis.name,
+      narrative: thesis.narrative,
+      ticker: thesis.ticker ?? null,
+      basket: thesis.basket.filter((b) => b.security_id !== securityId),
+      segments: thesis.segments,
+    });
+  };
+
   // Gate the editor mount on the prune-session GET settling — the three (really four) restore cases. A restore
   // must seed at MOUNT (the editor snapshots its state in useState initializers, no in-hook re-sync), so we don't
   // mount ChainEditor until we know what to seed it with.
@@ -779,6 +824,19 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                 applying={promote.isPending}
                 thesisId={thesisId}
                 asof={asof}
+                // Slice 2b — the sleeve's include/remove write path (used only by the SleeveRail branch).
+                // basketSids is the LIVE basket, so an included holding's button flips to "✓ included"
+                // as soon as the promote's thesis refetch lands — no holdings re-pull (cost thread).
+                sleeve={{
+                  basketSids: new Set(
+                    (thesis?.basket ?? [])
+                      .map((b) => b.security_id)
+                      .filter((id): id is string => Boolean(id)),
+                  ),
+                  onInclude: includeHolding,
+                  onRemove: removeMember,
+                  includePending: promote.isPending,
+                }}
               />
             </aside>
           </>

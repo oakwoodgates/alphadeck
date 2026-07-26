@@ -79,6 +79,15 @@ interface Props {
   // the Workbench's as-of — threaded to a `fund` sleeve's SleeveRail so its N-PORT holdings pull picks the
   // filing KNOWABLE then (#1). Unused by the equity dossier (its scores are already re-derived at as-of).
   asof?: string;
+  // the `fund` sleeve's write path (Slice 2b, the include button) — bundled because it's used ONLY by the
+  // SleeveRail branch. `basketSids` = the live basket (drives the reversible included-state); the callbacks
+  // persist an include/remove via the promote writer. Optional: a read-only render omits it (no buttons).
+  sleeve?: {
+    basketSids: Set<string>;
+    onInclude: (securityId: string, ticker: string) => void;
+    onRemove: (securityId: string) => void;
+    includePending: boolean;
+  };
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -86,7 +95,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId, asof }: Props) {
+export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId, asof, sleeve }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -99,7 +108,7 @@ export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId
   // A `fund` sleeve is an EXPRESSION, not a scored equity (#4/#6): none of the meters / extract / ratify
   // machinery below applies. Its dossier is identity + price + N-PORT holdings — a wholly separate panel.
   if (member.archetype === "fund") {
-    return <SleeveRail member={member} thesisId={thesisId} asof={asof} />;
+    return <SleeveRail member={member} thesisId={thesisId} asof={asof} {...sleeve} />;
   }
   // The #10 recommendation: a derived default (market cap + purity) that DIFFERS from the current archetype.
   // Pending + display-only — the operator confirms it (apply -> operator_edited) or ignores it. No chip when

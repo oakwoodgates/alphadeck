@@ -535,10 +535,15 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-holdings li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; color: var(--txt-2); }
 .wb-holdings li .pct { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); min-width: 44px; text-align: right; flex-shrink: 0; }
 .wb-holdings li .tk { font-family: var(--mono); font-weight: 700; font-size: 11px; }
-.wb-holdings li .co { font-size: 10.5px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-holdings li .co { font-size: 10.5px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wb-holdings li .hid { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); flex-shrink: 0; }
 .wb-holdings li.held { color: var(--manage); }
 .wb-holdings li.held .co { color: var(--manage); }
+/* the include control (Slice 2b) — an available holding -> a basket member; the reversible ".in" state is remove */
+.wb-holdings li .wb-h-inc { margin-left: auto; flex-shrink: 0; font-family: var(--mono); font-size: 9px; letter-spacing: 0.02em; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; cursor: pointer; }
+.wb-holdings li .wb-h-inc:hover:not(:disabled) { color: var(--txt-1); border-color: var(--txt-3); }
+.wb-holdings li .wb-h-inc.in { color: var(--manage); border-color: var(--manage); }
+.wb-holdings li .wb-h-inc:disabled { opacity: 0.45; cursor: default; }
 /* item F — not-yet-characterized (the rail's "unclassified"): quiet, dashed, no risk-class color */
 .arch.unset { color: var(--txt-4); background: transparent; border: 1px dashed var(--line-2); }
 
