@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The sleeve's DD-rail dossier (ETF Sleeve, Slice 2a): the N-PORT pull fires ONLY on the explicit "pull
+// The sleeve's DD-rail dossier (ETF Sleeve, Slice 2a/2b): the N-PORT pull fires ONLY on the explicit "pull
 // holdings" button (the cost thread) — never on mount/selection — and the answer renders as the three-bucket
-// partition (held / available / unresolved) + the vintage-labeled filing link. The hook is mocked at the
+// partition (held / available / unresolved) + the vintage-labeled filing link. Slice 2b adds the include
+// button on AVAILABLE rows (in master, not in basket) + its reversible remove. The hook is mocked at the
 // module seam; `h.holdings` is swapped per test to walk the states. (format.ts imports only TYPES from hooks,
 // so mocking just useEtfHoldings is safe — format's real formatters still run.)
 const h = vi.hoisted(() => {
@@ -23,6 +24,9 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 import { SleeveRail } from "../SleeveRail";
+
+const onInclude = vi.fn();
+const onRemove = vi.fn();
 
 const fig = (pips: number | null, value: number | null, provenance: unknown[] = []) => ({
   pips,
@@ -91,16 +95,26 @@ const holdingsPayload = {
   ],
 };
 
-function renderSleeve() {
+function renderSleeve(opts?: { basketSids?: Set<string>; includePending?: boolean }) {
   return render(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <SleeveRail member={fundMember() as any} thesisId="t1" asof="2026-07-26" />,
+    <SleeveRail
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      member={fundMember() as any}
+      thesisId="t1"
+      asof="2026-07-26"
+      basketSids={opts?.basketSids ?? new Set()}
+      onInclude={onInclude}
+      onRemove={onRemove}
+      includePending={opts?.includePending ?? false}
+    />,
   );
 }
 
 describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
   beforeEach(() => {
     h.refetch.mockClear();
+    onInclude.mockClear();
+    onRemove.mockClear();
     h.holdings.data = undefined;
     h.holdings.error = null;
     h.holdings.isFetching = false;
@@ -140,6 +154,26 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     expect(screen.getByText(/unresolved — no master match/i)).toBeInTheDocument();
     expect(screen.getByText("RIO TINTO PLC")).toBeInTheDocument();
     expect(screen.getByText("CUSIP 767204100")).toBeInTheDocument();
+    // Slice 2b: the include button is on the AVAILABLE row ONLY (not held / not unresolved) — honest loudness
+    expect(screen.getAllByText("+ include")).toHaveLength(1);
+  });
+
+  it("an available holding's + include fires onInclude(securityId, ticker)", () => {
+    h.holdings.data = holdingsPayload;
+    renderSleeve(); // basketSids empty -> TSLA is includable
+    fireEvent.click(screen.getByText("+ include"));
+    expect(onInclude).toHaveBeenCalledWith("s-tsla", "TSLA");
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it("an available holding already in the basket shows ✓ included; clicking removes it (the inverse, #1)", () => {
+    h.holdings.data = holdingsPayload;
+    renderSleeve({ basketSids: new Set(["s-tsla"]) }); // TSLA now in the live basket
+    expect(screen.queryByText("+ include")).not.toBeInTheDocument();
+    const included = screen.getByText("✓ included");
+    fireEvent.click(included);
+    expect(onRemove).toHaveBeenCalledWith("s-tsla");
+    expect(onInclude).not.toHaveBeenCalled();
   });
 
   it("a failed pull is a visible retry, and the retry re-spends", () => {

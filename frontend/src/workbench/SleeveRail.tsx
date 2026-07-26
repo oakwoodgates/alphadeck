@@ -1,10 +1,13 @@
+import type { ReactNode } from "react";
+
 import type { EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
 import { useEtfHoldings } from "../api/hooks";
 import { archLabel, errText, sleevePriceLabel } from "./format";
 
 /** One holding line: weight · ticker/name · the filing's identifier (some filers list equity holdings
- *  with no ticker at all — then name+CUSIP/ISIN IS the identity; shown, never dropped, #9). */
-function HoldingLine({ h, held }: { h: EtfHoldingOut; held?: boolean }) {
+ *  with no ticker at all — then name+CUSIP/ISIN IS the identity; shown, never dropped, #9). `action` is
+ *  an optional trailing control (the include button on an available row), right-aligned. */
+function HoldingLine({ h, held, action }: { h: EtfHoldingOut; held?: boolean; action?: ReactNode }) {
   return (
     <li className={held ? "held" : undefined}>
       <span className="pct">{h.pct_val != null ? `${h.pct_val.toFixed(1)}%` : "—"}</span>
@@ -14,6 +17,7 @@ function HoldingLine({ h, held }: { h: EtfHoldingOut; held?: boolean }) {
         <span className="hid">{h.cusip ? `CUSIP ${h.cusip}` : `ISIN ${h.isin}`}</span>
       )}
       {held && <span aria-hidden="true">✓</span>}
+      {action}
     </li>
   );
 }
@@ -28,15 +32,31 @@ function HoldingLine({ h, held }: { h: EtfHoldingOut; held?: boolean }) {
  *  The holdings pull is a LIVE SEC read (N-PORT + OpenFIGI), so it sits behind an explicit button — the
  *  cost thread, the same deliberate-spend gate as a name's "get data" — never auto-fired on selection.
  *  Once pulled it's cached per sleeve (the query key carries security_id), so re-selecting shows it
- *  instantly without re-spending. */
+ *  instantly without re-spending.
+ *
+ *  Slice 2b — the INCLUDE button: an "available" holding (in your master, not this basket) gets a one-click
+ *  "+ include" that adds it to the thesis basket (the ETF surfaces names you're missing; you add them
+ *  without leaving the sleeve). Reversible (#1): once in the basket the button flips to "✓ included" and
+ *  clicking it REMOVES the member — returning to the prior state, never destroying data. The state is read
+ *  off the LIVE basket (`basketSids`), so an include never forces an expensive re-pull of the holdings. */
 export function SleeveRail({
   member,
   thesisId,
   asof,
+  basketSids,
+  onInclude,
+  onRemove,
+  includePending,
 }: {
   member: ScoredMemberOut;
   thesisId?: string;
   asof?: string;
+  // the LIVE thesis basket's security_ids — an available holding whose id is here has been included; its
+  // button becomes the reversible "✓ included" (remove). Read off the basket, not a re-pull (cost thread).
+  basketSids?: Set<string>;
+  onInclude?: (securityId: string, ticker: string) => void;
+  onRemove?: (securityId: string) => void;
+  includePending?: boolean;
 }) {
   // `enabled:false` — the pull fires ONLY on the button's refetch() below (a deliberate operator click),
   // never on mount/selection. `asof` threads the Workbench's as-of so the filing picked is the one
@@ -45,6 +65,41 @@ export function SleeveRail({
   const hd = etfHoldings.data;
   const pull = () => {
     if (!etfHoldings.isFetching) void etfHoldings.refetch();
+  };
+  // The include/remove control for ONE available holding — rendered only when the caller wired the write
+  // path (`onInclude`). An available holding always carries a security_id (that IS what matched it to the
+  // master); the guard keeps TS happy and degrades to no-button for a read-only render.
+  const includeAction = (h: EtfHoldingOut): ReactNode => {
+    const sid = h.security_id;
+    if (!sid || !onInclude) return null;
+    if (basketSids?.has(sid)) {
+      return (
+        <button
+          type="button"
+          className="wb-h-inc in"
+          disabled={includePending}
+          title="in your basket — click to remove (undo the include)"
+          onClick={() => onRemove?.(sid)}
+        >
+          ✓ included
+        </button>
+      );
+    }
+    // an available holding always carries a ticker (that IS what matched it to the master); the guard keeps
+    // the promote member's ticker non-null and no-ops the impossible tickerless case.
+    const tk = h.ticker;
+    if (!tk) return null;
+    return (
+      <button
+        type="button"
+        className="wb-h-inc"
+        disabled={includePending}
+        title="add this name to the thesis basket"
+        onClick={() => onInclude(sid, tk)}
+      >
+        + include
+      </button>
+    );
   };
   return (
     <div className="ddcard sleeve">
@@ -101,7 +156,7 @@ export function SleeveRail({
                 <div className="wb-h-group">in the master — not in this basket</div>
                 <ul>
                   {hd.available.map((h, i) => (
-                    <HoldingLine key={h.security_id ?? i} h={h} />
+                    <HoldingLine key={h.security_id ?? i} h={h} action={includeAction(h)} />
                   ))}
                 </ul>
               </>
