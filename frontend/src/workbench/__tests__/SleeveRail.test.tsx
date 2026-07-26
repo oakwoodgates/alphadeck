@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The sleeve's holdings drawer (ETF Sleeve, Slice 2a): the N-PORT pull fires ONLY on the deliberate
-// drawer toggle (the cost thread) — never on render — and the answer renders as the three-bucket
-// partition (held / available / unresolved) + the vintage-labeled filing link. Hooks are mocked at the
-// module seam (the ScoredRow.fund.test idiom); `h.holdings` is swapped per test to walk the states.
+// The sleeve's DD-rail dossier (ETF Sleeve, Slice 2a): the N-PORT pull fires ONLY on the explicit "pull
+// holdings" button (the cost thread) — never on mount/selection — and the answer renders as the three-bucket
+// partition (held / available / unresolved) + the vintage-labeled filing link. The hook is mocked at the
+// module seam; `h.holdings` is swapped per test to walk the states. (format.ts imports only TYPES from hooks,
+// so mocking just useEtfHoldings is safe — format's real formatters still run.)
 const h = vi.hoisted(() => {
   const refetch = vi.fn(async () => ({}));
   return {
@@ -18,13 +19,10 @@ const h = vi.hoisted(() => {
   };
 });
 vi.mock("../../api/hooks", () => ({
-  useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
-  useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
-  useAutoConfirmShares: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   useEtfHoldings: () => h.holdings,
 }));
 
-import { ScoredRow } from "../ScoredRow";
+import { SleeveRail } from "../SleeveRail";
 
 const fig = (pips: number | null, value: number | null, provenance: unknown[] = []) => ({
   pips,
@@ -44,6 +42,7 @@ function fundMember() {
     runway: fig(null, null),
     catalysts: fig(null, null),
     dilution: fig(null, null),
+    // a fund has no shares fact -> the price-only branch (value null, price provenance) -> "$41.23"
     market_cap: fig(null, null, [
       { source: "price", ref: "price:2026-06-10", url: null, detail: { close: 41.23 } },
     ]),
@@ -92,14 +91,14 @@ const holdingsPayload = {
   ],
 };
 
-function renderFund() {
+function renderSleeve() {
   return render(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <ScoredRow member={fundMember() as any} selected={false} onSelect={() => {}} />,
+    <SleeveRail member={fundMember() as any} thesisId="t1" asof="2026-07-26" />,
   );
 }
 
-describe("ScoredRow — the fund sleeve's holdings drawer", () => {
+describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
   beforeEach(() => {
     h.refetch.mockClear();
     h.holdings.data = undefined;
@@ -107,28 +106,29 @@ describe("ScoredRow — the fund sleeve's holdings drawer", () => {
     h.holdings.isFetching = false;
   });
 
-  it("never fires the pull on render — only the deliberate toggle click spends", () => {
-    renderFund();
-    expect(h.refetch).not.toHaveBeenCalled(); // the cost thread: render is free
-    fireEvent.click(screen.getByText("› holdings"));
+  it("shows the sleeve identity + price, never firing the pull on mount", () => {
+    renderSleeve();
+    expect(screen.getByText("ETF sleeve")).toBeInTheDocument(); // archLabel('fund')
+    expect(screen.getByText("Global X Lithium & Battery Tech ETF")).toBeInTheDocument();
+    expect(screen.getByText("$41.23")).toBeInTheDocument(); // sleevePriceLabel off the price provenance
+    // the cost thread: mount/selection is FREE — the button is present, the pull hasn't fired
+    expect(h.refetch).not.toHaveBeenCalled();
+    expect(screen.getByText("⌾ pull holdings")).toBeInTheDocument();
+  });
+
+  it("the deliberate pull-holdings click spends", () => {
+    renderSleeve();
+    fireEvent.click(screen.getByText("⌾ pull holdings"));
     expect(h.refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("a re-open re-shows the cached answer without re-spending", () => {
+  it("renders the three-bucket partition + the vintage-labeled filing link once pulled", () => {
     h.holdings.data = holdingsPayload;
-    renderFund();
-    fireEvent.click(screen.getByText("› holdings")); // open — data already cached
-    fireEvent.click(screen.getByText("⌄ holdings")); // close
-    fireEvent.click(screen.getByText("› holdings")); // re-open
-    expect(h.refetch).not.toHaveBeenCalled();
-  });
-
-  it("renders the three-bucket partition + the vintage-labeled filing link", () => {
-    h.holdings.data = holdingsPayload;
-    renderFund();
-    fireEvent.click(screen.getByText("› holdings"));
-    // the counts summary — the partition sums to the holdings count
-    expect(screen.getByText(/3 holdings · 1 in basket · 1 in master · 1 unresolved/)).toBeInTheDocument();
+    renderSleeve();
+    // cached data renders straight into the rail (no click needed)
+    expect(
+      screen.getByText(/3 holdings · 1 in basket · 1 in master · 1 unresolved/),
+    ).toBeInTheDocument();
     // the provenance link carries the vintage (#6 + #1's label)
     const link = screen.getByRole("link", { name: /N-PORT as-of 2026-04-30/ });
     expect(link).toHaveAttribute("href", holdingsPayload.source_ref);
@@ -144,11 +144,9 @@ describe("ScoredRow — the fund sleeve's holdings drawer", () => {
 
   it("a failed pull is a visible retry, and the retry re-spends", () => {
     h.holdings.error = { detail: "SEC unreachable" };
-    renderFund();
-    fireEvent.click(screen.getByText("› holdings"));
+    renderSleeve();
     const retry = screen.getByText("⚠ retry holdings");
     fireEvent.click(retry);
-    // open (data undefined -> refetch) + the explicit retry
-    expect(h.refetch).toHaveBeenCalledTimes(2);
+    expect(h.refetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -524,7 +524,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 /* the fund sleeve's holdings drawer (ETF Sleeve, Slice 2a) — a deliberate-click expander: the N-PORT
    vintage + filing link, then the three-bucket partition (held / available / unresolved — every holding
    shown, #9). Long lists scroll inside the drawer, never hide. */
-.nmrow .wb-holdings { margin-top: 9px; border-top: 1px dashed var(--line); padding-top: 9px; font-size: 11px; cursor: default; }
+/* the fund sleeve's holdings + basket overlap — lives in the DD rail (SleeveRail), under a `dd-sub` head */
+.wb-holdings { margin-top: 6px; font-size: 11px; cursor: default; }
 .wb-holdings .wb-h-note { color: var(--txt-3); font-size: 10.5px; }
 .wb-holdings .wb-h-sum { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; color: var(--txt-2); margin-bottom: 4px; }
 .wb-holdings .wb-h-sum a { color: var(--leader); font-size: 10.5px; text-decoration: none; }
