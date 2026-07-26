@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
 import { useEtfHoldings } from "../api/hooks";
-import { archLabel, errText, sleevePriceLabel } from "./format";
+import { archLabel, errText, formatMarketCap, sleevePriceLabel } from "./format";
 
 /** One holding line: weight · ticker/name · the filing's identifier (some filers list equity holdings
  *  with no ticker at all — then name+CUSIP/ISIN IS the identity; shown, never dropped, #9). `action` is
@@ -141,6 +141,34 @@ export function SleeveRail({
                 N-PORT{hd.report_date ? ` as-of ${hd.report_date}` : ""} ↗
               </a>
             </div>
+            {/* the fund internals — AUM + the gross/liabilities composition it nets down from, off the
+                SAME N-PORT the holdings trace to (no extra pull). Display context (#4/#6), never a
+                signal; each figure renders only when the filer stamped it (honest blank otherwise). */}
+            {(hd.net_assets != null || hd.total_assets != null || hd.total_liabs != null) && (
+              <div className="wb-h-vitals">
+                {hd.net_assets != null && (
+                  <span
+                    className="v aum"
+                    title="net assets = gross assets − liabilities — the fund's size (AUM), from this N-PORT"
+                  >
+                    <b>AUM</b>
+                    {formatMarketCap(hd.net_assets)}
+                  </span>
+                )}
+                {hd.total_assets != null && (
+                  <span className="v">
+                    <b>gross assets</b>
+                    {formatMarketCap(hd.total_assets)}
+                  </span>
+                )}
+                {hd.total_liabs != null && (
+                  <span className="v">
+                    <b>liabilities</b>
+                    {formatMarketCap(hd.total_liabs)}
+                  </span>
+                )}
+              </div>
+            )}
             {hd.held.length > 0 && (
               <>
                 <div className="wb-h-group">✓ already in your basket</div>

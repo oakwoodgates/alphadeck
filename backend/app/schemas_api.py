@@ -420,11 +420,19 @@ class EtfHoldingsOut(BaseModel):
     discovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The
     three buckets partition ALL ``holdings_count`` positions — ``held`` (in this thesis's basket) ·
     ``available`` (in the master, not the basket) · ``unresolved`` (no master match — SHOWN, never
-    dropped, #9). Weight-sorted, heaviest first."""
+    dropped, #9). Weight-sorted, heaviest first.
+
+    The fund INTERNALS ride the SAME N-PORT (no extra fetch): ``net_assets`` = AUM (the fund's size),
+    with the ``total_assets``/``total_liabs`` composition it nets down from (net = gross − liabilities).
+    Display-only context on the sleeve dossier — never a signal (#4/#6); ``None`` if a filer omits them.
+    """
 
     report_date: date | None = None
     source_ref: str
     holdings_count: int
+    net_assets: float | None = None
+    total_assets: float | None = None
+    total_liabs: float | None = None
     held: list[EtfHoldingOut] = []
     available: list[EtfHoldingOut] = []
     unresolved: list[EtfHoldingOut] = []

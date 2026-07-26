@@ -333,7 +333,9 @@ export interface paths {
          *     written to the master, where extraction would misread it) → the series-filtered browse-edgar lookup
          *     (one fetch) → the accession's ``primary_doc.xml`` (immutable-cached) → parsed positions, series
          *     VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
-         *     discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
+         *     discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6). The
+         *     fund INTERNALS (``net_assets`` = AUM + the ``total_assets``/``total_liabs`` composition) ride the
+         *     same parsed doc — sleeve-dossier context, never a signal (#4/#6).
          *
          *     THE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT
          *     ``ticker`` identifier when the filer stamped one — else its CUSIP batch-resolved to a US ticker
@@ -1904,6 +1906,10 @@ export interface components {
          *     three buckets partition ALL ``holdings_count`` positions — ``held`` (in this thesis's basket) ·
          *     ``available`` (in the master, not the basket) · ``unresolved`` (no master match — SHOWN, never
          *     dropped, #9). Weight-sorted, heaviest first.
+         *
+         *     The fund INTERNALS ride the SAME N-PORT (no extra fetch): ``net_assets`` = AUM (the fund's size),
+         *     with the ``total_assets``/``total_liabs`` composition it nets down from (net = gross − liabilities).
+         *     Display-only context on the sleeve dossier — never a signal (#4/#6); ``None`` if a filer omits them.
          */
         EtfHoldingsOut: {
             /** Report Date */
@@ -1912,6 +1918,12 @@ export interface components {
             source_ref: string;
             /** Holdings Count */
             holdings_count: number;
+            /** Net Assets */
+            net_assets?: number | null;
+            /** Total Assets */
+            total_assets?: number | null;
+            /** Total Liabs */
+            total_liabs?: number | null;
             /**
              * Held
              * @default []

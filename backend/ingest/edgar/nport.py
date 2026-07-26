@@ -80,11 +80,16 @@ class Holding:
 class NportReport:
     """A parsed N-PORT: whose holdings these are (``series_id`` — verified against the requested series
     by the caller), the report-period vintage (``report_date`` — the as-of LABEL, ~quarter-end and ~60
-    days lagged, fine for a discovery seed), and the positions."""
+    days lagged, fine for a discovery seed), the fund's own financials (``net_assets`` = AUM, with the
+    ``total_assets``/``total_liabs`` composition it nets down from — the ETF-sleeve internals, #6;
+    measured present on every real filer, ARK/VanEck/Global X), and the positions."""
 
     series_id: str | None
     report_date: date | None
     series_name: str | None
+    net_assets: float | None = None
+    total_assets: float | None = None
+    total_liabs: float | None = None
     holdings: list[Holding] = field(default_factory=list)
 
 
@@ -189,6 +194,22 @@ def parse_nport_holdings(xml: str) -> NportReport:
             report_date = date.fromisoformat(rep_raw)
         except ValueError:
             report_date = None
+    # the fund-level financials — the ETF-sleeve internals (#6): net assets = AUM, plus the gross
+    # assets / liabilities it nets down from. Direct children of ``fundInfo`` (unique per doc), the
+    # same defensive contract as the holding numbers: missing/malformed → None, never a crash.
+    fund = root.find(".//{*}fundInfo")
+
+    def _fund_num(tag: str) -> float | None:
+        if fund is None:
+            return None
+        try:
+            return to_float(_clean(fund.findtext(f"{{*}}{tag}")))
+        except ValueError:
+            return None
+
+    net_assets = _fund_num("netAssets")
+    total_assets = _fund_num("totAssets")
+    total_liabs = _fund_num("totLiabs")
     holdings: list[Holding] = []
     for sec in root.findall(".//{*}invstOrSec"):
         isin_el = sec.find("{*}identifiers/{*}isin")
@@ -215,5 +236,8 @@ def parse_nport_holdings(xml: str) -> NportReport:
         series_id=series_id,
         report_date=report_date,
         series_name=series_name,
+        net_assets=net_assets,
+        total_assets=total_assets,
+        total_liabs=total_liabs,
         holdings=holdings,
     )
