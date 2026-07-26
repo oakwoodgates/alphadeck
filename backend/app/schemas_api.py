@@ -394,10 +394,12 @@ class ResolveEtfRequest(BaseModel):
 
 
 class EtfHoldingOut(BaseModel):
-    """One N-PORT holding on the wire (ETF Sleeve, Slice 2a): the filing's own identity fields
-    (identifier coverage varies by filing agent — some carry no ticker on any equity holding, so a
-    holding may legitimately ride on name+CUSIP/ISIN alone), its weight, and — for the held/available
-    buckets — the matched master ``security_id`` (``None`` in ``unresolved``: shown, not matchable yet).
+    """One holding on the wire (ETF Sleeve, Slice 2a). ``ticker`` is the holding's best-known ticker —
+    the filing's own where it carried one, else (for a held/available match) its CUSIP resolved to a US
+    ticker via OpenFIGI; ``None`` only when nothing matched (``unresolved``). ``cusip``/``isin`` are the
+    FILING's own identifiers, carried alongside as provenance (coverage varies by filing agent — some
+    stamp no ticker at all). Plus the weight and — for the held/available buckets — the matched master
+    ``security_id``.
     """
 
     name: str | None = None

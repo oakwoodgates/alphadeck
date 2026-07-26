@@ -131,8 +131,9 @@ def test_lit_zero_crosswalk_coverage_is_all_unresolved_still_shown(client, db, o
 def test_lit_cusip_crosswalk_resolves_held_and_available(client, db, offline_sec):
     """The overlap upgrade on the SAME no-ticker filing: with the crosswalk placing TSLA + RIO, a
     basket name reads HELD and a master name AVAILABLE — and unresolved SHRINKS 45 → 43 (vs the
-    ticker-only path's 45). The wire stays honest: the holding's ``ticker`` field is still None (the
-    FILING carried none — the match rides ``security_id``, the crosswalk never forges filing fields).
+    ticker-only path's 45). A matched holding SURFACES its resolved ticker (so the drawer shows what
+    it matched to — load-bearing for an AVAILABLE name you're missing); the FILING's own CUSIP rides
+    alongside as provenance, and an unmatched holding keeps ``ticker=None``.
     """
     sleeve = _sleeve(db, "LIT")
     tsla = _master_row(db, "TSLA", cik="0001318605")
@@ -147,8 +148,8 @@ def test_lit_cusip_crosswalk_resolves_held_and_available(client, db, offline_sec
     assert held["name"] == "TESLA, INC."
     assert held["security_id"] == str(tsla)
     assert (
-        held["ticker"] is None and held["cusip"] == "88160R101"
-    )  # the filing's own fields, honest
+        held["ticker"] == "TSLA" and held["cusip"] == "88160R101"
+    )  # matched -> the resolved ticker surfaces; the filing's CUSIP rides alongside as provenance
     [avail] = body["available"]
     assert avail["name"] == "RIO TINTO PLC"
     assert len(body["unresolved"]) == 43  # shrank from 45 — and still nothing dropped:

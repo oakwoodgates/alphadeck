@@ -206,10 +206,15 @@ def resolve_etf(
     )
 
 
-def _holding_out(h: nport.Holding, security_id: UUID | None = None) -> EtfHoldingOut:
+def _holding_out(
+    h: nport.Holding, security_id: UUID | None = None, resolved_ticker: str | None = None
+) -> EtfHoldingOut:
     return EtfHoldingOut(
         name=h.name,
-        ticker=h.ticker,
+        # a held/available holding matched on its EFFECTIVE ticker (the filing's own, else its CUSIP
+        # resolved via OpenFIGI) — surface THAT so a ticker-less holding shows what it matched to
+        # (NVIDIA's CUSIP 67066G104 -> NVDA), not a blank; unresolved passes None (it matched nothing).
+        ticker=h.ticker or resolved_ticker,
         cusip=h.cusip,
         isin=h.isin,
         pct_val=h.pct_val,
@@ -327,8 +332,14 @@ def etf_holdings(
         report_date=report.report_date,
         source_ref=ref.index_url,
         holdings_count=len(report.holdings),
-        held=[_holding_out(h, sid) for h, sid in res.held],
-        available=[_holding_out(h, sid) for h, sid in res.available],
+        held=[
+            _holding_out(h, sid, etf_overlap.effective_ticker(h, cusip_tickers))
+            for h, sid in res.held
+        ],
+        available=[
+            _holding_out(h, sid, etf_overlap.effective_ticker(h, cusip_tickers))
+            for h, sid in res.available
+        ],
         unresolved=[_holding_out(h) for h in res.unresolved],
     )
 

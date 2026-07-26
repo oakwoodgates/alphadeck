@@ -3818,7 +3818,7 @@
         },
         "type": "object",
         "title": "EtfHoldingOut",
-        "description": "One N-PORT holding on the wire (ETF Sleeve, Slice 2a): the filing's own identity fields\n(identifier coverage varies by filing agent \u2014 some carry no ticker on any equity holding, so a\nholding may legitimately ride on name+CUSIP/ISIN alone), its weight, and \u2014 for the held/available\nbuckets \u2014 the matched master ``security_id`` (``None`` in ``unresolved``: shown, not matchable yet)."
+        "description": "One holding on the wire (ETF Sleeve, Slice 2a). ``ticker`` is the holding's best-known ticker \u2014\nthe filing's own where it carried one, else (for a held/available match) its CUSIP resolved to a US\nticker via OpenFIGI; ``None`` only when nothing matched (``unresolved``). ``cusip``/``isin`` are the\nFILING's own identifiers, carried alongside as provenance (coverage varies by filing agent \u2014 some\nstamp no ticker at all). Plus the weight and \u2014 for the held/available buckets \u2014 the matched master\n``security_id``."
       },
       "EtfHoldingsOut": {
         "properties": {
