@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from db.migrate import apply_migrations
 from db.session import DEFAULT_TENANT_ID
+from domain.enums import InstrumentKind
 from domain.security import SecurityIdentity
 from ingest import CacheMiss
 from securities import master
@@ -233,3 +235,107 @@ def test_enrich_unknown_id_updates_nothing(db):
     """A foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary as
     ``exists``) — never conjures a row."""
     assert master.enrich(db, uuid.uuid4(), SecurityIdentity(sector="X"), source="s") is False
+
+
+# --- instrument_kind: the ETF-sleeve foundation brick (migration 0026 + resolve/mark, Slice 1) ---
+
+
+def test_instrument_kind_migration_defaults_equity_and_is_idempotent(db):
+    """The 0026 column is present, NOT NULL, DEFAULT 'equity' — an existing/legacy row (inserted without the
+    column) reads back the default, never NULL; and re-applying migrations is a no-op (schema_migrations
+    tracks 0026 as done; the SQL is ADD COLUMN IF NOT EXISTS belt-and-braces too)."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT is_nullable, column_default FROM information_schema.columns "
+            "WHERE table_name = 'security_master' AND column_name = 'instrument_kind'"
+        )
+        col = cur.fetchone()
+    assert col is not None  # the column exists
+    assert col["is_nullable"] == "NO"  # NOT NULL
+    assert "equity" in col["column_default"]  # DEFAULT 'equity'::text
+
+    # a row inserted WITHOUT naming instrument_kind takes the default (the no-backfill path — every
+    # pre-migration row stays 'equity')
+    sid = _insert(db, ticker="HIMS", cik="0001773751")
+    assert master.get(db, sid).instrument_kind is InstrumentKind.EQUITY
+
+    # re-apply migrations: idempotent — 0026 is already recorded, so nothing re-runs and nothing errors
+    assert "0026_master_instrument_kind.sql" not in apply_migrations(db)
+    assert master.get(db, sid).instrument_kind is InstrumentKind.EQUITY  # unchanged
+
+
+def test_resolve_marks_new_row_etf_with_null_cik(db):
+    """The surface-ETF CREATE path: a thematic ETF absent from SEC (LIT — not in the SEC fixture, so
+    ``cik_for`` returns None) is INSERTED marked 'etf' with cik=None (fine for a price-only sleeve); OpenFIGI
+    (the LIT fixture) supplies name + figi. Count-the-table idempotent: a re-resolve reads the row back, never
+    re-inserts, and it stays 'etf'."""
+    sec = master.resolve(
+        db,
+        "LIT",
+        figi_cache_dir=_FIGI,
+        sec_cache_dir=_SEC,
+        allow_live=False,
+        instrument_kind=InstrumentKind.ETF,
+    )
+    assert sec.instrument_kind is InstrumentKind.ETF
+    assert (
+        sec.cik is None
+    )  # a fund-trust series, not an operating-company CIK — SEC-absent is expected
+    assert sec.figi == "BBG000QN0N15" and sec.name  # OpenFIGI named the row
+    # the stored row round-trips 'etf' through the read path (_row_to_security)
+    assert master.get(db, sec.id).instrument_kind is InstrumentKind.ETF
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master WHERE ticker = 'LIT'")
+        assert cur.fetchone()["n"] == 1
+
+    again = master.resolve(
+        db,
+        "LIT",
+        figi_cache_dir=_FIGI,
+        sec_cache_dir=_SEC,
+        allow_live=False,
+        instrument_kind=InstrumentKind.ETF,
+    )
+    assert again.id == sec.id  # read back, not re-inserted
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master WHERE ticker = 'LIT'")
+        assert cur.fetchone()["n"] == 1  # count-the-table: no duplicate append
+
+
+def test_resolve_default_kind_is_equity(db):
+    """resolve() with no instrument_kind arg inserts the default 'equity' — the equity path is unchanged by
+    the new parameter (AAPL is a normal operating company)."""
+    sec = master.resolve(db, "AAPL", figi_cache_dir=_FIGI, sec_cache_dir=_SEC, allow_live=False)
+    assert sec.instrument_kind is InstrumentKind.EQUITY
+    assert master.get(db, sec.id).instrument_kind is InstrumentKind.EQUITY
+
+
+def test_mark_instrument_kind_flips_existing_row_in_place(db):
+    """The surface-ETF HIT path: a ticker already present as an equity (SPY/GLD — the few mega-ETFs in the
+    master) is flipped to 'etf' UPDATE-in-place — the id is stable, the row COUNT never grows (count the
+    table, not the read), and a re-mark is idempotent."""
+    sid = _insert(db, ticker="SPY", name="SPDR S&P 500 ETF Trust", cik="0000884394")
+    assert master.get(db, sid).instrument_kind is InstrumentKind.EQUITY  # starts at the default
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        before = cur.fetchone()["n"]
+
+    assert master.mark_instrument_kind(db, sid, InstrumentKind.ETF) is True
+    db.commit()
+    assert master.get(db, sid).instrument_kind is InstrumentKind.ETF  # flipped
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before  # UPDATE-in-place, never appended
+
+    # idempotent re-mark (still one row, still etf)
+    assert master.mark_instrument_kind(db, sid, InstrumentKind.ETF) is True
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before
+
+
+def test_mark_instrument_kind_unknown_id_updates_nothing(db):
+    """A foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary as
+    ``exists`` / ``enrich``) — never conjures a row."""
+    assert master.mark_instrument_kind(db, uuid.uuid4(), InstrumentKind.ETF) is False

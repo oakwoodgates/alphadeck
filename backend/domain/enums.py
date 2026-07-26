@@ -65,6 +65,20 @@ class CatalystType(StrEnum):
     GOV_FUNDING = "gov_funding"  # e.g. a DOE loan guarantee / grant award
 
 
+class InstrumentKind(StrEnum):
+    """What an instrument IS on the security master — the modular foundation brick (ETF Sleeve, Slice 1).
+
+    ``EQUITY`` = a common-stock operating company (the default; every existing master row). ``ETF`` = a fund
+    the operator SURFACES as the low-torque ``fund`` sleeve expression of a thesis. Operator-DECLARED, never
+    auto-detected. Descriptive IDENTITY (like ``sector`` / ``category``): it never feeds a number on a call
+    card and never gates the call path — the sleeve is an EXPRESSION, never a call input (#4/#6). Future
+    callable kinds (``spac``, …) extend this enum WITHOUT another migration+backfill.
+    """
+
+    EQUITY = "equity"
+    ETF = "etf"
+
+
 class Archetype(StrEnum):
     """A basket member's role in expressing the thesis."""
 

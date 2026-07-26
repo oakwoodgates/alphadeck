@@ -304,6 +304,24 @@ export function useResolveSecurities(query: string) {
   });
 }
 
+// Surface an operator-supplied ETF ticker as a `fund` sleeve's master row (ETF Sleeve, Slice 1): the server
+// resolves it (lookup-or-create) and marks it instrument_kind='etf', returning the SecurityMatchOut the FE
+// adds to the basket as an archetype='fund' member. An EXPLICIT operator action (typing a ticker + click);
+// retry:false (a one-shot resolve, re-click on failure). No invalidation here — the caller fires the existing
+// ingest-prices (which re-derives the scored view) after adding the member. Unlike useResolveSecurities this
+// needs NO prior master match (a thematic ETF absent from the master is the point).
+async function postResolveEtf(ticker: string): Promise<SecurityMatchOut> {
+  const { data, error } = await api.POST("/workbench/securities/resolve-etf", {
+    body: { ticker },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export function useResolveEtf() {
+  return useMutation({ retry: false, mutationFn: postResolveEtf });
+}
+
 // Promote/save a structured thesis (the app's only mutation): create/update via full-replace upsert,
 // then invalidate the Board list AND the scored read so the meters re-derive on the new structure.
 // Scores are never sent — they re-derive on read. `identity_overrides` is optional at the call sites

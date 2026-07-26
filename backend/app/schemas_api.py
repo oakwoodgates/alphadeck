@@ -8,7 +8,16 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
-from domain.enums import Archetype, CatalystType, Grade, Kind, State, TermTier, Verdict
+from domain.enums import (
+    Archetype,
+    CatalystType,
+    Grade,
+    InstrumentKind,
+    Kind,
+    State,
+    TermTier,
+    Verdict,
+)
 from domain.settings import get_settings
 from domain.signal import Provenance
 from domain.thesis import (
@@ -360,15 +369,28 @@ class PriceIngestOut(BaseModel):
 
 
 class SecurityMatchOut(BaseModel):
-    """A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the
-    exact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING
-    per-tenant master (INVARIANT #2) — every match is a real member, nothing is ingested or guessed.
+    """A security-master match for the Workbench's add-a-name typeahead (Slice 4b) AND the surface-ETF
+    resolve receipt (ETF Sleeve, Slice 1). The operator picks the exact row; its ``security_id`` is then
+    placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #2) — every match
+    is a real member, nothing is ingested or guessed.
+
+    ``instrument_kind`` is what the row IS — ``equity`` (the typeahead default) or ``etf`` (returned by the
+    surface-ETF resolve so the FE adds it as a ``fund`` sleeve). Identity, never a call input (#4/#6).
     """
 
     security_id: UUID
     ticker: str
     name: str | None = None
     cik: str | None = None
+    instrument_kind: InstrumentKind = InstrumentKind.EQUITY
+
+
+class ResolveEtfRequest(BaseModel):
+    """Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
+    ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
+    marks it ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM)."""
+
+    ticker: str
 
 
 class PromoteThesisRequest(BaseModel):

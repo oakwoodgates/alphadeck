@@ -31,6 +31,7 @@ import {
 } from "../util/exportNames";
 import { useDebouncedCallback } from "../util/useDebouncedCallback";
 import { AddName } from "./AddName";
+import { SurfaceEtf } from "./SurfaceEtf";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
 import { archLabel, errText, memberHasFundamentals } from "./format";
@@ -2034,6 +2035,15 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
       </div>
 
       <AddName
+        existingKeys={keys}
+        onAdd={(m, name) => {
+          d.addMember(m);
+          if (m.security_id && name) setNames((prev) => ({ ...prev, [m.security_id as string]: name }));
+        }}
+      />
+      {/* surface an ETF as a `fund` sleeve — directly below add-a-name (ETF Sleeve, Slice 1). Same onAdd
+          bridge; unlike AddName it needs no prior master match (it resolves + marks the ticker itself). */}
+      <SurfaceEtf
         existingKeys={keys}
         onAdd={(m, name) => {
           d.addMember(m);

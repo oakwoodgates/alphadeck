@@ -57,6 +57,8 @@ vi.mock("../../api/hooks", () => ({
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),
+  // the surface-ETF sleeve input (below AddName in the ChainEditor) — inert here
+  useResolveEtf: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   // #7: the exclusion PUT rides every ChainEditor Save (mutateAsync must resolve)
   usePutExclusions: () => ({
     mutateAsync: async () => ({}),

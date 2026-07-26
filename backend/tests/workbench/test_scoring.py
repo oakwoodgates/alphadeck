@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -116,6 +117,42 @@ def test_market_cap_price_without_shares_stays_visible(db, security_id):
     assert any(
         "NO ratified shares" in str(p.detail.get("note", "")) for p in m.market_cap.provenance
     )
+
+
+# --- the fund sleeve's price (ETF Sleeve, Slice 1) — a fund has no shares fact, so the sleeve shows the
+# price-only market_cap branch; the FE reads `detail.close` off the price provenance. No-lookahead (#1). ---
+
+
+def _etf_sid(db, ticker="LIT") -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, instrument_kind, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, "etf", date(2026, 1, 1)),
+        )
+    db.commit()
+    return sid
+
+
+def test_fund_sleeve_price_reads_as_of_no_lookahead(db):
+    """A surfaced ETF (a `fund` member) carries no ratified shares, so ``_market_cap`` returns the price-only
+    branch — the sleeve PRICE the FE renders lives on the price provenance's ``detail.close``. No-lookahead
+    (#1): scoring as-of an early date reads only bars <= asof, so a FUTURE bar never leaks into the sleeve
+    price. Price is context, not a signal (#4/#6): value stays None (no cap without shares)."""
+    sid = _etf_sid(db)
+    _price(db, sid, date(2026, 6, 10), 100.0)
+    _price(db, sid, date(2026, 7, 1), 200.0)  # a FUTURE bar relative to the scored asof below
+    db.commit()
+    fund = BasketMember(ticker="LIT", role="ETF sleeve", archetype=Archetype.FUND, security_id=sid)
+    pit = PointInTimeData(db, asof=date(2026, 6, 15), tenant_id=DEFAULT_TENANT_ID)
+    m = score_member(pit, fund, DEFAULT_CONFIG)
+    assert m.market_cap.value is None  # no shares -> no cap; the sleeve is priced, not valued
+    price_prov = [p for p in m.market_cap.provenance if p.source == "price"]
+    assert len(price_prov) == 1
+    # the last bar <= asof (06-10 @ 100), NEVER the 07-01 @ 200 future bar — no-lookahead
+    assert price_prov[0].ref == "price:2026-06-10"
+    assert price_prov[0].detail["close"] == 100.0
 
 
 # ---------------------------------------------------------------------------------------------------------

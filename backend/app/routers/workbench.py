@@ -36,6 +36,7 @@ from app.schemas_api import (
     PromoteThesisRequest,
     RatifiedFactOut,
     RatifyFactRequest,
+    ResolveEtfRequest,
     SavedRunSummary,
     ScoredMemberOut,
     SecurityMatchOut,
@@ -47,7 +48,7 @@ from app.schemas_api import (
     WorkbenchScored,
 )
 from db.session import connect
-from domain.enums import Authorship, TermTier
+from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.settings import get_settings
 from domain.thesis import Thesis
@@ -136,6 +137,70 @@ def search_securities(
     return [
         SecurityMatchOut(security_id=m.id, ticker=m.ticker, name=m.name, cik=m.cik) for m in matches
     ]
+
+
+@router.post("/securities/resolve-etf", response_model=SecurityMatchOut)
+def resolve_etf(
+    req: ResolveEtfRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> SecurityMatchOut:
+    """Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
+    operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
+    ``instrument_kind='etf'`` — the row the FE then adds to the basket as an ``archetype='fund'`` member (the
+    ETF attaches UNDER a thesis, never free-floating — #2).
+
+    LOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD — the few
+    mega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT
+    from SEC (LIT/URA/SMH — a fund-trust series, not an operating-company CIK, so ``cik`` resolves to ``None``,
+    which ``resolve`` already handles) is CREATED via ``resolve(instrument_kind='etf', allow_live=True)`` —
+    OpenFIGI names it, ``cik=None`` is fine for a price-only sleeve. ``allow_live`` mirrors the extract
+    endpoint's live-on-an-operator-click precedent (the cost thread: surfacing is an explicit operator click,
+    never ambient). WRITES the master row (an operational universe write — no thesis spine, no fact, no number,
+    #3); the operator's promote stays the only spine writer.
+
+    NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity — it never fires,
+    warms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op
+    for free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.
+    """
+    ticker = req.ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=422, detail="a ticker is required")
+    existing_id = master.ids_for_tickers(conn, [ticker], tenant_id=tenant_id).get(ticker)
+    try:
+        if existing_id is not None:
+            # the HIT case (SPY/GLD already present as equity) — flip it in place, then re-read so the
+            # response carries the stamped kind (resolve's early-return would return the pre-mark row)
+            master.mark_instrument_kind(conn, existing_id, InstrumentKind.ETF, tenant_id=tenant_id)
+            sec = master.get(conn, existing_id, tenant_id=tenant_id)
+        else:
+            # the CREATE case (a thematic ETF absent from SEC) — insert marked 'etf' from birth (cik=None)
+            sec = master.resolve(
+                conn,
+                ticker,
+                tenant_id=tenant_id,
+                instrument_kind=InstrumentKind.ETF,
+                allow_live=True,
+            )
+        conn.commit()
+    except HTTPException:
+        raise
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — OpenFIGI/SEC unreachable -> a clear 502, never a silent 500
+        conn.rollback()
+        raise HTTPException(status_code=502, detail=f"ETF resolve failed: {exc}") from exc
+    if (
+        sec is None
+    ):  # defensive: the hit path re-reads the row it just stamped (should always be present)
+        raise HTTPException(status_code=404, detail="security not found after resolve")
+    return SecurityMatchOut(
+        security_id=sec.id,
+        ticker=sec.ticker,
+        name=sec.name,
+        cik=sec.cik,
+        instrument_kind=sec.instrument_kind,
+    )
 
 
 @router.get("/securities/{security_id}/extract", response_model=ExtractionResult)
