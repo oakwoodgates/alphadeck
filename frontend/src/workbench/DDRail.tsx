@@ -1,6 +1,7 @@
 import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
 import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
+import { SleeveRail } from "./SleeveRail";
 import {
   ARCHETYPES,
   archLabel,
@@ -75,6 +76,9 @@ interface Props {
   // the active thesis — passed to the facts panel so the extract can request the GROUNDED purity estimate
   // (SURFACE 1b; purity's on-thesis segment depends on the narrative). Optional: no thesis -> no purity estimate.
   thesisId?: string;
+  // the Workbench's as-of — threaded to a `fund` sleeve's SleeveRail so its N-PORT holdings pull picks the
+  // filing KNOWABLE then (#1). Unused by the equity dossier (its scores are already re-derived at as-of).
+  asof?: string;
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -82,7 +86,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId }: Props) {
+export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId, asof }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -91,6 +95,11 @@ export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId
         </div>
       </div>
     );
+  }
+  // A `fund` sleeve is an EXPRESSION, not a scored equity (#4/#6): none of the meters / extract / ratify
+  // machinery below applies. Its dossier is identity + price + N-PORT holdings — a wholly separate panel.
+  if (member.archetype === "fund") {
+    return <SleeveRail member={member} thesisId={thesisId} asof={asof} />;
   }
   // The #10 recommendation: a derived default (market cap + purity) that DIFFERS from the current archetype.
   // Pending + display-only — the operator confirms it (apply -> operator_edited) or ignores it. No chip when

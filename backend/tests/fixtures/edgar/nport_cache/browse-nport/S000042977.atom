@@ -1,0 +1,536 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+  <feed xmlns="http://www.w3.org/2005/Atom">
+    <author>
+      <email>webmaster@sec.gov</email>
+      <name>Webmaster</name>
+    </author>
+    <company-info>
+      <addresses>
+        <address type="mailing">
+          <city>NEW YORK</city>
+          <state>NY</state>
+          <street1>155 WEST 19TH STREET, FIFTH FLOOR</street1>
+          <zip>10011</zip>
+        </address>
+        <address type="business">
+          <city>NEW YORK</city>
+          <phone>212.426.7040</phone>
+          <state>NY</state>
+          <street1>155 WEST 19TH STREET, FIFTH FLOOR</street1>
+          <zip>10011</zip>
+        </address>
+      </addresses>
+      <cik>0001579982</cik>
+      <cik-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;CIK=0001579982&amp;owner=include&amp;count=40</cik-href>
+      <conformed-name>ARK ETF Trust</conformed-name>
+      <fiscal-year-end>0831</fiscal-year-end>
+      <state-location>NY</state-location>
+      <state-location-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;State=NY&amp;owner=include&amp;count=40</state-location-href>
+      <state-of-incorporation>DE</state-of-incorporation>
+    </company-info>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0000940400-26-025084</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2026-06-23</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000094040026025084/0000940400-26-025084-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>261109973</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>219 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0000940400-26-025084</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000094040026025084/0000940400-26-025084-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2026-06-23 &lt;b&gt;AccNo:&lt;/b&gt; 0000940400-26-025084 &lt;b&gt;Size:&lt;/b&gt; 219 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2026-06-23T13:00:50-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0000940400-26-012617</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2026-03-31</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000094040026012617/0000940400-26-012617-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>26820836</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>64 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0000940400-26-012617</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000094040026012617/0000940400-26-012617-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2026-03-31 &lt;b&gt;AccNo:&lt;/b&gt; 0000940400-26-012617 &lt;b&gt;Size:&lt;/b&gt; 64 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2026-03-31T14:42:43-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0000940400-25-014992</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2025-12-29</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000094040025014992/0000940400-25-014992-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>251607019</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>360 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0000940400-25-014992</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000094040025014992/0000940400-25-014992-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2025-12-29 &lt;b&gt;AccNo:&lt;/b&gt; 0000940400-25-014992 &lt;b&gt;Size:&lt;/b&gt; 360 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2025-12-29T12:07:59-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0000940400-25-002011</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2025-09-23</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000094040025002011/0000940400-25-002011-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>251334239</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>59 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0000940400-25-002011</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000094040025002011/0000940400-25-002011-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2025-09-23 &lt;b&gt;AccNo:&lt;/b&gt; 0000940400-25-002011 &lt;b&gt;Size:&lt;/b&gt; 59 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2025-09-23T16:45:15-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-25-155354</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2025-06-25</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272425155354/0001752724-25-155354-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>251072444</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>239 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-25-155354</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272425155354/0001752724-25-155354-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2025-06-25 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-25-155354 &lt;b&gt;Size:&lt;/b&gt; 239 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2025-06-25T13:07:26-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-25-073661</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2025-03-28</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272425073661/0001752724-25-073661-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>25782915</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>51 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-25-073661</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272425073661/0001752724-25-073661-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2025-03-28 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-25-073661 &lt;b&gt;Size:&lt;/b&gt; 51 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2025-03-28T11:57:41-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-24-296176</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2024-12-26</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272424296176/0001752724-24-296176-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>241580417</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>355 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-24-296176</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272424296176/0001752724-24-296176-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2024-12-26 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-24-296176 &lt;b&gt;Size:&lt;/b&gt; 355 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2024-12-26T14:00:34-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-24-219579</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2024-09-26</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272424219579/0001752724-24-219579-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>241327438</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>51 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-24-219579</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272424219579/0001752724-24-219579-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2024-09-26 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-24-219579 &lt;b&gt;Size:&lt;/b&gt; 51 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2024-09-26T12:32:31-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-24-146525</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2024-06-26</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272424146525/0001752724-24-146525-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>241073085</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>177 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-24-146525</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272424146525/0001752724-24-146525-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2024-06-26 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-24-146525 &lt;b&gt;Size:&lt;/b&gt; 177 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2024-06-26T14:50:57-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-24-062097</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2024-03-21</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272424062097/0001752724-24-062097-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>24770397</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>52 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-24-062097</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272424062097/0001752724-24-062097-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2024-03-21 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-24-062097 &lt;b&gt;Size:&lt;/b&gt; 52 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2024-03-21T12:55:38-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-23-294339</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2023-12-27</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272423294339/0001752724-23-294339-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>231518517</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>427 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-23-294339</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272423294339/0001752724-23-294339-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2023-12-27 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-23-294339 &lt;b&gt;Size:&lt;/b&gt; 427 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2023-12-27T16:50:52-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-23-219823</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2023-09-27</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272423219823/0001752724-23-219823-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>231284439</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>48 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-23-219823</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272423219823/0001752724-23-219823-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2023-09-27 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-23-219823 &lt;b&gt;Size:&lt;/b&gt; 48 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2023-09-27T15:15:51-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-23-141443</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2023-06-23</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272423141443/0001752724-23-141443-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>231037306</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>346 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-23-141443</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272423141443/0001752724-23-141443-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2023-06-23 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-23-141443 &lt;b&gt;Size:&lt;/b&gt; 346 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2023-06-23T15:11:19-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-23-065117</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2023-03-24</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272423065117/0001752724-23-065117-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>23758414</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>47 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-23-065117</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272423065117/0001752724-23-065117-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2023-03-24 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-23-065117 &lt;b&gt;Size:&lt;/b&gt; 47 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2023-03-24T10:48:07-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-22-291289</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2022-12-27</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272422291289/0001752724-22-291289-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>221487523</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>227 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-22-291289</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272422291289/0001752724-22-291289-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2022-12-27 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-22-291289 &lt;b&gt;Size:&lt;/b&gt; 227 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2022-12-27T11:51:25-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-22-221364</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2022-09-28</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272422221364/0001752724-22-221364-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>221274596</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>52 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-22-221364</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272422221364/0001752724-22-221364-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2022-09-28 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-22-221364 &lt;b&gt;Size:&lt;/b&gt; 52 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2022-09-28T13:16:03-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-22-146335</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2022-06-24</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272422146335/0001752724-22-146335-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>221038720</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>340 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-22-146335</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272422146335/0001752724-22-146335-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2022-06-24 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-22-146335 &lt;b&gt;Size:&lt;/b&gt; 340 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2022-06-24T11:47:52-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-22-069266</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2022-03-23</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272422069266/0001752724-22-069266-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>22763076</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>60 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-22-069266</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272422069266/0001752724-22-069266-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2022-03-23 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-22-069266 &lt;b&gt;Size:&lt;/b&gt; 60 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2022-03-23T15:31:23-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-21-280491</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2021-12-23</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272421280491/0001752724-21-280491-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>211516485</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>314 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-21-280491</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272421280491/0001752724-21-280491-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2021-12-23 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-21-280491 &lt;b&gt;Size:&lt;/b&gt; 314 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2021-12-23T13:33:03-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-21-207063</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2021-09-24</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272421207063/0001752724-21-207063-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>211276430</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>63 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-21-207063</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272421207063/0001752724-21-207063-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2021-09-24 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-21-207063 &lt;b&gt;Size:&lt;/b&gt; 63 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2021-09-24T13:14:40-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-21-135183</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2021-06-24</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272421135183/0001752724-21-135183-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>211042005</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>282 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-21-135183</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272421135183/0001752724-21-135183-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2021-06-24 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-21-135183 &lt;b&gt;Size:&lt;/b&gt; 282 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2021-06-24T13:48:20-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-21-057880</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2021-03-19</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272421057880/0001752724-21-057880-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>21757364</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>69 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-21-057880</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272421057880/0001752724-21-057880-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2021-03-19 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-21-057880 &lt;b&gt;Size:&lt;/b&gt; 69 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2021-03-19T13:08:02-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-20-271855</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2020-12-28</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272420271855/0001752724-20-271855-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>201415853</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>199 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-20-271855</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272420271855/0001752724-20-271855-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2020-12-28 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-20-271855 &lt;b&gt;Size:&lt;/b&gt; 199 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2020-12-28T11:02:41-05:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-20-194886</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2020-09-25</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272420194886/0001752724-20-194886-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>201199709</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>58 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-20-194886</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272420194886/0001752724-20-194886-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2020-09-25 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-20-194886 &lt;b&gt;Size:&lt;/b&gt; 58 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2020-09-25T15:37:24-04:00</updated>
+    </entry>
+    <entry>
+      <category label="form type" scheme="https://www.sec.gov/" term="NPORT-P" />
+      <content type="text/xml">
+        <accession-number>0001752724-20-129670</accession-number>
+        <act>40</act>
+        <file-number>811-22883</file-number>
+        <file-number-href>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;filenum=811-22883&amp;owner=include&amp;count=40</file-number-href>
+        <filing-date>2020-06-26</filing-date>
+        <filing-href>https://www.sec.gov/Archives/edgar/data/1579982/000175272420129670/0001752724-20-129670-index.htm</filing-href>
+        <filing-type>NPORT-P</filing-type>
+        <film-number>20991606</film-number>
+        <form-name>Monthly Portfolio Investments Report on Form N-PORT (Public)</form-name>
+        <size>165 KB</size>
+      </content>
+      <id>urn:tag:sec.gov,2008:accession-number=0001752724-20-129670</id>
+      <link href="https://www.sec.gov/Archives/edgar/data/1579982/000175272420129670/0001752724-20-129670-index.htm" rel="alternate" type="text/html" />
+      <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2020-06-26 &lt;b&gt;AccNo:&lt;/b&gt; 0001752724-20-129670 &lt;b&gt;Size:&lt;/b&gt; 165 KB</summary>
+      <title>NPORT-P  - Monthly Portfolio Investments Report on Form N-PORT (Public)</title>
+      <updated>2020-06-26T10:06:45-04:00</updated>
+    </entry>
+    <id>https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;CIK=0001579982</id>
+    <link href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;CIK=S000042977&amp;type=NPORT-P&amp;owner=include&amp;start=0&amp;count=40" rel="alternate" type="text/html" />
+    <link href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&amp;CIK=S000042977&amp;type=NPORT-P&amp;owner=include&amp;start=0&amp;count=40&amp;output=atom" rel="self" type="application/atom+xml" />
+    <title>ARK ETF Trust  (0001579982)</title>
+    <updated>2026-07-26T11:53:11-04:00</updated>
+  </feed>

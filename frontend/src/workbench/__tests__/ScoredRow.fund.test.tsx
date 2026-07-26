@@ -8,6 +8,7 @@ vi.mock("../../api/hooks", () => ({
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   useAutoConfirmShares: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useEtfHoldings: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
 }));
 
 import { ScoredRow } from "../ScoredRow";

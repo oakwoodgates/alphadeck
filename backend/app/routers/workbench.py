@@ -30,6 +30,8 @@ from app.schemas_api import (
     DraftJobStatus,
     DraftReportOut,
     EditTermsRequest,
+    EtfHoldingOut,
+    EtfHoldingsOut,
     FlagExplanationOut,
     PriceIngestOut,
     ProduceTermsRequest,
@@ -54,6 +56,7 @@ from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
+from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
@@ -72,9 +75,9 @@ from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
-from securities import coherence, master
+from securities import coherence, figi, fund_tickers, master
 from signals.base import PointInTimeData
-from workbench import run_loader, triage_store
+from workbench import etf_overlap, run_loader, triage_store
 from workbench.chain_draft import (
     PlacementStatus,
     proposed_from_decomposition,
@@ -200,6 +203,144 @@ def resolve_etf(
         name=sec.name,
         cik=sec.cik,
         instrument_kind=sec.instrument_kind,
+    )
+
+
+def _holding_out(
+    h: nport.Holding, security_id: UUID | None = None, resolved_ticker: str | None = None
+) -> EtfHoldingOut:
+    return EtfHoldingOut(
+        name=h.name,
+        # a held/available holding matched on its EFFECTIVE ticker (the filing's own, else its CUSIP
+        # resolved via OpenFIGI) — surface THAT so a ticker-less holding shows what it matched to
+        # (NVIDIA's CUSIP 67066G104 -> NVDA), not a blank; unresolved passes None (it matched nothing).
+        ticker=h.ticker or resolved_ticker,
+        cusip=h.cusip,
+        isin=h.isin,
+        pct_val=h.pct_val,
+        val_usd=h.val_usd,
+        security_id=security_id,
+    )
+
+
+@router.get("/securities/{security_id}/etf-holdings", response_model=EtfHoldingsOut)
+def etf_holdings(
+    security_id: UUID,
+    thesis_id: UUID | None = Query(
+        None,
+        description="overlap the holdings against THIS thesis's basket (held vs available); "
+        "holdings-only when absent (every match lands 'available')",
+    ),
+    asof: date | None = Query(
+        None,
+        description="no-lookahead (#1): use the latest N-PORT FILED on or before this date; "
+        "absent = the latest on file. The response labels the holdings' report-period vintage.",
+    ),
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> EtfHoldingsOut:
+    """Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,
+    Slice 2a) — the holdings-seed: *"the ETF holds these N names; here are the M you're missing."*
+
+    DETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker → the SEC fund file
+    (``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY — the trust CIK is never
+    written to the master, where extraction would misread it) → the series-filtered browse-edgar lookup
+    (one fetch) → the accession's ``primary_doc.xml`` (immutable-cached) → parsed positions, series
+    VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
+    discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
+
+    THE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT
+    ``ticker`` identifier when the filer stamped one — else its CUSIP batch-resolved to a US ticker
+    via OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited
+    POSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity
+    holding (measured: SMH/URA/LIT all 0 — e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without
+    it the overlap is empty. Never the master ``cusip`` column (effectively always NULL — a silent
+    nothing).
+
+    RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
+    include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
+    NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
+    RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no ticker AND no
+    CUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,
+    never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
+    behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
+    """
+    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    if sec is None:
+        raise HTTPException(status_code=404, detail="unknown security for this tenant")
+    if not sec.ticker:
+        raise HTTPException(
+            status_code=422, detail="no ticker on this security — there is no fund to resolve"
+        )
+    basket_sids: set[UUID] = set()
+    if thesis_id is not None:
+        thesis = thesis_repo.get(conn, thesis_id)
+        if thesis is None:
+            raise HTTPException(status_code=404, detail="thesis not found")
+        basket_sids = {m.security_id for m in thesis.basket if m.security_id is not None}
+    try:
+        ident = fund_tickers.resolve(sec.ticker, allow_live=True)
+    except Exception as exc:  # noqa: BLE001 — SEC unreachable / no UA -> a clear 502, never a 500
+        raise HTTPException(status_code=502, detail=f"fund resolution failed: {exc}") from exc
+    if ident is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{sec.ticker} is not in the SEC fund file — no N-PORT identity to pull",
+        )
+    client = EdgarClient(allow_live=True)
+    try:
+        ref = nport.latest_nport_accession(client, ident.series_id, asof=asof)
+        if ref is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no N-PORT on file for series {ident.series_id}"
+                + (f" as of {asof.isoformat()}" if asof else ""),
+            )
+        xml = nport.fetch_nport(client, ref.trust_cik, ref.accession)
+        report = nport.parse_nport_holdings(xml)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — SEC/parse trouble -> a clear 502, never a silent 500
+        raise HTTPException(status_code=502, detail=f"N-PORT pull failed: {exc}") from exc
+    if report.series_id != ident.series_id:
+        # the wrong (or unverifiable) series' holdings must never render under this sleeve's name —
+        # fail VISIBLY (#6); both real filers stamp the seriesId, so a mismatch is a real wrong-doc
+        raise HTTPException(
+            status_code=502,
+            detail=f"N-PORT series mismatch: wanted {ident.series_id}, "
+            f"document carries {report.series_id}",
+        )
+    # the CUSIP→ticker leg: only holdings the filer left ticker-less need it (the filing's own ticker
+    # wins where present); cache-first, so a re-click resolves offline
+    cusips_to_map = [h.cusip for h in report.holdings if not h.ticker and h.cusip]
+    try:
+        cusip_tickers = figi.map_cusip(cusips_to_map, allow_live=True) if cusips_to_map else {}
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — OpenFIGI unreachable -> a clear 502, never a silently-empty overlap
+        raise HTTPException(status_code=502, detail=f"CUSIP resolution failed: {exc}") from exc
+    holding_tickers = [h.ticker for h in report.holdings if h.ticker] + list(cusip_tickers.values())
+    master_ids = (
+        master.ids_for_tickers(conn, holding_tickers, tenant_id=tenant_id)
+        if holding_tickers
+        else {}
+    )
+    res = etf_overlap.classify(
+        report.holdings, master_ids, basket_sids, cusip_tickers=cusip_tickers
+    )
+    return EtfHoldingsOut(
+        report_date=report.report_date,
+        source_ref=ref.index_url,
+        holdings_count=len(report.holdings),
+        held=[
+            _holding_out(h, sid, etf_overlap.effective_ticker(h, cusip_tickers))
+            for h, sid in res.held
+        ],
+        available=[
+            _holding_out(h, sid, etf_overlap.effective_ticker(h, cusip_tickers))
+            for h, sid in res.available
+        ],
+        unresolved=[_holding_out(h) for h in res.unresolved],
     )
 
 

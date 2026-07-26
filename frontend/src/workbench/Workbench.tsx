@@ -98,8 +98,12 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
   const shownMembers = activeSeg
     ? chainMembers.filter((m) => m.segment === activeSeg)
     : chainMembers;
+  // Selection resolves across the scored chain AND the sleeves — a `fund` row drives the DD rail (SleeveRail)
+  // just like a scored name. The default (nothing picked) stays the first chain member, never a sleeve.
   const selectedMember =
-    shownMembers.find((m) => m.security_id === pickedMemberId) ?? shownMembers[0] ?? null;
+    [...shownMembers, ...sleeveMembers].find((m) => m.security_id === pickedMemberId) ??
+    shownMembers[0] ??
+    null;
   const linkCount = new Set(members.map((m) => m.segment).filter(Boolean)).size;
   // the authorship seam: who placed each name (operator now; S5's drafter will add "drafted")
   const authoredByFor = (sid: string) =>
@@ -650,10 +654,10 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                 </section>
               )}
 
-              {/* ETF sleeves (ETF Sleeve, Slice 1) — the theme's low-torque expression, in their OWN group
-                  (not a value-chain segment) so a surfaced `fund` sleeve always renders with its price,
-                  whatever segment tab is active. Display-only: price is context, never a signal (#4/#6), and
-                  the row doesn't drive the DD rail (a fund has no facts to inspect). */}
+              {/* ETF sleeves (ETF Sleeve) — the theme's low-torque expression, in their OWN group (not a
+                  value-chain segment) so a surfaced `fund` sleeve always renders with its price, whatever
+                  segment tab is active. Display-only: price is context, never a signal (#4/#6). Selecting a
+                  sleeve drives the DD rail (SleeveRail) — its N-PORT holdings + basket overlap show there. */}
               {sleeveMembers.length > 0 && (
                 <section className="sect wb-sleeves">
                   <div className="sect-h">
@@ -664,8 +668,8 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                     <ScoredRow
                       key={m.security_id}
                       member={m}
-                      selected={false}
-                      onSelect={() => {}}
+                      selected={m.security_id === selectedMember?.security_id}
+                      onSelect={() => setPickedMemberId(m.security_id)}
                       thesisId={thesisId}
                       asof={asof}
                     />
@@ -774,6 +778,7 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                 onApplyArchetype={applyArchetype}
                 applying={promote.isPending}
                 thesisId={thesisId}
+                asof={asof}
               />
             </aside>
           </>

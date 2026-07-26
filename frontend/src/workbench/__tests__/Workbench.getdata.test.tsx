@@ -68,6 +68,7 @@ vi.mock("../../api/hooks", () => ({
   useIngestPrices: () => ({ mutate: h.pxMutate, isPending: false, isError: false, error: null }),
   // the AUTO-shares auto-confirm fired by get-data — CAPTURED (the ceremonial confirm, removed)
   useAutoConfirmShares: () => ({ mutate: h.autoMutate, isPending: false, isError: false, error: null }),
+  useEtfHoldings: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   // ONE extract mock for BOTH observers (the row control + the rail's FactsPanel). h.calls captures the
   // (securityId, thesisId) pair each caller used — the cache-key contract the instant-sharing rests on.
   useExtract: (sid: string, tid?: string) => {

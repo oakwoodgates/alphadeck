@@ -86,6 +86,7 @@ vi.mock("../../api/hooks", () => ({
   useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   // the AUTO-shares auto-confirm fired by get-data (inert here; its own suite covers it)
   useAutoConfirmShares: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useEtfHoldings: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useRatifyFact: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useExplainFlag: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),

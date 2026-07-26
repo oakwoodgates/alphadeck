@@ -78,12 +78,13 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
     if (shares?.tier === "auto") autoShares.mutate(member.security_id);
   };
 
-  // A `fund` sleeve is an EXPRESSION, not a scored equity (ETF Sleeve, Slice 1; #4/#6). It has no insider /
-  // dilution / purity / runway data, so the four equity meters would be all-blank noise and "get data" would
-  // 404 on extraction (a fund's cik is None). Render the sleeve honestly: ticker + "ETF sleeve" label + its
-  // PRICE (context, never a signal) — no meters, no get-data, no stale-shares flag. (All hooks above run
-  // regardless — they're inert here: useExtract is disabled, the mutations never fire — so rules-of-hooks
-  // hold.)
+  // A `fund` sleeve is an EXPRESSION, not a scored equity (ETF Sleeve; #4/#6). It has no insider / dilution
+  // / purity / runway data, so the four equity meters would be all-blank noise and "get data" would 404 on
+  // extraction (a fund's cik is None). Render the row honestly: ticker + "ETF sleeve" label + its PRICE
+  // (context, never a signal) — no meters, no get-data, no stale-shares flag. Selecting it drives the DD
+  // rail (SleeveRail) exactly like a scored name: its N-PORT holdings + basket overlap live THERE now, not
+  // in an inline drawer that shoved the basket down. (All hooks above run regardless — they're inert here —
+  // so rules-of-hooks hold.)
   if (member.archetype === "fund") {
     return (
       <div className={`nmrow fund${selected ? " sel" : ""}`} onClick={onSelect}>
@@ -100,7 +101,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
         </div>
         <div className="wb-meters fund-note">
           <span className="fit">
-            ETF sleeve — a low-torque expression of the thesis; the equity meters don’t apply
+            ETF sleeve — a low-torque expression of the thesis; open it for holdings &amp; basket overlap →
           </span>
         </div>
       </div>

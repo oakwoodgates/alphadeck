@@ -733,6 +733,88 @@
         }
       }
     },
+    "/workbench/securities/{security_id}/etf-holdings": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Etf Holdings",
+        "description": "Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,\nSlice 2a) \u2014 the holdings-seed: *\"the ETF holds these N names; here are the M you're missing.\"*\n\nDETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker \u2192 the SEC fund file\n(``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY \u2014 the trust CIK is never\nwritten to the master, where extraction would misread it) \u2192 the series-filtered browse-edgar lookup\n(one fetch) \u2192 the accession's ``primary_doc.xml`` (immutable-cached) \u2192 parsed positions, series\nVERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged \u2014 fine for a\ndiscovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).\n\nTHE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT\n``ticker`` identifier when the filer stamped one \u2014 else its CUSIP batch-resolved to a US ticker\nvia OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited\nPOSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity\nholding (measured: SMH/URA/LIT all 0 \u2014 e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without\nit the overlap is empty. Never the master ``cusip`` column (effectively always NULL \u2014 a silent\nnothing).\n\nRESPONSE-ONLY (#2): no fact, no basket write, nothing persisted \u2014 recomputed per click; the\ninclude-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.\nNO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.\nRECALL-SAFE (#9): the three buckets PARTITION every holding \u2014 ``unresolved`` (no ticker AND no\nCUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,\nnever dropped. An explicit operator click (the drawer toggle \u2014 the cost thread), live SEC/OpenFIGI\nbehind the cache seams; requires ``ALPHADECK_USER_AGENT``.",
+        "operationId": "etf_holdings_workbench_securities__security_id__etf_holdings_get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "thesis_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "overlap the holdings against THIS thesis's basket (held vs available); holdings-only when absent (every match lands 'available')",
+              "title": "Thesis Id"
+            },
+            "description": "overlap the holdings against THIS thesis's basket (held vs available); holdings-only when absent (every match lands 'available')"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "no-lookahead (#1): use the latest N-PORT FILED on or before this date; absent = the latest on file. The response labels the holdings' report-period vintage.",
+              "title": "Asof"
+            },
+            "description": "no-lookahead (#1): use the latest N-PORT FILED on or before this date; absent = the latest on file. The response labels the holdings' report-period vintage."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EtfHoldingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/securities/{security_id}/extract": {
       "get": {
         "tags": [
@@ -3652,6 +3734,146 @@
         ],
         "title": "EpisodeOperatorOut",
         "description": "The operator's answer to an arm episode: took (with the operator's own prices/return \u2014\n``inferred`` marks a close used where no fill price was logged) or passed (no prices; the\nepisode's own outcome sits beside it). No delta fields \u2014 v2."
+      },
+      "EtfHoldingOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "cusip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cusip"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "pct_val": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Val"
+          },
+          "val_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Usd"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          }
+        },
+        "type": "object",
+        "title": "EtfHoldingOut",
+        "description": "One holding on the wire (ETF Sleeve, Slice 2a). ``ticker`` is the holding's best-known ticker \u2014\nthe filing's own where it carried one, else (for a held/available match) its CUSIP resolved to a US\nticker via OpenFIGI; ``None`` only when nothing matched (``unresolved``). ``cusip``/``isin`` are the\nFILING's own identifiers, carried alongside as provenance (coverage varies by filing agent \u2014 some\nstamp no ticker at all). Plus the weight and \u2014 for the held/available buckets \u2014 the matched master\n``security_id``."
+      },
+      "EtfHoldingsOut": {
+        "properties": {
+          "report_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Date"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "holdings_count": {
+            "type": "integer",
+            "title": "Holdings Count"
+          },
+          "held": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Held",
+            "default": []
+          },
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Available",
+            "default": []
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Unresolved",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ref",
+          "holdings_count"
+        ],
+        "title": "EtfHoldingsOut",
+        "description": "A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) \u2014 RESPONSE-ONLY\ndiscovery context, recomputed per click, never persisted (the operator's promote stays the only\nspine writer, #2).\n\n``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged \u2014 fine for a\ndiscovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The\nthree buckets partition ALL ``holdings_count`` positions \u2014 ``held`` (in this thesis's basket) \u00b7\n``available`` (in the master, not the basket) \u00b7 ``unresolved`` (no master match \u2014 SHOWN, never\ndropped, #9). Weight-sorted, heaviest first."
       },
       "Evidence": {
         "properties": {
