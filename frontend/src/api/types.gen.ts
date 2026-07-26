@@ -335,13 +335,21 @@ export interface paths {
          *     VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
          *     discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
          *
+         *     THE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT
+         *     ``ticker`` identifier when the filer stamped one — else its CUSIP batch-resolved to a US ticker
+         *     via OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited
+         *     POSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity
+         *     holding (measured: SMH/URA/LIT all 0 — e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without
+         *     it the overlap is empty. Never the master ``cusip`` column (effectively always NULL — a silent
+         *     nothing).
+         *
          *     RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
          *     include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
          *     NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
-         *     RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no master match:
-         *     foreign lines, or a filer that puts no ticker identifier on equity holdings) is shown, never
-         *     dropped; the CUSIP→ticker upgrade that shrinks it is 2b. An explicit operator click (the drawer
-         *     toggle — the cost thread), live SEC behind the cache seam; requires ``ALPHADECK_USER_AGENT``.
+         *     RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no ticker AND no
+         *     CUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,
+         *     never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
+         *     behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
          */
         get: operations["etf_holdings_workbench_securities__security_id__etf_holdings_get"];
         put?: never;

@@ -9,10 +9,14 @@ Partitions the fund's holdings against the operator's world into exactly three b
                    filers put no ticker on any equity holding), this bucket legitimately DOMINATES for
                    some funds until the CUSIP→ticker upgrade (2b) — honest sparsity, not a bug.
 
-The match key is the N-PORT ``ticker`` identifier against the master's ticker map — NEVER the master
-``cusip`` column (effectively always NULL: OpenFIGI doesn't return CUSIPs, so a CUSIP join silently
-returns nothing — the #9 trap the plan pins). Matching is EXACT (INVARIANT #2 — never a fuzzy
-name-guess).
+The match key is the holding's EFFECTIVE ticker — its N-PORT ``ticker`` identifier when the filer
+stamped one, else its CUSIP resolved to a US ticker via OpenFIGI (``figi.map_cusip``, passed in as
+``cusip_tickers`` — the caller does the I/O; this stays pure). The CUSIP leg is what makes the overlap
+resolve at all: most filers stamp NO ticker on equity holdings (measured: SMH/URA/LIT all 0; only
+ARK-style filers do), but a CUSIP rides essentially every US-line holding. Both keys are EXACT
+identifier maps (INVARIANT #2 — never a fuzzy name-guess), and the match target is the master's
+ticker map — NEVER the master ``cusip`` column (effectively always NULL: a CUSIP join silently returns
+nothing — the #9 trap the plan pins).
 
 Display/context only: nothing here writes, nothing reaches ``calls/`` (#4/#6 — a holding never fires,
 arms, or vetoes anything).
@@ -20,6 +24,7 @@ arms, or vetoes anything).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -42,23 +47,39 @@ def _by_weight_desc(h: Holding) -> tuple[int, float]:
     return (0, -h.pct_val) if h.pct_val is not None else (1, 0.0)
 
 
+def effective_ticker(h: Holding, cusip_tickers: Mapping[str, str] | None) -> str | None:
+    """The holding's match key: the filing's own ticker identifier first (the filer's word wins), else
+    its CUSIP's OpenFIGI-resolved US ticker, else ``None`` (→ unresolved). Upper-normalized to the
+    master's key form."""
+    if h.ticker:
+        return h.ticker.upper()
+    if h.cusip and cusip_tickers:
+        t = cusip_tickers.get(h.cusip.upper())
+        return t.upper() if t else None
+    return None
+
+
 def classify(
     holdings: list[Holding],
     master_ids: dict[str, UUID],
     basket_sids: set[UUID],
+    cusip_tickers: Mapping[str, str] | None = None,
 ) -> OverlapResult:
     """Place every holding in EXACTLY ONE bucket — the #9 recall bound is structural (asserted below:
     the buckets always sum to the input; nothing can be silently dropped).
 
     ``master_ids`` is ticker→security_id (``master.ids_for_tickers`` — already upper-keyed);
-    ``basket_sids`` the thesis's bound member ids. A holding with no ticker identifier (the measured
-    Global X shape) can never match and lands in ``unresolved`` — visible, prunable, honest.
+    ``basket_sids`` the thesis's bound member ids; ``cusip_tickers`` the OpenFIGI CUSIP→US-ticker
+    crosswalk for holdings the filer left ticker-less (the caller batch-resolves; omitted/empty keeps
+    2a's ticker-only behavior). A holding with neither key — or whose CUSIP OpenFIGI can't place —
+    lands in ``unresolved``: visible, prunable, honest.
     """
     held: list[tuple[Holding, UUID]] = []
     available: list[tuple[Holding, UUID]] = []
     unresolved: list[Holding] = []
     for h in holdings:
-        sid = master_ids.get(h.ticker.upper()) if h.ticker else None
+        key = effective_ticker(h, cusip_tickers)
+        sid = master_ids.get(key) if key else None
         if sid is None:
             unresolved.append(h)
         elif sid in basket_sids:

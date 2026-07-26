@@ -10,28 +10,41 @@ from domain.enums import Archetype
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
-from securities import fund_tickers
+from securities import figi, fund_tickers
 
 # REAL SEC captures (2026-07-26) laid out as an EdgarClient cache dir — the endpoint runs its REAL
-# resolve→locate→fetch→parse→overlap path against them, offline: LIT's series ATOM + two of its
-# N-PORT docs (the newest same-day /A and an older quarter, for the asof leg) and ARKK's ATOM + doc
-# (the ticker-bearing filer shape the bucket assertions need — Global X puts no ticker on any equity
-# holding, ARK does on 44/46).
+# resolve→locate→fetch→parse→cusip-map→overlap path against them, offline: LIT's series ATOM + two of
+# its N-PORT docs (the newest same-day /A and an older quarter, for the asof leg), ARKK's ATOM + doc
+# (the RARE ticker-bearing filer: 44/46), and SMH's ATOM + doc (the COMMON no-ticker shape — 26/26
+# holdings ride CUSIP only, the case the CUSIP→ticker leg exists for). The OpenFIGI crosswalk is
+# stubbed per test (the figi unit tests own its transport semantics).
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _NPORT_CACHE = _FIXTURES / "edgar" / "nport_cache"
 
 
 @pytest.fixture
 def offline_sec(monkeypatch):
-    """Point BOTH SEC legs at the fixtures: the MF fund file (fund_tickers' cache dir) and the EDGAR
-    client (the router's ``EdgarClient(allow_live=True)`` becomes a fixture-cache client — cache-first
-    serves every key; ``allow_live=False`` proves nothing ever reaches the network)."""
+    """Point every outbound leg at fixtures/stubs: the MF fund file (fund_tickers' cache dir), the
+    EDGAR client (the router's ``EdgarClient(allow_live=True)`` becomes a fixture-cache client —
+    cache-first serves every key; ``allow_live=False`` proves nothing reaches the network), and the
+    OpenFIGI CUSIP crosswalk (a recording fake). Yields a state dict: set ``state["map"]`` to the
+    cusip→ticker answers a test wants; ``state["calls"]`` records exactly which CUSIPs the endpoint
+    asked to resolve (the wiring assertion — only ticker-less, cusip-bearing holdings should)."""
     import app.routers.workbench as wb
 
     monkeypatch.setattr(fund_tickers, "_DEFAULT_CACHE", _FIXTURES / "sec")
     monkeypatch.setattr(
         wb, "EdgarClient", lambda **kw: EdgarClient(cache_dir=_NPORT_CACHE, allow_live=False)
     )
+    state: dict = {"map": {}, "calls": []}
+
+    def _fake_map_cusip(cusips, **kw):
+        asked = list(cusips)
+        state["calls"].append(asked)
+        return {c: t for c, t in state["map"].items() if c in set(asked)}
+
+    monkeypatch.setattr(figi, "map_cusip", _fake_map_cusip)
+    return state
 
 
 def _master_row(db, ticker: str, cik: str | None = None, kind: str = "equity") -> uuid.UUID:
@@ -75,10 +88,15 @@ def _count(db, table: str) -> int:
         return cur.fetchone()["count"]
 
 
-# --- the LIT end-to-end (the measured no-ticker filer: honest, unresolved-dominant) ------------------
+# --- the LIT end-to-end (the measured no-ticker filer) -----------------------------------------------
 
 
-def test_lit_end_to_end_all_unresolved_with_vintage_and_source(client, db, offline_sec):
+def test_lit_zero_crosswalk_coverage_is_all_unresolved_still_shown(client, db, offline_sec):
+    """The #9 floor: Global X stamps NO ticker on equity holdings, and here the CUSIP crosswalk places
+    nothing either (the stub's empty default = OpenFIGI declining everything) — every holding still
+    SURFACES as unresolved, never dropped. Also pins the WIRING: the endpoint asks the crosswalk for
+    exactly the ticker-less, CUSIP-bearing holdings (9 of LIT's 45 — the rest are foreign lines with
+    cusip N/A, or the tickered repo line)."""
     sid = _sleeve(db, "LIT")
     r = client.get(f"/workbench/securities/{sid}/etf-holdings")
     assert r.status_code == 200
@@ -87,8 +105,6 @@ def test_lit_end_to_end_all_unresolved_with_vintage_and_source(client, db, offli
     assert body["source_ref"].endswith("0002048251-26-005686-index.htm")
     assert body["report_date"] == "2026-04-30"  # the vintage LABEL (quarter-end, ~60d lagged)
     assert body["holdings_count"] == 45
-    # Global X stamps NO ticker identifier on equity holdings (measured) -> nothing can match in 2a;
-    # every holding still SURFACES (#9) — unresolved-dominant is the honest answer, not a bug
     assert body["held"] == [] and body["available"] == []
     assert len(body["unresolved"]) == 45
     # weight-sorted, heaviest first; identity rides name+CUSIP/ISIN where the filing carries them
@@ -96,6 +112,50 @@ def test_lit_end_to_end_all_unresolved_with_vintage_and_source(client, db, offli
     assert top["name"] == "RIO TINTO PLC"
     assert top["cusip"] == "767204100"
     assert top["security_id"] is None
+    # the crosswalk wiring: one batch, exactly the 9 real-CUSIP ticker-less holdings — never the
+    # tickered line, never a cusip-less foreign local
+    assert len(offline_sec["calls"]) == 1
+    assert set(offline_sec["calls"][0]) == {
+        "88160R101",  # TESLA, INC.
+        "767204100",  # RIO TINTO PLC (the ADR line)
+        "29275Y102",  # ENERSYS
+        "53681J103",  # Lithium Americas
+        "73015G104",  # PMET Resources
+        "853606101",  # Standard Lithium
+        "826599102",  # Sigma Lithium
+        "833635105",  # SQM
+        "549498202",  # LUCID GROUP
+    }
+
+
+def test_lit_cusip_crosswalk_resolves_held_and_available(client, db, offline_sec):
+    """The overlap upgrade on the SAME no-ticker filing: with the crosswalk placing TSLA + RIO, a
+    basket name reads HELD and a master name AVAILABLE — and unresolved SHRINKS 45 → 43 (vs the
+    ticker-only path's 45). The wire stays honest: the holding's ``ticker`` field is still None (the
+    FILING carried none — the match rides ``security_id``, the crosswalk never forges filing fields).
+    """
+    sleeve = _sleeve(db, "LIT")
+    tsla = _master_row(db, "TSLA", cik="0001318605")
+    _master_row(db, "RIO", cik="0000863064")
+    tid = _seed_thesis(db, [_member(tsla, "TSLA")])
+    offline_sec["map"] = {"88160R101": "TSLA", "767204100": "RIO"}
+    r = client.get(f"/workbench/securities/{sleeve}/etf-holdings", params={"thesis_id": str(tid)})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["holdings_count"] == 45
+    [held] = body["held"]
+    assert held["name"] == "TESLA, INC."
+    assert held["security_id"] == str(tsla)
+    assert (
+        held["ticker"] is None and held["cusip"] == "88160R101"
+    )  # the filing's own fields, honest
+    [avail] = body["available"]
+    assert avail["name"] == "RIO TINTO PLC"
+    assert len(body["unresolved"]) == 43  # shrank from 45 — and still nothing dropped:
+    assert (
+        len(body["held"]) + len(body["available"]) + len(body["unresolved"])
+        == body["holdings_count"]
+    )
 
 
 def test_recall_buckets_always_partition_the_holdings(client, db, offline_sec):
@@ -135,6 +195,40 @@ def test_without_thesis_id_matches_land_available(client, db, offline_sec):
     body = client.get(f"/workbench/securities/{sleeve}/etf-holdings").json()
     assert body["held"] == []
     assert [h["ticker"] for h in body["available"]] == ["KTOS"]
+
+
+# --- the SMH end-to-end (the COMMON shape: every holding CUSIP-only — the crosswalk carries it all) ---
+
+
+def test_smh_cusip_only_filing_resolves_the_overlap(client, db, offline_sec):
+    """The operator's dev scenario, pinned offline: VanEck's SMH stamps ZERO tickers (26/26 holdings
+    ride CUSIP only — NVIDIA is 67066G104 at ~19.6%), so the whole overlap rests on the CUSIP→ticker
+    leg. With NVDA + TSM in the basket and AVGO in the master: held carries both (weight-sorted,
+    NVIDIA first), Broadcom reads available, and the unmapped rest stays SHOWN (#9)."""
+    sleeve = _sleeve(db, "SMH")
+    nvda = _master_row(db, "NVDA", cik="0001045810")
+    tsm = _master_row(db, "TSM", cik="0001046179")
+    _master_row(db, "AVGO", cik="0001730168")
+    tid = _seed_thesis(db, [_member(nvda, "NVDA"), _member(tsm, "TSM")])
+    offline_sec["map"] = {
+        "67066G104": "NVDA",  # NVIDIA Corp, 19.64%
+        "874039100": "TSM",  # Taiwan Semiconductor (ADR), 11.84%
+        "11135F101": "AVGO",  # Broadcom Inc, 7.79%
+    }
+    r = client.get(f"/workbench/securities/{sleeve}/etf-holdings", params={"thesis_id": str(tid)})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source_ref"].endswith("0001410368-26-054882-index.htm")
+    assert body["report_date"] == "2026-03-31"
+    assert body["holdings_count"] == 26
+    assert [(h["name"], h["security_id"]) for h in body["held"]] == [
+        ("NVIDIA Corp", str(nvda)),  # 19.64% — heaviest first
+        ("Taiwan Semiconductor Manufacturing Co Ltd", str(tsm)),  # 11.84%
+    ]
+    assert [h["name"] for h in body["available"]] == ["Broadcom Inc"]
+    assert len(body["unresolved"]) == 23  # the unmapped rest — shown, never dropped
+    # the crosswalk was asked for ALL 26 (every holding is ticker-less with a real CUSIP)
+    assert len(offline_sec["calls"]) == 1 and len(offline_sec["calls"][0]) == 26
 
 
 # --- no-lookahead (#1) -------------------------------------------------------------------------------
@@ -230,3 +324,21 @@ def test_sec_trouble_is_a_visible_502_never_a_500(client, db, monkeypatch):
     r = client.get(f"/workbench/securities/{sid}/etf-holdings")
     assert r.status_code == 502
     assert "SEC unreachable" in r.json()["detail"]
+
+
+def test_openfigi_trouble_is_a_visible_502_never_a_silently_empty_overlap(
+    client, db, offline_sec, monkeypatch
+):
+    """A whole-crosswalk failure must FAIL VISIBLY: degrading to ticker-only would render a no-ticker
+    fund's overlap as 26 unresolved — indistinguishable from 'nothing matches', the silent-wrongness
+    class. 502 with the reason instead."""
+
+    def _boom(cusips, **kw):
+        raise RuntimeError("OpenFIGI unreachable")
+
+    monkeypatch.setattr(figi, "map_cusip", _boom)
+    sid = _sleeve(db, "SMH")
+    r = client.get(f"/workbench/securities/{sid}/etf-holdings")
+    assert r.status_code == 502
+    assert "CUSIP resolution failed" in r.json()["detail"]
+    assert "OpenFIGI unreachable" in r.json()["detail"]

@@ -75,7 +75,7 @@ from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
-from securities import coherence, fund_tickers, master
+from securities import coherence, figi, fund_tickers, master
 from signals.base import PointInTimeData
 from workbench import etf_overlap, run_loader, triage_store
 from workbench.chain_draft import (
@@ -244,13 +244,21 @@ def etf_holdings(
     VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
     discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
 
+    THE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT
+    ``ticker`` identifier when the filer stamped one — else its CUSIP batch-resolved to a US ticker
+    via OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited
+    POSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity
+    holding (measured: SMH/URA/LIT all 0 — e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without
+    it the overlap is empty. Never the master ``cusip`` column (effectively always NULL — a silent
+    nothing).
+
     RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
     include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
     NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
-    RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no master match:
-    foreign lines, or a filer that puts no ticker identifier on equity holdings) is shown, never
-    dropped; the CUSIP→ticker upgrade that shrinks it is 2b. An explicit operator click (the drawer
-    toggle — the cost thread), live SEC behind the cache seam; requires ``ALPHADECK_USER_AGENT``.
+    RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no ticker AND no
+    CUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,
+    never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
+    behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
     """
     sec = master.get(conn, security_id, tenant_id=tenant_id)
     if sec is None:
@@ -297,13 +305,24 @@ def etf_holdings(
             detail=f"N-PORT series mismatch: wanted {ident.series_id}, "
             f"document carries {report.series_id}",
         )
-    holding_tickers = [h.ticker for h in report.holdings if h.ticker]
+    # the CUSIP→ticker leg: only holdings the filer left ticker-less need it (the filing's own ticker
+    # wins where present); cache-first, so a re-click resolves offline
+    cusips_to_map = [h.cusip for h in report.holdings if not h.ticker and h.cusip]
+    try:
+        cusip_tickers = figi.map_cusip(cusips_to_map, allow_live=True) if cusips_to_map else {}
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — OpenFIGI unreachable -> a clear 502, never a silently-empty overlap
+        raise HTTPException(status_code=502, detail=f"CUSIP resolution failed: {exc}") from exc
+    holding_tickers = [h.ticker for h in report.holdings if h.ticker] + list(cusip_tickers.values())
     master_ids = (
         master.ids_for_tickers(conn, holding_tickers, tenant_id=tenant_id)
         if holding_tickers
         else {}
     )
-    res = etf_overlap.classify(report.holdings, master_ids, basket_sids)
+    res = etf_overlap.classify(
+        report.holdings, master_ids, basket_sids, cusip_tickers=cusip_tickers
+    )
     return EtfHoldingsOut(
         report_date=report.report_date,
         source_ref=ref.index_url,
