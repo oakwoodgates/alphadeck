@@ -520,6 +520,24 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nmrow span.wb-getdata.unread { color: var(--txt-3); border-style: dotted; border-color: var(--line-2); cursor: help; }
 .arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
 .arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
+
+/* the fund sleeve's holdings drawer (ETF Sleeve, Slice 2a) — a deliberate-click expander: the N-PORT
+   vintage + filing link, then the three-bucket partition (held / available / unresolved — every holding
+   shown, #9). Long lists scroll inside the drawer, never hide. */
+.nmrow .wb-holdings { margin-top: 9px; border-top: 1px dashed var(--line); padding-top: 9px; font-size: 11px; cursor: default; }
+.wb-holdings .wb-h-note { color: var(--txt-3); font-size: 10.5px; }
+.wb-holdings .wb-h-sum { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; color: var(--txt-2); margin-bottom: 4px; }
+.wb-holdings .wb-h-sum a { color: var(--leader); font-size: 10.5px; text-decoration: none; }
+.wb-holdings .wb-h-sum a:hover { text-decoration: underline; }
+.wb-holdings .wb-h-group { margin: 8px 0 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--txt-3); }
+.wb-holdings ul { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.wb-holdings li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; color: var(--txt-2); }
+.wb-holdings li .pct { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); min-width: 44px; text-align: right; flex-shrink: 0; }
+.wb-holdings li .tk { font-family: var(--mono); font-weight: 700; font-size: 11px; }
+.wb-holdings li .co { font-size: 10.5px; color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-holdings li .hid { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); flex-shrink: 0; }
+.wb-holdings li.held { color: var(--manage); }
+.wb-holdings li.held .co { color: var(--manage); }
 /* item F — not-yet-characterized (the rail's "unclassified"): quiet, dashed, no risk-class color */
 .arch.unset { color: var(--txt-4); background: transparent; border: 1px dashed var(--line-2); }
 

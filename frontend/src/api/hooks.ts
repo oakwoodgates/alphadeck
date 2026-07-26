@@ -56,6 +56,10 @@ export type TriageSessionPut = components["schemas"]["TriageSessionPut"];
 export type TriageSessionEnvelope = components["schemas"]["TriageSessionEnvelope"];
 // the per-security price pull's receipt (the finalize screen's decoupled price leg)
 export type PriceIngestOut = components["schemas"]["PriceIngestOut"];
+// the fund sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) — response-only discovery
+// context: three buckets that PARTITION every holding (held / available / unresolved — nothing dropped)
+export type EtfHoldingOut = components["schemas"]["EtfHoldingOut"];
+export type EtfHoldingsOut = components["schemas"]["EtfHoldingsOut"];
 
 export function useTheses(includeArchived = false) {
   return useQuery({
@@ -435,6 +439,32 @@ export function extractQueryOptions(securityId: string, thesisId?: string) {
 // action: `enabled: false` so it NEVER fires on a render — the facts panel triggers it via `refetch()`.
 export function useExtract(securityId: string, thesisId?: string) {
   return useQuery({ ...extractQueryOptions(securityId, thesisId), enabled: false });
+}
+
+// A fund sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a). `enabled: false` + fired by
+// the drawer toggle's `refetch()` — the pull is a DELIBERATE operator click on the sleeve (the cost
+// thread), never a render. Read-only server-side (response-only: no fact, no basket write); retry:false —
+// an explicit one-shot, the drawer offers a retry. `asof` threads the Workbench's as-of so the filing
+// picked is the one KNOWABLE then (#1); the response labels the holdings' report-period vintage.
+export function useEtfHoldings(securityId: string, thesisId?: string, asof?: string) {
+  return useQuery({
+    queryKey: ["etf-holdings", securityId, thesisId ?? null, asof ?? null] as const,
+    enabled: false,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/securities/{security_id}/etf-holdings", {
+        params: {
+          path: { security_id: securityId },
+          query: {
+            ...(thesisId ? { thesis_id: thesisId } : {}),
+            ...(asof ? { asof } : {}),
+          },
+        },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
 }
 
 async function postIngestPrices(securityId: string): Promise<PriceIngestOut> {

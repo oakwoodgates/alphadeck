@@ -1,5 +1,7 @@
-import type { ScoredMemberOut } from "../api/hooks";
-import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
+import { type MouseEvent, useState } from "react";
+
+import type { EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
+import { useAutoConfirmShares, useEtfHoldings, useExtract, useIngestPrices } from "../api/hooks";
 import { Meter } from "./Meter";
 import {
   archLabel,
@@ -39,8 +41,28 @@ interface Props {
  *  one: nobody knows a share count by heart, so confirming the extractor's cover figure only rubber-stamped
  *  it. The server owns the number and the AUTO gate (see `useAutoConfirmShares`); a FLAGged count still goes
  *  to the operator, and the market cap is the real check. */
+/** One holding line in the sleeve's drawer: weight · ticker/name · the filing's identifier (some
+ *  filers list equity holdings with no ticker at all — then name+CUSIP/ISIN IS the identity). */
+function HoldingLine({ h, held }: { h: EtfHoldingOut; held?: boolean }) {
+  return (
+    <li className={held ? "held" : undefined}>
+      <span className="pct">{h.pct_val != null ? `${h.pct_val.toFixed(1)}%` : "—"}</span>
+      {h.ticker && <b className="tk">{h.ticker}</b>}
+      <span className="co">{h.name ?? "—"}</span>
+      {!h.ticker && (h.cusip || h.isin) && (
+        <span className="hid">{h.cusip ? `CUSIP ${h.cusip}` : `ISIN ${h.isin}`}</span>
+      )}
+      {held && <span aria-hidden="true">✓</span>}
+    </li>
+  );
+}
+
 export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props) {
   const extract = useExtract(member.security_id, thesisId);
+  // the fund sleeve's holdings drawer (ETF Sleeve, Slice 2a) — `enabled:false`: the N-PORT pull fires
+  // ONLY on the drawer toggle below (a deliberate operator click, the cost thread), never on render
+  const [holdingsOpen, setHoldingsOpen] = useState(false);
+  const etfHoldings = useEtfHoldings(member.security_id, thesisId, asof);
   // ENDV finding (display-only): a ratified share count from a stale cover (an old/delinquent filer) yields a
   // plausible-but-wrong market cap with no age signal. Light a WARM flag ONLY when the count is > ~6 months
   // old (honest loudness — the common current count shows nothing). No signal touched; just the eye's catch.
@@ -85,6 +107,15 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
   // regardless — they're inert here: useExtract is disabled, the mutations never fire — so rules-of-hooks
   // hold.)
   if (member.archetype === "fund") {
+    const hd = etfHoldings.data;
+    const toggleHoldings = (e: MouseEvent) => {
+      e.stopPropagation();
+      const opening = !holdingsOpen;
+      setHoldingsOpen(opening);
+      // fire the pull on the FIRST open only (the deliberate click IS the spend); a re-open re-shows
+      // the cached answer, the retry button below re-spends explicitly
+      if (opening && hd === undefined && !etfHoldings.isFetching) void etfHoldings.refetch();
+    };
     return (
       <div className={`nmrow fund${selected ? " sel" : ""}`} onClick={onSelect}>
         <div className="top">
@@ -92,6 +123,16 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
             <span className="tk">{member.ticker ?? "◇"}</span>
             {member.name && <span className="co">{member.name}</span>}
             <span className="arch fund">{archLabel("fund")}</span>
+          </button>
+          <button
+            type="button"
+            className="wb-getdata"
+            aria-expanded={holdingsOpen}
+            aria-label={`${holdingsOpen ? "hide" : "show"} holdings for ${member.ticker ?? "this sleeve"}`}
+            title="pull this ETF's latest N-PORT holdings (SEC, quarter-end, ~60 days lagged) and see which are already in your basket — one deliberate pull, cached after"
+            onClick={toggleHoldings}
+          >
+            {holdingsOpen ? "⌄ holdings" : "› holdings"}
           </button>
           <span className="cap">
             <small>sleeve price</small>
@@ -103,6 +144,77 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
             ETF sleeve — a low-torque expression of the thesis; the equity meters don’t apply
           </span>
         </div>
+        {holdingsOpen && (
+          <div className="wb-holdings" onClick={(e) => e.stopPropagation()}>
+            {etfHoldings.isFetching ? (
+              <span className="wb-h-note">pulling N-PORT holdings…</span>
+            ) : etfHoldings.error ? (
+              <button
+                type="button"
+                className="wb-getdata err"
+                title={`couldn't pull holdings — ${errText(etfHoldings.error)}; click to retry`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void etfHoldings.refetch();
+                }}
+              >
+                ⚠ retry holdings
+              </button>
+            ) : hd ? (
+              <>
+                <div className="wb-h-sum">
+                  <span>
+                    {hd.holdings_count} holdings · {hd.held.length} in basket ·{" "}
+                    {hd.available.length} in master · {hd.unresolved.length} unresolved
+                  </span>
+                  <a
+                    href={hd.source_ref}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="the N-PORT filing this list traces to"
+                  >
+                    N-PORT{hd.report_date ? ` as-of ${hd.report_date}` : ""} ↗
+                  </a>
+                </div>
+                {hd.held.length > 0 && (
+                  <>
+                    <div className="wb-h-group">✓ already in your basket</div>
+                    <ul>
+                      {hd.held.map((h, i) => (
+                        <HoldingLine key={h.security_id ?? i} h={h} held />
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {hd.available.length > 0 && (
+                  <>
+                    <div className="wb-h-group">in the master — not in this basket</div>
+                    <ul>
+                      {hd.available.map((h, i) => (
+                        <HoldingLine key={h.security_id ?? i} h={h} />
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {hd.unresolved.length > 0 && (
+                  <>
+                    <div
+                      className="wb-h-group"
+                      title="no master match — this filer lists these without a ticker identifier (or they're foreign lines); shown, never dropped"
+                    >
+                      unresolved — no master match
+                    </div>
+                    <ul>
+                      {hd.unresolved.map((h, i) => (
+                        <HoldingLine key={`${h.name ?? "u"}-${i}`} h={h} />
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
+            ) : null}
+          </div>
+        )}
       </div>
     );
   }

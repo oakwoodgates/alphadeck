@@ -393,6 +393,41 @@ class ResolveEtfRequest(BaseModel):
     ticker: str
 
 
+class EtfHoldingOut(BaseModel):
+    """One N-PORT holding on the wire (ETF Sleeve, Slice 2a): the filing's own identity fields
+    (identifier coverage varies by filing agent — some carry no ticker on any equity holding, so a
+    holding may legitimately ride on name+CUSIP/ISIN alone), its weight, and — for the held/available
+    buckets — the matched master ``security_id`` (``None`` in ``unresolved``: shown, not matchable yet).
+    """
+
+    name: str | None = None
+    ticker: str | None = None
+    cusip: str | None = None
+    isin: str | None = None
+    pct_val: float | None = None
+    val_usd: float | None = None
+    security_id: UUID | None = None
+
+
+class EtfHoldingsOut(BaseModel):
+    """A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) — RESPONSE-ONLY
+    discovery context, recomputed per click, never persisted (the operator's promote stays the only
+    spine writer, #2).
+
+    ``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged — fine for a
+    discovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The
+    three buckets partition ALL ``holdings_count`` positions — ``held`` (in this thesis's basket) ·
+    ``available`` (in the master, not the basket) · ``unresolved`` (no master match — SHOWN, never
+    dropped, #9). Weight-sorted, heaviest first."""
+
+    report_date: date | None = None
+    source_ref: str
+    holdings_count: int
+    held: list[EtfHoldingOut] = []
+    available: list[EtfHoldingOut] = []
+    unresolved: list[EtfHoldingOut] = []
+
+
 class PromoteThesisRequest(BaseModel):
     """The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts

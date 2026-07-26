@@ -733,6 +733,88 @@
         }
       }
     },
+    "/workbench/securities/{security_id}/etf-holdings": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Etf Holdings",
+        "description": "Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,\nSlice 2a) \u2014 the holdings-seed: *\"the ETF holds these N names; here are the M you're missing.\"*\n\nDETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker \u2192 the SEC fund file\n(``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY \u2014 the trust CIK is never\nwritten to the master, where extraction would misread it) \u2192 the series-filtered browse-edgar lookup\n(one fetch) \u2192 the accession's ``primary_doc.xml`` (immutable-cached) \u2192 parsed positions, series\nVERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged \u2014 fine for a\ndiscovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).\n\nRESPONSE-ONLY (#2): no fact, no basket write, nothing persisted \u2014 recomputed per click; the\ninclude-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.\nNO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.\nRECALL-SAFE (#9): the three buckets PARTITION every holding \u2014 ``unresolved`` (no master match:\nforeign lines, or a filer that puts no ticker identifier on equity holdings) is shown, never\ndropped; the CUSIP\u2192ticker upgrade that shrinks it is 2b. An explicit operator click (the drawer\ntoggle \u2014 the cost thread), live SEC behind the cache seam; requires ``ALPHADECK_USER_AGENT``.",
+        "operationId": "etf_holdings_workbench_securities__security_id__etf_holdings_get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "thesis_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "overlap the holdings against THIS thesis's basket (held vs available); holdings-only when absent (every match lands 'available')",
+              "title": "Thesis Id"
+            },
+            "description": "overlap the holdings against THIS thesis's basket (held vs available); holdings-only when absent (every match lands 'available')"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "no-lookahead (#1): use the latest N-PORT FILED on or before this date; absent = the latest on file. The response labels the holdings' report-period vintage.",
+              "title": "Asof"
+            },
+            "description": "no-lookahead (#1): use the latest N-PORT FILED on or before this date; absent = the latest on file. The response labels the holdings' report-period vintage."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EtfHoldingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/securities/{security_id}/extract": {
       "get": {
         "tags": [
@@ -3652,6 +3734,146 @@
         ],
         "title": "EpisodeOperatorOut",
         "description": "The operator's answer to an arm episode: took (with the operator's own prices/return \u2014\n``inferred`` marks a close used where no fill price was logged) or passed (no prices; the\nepisode's own outcome sits beside it). No delta fields \u2014 v2."
+      },
+      "EtfHoldingOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "cusip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cusip"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "pct_val": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Val"
+          },
+          "val_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Usd"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          }
+        },
+        "type": "object",
+        "title": "EtfHoldingOut",
+        "description": "One N-PORT holding on the wire (ETF Sleeve, Slice 2a): the filing's own identity fields\n(identifier coverage varies by filing agent \u2014 some carry no ticker on any equity holding, so a\nholding may legitimately ride on name+CUSIP/ISIN alone), its weight, and \u2014 for the held/available\nbuckets \u2014 the matched master ``security_id`` (``None`` in ``unresolved``: shown, not matchable yet)."
+      },
+      "EtfHoldingsOut": {
+        "properties": {
+          "report_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Date"
+          },
+          "source_ref": {
+            "type": "string",
+            "title": "Source Ref"
+          },
+          "holdings_count": {
+            "type": "integer",
+            "title": "Holdings Count"
+          },
+          "held": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Held",
+            "default": []
+          },
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Available",
+            "default": []
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/EtfHoldingOut"
+            },
+            "type": "array",
+            "title": "Unresolved",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ref",
+          "holdings_count"
+        ],
+        "title": "EtfHoldingsOut",
+        "description": "A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) \u2014 RESPONSE-ONLY\ndiscovery context, recomputed per click, never persisted (the operator's promote stays the only\nspine writer, #2).\n\n``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged \u2014 fine for a\ndiscovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The\nthree buckets partition ALL ``holdings_count`` positions \u2014 ``held`` (in this thesis's basket) \u00b7\n``available`` (in the master, not the basket) \u00b7 ``unresolved`` (no master match \u2014 SHOWN, never\ndropped, #9). Weight-sorted, heaviest first."
       },
       "Evidence": {
         "properties": {

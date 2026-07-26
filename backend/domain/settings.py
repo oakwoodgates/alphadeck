@@ -243,6 +243,20 @@ class Settings(BaseSettings):
         # the plain company_tickers.json has no exchange. Same host, same one-GET etiquette.
         "https://www.sec.gov/files/company_tickers_exchange.json"
     )
+    sec_company_tickers_mf_url: str = (
+        # The MUTUAL-FUND/ETF sibling of the table above ({cik, seriesId, classId, symbol} rows): a fund
+        # ticker -> its TRUST CIK + series/class ids — the fund-identity resolution the ETF sleeve's
+        # holdings pull needs (a thematic ETF is a fund-trust SERIES; N-PORT files per series). Same host,
+        # same one-GET etiquette (securities/fund_tickers.py mirrors sec_tickers.py).
+        "https://www.sec.gov/files/company_tickers_mf.json"
+    )
+    sec_browse_edgar_url: str = (
+        # The browse-edgar CGI endpoint — the ONE consumer is the N-PORT series locator
+        # (ingest/edgar/nport.py): `?action=getcompany&CIK=<seriesId>&type=NPORT-P&output=atom` is the only
+        # EDGAR surface that filters filings BY SERIES ID (the trust-level submissions JSON mixes every
+        # series' ~100 N-PORTs together). A fourth SEC host path, modeled separately like the three above.
+        "https://www.sec.gov/cgi-bin/browse-edgar"
+    )
     stooq_base: str = "https://stooq.com"
     yahoo_chart_base: str = "https://query1.finance.yahoo.com"
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint

@@ -45,6 +45,7 @@ vi.mock("../../api/hooks", () => ({
   useSectionData: () => ({ run: vi.fn(), running: false, report: null, reset: vi.fn() }),
   useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   useAutoConfirmShares: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useEtfHoldings: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useRatifyFact: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useExplainFlag: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),

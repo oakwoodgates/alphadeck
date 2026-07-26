@@ -52,6 +52,7 @@ vi.mock("../../api/hooks", () => ({
   useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   // the AUTO-shares auto-confirm fired by get-data (inert here; its own suite covers it)
   useAutoConfirmShares: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useEtfHoldings: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   // the DD rail's facts panel (hybrid-2b): inert here — extract is explicit (never on render), no candidates
   useExtract: () => ({ data: undefined, error: null, isFetching: false, refetch: vi.fn() }),
   useRatifyFact: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),

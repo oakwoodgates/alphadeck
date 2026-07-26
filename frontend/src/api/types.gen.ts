@@ -316,6 +316,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities/{security_id}/etf-holdings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Etf Holdings
+         * @description Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,
+         *     Slice 2a) — the holdings-seed: *"the ETF holds these N names; here are the M you're missing."*
+         *
+         *     DETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker → the SEC fund file
+         *     (``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY — the trust CIK is never
+         *     written to the master, where extraction would misread it) → the series-filtered browse-edgar lookup
+         *     (one fetch) → the accession's ``primary_doc.xml`` (immutable-cached) → parsed positions, series
+         *     VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
+         *     discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
+         *
+         *     RESPONSE-ONLY (#2): no fact, no basket write, nothing persisted — recomputed per click; the
+         *     include-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.
+         *     NO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.
+         *     RECALL-SAFE (#9): the three buckets PARTITION every holding — ``unresolved`` (no master match:
+         *     foreign lines, or a filer that puts no ticker identifier on equity holdings) is shown, never
+         *     dropped; the CUSIP→ticker upgrade that shrinks it is 2b. An explicit operator click (the drawer
+         *     toggle — the cost thread), live SEC behind the cache seam; requires ``ALPHADECK_USER_AGENT``.
+         */
+        get: operations["etf_holdings_workbench_securities__security_id__etf_holdings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/securities/{security_id}/extract": {
         parameters: {
             query?: never;
@@ -1823,6 +1859,64 @@ export interface components {
             running: boolean;
             /** Operator Return */
             operator_return?: number | null;
+        };
+        /**
+         * EtfHoldingOut
+         * @description One N-PORT holding on the wire (ETF Sleeve, Slice 2a): the filing's own identity fields
+         *     (identifier coverage varies by filing agent — some carry no ticker on any equity holding, so a
+         *     holding may legitimately ride on name+CUSIP/ISIN alone), its weight, and — for the held/available
+         *     buckets — the matched master ``security_id`` (``None`` in ``unresolved``: shown, not matchable yet).
+         */
+        EtfHoldingOut: {
+            /** Name */
+            name?: string | null;
+            /** Ticker */
+            ticker?: string | null;
+            /** Cusip */
+            cusip?: string | null;
+            /** Isin */
+            isin?: string | null;
+            /** Pct Val */
+            pct_val?: number | null;
+            /** Val Usd */
+            val_usd?: number | null;
+            /** Security Id */
+            security_id?: string | null;
+        };
+        /**
+         * EtfHoldingsOut
+         * @description A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) — RESPONSE-ONLY
+         *     discovery context, recomputed per click, never persisted (the operator's promote stays the only
+         *     spine writer, #2).
+         *
+         *     ``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged — fine for a
+         *     discovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The
+         *     three buckets partition ALL ``holdings_count`` positions — ``held`` (in this thesis's basket) ·
+         *     ``available`` (in the master, not the basket) · ``unresolved`` (no master match — SHOWN, never
+         *     dropped, #9). Weight-sorted, heaviest first.
+         */
+        EtfHoldingsOut: {
+            /** Report Date */
+            report_date?: string | null;
+            /** Source Ref */
+            source_ref: string;
+            /** Holdings Count */
+            holdings_count: number;
+            /**
+             * Held
+             * @default []
+             */
+            held: components["schemas"]["EtfHoldingOut"][];
+            /**
+             * Available
+             * @default []
+             */
+            available: components["schemas"]["EtfHoldingOut"][];
+            /**
+             * Unresolved
+             * @default []
+             */
+            unresolved: components["schemas"]["EtfHoldingOut"][];
         };
         /**
          * Evidence
@@ -3883,6 +3977,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecurityMatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    etf_holdings_workbench_securities__security_id__etf_holdings_get: {
+        parameters: {
+            query?: {
+                /** @description overlap the holdings against THIS thesis's basket (held vs available); holdings-only when absent (every match lands 'available') */
+                thesis_id?: string | null;
+                /** @description no-lookahead (#1): use the latest N-PORT FILED on or before this date; absent = the latest on file. The response labels the holdings' report-period vintage. */
+                asof?: string | null;
+            };
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtfHoldingsOut"];
                 };
             };
             /** @description Validation Error */
