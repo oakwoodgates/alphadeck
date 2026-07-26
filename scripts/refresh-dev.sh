@@ -42,7 +42,7 @@ PGUSER="alphadeck"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKUPS_DIR="$REPO_ROOT/data/backups"
-DEV_COMPOSE=(-f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.dev.yml" -p "$DEV_PROJECT")
+DEV_COMPOSE=(-f docker-compose.yml -f docker-compose.dev.yml -p "$DEV_PROJECT")   # relative -f names; we cd to REPO_ROOT before use (see below)
 
 # --- helpers -----------------------------------------------------------------------------------------
 say()  { echo "--> $*"; }
@@ -95,6 +95,11 @@ fi
 
 # ===================================== REAL RUN (Phase B) ============================================
 command -v docker >/dev/null 2>&1 || fail "docker not found on PATH"
+
+# Run docker compose from REPO_ROOT with RELATIVE -f names. On Windows/Git Bash an absolute MSYS path
+# ($REPO_ROOT = /c/Users/...) is NOT converted for docker.exe under MSYS_NO_PATHCONV=1 and gets mangled to
+# `C:\c\Users\...` (caught in Phase B, 2026-07-26 — `docker compose config` with relative paths hid it).
+cd "$REPO_ROOT" || fail "cannot cd to repo root: $REPO_ROOT"
 
 # --fresh: a brand-new read-only pg_dump of PROD, then use it.
 if [ "$SOURCE" = "fresh" ]; then
