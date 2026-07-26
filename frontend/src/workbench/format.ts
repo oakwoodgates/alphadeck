@@ -136,6 +136,16 @@ export function formatMarketCap(value: number | null | undefined): string {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
+/** The `fund` sleeve's latest close (ETF Sleeve, Slice 1) — read off the market-cap figure's PRICE
+ *  provenance. A fund carries a price but NO shares fact, so `_market_cap` (scoring.py) returns value=null
+ *  with a price-source provenance whose `detail.close` is the last as-of bar. "—" until a price bar is
+ *  ingested. Display-only: price is CONTEXT, never a signal (#4/#6). */
+export function sleevePriceLabel(m: { market_cap: ScoredFigureOut }): string {
+  const priceProv = m.market_cap.provenance.find((p) => p.source === "price");
+  const close = priceProv ? dnum(priceProv.detail, "close") : undefined;
+  return close == null ? "—" : `$${close.toFixed(2)}`;
+}
+
 /** The "behind the scores" value headline for a meter — the real computed figure, honestly. A null
  *  value is meter-specific: runway null = cash-generative (top pip, no months figure); dilution null
  *  = no convert data ("—"). Market cap with ONE input on file says which half is missing — a bare "—"

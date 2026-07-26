@@ -21,6 +21,9 @@ vi.mock("../../api/hooks", () => ({
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),
+  // the surface-ETF sleeve input (below AddName) — inert here; its own suite covers the flow
+  useResolveEtf: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
   usePromoteThesis: () => ({
     mutate: h.mutate,
     reset: vi.fn(),

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.enums import InstrumentKind
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
 
@@ -26,6 +27,9 @@ def _row_to_security(row: dict) -> Security:
         exchange=row.get("exchange"),
         status=row.get("status"),
         category=row.get("category"),
+        # NOT NULL DEFAULT 'equity' in the DB, so a post-migration row always carries it; the ``or`` guards a
+        # pre-migration/hand-built row dict that omits the column (falls back to the equity default).
+        instrument_kind=row.get("instrument_kind") or "equity",
     )
 
 
@@ -49,6 +53,7 @@ def resolve(
     figi_cache_dir: Path | None = None,
     sec_cache_dir: Path | None = None,
     allow_live: bool = False,
+    instrument_kind: InstrumentKind = InstrumentKind.EQUITY,
 ) -> Security:
     """Resolve a ticker to a canonical Security, INSERTING it into the master if new (this path only ever
     inserts — idempotent, never updates).
@@ -56,6 +61,13 @@ def resolve(
     FIGI/name come from OpenFIGI, CIK from SEC company_tickers — both cache-first, live only behind
     ``allow_live`` (the caller wires the env flag). Idempotent: an already-resolved ticker is read
     back from the master, never re-inserted.
+
+    ``instrument_kind`` stamps the CREATE case only (ETF Sleeve, Slice 1): the surface-ETF flow passes
+    ``ETF`` so a fund absent from SEC (a thematic ETF is a fund-trust series, not an operating-company CIK —
+    ``cik`` resolves to ``None``, which this path already handles) is inserted as an ``etf`` from birth. An
+    ALREADY-present row is read back UNCHANGED (this path never updates); the caller stamps it via
+    ``mark_instrument_kind`` (the surface-ETF endpoint does exactly this — resolve-then-mark covers both the
+    hit and the create case).
 
     Coexists with ``populate_universe`` (the bulk broadener): both set ``cik``, so neither double-inserts the
     other's rows (resolve dedups by ticker via ``_lookup``; the broadener by ``(cik, ticker)``). NOTE: the
@@ -73,8 +85,8 @@ def resolve(
     sid = uuid4()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO security_master (id, tenant_id, ticker, cik, figi, name, valid_from) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, figi, name, instrument_kind, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 sid,
                 tenant_id,
@@ -82,6 +94,9 @@ def resolve(
                 cik,
                 mapping.get("figi"),
                 mapping.get("name"),
+                str(
+                    instrument_kind
+                ),  # StrEnum -> its 'equity'/'etf' value (explicit, no adapter guesswork)
                 effective_date or date.today(),
             ),
         )
@@ -93,6 +108,7 @@ def resolve(
         name=mapping.get("name"),
         cik=cik,
         figi=mapping.get("figi"),
+        instrument_kind=instrument_kind,
     )
 
 
@@ -231,6 +247,31 @@ def enrich(
                 tenant_id,
                 security_id,
             ),
+        )
+        return cur.rowcount > 0
+
+
+def mark_instrument_kind(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    kind: InstrumentKind,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Stamp one master row's ``instrument_kind`` — UPDATE-in-place (the surface-ETF flow marks an
+    ALREADY-present row as ``etf``; the SPY/GLD hit case). The same identity-mutable pattern as ``enrich`` /
+    ``populate_universe``: the id stays stable (FK'd facts never orphan), nothing reads the master as-of so
+    overwriting leaks into no point-in-time read, and it is idempotent (a re-mark to the same value is a
+    no-op UPDATE, never an append — count-the-table safe).
+
+    IDENTITY, not a fact: ``instrument_kind`` never enters a fact_* table, never feeds a number on a call
+    card, and never gates the call path (#4/#6 — the sleeve is an EXPRESSION). Returns whether a row was
+    updated: a foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side tenant
+    boundary as ``exists`` / ``enrich``). The caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET instrument_kind = %s WHERE tenant_id = %s AND id = %s",
+            (str(kind), tenant_id, security_id),
         )
         return cur.rowcount > 0
 

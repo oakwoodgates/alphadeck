@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from domain.base import DomainModel
+from domain.enums import InstrumentKind
 
 
 class Security(DomainModel):
@@ -16,6 +17,10 @@ class Security(DomainModel):
     call card (#1/#3 govern NUMBERS, not identity strings). ``status`` is a listing-presence heuristic, not a
     delisting feed; ``category`` is EDGAR's filer-status string (a maturity/size tell, e.g. "Large accelerated
     filer" vs "Smaller reporting company"). All optional — an un-enriched row reads ``None`` (the honest fallback).
+
+    ``instrument_kind`` (ETF Sleeve, Slice 1) is what the instrument IS — ``equity`` (the default) vs ``etf``
+    (a surfaced fund sleeve). Identity like the above, never a fact; NOT NULL with a meaningful default, so it
+    is required here (never ``None``) and defaults to ``equity``.
     """
 
     id: UUID
@@ -36,6 +41,9 @@ class Security(DomainModel):
     )
     category: str | None = (
         None  # EDGAR filer category (maturity/size tell) — identity, never a number
+    )
+    instrument_kind: InstrumentKind = (
+        InstrumentKind.EQUITY  # 'equity' | 'etf' — what it IS; identity, never a call input (#4/#6)
     )
 
 

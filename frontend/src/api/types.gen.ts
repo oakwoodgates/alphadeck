@@ -280,6 +280,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities/resolve-etf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Etf
+         * @description Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
+         *     operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
+         *     ``instrument_kind='etf'`` — the row the FE then adds to the basket as an ``archetype='fund'`` member (the
+         *     ETF attaches UNDER a thesis, never free-floating — #2).
+         *
+         *     LOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD — the few
+         *     mega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT
+         *     from SEC (LIT/URA/SMH — a fund-trust series, not an operating-company CIK, so ``cik`` resolves to ``None``,
+         *     which ``resolve`` already handles) is CREATED via ``resolve(instrument_kind='etf', allow_live=True)`` —
+         *     OpenFIGI names it, ``cik=None`` is fine for a price-only sleeve. ``allow_live`` mirrors the extract
+         *     endpoint's live-on-an-operator-click precedent (the cost thread: surfacing is an explicit operator click,
+         *     never ambient). WRITES the master row (an operational universe write — no thesis spine, no fact, no number,
+         *     #3); the operator's promote stays the only spine writer.
+         *
+         *     NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity — it never fires,
+         *     warms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op
+         *     for free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.
+         */
+        post: operations["resolve_etf_workbench_securities_resolve_etf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/securities/{security_id}/extract": {
         parameters: {
             query?: never;
@@ -2000,6 +2036,18 @@ export interface components {
             disclosed: string;
         };
         /**
+         * InstrumentKind
+         * @description What an instrument IS on the security master — the modular foundation brick (ETF Sleeve, Slice 1).
+         *
+         *     ``EQUITY`` = a common-stock operating company (the default; every existing master row). ``ETF`` = a fund
+         *     the operator SURFACES as the low-torque ``fund`` sleeve expression of a thesis. Operator-DECLARED, never
+         *     auto-detected. Descriptive IDENTITY (like ``sector`` / ``category``): it never feeds a number on a call
+         *     card and never gates the call path — the sleeve is an EXPRESSION, never a call input (#4/#6). Future
+         *     callable kinds (``spac``, …) extend this enum WITHOUT another migration+backfill.
+         * @enum {string}
+         */
+        InstrumentKind: "equity" | "etf";
+        /**
          * KeyState
          * @description One of the two keys (Conviction / Confirmation) rendered on the call card.
          */
@@ -2454,6 +2502,16 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: ("known" | "unread") | null;
+        };
+        /**
+         * ResolveEtfRequest
+         * @description Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
+         *     ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
+         *     marks it ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM).
+         */
+        ResolveEtfRequest: {
+            /** Ticker */
+            ticker: string;
         };
         /**
          * ResolvedPlacement
@@ -3073,9 +3131,13 @@ export interface components {
         };
         /**
          * SecurityMatchOut
-         * @description A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the
-         *     exact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING
-         *     per-tenant master (INVARIANT #2) — every match is a real member, nothing is ingested or guessed.
+         * @description A security-master match for the Workbench's add-a-name typeahead (Slice 4b) AND the surface-ETF
+         *     resolve receipt (ETF Sleeve, Slice 1). The operator picks the exact row; its ``security_id`` is then
+         *     placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #2) — every match
+         *     is a real member, nothing is ingested or guessed.
+         *
+         *     ``instrument_kind`` is what the row IS — ``equity`` (the typeahead default) or ``etf`` (returned by the
+         *     surface-ETF resolve so the FE adds it as a ``fund`` sleeve). Identity, never a call input (#4/#6).
          */
         SecurityMatchOut: {
             /**
@@ -3089,6 +3151,8 @@ export interface components {
             name?: string | null;
             /** Cik */
             cik?: string | null;
+            /** @default equity */
+            instrument_kind: components["schemas"]["InstrumentKind"];
         };
         /**
          * Segment
@@ -3786,6 +3850,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecurityMatchOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_etf_workbench_securities_resolve_etf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveEtfRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityMatchOut"];
                 };
             };
             /** @description Validation Error */

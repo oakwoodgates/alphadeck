@@ -691,6 +691,48 @@
         }
       }
     },
+    "/workbench/securities/resolve-etf": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Resolve Etf",
+        "description": "Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The\noperator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked\n``instrument_kind='etf'`` \u2014 the row the FE then adds to the basket as an ``archetype='fund'`` member (the\nETF attaches UNDER a thesis, never free-floating \u2014 #2).\n\nLOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD \u2014 the few\nmega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT\nfrom SEC (LIT/URA/SMH \u2014 a fund-trust series, not an operating-company CIK, so ``cik`` resolves to ``None``,\nwhich ``resolve`` already handles) is CREATED via ``resolve(instrument_kind='etf', allow_live=True)`` \u2014\nOpenFIGI names it, ``cik=None`` is fine for a price-only sleeve. ``allow_live`` mirrors the extract\nendpoint's live-on-an-operator-click precedent (the cost thread: surfacing is an explicit operator click,\nnever ambient). WRITES the master row (an operational universe write \u2014 no thesis spine, no fact, no number,\n#3); the operator's promote stays the only spine writer.\n\nNO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity \u2014 it never fires,\nwarms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op\nfor free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.",
+        "operationId": "resolve_etf_workbench_securities_resolve_etf_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveEtfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityMatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/securities/{security_id}/extract": {
       "get": {
         "tags": [
@@ -4031,6 +4073,15 @@
         "title": "InsiderBuyOut",
         "description": "One code-P open-market insider purchase inside an episode's window (Slice A) \u2014 an overlay chip.\n\n``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested\nit (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM\n\"ingested 166d after its event date\" case \u2014 invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a\nRule 10b5-1 pre-scheduled plan (a note, never a different number). Every field traces to a real\n``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead, #1). Screened to open-market by\nthe SAME definition the NamePanel uses, so the chart's dots reconcile with the panel's net-flow."
       },
+      "InstrumentKind": {
+        "type": "string",
+        "enum": [
+          "equity",
+          "etf"
+        ],
+        "title": "InstrumentKind",
+        "description": "What an instrument IS on the security master \u2014 the modular foundation brick (ETF Sleeve, Slice 1).\n\n``EQUITY`` = a common-stock operating company (the default; every existing master row). ``ETF`` = a fund\nthe operator SURFACES as the low-torque ``fund`` sleeve expression of a thesis. Operator-DECLARED, never\nauto-detected. Descriptive IDENTITY (like ``sector`` / ``category``): it never feeds a number on a call\ncard and never gates the call path \u2014 the sleeve is an EXPRESSION, never a call input (#4/#6). Future\ncallable kinds (``spac``, \u2026) extend this enum WITHOUT another migration+backfill."
+      },
       "KeyState": {
         "properties": {
           "turned": {
@@ -5113,6 +5164,20 @@
           "shares"
         ],
         "title": "RatifyShares"
+      },
+      "ResolveEtfRequest": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker"
+        ],
+        "title": "ResolveEtfRequest",
+        "description": "Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) \u2014 the operator-supplied ETF\nticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and\nmarks it ``instrument_kind='etf'`` \u2014 operator-DECLARED, never auto-detected (#3, no LLM)."
       },
       "ResolvedPlacement": {
         "properties": {
@@ -6518,6 +6583,10 @@
               }
             ],
             "title": "Cik"
+          },
+          "instrument_kind": {
+            "$ref": "#/components/schemas/InstrumentKind",
+            "default": "equity"
           }
         },
         "type": "object",
@@ -6526,7 +6595,7 @@
           "ticker"
         ],
         "title": "SecurityMatchOut",
-        "description": "A security-master match for the Workbench's add-a-name typeahead (Slice 4b). The operator picks the\nexact row; its ``security_id`` is then placed into the basket. A discovery net over the EXISTING\nper-tenant master (INVARIANT #2) \u2014 every match is a real member, nothing is ingested or guessed."
+        "description": "A security-master match for the Workbench's add-a-name typeahead (Slice 4b) AND the surface-ETF\nresolve receipt (ETF Sleeve, Slice 1). The operator picks the exact row; its ``security_id`` is then\nplaced into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #2) \u2014 every match\nis a real member, nothing is ingested or guessed.\n\n``instrument_kind`` is what the row IS \u2014 ``equity`` (the typeahead default) or ``etf`` (returned by the\nsurface-ETF resolve so the FE adds it as a ``fund`` sleeve). Identity, never a call input (#4/#6)."
       },
       "Segment": {
         "properties": {

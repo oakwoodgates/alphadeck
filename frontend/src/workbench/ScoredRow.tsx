@@ -8,6 +8,7 @@ import {
   memberHasFundamentals,
   onFileValues,
   sharesAsof,
+  sleevePriceLabel,
   staleSharesMonths,
 } from "./format";
 
@@ -76,6 +77,36 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
     const shares = res?.data?.facts?.find((f) => f.fact_type === "shares_outstanding");
     if (shares?.tier === "auto") autoShares.mutate(member.security_id);
   };
+
+  // A `fund` sleeve is an EXPRESSION, not a scored equity (ETF Sleeve, Slice 1; #4/#6). It has no insider /
+  // dilution / purity / runway data, so the four equity meters would be all-blank noise and "get data" would
+  // 404 on extraction (a fund's cik is None). Render the sleeve honestly: ticker + "ETF sleeve" label + its
+  // PRICE (context, never a signal) — no meters, no get-data, no stale-shares flag. (All hooks above run
+  // regardless — they're inert here: useExtract is disabled, the mutations never fire — so rules-of-hooks
+  // hold.)
+  if (member.archetype === "fund") {
+    return (
+      <div className={`nmrow fund${selected ? " sel" : ""}`} onClick={onSelect}>
+        <div className="top">
+          <button type="button" className="nmrow-sel" onClick={onSelect}>
+            <span className="tk">{member.ticker ?? "◇"}</span>
+            {member.name && <span className="co">{member.name}</span>}
+            <span className="arch fund">{archLabel("fund")}</span>
+          </button>
+          <span className="cap">
+            <small>sleeve price</small>
+            {sleevePriceLabel(member)}
+          </span>
+        </div>
+        <div className="wb-meters fund-note">
+          <span className="fit">
+            ETF sleeve — a low-torque expression of the thesis; the equity meters don’t apply
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     // the row DIV owns the whole-surface click; the ticker block below is the real <button> (the
     // accessible select target) — a nested-button structure would be invalid HTML, hence the split.
