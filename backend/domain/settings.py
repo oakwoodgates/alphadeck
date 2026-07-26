@@ -286,6 +286,13 @@ class Settings(BaseSettings):
     user_agent: str | None = Field(
         default=None, validation_alias=AliasChoices("ALPHADECK_USER_AGENT")
     )
+    # Boot-strictness for the SEC User-Agent (the boot-visibility guard, app/health.py). Default False =
+    # fail-OPEN: a missing ``ALPHADECK_USER_AGENT`` logs a loud ERROR + flags ``/health`` degraded, but the
+    # app still BOOTS (the live SEC pull is skipped, everything else works — the fail-open config philosophy).
+    # Set ``ALPHADECK_REQUIRE_UA=true`` for a prod-strict boot that REFUSES to start without a UA. Read via
+    # the env_prefix (``ALPHADECK_REQUIRE_UA``); NOT wired into docker-compose.yml, so set it in the env file
+    # only (and never to an EMPTY string — an empty value can't parse as a bool; use ``true``/``false``).
+    require_ua: bool = False
     openfigi_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("OPENFIGI_API_KEY")
     )

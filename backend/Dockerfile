@@ -3,9 +3,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# tzdata: the daily-cron sidecar (the docker-compose `cron` profile) schedules at an EXPLICIT timezone (US
-# market close, America/New_York) — the slim base ships no zoneinfo, so without this an explicit TZ would
-# silently fall back to UTC and the job would fire at the wrong hour. The API service ignores it.
+# tzdata: the daily-cron sidecar (the docker-compose `cron` SERVICE — ON by default; no `profiles:` exist)
+# schedules at an EXPLICIT timezone (US market close, America/New_York) — the slim base ships no zoneinfo,
+# so without this an explicit TZ would silently fall back to UTC and the job would fire at the wrong hour.
+# The API service ignores it.
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
 
 # pg_dump for the operator DB-snapshot button (Slice 4). Debian's default postgresql-client LAGS the

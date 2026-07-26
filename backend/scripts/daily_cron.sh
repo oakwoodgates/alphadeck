@@ -1,7 +1,9 @@
 #!/bin/sh
 # The daily call-of-record cron — the DUMB TRIGGER half of M2d. The idempotent `python -m pipeline.daily`
-# CLI is the unit of work; this just fires it on a schedule. It runs only in the docker-compose `cron`
-# profile sidecar (DISABLED by default), so local dev / `docker compose up` / tests never fire it.
+# CLI is the unit of work; this just fires it on a schedule. It runs in the docker-compose `cron` SERVICE,
+# which is ON by default with the full-stack `docker compose up` (skip it with `--scale cron=0`; there are
+# no `profiles:`). The DB-only dev loop (infra/docker-compose.yml), the dev override
+# (docker-compose.dev.yml, which omits cron), and the test suite never start it.
 #
 # - Schedules at RUN_AT in the container's TZ (set to US market close, e.g. America/New_York — never the
 #   default UTC), Mon-Fri only (markets closed on weekends -> no new EOD bars; a run would be an idempotent

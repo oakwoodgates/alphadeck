@@ -149,6 +149,9 @@ activemq-data/
 
 # Environments
 .env
+# Local env files (.env.dev, .env.local, ...) — never commit real secrets; keep only the template.
+.env.*
+!.env.example
 .envrc
 .venv
 env/

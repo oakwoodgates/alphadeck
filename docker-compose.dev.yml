@@ -1,0 +1,52 @@
+# Dev stack override — layered OVER the unchanged root docker-compose.yml. NEVER run alone.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev up -d --build
+#   (or, if `make` is installed: make dev-up)
+#
+# The distinct project name (-p alphadeck_dev) is what buys the isolation: Compose auto-namespaces the
+# containers, the network, AND the named volumes (-> alphadeck_dev_pgdata / alphadeck_dev_appdata), so the
+# dev stack physically cannot reach prod's `pgdata`. Distinct host ports (8081/8001/5545) let dev and prod
+# run SIMULTANEOUSLY. Prod is the base file run alone (`docker compose up`); this override is dev-only and
+# never mutates the base, so prod's resolved config is byte-identical with or without this file present.
+#
+# Env: the dev wrapper passes `--env-file .env.dev` (canonical dev env at the MAIN-checkout root). Worktrees
+# never run the stack. Full model + the one-way prod->dev refresh: docs/DEV_PROD.md.
+
+services:
+  postgres:
+    # `!override` REPLACES the base ports (Compose otherwise CONCATENATES sequences — the merged list would
+    # carry prod's 5544 too and dev would try to bind it, colliding with a running prod). Same for backend +
+    # frontend below.
+    ports: !override
+      - "5545:5432" # dev host port (prod: 5544) — both can bind at once
+    environment:
+      POSTGRES_DB: alphadeck_dev # distinct DB name — belt-and-suspenders atop the volume isolation
+
+  backend:
+    ports: !override
+      - "8001:8000" # dev API + Swagger docs (prod: 8000)
+    environment:
+      # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
+      # switches to alphadeck_dev. This is the container's DB URL — not the host dev-loop one.
+      DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck_dev
+    volumes:
+      # Dev loop: mount the source over the image's /app so an edit is live (paired with --reload below).
+      # The editable install (`pip install -e .`, PEP 660 finder in site-packages) resolves the top-level
+      # packages from /app, so this mount shadows the built copy WITHOUT breaking imports. Comment this one
+      # line out to run the pristine built image instead (e.g. if Windows file-watching misbehaves).
+      - ./backend:/app
+    # Override the Dockerfile CMD for the dev edit loop: keep the (idempotent) migrate + seed, then serve
+    # with --reload. --reload runs a single process, so it is compatible with the single-worker invariant.
+    command: ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+
+  frontend:
+    ports: !override
+      - "8081:80" # dev app (prod: 8080)
+
+  cron:
+    # Cron is PROD-ONLY. Assigning it here to a profile that the dev `up` never enables keeps the nightly
+    # call-of-record + DB snapshot OFF in dev — dev must not fire live EDGAR/Yahoo pulls or write backups.
+    # Prod runs the BASE file without this override, so prod's cron carries no profile and stays ON by
+    # default. `docker compose ... config` on the dev stack omits this service entirely (inactive profile).
+    profiles:
+      - donotstart

@@ -1,3 +1,10 @@
+# DB-only slice for the LOCAL BACKEND DEV LOOP (uvicorn on the host): just Postgres on :5544.
+#
+# FOOTGUN — SHARED DATA WITH PROD: this file uses `name: alphadeck` and the `pgdata` volume, the SAME
+# project name + named volume as the root docker-compose.yml. So `infra up` and the full-stack `up` touch
+# the IDENTICAL database (the prod demo data). That is intentional for a host dev loop against real data,
+# but it means this is NOT an isolated dev DB. For an ISOLATED dev stack (its own DB + volume, safe to
+# drop/refresh) use docker-compose.dev.yml (project alphadeck_dev). See docs/DEV_PROD.md.
 name: alphadeck
 
 services:
