@@ -232,6 +232,22 @@ def test_smh_cusip_only_filing_resolves_the_overlap(client, db, offline_sec):
     assert len(offline_sec["calls"]) == 1 and len(offline_sec["calls"][0]) == 26
 
 
+# --- the fund internals (AUM + composition) ride the same pull -------------------------------------
+
+
+def test_fund_internals_surface_on_the_wire(client, db, offline_sec):
+    """AUM + the gross/liabilities composition come off the SAME parsed N-PORT (no extra fetch) —
+    surfaced for the sleeve dossier (#6). The LIT /A the locator picks: net $2.13B off gross $2.14B.
+    """
+    sid = _sleeve(db, "LIT")
+    body = client.get(f"/workbench/securities/{sid}/etf-holdings").json()
+    assert body["net_assets"] == pytest.approx(2134236727.85)
+    assert body["total_assets"] == pytest.approx(2141779737.60)
+    assert body["total_liabs"] == pytest.approx(7543009.75)
+    # net = gross − liabilities, straight through from the filing
+    assert body["net_assets"] == pytest.approx(body["total_assets"] - body["total_liabs"])
+
+
 # --- no-lookahead (#1) -------------------------------------------------------------------------------
 
 

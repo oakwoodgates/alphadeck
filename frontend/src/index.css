@@ -530,6 +530,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-holdings .wb-h-sum { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; color: var(--txt-2); margin-bottom: 4px; }
 .wb-holdings .wb-h-sum a { color: var(--leader); font-size: 10.5px; text-decoration: none; }
 .wb-holdings .wb-h-sum a:hover { text-decoration: underline; }
+/* fund internals (Slice 2c) — AUM + gross/liabilities composition, off the same N-PORT the holdings trace to */
+.wb-holdings .wb-h-vitals { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin: 2px 0 8px; }
+.wb-holdings .wb-h-vitals .v { font-size: 11px; color: var(--txt-2); }
+.wb-holdings .wb-h-vitals .v b { color: var(--txt-4); font-weight: 700; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; margin-right: 5px; }
+.wb-holdings .wb-h-vitals .v.aum { color: var(--txt-1); font-weight: 600; }
+.wb-holdings .wb-h-vitals .v.aum b { color: var(--leader); }
 .wb-holdings .wb-h-group { margin: 8px 0 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--txt-3); }
 .wb-holdings ul { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
 .wb-holdings li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; color: var(--txt-2); }

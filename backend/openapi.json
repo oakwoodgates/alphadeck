@@ -739,7 +739,7 @@
           "workbench"
         ],
         "summary": "Etf Holdings",
-        "description": "Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,\nSlice 2a) \u2014 the holdings-seed: *\"the ETF holds these N names; here are the M you're missing.\"*\n\nDETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker \u2192 the SEC fund file\n(``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY \u2014 the trust CIK is never\nwritten to the master, where extraction would misread it) \u2192 the series-filtered browse-edgar lookup\n(one fetch) \u2192 the accession's ``primary_doc.xml`` (immutable-cached) \u2192 parsed positions, series\nVERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged \u2014 fine for a\ndiscovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).\n\nTHE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT\n``ticker`` identifier when the filer stamped one \u2014 else its CUSIP batch-resolved to a US ticker\nvia OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited\nPOSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity\nholding (measured: SMH/URA/LIT all 0 \u2014 e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without\nit the overlap is empty. Never the master ``cusip`` column (effectively always NULL \u2014 a silent\nnothing).\n\nRESPONSE-ONLY (#2): no fact, no basket write, nothing persisted \u2014 recomputed per click; the\ninclude-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.\nNO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.\nRECALL-SAFE (#9): the three buckets PARTITION every holding \u2014 ``unresolved`` (no ticker AND no\nCUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,\nnever dropped. An explicit operator click (the drawer toggle \u2014 the cost thread), live SEC/OpenFIGI\nbehind the cache seams; requires ``ALPHADECK_USER_AGENT``.",
+        "description": "Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,\nSlice 2a) \u2014 the holdings-seed: *\"the ETF holds these N names; here are the M you're missing.\"*\n\nDETERMINISTIC + EDGAR-NATIVE (#3, no LLM): sleeve ticker \u2192 the SEC fund file\n(``company_tickers_mf.json``: trust CIK + seriesId, resolved ON-THE-FLY \u2014 the trust CIK is never\nwritten to the master, where extraction would misread it) \u2192 the series-filtered browse-edgar lookup\n(one fetch) \u2192 the accession's ``primary_doc.xml`` (immutable-cached) \u2192 parsed positions, series\nVERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged \u2014 fine for a\ndiscovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6). The\nfund INTERNALS (``net_assets`` = AUM + the ``total_assets``/``total_liabs`` composition) ride the\nsame parsed doc \u2014 sleeve-dossier context, never a signal (#4/#6).\n\nTHE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT\n``ticker`` identifier when the filer stamped one \u2014 else its CUSIP batch-resolved to a US ticker\nvia OpenFIGI (``figi.map_cusip``, cache-first per CUSIP incl. negative answers, a few rate-limited\nPOSTs on a first pull). The CUSIP leg is load-bearing: most filers stamp NO ticker on any equity\nholding (measured: SMH/URA/LIT all 0 \u2014 e.g. SMH's NVIDIA rides only CUSIP 67066G104), so without\nit the overlap is empty. Never the master ``cusip`` column (effectively always NULL \u2014 a silent\nnothing).\n\nRESPONSE-ONLY (#2): no fact, no basket write, nothing persisted \u2014 recomputed per click; the\ninclude-a-missing-name flow is Slice 2b, and the operator's promote stays the only spine writer.\nNO CALL-PATH TOUCH (#4/#6): holdings are discovery context; nothing here fires, arms, or vetoes.\nRECALL-SAFE (#9): the three buckets PARTITION every holding \u2014 ``unresolved`` (no ticker AND no\nCUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,\nnever dropped. An explicit operator click (the drawer toggle \u2014 the cost thread), live SEC/OpenFIGI\nbehind the cache seams; requires ``ALPHADECK_USER_AGENT``.",
         "operationId": "etf_holdings_workbench_securities__security_id__etf_holdings_get",
         "parameters": [
           {
@@ -3842,6 +3842,39 @@
             "type": "integer",
             "title": "Holdings Count"
           },
+          "net_assets": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Assets"
+          },
+          "total_assets": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Assets"
+          },
+          "total_liabs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Liabs"
+          },
           "held": {
             "items": {
               "$ref": "#/components/schemas/EtfHoldingOut"
@@ -3873,7 +3906,7 @@
           "holdings_count"
         ],
         "title": "EtfHoldingsOut",
-        "description": "A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) \u2014 RESPONSE-ONLY\ndiscovery context, recomputed per click, never persisted (the operator's promote stays the only\nspine writer, #2).\n\n``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged \u2014 fine for a\ndiscovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The\nthree buckets partition ALL ``holdings_count`` positions \u2014 ``held`` (in this thesis's basket) \u00b7\n``available`` (in the master, not the basket) \u00b7 ``unresolved`` (no master match \u2014 SHOWN, never\ndropped, #9). Weight-sorted, heaviest first."
+        "description": "A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) \u2014 RESPONSE-ONLY\ndiscovery context, recomputed per click, never persisted (the operator's promote stays the only\nspine writer, #2).\n\n``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged \u2014 fine for a\ndiscovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The\nthree buckets partition ALL ``holdings_count`` positions \u2014 ``held`` (in this thesis's basket) \u00b7\n``available`` (in the master, not the basket) \u00b7 ``unresolved`` (no master match \u2014 SHOWN, never\ndropped, #9). Weight-sorted, heaviest first.\n\nThe fund INTERNALS ride the SAME N-PORT (no extra fetch): ``net_assets`` = AUM (the fund's size),\nwith the ``total_assets``/``total_liabs`` composition it nets down from (net = gross \u2212 liabilities).\nDisplay-only context on the sleeve dossier \u2014 never a signal (#4/#6); ``None`` if a filer omits them."
       },
       "Evidence": {
         "properties": {

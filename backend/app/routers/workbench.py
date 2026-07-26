@@ -247,7 +247,9 @@ def etf_holdings(
     written to the master, where extraction would misread it) → the series-filtered browse-edgar lookup
     (one fetch) → the accession's ``primary_doc.xml`` (immutable-cached) → parsed positions, series
     VERIFIED against the requested seriesId. Holdings are quarter-end and ~60 days lagged — fine for a
-    discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6).
+    discovery seed; ``report_date`` labels the vintage and ``source_ref`` links the filing (#6). The
+    fund INTERNALS (``net_assets`` = AUM + the ``total_assets``/``total_liabs`` composition) ride the
+    same parsed doc — sleeve-dossier context, never a signal (#4/#6).
 
     THE OVERLAP MATCH is two exact identifier legs, both deterministic (#3): a holding's own N-PORT
     ``ticker`` identifier when the filer stamped one — else its CUSIP batch-resolved to a US ticker
@@ -332,6 +334,11 @@ def etf_holdings(
         report_date=report.report_date,
         source_ref=ref.index_url,
         holdings_count=len(report.holdings),
+        # the fund internals — AUM + its gross/liabilities composition, off the SAME parsed N-PORT
+        # (no extra fetch); display context on the sleeve dossier, never a signal (#4/#6)
+        net_assets=report.net_assets,
+        total_assets=report.total_assets,
+        total_liabs=report.total_liabs,
         held=[
             _holding_out(h, sid, etf_overlap.effective_ticker(h, cusip_tickers))
             for h, sid in res.held

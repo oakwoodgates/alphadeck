@@ -149,6 +149,32 @@ def test_parse_arkk_carries_tickers_on_most_holdings():
     assert ktos.cusip == "50077B207"
 
 
+def test_parse_reads_fund_internals_aum_and_composition():
+    """The ETF-sleeve internals (#6): net assets (AUM) + the gross-assets/liabilities composition it
+    nets down from — measured off the SAME parsed doc, no extra fetch. Real values, two filers."""
+    lit = parse_nport_holdings(_LIT_DOC)
+    assert lit.net_assets == pytest.approx(2134236727.85)  # AUM ~ $2.13B
+    assert lit.total_assets == pytest.approx(2141779737.60)
+    assert lit.total_liabs == pytest.approx(7543009.75)
+    # net = gross − liabilities — the composition is internally consistent (an ETF is barely levered)
+    assert lit.net_assets == pytest.approx(lit.total_assets - lit.total_liabs)
+    arkk = parse_nport_holdings(_ARKK_DOC)
+    assert arkk.net_assets == pytest.approx(6482466914.09)  # AUM ~ $6.48B
+    assert arkk.total_assets == pytest.approx(6521307106.71)
+    assert arkk.total_liabs == pytest.approx(38840192.62)
+
+
+def test_parse_missing_fund_internals_are_none_never_a_crash():
+    """A doc with no fundInfo financials yields None internals — the defensive contract, same as a
+    missing holding number (a filer omitting them must never crash the parse)."""
+    bare = (
+        '<?xml version="1.0"?><edgarSubmission xmlns="http://www.sec.gov/edgar/nport">'
+        "<formData><genInfo><seriesId>S000000001</seriesId></genInfo></formData></edgarSubmission>"
+    )
+    r = parse_nport_holdings(bare)
+    assert r.net_assets is None and r.total_assets is None and r.total_liabs is None
+
+
 def test_parse_zero_holdings_doc_is_empty_not_a_crash():
     bare = (
         '<?xml version="1.0"?><edgarSubmission xmlns="http://www.sec.gov/edgar/nport">'

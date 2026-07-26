@@ -60,6 +60,10 @@ const holdingsPayload = {
   source_ref:
     "https://www.sec.gov/Archives/edgar/data/1432353/000204825126005686/0002048251-26-005686-index.htm",
   holdings_count: 3,
+  // the fund internals ride the same N-PORT (real LIT values: net = gross − liabilities)
+  net_assets: 2134236727.85,
+  total_assets: 2141779737.6,
+  total_liabs: 7543009.75,
   held: [
     {
       name: "KRATOS DEFENSE & SECURITY SOLUTIONS INC",
@@ -134,6 +138,27 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     renderSleeve();
     fireEvent.click(screen.getByText("⌾ pull holdings"));
     expect(h.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no fund internals until the pull (the cost thread — the vitals ride the N-PORT)", () => {
+    renderSleeve(); // data undefined -> nothing pulled yet
+    expect(screen.queryByText("AUM")).not.toBeInTheDocument();
+    expect(screen.queryByText("gross assets")).not.toBeInTheDocument();
+  });
+
+  it("shows the fund internals (AUM + gross/liabilities composition) once pulled", () => {
+    h.holdings.data = holdingsPayload;
+    renderSleeve();
+    // AUM headline — net assets off the N-PORT (#6), formatted via formatMarketCap
+    const aum = screen.getByTitle(/net assets = gross assets/i);
+    expect(aum).toHaveTextContent("AUM");
+    expect(aum).toHaveTextContent("$2.1B");
+    // the composition it nets down from
+    expect(screen.getByText("gross assets")).toBeInTheDocument();
+    expect(screen.getByText("liabilities")).toBeInTheDocument();
+    expect(screen.getByText("$8M")).toBeInTheDocument(); // total_liabs 7.54M -> "$8M"
+    // AUM ≈ gross for an ETF (barely levered) — both round to $2.1B, honestly shown side by side
+    expect(screen.getAllByText("$2.1B")).toHaveLength(2);
   });
 
   it("renders the three-bucket partition + the vintage-labeled filing link once pulled", () => {
