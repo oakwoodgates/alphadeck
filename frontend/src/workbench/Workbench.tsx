@@ -83,12 +83,21 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
   // (a cheap read-time join, no fetch; reflects the last saved state).
   const scoredById = Object.fromEntries(members.map((m) => [m.security_id, m]));
 
+  // The `fund` sleeves (ETF Sleeve, Slice 1) are the theme's low-torque EXPRESSION — semantically NOT a
+  // value-chain link (they carry segment: null), so they never belong to a segment tab and would be dropped
+  // by the segment filter below. Split them out: the value-chain view scores the equity `chainMembers`, and
+  // the sleeves render in their OWN always-visible section (with price). Display-only; a sleeve never touches
+  // the call path (#4/#6).
+  const sleeveMembers = members.filter((m) => m.archetype === "fund");
+  const chainMembers = members.filter((m) => m.archetype !== "fund");
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   const grouped = segments.length > 0;
-  const countFor = (label: string) => members.filter((m) => m.segment === label).length;
+  const countFor = (label: string) => chainMembers.filter((m) => m.segment === label).length;
   const activeSeg = grouped ? (seg ?? segments[0]?.label ?? null) : null;
-  const shownMembers = activeSeg ? members.filter((m) => m.segment === activeSeg) : members;
+  const shownMembers = activeSeg
+    ? chainMembers.filter((m) => m.segment === activeSeg)
+    : chainMembers;
   const selectedMember =
     shownMembers.find((m) => m.security_id === pickedMemberId) ?? shownMembers[0] ?? null;
   const linkCount = new Set(members.map((m) => m.segment).filter(Boolean)).size;
@@ -557,10 +566,12 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                     <span>{activeSeg ?? "The basket, scored"}</span>{" "}
                     <em>
                       — {shownMembers.length} {shownMembers.length === 1 ? "name" : "names"}, scored
-                      {/* the FUNNEL, visible (gate 2→3 progress): confirmed-data coverage over the WHOLE
-                          basket (not the segment view) — the same memberHasFundamentals rule everywhere */}
-                      {" · "}data confirmed on {members.filter(memberHasFundamentals).length} of{" "}
-                      {members.length} basket-wide
+                      {/* the FUNNEL, visible (gate 2→3 progress): confirmed-data coverage over the scored
+                          basket (not the segment view) — the same memberHasFundamentals rule everywhere.
+                          Over `chainMembers` (the scored equities): a `fund` sleeve carries no fundamentals
+                          by nature, so counting it would peg the meter below 100% forever. */}
+                      {" · "}data confirmed on {chainMembers.filter(memberHasFundamentals).length} of{" "}
+                      {chainMembers.length} basket-wide
                     </em>
                     <button
                       type="button"
@@ -636,6 +647,29 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
                     shares. <b>Dilution is the ember risk axis</b> (more = more pressure); a bare “—”
                     means no data, not zero. Click a name for the evidence.
                   </div>
+                </section>
+              )}
+
+              {/* ETF sleeves (ETF Sleeve, Slice 1) — the theme's low-torque expression, in their OWN group
+                  (not a value-chain segment) so a surfaced `fund` sleeve always renders with its price,
+                  whatever segment tab is active. Display-only: price is context, never a signal (#4/#6), and
+                  the row doesn't drive the DD rail (a fund has no facts to inspect). */}
+              {sleeveMembers.length > 0 && (
+                <section className="sect wb-sleeves">
+                  <div className="sect-h">
+                    <span>ETF sleeve{sleeveMembers.length === 1 ? "" : "s"}</span>{" "}
+                    <em>— a low-torque expression of the theme; price is context, not a signal</em>
+                  </div>
+                  {sleeveMembers.map((m) => (
+                    <ScoredRow
+                      key={m.security_id}
+                      member={m}
+                      selected={false}
+                      onSelect={() => {}}
+                      thesisId={thesisId}
+                      asof={asof}
+                    />
+                  ))}
                 </section>
               )}
 
