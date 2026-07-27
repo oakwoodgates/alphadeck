@@ -259,6 +259,10 @@ class Settings(BaseSettings):
     )
     stooq_base: str = "https://stooq.com"
     yahoo_chart_base: str = "https://query1.finance.yahoo.com"
+    # The ETF net-flow sampler's two share-count pages (ingest/funds): the issuer first, the aggregator as
+    # the fallback (operator decision, 2026-07-26). Bases only — the builders append the fund path.
+    globalx_funds_base: str = "https://www.globalxetfs.com"
+    stockanalysis_base: str = "https://stockanalysis.com"
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
     usaspending_award_url_base: str = (

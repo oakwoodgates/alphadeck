@@ -255,6 +255,61 @@ def test_fact_theme_conviction_is_append_only(db):
     db.rollback()
 
 
+def _fund_shares(security_id, *, d, shares_out, recorded_at, source="globalx"):
+    return {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": security_id,
+        "d": d,
+        "shares_out": shares_out,
+        "source": source,
+        "source_ref": "https://www.globalxetfs.com/funds/ura/",
+        "valid_from": d,
+        "recorded_at": recorded_at,
+    }
+
+
+def test_fact_fund_shares_is_append_only(db, security_id):
+    """The fund shares-out sample is append-only too — an UPDATE raises (a restated count is a new row)."""
+    t = datetime(2026, 7, 24, tzinfo=timezone.utc)
+    fid = append_fact(
+        db,
+        "fact_fund_shares",
+        _fund_shares(security_id, d=date(2026, 7, 24), shares_out=138771666, recorded_at=t),
+    )
+    db.commit()
+    with pytest.raises(psycopg.errors.RaiseException):
+        with db.cursor() as cur:
+            cur.execute("UPDATE fact_fund_shares SET shares_out = 1 WHERE id = %s", (fid,))
+    db.rollback()
+
+
+def test_fact_fund_shares_correction_is_bitemporal(db, security_id):
+    """A same-day restated count (the aggregator's rounded sample corrected by the issuer's exact one)
+    is a NEW version of the (security, d) fact; each transaction time reads its own version."""
+    t1 = datetime(2026, 7, 24, 20, tzinfo=timezone.utc)
+    t2 = datetime(2026, 7, 25, 20, tzinfo=timezone.utc)
+    d = date(2026, 7, 24)
+    append_fact(
+        db,
+        "fact_fund_shares",
+        _fund_shares(
+            security_id, d=d, shares_out=138770000, recorded_at=t1, source="stockanalysis"
+        ),
+    )
+    append_fact(
+        db,
+        "fact_fund_shares",
+        _fund_shares(security_id, d=d, shares_out=138771666, recorded_at=t2),
+    )
+    db.commit()
+    common = dict(security_id=security_id, asof=date(2026, 7, 30), tenant_id=DEFAULT_TENANT_ID)
+    at_t1 = as_of(db, "fact_fund_shares", known_at=t1, **common)
+    at_t2 = as_of(db, "fact_fund_shares", known_at=t2, **common)
+    assert len(at_t1) == 1 and float(at_t1[0]["shares_out"]) == 138770000  # rounded, as known at t1
+    assert len(at_t2) == 1 and float(at_t2[0]["shares_out"]) == 138771666  # the correction, by t2
+    assert at_t2[0]["source"] == "globalx"  # provenance rides the winning version (#6)
+
+
 def test_theme_conviction_as_of_thesis_is_thesis_scoped_and_bitemporal(db):
     """``as_of_thesis`` reads a THESIS-scoped fact (a theme conviction is basket-level, not co-located on
     a security) and honors transaction time: a re-ratification (a NEW row) is invisible until known.
