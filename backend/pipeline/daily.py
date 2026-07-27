@@ -281,14 +281,20 @@ def _report(results: list[ThesisRunResult]) -> int:
             mark = "call-of-record APPENDED"
         else:
             mark = "unchanged (no new row)"
-        facts = sum(x.form4_appended + x.price_bars_appended for x in r.ingested)
+        facts = sum(
+            x.form4_appended + x.price_bars_appended + x.fund_shares_appended for x in r.ingested
+        )
         skipped = sum(x.form4_skipped for x in r.ingested)
         sk = f" · {skipped} form4 skipped" if skipped else ""  # loudness marks the exception
         rv = sum(x.price_bars_reversioned for x in r.ingested)
         rvs = (
             f" · {rv} bars RE-VERSIONED (restated)" if rv else ""
         )  # a split re-base — loud only then
-        print(f"  {r.name}: +{facts} facts{sk}{rvs} · {mark}")
+        frv = sum(x.fund_shares_reversioned for x in r.ingested)
+        frvs = (
+            f" · {frv} fund shares RE-VERSIONED (restated)" if frv else ""
+        )  # a corrected same-day count — loud only then
+        print(f"  {r.name}: +{facts} facts{sk}{rvs}{frvs} · {mark}")
     # transitions get their own LOUD block — and only when there ARE any (loudness marks the
     # exception; the common all-quiet night prints nothing here)
     transitions = [r.transition for r in results if r.transition]

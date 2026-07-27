@@ -100,6 +100,8 @@ def build_run_payload(
                 "form4_appended": sum(x.form4_appended for x in r.ingested),
                 "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
                 "form4_skipped": sum(x.form4_skipped for x in r.ingested),
+                # the ETF sleeves' fund-shares samples (net flow F2) — 0 on an all-equity thesis
+                "fund_shares_appended": sum(x.fund_shares_appended for x in r.ingested),
             }
             for r in results
         ],

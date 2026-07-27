@@ -1,8 +1,10 @@
-"""Per-thesis back-half ingest — insider Form 4 + price EOD for a thesis's RESOLVED basket (M2a).
+"""Per-thesis back-half ingest — insider Form 4 + price EOD (+ fund shares for ETF sleeves) for a
+thesis's RESOLVED basket (M2a; the fund-shares leg is ETF net flow F2).
 
 The create/promote path writes only the spine, so a freshly-authored thesis has no CALL-ENGINE facts and
 can never WARM/ARM. This CLI fills that gap on demand: for each resolved basket member it ingests the insider
-+ price facts the detectors read. It is:
++ price facts the detectors read — plus, for an ``instrument_kind == 'etf'`` member, one fund
+shares-outstanding sample (DISPLAY-feeding data for the sleeve's flow read, never a call input). It is:
 
 - **Incremental** — only NEW Form 4 accessions (``existing_accessions``) and only EOD bars newer than the
   latest stored one (``latest_bar_date``). A re-run of an already-current name appends ZERO rows; the
@@ -37,6 +39,8 @@ from domain.security import Security
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.submissions import fetch_submissions, form4_doc_url, form4_filings
+from ingest.funds.ingest_security import ingest_fund_shares_for_security
+from ingest.funds.source import FundSharesSource
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
 from repositories import thesis_repo
@@ -57,6 +61,10 @@ class NameResult:
     # overlap bars re-stored because the source RESTATED them (a split re-base; source-strategy A) —
     # the exceptional path, reported loudly only when nonzero
     price_bars_reversioned: int = 0
+    # the fund-shares leg (ETF net flow, F2): a non-ETF member always contributes 0; a restated
+    # same-day count is a new VERSION (reversioned) — loud only when nonzero
+    fund_shares_appended: int = 0
+    fund_shares_reversioned: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -126,17 +134,22 @@ def ingest_thesis(
     user_agent: str | None = None,
     price_source: PriceSource | None = None,
     edgar_client: EdgarClient | None = None,
+    fund_source: FundSharesSource | None = None,
 ) -> list[NameResult]:
-    """Ingest insider + price facts for each RESOLVED basket member of ``thesis_id``.
+    """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
+    each RESOLVED basket member of ``thesis_id``.
 
-    Per member: resolve the id to the master row (skip unresolved / foreign ids), then run the Form 4 leg
-    and the price leg — EACH in its own try, COMMITTING on success and ROLLING BACK on failure, so one
-    leg's error never discards the other's work and never aborts the run (the error is captured into the
-    name's ``NameResult``). Incremental + no-lookahead (see the module docstring). Returns one ``NameResult``
-    per member that had a resolved id.
+    Per member: resolve the id to the master row (skip unresolved / foreign ids), then run the Form 4 leg,
+    the price leg, and the fund-shares leg — EACH in its own try, COMMITTING on success and ROLLING BACK on
+    failure, so one leg's error never discards the others' work and never aborts the run (the error is
+    captured into the name's ``NameResult``). The fund-shares leg is gated on the member's
+    ``instrument_kind == 'etf'`` inside ``ingest_fund_shares_for_security`` (the form4 leg's no-CIK
+    mirror: a non-ETF member contributes no shares sample and never touches the source). Incremental +
+    no-lookahead (see the module docstring). Returns one ``NameResult`` per member that had a resolved id.
 
-    ``force_refresh`` makes the price leg bypass a stale cache hit (the recurring/daily path sets it; see
-    ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults to Yahoo).
+    ``force_refresh`` makes the price + fund-shares legs bypass a stale cache hit (the recurring/daily
+    path sets it; see ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults
+    to Yahoo); ``fund_source`` the swappable shares source (defaults to issuer-first + fallback).
     ``edgar_client`` lets the caller INJECT the client (else one is constructed) so it can read
     ``client.live_fetches`` afterwards — the daily cron does, to record the freeze-detector count.
     """
@@ -180,6 +193,21 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001
             conn.rollback()
             errs.append(f"price: {e}")
+        fs_appended, fs_reversioned = 0, 0
+        try:
+            shares = ingest_fund_shares_for_security(
+                conn,
+                sec,
+                tenant_id=thesis.tenant_id,
+                allow_live=allow_live,
+                force_refresh=force_refresh,
+                source=fund_source,
+            )
+            fs_appended, fs_reversioned = shares.appended, shares.reversioned
+            conn.commit()
+        except Exception as e:  # noqa: BLE001 — fail-visible: a fund with no samplable source is a
+            conn.rollback()  # captured error on ITS NameResult, never a silent omission (#7/#9)
+            errs.append(f"fund_shares: {e}")
         results.append(
             NameResult(
                 sec.ticker,
@@ -189,6 +217,8 @@ def ingest_thesis(
                 "; ".join(errs) or None,
                 f4_skipped,
                 price_bars_reversioned=px_reversioned,
+                fund_shares_appended=fs_appended,
+                fund_shares_reversioned=fs_reversioned,
             )
         )
     return results
@@ -200,6 +230,7 @@ def _report(results: list[NameResult]) -> int:
     total_f4 = sum(r.form4_appended for r in results)
     total_px = sum(r.price_bars_appended for r in results)
     total_sk = sum(r.form4_skipped for r in results)
+    total_fs = sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results)
     errored = [r for r in results if r.error]
     for r in results:
         tail = f"   ERROR: {r.error}" if r.error else ""
@@ -208,13 +239,20 @@ def _report(results: list[NameResult]) -> int:
             if r.form4_skipped
             else ""
         )
+        # only an ETF sleeve ever samples — the line rides only when something landed (exception-loud)
+        fund = (
+            f", +{r.fund_shares_appended + r.fund_shares_reversioned} fund shares"
+            if r.fund_shares_appended or r.fund_shares_reversioned
+            else ""
+        )
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{skips}{tail}"
+            f"+{r.price_bars_appended} bars{fund}{skips}{tail}"
         )
     sk = f", {total_sk} form4 skipped" if total_sk else ""
+    fs = f", +{total_fs} fund shares" if total_fs else ""
     print(
-        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{sk}, "
+        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{fs}{sk}, "
         f"{len(errored)} errored"
     )
     return len(errored)
@@ -222,7 +260,8 @@ def _report(results: list[NameResult]) -> int:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        description="Ingest back-half facts (Form 4 + EOD) for a thesis's resolved basket."
+        description="Ingest back-half facts (Form 4 + EOD + ETF fund shares) for a thesis's "
+        "resolved basket."
     )
     p.add_argument("--thesis", required=True, help="thesis id (uuid)")
     p.add_argument(
