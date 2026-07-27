@@ -215,8 +215,11 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
     end = min(date.fromisoformat(args.end) if args.end else date.today(), date.today())
     n = len(backfill_dates(end, args.days, args.cadence))
+    # `->` not `→`: the operator runs this CLI from a Windows console (cp1252), where a non-encodable
+    # glyph crashes the banner print BEFORE any work — caught by the live e2e walk, not the tests
+    # (pytest's capture is encoding-tolerant, a real console is not).
     print(
-        f"backfilling {n} dates per sleeve, {end - timedelta(days=args.days)} → {end} "
+        f"backfilling {n} dates per sleeve, {end - timedelta(days=args.days)} -> {end} "
         f"(~{n * 13 / 60:.0f} min of live spacing per sleeve at the 5/min free tier; "
         "cached dates are free)"
     )
