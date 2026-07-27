@@ -81,6 +81,8 @@ def test_zero_flow_is_a_real_zero_not_na():
     m = _by_key(sig)
     assert m["flow_1m_usd"].value == 0.0 and m["flow_1m_usd"].note is None
     assert sig.headline is not None and sig.headline.glyph == "flat"
+    # a true zero is NEUTRAL — flat flow is neither green nor red (no tone), distinct from ±
+    assert m["flow_1m_usd"].tone is None and m["flow_1m_pct_of_shares"].tone is None
 
 
 def test_no_samples_at_all_returns_none():
@@ -133,6 +135,9 @@ def test_inflow_math_prices_each_delta_at_its_days_close():
     assert m["flow_1w_pct_of_shares"].value == 4.55
     assert sig.headline.key == "net_inflow" and sig.headline.glyph == "up"
     assert "1m net INFLOW" in sig.headline.label and "+15.0% of shares" in sig.headline.label
+    # inflow tints the directional metrics green (pos) — both the $ and % of the same window
+    assert m["flow_1m_usd"].tone == "pos" and m["flow_1m_pct_of_shares"].tone == "pos"
+    assert m["flow_1w_usd"].tone == "pos"
 
 
 def test_outflow_reads_negative_and_down():
@@ -144,6 +149,8 @@ def test_outflow_reads_negative_and_down():
     assert m["flow_1m_pct_of_shares"].value == -10.0
     assert sig.headline.key == "net_outflow" and sig.headline.glyph == "down"
     assert "OUTFLOW" in sig.headline.label
+    # outflow tints red (neg) — the render the operator wanted (a bare minus was too quiet)
+    assert m["flow_1m_usd"].tone == "neg" and m["flow_1m_pct_of_shares"].tone == "neg"
 
 
 def test_weekend_dated_sample_prices_at_the_prior_close():

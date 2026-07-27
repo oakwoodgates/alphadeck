@@ -97,7 +97,11 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
             <div className="np-ind-label">{sig.label}</div>
             <div className="np-ind-chips">
               {(sig.metrics ?? []).map((m) => (
-                <span className="np-ind-chip" key={m.key} title={m.note ?? undefined}>
+                <span
+                  className={`np-ind-chip${m.tone ? ` ${m.tone}` : ""}`}
+                  key={m.key}
+                  title={m.note ?? undefined}
+                >
                   <span className="k">{m.label}</span>
                   <span className={`v${m.value == null ? " na" : ""}`}>{fmtMetricValue(m)}</span>
                   {m.value == null && m.note && <span className="note">{m.note}</span>}

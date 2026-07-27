@@ -82,6 +82,9 @@ def _window(
         return na(f"n/a: no sample in the last {window_days}d (latest {latest.isoformat()})")
 
     net_shares = sum(dl["dshares"] for dl in windowed)
+    # the window's direction as a render tone — green inflow / red outflow; a true zero flow stays
+    # neutral (no tint), the honest "flat" read (the bare minus was too quiet, per the operator)
+    tone = "pos" if net_shares > 0 else "neg" if net_shares < 0 else None
     priced = [dl for dl in windowed if dl["usd"] is not None]
     unpriced = len(windowed) - len(priced)
     usd = DisplayMetric(
@@ -91,6 +94,7 @@ def _window(
         unit="usd",
         # an unpriced delta (no close on file up to its date) is excluded and SAID — never silently
         note=f"{unpriced} deltas unpriced (no close on file)" if unpriced else None,
+        tone=tone,
     )
     base_shares = float(baseline["shares_out"])
     if base_shares > 0.0:
@@ -99,6 +103,7 @@ def _window(
             label=f"{label} Δshares",
             value=round(net_shares / base_shares * 100.0, 2),
             unit="pct",
+            tone=tone,
         )
     else:
         pct = DisplayMetric(

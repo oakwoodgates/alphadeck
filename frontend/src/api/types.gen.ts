@@ -1667,6 +1667,11 @@ export interface components {
          * DisplayMetric
          * @description One labeled reading. ``value=None`` is an HONEST gap — the ``note`` says why ("n/a: 140/200
          *     bars"), never a fake number (#6 show the work, #7 quiet degrade).
+         *
+         *     ``tone`` opts a DIRECTIONAL metric into a green/red (pos/neg) render — set ONLY where the sign is
+         *     a genuine up/down read (ETF net flow: inflow vs outflow, where a bare minus is too quiet), left
+         *     None everywhere else so a non-directional chip stays neutral. The FE renders it generically off
+         *     this field, so a future directional member colors with zero frontend change.
          */
         DisplayMetric: {
             /** Key */
@@ -1679,6 +1684,8 @@ export interface components {
             unit?: ("pct" | "usd" | "price" | "count" | "ratio") | null;
             /** Note */
             note?: string | null;
+            /** Tone */
+            tone?: ("pos" | "neg") | null;
         };
         /**
          * DisplaySignal

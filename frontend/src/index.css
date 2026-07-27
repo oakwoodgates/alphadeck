@@ -214,6 +214,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-ind-chip .v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .np-ind-chip .v.na { color: var(--txt-4); }
 .np-ind-chip .note { font-size: 9.5px; color: var(--txt-4); font-style: italic; }
+/* directional tone (metric.tone) — a subtle green/red outline + value tint so inflow vs outflow
+   reads at a glance (a bare "-" is too quiet). Opt-in per metric; neutral chips are unchanged. */
+.np-ind-chip.pos { border-color: rgba(70, 208, 127, 0.5); }
+.np-ind-chip.neg { border-color: rgba(255, 90, 106, 0.5); }
+.np-ind-chip.pos .v { color: var(--pos); }
+.np-ind-chip.neg .v { color: var(--neg); }
 .np-ind-event { display: flex; align-items: baseline; gap: 8px; padding: 5px 0 0 2px; font-size: 11px; color: var(--txt-3); }
 .np-ind-event .dir { font-family: var(--mono); color: var(--txt-4); }
 .np-ind-event .lbl { color: var(--txt-2); }
