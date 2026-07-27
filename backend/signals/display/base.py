@@ -39,16 +39,24 @@ class DisplayPointInTimeData(Protocol):
 
     def insider_txns(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
+    def fund_shares(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
 
 class DisplayMetric(DomainModel):
     """One labeled reading. ``value=None`` is an HONEST gap — the ``note`` says why ("n/a: 140/200
-    bars"), never a fake number (#6 show the work, #7 quiet degrade)."""
+    bars"), never a fake number (#6 show the work, #7 quiet degrade).
+
+    ``tone`` opts a DIRECTIONAL metric into a green/red (pos/neg) render — set ONLY where the sign is
+    a genuine up/down read (ETF net flow: inflow vs outflow, where a bare minus is too quiet), left
+    None everywhere else so a non-directional chip stays neutral. The FE renders it generically off
+    this field, so a future directional member colors with zero frontend change."""
 
     key: str
     label: str
     value: float | None = None
     unit: Literal["pct", "usd", "price", "count", "ratio"] | None = None
     note: str | None = None
+    tone: Literal["pos", "neg"] | None = None
 
 
 class DisplayEvent(DomainModel):

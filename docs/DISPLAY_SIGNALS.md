@@ -21,8 +21,10 @@ idiom), pinned by `tests/signals/display/test_registry.py::test_display_package_
   read a call dial, or persist anything.
 - Nothing in `pipeline/` or `calls/` consumes the display registry — `assemble_from_pit` physically
   cannot see a display output.
-- It has its own narrow `DisplayPointInTimeData` Protocol (only `price_history` + `insider_txns`);
-  the detectors' `SignalPointInTimeData` stays exactly as #176 left it ("no future plugin surface").
+- It has its own narrow `DisplayPointInTimeData` Protocol (only `price_history` + `insider_txns` +
+  `fund_shares`); the detectors' `SignalPointInTimeData` stays exactly as #176 left it ("no future
+  plugin surface") — `fund_shares` was widened HERE, deliberately not there, so no detector can
+  quietly grow a dependency on the fund-flow basis.
 
 **Why display output is never recorded (the trap that shaped this design).** The daily cron's
 `record_if_changed` (`repositories/calls_repo.py`) canonicalizes `model_dump()` of the **entire**
@@ -66,6 +68,7 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
 | `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
+| `etf_flow` | `fact_fund_shares` (+ `fact_price_eod` closes) | flow_1w_usd, flow_1w_pct_of_shares, flow_1m_usd, flow_1m_pct_of_shares | — | window_1w_days=7, window_1m_days=30 |
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
 ingested** (nothing to say) but a **quiet zero** for an ingested name with no window activity (zero
@@ -94,6 +97,24 @@ phenomenon; sells are the raw code-S tape.
 
 `volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
 highs/lows on the most recent print and notes a sub-year window.
+
+**`etf_flow` (the fund sleeve's inflow/outflow read).** Flow is the fund's OWN shares-outstanding
+change, priced: Δshares between consecutive sampled counts (`fact_fund_shares` — the daily ingest's
+fund-shares leg samples the issuer page, aggregator fallback), each delta priced at the close
+on/before its date, summed over trailing 1w/1m windows. Positive Δshares = net creations = INFLOW;
+negative = redemptions = OUTFLOW. **The three traps its goldens pin: price appreciation alone,
+volume churn alone, and an AUM rise without Δshares are all ZERO flow** — AUM moves when price
+moves; flow only moves when shares do. A window states a value only when fully knowable (a baseline
+sample on/before the window start + a fresh sample inside it); a younger series reads
+`"n/a: 3/30 sampled days"` and a stalled sampler reads `"n/a: no sample in the last 7d (…)"` —
+both DISTINCT from a true zero (two equal real samples ⇒ `0.0`, glyph `flat`). Zero samples (every
+non-ETF member; an ETF before its first sample) returns `None` — nothing renders. The headline
+prefers the 1m read and falls back to 1w while 1m accrues; the basis carries `sample_count`, the
+adapter(s) (with the aggregator's ~10k-share-rounded caveat when it sampled), and the latest
+sample's exact page URL. Surfaced on the Workbench sleeve dossier (`SleeveRail`) as the fund-flow
+chip beside the AUM internals — the pairing that makes the trap visible: AUM up + flow flat = just
+price. Promoting flow to a call input is F4 — a separate, operator-signed slice; this member is
+structurally unable to be one.
 
 **`sma_position` notes.** `LOOKBACK_DAYS=600` is *calendar* days (`price_history` trims by
 calendar): ≈410 trading bars → ~210 SMA200-computable bars ≈ 10 months of 50×200 cross search. A

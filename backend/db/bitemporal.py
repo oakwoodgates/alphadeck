@@ -25,6 +25,10 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "source_ref"
     ],  # one shares fact per source (10-Q cover) — Workbench mkt cap
     "fact_cash_burn": ["source_ref"],  # one cash/burn fact per source (10-Q) — Workbench runway
+    "fact_fund_shares": [
+        "security_id",
+        "d",
+    ],  # one fund shares-out sample per day (ETF net flow) — a restated count is a new version
 }
 
 

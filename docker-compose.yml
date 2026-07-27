@@ -36,6 +36,10 @@ services:
       # local dev loop only; the container must always reach postgres:5432).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-}
+      # Polygon.io key (ETF net flow): with it, ETF sleeve shares-outstanding samples come from Polygon
+      # FIRST (exact counts + the historical backfill CLI); without it, the free scrapers keep covering
+      # the forward sample. Fail-open like the two above.
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
       # Optional discovery BACKSTOP cap, exposed for tuning (unset -> 1000, the Settings default). NOT a recall
       # limiter — only a pathological-keyword bound; speed comes from the parallel EFTS fan-out under the shared
       # rate limit, never from capping recall. The fallback is 1000 (not empty) because an EMPTY env value
@@ -108,6 +112,9 @@ services:
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-} # the daily run does LIVE EDGAR/Yahoo pulls
+      # The nightly fund-shares sample rides this ingest — the cron needs the SAME Polygon key as the
+      # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
       TZ: ${ALPHADECK_CRON_TZ:-America/New_York} # explicit TZ — schedule at US market close, never UTC
       RUN_AT: ${ALPHADECK_CRON_AT:-22:30} # HH:MM in TZ — after the US close + EOD settle
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.

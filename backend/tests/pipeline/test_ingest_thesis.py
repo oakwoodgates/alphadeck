@@ -92,16 +92,40 @@ def _patch(monkeypatch, *, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),)
     monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(fn))
 
 
+class _FakeFundSource:
+    """A FundSharesSource stub (the fund-shares leg's seam) — a fixed snapshot, or a raiser."""
+
+    def __init__(self, snap=None, error: Exception | None = None):
+        self.snap, self.error, self.calls = snap, error, 0
+
+    def get_snapshot(self, ticker, *, allow_live=False, force_refresh=False):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.snap
+
+
+def _fund_snap(d=date(2026, 6, 16), shares=138771666.0):
+    return {
+        "d": d,
+        "shares_out": shares,
+        "source": "globalx",
+        "source_ref": "https://www.globalxetfs.com/funds/ura",
+    }
+
+
 # --- DB setup helpers -------------------------------------------------------------------------------
 
 
-def _add_master(db, *, ticker, cik, tenant=DEFAULT_TENANT_ID) -> uuid.UUID:
+def _add_master(
+    db, *, ticker, cik, tenant=DEFAULT_TENANT_ID, instrument_kind="equity"
+) -> uuid.UUID:
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
-            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (sid, tenant, ticker, cik, "2026-01-01"),
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from, instrument_kind) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, tenant, ticker, cik, "2026-01-01", instrument_kind),
         )
     db.commit()
     return sid
@@ -310,6 +334,68 @@ def test_skip_tolerance_keeps_rerun_at_zero_rows_count_the_table(db, security_id
     assert _counts(db) == before  # the TABLE did not grow
     assert r.form4_appended == 0 and r.price_bars_appended == 0
     assert r.form4_skipped == 1  # still counted, still visible
+
+
+# --- the fund-shares leg (ETF net flow, F2) ----------------------------------------------------------
+
+
+def _fund_count(db, *, tenant=DEFAULT_TENANT_ID) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) n FROM fact_fund_shares WHERE tenant_id = %s", (tenant,))
+        return cur.fetchone()["n"]
+
+
+def test_etf_member_samples_fund_shares_and_equities_contribute_nothing(
+    db, security_id, monkeypatch
+):
+    """The third leg, gated on instrument_kind: the ETF sleeve lands ONE shares sample; the equity
+    member contributes no sample (the form4 no-CIK mirror) and the source is spent once, not per name.
+    """
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="URA", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("DEVCO", security_id), ("URA", etf)])
+    src = _FakeFundSource(_fund_snap())
+
+    by = {r.ticker: r for r in IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)}
+
+    assert by["URA"].error is None and by["URA"].fund_shares_appended == 1
+    assert by["URA"].price_bars_appended == 1  # the sleeve still gets its price context
+    assert by["DEVCO"].fund_shares_appended == 0
+    assert src.calls == 1  # the equity never touched the source
+    assert _fund_count(db) == 1
+
+
+def test_fund_shares_rerun_appends_zero_rows_count_the_table(db, monkeypatch):
+    """COUNT-the-table idempotency for the new leg: an unchanged same-day snapshot re-run appends
+    NOTHING (the read dedups, so only the count can prove the table didn't silently grow)."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="URA", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("URA", etf)])
+    src = _FakeFundSource(_fund_snap())
+
+    IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)
+    before = _fund_count(db)
+    r = IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)[0]  # identical second run
+
+    assert _fund_count(db) == before  # the TABLE did not grow
+    assert r.fund_shares_appended == 0 and r.fund_shares_reversioned == 0
+
+
+def test_fund_leg_failure_is_captured_and_the_other_legs_still_commit(db, monkeypatch):
+    """Fail-visible + per-LEG isolation: a fund with no samplable source errors ITS NameResult
+    ("fund_shares: …") while the price leg's bars stay committed — a visible no-source state, never a
+    silent omission (#7/#9), and never an aborted name."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="GHOST", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("GHOST", etf)])
+    src = _FakeFundSource(error=RuntimeError("no samplable source for GHOST"))
+
+    r = IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)[0]
+
+    assert r.error and "fund_shares:" in r.error and "no samplable source" in r.error
+    assert r.fund_shares_appended == 0
+    assert r.price_bars_appended == 1  # the price leg still committed (per-leg isolation)
+    assert _fund_count(db) == 0
 
 
 def test_cache_miss_still_aborts_the_form4_leg(db, security_id, monkeypatch):

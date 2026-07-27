@@ -44,7 +44,7 @@ replay = [
 packages = [
     "app", "app.routers",
     "calls", "db", "domain", "llm",
-    "ingest", "ingest.edgar", "ingest.prices",
+    "ingest", "ingest.edgar", "ingest.funds", "ingest.prices",
     "pipeline", "repositories", "securities", "signals", "signals.display", "replay", "scoreboard",
 ]
 

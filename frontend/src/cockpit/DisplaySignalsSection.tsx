@@ -27,8 +27,9 @@ export function fmtMetricValue(m: DisplayMetric): string {
 }
 
 // The posture-glyph tokens the wire can carry -> the arrow the chip shows. Rising-family glyphs
-// tint positive, falling-family negative (glyph only — the chip itself stays mono, #7).
-const GLYPH: Record<string, string> = {
+// tint positive, falling-family negative (glyph only — the chip itself stays mono, #7). Exported:
+// the sleeve dossier's fund-flow chip (SleeveRail) renders the same tokens.
+export const GLYPH: Record<string, string> = {
   up: "↑",
   turn_up: "↗",
   turn_down: "↘",
@@ -96,7 +97,11 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
             <div className="np-ind-label">{sig.label}</div>
             <div className="np-ind-chips">
               {(sig.metrics ?? []).map((m) => (
-                <span className="np-ind-chip" key={m.key} title={m.note ?? undefined}>
+                <span
+                  className={`np-ind-chip${m.tone ? ` ${m.tone}` : ""}`}
+                  key={m.key}
+                  title={m.note ?? undefined}
+                >
                   <span className="k">{m.label}</span>
                   <span className={`v${m.value == null ? " na" : ""}`}>{fmtMetricValue(m)}</span>
                   {m.value == null && m.note && <span className="note">{m.note}</span>}

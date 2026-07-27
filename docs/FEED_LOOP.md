@@ -45,16 +45,22 @@ no LLM on this path).
 
 ## The per-thesis ingest — `pipeline/ingest_thesis.py`  `[BUILT #70]`
 
-`ingest_thesis(conn, thesis_id, *, allow_live, force_refresh, user_agent, price_source)` ingests insider +
-price facts for each **resolved** basket member. CLI: `python -m pipeline.ingest_thesis --thesis <id>`.
+`ingest_thesis(conn, thesis_id, *, allow_live, force_refresh, user_agent, price_source, fund_source)`
+ingests insider + price facts — and, for an ETF sleeve member, a fund shares-outstanding sample — for each
+**resolved** basket member. CLI: `python -m pipeline.ingest_thesis --thesis <id>`.
 
 - **Exact membership (#2).** It loops the thesis's basket and resolves each member by its already-resolved
   `security_id` via **`master.get`** (issuer ticker + CIK) — **never a fresh fuzzy resolve.** An unresolved
   member (`security_id` is null) is skipped; a placed id not in the tenant's master is reported, not guessed.
-- **Two legs, each fail-visible.** The Form 4 leg and the price leg each run in **their own try**, committing
-  on success and rolling back on failure, so one leg's error never discards the other's work and never aborts
-  the run — the error is captured into the name's `NameResult` (improving on the scanner's bare `except:
-  pass`). One bad name never stops the rest.
+- **Three legs, each fail-visible.** The Form 4 leg, the price leg, and the fund-shares leg (ETF net flow —
+  `ingest.funds.ingest_security`, gated on the member's `instrument_kind == 'etf'`: a non-ETF member
+  contributes no shares sample and never touches the source, the form4 no-CIK mirror) each run in **their
+  own try**, committing on success and rolling back on failure, so one leg's error never discards the
+  others' work and never aborts the run — the error is captured into the name's `NameResult` (improving on
+  the scanner's bare `except: pass`). One bad name never stops the rest. The fund-shares sample stores the
+  page's OWN stated as-of date, appends nothing on an unchanged `(d, count)` re-sample (count-the-table
+  guarded), and RE-VERSIONS a restated same-day count; its cache (`data/fund_cache/`) is a homogeneous
+  daily cache on the **prices** freshness mechanism (`force_refresh`), not EDGAR's key-classed TTL.
 - **Per-filing tolerance inside the Form 4 leg.** One unfetchable or unparseable filing — pre-2004-06-30
   Form 4s are SGML/text, not XML, and some ancient document URLs 404 (seen live: NVEC/INTT parse errors,
   ASYS/CVV year-2000 404s blanking whole names) — is **skipped-and-counted** (`NameResult.form4_skipped`,

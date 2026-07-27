@@ -3389,6 +3389,21 @@
               }
             ],
             "title": "Note"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pos",
+                  "neg"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
           }
         },
         "additionalProperties": false,
@@ -3398,7 +3413,7 @@
           "label"
         ],
         "title": "DisplayMetric",
-        "description": "One labeled reading. ``value=None`` is an HONEST gap \u2014 the ``note`` says why (\"n/a: 140/200\nbars\"), never a fake number (#6 show the work, #7 quiet degrade)."
+        "description": "One labeled reading. ``value=None`` is an HONEST gap \u2014 the ``note`` says why (\"n/a: 140/200\nbars\"), never a fake number (#6 show the work, #7 quiet degrade).\n\n``tone`` opts a DIRECTIONAL metric into a green/red (pos/neg) render \u2014 set ONLY where the sign is\na genuine up/down read (ETF net flow: inflow vs outflow, where a bare minus is too quiet), left\nNone everywhere else so a non-directional chip stays neutral. The FE renders it generically off\nthis field, so a future directional member colors with zero frontend change."
       },
       "DisplaySignal": {
         "properties": {

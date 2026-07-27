@@ -214,6 +214,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-ind-chip .v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .np-ind-chip .v.na { color: var(--txt-4); }
 .np-ind-chip .note { font-size: 9.5px; color: var(--txt-4); font-style: italic; }
+/* directional tone (metric.tone) — a subtle green/red outline + value tint so inflow vs outflow
+   reads at a glance (a bare "-" is too quiet). Opt-in per metric; neutral chips are unchanged. */
+.np-ind-chip.pos { border-color: rgba(70, 208, 127, 0.5); }
+.np-ind-chip.neg { border-color: rgba(255, 90, 106, 0.5); }
+.np-ind-chip.pos .v { color: var(--pos); }
+.np-ind-chip.neg .v { color: var(--neg); }
 .np-ind-event { display: flex; align-items: baseline; gap: 8px; padding: 5px 0 0 2px; font-size: 11px; color: var(--txt-3); }
 .np-ind-event .dir { font-family: var(--mono); color: var(--txt-4); }
 .np-ind-event .lbl { color: var(--txt-2); }
@@ -521,6 +527,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .arch.adjacent { color: var(--txt-3); background: rgba(90, 100, 116, 0.1); border: 1px solid var(--line-2); }
 .arch.fund { color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px dashed rgba(138, 180, 255, 0.3); }
 
+/* the fund-flow chip (ETF net flow, F3) — the sleeve's inflow/outflow read, beside the AUM strip:
+   quiet vitals-strip styling; the glyph alone carries the tint (the shared .dirg rule, #7) */
+.ddcard.sleeve .wb-flow { display: flex; align-items: baseline; gap: 7px; margin: 2px 0 4px; font-size: 11px; color: var(--txt-2); cursor: default; }
+.ddcard.sleeve .wb-flow b { color: var(--txt-4); font-weight: 700; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+.ddcard.sleeve .wb-flow .g { font-family: var(--mono); font-size: 13px; }
+.ddcard.sleeve .wb-flow .t { font-weight: 600; color: var(--txt-1); }
+.ddcard.sleeve .wb-flow .na { color: var(--txt-4); font-style: italic; font-size: 10.5px; }
 /* the fund sleeve's holdings drawer (ETF Sleeve, Slice 2a) — a deliberate-click expander: the N-PORT
    vintage + filing link, then the three-bucket partition (held / available / unresolved — every holding
    shown, #9). Long lists scroll inside the drawer, never hide. */
