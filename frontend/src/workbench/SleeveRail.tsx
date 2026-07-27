@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import type { EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
-import { useEtfHoldings } from "../api/hooks";
+import type { DisplaySignal, EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
+import { useDisplaySignals, useEtfHoldings } from "../api/hooks";
+import { GLYPH, fmtMetricValue } from "../cockpit/DisplaySignalsSection";
 import { archLabel, errText, formatMarketCap, sleevePriceLabel } from "./format";
 
 /** One holding line: weight · ticker/name · the filing's identifier (some filers list equity holdings
@@ -19,6 +20,48 @@ function HoldingLine({ h, held, action }: { h: EtfHoldingOut; held?: boolean; ac
       {held && <span aria-hidden="true">✓</span>}
       {action}
     </li>
+  );
+}
+
+/** The fund-flow chip (ETF net flow, F3) — the sleeve's inflow/outflow read off the `etf_flow`
+ *  display signal: net flow ≈ Δshares_out × close, i.e. creations/redemptions — the one thing the AUM
+ *  strip below it cannot say (AUM rises when price rises; flow only moves when SHARES do). Honest
+ *  gaps (#7): no signal (zero samples — every non-ETF, and an ETF until the sampler's series accrues)
+ *  renders NOTHING; a signal still accruing renders the quiet n/a note; a real value renders the
+ *  headline with the glyph carrying the only tint (the .dirg rule). The hover title is the
+ *  show-the-work (#6): both windows, the sample count, the adapter(s), and the sampled page URL. */
+function FundFlowChip({ flow }: { flow: DisplaySignal | undefined }) {
+  if (!flow) return null;
+  const metrics = flow.metrics ?? [];
+  const params = (flow.basis.params ?? {}) as Record<string, unknown>;
+  const srcRef = typeof params.source_ref === "string" ? params.source_ref : null;
+  const samples =
+    typeof params.sample_count === "number" ? params.sample_count : flow.basis.bars_used;
+  const title = [
+    "net flow = Δshares_out × close — creations/redemptions, not price/AUM moves",
+    ...metrics.map((m) => `${m.label}: ${fmtMetricValue(m)}${m.note ? ` (${m.note})` : ""}`),
+    `${samples ?? "?"} samples · ${flow.basis.note ?? flow.basis.source}`,
+    srcRef ? `latest sample: ${srcRef}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const h = flow.headline;
+  if (!h) {
+    // samples exist but neither window is knowable yet — the quiet accrual read, never a fake zero
+    const note = metrics.find((m) => m.note)?.note;
+    return (
+      <div className="wb-flow" title={title}>
+        <b>fund flow</b>
+        <span className="na">{note ?? "accruing"}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="wb-flow" title={title}>
+      <b>fund flow</b>
+      <span className={`g dirg ${h.glyph ?? ""}`}>{GLYPH[h.glyph ?? ""] ?? "·"}</span>
+      <span className="t">{h.label}</span>
+    </div>
   );
 }
 
@@ -62,6 +105,13 @@ export function SleeveRail({
   // never on mount/selection. `asof` threads the Workbench's as-of so the filing picked is the one
   // KNOWABLE then (#1); the response labels the holdings' report-period vintage.
   const etfHoldings = useEtfHoldings(member.security_id, thesisId, asof);
+  // The fund-flow read (etf_flow) rides the display-signals endpoint: a pure DB compute-on-read (no
+  // external network — NOT the N-PORT pull's cost class, so no button gate), re-derived at the
+  // Workbench's as-of. Undefined until sampled — the chip renders nothing (#7).
+  const displayQ = useDisplaySignals(thesisId ?? "", asof ?? "");
+  const flow = displayQ.data?.members
+    .find((m) => m.security_id === member.security_id)
+    ?.signals.find((s) => s.kind === "etf_flow");
   const hd = etfHoldings.data;
   const pull = () => {
     if (!etfHoldings.isFetching) void etfHoldings.refetch();
@@ -123,6 +173,9 @@ export function SleeveRail({
           A low-torque expression of the thesis — price is context, never a signal, and the equity
           meters don’t apply.
         </p>
+        {/* the inflow/outflow chip, beside the AUM strip below it: AUM says how big the fund is;
+            flow says whether money is actually arriving (Δshares), not just price moving */}
+        <FundFlowChip flow={flow} />
 
         <div className="dd-sub">Fund holdings · basket overlap</div>
         {hd ? (

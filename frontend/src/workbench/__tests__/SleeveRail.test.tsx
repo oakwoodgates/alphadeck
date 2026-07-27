@@ -17,10 +17,13 @@ const h = vi.hoisted(() => {
       isFetching: false,
       refetch,
     },
+    // the display-signals query (the fund-flow chip's source) — data swapped per test
+    display: { data: undefined as unknown },
   };
 });
 vi.mock("../../api/hooks", () => ({
   useEtfHoldings: () => h.holdings,
+  useDisplaySignals: () => h.display,
 }));
 
 import { SleeveRail } from "../SleeveRail";
@@ -114,6 +117,37 @@ function renderSleeve(opts?: { basketSids?: Set<string>; includePending?: boolea
   );
 }
 
+// one member's display-signals payload carrying an etf_flow signal (the wire shape, DB-free)
+function flowPayload(signal: unknown) {
+  return { members: [{ security_id: "s-lit", ticker: "LIT", signals: signal ? [signal] : [] }] };
+}
+
+const FLOW_SIGNAL = {
+  kind: "etf_flow",
+  label: "Fund flow (Δshares × close)",
+  headline: { key: "net_inflow", glyph: "up", label: "1m net INFLOW +4.2% of shares", detail: null },
+  metrics: [
+    { key: "flow_1w_usd", label: "1w net flow", value: 120000.0, unit: "usd", note: null },
+    { key: "flow_1w_pct_of_shares", label: "1w Δshares", value: 0.5, unit: "pct", note: null },
+    { key: "flow_1m_usd", label: "1m net flow", value: 910000.0, unit: "usd", note: null },
+    { key: "flow_1m_pct_of_shares", label: "1m Δshares", value: 4.2, unit: "pct", note: null },
+  ],
+  events: [],
+  basis: {
+    source: "fact_fund_shares",
+    params: {
+      window_1w_days: 7,
+      window_1m_days: 30,
+      sample_count: 31,
+      source_ref: "https://www.globalxetfs.com/funds/lit",
+    },
+    bars_used: 31,
+    window_start: "2026-06-24",
+    window_end: "2026-07-24",
+    note: "sampled from globalx",
+  },
+};
+
 describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
   beforeEach(() => {
     h.refetch.mockClear();
@@ -122,6 +156,7 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     h.holdings.data = undefined;
     h.holdings.error = null;
     h.holdings.isFetching = false;
+    h.display.data = undefined;
   });
 
   it("shows the sleeve identity + price, never firing the pull on mount", () => {
@@ -207,5 +242,45 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     const retry = screen.getByText("⚠ retry holdings");
     fireEvent.click(retry);
     expect(h.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  // --- the fund-flow chip (ETF net flow, F3) --------------------------------------------------------
+
+  it("renders NO flow chip when the sleeve has no etf_flow signal (zero samples, #7)", () => {
+    h.display.data = flowPayload(null); // the member rides with signals: [] — honestly nothing
+    renderSleeve();
+    expect(screen.queryByText("fund flow")).not.toBeInTheDocument();
+  });
+
+  it("renders the inflow headline with the glyph, and the provenance on the hover title (#6)", () => {
+    h.display.data = flowPayload(FLOW_SIGNAL);
+    renderSleeve();
+    expect(screen.getByText("fund flow")).toBeInTheDocument();
+    expect(screen.getByText("1m net INFLOW +4.2% of shares")).toBeInTheDocument();
+    expect(screen.getByText("↑")).toBeInTheDocument(); // the glyph carries the only tint
+    const chip = screen.getByText("fund flow").closest(".wb-flow") as HTMLElement;
+    expect(chip.title).toContain("Δshares_out × close");
+    expect(chip.title).toContain("31 samples");
+    expect(chip.title).toContain("https://www.globalxetfs.com/funds/lit"); // the sampled page
+    expect(chip.title).toContain("1w net flow: $120K"); // both windows ride the tooltip
+  });
+
+  it("an accruing series shows the quiet n/a note, never a fake zero", () => {
+    h.display.data = flowPayload({
+      ...FLOW_SIGNAL,
+      headline: null,
+      metrics: [
+        {
+          key: "flow_1m_usd",
+          label: "1m net flow",
+          value: null,
+          unit: "usd",
+          note: "n/a: 3/30 sampled days",
+        },
+      ],
+    });
+    renderSleeve();
+    expect(screen.getByText("fund flow")).toBeInTheDocument();
+    expect(screen.getByText("n/a: 3/30 sampled days")).toBeInTheDocument();
   });
 });

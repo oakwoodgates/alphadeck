@@ -154,7 +154,49 @@ def test_display_get_writes_nothing(client, db, security_id):
     assert (_count(db, "calls"), _count(db, "fact_price_eod")) == before
 
 
-def test_unknown_thesis_404s_and_missing_asof_422s(client, db):
+def _fund_sample(db, security_id, d: date, shares: float) -> None:
+    append_fact(
+        db,
+        "fact_fund_shares",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "d": d,
+            "shares_out": shares,
+            "source": "globalx",
+            "source_ref": "https://www.globalxetfs.com/funds/ura",
+            "valid_from": d,
+        },
+    )
+
+
+def test_etf_flow_rides_the_wire_for_a_sampled_sleeve_only(client, db, security_id):
+    """The etf_flow member serves through the SAME generic endpoint with ZERO wire change: a sampled
+    sleeve gets the flow signal (headline + windows + provenance); an unsampled equity member does not
+    (an honest absence, exactly like insider_flow with nothing ingested)."""
+    _seed_bars(db, security_id, 60)
+    sleeve_sid = _master_row(db, "URA")
+    _seed_bars(db, sleeve_sid, 60)
+    # a 40-day flat-then-creation series: baseline flat, +1000 shares five days before asof
+    for i in range(40, 4, -1):
+        _fund_sample(db, sleeve_sid, _ASOF - timedelta(days=i), 10_000.0)
+    _fund_sample(db, sleeve_sid, _ASOF - timedelta(days=4), 11_000.0)
+    db.commit()
+    tid = _seed_thesis(db, [_member(security_id), _member(sleeve_sid, ticker="URA")])
+
+    r = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()})
+    assert r.status_code == 200
+    rows = {m["ticker"]: m for m in r.json()["members"]}
+    flow = next((s for s in rows["URA"]["signals"] if s["kind"] == "etf_flow"), None)
+    assert flow is not None
+    assert flow["headline"]["key"] == "net_inflow" and flow["headline"]["glyph"] == "up"
+    by_key = {mt["key"]: mt for mt in flow["metrics"]}
+    assert by_key["flow_1m_pct_of_shares"]["value"] == 10.0  # +1000 on a 10,000 baseline
+    assert by_key["flow_1w_usd"]["value"] is not None
+    assert flow["basis"]["source"] == "fact_fund_shares"
+    assert flow["basis"]["params"]["source_ref"].startswith("https://")  # the sampled page (#6)
+    # the equity member carries NO etf_flow — no samples, honestly absent (never a zeroed block)
+    assert all(s["kind"] != "etf_flow" for s in rows["DEVCO"]["signals"])
     r = client.get(f"/theses/{uuid.uuid4()}/display-signals", params={"asof": "2026-06-01"})
     assert r.status_code == 404
     tid = _seed_thesis(db, [])

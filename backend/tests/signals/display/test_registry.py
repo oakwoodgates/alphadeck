@@ -9,7 +9,14 @@ from types import SimpleNamespace
 import pytest
 
 from signals import registered_detectors
-from signals.display import insider_flow, range52w, registered_display_members, sma, volume_regime
+from signals.display import (
+    etf_flow,
+    insider_flow,
+    range52w,
+    registered_display_members,
+    sma,
+    volume_regime,
+)
 from signals.display.base import DisplayBasis, DisplayMember, DisplaySignal
 from signals.display.registry import register_display_member
 
@@ -24,12 +31,14 @@ def test_registry_contains_exactly_the_members_in_display_order():
         "range_52w",
         "volume_regime",
         "insider_flow_90d",
+        "etf_flow",
     ]
     assert [m.compute for m in members] == [
         sma.display,
         range52w.display,
         volume_regime.display,
         insider_flow.display,
+        etf_flow.display,
     ]
 
 

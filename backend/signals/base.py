@@ -124,6 +124,23 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def fund_shares(self, security_id: UUID) -> list[dict[str, Any]]:
+        """ETF sleeve shares-outstanding samples (ETF net flow) — the DISPLAY rail's flow basis.
+
+        Deliberately NOT on the detectors' ``SignalPointInTimeData`` protocol below: the flow read is
+        display context (``signals/display/etf_flow.py``), never a call input, and keeping the accessor
+        off the protocol keeps a future detector from quietly growing a dependency on it (#4/#5 —
+        promoting flow to a signal is a separate, operator-signed F4). Rows are the deduped latest
+        version per (security, d), ascending by d."""
+        return as_of(
+            self.conn,
+            "fact_fund_shares",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
         return as_of_thesis(
