@@ -16,6 +16,7 @@
 | **SEC `company_tickers.json`** (one file: ticker → CIK → name) | the full US filer universe | **the broadener** (`populate_master`) — seeds the security master so the extract → ratify → score loop runs on any name |
 | **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
+| **Polygon.io reference API** (free tier, keyed — `POLYGON_API_KEY`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`) |
 | **FINRA short interest** (bi-monthly) | SI %, days-to-cover | squeeze radar (context tier) |
 | **OpenFIGI** (free API) | CIK ↔ ticker ↔ CUSIP ↔ FIGI mapping | security master / entity resolution |
 | **Free EOD price/fundamentals** (e.g. Stooq/Tiingo-free tier/equivalent) | daily OHLCV, splits/dividends, market cap | momentum-health, laggard scanner, liquidity/float, corporate actions |

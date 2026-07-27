@@ -1,9 +1,10 @@
-"""F1 — the FundSharesSource adapters + the issuer-first composite (no DB, no network).
+"""F1 — the FundSharesSource adapters + the primary-first composite (no DB, no network).
 
 The adapters are exercised through seeded cache files (the fetchers are cache-first, so a warm cache
-IS the offline path); the composite's policy — issuer hit wins / clean miss falls through quietly /
-issuer ERROR warns visibly then falls back / both legs failing raises with both stories — is walked
-with stub sources.
+IS the offline path); the composite's policy — primary hit wins / clean miss falls through quietly /
+primary ERROR warns visibly then falls back / both legs failing raises with both stories — is walked
+with stub sources. ``default_fund_source`` composes POLYGON-primary when POLYGON_API_KEY is present
+(the operator's 2026-07-26 decision) and stays the scraper pair keyless — both shapes pinned here.
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from domain.settings import get_settings
 from ingest.funds import snapshot_loader
+from ingest.funds.polygon import PolygonFundSource
 from ingest.funds.source import (
     FundSharesUnavailable,
     GlobalXFundSource,
@@ -118,7 +121,54 @@ def test_both_legs_failing_raises_with_both_stories():
         composite.get_snapshot("GHOST")
 
 
-def test_default_fund_source_is_globalx_then_stockanalysis():
-    composite = default_fund_source()
-    assert isinstance(composite._issuer, GlobalXFundSource)
-    assert isinstance(composite._fallback, StockAnalysisFundSource)
+def test_default_fund_source_keyless_is_globalx_then_stockanalysis(monkeypatch):
+    """No POLYGON_API_KEY → exactly the pre-polygon behavior (the absence of the key is the off switch)."""
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    get_settings.cache_clear()
+    try:
+        composite = default_fund_source()
+        assert isinstance(composite._issuer, GlobalXFundSource)
+        assert isinstance(composite._fallback, StockAnalysisFundSource)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_default_fund_source_goes_polygon_primary_when_the_key_is_present(monkeypatch):
+    """With the key: polygon leads, and its fallback IS the whole scraper composite, nested — a polygon
+    miss/gap degrades to exactly the keyless chain."""
+    monkeypatch.setenv("POLYGON_API_KEY", "k-test")
+    get_settings.cache_clear()
+    try:
+        composite = default_fund_source()
+        assert isinstance(composite._issuer, PolygonFundSource)
+        scrapers = composite._fallback
+        assert isinstance(scrapers, IssuerFirstFundSource)
+        assert isinstance(scrapers._issuer, GlobalXFundSource)
+        assert isinstance(scrapers._fallback, StockAnalysisFundSource)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_polygon_gap_falls_through_the_whole_scraper_chain():
+    """The nested composition end-to-end: polygon None (a null-count gap date) → globalx None (not a
+    Global X fund) → the aggregator lands the sample."""
+    poly, gx = _Stub(result=None), _Stub(result=None)
+    sa = _Stub(result={**_SNAP, "source": "stockanalysis"})
+    snap = IssuerFirstFundSource(poly, IssuerFirstFundSource(gx, sa)).get_snapshot("SMH")
+    assert snap["source"] == "stockanalysis"
+    assert (poly.calls, gx.calls, sa.calls) == (1, 1, 1)
+
+
+def test_composite_labels_the_primary_leg_by_its_adapter_name(capsys):
+    """A polygon failure warns AS polygon (never masquerading as 'issuer' trouble) and its story carries
+    the name — the operator debugging a bad key sees which leg broke."""
+
+    class _NamedStub(_Stub):
+        name = "polygon"
+
+    composite = IssuerFirstFundSource(
+        _NamedStub(error=RuntimeError("HTTP 401")), _Stub(result=None)
+    )
+    with pytest.raises(FundSharesUnavailable, match="polygon: HTTP 401"):
+        composite.get_snapshot("URA")
+    assert "fund-shares polygon leg failed" in capsys.readouterr().out
