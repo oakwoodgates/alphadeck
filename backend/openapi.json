@@ -5558,6 +5558,17 @@
             ],
             "title": "Category"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
           "off_thesis": {
             "type": "boolean",
             "title": "Off Thesis",

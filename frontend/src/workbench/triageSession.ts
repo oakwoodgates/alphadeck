@@ -26,7 +26,14 @@ export interface HookRuntime {
   reasonsDirty: boolean;
 }
 
-type Identity = { sector?: string | null; exchange?: string | null; category?: string | null };
+// `origin` (the derived where-from chip) is optional — an older restored blob deserializes without it and the
+// chip simply abstains (graceful-degrade; no SCHEMA_VERSION bump needed for an additive optional field).
+type Identity = {
+  sector?: string | null;
+  exchange?: string | null;
+  category?: string | null;
+  origin?: string | null;
+};
 type DraftStatus = { counts: DraftCounts; report: DraftReportOut } | null;
 
 /** The live ChainEditor working state (Set form for the six Sets). The expensive draft-run output that can't

@@ -498,6 +498,55 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
     expect(screen.queryByText(/no current listing found in EDGAR/)).not.toBeInTheDocument();
   });
 
+  it("renders the origin chip on a placed foreign name — and NOTHING when origin is unknown (honest abstain)", async () => {
+    const user = userEvent.setup();
+    // the China-ADR shape: the backend derived "Shanghai" (business country null -> city fallback)
+    const PLACED_FOREIGN = {
+      name: "NIO Inc.",
+      ticker: "NIO",
+      prose: "EV maker",
+      segment: "reactors",
+      status: "placed",
+      security_id: "s-nio",
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "edgar",
+      sector: "Motor Vehicles",
+      exchange: "NYSE",
+      listing_status: "active",
+      origin: "Shanghai",
+    };
+    // an un-enriched name: origin null -> NO origin chip (never a guessed/defaulted origin)
+    const PLACED_UNKNOWN = {
+      name: "Mystery Co",
+      ticker: "MYST",
+      prose: "sparse filer",
+      segment: "reactors",
+      status: "placed",
+      security_id: "s-myst",
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "edgar",
+      sector: null,
+      exchange: null,
+      listing_status: null,
+      origin: null,
+    };
+    mockDraft(draft([PLACED_FOREIGN, PLACED_UNKNOWN]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for NIO");
+    // the foreign name is PRESENT (origin TAGS, never filters — #9) with the origin chip + its basis on hover
+    const chip = screen.getByText("Shanghai");
+    expect(chip).toBeInTheDocument();
+    expect(chip.getAttribute("title")).toMatch(/business address|incorporation/);
+    // the unknown-origin name is present too, with NO origin chip anywhere in its row
+    const mystRow = screen.getByLabelText("segment for MYST").closest(".nmrow") as HTMLElement;
+    expect(mystRow).toBeTruthy();
+    expect(within(mystRow).queryByTitle(/origin — business address/)).not.toBeInTheDocument();
+  });
+
   it("a name gated for no current listing reads as a hedged 'not listed' pick, never 'delisted' (Slice 2 gate)", async () => {
     const user = userEvent.setup();
     const AMBIGUOUS_UNLISTED = {

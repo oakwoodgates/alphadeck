@@ -237,6 +237,56 @@ def test_enrich_unknown_id_updates_nothing(db):
     assert master.enrich(db, uuid.uuid4(), SecurityIdentity(sector="X"), source="s") is False
 
 
+def test_enrich_persists_origin_ingredients_and_reads_back_count_the_table(db):
+    """The 0028 origin ingredients (raw locators for the derive-on-read chip) round-trip: enrich writes them,
+    ``get``/``_row_to_security`` reads them back — the NIO shape (country NULL stays NULL: stored as-said,
+    never invented). Re-enrich UPDATEs in place — COUNT THE TABLE before/after, never just the read.
+    """
+    sid = _insert(db, ticker="NIO", name="NIO Inc.", cik="0001736541")
+    ident = SecurityIdentity(
+        sector="Motor Vehicles",
+        status="active",
+        incorporation="Cayman Islands",
+        business_city="SHANGHAI",
+        business_country=None,
+        files_foreign_forms=True,
+    )
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        before = cur.fetchone()["n"]
+    assert master.enrich(db, sid, ident, source="submissions:CIK0001736541") is True
+    master.enrich(db, sid, ident, source="submissions:CIK0001736541")  # re-run: in place, no append
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before  # UPDATE-in-place, never appended
+    sec = master.get(db, sid)
+    assert (
+        sec.incorporation,
+        sec.business_city,
+        sec.business_country,
+        sec.files_foreign_forms,
+    ) == (
+        "Cayman Islands",
+        "SHANGHAI",  # stored RAW — display normalization happens at derive time, not in the row
+        None,
+        True,
+    )
+    # an un-enriched row abstains on all four (the honest fallback the chip renders nothing from)
+    bare = master.get(db, _insert(db, ticker="RAWX", name="Raw Co", cik="0000000042"))
+    assert (
+        bare.incorporation,
+        bare.business_city,
+        bare.business_country,
+        bare.files_foreign_forms,
+    ) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
 # --- instrument_kind: the ETF-sleeve foundation brick (migration 0026 + resolve/mark, Slice 1) ---
 
 

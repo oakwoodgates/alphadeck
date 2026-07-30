@@ -30,6 +30,11 @@ def _row_to_security(row: dict) -> Security:
         # NOT NULL DEFAULT 'equity' in the DB, so a post-migration row always carries it; the ``or`` guards a
         # pre-migration/hand-built row dict that omits the column (falls back to the equity default).
         instrument_kind=row.get("instrument_kind") or "equity",
+        # origin ingredients (0028) — raw locators for the derive-on-read chip; NULL = un-enriched (abstains)
+        incorporation=row.get("incorporation"),
+        business_city=row.get("business_city"),
+        business_country=row.get("business_country"),
+        files_foreign_forms=row.get("files_foreign_forms"),
     )
 
 
@@ -214,9 +219,9 @@ def enrich(
     source: str,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> bool:
-    """Enrich one master row with machine-parsed IDENTITY (sector/status/category, exchange fill-if-null)
-    from EDGAR submissions — UPDATE-in-place, the same identity-mutable pattern as ``populate_universe``'s
-    name-update. The id stays stable (the fact tables that FK ``security_id`` never orphan); nothing reads
+    """Enrich one master row with machine-parsed IDENTITY (sector/status/category + the 0028 origin
+    ingredients, exchange fill-if-null) from EDGAR submissions — UPDATE-in-place, the same
+    identity-mutable pattern as ``populate_universe``'s name-update. The id stays stable (the fact tables that FK ``security_id`` never orphan); nothing reads
     the master as-of, so overwriting a stale value leaks into no point-in-time read. Idempotent — a re-run
     overwrites, never appends.
 
@@ -237,12 +242,19 @@ def enrich(
         cur.execute(
             "UPDATE security_master SET sector = %s, exchange = COALESCE(exchange, %s), "
             "status = %s, category = %s, "
+            "incorporation = %s, business_city = %s, business_country = %s, files_foreign_forms = %s, "
             "enriched_source = %s, enriched_at = now() WHERE tenant_id = %s AND id = %s",
             (
                 identity.sector,
                 identity.exchange,
                 identity.status,
                 identity.category,
+                # origin ingredients (0028) — company-level like sector/status/category, so they OVERWRITE
+                # (latest submissions wins), not the exchange fill-if-null exception
+                identity.incorporation,
+                identity.business_city,
+                identity.business_country,
+                identity.files_foreign_forms,
                 source,
                 tenant_id,
                 security_id,
