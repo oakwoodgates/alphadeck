@@ -26,6 +26,14 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     hard "delisted" verdict — the operator-facing label stays a hedged guess. ``category`` is EDGAR's own
     filing-status string surfaced verbatim (identity, never a number #1/#3) — ``None`` when the filer omits it.
 
+    ORIGIN ingredients (migration 0028) — four raw locators for the derive-on-read origin chip
+    (``securities/origin.py``): ``incorporation`` (``stateOfIncorporationDescription`` — "Cayman Islands", or
+    a US state abbrev like "CA"), ``business_city`` / ``business_country`` (``addresses.business`` — the SEC
+    quirk: for US entities ``stateOrCountryDescription`` holds the US STATE abbreviation, not "United States",
+    and for the China-ADR class it is often null while ``city`` ("SHANGHAI") is the only populated locator),
+    and ``files_foreign_forms`` (a 20-F or 40-F in ``filings.recent.form`` — a stored ingredient for a later
+    upgrade; today's ladder doesn't read it). Blank/missing → None (the chip abstains, never a guessed origin).
+
     Pure (no I/O) — feed it the dict from ``fetch_submissions``. Machine-parsed identity, never a fact (#1/#3).
     Tolerates a sparse/old submissions (missing keys) without raising.
     """
@@ -43,12 +51,22 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
         for fn in (submissions.get("formerNames") or [])
         if (name := (fn.get("name") or "").strip())
     ]
+    # Origin ingredients — defensive over sparse/old docs (missing/None keys tolerated throughout).
+    business = (submissions.get("addresses") or {}).get("business") or {}
+    incorporation = (submissions.get("stateOfIncorporationDescription") or "").strip() or None
+    business_city = (business.get("city") or "").strip() or None
+    business_country = (business.get("stateOrCountryDescription") or "").strip() or None
+    files_foreign_forms = bool(filings_of(submissions, "20-F") or filings_of(submissions, "40-F"))
     return SecurityIdentity(
         sector=sector,
         exchange=exchange,
         status=status,
         category=category,
         former_names=former_names,
+        incorporation=incorporation,
+        business_city=business_city,
+        business_country=business_country,
+        files_foreign_forms=files_foreign_forms,
     )
 
 

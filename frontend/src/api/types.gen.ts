@@ -2711,6 +2711,8 @@ export interface components {
             listing_status?: string | null;
             /** Category */
             category?: string | null;
+            /** Origin */
+            origin?: string | null;
             /**
              * Off Thesis
              * @default false

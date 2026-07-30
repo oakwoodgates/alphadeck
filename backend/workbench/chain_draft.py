@@ -31,6 +31,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
 from domain.security import Security
 from securities import master
+from securities.origin import resolve_origin
 from workbench.discovery import DiscoveredUniverse
 
 # How many master rows to offer the operator when a proposed name is ambiguous (the pick list).
@@ -137,6 +138,12 @@ class ResolvedPlacement(DomainModel):
     category: str | None = (
         None  # EDGAR filer category (maturity/size tell) — machine-parsed identity, #1/#3
     )
+    # WHERE the name is from — derived on read (``securities.origin.resolve_origin``) from the master's raw
+    # 0028 locator ingredients, set in ``_carry_identity_and_gate`` beside sector/exchange. Display-only
+    # identity like the rest of this block: never a number (#3), never promoted onto a ``BasketMember`` (#2),
+    # never a call input. It TAGS, never filters (#9 — the foreign name stays in the draft; the operator's
+    # existing prune is the decision, #10). ``None`` = unknown → the FE renders NOTHING (honest abstain).
+    origin: str | None = None
     off_thesis: bool = (
         False  # the narrator's on/off-thesis opinion (display-only; set at the narration merge)
     )
@@ -180,9 +187,9 @@ def _conflict_candidates(
 def _carry_identity_and_gate(
     conn: psycopg.Connection, placements: list[ResolvedPlacement], *, tenant_id: UUID
 ) -> None:
-    """Carry machine-parsed IDENTITY (name / sector / exchange / listing status) from the master onto each
-    resolved placement (display-only), and apply the STATUS-GATE: a PLACED name whose master row reads
-    ``"inactive"`` (no current listing found in EDGAR) is DOWNGRADED to AMBIGUOUS — never auto-placed — with its
+    """Carry machine-parsed IDENTITY (name / sector / exchange / listing status / derived origin) from the
+    master onto each resolved placement (display-only), and apply the STATUS-GATE: a PLACED name whose
+    master row reads ``"inactive"`` (no current listing found in EDGAR) is DOWNGRADED to AMBIGUOUS — never auto-placed — with its
     own row as the single pick (a frictionless rescue; one click re-places it). ``listing_status`` rides the
     placement so the FE shows a HEDGED flag, never a hard "delisted" verdict — precision is the operator deleting
     a visible flag, never a silent drop (#9). DB-only (no network — the resolver stays pure); a placement whose
@@ -208,6 +215,13 @@ def _carry_identity_and_gate(
             )  # the BOUND SEC name is canonical for display (not the organizer's echo)
         p.sector, p.exchange, p.listing_status = s.sector, s.exchange, s.status
         p.category = s.category
+        # derive-on-read origin (0028 ingredients already on the Security row — no extra query); None on an
+        # un-enriched row → the chip abstains
+        p.origin = resolve_origin(
+            business_country=s.business_country,
+            business_city=s.business_city,
+            incorporation=s.incorporation,
+        )
         if p.status is PlacementStatus.PLACED and s.status == "inactive":
             p.status = PlacementStatus.AMBIGUOUS
             p.candidates = [_candidate(s)]

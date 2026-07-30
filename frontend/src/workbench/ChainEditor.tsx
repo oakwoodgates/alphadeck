@@ -113,10 +113,12 @@ const IdentityChips = ({
   sector,
   exchange,
   category,
+  origin,
 }: {
   sector?: string | null;
   exchange?: string | null;
   category?: string | null;
+  origin?: string | null;
 }) => (
   <>
     {sector && (
@@ -134,6 +136,18 @@ const IdentityChips = ({
     {category && (
       <span className="idchip" title="SEC filer category — a maturity/size tell (EDGAR submissions)">
         {category}
+      </span>
+    )}
+    {/* ORIGIN — where the name is from, derived server-side from the SEC's own locators (business address
+        country/city, else incorporation; a US-state address reads "US"). The spot-and-skip tell for foreign
+        names. Identity like the rest — it TAGS, never filters (#9); the operator's prune is the decision
+        (#10). Unknown renders NOTHING (honest abstain — never a guessed origin). */}
+    {origin && (
+      <span
+        className="idchip"
+        title="origin — business address country/city (or incorporation) machine-parsed from EDGAR submissions"
+      >
+        {origin}
       </span>
     )}
   </>
@@ -325,7 +339,15 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // EDGAR submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
   // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
   const [identity, setIdentity] = useState<
-    Record<string, { sector?: string | null; exchange?: string | null; category?: string | null }>
+    Record<
+      string,
+      {
+        sector?: string | null;
+        exchange?: string | null;
+        category?: string | null;
+        origin?: string | null;
+      }
+    >
   >(() => re?.identity ?? {});
   // Display-only: security_id -> the company NAME. The PLACED bucket renders BasketMembers (which carry no name),
   // so — like `matched`/`identity` — the name is bridged by security_id from the draft placements (and captured on
@@ -644,7 +666,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           .filter((p) => p.security_id)
           .map((p) => [
             p.security_id as string,
-            { sector: p.sector, exchange: p.exchange, category: p.category },
+            { sector: p.sector, exchange: p.exchange, category: p.category, origin: p.origin },
           ]),
       ),
     );
@@ -901,7 +923,12 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
             </span>
           ) : (
             <>
-              <IdentityChips sector={p.sector} exchange={p.exchange} category={p.category} />
+              <IdentityChips
+                sector={p.sector}
+                exchange={p.exchange}
+                category={p.category}
+                origin={p.origin}
+              />
               {p.discovery_source === "off_universe" && <OffUniversePill />}
             </>
           )}
@@ -1969,6 +1996,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                           sector={p.sector}
                           exchange={p.exchange}
                           category={p.category}
+                          origin={p.origin}
                         />
                         {unlisted ? (
                           <span className="rpill unlisted">not listed</span>

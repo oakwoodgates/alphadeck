@@ -161,3 +161,97 @@ def test_parse_identity_tolerates_a_sparse_submissions():
         "inactive",
         [],
     )
+
+
+# --- parse_identity: the ORIGIN ingredients (migration 0028 — raw locators for the derive-on-read chip) ---
+
+
+def _recent(forms: list[str]) -> dict:
+    """A filings.recent block with parallel arrays (the real SEC shape ``filings_of`` walks)."""
+    n = len(forms)
+    return {
+        "filings": {
+            "recent": {
+                "form": forms,
+                "accessionNumber": [f"0000000000-26-{i:06d}" for i in range(n)],
+                "primaryDocument": [f"doc{i}.htm" for i in range(n)],
+                "filingDate": ["2026-01-01"] * n,
+                "reportDate": ["2025-12-31"] * n,
+            }
+        }
+    }
+
+
+def test_parse_identity_origin_ingredients_nio_shape():
+    """The China-ADR class, from live-measured NIO: Cayman incorporation, business country NULL (the SEC
+    quirk this slice exists for), city "SHANGHAI" the only populated locator, 20-F/6-K forms."""
+    ident = parse_identity(
+        {
+            "stateOfIncorporationDescription": "Cayman Islands",
+            "addresses": {
+                "business": {
+                    "city": "SHANGHAI",
+                    "stateOrCountry": None,
+                    "stateOrCountryDescription": None,
+                },
+                "mailing": {"city": "SHANGHAI"},
+            },
+            "tickers": ["NIO"],
+            "exchanges": ["NYSE"],
+            **_recent(["6-K", "20-F", "6-K"]),
+        }
+    )
+    assert ident.incorporation == "Cayman Islands"
+    assert ident.business_country is None
+    assert ident.business_city == "SHANGHAI"
+    assert ident.files_foreign_forms is True
+
+
+def test_parse_identity_origin_ingredients_apple_shape():
+    """A US filer, from live-measured Apple: incorporation "CA" (the description field holds the STATE
+    ABBREVIATION for US entities, not "United States"), business country "CA", city "Cupertino", 10-K/10-Q.
+    """
+    ident = parse_identity(
+        {
+            "stateOfIncorporationDescription": "CA",
+            "addresses": {
+                "business": {
+                    "city": "Cupertino",
+                    "stateOrCountry": "CA",
+                    "stateOrCountryDescription": "CA",
+                }
+            },
+            "tickers": ["AAPL"],
+            "exchanges": ["Nasdaq"],
+            **_recent(["10-K", "10-Q", "10-Q"]),
+        }
+    )
+    assert ident.incorporation == "CA"
+    assert ident.business_country == "CA"
+    assert ident.business_city == "Cupertino"
+    assert ident.files_foreign_forms is False  # no 20-F/40-F in the recent forms
+
+
+def test_parse_identity_origin_ingredients_sparse_doc_abstains():
+    """A sparse/old filer (no addresses, no incorporation, no filings) -> Nones + False, never raises —
+    the chip's honest abstain starts here."""
+    ident = parse_identity({})
+    assert ident.incorporation is None
+    assert ident.business_city is None
+    assert ident.business_country is None
+    assert ident.files_foreign_forms is False
+
+    # addresses present but empty / business block missing — still tolerated
+    ident2 = parse_identity(
+        {"addresses": {"mailing": {"city": "X"}}, "stateOfIncorporationDescription": "  "}
+    )
+    assert (ident2.incorporation, ident2.business_city, ident2.business_country) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_parse_identity_files_foreign_forms_via_40f():
+    """The Canadian-MJDS arm: a 40-F alone flips the stored ingredient."""
+    assert parse_identity(_recent(["40-F", "6-K"])).files_foreign_forms is True

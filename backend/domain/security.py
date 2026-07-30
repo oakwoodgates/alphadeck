@@ -45,6 +45,16 @@ class Security(DomainModel):
     instrument_kind: InstrumentKind = (
         InstrumentKind.EQUITY  # 'equity' | 'etf' — what it IS; identity, never a call input (#4/#6)
     )
+    # ORIGIN ingredients (migration 0028) — raw locators from EDGAR submissions, stored so the origin chip is
+    # DERIVED ON READ (securities/origin.py); no computed label/bool is stored. Identity like the above, never
+    # a fact / call input. NULL = un-enriched (the chip abstains). `business_country` is the SEC's
+    # stateOrCountryDescription — a US STATE abbreviation ("CA") for US entities, often null for foreign ADRs
+    # (where `business_city`, e.g. "SHANGHAI", is the only populated locator). `files_foreign_forms` (20-F/40-F
+    # in recent filings) is a stored ingredient for a later upgrade — today's ladder doesn't read it.
+    incorporation: str | None = None
+    business_city: str | None = None
+    business_country: str | None = None
+    files_foreign_forms: bool | None = None
 
 
 class SecurityIdentity(DomainModel):
@@ -65,3 +75,16 @@ class SecurityIdentity(DomainModel):
         None  # EDGAR filer category (e.g. "Large accelerated filer") — identity, not a number
     )
     former_names: list[dict[str, str]] = []  # [{name, from, to}] from submissions.formerNames
+    # ORIGIN ingredients (raw locators; see Security) — parsed by ``parse_identity``, persisted by
+    # ``master.enrich``, derived on read by ``securities/origin.py``. All default None so a hand-built
+    # identity (tests, partial writers) writes NULL — "un-parsed", never a false "no foreign forms".
+    incorporation: str | None = (
+        None  # stateOfIncorporationDescription ("Cayman Islands"; "CA" for US)
+    )
+    business_city: str | None = None  # addresses.business.city ("SHANGHAI")
+    business_country: str | None = (
+        None  # addresses.business.stateOrCountryDescription (US state abbrev / country / null)
+    )
+    files_foreign_forms: bool | None = (
+        None  # 20-F/40-F in filings.recent.form (stored ingredient only)
+    )

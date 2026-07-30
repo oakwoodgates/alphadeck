@@ -312,15 +312,27 @@ def test_unmatched_name_falls_to_master_resolver_and_empty_universe_adds_no_buck
 
 
 def _insert_id(
-    db, ticker, *, name, cik, status=None, sector=None, exchange=None, category=None
+    db,
+    ticker,
+    *,
+    name,
+    cik,
+    status=None,
+    sector=None,
+    exchange=None,
+    category=None,
+    incorporation=None,
+    business_city=None,
+    business_country=None,
 ) -> uuid.UUID:
     """Insert a real master row with machine-parsed identity columns set (the gate/carry read THESE)."""
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
             "INSERT INTO security_master "
-            "(id, tenant_id, ticker, name, cik, status, sector, exchange, category, valid_from) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "(id, tenant_id, ticker, name, cik, status, sector, exchange, category, "
+            "incorporation, business_city, business_country, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 sid,
                 DEFAULT_TENANT_ID,
@@ -331,6 +343,9 @@ def _insert_id(
                 sector,
                 exchange,
                 category,
+                incorporation,
+                business_city,
+                business_country,
                 date(2026, 1, 1),
             ),
         )
@@ -398,3 +413,48 @@ def test_un_enriched_placed_name_abstains_no_flag_no_gate(db):
     (p,) = resolve_discovered_chain(db, segs, u).placements
     assert p.status is PlacementStatus.PLACED and p.security_id == sid
     assert (p.sector, p.exchange, p.listing_status) == (None, None, None)
+    assert p.origin is None  # un-enriched → the origin chip abstains too (renders nothing)
+
+
+def test_foreign_placed_name_carries_origin_and_stays_placed(db):
+    """The origin chip's draft-path seam, on the NIO shape (business country NULL — the measured SEC quirk —
+    so the ladder falls back to the city): the placement carries the DERIVED origin ("Shanghai"), and the name
+    is still PLACED — origin TAGS, never filters/drops (#9 recall-safety)."""
+    sid = _insert_id(
+        db,
+        "NIO",
+        name="NIO Inc.",
+        cik="0000000007",
+        status="active",
+        sector="Motor Vehicles",
+        incorporation="Cayman Islands",
+        business_city="SHANGHAI",
+        business_country=None,
+    )
+    u = _universe_one("0000000007", sid, ticker="NIO", name="NIO Inc.")
+    segs = [_seg(ProposedPlacement(name="NIO Inc.", ticker="NIO", prose="EV maker"), label="EVs")]
+    (p,) = resolve_discovered_chain(db, segs, u).placements
+    assert p.status is PlacementStatus.PLACED and p.security_id == sid  # tagged, never dropped
+    assert p.origin == "Shanghai"  # derived on read from the row's raw ingredients, display-cased
+
+
+def test_us_placed_name_reads_origin_us(db):
+    """The US arm: a business-address US-state abbreviation ("CA" — the SEC's stateOrCountryDescription for
+    US entities) derives a quiet "US"."""
+    sid = _insert_id(
+        db,
+        "AAPL",
+        name="Apple Inc.",
+        cik="0000000008",
+        status="active",
+        incorporation="CA",
+        business_city="Cupertino",
+        business_country="CA",
+    )
+    u = _universe_one("0000000008", sid, ticker="AAPL", name="Apple Inc.")
+    segs = [
+        _seg(ProposedPlacement(name="Apple Inc.", ticker="AAPL", prose="devices"), label="OEMs")
+    ]
+    (p,) = resolve_discovered_chain(db, segs, u).placements
+    assert p.status is PlacementStatus.PLACED
+    assert p.origin == "US"
