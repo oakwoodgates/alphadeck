@@ -711,9 +711,10 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
     // operator_set is untouched — GEV keeps its accepted segment (not draft-2's "power") and stays owned
     expect((screen.getByLabelText("segment for GEV") as HTMLSelectElement).value).toBe("turbines");
     expect(screen.getByRole("button", { name: "un-accept GEV" })).toBeInTheDocument();
-    // a still-placed drafted name is RE-ROLLED to the fresh segment
+    // a still-placed drafted name is re-rolled, but "smr-reactors" is a fabricated link on the additive chain
+    // (draft 1 already built the chain), so it files into the Discovered pen rather than inventing the link
     expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe(
-      "smr-reactors",
+      "Discovered",
     );
     // a drafted name the new draft no longer places is parked in Discovered (no stale segment)
     expect((screen.getByLabelText("segment for LOTTO") as HTMLSelectElement).value).toBe(
@@ -908,19 +909,29 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     });
   });
 
-  it("exclude-all then Save confirms the empty-basket wipe; include-all restores", async () => {
+  it("exclude/include all NEW sweep the working set only; per-row demotion still reaches the empty-basket confirm", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false); // operator cancels the wipe
+    mockDraft(draft([PLACED_SMR])); // a WORKING name next to the established OKLO
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
 
-    await user.click(screen.getByRole("button", { name: "exclude all" }));
-    expect(screen.getByText("· 0 of 1 included")).toBeInTheDocument();
+    // working-scoped: exclude-all-new excludes the drafted SMR but never touches the established OKLO
+    await user.click(screen.getByRole("button", { name: "exclude all new" }));
+    expect(screen.getByText("· 1 of 2 included")).toBeInTheDocument();
+    expect(screen.getByLabelText("include OKLO")).toBeChecked();
+
+    // the empty basket stays reachable by PER-ROW demotion of the established name → Save confirms the wipe
+    await user.click(screen.getByLabelText("include OKLO"));
+    expect(screen.getByText("· 0 of 2 included")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(h.mutate).not.toHaveBeenCalled(); // cancelled → nothing persisted
 
-    await user.click(screen.getByRole("button", { name: "include all" }));
-    expect(screen.getByText("· 1 of 1 included")).toBeInTheDocument();
+    // include-all-new restores the working set — the demoted OKLO sits in working now, so it returns too
+    await user.click(screen.getByRole("button", { name: "include all new" }));
+    expect(screen.getByText("· 2 of 2 included")).toBeInTheDocument();
     confirmSpy.mockRestore();
   });
 
@@ -1061,6 +1072,20 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     // the Discovered-segment rows never read "recommend → Discovered" (a non-recommendation), but keep `matched`
     expect(screen.queryByText(/recommend → Discovered/)).not.toBeInTheDocument();
     expect(screen.getByText("matched memory")).toBeInTheDocument(); // Kroger's provenance (single term) still shows
+  });
+
+  it("a VERIFY candidate already in the basket is filtered from To-Review — no unselectable keeper (#3)", async () => {
+    const user = userEvent.setup();
+    // the re-draft re-surfaces OKLO (already the basket keeper) as a VERIFY hit, alongside a genuine new keeper
+    const VERIFY_OKLO = { ...VERIFY_ALKS, name: "Oklo Inc", ticker: "OKLO", security_id: "s-oklo" };
+    mockDraft(draft([VERIFY_ALKS, VERIFY_OKLO], [{ label: "therapeutics", descriptor: null }]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // the genuinely-new keeper surfaces with a live add…
+    expect(await screen.findByRole("checkbox", { name: "add ALKS" })).toBeEnabled();
+    // …but OKLO, already the basket member, is NOT re-offered as an unselectable keeper (a duplicate carrying no action)
+    expect(screen.queryByRole("checkbox", { name: "add OKLO" })).not.toBeInTheDocument();
   });
 
   it("split ordering: a 0-term off-universe name sorts to the TOP of Lowest signal, above the single-term hits", async () => {
@@ -2001,5 +2026,210 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
     expect(list.find((e) => e.security_id === "s-leu")).toBeUndefined(); // the withdrawn NO is gone
     // and the promote still receives ONLY the included subset (LEU back in, SMR pruned)
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["LEU"]);
+  });
+});
+
+describe("ChainEditor — the Basket section (the additive editor)", () => {
+  // an established (saved-spine) member — present in the thesis at mount, so the hook freezes it
+  const est = (ticker: string, sid: string, over: Record<string, unknown> = {}) => ({
+    ticker,
+    role: "—",
+    archetype: null,
+    security_id: sid,
+    segment: null,
+    thesis_fit: null,
+    conviction: null,
+    authored_by: "operator_set",
+    ...over,
+  });
+  const withOnSuccess = () =>
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+
+  it("(a) an established member renders in the frozen Basket panel; a drafted new name lands in working", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+
+    // the panel renders (established names exist) with the established row inside it
+    expect(screen.getByRole("button", { name: /the saved basket/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
+    // nothing NEW yet — the working list says so honestly (not a filter artifact)
+    expect(screen.getByText(/no new names — draft from the narrative/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    const smr = await screen.findByLabelText("segment for SMR");
+    // the NEW name lands in the working partitions below — never in the frozen Basket
+    expect(smr.closest(".wb-basket")).toBeNull();
+    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
+    expect(screen.getByText("· 1 of 1 kept")).toBeInTheDocument(); // the panel's own count
+    expect(screen.queryByText(/no new names — draft from the narrative/)).not.toBeInTheDocument();
+  });
+
+  it("(b) a re-draft leaves an un-accepted ESTABLISHED member untouched — kept when re-placed, not parked when absent", async () => {
+    const user = userEvent.setup();
+    // an established member that is STILL system_drafted (the operator saved without accepting) — the
+    // worst case: nothing but `established` protects it from the re-roll / the Discovered parking.
+    const estDrafted = {
+      ...flatThesis,
+      segments: [{ label: "reactors", descriptor: null }],
+      basket: [
+        est("SMR", "s-smr", { segment: "reactors", thesis_fit: "P0", authored_by: "system_drafted" }),
+      ],
+    };
+    // draft 1 RE-places SMR with a fresh segment + prose (an established member must NOT re-roll) and surfaces
+    // one genuinely-new name — SMR itself is frozen so it shows no change; GEV is our signal the draft loaded
+    mockDraft(
+      draft(
+        [
+          { ...PLACED_SMR, segment: "smr-reactors", prose: "P2" },
+          {
+            name: "GE Vernova",
+            ticker: "GEV",
+            prose: "new",
+            segment: "smr-reactors",
+            status: "placed",
+            security_id: "s-gev-1",
+            candidates: [],
+            matched_terms: [],
+          },
+        ],
+        [{ label: "smr-reactors", descriptor: null }],
+      ),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={estDrafted as never} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for GEV"); // the NEW name arrived → the draft loaded
+
+    expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe("reactors"); // kept
+    expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue("P0"); // prose kept — P2 never landed
+    expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // still un-accepted
+    // the new GEV lands in Discovered — the fabricated "smr-reactors" link is never invented (additive chain)
+    expect((screen.getByLabelText("segment for GEV") as HTMLSelectElement).value).toBe("Discovered");
+
+    // draft 2 no longer places SMR at all — an established member is NOT parked to Discovered
+    h.jobData = {
+      job_id: "j1",
+      status: "done",
+      result: draft(
+        [
+          {
+            ...PLACED_SMR,
+            name: "Cameco",
+            ticker: "CCJ",
+            security_id: "s-ccj-n",
+            segment: "mining",
+            prose: "C1",
+          },
+        ],
+        [{ label: "mining", descriptor: null }],
+      ),
+      error: null,
+    };
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for CCJ");
+    expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe("reactors"); // untouched
+    expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue("P0");
+  });
+
+  it("(c) uncheck in the Basket sends the row down as an excluded stub; re-check restores; Save = kept ∪ new, demoted → exclusions PUT", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    const twoEst = { ...flatThesis, basket: [flatThesis.basket[0], est("CCJ", "s-ccj2")] };
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={twoEst as never} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+    expect(screen.getByLabelText("segment for CCJ").closest(".wb-basket")).not.toBeNull();
+
+    // uncheck CCJ in the Basket → it leaves the panel and reappears below as an excluded stub ("send down")
+    await user.click(screen.getByLabelText("include CCJ"));
+    const stub = screen.getByText("excluded", { selector: ".wb-exc-tag" });
+    expect(stub.closest(".wb-basket")).toBeNull(); // below, in the working list — never vanished (#2)
+    expect(screen.getByText("· 1 of 2 kept")).toBeInTheDocument(); // the panel count dropped
+
+    // re-check → restored to the Basket panel (reversibility #1)
+    await user.click(screen.getByLabelText("include CCJ"));
+    expect(screen.getByLabelText("segment for CCJ").closest(".wb-basket")).not.toBeNull();
+
+    // demote again and Save: the promote = Basket-kept ∪ new-included; the demoted name is absent from
+    // the promote AND present in the exclusions PUT (the durable NO — existing prune semantics)
+    await user.click(screen.getByLabelText("include CCJ"));
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: { ticker: string }[] };
+    expect(body.basket.map((m) => m.ticker).sort()).toEqual(["OKLO", "SMR"]);
+    const excl = h.putExcl.mock.calls[0][0] as { security_id: string }[];
+    expect(excl.map((e) => e.security_id)).toContain("s-ccj2");
+  });
+
+  it("demoting EVERY established name keeps the Basket header with the all-demoted note (never vanishes)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByLabelText("include OKLO"));
+    expect(screen.getByRole("button", { name: /the saved basket/ })).toBeInTheDocument(); // header stays
+    expect(screen.getByText(/all 1 demoted — re-check below to restore/)).toBeInTheDocument();
+    // re-check the demoted row below → it returns to the panel, the note clears
+    await user.click(screen.getByLabelText("include OKLO"));
+    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
+    expect(screen.queryByText(/all 1 demoted/)).not.toBeInTheDocument();
+  });
+
+  it("(d) scoped bulk: 'clear un-accepted' skips an un-accepted ESTABLISHED member, sweeps only new drafted names", async () => {
+    const user = userEvent.setup();
+    const estDrafted = {
+      ...flatThesis,
+      basket: [est("GEV", "s-gev", { authored_by: "system_drafted" })],
+    };
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={estDrafted as never} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    await user.click(screen.getByRole("button", { name: "clear un-accepted" }));
+    expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // the NEW drafted name → excluded
+    expect(screen.getByLabelText("include GEV")).toBeChecked(); // established (even un-accepted) → untouched
+  });
+
+  it("(e) a NEW thesis (empty basket): no Basket panel, the first draft lands in working, Save graduates all included", async () => {
+    const user = userEvent.setup();
+    withOnSuccess();
+    const emptyThesis = { ...flatThesis, basket: [] };
+    mockDraft(draft([PLACED_SMR]));
+    const { container } = render(
+      <ChainEditor asof="2026-06-08" thesis={emptyThesis as never} onDone={vi.fn()} />,
+    );
+    expect(container.querySelector(".wb-basket")).toBeNull(); // no established names → no panel
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    const smr = await screen.findByLabelText("segment for SMR");
+    expect(smr.closest(".wb-basket")).toBeNull(); // everything is working — today's behavior, unchanged
+    expect(container.querySelector(".wb-basket")).toBeNull(); // the draft does NOT conjure a panel
+
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { basket: { ticker: string }[] };
+    expect(body.basket.map((m) => m.ticker)).toEqual(["SMR"]); // Save graduates all included
+  });
+
+  it("(g) the find bar filters BOTH lists — Basket rows and working rows filter with the one control", async () => {
+    const user = userEvent.setup();
+    const twoArch = {
+      ...flatThesis,
+      basket: [
+        est("OKLO", "s-oklo", { archetype: "high_beta" }),
+        est("CCJ", "s-ccj2", { archetype: "leader" }),
+      ],
+    };
+    mockDraft(draft([PLACED_SMR])); // a new drafted name (archetype null)
+    render(<ChainEditor asof="2026-06-08" thesis={twoArch as never} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("segment for SMR");
+
+    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
+    expect(screen.getByLabelText("segment for CCJ").closest(".wb-basket")).not.toBeNull(); // basket row kept
+    expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // basket row filtered out
+    expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument(); // working row filtered out
+    // ONE whole-basket count across both lists (the denominator existing tests depend on)
+    expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
   });
 });

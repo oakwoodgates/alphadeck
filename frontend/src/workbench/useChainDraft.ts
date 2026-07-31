@@ -51,6 +51,18 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
   const [draft, setDraft] = useState<ChainDraft>(() => restored?.draft ?? base);
 
+  // THE BASKET FREEZE (the additive editor) — the ESTABLISHED keys, computed ONCE at mount: the members
+  // present in BOTH the persisted spine (`base`) and the working draft we seeded from (`restored?.draft ??
+  // base`). An INTERSECTION, deliberately not plain base keys: after a Clear (a restored EMPTY draft) the
+  // set is empty, so a re-discovered old-spine name is a NEW drafted name again, never wrongly frozen.
+  // An established member is FROZEN against the drafter: `loadDraft` never re-rolls it (or parks it in
+  // Discovered), regardless of authorship — a draft over an established thesis only ADDS new names.
+  const [establishedKeys] = useState<Set<string>>(() => {
+    const draftKeys = new Set((restored?.draft ?? base).basket.map(memberKey));
+    return new Set(base.basket.map(memberKey).filter((k) => draftKeys.has(k)));
+  });
+  const isEstablished = (key: string) => establishedKeys.has(key);
+
   // TRIAGE (the prune) — include is ORTHOGONAL to accept/authorship. A member starts INCLUDED (#9:
   // nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys chosen to
   // leave OUT of the saved basket. #7 made the NO durable: the set SEEDS from the thesis's persisted
@@ -100,12 +112,15 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   const excludeAll = () => setExcluded(new Set(draft.basket.map(memberKey)));
   // "Clear un-accepted" — exclude every still-drafted (system_drafted) name, the fast path to just-my-vouched
   // names. ADDITIVE (union) so a manually-excluded accepted name stays excluded; sets exclude only, never
-  // touches authorship (accept stays the separate act).
+  // touches authorship (accept stays the separate act). WORKING-SCOPED: an ESTABLISHED member (the frozen
+  // Basket) is never swept, even if it rides the spine un-accepted — the bulk clear targets the new draft.
   const excludeUnaccepted = () =>
     setExcluded((prev) => {
       const next = new Set(prev);
       for (const m of draft.basket) {
-        if (m.authored_by === "system_drafted") next.add(memberKey(m));
+        if (m.authored_by === "system_drafted" && !establishedKeys.has(memberKey(m))) {
+          next.add(memberKey(m));
+        }
       }
       return next;
     });
@@ -116,6 +131,14 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     setExcluded((prev) => {
       const next = new Set(prev);
       for (const k of keys) next.add(k);
+      return next;
+    });
+  // The visible inverse of excludeKeys (reversibility #1) — bulk RE-include a specific set of names (the
+  // working-scoped "include all new"). Same contract: include-state only, never touches authorship.
+  const includeKeys = (keys: string[]) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.delete(k);
       return next;
     });
 
@@ -198,14 +221,26 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           placed.set(p.security_id, { segment: p.segment, prose: p.prose || null });
         }
       }
-      let orphaned = false; // did any drafted name fall out of the new draft → reset to Discovered?
+      // The value chain is ADDITIVE once it exists: a re-draft over an established chain never invents new
+      // links. The drafter rephrases the chain every run ("Psychedelic & Ketamine Drug Developers" one run,
+      // "Clinical-Stage Psychedelic Drug Developers" the next), so appending piles up near-duplicate links.
+      // So: a FIRST draft (no chain yet) adopts the drafter's links; once you HAVE a chain, a re-draft keeps
+      // it exactly and files new / re-rolled names into an EXISTING link (exact-label match) or the
+      // "Discovered" unsorted pen — never a fabricated link. `fileSeg` routes any segment through that rule.
+      const hasChain = d.segments.some((s) => s.label !== DISCOVERED);
+      const haveSeg = new Set(d.segments.map((s) => s.label));
+      const fileSeg = (seg: string | null): string | null =>
+        hasChain && !(seg && haveSeg.has(seg)) ? DISCOVERED : seg;
       const basket = d.basket.map((m) => {
+        // ESTABLISHED (in the saved basket at mount) → untouched FIRST, regardless of authorship: the
+        // frozen Basket is never re-rolled to a fresh segment/prose and never parked in Discovered — a
+        // re-draft over an established thesis only surfaces NEW names.
+        if (establishedKeys.has(memberKey(m))) return m;
         // operator-authored → untouched (never clobber operator work)
         if (m.authored_by === "operator_set" || m.authored_by === "operator_edited") return m;
-        // system_drafted: re-roll if still placed, else park in Discovered (drop the stale segment)
+        // system_drafted: re-roll if still placed (into an existing link, else Discovered), else park in Discovered
         const fresh = m.security_id ? placed.get(m.security_id) : undefined;
-        if (fresh) return { ...m, segment: fresh.segment, thesis_fit: fresh.prose };
-        orphaned = true;
+        if (fresh) return { ...m, segment: fileSeg(fresh.segment), thesis_fit: fresh.prose };
         return { ...m, segment: DISCOVERED };
       });
       // append genuinely NEW placed names (not already in the basket), deduped by security_id
@@ -217,23 +252,29 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           role: "—",
           archetype: null, // un-decided (item F) — the finalize rail sets it; never a placement default
           security_id: p.security_id,
-          segment: p.segment,
+          segment: fileSeg(p.segment), // never invent a link on an established chain
           thesis_fit: p.prose || null,
           conviction: null, // the drafter never weights — the operator sets conviction in the row
           authored_by: "system_drafted",
         }));
-      // append NEW segments; ensure Discovered exists if we parked an orphan there (else Save orphans it)
-      const haveSeg = new Set(d.segments.map((s) => s.label));
-      const segments = [
-        ...d.segments,
-        ...chain.segments
-          .filter((s) => !haveSeg.has(s.label))
-          .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
-      ];
-      if (orphaned && !segments.some((s) => s.label === DISCOVERED)) {
+      // FIRST draft (no chain yet) adopts the drafter's links; an established chain keeps EXACTLY its links.
+      const segments = hasChain
+        ? [...d.segments]
+        : [
+            ...d.segments,
+            ...chain.segments
+              .filter((s) => !haveSeg.has(s.label))
+              .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
+          ];
+      const merged = [...basket, ...additions];
+      // ensure the unsorted pen exists if any name landed there (else Save orphans it)
+      if (
+        merged.some((m) => m.segment === DISCOVERED) &&
+        !segments.some((s) => s.label === DISCOVERED)
+      ) {
         segments.push({ label: DISCOVERED, descriptor: null });
       }
-      return { segments, basket: [...basket, ...additions] };
+      return { segments, basket: merged };
     });
 
   // Accept ⇄ un-accept (reversibility, principle #1) — a TOGGLE. Accept ratifies a drafted placement
@@ -288,6 +329,9 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     toggleAccept,
     editProse,
     editConviction,
+    // THE BASKET FREEZE: the established (saved-spine) keys, frozen against the drafter
+    establishedKeys,
+    isEstablished,
     // TRIAGE (the prune): include-state + the included subset Save persists
     excluded,
     isIncluded,
@@ -297,6 +341,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     excludeAll,
     excludeUnaccepted,
     excludeKeys,
+    includeKeys,
     // #7: the optional rejection reasons, persisted with the exclusion set on Save
     reasons,
     editReason,
