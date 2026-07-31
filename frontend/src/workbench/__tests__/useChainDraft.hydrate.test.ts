@@ -184,7 +184,10 @@ describe("useChainDraft hydrate seam", () => {
     const byId = (sid: string) =>
       result.current.draft.basket.find((m) => m.security_id === sid)!;
     expect(byId("sid-oklo").segment).toBe("Enrichment"); // FROZEN — never re-rolled
-    expect(byId("sid-smr").segment).toBe("NewSeg"); // the blob-only drafted name re-rolls as before
+    // the blob-only drafted name IS re-rolled (not frozen) — its prose updates; and because "NewSeg" is a
+    // fabricated link on the additive chain, it files into the Discovered pen instead of inventing the link
+    expect(byId("sid-smr").thesis_fit).toBe("re-rolled");
+    expect(byId("sid-smr").segment).toBe("Discovered");
 
     // a draft NOT placing the spine name does NOT park it in Discovered (the frozen basket never orphans)
     act(() =>
@@ -208,10 +211,28 @@ describe("useChainDraft hydrate seam", () => {
     expect(oklo().segment).toBe("SegA");
     expect(oklo().authored_by).toBe("system_drafted");
 
-    // …and a SECOND draft re-rolls it — the intersection kept it un-frozen (no wrongly-frozen resurrection)
+    // …and a SECOND draft re-rolls it (the intersection kept it un-frozen) — its prose updates in place; a
+    // frozen name would keep its mount state untouched. It stays in the existing link (SegA), not a new one.
     act(() =>
-      result.current.loadDraft(chain([{ sid: "sid-oklo", ticker: "OKLO", segment: "SegB" }])),
+      result.current.loadDraft(
+        chain([{ sid: "sid-oklo", ticker: "OKLO", segment: "SegA", prose: "re-rolled" }]),
+      ),
     );
-    expect(oklo().segment).toBe("SegB");
+    expect(oklo().thesis_fit).toBe("re-rolled");
+    expect(oklo().segment).toBe("SegA");
+  });
+
+  it("additive value chain: a re-draft over an existing chain adds NO new links — a new name lands in Discovered", () => {
+    const t = thesis(); // basket = OKLO, value chain = ["Enrichment"]
+    const { result } = renderHook(() => useChainDraft(t));
+    // the drafter proposes a brand-new link with a new name in it
+    act(() =>
+      result.current.loadDraft(chain([{ sid: "sid-new", ticker: "NEW", segment: "A Fabricated Link" }])),
+    );
+    const labels = result.current.draft.segments.map((s) => s.label);
+    expect(labels).toContain("Enrichment"); // the operator's chain is kept exactly
+    expect(labels).not.toContain("A Fabricated Link"); // the drafter's new link is NOT appended (no dup pile-up)
+    const nw = result.current.draft.basket.find((m) => m.security_id === "sid-new")!;
+    expect(nw.segment).toBe("Discovered"); // the new name lands in the unsorted pen to file into an existing link
   });
 });

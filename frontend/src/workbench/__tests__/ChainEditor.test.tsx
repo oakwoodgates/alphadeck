@@ -711,9 +711,10 @@ describe("ChainEditor — reversibility (Workbench interaction principles)", () 
     // operator_set is untouched — GEV keeps its accepted segment (not draft-2's "power") and stays owned
     expect((screen.getByLabelText("segment for GEV") as HTMLSelectElement).value).toBe("turbines");
     expect(screen.getByRole("button", { name: "un-accept GEV" })).toBeInTheDocument();
-    // a still-placed drafted name is RE-ROLLED to the fresh segment
+    // a still-placed drafted name is re-rolled, but "smr-reactors" is a fabricated link on the additive chain
+    // (draft 1 already built the chain), so it files into the Discovered pen rather than inventing the link
     expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe(
-      "smr-reactors",
+      "Discovered",
     );
     // a drafted name the new draft no longer places is parked in Discovered (no stale segment)
     expect((screen.getByLabelText("segment for LOTTO") as HTMLSelectElement).value).toBe(
@@ -2077,20 +2078,35 @@ describe("ChainEditor — the Basket section (the additive editor)", () => {
         est("SMR", "s-smr", { segment: "reactors", thesis_fit: "P0", authored_by: "system_drafted" }),
       ],
     };
-    // draft 1 RE-places SMR with a fresh segment + prose — an established member must NOT re-roll
+    // draft 1 RE-places SMR with a fresh segment + prose (an established member must NOT re-roll) and surfaces
+    // one genuinely-new name — SMR itself is frozen so it shows no change; GEV is our signal the draft loaded
     mockDraft(
       draft(
-        [{ ...PLACED_SMR, segment: "smr-reactors", prose: "P2" }],
+        [
+          { ...PLACED_SMR, segment: "smr-reactors", prose: "P2" },
+          {
+            name: "GE Vernova",
+            ticker: "GEV",
+            prose: "new",
+            segment: "smr-reactors",
+            status: "placed",
+            security_id: "s-gev-1",
+            candidates: [],
+            matched_terms: [],
+          },
+        ],
         [{ label: "smr-reactors", descriptor: null }],
       ),
     );
     render(<ChainEditor asof="2026-06-08" thesis={estDrafted as never} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    await screen.findByDisplayValue("smr-reactors"); // the draft's segment arrived (the links editor)
+    await screen.findByLabelText("segment for GEV"); // the NEW name arrived → the draft loaded
 
     expect((screen.getByLabelText("segment for SMR") as HTMLSelectElement).value).toBe("reactors"); // kept
     expect(screen.getByLabelText("thesis-fit for SMR")).toHaveValue("P0"); // prose kept — P2 never landed
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // still un-accepted
+    // the new GEV lands in Discovered — the fabricated "smr-reactors" link is never invented (additive chain)
+    expect((screen.getByLabelText("segment for GEV") as HTMLSelectElement).value).toBe("Discovered");
 
     // draft 2 no longer places SMR at all — an established member is NOT parked to Discovered
     h.jobData = {

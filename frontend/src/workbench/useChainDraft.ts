@@ -221,7 +221,16 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           placed.set(p.security_id, { segment: p.segment, prose: p.prose || null });
         }
       }
-      let orphaned = false; // did any drafted name fall out of the new draft → reset to Discovered?
+      // The value chain is ADDITIVE once it exists: a re-draft over an established chain never invents new
+      // links. The drafter rephrases the chain every run ("Psychedelic & Ketamine Drug Developers" one run,
+      // "Clinical-Stage Psychedelic Drug Developers" the next), so appending piles up near-duplicate links.
+      // So: a FIRST draft (no chain yet) adopts the drafter's links; once you HAVE a chain, a re-draft keeps
+      // it exactly and files new / re-rolled names into an EXISTING link (exact-label match) or the
+      // "Discovered" unsorted pen — never a fabricated link. `fileSeg` routes any segment through that rule.
+      const hasChain = d.segments.some((s) => s.label !== DISCOVERED);
+      const haveSeg = new Set(d.segments.map((s) => s.label));
+      const fileSeg = (seg: string | null): string | null =>
+        hasChain && !(seg && haveSeg.has(seg)) ? DISCOVERED : seg;
       const basket = d.basket.map((m) => {
         // ESTABLISHED (in the saved basket at mount) → untouched FIRST, regardless of authorship: the
         // frozen Basket is never re-rolled to a fresh segment/prose and never parked in Discovered — a
@@ -229,10 +238,9 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
         if (establishedKeys.has(memberKey(m))) return m;
         // operator-authored → untouched (never clobber operator work)
         if (m.authored_by === "operator_set" || m.authored_by === "operator_edited") return m;
-        // system_drafted: re-roll if still placed, else park in Discovered (drop the stale segment)
+        // system_drafted: re-roll if still placed (into an existing link, else Discovered), else park in Discovered
         const fresh = m.security_id ? placed.get(m.security_id) : undefined;
-        if (fresh) return { ...m, segment: fresh.segment, thesis_fit: fresh.prose };
-        orphaned = true;
+        if (fresh) return { ...m, segment: fileSeg(fresh.segment), thesis_fit: fresh.prose };
         return { ...m, segment: DISCOVERED };
       });
       // append genuinely NEW placed names (not already in the basket), deduped by security_id
@@ -244,23 +252,29 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           role: "—",
           archetype: null, // un-decided (item F) — the finalize rail sets it; never a placement default
           security_id: p.security_id,
-          segment: p.segment,
+          segment: fileSeg(p.segment), // never invent a link on an established chain
           thesis_fit: p.prose || null,
           conviction: null, // the drafter never weights — the operator sets conviction in the row
           authored_by: "system_drafted",
         }));
-      // append NEW segments; ensure Discovered exists if we parked an orphan there (else Save orphans it)
-      const haveSeg = new Set(d.segments.map((s) => s.label));
-      const segments = [
-        ...d.segments,
-        ...chain.segments
-          .filter((s) => !haveSeg.has(s.label))
-          .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
-      ];
-      if (orphaned && !segments.some((s) => s.label === DISCOVERED)) {
+      // FIRST draft (no chain yet) adopts the drafter's links; an established chain keeps EXACTLY its links.
+      const segments = hasChain
+        ? [...d.segments]
+        : [
+            ...d.segments,
+            ...chain.segments
+              .filter((s) => !haveSeg.has(s.label))
+              .map((s) => ({ label: s.label, descriptor: s.descriptor ?? null })),
+          ];
+      const merged = [...basket, ...additions];
+      // ensure the unsorted pen exists if any name landed there (else Save orphans it)
+      if (
+        merged.some((m) => m.segment === DISCOVERED) &&
+        !segments.some((s) => s.label === DISCOVERED)
+      ) {
         segments.push({ label: DISCOVERED, descriptor: null });
       }
-      return { segments, basket: [...basket, ...additions] };
+      return { segments, basket: merged };
     });
 
   // Accept ⇄ un-accept (reversibility, principle #1) — a TOGGLE. Accept ratifies a drafted placement
