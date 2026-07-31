@@ -15,6 +15,30 @@ export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent",
  *  (NAND-style real-word acronyms count too) — judged on live data, tweaked after. */
 export const isAcronymTerm = (term: string): boolean => /^[A-Z][A-Z0-9]{1,9}$/.test(term.trim());
 
+/** The country bucket for the Country filter, derived from the DISPLAYED origin string (the output of
+ *  backend `securities/origin.resolve_origin`): "US" → us; any other place string (Shanghai, Cayman
+ *  Islands, London…) → foreign; null/empty (no chip) → unknown. As accurate as the origin chip — it
+ *  classifies exactly what the chip shows. View-only display identity; never a call input (#3/#4). */
+export type CountryClass = "us" | "foreign" | "unknown";
+export const countryClass = (origin: string | null | undefined): CountryClass => {
+  const o = (origin ?? "").trim();
+  if (!o) return "unknown";
+  return o.toUpperCase() === "US" ? "us" : "foreign";
+};
+
+/** The exchange bucket for the Exchange filter. The security master carries only five values ever
+ *  (measured: Nasdaq / NYSE / OTC / CBOE / empty): NYSE|Nasdaq → main; OTC → otc; empty → unknown;
+ *  anything else (CBOE, or a future value) → other. Case-insensitive. View-only; never a call input. */
+export type ExchangeClass = "main" | "otc" | "other" | "unknown";
+export const exchangeClass = (exchange: string | null | undefined): ExchangeClass => {
+  const x = (exchange ?? "").trim();
+  if (!x) return "unknown";
+  const u = x.toUpperCase();
+  if (u === "NYSE" || u === "NASDAQ") return "main";
+  if (u === "OTC") return "otc";
+  return "other";
+};
+
 /** Gate-3 readiness (ONE rule, three surfaces): does the scored member carry ANY confirmed SURFACE fact
  *  (purity / runway / market cap)? Catalysts + dilution come from the feeds/converts, not the extract, so
  *  they don't count. Shared by the editor's fundamentals badge, the scored row's "get data" control, and

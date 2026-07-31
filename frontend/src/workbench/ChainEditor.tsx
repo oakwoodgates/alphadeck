@@ -34,7 +34,15 @@ import { AddName } from "./AddName";
 import { SurfaceEtf } from "./SurfaceEtf";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
-import { archLabel, errText, memberHasFundamentals } from "./format";
+import {
+  archLabel,
+  countryClass,
+  type CountryClass,
+  errText,
+  exchangeClass,
+  type ExchangeClass,
+  memberHasFundamentals,
+} from "./format";
 import {
   matchesAnyJunkTell,
   signalAcronymTermsFrom,
@@ -501,10 +509,20 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   const [fFund, setFFund] = useState<"" | "loaded" | "needs">("");
   const [fAuth, setFAuth] = useState<"" | "accepted" | "drafted">("");
   const [fInc, setFInc] = useState<"" | "included" | "excluded">("");
+  const [fCountry, setFCountry] = useState<"" | CountryClass>("");
+  const [fExch, setFExch] = useState<"" | ExchangeClass>("");
   const [fOffUniv, setFOffUniv] = useState(false);
   const [compact, setCompact] = useState(false);
   const filtersActive =
-    sortBy !== "draft" || !!fArch || !!fSeg || !!fFund || !!fAuth || !!fInc || fOffUniv;
+    sortBy !== "draft" ||
+    !!fArch ||
+    !!fSeg ||
+    !!fFund ||
+    !!fAuth ||
+    !!fInc ||
+    !!fCountry ||
+    !!fExch ||
+    fOffUniv;
   const clearFilters = () => {
     setSortBy("draft");
     setFArch("");
@@ -512,6 +530,8 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     setFFund("");
     setFAuth("");
     setFInc("");
+    setFCountry("");
+    setFExch("");
     setFOffUniv(false);
   };
   const sec = (m: BasketMember) => (m.security_id ? identity[m.security_id]?.sector : null) ?? "";
@@ -523,6 +543,19 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
         .filter((a): a is NonNullable<BasketMember["archetype"]> => a != null),
     ),
   );
+  // Country + Exchange filters classify a name's stored IDENTITY (origin / exchange) and span the Basket
+  // panel, the working Placed list, AND the To-Review candidates (like INCLUDE) — origin/exchange ride the
+  // placement and, for a placed member, the read-time `identity` join. View-only (#9): they narrow what
+  // RENDERS, never what Save persists. A name with no loaded identity classifies unknown/other — kept under
+  // "all", filtered only by a specific pick, never dropped from the basket.
+  const matchesIdentity = (
+    origin: string | null | undefined,
+    exchange: string | null | undefined,
+  ): boolean => {
+    if (fCountry && countryClass(origin) !== fCountry) return false;
+    if (fExch && exchangeClass(exchange) !== fExch) return false;
+    return true;
+  };
   const matchesFilters = (m: BasketMember): boolean => {
     const k = memberKey(m);
     const loaded = hasFundamentals(m.security_id, scoredById);
@@ -534,6 +567,8 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     if (fInc === "included" && !d.isIncluded(k)) return false;
     if (fInc === "excluded" && d.isIncluded(k)) return false;
     if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
+    const idn = m.security_id ? identity[m.security_id] : undefined;
+    if (!matchesIdentity(idn?.origin, idn?.exchange)) return false;
     return true;
   };
   const verifyAsideId = (p: ResolvedPlacement, key?: string) =>
@@ -888,7 +923,9 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // duplicate suggestion, never a name from the universe (#9 — it's kept, not dropped). Derived off the live
   // `keys`, so a name sent back down out of the basket re-appears here.
   const verifyCandidates = verify.filter((p) => !(p.security_id && keys.has(p.security_id)));
-  const verifyVisible = verifyCandidates.filter(matchesVerifyInclude);
+  const verifyVisible = verifyCandidates.filter(
+    (p) => matchesVerifyInclude(p) && matchesIdentity(p.origin, p.exchange),
+  );
   // The off-thesis noise, split by keyword provenance so the flood is read at a glance (honest loudness #7):
   //   Low signal    = matched 2+ discovery terms (the stronger keyword evidence — more likely a missed keeper).
   //   Lowest signal = matched ≤1 term. Sorted 0-terms FIRST (off-universe names the model surfaced with NO
@@ -1820,6 +1857,33 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                   <option value="excluded">excluded</option>
                 </select>
               </label>
+              <label className="wb-find-ctl">
+                country
+                <select
+                  aria-label="filter by country"
+                  value={fCountry}
+                  onChange={(e) => setFCountry(e.target.value as typeof fCountry)}
+                >
+                  <option value="">all</option>
+                  <option value="us">US</option>
+                  <option value="foreign">foreign</option>
+                  <option value="unknown">unknown</option>
+                </select>
+              </label>
+              <label className="wb-find-ctl">
+                exchange
+                <select
+                  aria-label="filter by exchange"
+                  value={fExch}
+                  onChange={(e) => setFExch(e.target.value as typeof fExch)}
+                >
+                  <option value="">all</option>
+                  <option value="main">mainstream</option>
+                  <option value="otc">OTC</option>
+                  <option value="other">other</option>
+                  <option value="unknown">unknown</option>
+                </select>
+              </label>
               <button
                 type="button"
                 className={`wb-mini ghost${fOffUniv ? " on" : ""}`}
@@ -1846,7 +1910,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                 {/* whole-basket count across BOTH lists (Basket panel + working) — the denominator stays
                     the full draft basket, so a filter reads the same as before the split */}
                 showing {basketRows.length + triaged.length} of {d.draft.basket.length} placed
-                {fInc && verifyCandidates.length > 0
+                {(fInc || fCountry || fExch) && verifyCandidates.length > 0
                   ? ` · ${verifyVisible.length} of ${verifyCandidates.length} to review`
                   : ""}
               </span>
