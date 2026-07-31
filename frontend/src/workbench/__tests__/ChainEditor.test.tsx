@@ -1073,6 +1073,20 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.getByText("matched memory")).toBeInTheDocument(); // Kroger's provenance (single term) still shows
   });
 
+  it("a VERIFY candidate already in the basket is filtered from To-Review — no unselectable keeper (#3)", async () => {
+    const user = userEvent.setup();
+    // the re-draft re-surfaces OKLO (already the basket keeper) as a VERIFY hit, alongside a genuine new keeper
+    const VERIFY_OKLO = { ...VERIFY_ALKS, name: "Oklo Inc", ticker: "OKLO", security_id: "s-oklo" };
+    mockDraft(draft([VERIFY_ALKS, VERIFY_OKLO], [{ label: "therapeutics", descriptor: null }]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // the genuinely-new keeper surfaces with a live add…
+    expect(await screen.findByRole("checkbox", { name: "add ALKS" })).toBeEnabled();
+    // …but OKLO, already the basket member, is NOT re-offered as an unselectable keeper (a duplicate carrying no action)
+    expect(screen.queryByRole("checkbox", { name: "add OKLO" })).not.toBeInTheDocument();
+  });
+
   it("split ordering: a 0-term off-universe name sorts to the TOP of Lowest signal, above the single-term hits", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VOFF, VOFFZERO], [{ label: "memory", descriptor: null }]));

@@ -882,7 +882,13 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
   // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
   // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
-  const verifyVisible = verify.filter(matchesVerifyInclude);
+  // A re-draft can re-surface a name ALREADY in the basket as a VERIFY candidate — an "unselectable keeper"
+  // (canAdd=false: it's already placed). Such a row carries no action, so drop it from To-Review entirely
+  // (honest loudness #3): the name stays fully visible as a basket member — this removes only the redundant
+  // duplicate suggestion, never a name from the universe (#9 — it's kept, not dropped). Derived off the live
+  // `keys`, so a name sent back down out of the basket re-appears here.
+  const verifyCandidates = verify.filter((p) => !(p.security_id && keys.has(p.security_id)));
+  const verifyVisible = verifyCandidates.filter(matchesVerifyInclude);
   // The off-thesis noise, split by keyword provenance so the flood is read at a glance (honest loudness #7):
   //   Low signal    = matched 2+ discovery terms (the stronger keyword evidence — more likely a missed keeper).
   //   Lowest signal = matched ≤1 term. Sorted 0-terms FIRST (off-universe names the model surfaced with NO
@@ -1840,8 +1846,8 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                 {/* whole-basket count across BOTH lists (Basket panel + working) — the denominator stays
                     the full draft basket, so a filter reads the same as before the split */}
                 showing {basketRows.length + triaged.length} of {d.draft.basket.length} placed
-                {fInc && verify.length > 0
-                  ? ` · ${verifyVisible.length} of ${verify.length} to review`
+                {fInc && verifyCandidates.length > 0
+                  ? ` · ${verifyVisible.length} of ${verifyCandidates.length} to review`
                   : ""}
               </span>
             </div>
@@ -1915,7 +1921,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
             loudness (#7): Keepers are the surfaced signal (open); the two noise buckets stay quiet + collapsed.
             Nothing dropped (#9) — every bucket stays promotable via the same check-to-add. The master header
             count stays keepers-only (the headline is the signal; each sub-drawer carries its own count). */}
-        {verify.length > 0 && (
+        {verifyCandidates.length > 0 && (
           <div className="sect">
             <button
               type="button"
