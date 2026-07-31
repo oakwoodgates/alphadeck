@@ -741,6 +741,18 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    =========================================================================== */
 .wb-results .sect { margin-bottom: 26px; }
 .wb-results .sect-h em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
+
+/* ── the frozen BASKET panel (the additive editor) ─────────────────────────────
+   The ESTABLISHED names, frozen at the top of the editor: a re-draft never re-rolls these rows. A quiet
+   accent border + tint separates the settled basket from the working partitions below; the rows inside
+   keep the normal placed-row look (the panel carries .wb-results for exactly that reason). */
+.wb-basket { border: 1px solid rgba(138, 180, 255, 0.18); border-left: 3px solid rgba(138, 180, 255, 0.45); border-radius: 10px; background: linear-gradient(180deg, rgba(138, 180, 255, 0.05), rgba(138, 180, 255, 0.015) 55%, transparent); padding: 12px 14px 4px; margin-bottom: 20px; }
+.wb-basket .sect { margin-bottom: 8px; }
+.wb-basket .sect-h .ct { color: var(--leader); }
+.wb-basket .sect-h .chev { color: var(--leader); opacity: 0.7; }
+/* rows sit on the tinted panel — a hair more contrast on the card edge so they read as settled, not new */
+.wb-basket .nmrow { background: var(--panel-2); border-color: var(--line-2); }
+.wb-basket .nmrow:hover { background: var(--panel-2); border-color: var(--line-2); }
 .wb-results .sect-h .ct { font-family: var(--mono); color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
 /* the Placed / To-Review section headers collapse (open by default) — a button reset over .sect-h that keeps
    its type styling + the trailing divider (::after); the chevron shows state. Click to jump to the next section. */

@@ -1,8 +1,14 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ThesisDetail } from "../../api/hooks";
-import { deserialize, SCHEMA_VERSION, serialize, type EditorRuntime } from "../triageSession";
+import type { ChainDraftOut, ThesisDetail } from "../../api/hooks";
+import {
+  clearedRestore,
+  deserialize,
+  SCHEMA_VERSION,
+  serialize,
+  type EditorRuntime,
+} from "../triageSession";
 import { useChainDraft } from "../useChainDraft";
 
 // A minimal persisted thesis: ONE member (OKLO), no exclusions — the "last saved spine".
@@ -29,28 +35,37 @@ function thesis(): ThesisDetail {
   };
 }
 
+const emptyEditor = (): EditorRuntime => ({
+  ambiguous: [],
+  verify: [],
+  absent: [],
+  verifyOrigin: {},
+  matched: {},
+  offUniverse: new Set(),
+  offThesisSet: new Set(),
+  identity: {},
+  names: {},
+  draftStatus: null,
+  cappedTerms: new Set(),
+  draftEmpty: false,
+  termSet: [],
+  recs: {},
+  adopted: new Set(),
+  setAside: new Set(),
+});
+
+// Round-trip a hook state through the wire so a test exercises the real restore path, not a hand-built object.
+function roundTrip(hook: Parameters<typeof serialize>[0]) {
+  const state = JSON.parse(JSON.stringify(serialize(hook, emptyEditor())));
+  const result = deserialize({ schema_version: SCHEMA_VERSION, state });
+  if (result.status !== "ok") throw new Error("expected ok");
+  return result.hook;
+}
+
 // A restored prune that DIVERGES from the spine: a second name added + one excluded with a reason.
 function restoredHook() {
   const t = thesis();
-  const emptyEditor: EditorRuntime = {
-    ambiguous: [],
-    verify: [],
-    absent: [],
-    verifyOrigin: {},
-    matched: {},
-    offUniverse: new Set(),
-    offThesisSet: new Set(),
-    identity: {},
-    names: {},
-    draftStatus: null,
-    cappedTerms: new Set(),
-    draftEmpty: false,
-    termSet: [],
-    recs: {},
-    adopted: new Set(),
-    setAside: new Set(),
-  };
-  const hook = {
+  return roundTrip({
     draft: {
       segments: t.segments,
       basket: [
@@ -67,12 +82,56 @@ function restoredHook() {
     excluded: new Set(["sid-smr"]),
     reasons: new Map([["sid-smr", "too speculative"]]),
     reasonsDirty: true,
+  });
+}
+
+// The Basket-freeze worst case, restored from a blob: the SPINE name (OKLO) rides the blob DEMOTED
+// (excluded) AND un-accepted (system_drafted) — nothing but `established` protects it from a re-roll.
+function restoredDemotedSpine() {
+  const t = thesis();
+  return roundTrip({
+    draft: {
+      segments: t.segments,
+      basket: [
+        { ...t.basket[0], authored_by: "system_drafted" as const }, // un-accepted in-session
+        {
+          ticker: "SMR",
+          role: "high_beta",
+          security_id: "sid-smr",
+          segment: "Enrichment",
+          authored_by: "system_drafted" as const,
+        },
+      ],
+    },
+    excluded: new Set(["sid-oklo"]), // the spine name, demoted
+    reasons: new Map<string, string>(),
+    reasonsDirty: false,
+  });
+}
+
+// A minimal ChainDraftOut placing the given names (status "placed", resolved by security_id).
+function chain(
+  placements: { sid: string; ticker: string; segment: string; prose?: string }[],
+): ChainDraftOut {
+  return {
+    thesis_id: "11111111-1111-1111-1111-111111111111",
+    segments: [...new Set(placements.map((p) => p.segment))].map((label) => ({
+      label,
+      descriptor: null,
+    })),
+    placements: placements.map((p) => ({
+      name: p.ticker,
+      ticker: p.ticker,
+      prose: p.prose ?? "",
+      segment: p.segment,
+      status: "placed" as const,
+      security_id: p.sid,
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "edgar" as const,
+      off_thesis: false,
+    })),
   };
-  // round-trip through the wire so the test exercises the real restore path, not a hand-built object
-  const state = JSON.parse(JSON.stringify(serialize(hook, emptyEditor)));
-  const result = deserialize({ schema_version: SCHEMA_VERSION, state });
-  if (result.status !== "ok") throw new Error("expected ok");
-  return result.hook;
 }
 
 describe("useChainDraft hydrate seam", () => {
@@ -99,5 +158,60 @@ describe("useChainDraft hydrate seam", () => {
     expect(result.current.draft.basket.map((m) => m.security_id)).toEqual(["sid-oklo"]);
     expect(result.current.excluded.size).toBe(0);
     expect(result.current.dirty).toBe(false); // a clean load of the persisted spine is not dirty
+  });
+
+  it("BASKET FREEZE: established = base ∩ restored — a demoted spine name stays demoted, and loadDraft never re-rolls or parks it", () => {
+    const t = thesis();
+    const { result } = renderHook(() => useChainDraft(t, restoredDemotedSpine()));
+
+    // established is the INTERSECTION: the spine name (in base AND the blob) — never the blob-only SMR
+    expect([...result.current.establishedKeys]).toEqual(["sid-oklo"]);
+    expect(result.current.isEstablished("sid-oklo")).toBe(true);
+    expect(result.current.isEstablished("sid-smr")).toBe(false);
+    // the demote rode the blob: the established name reconstructs EXCLUDED (demoted stays demoted)
+    expect(result.current.excluded.has("sid-oklo")).toBe(true);
+
+    // a re-draft that re-places BOTH names re-rolls only the un-established drafted one — the spine name
+    // is frozen even though it is system_drafted (only `established` protects it here)
+    act(() =>
+      result.current.loadDraft(
+        chain([
+          { sid: "sid-oklo", ticker: "OKLO", segment: "NewSeg", prose: "re-rolled?" },
+          { sid: "sid-smr", ticker: "SMR", segment: "NewSeg", prose: "re-rolled" },
+        ]),
+      ),
+    );
+    const byId = (sid: string) =>
+      result.current.draft.basket.find((m) => m.security_id === sid)!;
+    expect(byId("sid-oklo").segment).toBe("Enrichment"); // FROZEN — never re-rolled
+    expect(byId("sid-smr").segment).toBe("NewSeg"); // the blob-only drafted name re-rolls as before
+
+    // a draft NOT placing the spine name does NOT park it in Discovered (the frozen basket never orphans)
+    act(() =>
+      result.current.loadDraft(chain([{ sid: "sid-smr", ticker: "SMR", segment: "Seg2" }])),
+    );
+    expect(byId("sid-oklo").segment).toBe("Enrichment");
+  });
+
+  it("BASKET FREEZE: after a Clear (empty restored basket) established is EMPTY — a re-discovered old-spine name re-rolls freely", () => {
+    const t = thesis();
+    const cleared = clearedRestore([]); // the Clear action's synthetic restore — empty chain, seeds kept
+    const { result } = renderHook(() => useChainDraft(t, cleared.hook));
+
+    expect(result.current.establishedKeys.size).toBe(0); // base ∩ ∅ = ∅ — nothing frozen
+
+    // the next draft re-discovers the OLD spine name → it enters as a fresh system_drafted placement…
+    act(() =>
+      result.current.loadDraft(chain([{ sid: "sid-oklo", ticker: "OKLO", segment: "SegA" }])),
+    );
+    const oklo = () => result.current.draft.basket.find((m) => m.security_id === "sid-oklo")!;
+    expect(oklo().segment).toBe("SegA");
+    expect(oklo().authored_by).toBe("system_drafted");
+
+    // …and a SECOND draft re-rolls it — the intersection kept it un-frozen (no wrongly-frozen resurrection)
+    act(() =>
+      result.current.loadDraft(chain([{ sid: "sid-oklo", ticker: "OKLO", segment: "SegB" }])),
+    );
+    expect(oklo().segment).toBe("SegB");
   });
 });

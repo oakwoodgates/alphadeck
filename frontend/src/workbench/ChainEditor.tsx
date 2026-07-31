@@ -375,6 +375,8 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // The two big result sections collapse (open by default) — a long Placed list is a lot to scroll past to
   // reach To Review / Couldn't resolve, so the header is a click-to-collapse (the counts stay visible).
   const [placedOpen, setPlacedOpen] = useState(true);
+  // The frozen BASKET panel (the established names, top of the editor) — collapsible, open by default.
+  const [basketOpen, setBasketOpen] = useState(true);
   // C-B + G — the placed board's DISPLAY partitions (up to three groups of the ONE membership), each
   // independently collapsible. The two Placed groups start OPEN (nothing hidden by default); the acronym-
   // low-quality group starts COLLAPSED (a junk cluster to visit for a scan-and-clear pass, not a wall to
@@ -554,8 +556,21 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     };
     return [...list].sort(cmp);
   };
+  // --- the Basket / working split (the additive editor) ---
+  // ESTABLISHED (in the saved spine at mount — hook-computed, empty after a Clear or on a new thesis) +
+  // still-INCLUDED members freeze into the Basket panel up top; everything else — new drafted names AND
+  // demoted (unchecked) established members ("sent down") — is the WORKING set the partitions below triage.
+  // Disjoint by construction: a row renders in exactly one of the two lists. The find bar filters BOTH,
+  // each list filtered/sorted independently.
+  const inBasket = (m: BasketMember): boolean =>
+    d.isEstablished(memberKey(m)) && d.isIncluded(memberKey(m));
+  const basketMembers = d.draft.basket.filter((m) => d.isEstablished(memberKey(m)));
+  const basketIncluded = basketMembers.filter((m) => d.isIncluded(memberKey(m)));
+  const basketRows = sorted(basketIncluded.filter(matchesFilters));
+  const working = d.draft.basket.filter((m) => !inBasket(m));
+  const workingKeys = working.map(memberKey);
   // filter → sort → partition → per-group preview-collapse (counts are of the FILTERED set)
-  const triaged = sorted(d.draft.basket.filter(matchesFilters));
+  const triaged = sorted(working.filter(matchesFilters));
 
   // G — the low-quality lens (a cheap-cut accelerant): model-flagged off-thesis AND any registered junk-tell
   // (see junkTells.ts). The LLM flag is the recall guard — a loose tell can't demote a name the narrator
@@ -972,6 +987,241 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     );
   };
 
+  // ONE row renderer shared by the frozen Basket panel, the flat list, and the C-B/G display groups (it
+  // closes over the editor's run-state — matched/identity/names/offThesisSet — so it stays a local, not a
+  // component).
+  const placedRow = (m: BasketMember) => {
+    const k = memberKey(m);
+    const drafted = m.authored_by === "system_drafted";
+    const mt = m.security_id ? matched[m.security_id] : undefined;
+    // the narrator's off-thesis OPINION (bridged by security_id). RECOMMENDS only (#10): the name stays
+    // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
+    const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
+    const included = d.isIncluded(k);
+    const loaded = hasFundamentals(m.security_id, scoredById);
+    return (
+      <div
+        className={`nmrow${offThesis ? " flagged" : ""}${included ? "" : " excluded"}`}
+        key={k}
+      >
+        <div className="top">
+          {/* TRIAGE include toggle (default-on, #9): unchecking EXCLUDES the name from Save; the row stays
+              visible (greyed), one click from re-including. Orthogonal to accept — never touches authorship. */}
+          <input
+            type="checkbox"
+            className="wb-inc"
+            aria-label={`include ${m.ticker}`}
+            checked={included}
+            onChange={() => d.toggleInclude(k)}
+          />
+          {/* the archetype color (incl. red high-beta) only shows on an operator-owned name whose
+              archetype IS set (a finalize-rail decision) — unset renders neutral, not a wall of red. */}
+          <span
+            className="tk"
+            style={
+              !drafted && m.archetype ? { color: ARCH_COLOR[m.archetype] } : undefined
+            }
+          >
+            {m.ticker}
+          </span>
+          {/* the company name (bridged by security_id — BasketMember carries no name), like To Review */}
+          {m.security_id && names[m.security_id] ? (
+            <span className="co">{names[m.security_id]}</span>
+          ) : null}
+          {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
+          {/* R3: an EXCLUDED (set-aside) row collapses to a quiet stub — checkbox + ticker + name + an
+              "excluded" tag stay visible (#9, re-check to restore); its chips, controls, and prose are
+              hidden so the noise recedes (inverse loudness). Exclude is VIEW-only here — it never touches
+              authorship (orthogonal A: an edited note stays operator_edited, safe from the next re-roll). */}
+          {!included ? (
+            <>
+              <span
+                className="wb-exc-tag"
+                title="excluded from Save — re-check to restore its detail"
+              >
+                excluded
+              </span>
+              {/* #7: the optional "rejected because X" — persisted with the exclusion on
+                  Save; quiet, skippable, editable (never a modal on a 300-name prune) */}
+              <input
+                className="wb-exc-why"
+                aria-label={`why excluded ${m.ticker}`}
+                placeholder="why? (optional)"
+                value={d.reasons.get(k) ?? ""}
+                onChange={(e) => d.editReason(k, e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
+              {m.security_id && identity[m.security_id] && (
+                <IdentityChips {...identity[m.security_id]} />
+              )}
+              {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in
+                  the basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE",
+                  which is pure noise, so the per-row badge is suppressed (a single header hint carries it). */}
+              {anyFundamentals &&
+                (loaded ? (
+                  <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
+                    ✓ fundamentals
+                  </span>
+                ) : (
+                  <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
+                    needs SURFACE
+                  </span>
+                ))}
+              {/* R1: the SEG / CONV controls sit on their own line; the row actions (accept +
+                  send-back) right-align at the END of this row. NO archetype control here (item F):
+                  the archetype is decided ONCE, on the finalize rail — a set value shows read-only
+                  (a re-opened finalized basket), an unset one shows nothing. */}
+              <span className="ctls">
+                {m.archetype && (
+                  <span className="ctl">
+                    <span className="lab">arch</span>
+                    <span
+                      className={`arch ${m.archetype}`}
+                      title="set on the scored view's rail (the finalize step) — not editable at placement"
+                    >
+                      {archLabel(m.archetype)}
+                    </span>
+                  </span>
+                )}
+                <span className="ctl">
+                  <span className="lab">seg</span>
+                  {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
+                      here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
+                      thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
+                  <select
+                    value={m.segment ?? ""}
+                    aria-label={`segment for ${m.ticker}`}
+                    onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
+                  >
+                    {!m.segment && <option value="">— segment —</option>}
+                    {segLabels.map((l) => (
+                      <option key={l} value={l}>
+                        {l === DISCOVERED ? "Discovered (unsorted)" : l}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+                {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
+                    input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
+                <span className="ctl">
+                  <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
+                    conv
+                  </span>
+                  <select
+                    className="wb-conv"
+                    value={m.conviction ?? ""}
+                    aria-label={`conviction for ${m.ticker}`}
+                    onChange={(e) =>
+                      d.editConviction(k, e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <option value="">—</option>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+                {/* the row actions right-align at the END of the controls row (accept ⇄ un-accept · the
+                    To-Review send-back) — chosen over the top-right slot to de-orphan them and group the
+                    knobs. Reversibility (#1): accept is a TOGGLE (the state carries authorship, no badge);
+                    un-accept flips back to system_drafted keeping every field value (a re-draft re-rolls it). */}
+                <span className="rowactions">
+                  <button
+                    type="button"
+                    className="wb-mini"
+                    aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
+                    title={
+                      drafted
+                        ? "ratify this drafted placement — you own it"
+                        : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
+                    }
+                    onClick={() => d.toggleAccept(k)}
+                  >
+                    {drafted ? "✓ accept" : "✕ un-accept"}
+                  </button>
+                  {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
+                  {m.security_id && verifyOrigin[m.security_id] && (
+                    <button
+                      type="button"
+                      className="wb-mini ghost"
+                      aria-label={`send ${m.ticker} back to review`}
+                      title="send this name back to To-Review (the inverse of add)"
+                      onClick={() => sendBackToVerify(m.security_id as string)}
+                    >
+                      ↩ to review
+                    </button>
+                  )}
+                </span>
+              </span>
+            </>
+          )}
+        </div>
+        {/* the row's detail (prose · provenance · off-thesis flag) is hidden while EXCLUDED (R3 collapse)
+            and while COMPACT (the scannable read). The prose auto-sizes to its content, capped at 3 rows
+            then scrolling (R2). */}
+        {included && !compact && (
+          <AutoTextarea
+            className="wb-prose"
+            ariaLabel={`thesis-fit for ${m.ticker}`}
+            placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
+            value={m.thesis_fit ?? ""}
+            onChange={(v) => d.editProse(k, v)}
+          />
+        )}
+        {included && mt && mt.length > 0 && (
+          <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
+            ← {mt.join(" · ")}
+          </div>
+        )}
+        {included && offThesis && (
+          <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
+        )}
+      </div>
+    );
+  };
+
+  // A display group over the ONE placed membership (C-B/G): a quiet drawer with its own collapse
+  // + per-group preview. Renders nothing when empty — an empty partition is noise.
+  const group = (
+    gkey: string,
+    title: string,
+    meta: string,
+    rows: BasketMember[],
+    open: boolean,
+    toggle: () => void,
+    extra?: ReactNode,
+  ) =>
+    rows.length === 0 ? null : (
+      <div className="resolve wb-placed-group">
+        <button
+          type="button"
+          className="resolve-h"
+          aria-expanded={open}
+          aria-label={`toggle ${title}`}
+          onClick={toggle}
+        >
+          <span className="chev">{open ? "▾" : "▸"}</span>
+          <span className="rt">{title}</span>
+          <span className="rm-meta">
+            {meta ? `${meta} · ` : ""}
+            {rows.length}
+          </span>
+        </button>
+        {open && (
+          <div className="resolve-body">
+            {extra}
+            {shownRows(gkey, rows).map(placedRow)}
+            {showMoreBtn(gkey, rows)}
+          </div>
+        )}
+      </div>
+    );
+
   return (
     <div className="wb-editor">
       <div className="wb-editor-head">
@@ -1045,6 +1295,42 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
       </div>
       {save.isError && (
         <ErrorToast>Couldn't save — {errText(save.error)}. Nothing changed.</ErrorToast>
+      )}
+
+      {/* THE BASKET (the additive editor) — the ESTABLISHED names, frozen at the top: a re-draft never
+          re-rolls these rows; a draft only surfaces NEW names into the working partitions below. Renders
+          ONLY when established names exist (a new/cleared thesis behaves exactly as before — no panel).
+          Unchecking a row here "sends it down": it leaves the panel and reappears below as an excluded
+          stub (reversible — re-check to restore it here). MUST carry .wb-results — the placed-row CSS is
+          scoped under it, so without the class the rows regress to the wrong card style. */}
+      {d.establishedKeys.size > 0 && (
+        <div className="wb-results wb-basket">
+          <div className="sect">
+            <button
+              type="button"
+              className="sect-h wb-sect-toggle"
+              aria-expanded={basketOpen}
+              onClick={() => setBasketOpen((o) => !o)}
+            >
+              <span className="chev">{basketOpen ? "▾" : "▸"}</span>
+              Basket <em>· the saved basket — a re-draft only adds; uncheck to send a name down</em>
+              {basketMembers.length > 0 && (
+                <span className="ct">
+                  · {basketIncluded.length} of {basketMembers.length} kept
+                </span>
+              )}
+            </button>
+            {basketOpen &&
+              (basketMembers.length > 0 && basketIncluded.length === 0 ? (
+                // every established name is demoted — keep the header + an honest note, never vanish (#2)
+                <div className="note">
+                  all {basketMembers.length} demoted — re-check below to restore
+                </div>
+              ) : (
+                basketRows.map(placedRow)
+              ))}
+          </div>
+        </div>
       )}
 
       <div className="wb-terms">
@@ -1385,11 +1671,21 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           {d.draft.basket.length > 0 && (
             <div className="wb-triage-bulk">
               <span className="note">Only included names are saved.</span>
-              <button type="button" className="wb-mini ghost" onClick={d.includeAll}>
-                include all
+              {/* WORKING-SCOPED bulk include/exclude — they sweep the working set (new + demoted names),
+                  never the frozen Basket: the established basket is pruned per-row, deliberately. */}
+              <button
+                type="button"
+                className="wb-mini ghost"
+                onClick={() => d.includeKeys(workingKeys)}
+              >
+                include all new
               </button>
-              <button type="button" className="wb-mini ghost" onClick={d.excludeAll}>
-                exclude all
+              <button
+                type="button"
+                className="wb-mini ghost"
+                onClick={() => d.excludeKeys(workingKeys)}
+              >
+                exclude all new
               </button>
               <button
                 type="button"
@@ -1541,7 +1837,9 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
                 </button>
               )}
               <span className="note">
-                showing {triaged.length} of {d.draft.basket.length} placed
+                {/* whole-basket count across BOTH lists (Basket panel + working) — the denominator stays
+                    the full draft basket, so a filter reads the same as before the split */}
+                showing {basketRows.length + triaged.length} of {d.draft.basket.length} placed
                 {fInc && verify.length > 0
                   ? ` · ${verifyVisible.length} of ${verify.length} to review`
                   : ""}
@@ -1549,238 +1847,6 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
             </div>
           )}
           {(() => {
-            // ONE row renderer shared by the flat list and the C-B/G display groups (it closes over the
-            // editor's run-state — matched/identity/names/offThesisSet — so it stays a local, not a component).
-            const placedRow = (m: BasketMember) => {
-            const k = memberKey(m);
-            const drafted = m.authored_by === "system_drafted";
-            const mt = m.security_id ? matched[m.security_id] : undefined;
-            // the narrator's off-thesis OPINION (bridged by security_id). RECOMMENDS only (#10): the name stays
-            // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
-            const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
-            const included = d.isIncluded(k);
-            const loaded = hasFundamentals(m.security_id, scoredById);
-            return (
-              <div
-                className={`nmrow${offThesis ? " flagged" : ""}${included ? "" : " excluded"}`}
-                key={k}
-              >
-                <div className="top">
-                  {/* TRIAGE include toggle (default-on, #9): unchecking EXCLUDES the name from Save; the row stays
-                      visible (greyed), one click from re-including. Orthogonal to accept — never touches authorship. */}
-                  <input
-                    type="checkbox"
-                    className="wb-inc"
-                    aria-label={`include ${m.ticker}`}
-                    checked={included}
-                    onChange={() => d.toggleInclude(k)}
-                  />
-                  {/* the archetype color (incl. red high-beta) only shows on an operator-owned name whose
-                      archetype IS set (a finalize-rail decision) — unset renders neutral, not a wall of red. */}
-                  <span
-                    className="tk"
-                    style={
-                      !drafted && m.archetype ? { color: ARCH_COLOR[m.archetype] } : undefined
-                    }
-                  >
-                    {m.ticker}
-                  </span>
-                  {/* the company name (bridged by security_id — BasketMember carries no name), like To Review */}
-                  {m.security_id && names[m.security_id] ? (
-                    <span className="co">{names[m.security_id]}</span>
-                  ) : null}
-                  {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
-                  {/* R3: an EXCLUDED (set-aside) row collapses to a quiet stub — checkbox + ticker + name + an
-                      "excluded" tag stay visible (#9, re-check to restore); its chips, controls, and prose are
-                      hidden so the noise recedes (inverse loudness). Exclude is VIEW-only here — it never touches
-                      authorship (orthogonal A: an edited note stays operator_edited, safe from the next re-roll). */}
-                  {!included ? (
-                    <>
-                      <span
-                        className="wb-exc-tag"
-                        title="excluded from Save — re-check to restore its detail"
-                      >
-                        excluded
-                      </span>
-                      {/* #7: the optional "rejected because X" — persisted with the exclusion on
-                          Save; quiet, skippable, editable (never a modal on a 300-name prune) */}
-                      <input
-                        className="wb-exc-why"
-                        aria-label={`why excluded ${m.ticker}`}
-                        placeholder="why? (optional)"
-                        value={d.reasons.get(k) ?? ""}
-                        onChange={(e) => d.editReason(k, e.target.value)}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
-                      {m.security_id && identity[m.security_id] && (
-                        <IdentityChips {...identity[m.security_id]} />
-                      )}
-                      {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in
-                          the basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE",
-                          which is pure noise, so the per-row badge is suppressed (a single header hint carries it). */}
-                      {anyFundamentals &&
-                        (loaded ? (
-                          <span className="fund-badge on" title="confirmed fundamentals on file (purity / runway / market cap)">
-                            ✓ fundamentals
-                          </span>
-                        ) : (
-                          <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
-                            needs SURFACE
-                          </span>
-                        ))}
-                      {/* R1: the SEG / CONV controls sit on their own line; the row actions (accept +
-                          send-back) right-align at the END of this row. NO archetype control here (item F):
-                          the archetype is decided ONCE, on the finalize rail — a set value shows read-only
-                          (a re-opened finalized basket), an unset one shows nothing. */}
-                      <span className="ctls">
-                        {m.archetype && (
-                          <span className="ctl">
-                            <span className="lab">arch</span>
-                            <span
-                              className={`arch ${m.archetype}`}
-                              title="set on the scored view's rail (the finalize step) — not editable at placement"
-                            >
-                              {archLabel(m.archetype)}
-                            </span>
-                          </span>
-                        )}
-                        <span className="ctl">
-                          <span className="lab">seg</span>
-                          {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
-                              here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
-                              thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
-                          <select
-                            value={m.segment ?? ""}
-                            aria-label={`segment for ${m.ticker}`}
-                            onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
-                          >
-                            {!m.segment && <option value="">— segment —</option>}
-                            {segLabels.map((l) => (
-                              <option key={l} value={l}>
-                                {l === DISCOVERED ? "Discovered (unsorted)" : l}
-                              </option>
-                            ))}
-                          </select>
-                        </span>
-                        {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
-                            input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
-                        <span className="ctl">
-                          <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
-                            conv
-                          </span>
-                          <select
-                            className="wb-conv"
-                            value={m.conviction ?? ""}
-                            aria-label={`conviction for ${m.ticker}`}
-                            onChange={(e) =>
-                              d.editConviction(k, e.target.value ? Number(e.target.value) : null)
-                            }
-                          >
-                            <option value="">—</option>
-                            {[1, 2, 3, 4, 5].map((n) => (
-                              <option key={n} value={n}>
-                                {n}
-                              </option>
-                            ))}
-                          </select>
-                        </span>
-                        {/* the row actions right-align at the END of the controls row (accept ⇄ un-accept · the
-                            To-Review send-back) — chosen over the top-right slot to de-orphan them and group the
-                            knobs. Reversibility (#1): accept is a TOGGLE (the state carries authorship, no badge);
-                            un-accept flips back to system_drafted keeping every field value (a re-draft re-rolls it). */}
-                        <span className="rowactions">
-                          <button
-                            type="button"
-                            className="wb-mini"
-                            aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
-                            title={
-                              drafted
-                                ? "ratify this drafted placement — you own it"
-                                : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
-                            }
-                            onClick={() => d.toggleAccept(k)}
-                          >
-                            {drafted ? "✓ accept" : "✕ un-accept"}
-                          </button>
-                          {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
-                          {m.security_id && verifyOrigin[m.security_id] && (
-                            <button
-                              type="button"
-                              className="wb-mini ghost"
-                              aria-label={`send ${m.ticker} back to review`}
-                              title="send this name back to To-Review (the inverse of add)"
-                              onClick={() => sendBackToVerify(m.security_id as string)}
-                            >
-                              ↩ to review
-                            </button>
-                          )}
-                        </span>
-                      </span>
-                    </>
-                  )}
-                </div>
-                {/* the row's detail (prose · provenance · off-thesis flag) is hidden while EXCLUDED (R3 collapse)
-                    and while COMPACT (the scannable read). The prose auto-sizes to its content, capped at 3 rows
-                    then scrolling (R2). */}
-                {included && !compact && (
-                  <AutoTextarea
-                    className="wb-prose"
-                    ariaLabel={`thesis-fit for ${m.ticker}`}
-                    placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
-                    value={m.thesis_fit ?? ""}
-                    onChange={(v) => d.editProse(k, v)}
-                  />
-                )}
-                {included && mt && mt.length > 0 && (
-                  <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
-                    ← {mt.join(" · ")}
-                  </div>
-                )}
-                {included && offThesis && (
-                  <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
-                )}
-              </div>
-            );
-            };
-            // A display group over the ONE placed membership (C-B/G): a quiet drawer with its own collapse
-            // + per-group preview. Renders nothing when empty — an empty partition is noise.
-            const group = (
-              gkey: string,
-              title: string,
-              meta: string,
-              rows: BasketMember[],
-              open: boolean,
-              toggle: () => void,
-              extra?: ReactNode,
-            ) =>
-              rows.length === 0 ? null : (
-                <div className="resolve wb-placed-group">
-                  <button
-                    type="button"
-                    className="resolve-h"
-                    aria-expanded={open}
-                    aria-label={`toggle ${title}`}
-                    onClick={toggle}
-                  >
-                    <span className="chev">{open ? "▾" : "▸"}</span>
-                    <span className="rt">{title}</span>
-                    <span className="rm-meta">
-                      {meta ? `${meta} · ` : ""}
-                      {rows.length}
-                    </span>
-                  </button>
-                  {open && (
-                    <div className="resolve-body">
-                      {extra}
-                      {shownRows(gkey, rows).map(placedRow)}
-                      {showMoreBtn(gkey, rows)}
-                    </div>
-                  )}
-                </div>
-              );
             // Flat when the partition doesn't discriminate (no flags, no low-quality) — today's single list.
             if (!groupingActive) {
               return (
@@ -1829,7 +1895,13 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           {d.draft.basket.length === 0 && (
             <div className="note">No names yet — draft from the narrative, or add one below.</div>
           )}
-          {d.draft.basket.length > 0 && triaged.length === 0 && (
+          {/* an established thesis with nothing NEW yet — the working list is honestly empty, not filtered */}
+          {working.length === 0 && d.draft.basket.length > 0 && (
+            <div className="note">
+              no new names — draft from the narrative to surface additions
+            </div>
+          )}
+          {working.length > 0 && triaged.length === 0 && (
             <div className="note">
               No names match the filter — <button type="button" className="wb-linkbtn" onClick={clearFilters}>clear filters</button> to see all {d.draft.basket.length}.
             </div>

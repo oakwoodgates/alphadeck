@@ -51,6 +51,18 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
   const [draft, setDraft] = useState<ChainDraft>(() => restored?.draft ?? base);
 
+  // THE BASKET FREEZE (the additive editor) — the ESTABLISHED keys, computed ONCE at mount: the members
+  // present in BOTH the persisted spine (`base`) and the working draft we seeded from (`restored?.draft ??
+  // base`). An INTERSECTION, deliberately not plain base keys: after a Clear (a restored EMPTY draft) the
+  // set is empty, so a re-discovered old-spine name is a NEW drafted name again, never wrongly frozen.
+  // An established member is FROZEN against the drafter: `loadDraft` never re-rolls it (or parks it in
+  // Discovered), regardless of authorship — a draft over an established thesis only ADDS new names.
+  const [establishedKeys] = useState<Set<string>>(() => {
+    const draftKeys = new Set((restored?.draft ?? base).basket.map(memberKey));
+    return new Set(base.basket.map(memberKey).filter((k) => draftKeys.has(k)));
+  });
+  const isEstablished = (key: string) => establishedKeys.has(key);
+
   // TRIAGE (the prune) — include is ORTHOGONAL to accept/authorship. A member starts INCLUDED (#9:
   // nothing silently dropped — the operator UNCHECKS to exclude); `excluded` holds the keys chosen to
   // leave OUT of the saved basket. #7 made the NO durable: the set SEEDS from the thesis's persisted
@@ -100,12 +112,15 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   const excludeAll = () => setExcluded(new Set(draft.basket.map(memberKey)));
   // "Clear un-accepted" — exclude every still-drafted (system_drafted) name, the fast path to just-my-vouched
   // names. ADDITIVE (union) so a manually-excluded accepted name stays excluded; sets exclude only, never
-  // touches authorship (accept stays the separate act).
+  // touches authorship (accept stays the separate act). WORKING-SCOPED: an ESTABLISHED member (the frozen
+  // Basket) is never swept, even if it rides the spine un-accepted — the bulk clear targets the new draft.
   const excludeUnaccepted = () =>
     setExcluded((prev) => {
       const next = new Set(prev);
       for (const m of draft.basket) {
-        if (m.authored_by === "system_drafted") next.add(memberKey(m));
+        if (m.authored_by === "system_drafted" && !establishedKeys.has(memberKey(m))) {
+          next.add(memberKey(m));
+        }
       }
       return next;
     });
@@ -116,6 +131,14 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     setExcluded((prev) => {
       const next = new Set(prev);
       for (const k of keys) next.add(k);
+      return next;
+    });
+  // The visible inverse of excludeKeys (reversibility #1) — bulk RE-include a specific set of names (the
+  // working-scoped "include all new"). Same contract: include-state only, never touches authorship.
+  const includeKeys = (keys: string[]) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.delete(k);
       return next;
     });
 
@@ -200,6 +223,10 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       }
       let orphaned = false; // did any drafted name fall out of the new draft → reset to Discovered?
       const basket = d.basket.map((m) => {
+        // ESTABLISHED (in the saved basket at mount) → untouched FIRST, regardless of authorship: the
+        // frozen Basket is never re-rolled to a fresh segment/prose and never parked in Discovered — a
+        // re-draft over an established thesis only surfaces NEW names.
+        if (establishedKeys.has(memberKey(m))) return m;
         // operator-authored → untouched (never clobber operator work)
         if (m.authored_by === "operator_set" || m.authored_by === "operator_edited") return m;
         // system_drafted: re-roll if still placed, else park in Discovered (drop the stale segment)
@@ -288,6 +315,9 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     toggleAccept,
     editProse,
     editConviction,
+    // THE BASKET FREEZE: the established (saved-spine) keys, frozen against the drafter
+    establishedKeys,
+    isEstablished,
     // TRIAGE (the prune): include-state + the included subset Save persists
     excluded,
     isIncluded,
@@ -297,6 +327,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     excludeAll,
     excludeUnaccepted,
     excludeKeys,
+    includeKeys,
     // #7: the optional rejection reasons, persisted with the exclusion set on Save
     reasons,
     editReason,
