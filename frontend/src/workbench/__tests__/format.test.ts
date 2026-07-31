@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   archLabel,
+  countryClass,
+  exchangeClass,
   formatMarketCap,
   isAcronymTerm,
   memberHasFundamentals,
@@ -109,6 +111,36 @@ describe("isAcronymTerm (G — the collision-lens predicate)", () => {
     expect(isAcronymTerm("psilocybin")).toBe(false); // ordinary word
     expect(isAcronymTerm("A")).toBe(false); // one letter is not an acronym
     expect(isAcronymTerm("3PAR")).toBe(false); // must start with a letter (v1)
+  });
+});
+
+describe("countryClass (the Country filter bucket)", () => {
+  it("maps the resolve_origin output to US / foreign / unknown", () => {
+    expect(countryClass("US")).toBe("us");
+    expect(countryClass("us")).toBe("us"); // case-insensitive
+    // any other place string is foreign — city, region, or country alike
+    expect(countryClass("Shanghai")).toBe("foreign");
+    expect(countryClass("Cayman Islands")).toBe("foreign");
+    expect(countryClass("British Columbia, Canada")).toBe("foreign");
+    // no origin (no chip) → unknown; never a guessed country
+    expect(countryClass(null)).toBe("unknown");
+    expect(countryClass(undefined)).toBe("unknown");
+    expect(countryClass("")).toBe("unknown");
+    expect(countryClass("   ")).toBe("unknown");
+  });
+});
+
+describe("exchangeClass (the Exchange filter bucket)", () => {
+  it("maps the five master exchange values to main / otc / other / unknown", () => {
+    expect(exchangeClass("Nasdaq")).toBe("main");
+    expect(exchangeClass("NYSE")).toBe("main");
+    expect(exchangeClass("NASDAQ")).toBe("main"); // case-insensitive
+    expect(exchangeClass("OTC")).toBe("otc");
+    expect(exchangeClass("CBOE")).toBe("other"); // the only non-mainstream/non-OTC listed value
+    // no exchange listed → its own unknown bucket (not folded into other)
+    expect(exchangeClass(null)).toBe("unknown");
+    expect(exchangeClass(undefined)).toBe("unknown");
+    expect(exchangeClass("")).toBe("unknown");
   });
 });
 

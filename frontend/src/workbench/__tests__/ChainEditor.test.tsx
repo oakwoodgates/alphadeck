@@ -1666,6 +1666,64 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
   });
 
+  it("the Country + Exchange filters narrow BOTH the placed rows and the To-Review candidates", async () => {
+    const user = userEvent.setup();
+    const mk = (
+      ticker: string,
+      security_id: string,
+      origin: string | null,
+      exchange: string | null,
+      status: "placed" | "verify",
+    ) => ({
+      name: ticker,
+      ticker,
+      prose: "x",
+      segment: "reactors",
+      status,
+      security_id,
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "edgar",
+      sector: "X",
+      exchange,
+      listing_status: "active",
+      origin,
+      off_thesis: false,
+    });
+    mockDraft(
+      draft([
+        mk("USCO", "s-us", "US", "Nasdaq", "placed"),
+        mk("CNCO", "s-cn", "Shanghai", "NYSE", "placed"),
+        mk("FGNV", "s-fv", "London", "NYSE", "verify"), // an on-thesis To-Review keeper, foreign
+      ]),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // baseline: both placed names + the foreign To-Review keeper are present
+    await screen.findByLabelText("segment for USCO");
+    expect(screen.getByLabelText("segment for CNCO")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add FGNV" })).toBeInTheDocument();
+
+    // Country = foreign → the US placed name drops; the foreign placed + foreign To-Review names stay
+    await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
+    expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("segment for CNCO")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "add FGNV" })).toBeInTheDocument();
+
+    // Country = US → the foreign placed name AND the foreign To-Review keeper both drop (spans both lists)
+    await user.selectOptions(screen.getByLabelText("filter by country"), "us");
+    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for CNCO")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "add FGNV" })).not.toBeInTheDocument();
+
+    // Exchange = OTC → nothing here is OTC, so every placed row drops (view-only, reversible with clear)
+    await user.selectOptions(screen.getByLabelText("filter by country"), "all");
+    await user.selectOptions(screen.getByLabelText("filter by exchange"), "otc");
+    expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for CNCO")).not.toBeInTheDocument();
+  });
+
   it("THE #9 SPINE: the VIEW never changes what Save persists — a filtered-out, included name still saves", async () => {
     const user = userEvent.setup();
     h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: () => void }) =>
