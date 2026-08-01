@@ -6720,6 +6720,17 @@
             ],
             "title": "Category"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
           "archetype": {
             "anyOf": [
               {

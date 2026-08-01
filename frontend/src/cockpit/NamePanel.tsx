@@ -107,6 +107,9 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
     ["Sector", scored?.sector ?? "—"],
     ["Exchange", scored?.exchange ?? "—"],
     ["Category", scored?.category ?? "—"],
+    // WHERE the name is from — derived server-side from the SEC's own locators (the origin ladder),
+    // free on the scored wire (the identity-lifecycle read). "—" when unknown — never a guess.
+    ["Origin", scored?.origin ?? "—"],
     ["Mkt cap", formatMarketCap(scored?.market_cap.value)],
     ["Size weight (yours)", weight],
     ["Role", member.role || "—"],

@@ -11,6 +11,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import InstrumentKind
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
+from securities.origin import resolve_origin
 
 
 def _row_to_security(row: dict) -> Security:
@@ -317,15 +318,21 @@ def identity_for(
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> dict[UUID, dict[str, str | None]]:
     """Map security ids -> display identity (company ``name`` + the enrichment strings ``sector`` /
-    ``exchange`` / ``category``) for READ surfaces — the scored view joins it so a row shows who the
-    company IS, not just its ticker. Display-only (#2): never promoted onto a ``BasketMember``; ids
-    with no master row are omitted."""
+    ``exchange`` / ``category`` + the derived ``origin``) for READ surfaces — the scored view joins it so a
+    row shows who the company IS, not just its ticker. Display-only (#2): never promoted onto a
+    ``BasketMember``; ids with no master row are omitted.
+
+    ``origin`` is DERIVED ON READ via ``resolve_origin`` from the stored 0028 locator ingredients — the same
+    discipline as the draft path (``chain_draft._carry_identity_and_gate``): the RAW ingredients stay off the
+    wire, only the display string travels, and the ladder can be tuned with zero re-enrich. ``None`` on an
+    un-enriched row (the honest abstain — no chip)."""
     ids = list({sid for sid in security_ids})
     if not ids:
         return {}
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, name, sector, exchange, category FROM security_master"
+            "SELECT id, name, sector, exchange, category,"
+            " incorporation, business_city, business_country FROM security_master"
             " WHERE tenant_id = %s AND id = ANY(%s)",
             (tenant_id, ids),
         )
@@ -335,6 +342,11 @@ def identity_for(
                 "sector": row["sector"],
                 "exchange": row["exchange"],
                 "category": row["category"],
+                "origin": resolve_origin(
+                    business_country=row["business_country"],
+                    business_city=row["business_city"],
+                    incorporation=row["incorporation"],
+                ),
             }
             for row in cur.fetchall()
         }
@@ -397,6 +409,28 @@ def ids_for_ciks(
             "WHERE tenant_id = %s AND cik = ANY(%s) "
             "ORDER BY cik, is_primary DESC NULLS LAST, recorded_at DESC, id",
             (tenant_id, list(wanted)),
+        )
+        return {row["cik"]: row["id"] for row in cur.fetchall()}
+
+
+def all_cik_primary_ids(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[str, UUID]:
+    """EVERY CIK in THIS tenant's master -> its CANONICAL security id — the universe-wide form of
+    ``ids_for_ciks`` (same ``is_primary DESC NULLS LAST, recorded_at DESC, id`` pick, so a multi-sibling CIK
+    resolves to the instrument the operator actually trades). The identity-enrich command's ``--universe``
+    scope resolver: identity is COMPANY-level (one submissions doc per CIK), so enrichment targets one row
+    per CIK — the primary, the row every CIK->id read resolves to. Tenant-scoped like every master read
+    (invariant #5: scope resolution stays inside the tenant-filtered accessors, never a raw query).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cik) cik, id FROM security_master "
+            "WHERE tenant_id = %s AND cik IS NOT NULL "
+            "ORDER BY cik, is_primary DESC NULLS LAST, recorded_at DESC, id",
+            (tenant_id,),
         )
         return {row["cik"]: row["id"] for row in cur.fetchall()}
 

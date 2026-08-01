@@ -39,6 +39,10 @@ def enrich_for_ciks(
     JSON always does). A missing / broken / non-submissions response is SKIPPED, never written — so a bad fetch
     can NEVER harden into a false ``inactive`` (the operator-note honesty bound; #9). ``edgar`` needs a
     ``get_json(url, cache_key)`` (the real ``EdgarClient`` or a fake).
+
+    NOTE: this COMMITS PER CIK on ``conn`` (right for a resumable pass — a crashed run keeps its progress;
+    the draft path and ``pipeline.enrich_identity`` both want that) — a caller holding an open transaction
+    of its own must not thread that connection here.
     """
     enriched = skipped = 0
     for cik, sid in cik_to_sid.items():

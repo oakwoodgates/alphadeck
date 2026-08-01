@@ -287,6 +287,116 @@ def test_enrich_persists_origin_ingredients_and_reads_back_count_the_table(db):
     )
 
 
+# --- identity_for: the scored view's display join + the DERIVED origin (the identity-lifecycle read) ---
+
+
+def test_identity_for_derives_origin_from_stored_ingredients(db):
+    """``identity_for`` derives ``origin`` on read from the stored 0028 ingredients (the same
+    ``resolve_origin`` ladder the draft path uses): the NIO shape (country NULL, city "SHANGHAI" -> the
+    city rung, display-normalized "Shanghai"), the US shape (a state abbreviation -> "US"), and an
+    un-enriched row ABSTAINS to ``None`` — never a guessed origin. The RAW ingredients stay OFF the
+    returned identity (derive-on-read: only the display string travels)."""
+    nio = _insert(db, ticker="NIO", name="NIO Inc.", cik="0001736541")
+    aapl = _insert(db, ticker="AAPL", name="Apple Inc.", cik="0000320193")
+    bare = _insert(db, ticker="RAWX", name="Raw Co", cik="0000000042")  # never enriched
+    master.enrich(
+        db,
+        nio,
+        SecurityIdentity(
+            sector="Motor Vehicles",
+            status="active",
+            incorporation="Cayman Islands",
+            business_city="SHANGHAI",
+            business_country=None,
+            files_foreign_forms=True,
+        ),
+        source="submissions:CIK0001736541",
+    )
+    master.enrich(
+        db,
+        aapl,
+        SecurityIdentity(
+            sector="Electronic Computers",
+            status="active",
+            incorporation="CA",
+            business_city="Cupertino",
+            business_country="CA",  # the SEC quirk: US filers carry the STATE abbrev here
+            files_foreign_forms=False,
+        ),
+        source="submissions:CIK0000320193",
+    )
+    db.commit()
+
+    out = master.identity_for(db, [nio, aapl, bare])
+    assert (
+        out[nio]["origin"] == "Shanghai"
+    )  # country NULL -> the city rung, title-cased for display
+    assert out[aapl]["origin"] == "US"  # a US-state abbreviation reads "US"
+    assert out[bare]["origin"] is None  # un-enriched -> honest abstain (no chip)
+    # derive-on-read discipline: the raw locator ingredients never leave the accessor — only the
+    # derived display string (plus the existing identity strings) rides toward the wire
+    assert set(out[nio].keys()) == {"name", "sector", "exchange", "category", "origin"}
+
+
+def test_identity_for_still_carries_the_enrichment_strings(db):
+    """The pre-existing identity strings (name / sector / exchange / category) are unchanged by the origin
+    extension — the same join, one more derived field."""
+    sid = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001849056")
+    master.enrich(
+        db,
+        sid,
+        SecurityIdentity(
+            sector="Electric Services",
+            exchange="NYSE",
+            status="active",
+            category="Large accelerated filer",
+        ),
+        source="submissions:CIK0001849056",
+    )
+    db.commit()
+    out = master.identity_for(db, [sid])
+    assert out[sid] == {
+        "name": "Oklo Inc.",
+        "sector": "Electric Services",
+        "exchange": "NYSE",
+        "category": "Large accelerated filer",
+        "origin": None,  # no locator ingredients stored -> the ladder abstains
+    }
+
+
+# --- all_cik_primary_ids: the --universe scope resolver (identity lifecycle) ---
+
+
+def test_all_cik_primary_ids_picks_the_primary_sibling_and_skips_cikless(db):
+    """The universe-wide CIK->id map resolves each CIK to its CANONICAL row (the ``ids_for_ciks`` pick:
+    ``is_primary`` first), so a multi-sibling CIK enriches the instrument the operator trades — and a
+    CIK-less row (an OpenFIGI-era insert / a fund) simply isn't in the map (no submissions doc exists).
+    """
+    asml = _insert(db, ticker="ASML", cik="0000937966")
+    _insert(db, ticker="ASMLF", cik="0000937966")  # the OTC foreign ordinary — must NOT be picked
+    hims = _insert(db, ticker="HIMS", cik="0001773751")
+    _insert(db, ticker="LIT", cik=None)  # CIK-less: nothing to parse, not in the map
+    with db.cursor() as cur:
+        cur.execute("UPDATE security_master SET is_primary = true WHERE id = %s", (asml,))
+    db.commit()
+    assert master.all_cik_primary_ids(db) == {"0000937966": asml, "0001773751": hims}
+
+
+def test_all_cik_primary_ids_is_tenant_scoped(db):
+    """Tenant isolation (#5): the map covers ONLY the asked tenant's rows — another tenant's CIK never
+    leaks into a universe scope (a leaked id would let the enrich write under the wrong tenant)."""
+    from pipeline.provision_tenant import provision_tenant
+
+    other = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
+    provision_tenant(db, "other", tenant_id=other)
+    db.commit()
+    mine = _insert(db, ticker="OKLO", cik="0001849056")
+    _insert(db, ticker="FRGN", cik="0009999999", tenant_id=other)
+    assert master.all_cik_primary_ids(db) == {"0001849056": mine}
+    out_other = master.all_cik_primary_ids(db, tenant_id=other)
+    assert list(out_other.keys()) == ["0009999999"]
+
+
 # --- instrument_kind: the ETF-sleeve foundation brick (migration 0026 + resolve/mark, Slice 1) ---
 
 
