@@ -145,6 +145,7 @@ alphadeck/
     │   ├── backup.py · backup_job.py   #   the rolling pg_dump snapshots (keep-N) + the admin "create snapshot" job (#215)
     │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Polygon over a range (#237)
     │   ├── populate_master.py      #   the SEC-universe broadener CLI
+    │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)
     │   ├── audit_identity.py · repoint_canonical.py   #   the shown-vs-bound identity audit CLI + the one-time canonical re-point (#172–#175)
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)
     │   └── ratify_*.py (+ ratify_common.py)   #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares) + the shared ticker→security_id resolver

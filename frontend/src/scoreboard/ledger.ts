@@ -56,15 +56,17 @@ export interface IdentityCell {
   value: string;
 }
 
-/** The Cockpit identity line for the drawer — archetype · sector · exchange · market cap, off the scored
- *  member (found by security_id in the parent). A missing field reads "—" (NEVER a guess, #6). Deliberately
- *  NOT the scoring meters / fit / size-weight — that duplication is the NamePanel's job, which the operator
- *  asked the Scoreboard drawer to stay out of. */
+/** The Cockpit identity line for the drawer — archetype · sector · exchange · origin · market cap, off the
+ *  scored member (found by security_id in the parent). A missing field reads "—" (NEVER a guess, #6) —
+ *  origin included: it is derived server-side from the SEC's own locators and abstains to null, so the "—"
+ *  is the ladder's honest unknown. Deliberately NOT the scoring meters / fit / size-weight — that
+ *  duplication is the NamePanel's job, which the operator asked the Scoreboard drawer to stay out of. */
 export function identityCells(scored: ScoredMemberOut | null | undefined): IdentityCell[] {
   return [
     { label: "archetype", value: scored?.archetype ? archLabel(scored.archetype) : "—" },
     { label: "sector", value: scored?.sector ?? "—" },
     { label: "exchange", value: scored?.exchange ?? "—" },
+    { label: "origin", value: scored?.origin ?? "—" },
     { label: "market cap", value: formatMarketCap(scored?.market_cap?.value) },
   ];
 }

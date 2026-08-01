@@ -9,7 +9,9 @@
 > `backend/workbench/chain_draft.py:ResolvedPlacement`.
 >
 > **Status: BUILT** — identity columns + parser (#105), lazy enrich + listing-status gate (#106), identity badges
-> + market cap on the FE (#107), the derived archetype recommendation (#108), the filer-category chip (#118).
+> + market cap on the FE (#107), the derived archetype recommendation (#108), the filer-category chip (#118),
+> the identity LIFECYCLE (the standalone `pipeline.enrich_identity` command + the scored-join read with derived
+> `origin`).
 
 ---
 
@@ -50,17 +52,36 @@ judgment over a populated row, not data entry.
 
 All optional — an un-enriched row reads `None` (the honest fallback: no chip, no gate).
 
-## How it flows — lazy, just-in-time, fail-visible
+## How it flows — the identity LIFECYCLE (two writers, one read)
 
-The enrichment runs on the **draft path, BEFORE resolution** (`execute_draft`: discovery → **ENRICH** → resolve),
-so the reconciler's status-gate reads a fresh listing status. `enrich_for_ciks` (`workbench/enrichment.py`) fetches
-each discovered CIK's submissions, parses identity, and writes only the master's descriptive columns via
-`master.enrich` (an UPDATE-in-place — identity is **mutable metadata, not append-only**; `INVARIANTS.md` / the
-security master is canonical). It is **per-CIK isolated + FAIL-VISIBLE** (#9): a fetch/parse/write fault logs and
-skips that name (its row stays un-enriched → abstains), **never** aborting the draft. Only a **genuine** submissions
-doc enriches (the response must echo a top-level `cik`) — so a bad fetch can never harden into a false `inactive`.
-The identity then rides onto every `ResolvedPlacement` (`_enrich_placements` in `chain_draft.py`), carried by
-`security_id` onto the FE placed row as quiet chips. Migrations: `0013_master_identity`, `0016_master_category`.
+**Write, draft-time (lazy, just-in-time).** The enrichment runs on the **draft path, BEFORE resolution**
+(`execute_draft`: discovery → **ENRICH** → resolve), so the reconciler's status-gate reads a fresh listing status.
+`enrich_for_ciks` (`workbench/enrichment.py`) fetches each discovered CIK's submissions, parses identity, and
+writes only the master's descriptive columns via `master.enrich` (an UPDATE-in-place — identity is **mutable
+metadata, not append-only**; `INVARIANTS.md` / the security master is canonical). It is **per-CIK isolated +
+FAIL-VISIBLE** (#9): a fetch/parse/write fault logs and skips that name (its row stays un-enriched → abstains),
+**never** aborting the draft. Only a **genuine** submissions doc enriches (the response must echo a top-level
+`cik`) — so a bad fetch can never harden into a false `inactive`. The identity then rides onto every
+`ResolvedPlacement` (`_carry_identity_and_gate` in `chain_draft.py`), carried by `security_id` onto the FE placed
+row as quiet chips. Migrations: `0013_master_identity`, `0016_master_category`, `0028_master_origin`.
+
+**Write, on demand (the standing backfill).** `python -m pipeline.enrich_identity` (bare = `--baskets`; also
+`--thesis <id>` and `--universe`; `--live` opt-in, cache-first default) resolves a scope to per-tenant
+`{cik: security_id}` maps and runs the SAME `enrich_for_ciks` over them — full re-enrich every run (no
+`--missing-only`: a per-field "missing" predicate rots each time a field is added), a per-tenant receipt, and a
+non-zero exit when a `--live` run enriched nothing while skipping names. Because `master.enrich` writes **every**
+submissions-sourced column each run, adding a field to `parse_identity` + the `enrich` UPDATE means the backfill
+is just a re-run — no bespoke script. The daily cron stays OUT of identity (operator decision: blast radius on
+the call-of-record path, ~static data, and a receipt-producing command beats an ambient side effect).
+
+**Read (the scored join).** `master.identity_for` joins name / sector / exchange / category **+ a derived
+`origin`** onto every scored member (`ScoredMemberOut.origin`; the raw 0028 locator ingredients stay OFF the
+wire — `resolve_origin` derives the display string on read, the same discipline as the draft path). The
+Workbench editor reads the join as its identity **baseline** (`idFor` in `ChainEditor.tsx`): the live join WINS
+over the draft/session map entry (it self-heals after a backfill), the map covering only what the join doesn't
+(a just-drafted, unsaved member). So chips + Country/Exchange filters work on a saved thesis opened with **no
+draft and no session**. Cockpit's NamePanel and the Scoreboard drawer show the same wire field as an Origin cell;
+the Board stays identity-free.
 
 ## The listing-status gate — a frictionless rescue, never a verdict (#9)
 

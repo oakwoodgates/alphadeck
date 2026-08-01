@@ -288,6 +288,11 @@ class ScoredMemberOut(BaseModel):
     sector: str | None = None
     exchange: str | None = None
     category: str | None = None
+    # WHERE the name is from — DERIVED ON READ by the master join (``identity_for`` -> ``resolve_origin``
+    # over the stored 0028 locator ingredients; the raw ingredients stay OFF the wire). Display identity
+    # like the block above: never promoted (#2), never a call input, never a number (#3). ``None`` =
+    # un-enriched / unknown — the FE renders NOTHING (honest abstain, never a guessed origin).
+    origin: str | None = None
     # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
     # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
     archetype: Archetype | None = None
@@ -331,6 +336,7 @@ class ScoredMemberOut(BaseModel):
             sector=ident.get("sector"),
             exchange=ident.get("exchange"),
             category=ident.get("category"),
+            origin=ident.get("origin"),
             archetype=m.archetype,
             archetype_hint=m.archetype_hint,
             segment=m.segment,

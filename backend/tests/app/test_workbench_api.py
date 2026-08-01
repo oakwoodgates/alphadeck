@@ -190,6 +190,48 @@ def test_scored_carries_master_identity(client, db, security_id):
     assert m["category"] == "Large accelerated filer"
 
 
+def test_scored_carries_derived_origin(client, db, security_id):
+    """The identity-lifecycle read: the scored row carries a DERIVED ``origin`` — the enriched member
+    derives from its stored 0028 ingredients via the master join (the NIO shape: country NULL, city
+    "SHANGHAI" -> "Shanghai"); an un-enriched member reads ``None`` (honest abstain), never a crash.
+    The RAW ingredients stay OFF the wire — only the derived display string travels (#2/#3: display
+    identity, never promoted, never a number)."""
+    bare = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET incorporation=%s, business_city=%s, business_country=%s"
+            " WHERE id=%s",
+            ("Cayman Islands", "SHANGHAI", None, security_id),
+        )
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (bare, DEFAULT_TENANT_ID, "BARE", "0009999991", "2026-01-01"),
+        )
+    db.commit()
+    thesis = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="Origin read",
+        narrative="x",
+        segments=[Segment(label="reactors", descriptor=None)],
+        basket=[
+            BasketMember(ticker="DEVCO", role="r", security_id=security_id, segment="reactors"),
+            BasketMember(ticker="BARE", role="r", security_id=bare, segment="reactors"),
+        ],
+    )
+    thesis_repo.upsert(db, thesis)
+    db.commit()
+    r = client.get(f"/workbench/theses/{thesis.id}/scored", params={"asof": "2026-06-02"})
+    assert r.status_code == 200
+    by_ticker = {m["ticker"]: m for m in r.json()["members"]}
+    assert by_ticker["DEVCO"]["origin"] == "Shanghai"  # derived on read (the city rung), normalized
+    assert by_ticker["BARE"]["origin"] is None  # un-enriched -> the honest abstain
+    # derive-on-read discipline: the raw locator ingredients never ride the scored wire
+    assert "business_city" not in by_ticker["DEVCO"]
+    assert "incorporation" not in by_ticker["DEVCO"]
+
+
 def test_promote_and_scored_carry_a_null_archetype(client, security_id):
     """Item F (PR-B): promote accepts a member with NO archetype (un-decided — placement doesn't
     characterize; the finalize screen does), stores NULL, reads it back null on the thesis detail, and

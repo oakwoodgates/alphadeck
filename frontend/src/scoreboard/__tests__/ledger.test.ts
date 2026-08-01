@@ -86,23 +86,25 @@ describe("identityCells — the Cockpit identity line, honest '—' for a missin
     archetype: "high_beta",
     sector: "Technology",
     exchange: "NYSE",
+    origin: "Shanghai", // the derived where-from string, free on the scored wire (identity lifecycle)
     market_cap: { value: 8e9, provenance: [] },
   } as unknown as ScoredMemberOut;
 
-  it("labels archetype (via archLabel), sector, exchange, and formats the market cap", () => {
+  it("labels archetype (via archLabel), sector, exchange, origin, and formats the market cap", () => {
     expect(identityCells(scored)).toEqual([
       { label: "archetype", value: "high-beta" },
       { label: "sector", value: "Technology" },
       { label: "exchange", value: "NYSE" },
+      { label: "origin", value: "Shanghai" },
       { label: "market cap", value: "$8.0B" },
     ]);
   });
 
   it("a null scored member → every field is '—', never a guess", () => {
-    expect(identityCells(null).map((c) => c.value)).toEqual(["—", "—", "—", "—"]);
+    expect(identityCells(null).map((c) => c.value)).toEqual(["—", "—", "—", "—", "—"]);
   });
 
-  it("a missing individual field reads '—' (archetype unset, market cap without a value)", () => {
+  it("a missing individual field reads '—' (archetype unset, origin unknown, market cap without a value)", () => {
     const partial = {
       security_id: "s1",
       archetype: null,
@@ -110,7 +112,8 @@ describe("identityCells — the Cockpit identity line, honest '—' for a missin
       exchange: null,
       market_cap: { value: null, provenance: [] },
     } as unknown as ScoredMemberOut;
-    expect(identityCells(partial).map((c) => c.value)).toEqual(["—", "Energy", "—", "—"]);
+    // origin absent → "—": the ladder's abstain surfaces as the honest unknown, never a guessed place
+    expect(identityCells(partial).map((c) => c.value)).toEqual(["—", "Energy", "—", "—", "—"]);
   });
 });
 

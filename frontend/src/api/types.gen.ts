@@ -3220,6 +3220,8 @@ export interface components {
             exchange?: string | null;
             /** Category */
             category?: string | null;
+            /** Origin */
+            origin?: string | null;
             archetype?: components["schemas"]["Archetype"] | null;
             archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */

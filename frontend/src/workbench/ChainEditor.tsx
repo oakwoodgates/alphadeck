@@ -114,6 +114,15 @@ const OffUniversePill = () => (
   </span>
 );
 
+// The per-member display identity shape — the draft/session `identity` map's value AND the scored-join
+// baseline (`idFor` merges the two; see the D4 comment at its definition).
+type MemberIdentity = {
+  sector?: string | null;
+  exchange?: string | null;
+  category?: string | null;
+  origin?: string | null;
+};
+
 // Machine-parsed IDENTITY (Slice 2 enrichment) — quiet sector / exchange chips. Display-only (parsed from the
 // name's EDGAR submissions onto the master), never promoted onto a BasketMember. Renders nothing when absent
 // (an un-enriched / off-universe name — the honest fallback).
@@ -346,21 +355,41 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
   // Display-only IDENTITY (Slice 2 enrichment): security_id -> sector / exchange / category (machine-parsed from
   // EDGAR submissions onto the master). Same bridge-by-security_id shape as `matched` for the PLACED bucket (which
   // renders BasketMembers); the other buckets read it off the placement directly. NEVER promoted.
-  const [identity, setIdentity] = useState<
-    Record<
-      string,
-      {
-        sector?: string | null;
-        exchange?: string | null;
-        category?: string | null;
-        origin?: string | null;
-      }
-    >
-  >(() => re?.identity ?? {});
+  const [identity, setIdentity] = useState<Record<string, MemberIdentity>>(
+    () => re?.identity ?? {},
+  );
   // Display-only: security_id -> the company NAME. The PLACED bucket renders BasketMembers (which carry no name),
   // so — like `matched`/`identity` — the name is bridged by security_id from the draft placements (and captured on
   // a manual add). NEVER promoted onto a BasketMember.
   const [names, setNames] = useState<Record<string, string>>(() => re?.names ?? {});
+  // The identity READ for placed members (chips / filters / sector sort) — the identity-lifecycle read path.
+  // The LIVE scored join is the baseline and WINS over the session/draft map (D4): the join reads the same
+  // master rows the draft wrote, so it self-heals after a standalone `pipeline.enrich_identity` backfill —
+  // no re-draft, no session surgery. Field-wise merge: a field the join carries beats the map's draft-time
+  // snapshot; a field the join lacks (null — e.g. the scored fetch predates this session's draft-time
+  // enrich) falls back to the map, so chips never regress while the join catches up. A member with no
+  // scored row yet (just-drafted, unsaved) reads the map alone. READ-only: the serialize path
+  // (`editorRuntime.identity` below) stays on the RAW map — the session blob keeps storing only
+  // draft-time state, never the join.
+  const identityFromScored = (sm: ScoredMemberOut): MemberIdentity => ({
+    sector: sm.sector,
+    exchange: sm.exchange,
+    category: sm.category,
+    origin: sm.origin,
+  });
+  const idFor = (sid: string | null | undefined): MemberIdentity | undefined => {
+    if (!sid) return undefined;
+    const fromMap = identity[sid];
+    const sm = scoredById?.[sid];
+    if (!sm) return fromMap;
+    const live = identityFromScored(sm);
+    return {
+      sector: live.sector ?? fromMap?.sector,
+      exchange: live.exchange ?? fromMap?.exchange,
+      category: live.category ?? fromMap?.category,
+      origin: live.origin ?? fromMap?.origin,
+    };
+  };
 
   const segLabels = d.draft.segments.map((s) => s.label);
   const keys = new Set(d.draft.basket.map(memberKey));
@@ -534,7 +563,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     setFExch("");
     setFOffUniv(false);
   };
-  const sec = (m: BasketMember) => (m.security_id ? identity[m.security_id]?.sector : null) ?? "";
+  const sec = (m: BasketMember) => idFor(m.security_id)?.sector ?? "";
   // the archetype filter offers the values PRESENT (+ "— unset —" for the un-characterized, item F)
   const archsPresent = Array.from(
     new Set(
@@ -567,7 +596,9 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     if (fInc === "included" && !d.isIncluded(k)) return false;
     if (fInc === "excluded" && d.isIncluded(k)) return false;
     if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
-    const idn = m.security_id ? identity[m.security_id] : undefined;
+    // the scored-join-baseline read (idFor) — so the filters work on a saved thesis opened with NO
+    // draft/session (the #241-blocked scenario): the join alone classifies the placed members
+    const idn = idFor(m.security_id);
     if (!matchesIdentity(idn?.origin, idn?.exchange)) return false;
     return true;
   };
@@ -1037,6 +1068,9 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     const k = memberKey(m);
     const drafted = m.authored_by === "system_drafted";
     const mt = m.security_id ? matched[m.security_id] : undefined;
+    // display identity via the scored-join baseline (idFor) — chips render on a saved thesis opened
+    // with NO draft/session, off the master join alone (the identity-lifecycle read)
+    const idn = idFor(m.security_id);
     // the narrator's off-thesis OPINION (bridged by security_id). RECOMMENDS only (#10): the name stays
     // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
     const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
@@ -1097,9 +1131,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           ) : (
             <>
               {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
-              {m.security_id && identity[m.security_id] && (
-                <IdentityChips {...identity[m.security_id]} />
-              )}
+              {idn && <IdentityChips {...idn} />}
               {/* TRIAGE: fundamentals loaded vs not. Item 1 — shown ONLY once it DISCRIMINATES (≥1 name in
                   the basket has confirmed fundamentals); before any surfacing every row is "needs SURFACE",
                   which is pure noise, so the per-row badge is suppressed (a single header hint carries it). */}
