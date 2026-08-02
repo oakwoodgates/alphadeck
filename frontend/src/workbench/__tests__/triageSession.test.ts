@@ -26,6 +26,9 @@ function fullHook(): HookRuntime {
           segment: "Enrichment",
           thesis_fit: "core name",
           conviction: 4,
+          // S2: the frozen at-entry seed terms ride the blob inside the member (ADDITIVE — no
+          // SCHEMA_VERSION bump; an old blob without it deserializes fine, the field just absent)
+          surfaced_terms: ["nuclear"],
           authored_by: "operator_set",
         },
       ],

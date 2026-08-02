@@ -423,7 +423,10 @@ describe("ChainEditor — draft from narrative (S5 5c)", () => {
 
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
-    expect(screen.getByText("← psilocybin")).toBeInTheDocument(); // placed row prov (from the display-only stash)
+    // S2: a just-added member's frozen seed terms (captured at entry) EQUAL its current matches, so the
+    // frozen ⚓ line renders ALONE — no duplicated "also matches now" (the degenerate no-diff case)
+    expect(screen.getByText("⚓ seeded by: psilocybin")).toBeInTheDocument(); // placed row prov
+    expect(screen.queryByText(/also matches now/)).not.toBeInTheDocument();
     expect(screen.getByText(/matched ketamine/)).toBeInTheDocument(); // to-review row prov (p.matched_terms)
   });
 
@@ -2289,5 +2292,104 @@ describe("ChainEditor — the Basket section (the additive editor)", () => {
     expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument(); // working row filtered out
     // ONE whole-basket count across both lists (the denominator existing tests depend on)
     expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
+  });
+});
+
+describe("ChainEditor — S2: frozen seed terms + also-matches-now (the re-scope display)", () => {
+  // an established member CARRYING persisted `surfaced_terms` (the S1 wire field — frozen at Basket entry).
+  // `matched` (the CURRENT run's display-only stash) starts empty until a draft lands.
+  const estSeeded = (surfaced: string[]) => ({
+    ...flatThesis,
+    basket: [
+      {
+        ticker: "OKLO",
+        role: "r",
+        archetype: null,
+        security_id: "s-oklo",
+        segment: null,
+        thesis_fit: null,
+        conviction: null,
+        surfaced_terms: surfaced,
+        authored_by: "operator_set",
+      },
+    ],
+  });
+  // a draft placement RE-matching the established member under the current (possibly refined) term set —
+  // loadDraft leaves the established row untouched, but applyDraft repopulates `matched` for it
+  const rematch = (terms: string[]) => ({
+    name: "Oklo Inc.",
+    ticker: "OKLO",
+    prose: "re-matched",
+    segment: "reactors",
+    status: "placed",
+    security_id: "s-oklo",
+    candidates: [],
+    matched_terms: terms,
+  });
+
+  it("an established member with surfaced_terms and NO draft run shows the frozen line only (honest abstain)", () => {
+    render(
+      <ChainEditor asof="2026-06-08" thesis={estSeeded(["a", "b"]) as never} onDone={vi.fn()} />,
+    );
+    const line = screen.getByText("⚓ seeded by: a · b");
+    expect(line).toBeInTheDocument();
+    // the title explains the anchor: the at-entry discovery terms, frozen — term-set edits never change it
+    expect(line).toHaveAttribute("title", expect.stringContaining("frozen at entry"));
+    expect(line).toHaveAttribute("title", expect.stringContaining("entered the Basket"));
+    // no current-run state → no also-now diff, and never the old single ← line for a seeded member
+    expect(screen.queryByText(/also matches now/)).not.toBeInTheDocument();
+    expect(screen.queryByText("← a · b")).not.toBeInTheDocument();
+  });
+
+  it("after a draft matching [b, c]: frozen stays a · b; also-now shows ONLY the new c (set difference)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([rematch(["b", "c"])], [{ label: "reactors", descriptor: null }]));
+    render(
+      <ChainEditor asof="2026-06-08" thesis={estSeeded(["a", "b"]) as never} onDone={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // the also-now line arrives with the draft: ONLY c ("b" is already frozen — never duplicated)
+    expect(await screen.findByText("+ also matches now: c")).toBeInTheDocument();
+    // the frozen record is untouched by the run — both lines visible, distinguished
+    expect(screen.getByText("⚓ seeded by: a · b")).toBeInTheDocument();
+    // and the old single ← line is gone for a seeded member
+    expect(screen.queryByText("← b · c")).not.toBeInTheDocument();
+  });
+
+  it("a hand-added member (empty surfaced_terms) keeps today's single ← line off the current matches", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([rematch(["x"])], [{ label: "reactors", descriptor: null }]));
+    render(<ChainEditor asof="2026-06-08" thesis={estSeeded([]) as never} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    expect(await screen.findByText("← x")).toBeInTheDocument(); // unchanged semantics
+    expect(screen.queryByText(/seeded by/)).not.toBeInTheDocument(); // no frozen record → no ⚓ line
+    expect(screen.queryByText(/also matches now/)).not.toBeInTheDocument(); // the diff pairs with ⚓ only
+  });
+
+  it("ANTI-CHURN: the frozen line is byte-identical across re-drafts; only the also-now diff moves", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([rematch(["b", "c"])], [{ label: "reactors", descriptor: null }]));
+    render(
+      <ChainEditor asof="2026-06-08" thesis={estSeeded(["a", "b"]) as never} onDone={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("+ also matches now: c");
+    const before = screen.getByText("⚓ seeded by: a · b").textContent;
+
+    // a second draft under a REFINED term set — the member now matches an entirely different set
+    h.jobData = {
+      job_id: "j1",
+      status: "done",
+      result: draft([rematch(["z"])], [{ label: "reactors", descriptor: null }]),
+      error: null,
+    };
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByText("+ also matches now: z"); // the diff moved with the current terms…
+    expect(screen.queryByText("+ also matches now: c")).not.toBeInTheDocument();
+    // …and the frozen record did NOT — byte-identical across applyDraft (the whole point of S1+S2)
+    expect(screen.getByText("⚓ seeded by: a · b").textContent).toBe(before);
   });
 });

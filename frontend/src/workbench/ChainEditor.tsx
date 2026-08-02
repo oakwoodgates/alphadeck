@@ -1070,6 +1070,12 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     const k = memberKey(m);
     const drafted = m.authored_by === "system_drafted";
     const mt = m.security_id ? matched[m.security_id] : undefined;
+    // S2 (re-scope): the FROZEN seed-term provenance — `surfaced_terms`, persisted on the member when it
+    // entered the Basket (S1). Distinct from `mt` (the CURRENT draft/re-scope run's matches, display-only
+    // run state): a term refinement moves only the `alsoNow` diff; the frozen record can't churn. Empty
+    // (a hand-added name / ETF sleeve / pre-backfill) → the row keeps today's single ← line off `mt`.
+    const frozen = m.surfaced_terms ?? [];
+    const alsoNow = frozen.length > 0 ? (mt ?? []).filter((t) => !frozen.includes(t)) : [];
     // display identity via the scored-join baseline (idFor) — chips render on a saved thesis opened
     // with NO draft/session, off the master join alone (the identity-lifecycle read)
     const idn = idFor(m.security_id);
@@ -1250,7 +1256,29 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
             onChange={(v) => d.editProse(k, v)}
           />
         )}
-        {included && mt && mt.length > 0 && (
+        {/* S2 (re-scope) — provenance as two DISTINGUISHED lines (keep-visible): ⚓ the frozen seed terms
+            (why the name ENTERED the Basket — persisted at entry; a term-set edit / re-draft can never
+            change it), then "+ also matches now" ONLY when the current run matched terms beyond the frozen
+            set (honest loudness — the diff renders only when it says something; a just-added member's
+            frozen == matched, so no duplicate line). A member with NO frozen terms (hand-added / sleeve /
+            pre-backfill) keeps today's single ← current-match line — unchanged semantics. */}
+        {included && frozen.length > 0 && (
+          <div
+            className="prov"
+            title={`seeded by: ${frozen.join(", ")} — the discovery terms that surfaced this name when it entered the Basket (frozen at entry; term-set edits never change it)`}
+          >
+            ⚓ seeded by: {frozen.join(" · ")}
+          </div>
+        )}
+        {included && alsoNow.length > 0 && (
+          <div
+            className="prov"
+            title={`also matches the current term set: ${alsoNow.join(", ")} — current-run matches beyond the frozen seed terms`}
+          >
+            + also matches now: {alsoNow.join(" · ")}
+          </div>
+        )}
+        {included && frozen.length === 0 && mt && mt.length > 0 && (
           <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
             ← {mt.join(" · ")}
           </div>
