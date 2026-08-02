@@ -2393,3 +2393,93 @@ describe("ChainEditor — S2: frozen seed terms + also-matches-now (the re-scope
     expect(screen.getByText("⚓ seeded by: a · b").textContent).toBe(before);
   });
 });
+
+describe("ChainEditor — S3: re-scope (the button · the auto-draft · the resumed badge)", () => {
+  it("⟳ Re-scope renders only when onRescope is provided (opt-in, like Clear); clicking invokes the parent", async () => {
+    const user = userEvent.setup();
+    // absent by default (no session-owning parent) — a test/un-sessioned render carries no re-scope
+    const { unmount } = render(
+      <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: "⟳ Re-scope" })).toBeNull();
+    unmount();
+
+    const onRescope = vi.fn();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={flatThesis}
+        onDone={vi.fn()}
+        onRescope={onRescope}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
+    expect(onRescope).toHaveBeenCalledTimes(1); // the parent confirms + clears + remounts
+  });
+
+  it("⟳ Re-scope is disabled while a draft runs (one job at a time — the cost thread)", async () => {
+    const user = userEvent.setup();
+    // a kick-off that never reaches terminal: the job is running, no result yet → `drafting` stays true
+    h.start.mockResolvedValue({ job_id: "j1", status: "running" });
+    h.jobData = undefined;
+    render(
+      <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} onRescope={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    expect(await screen.findByRole("button", { name: "⟳ Re-scope" })).toBeDisabled();
+  });
+
+  it("autoDraft fires the kick-off EXACTLY ONCE per mount — a rerender / prop drift never re-fires", async () => {
+    mockDraft(draft([PLACED_SMR]));
+    const { rerender } = render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={flatThesis}
+        onDone={vi.fn()}
+        onRescope={vi.fn()}
+        autoDraft
+      />,
+    );
+    // the mount's own kick-off completes through the SAME poll machinery — the result lands
+    await screen.findByLabelText("segment for SMR");
+    expect(h.start).toHaveBeenCalledTimes(1);
+    // the parent's one-shot flag stays up for the whole edit session — a re-render must not re-fire
+    rerender(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={flatThesis}
+        onDone={vi.fn()}
+        onRescope={vi.fn()}
+        autoDraft
+      />,
+    );
+    expect(h.start).toHaveBeenCalledTimes(1); // the ref guard held
+  });
+
+  it("no autoDraft → a plain mount NEVER drafts on render (the rule, not the exception)", () => {
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} onRescope={vi.fn()} />);
+    expect(h.start).not.toHaveBeenCalled();
+  });
+
+  it("the resumed-autosave badge renders on a restored mount with its age — and never on a fresh mount", () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const { unmount } = render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={flatThesis}
+        onDone={vi.fn()}
+        restoredUpdatedAt={twoDaysAgo}
+      />,
+    );
+    const badge = screen.getByText("resumed autosave · 2d ago");
+    expect(badge).toBeInTheDocument();
+    // the title says what it means: this editor is session-driven, not spine-driven
+    expect(badge).toHaveAttribute("title", expect.stringContaining("autosaved working session"));
+    expect(badge).toHaveAttribute("title", expect.stringContaining("differ from the saved Basket"));
+    unmount();
+
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    expect(screen.queryByText(/resumed autosave/)).toBeNull(); // spine-seeded → no badge
+  });
+});

@@ -80,6 +80,18 @@ interface Props {
   // Wipe the saved prune session and re-seed the editor fresh from the thesis (the explicit "start over"). The
   // parent owns it (it deletes the session + force-remounts this editor); omitted in test/un-sessioned renders.
   onStartOver?: () => void;
+  // S3 (re-scope, parent-owned like onStartOver): clear the transient candidate pile and re-run discovery on
+  // the CURRENT term set, keeping the whole saved Basket frozen — the parent confirms, deletes the session,
+  // and remounts this editor fresh-from-thesis with `autoDraft`. Omitted in test/un-sessioned renders.
+  onRescope?: () => void;
+  // S3: fire ONE draft at mount — set by the parent ONLY on the re-scope remount. The Re-scope click is the
+  // explicit operator action (the sanctioned exception to "never on render"); a ref guard makes the kick-off
+  // exactly once per mount, `drafting` disables the buttons, and the server's one-running-draft 409 backstops.
+  autoDraft?: boolean;
+  // S3: the restored session's server `updated_at`. Present ⇒ this mount SEEDED from an autosaved session
+  // (not the saved spine) → the quiet "resumed autosave · age" badge renders beside the autosave indicator,
+  // so a session-driven editor is never indistinguishable from a spine-driven one (the 159-vs-160 tell).
+  restoredUpdatedAt?: string;
 }
 
 // "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact — the shared
@@ -97,6 +109,18 @@ const hasFundamentals = (
 // A term's provenance: an operator seed vs an LLM-proposed (guard-tiered) term. The data already carries it.
 const termAuthor = (a: string): string =>
   a === "operator_set" ? "seed" : a === "operator_edited" ? "edited" : "auto";
+
+// S3 — compact relative age for the resumed-autosave badge ("just now" / "5m ago" / "3h ago" / "2d ago").
+// A malformed timestamp reads "just now" (harmless — the badge's presence is the signal, the age is color).
+const relAge = (iso: string): string => {
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 60_000) return "just now";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 
 // The reconciler's catch-all segment (backend `_DISCOVERED_LABEL`, shared via useChainDraft): names
 // EDGAR-discovered but NOT arranged into a real value-chain link. It's a SORTING QUEUE, not an economic link —
@@ -186,11 +210,26 @@ const NotListedFlag = () => (
  *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
  *  which honors each member's authorship and stores the thesis-fit prose). */
-export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStartOver }: Props) {
+export function ChainEditor({
+  thesis,
+  asof,
+  onDone,
+  scoredById,
+  restored,
+  onStartOver,
+  onRescope,
+  autoDraft,
+  restoredUpdatedAt,
+}: Props) {
   // The restored session seeds BOTH the hook (draft/excluded/reasons) and this component's own editor cells
   // (the draft-run buckets + term/set-aside decisions) at mount. `re` is the editor portion; `undefined` when
   // there's no session, so every initializer falls back to its thesis-derived / empty default.
   const re = restored?.editor;
+  // S3 — the restored-mount marker, FROZEN at mount (useState initializer): the badge must reflect how THIS
+  // editor instance seeded, and the parent's restored props DRIFT mid-session (the first autosave writes the
+  // session back and the parent re-renders the same mounted key with `restored` now set) — a live read would
+  // flip the badge on over a spine-seeded editor, the exact confusion the badge exists to close.
+  const [restoredAt] = useState<string | null>(() => restoredUpdatedAt ?? null);
   const d = useChainDraft(thesis, restored?.hook);
   const save = usePromoteThesis();
   const putExclusions = usePutExclusions(thesis.id); // #7: the durable NOs ride every Save
@@ -804,6 +843,21 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
     }
   };
 
+  // S3 — the re-scope auto-draft: EXACTLY ONE draft kick-off when the parent mounted this editor with
+  // `autoDraft` (the re-scope remount). The sanctioned exception to "never on render": the operator's
+  // Re-scope click IS the explicit action — this effect just completes it across the remount. Ref-guarded
+  // so StrictMode's double-invoke / any re-render / prop drift can never re-fire it; `drafting` disables
+  // the buttons and the server's one-running-draft 409 backstop a double kick-off anyway.
+  const autoDraftFired = useRef(false);
+  useEffect(() => {
+    if (autoDraft && !autoDraftFired.current) {
+      autoDraftFired.current = true;
+      void onDraft();
+    }
+    // mount-only by design: the parent sets autoDraft via a fresh remount key; the ref pins once-per-mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // The poll's terminal transition: done → load the result; failed → show the operator-facing error; a 404
   // (unknown/expired/restart-wiped job) → a visible "draft was lost". In every case stop polling + disarm the
   // timeout. Keyed on the status/error edge so it fires once per terminal arrival.
@@ -1353,6 +1407,19 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
           >
             Export all ({exportAllCount})
           </button>
+          {/* S3 — the resumed-session tell (quiet, on EVERY restored mount): this editor instance SEEDED from
+              the autosaved working session, not the saved spine — so what's on screen can differ from what a
+              fresh open would show. Closes the "which state am I looking at?" gap (159-vs-160) and flags the
+              1-click-rollback risk before a Save. Frozen at mount — an autosave writing the session back
+              never flips it on. */}
+          {restoredAt && (
+            <span
+              className="wb-autosave wb-resumed"
+              title={`this editor resumed your autosaved working session (saved ${new Date(restoredAt).toLocaleString()}) — it can differ from the saved Basket; Re-scope or Clear starts over from the spine`}
+            >
+              resumed autosave · {relAge(restoredAt)}
+            </span>
+          )}
           {/* Autosave status (the resumable prune) — DISTINCT from the promote "Save chain" below: this saves the
               working state so a refresh resumes; that writes the spine. Loud only on a sustained failure. */}
           {saveStatus === "saving" && (
@@ -1603,6 +1670,21 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
         <button type="button" className="wb-edit-btn" onClick={onDraft} disabled={drafting}>
           {drafting ? "Drafting… (can take a few minutes)" : "✦ Draft from narrative"}
         </button>
+        {/* S3 — Re-scope (the maintenance loop): DISTINCT from Draft-from-narrative (which layers onto the
+            current pile). Parent-owned: it confirms, clears the transient candidate pile (the autosaved
+            prune), keeps the WHOLE saved Basket frozen, and remounts fresh-from-thesis with one auto-draft
+            on the CURRENT term set. Disabled while a draft runs (one job at a time — the cost thread). */}
+        {onRescope && (
+          <button
+            type="button"
+            className="wb-edit-btn"
+            onClick={onRescope}
+            disabled={drafting}
+            title="Clear the stale candidate pile and re-run discovery on the CURRENT term set — your whole saved Basket stays frozen. Unsaved candidate work and the autosaved prune are discarded (you'll confirm first)."
+          >
+            ⟳ Re-scope
+          </button>
+        )}
         <span className="note">
           Pre-fill the chain from your narrative — the drafter proposes the links, the names in each, and
           thesis-fit prose; you accept / edit / drop each. Names resolve against the master (exact membership

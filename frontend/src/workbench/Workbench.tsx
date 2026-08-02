@@ -28,6 +28,14 @@ interface Props {
   onOpenAdmin: () => void;
 }
 
+// S3 (re-scope) — the stale-session age-gate threshold: an autosaved working session OLDER than this stops
+// silently driving the editor and surfaces the resume-vs-start-from-the-saved-Basket choice instead (it is
+// NEVER auto-deleted — expiry ends the silent restore, not the prune; principle #2). Named + trivially
+// tunable; the always-on "resumed autosave" badge (ChainEditor) carries awareness below the threshold.
+const STALE_SESSION_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STALE_SESSION_MS = STALE_SESSION_DAYS * DAY_MS;
+
 /** The Workbench (Phase-2 front half): a narrative → a scored, structured basket → promote to the Board.
  *  DISPLAY · SCORE · PROMOTE (S4) + AUTHORING (S4b): the operator builds/edits the value chain in an edit
  *  mode (ChainEditor), saving through the full-replace promote; the meters re-derive on the new structure. */
@@ -76,6 +84,16 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
   // "Clear" seeds the editor from an EMPTY chain (no companies) keeping the term-set seeds — NOT from the
   // thesis's persisted basket. One-shot: reset on exit/switch so a later re-open shows the real saved state.
   const [cleared, setCleared] = useState(false);
+  // S3 (re-scope) — one-shot: the editor was remounted BY the Re-scope action, so it seeds fresh from the
+  // THESIS (the whole saved Basket freezes; the candidate pile starts empty) and fires ONE draft at mount
+  // (`autoDraft`). Reset on exit/switch like `cleared`; the two one-shots are mutually exclusive (each
+  // action's onSuccess clears the other, so a Clear after a Re-scope never auto-drafts a blank canvas).
+  const [rescoping, setRescoping] = useState(false);
+  // S3 (stale session) — the operator's answer to the stale-autosave choice panel: "" = unanswered (the
+  // panel gates a stale restore), "resume" = mount the restored session anyway, "fresh" = start from the
+  // saved Basket (that click's delete is the ONLY discard — the gate itself never destroys the prune).
+  // Reset per thesis in switchThesis, like `dismissedIncompatible` (the sibling choice it mirrors).
+  const [staleSessionChoice, setStaleSessionChoice] = useState<"" | "resume" | "fresh">("");
   const scored = scoredQ.data;
   const segments = scored?.segments ?? [];
   const members = scored?.members ?? [];
@@ -119,6 +137,8 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
     setChainSaved(false);
     setDismissedIncompatible(false); // the incompatible-session choice is per thesis
     setCleared(false); // the cleared state is per thesis / per edit session
+    setRescoping(false); // the re-scope one-shot is per thesis / per edit session
+    setStaleSessionChoice(""); // the stale-session choice is per thesis
     sectionData.reset();
     promote.reset();
   };
@@ -291,20 +311,58 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
     deleteSession.mutate(undefined, {
       onSuccess: () => {
         setCleared(true);
+        setRescoping(false); // mutually exclusive with the re-scope one-shot (a cleared mount never auto-drafts)
         setEditorNonce((n) => n + 1);
       },
     });
   };
-  const mountEditor = (t: ThesisDetail, restored?: Parameters<typeof ChainEditor>[0]["restored"]) => (
+  // S3 — Re-scope (the maintenance loop, one button): clear the TRANSIENT candidate pile and re-run
+  // discovery on the CURRENT (refined) term set, keeping the WHOLE saved Basket frozen. The only thing
+  // cleared is the session blob (old To-Review/ambiguous/absent buckets + unsaved drafted names) — nothing
+  // on the spine is touched (#9: the delete is a blob unlink; a dropped candidate that still matches
+  // re-surfaces by re-derivation). The remount seeds FROM THE THESIS (`mountEditor(t)` — deliberately NOT
+  // `clearedRestore`, which empties the chain): by the hook's own math establishedKeys = base ∩ base =
+  // every saved member, so the entire Basket (accepted AND system_drafted) freezes into the Basket panel
+  // and the working pile starts empty. `rescoping` makes that remount fire ONE draft (`autoDraft`) — the
+  // fresh candidates under the current terms.
+  const startRescope = () => {
+    const count = thesis?.basket.length ?? 0;
+    if (
+      !window.confirm(
+        `Re-scope: clear the candidate pile and re-run discovery on the current term set? Your saved Basket (${count} ${count === 1 ? "name" : "names"}) is kept frozen. Unsaved candidate work and the autosaved prune are discarded.`,
+      )
+    )
+      return;
+    deleteSession.mutate(undefined, {
+      onSuccess: () => {
+        setCleared(false); // mutually exclusive with the Clear one-shot (fresh-from-thesis, never an empty chain)
+        setRescoping(true);
+        setEditorNonce((n) => n + 1);
+      },
+    });
+  };
+  const mountEditor = (
+    t: ThesisDetail,
+    restored?: Parameters<typeof ChainEditor>[0]["restored"],
+    restoredUpdatedAt?: string,
+  ) => (
     <ChainEditor
       key={`${t.id}:${editorNonce}`}
       thesis={t}
       asof={asof}
       restored={restored}
+      // S3: the restored session's server timestamp — drives the quiet "resumed autosave" badge, so a
+      // session-driven editor is never indistinguishable from a spine-driven one. Passed ONLY on the
+      // real-session restore path (never for Clear's synthetic restore or a fresh mount).
+      restoredUpdatedAt={restoredUpdatedAt}
+      // S3: true only on the re-scope remount — that mount fires ONE draft (ref-guarded in the editor).
+      autoDraft={rescoping}
       onStartOver={startOver}
+      onRescope={startRescope}
       onDone={(saved) => {
         setEditing(false);
         setCleared(false); // the cleared state is one-shot — re-entry shows the real saved state
+        setRescoping(false); // the re-scope one-shot too — re-entry never re-fires the draft
         setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
       }}
       scoredById={scoredById}
@@ -366,8 +424,44 @@ export function Workbench({ asof, onAsofChange, onBack, onOpenScoreboard, onOpen
         </div>
       );
     }
-    // session present + restorable → seed from the blob.
-    return mountEditor(t, result);
+    // 5) S3 — the stale-session age-gate: a restorable session OLDER than the threshold must not silently
+    // drive the editor (the 159-vs-160 trap: an old prune resumes invisibly and clobbers the Basket on the
+    // next Save). Surface a CHOICE — resume it, or start from the saved Basket — and NEVER auto-delete:
+    // expiry ends the silent restore, only the operator's click discards the prune (principle #2). A
+    // malformed timestamp parses NaN → not stale (never lose a prune to a parse bug).
+    if (staleSessionChoice === "fresh") return mountEditor(t); // chose the saved Basket (delete in flight)
+    const ageMs = Date.now() - Date.parse(env.updated_at);
+    if (ageMs > STALE_SESSION_MS && staleSessionChoice !== "resume") {
+      const days = Math.floor(ageMs / DAY_MS);
+      return (
+        <div className="wb-session-note">
+          <p className="muted">
+            Autosaved working session from {new Date(env.updated_at).toLocaleDateString()} ({days}{" "}
+            days old) — resume it, or start from the saved Basket?
+          </p>
+          <button
+            type="button"
+            className="wb-mini"
+            onClick={() => setStaleSessionChoice("resume")}
+          >
+            Resume
+          </button>
+          <button
+            type="button"
+            className="wb-mini ghost"
+            onClick={() => {
+              deleteSession.mutate();
+              setStaleSessionChoice("fresh");
+            }}
+          >
+            Start from the saved Basket
+          </button>
+        </div>
+      );
+    }
+    // session present + restorable (fresh, or explicitly resumed) → seed from the blob. The timestamp
+    // rides along so the editor can badge the restored mount.
+    return mountEditor(t, result, env.updated_at);
   };
 
   return (
