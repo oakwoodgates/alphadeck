@@ -186,6 +186,8 @@ Each surfaced name carries two display layers, both value-free (#3):
   promotable tiers.
 - **Matched terms** — `ResolvedPlacement.matched_terms`, the discovery keyword(s) the name's CIK hit, surfaced
   as a quiet tag (`KAYS ← esketamine, psilocin`). It makes a colliding seed visible at a glance (#6/#9).
+  Display-only and **recomputed each draft**; its **frozen twin `surfaced_terms`** persists these onto the
+  member at Basket entry (the re-scope churn fix — see *Re-scope* below).
 - **Discovery source** — `ResolvedPlacement.discovery_source` (`"edgar"` | `"off_universe"`), the ORIGIN of a
   placed name (#6): `"edgar"` = matched a CIK in the EDGAR-discovered universe; `"off_universe"` = resolved
   OUTSIDE it (via the sweep-augmented context — see §6). Set in exactly ONE place, the `_match_discovered_cik`
@@ -266,6 +268,75 @@ fact; promote stays the only spine writer), and a failed write is logged + swall
 *Enforced by:* `tests/app/test_workbench_api.py::test_completed_draft_job_writes_the_run_log_artifact` (+ the
 untouched `…writes_nothing`), the fail-open units in `tests/workbench/test_draft_run_log.py`, and the hook
 tests in `tests/workbench/test_draft_jobs.py`. Persistence: the compose `appdata:/data` volume.
+
+---
+
+## Re-scope — maintaining an established thesis's discovery  `[surfaced_terms]`
+
+The architecture above is the CREATE path (draft → prune → promote). An **established** thesis (curated basket,
+hand-added ETF sleeve, a tuned term set) needs a second, quieter path — **re-scope / maintenance** as the
+operator's understanding evolves: refine the term set, sweep the universe again, but keep the vouched basket
+exactly as it was. Three things make that safe.
+
+**1. `surfaced_terms` — the frozen seed-term provenance.** `matched_terms` (§5) is display-only and
+**recomputed every draft** (the current term set ∩ the name's filings), so refining the term set *churns* an
+established member's tags — words appear, drop, or blank as the vocabulary moves. The fix is a persisted twin:
+`basket_member.surfaced_terms text[]` (migration 0029), **the discovery terms that surfaced this name, frozen at
+Basket entry**. It is captured on the FE the moment a placement enters the basket (`matched_terms` at pick / add
+/ load) and **frozen on promote** — see (2). Provenance only: keyword strings, **never a number, never on the
+call path (#3)**; a hand-added name with no discovery origin (an operator-typed ETF sleeve) honestly carries
+`{}`.
+
+**The deliberate #2 crossing.** §5 says the display tag is "never promoted onto a `BasketMember` (#2)" — and its
+live form still isn't. `surfaced_terms` is the ONE blessed exception, and narrowly: it is not the
+recompute-every-draft tag riding the member, it is a **fact captured once at entry** — *these terms surfaced
+this name*. Membership was already decided by exact CIK + the operator's promote (#2 proper); this record
+**decides nothing**, is never a figure, never an input to the call (#3), and sits squarely on #3/#6's
+explainability side of the line. Operator-blessed, on the record — do not "fix" it back off the member.
+(`INVARIANTS.md` #2 carries the breadcrumb.)
+
+**2. Freeze-on-promote + a re-runnable backfill.** Two write paths, one rule — *the stored value wins for an
+existing member*:
+- **Promote** freezes it: before the upsert, for every member already on the spine, the STORED `surfaced_terms`
+  overrides the incoming payload (a re-draft's fresh matched terms, or a stale client, can never overwrite the
+  original); a genuinely new member keeps its payload; an omitted field defaults `{}`. The original survives
+  every re-draft and re-save.
+- The **backfill** (`pipeline.backfill_surfaced_terms`, the `enrich_identity` re-run pattern) seeds the field
+  for baskets that predate the column: it re-runs discovery per thesis and freezes each member's *current*
+  matches. **Only-fills-empty by default**; `--overwrite` is the sole correction path (the operator can't
+  hand-edit terms in the UI). A thesis whose discovery is degraded/unavailable is **refused per-thesis and the
+  run continues** (found on the dev backfill, where a degraded thesis had crashed the whole run); the exit code
+  gates.
+- *Wipe-trap:* the mapper reads `surfaced_terms` back onto the domain object (`repositories/mappers.py`) — an
+  unmapped field would be silently wiped on the next resave (the `conviction` twin). Guarded by a
+  resave-through-the-mapper test.
+
+> **⚠️ Sequencing (R7, time-sensitive).** The frozen "original" is *defined* as the name's match against the
+> **current** term set — there is no per-name add-date. So the backfill must run **while the thesis still holds
+> its original term set, BEFORE the operator refines it**; once refined, the original is unrecoverable. On the
+> prod rollout the `--live` backfill ran first (327 members frozen / 0 refused) — the freeze-before-refine step.
+
+**3. The re-scope loop (the ⟳ button) + the stale-session gate.** A distinct **Re-scope** action (NOT folded
+into Draft-from-narrative): it clears only the **transient candidate pile** (the non-Basket To-Review /
+Discovered names — re-surfaced by discovery if still relevant, #9), keeps the **whole saved Basket frozen**
+(every member, segment, accept-vs-draft), re-runs discovery on the **current (refined) term set**, and surfaces
+a fresh candidate set. The Basket never churns or vanishes unless the operator acts. It starts from the SAVED
+Basket, **never a stale autosaved session** — and the autosave now carries an **age gate** (`STALE_SESSION_DAYS`:
+an old session prompts rather than silently driving the editor or clobbering the basket on Save — the root of a
+1-click multi-week rollback risk). The display pairs the two records honestly: **`⚓ seeded by:`** the frozen
+originals, and **`+ also matches now:`** the set-diff when a re-scope's new terms hit an established name — both
+visible, distinguished.
+
+- *Enforced by:* migration `0029_basket_member_surfaced_terms.sql`; `domain/thesis.py`
+  (`BasketMember.surfaced_terms`); the promote freeze pass (`app/routers/workbench.py`;
+  `tests/app/test_workbench_api.py::test_promote_freezes_existing_members_surfaced_terms` /
+  `…_new_member_keeps_payload…` / `…_omitted…defaults…`); the narrow writer `thesis_repo.set_surfaced_terms` +
+  the upsert INSERT (`tests/repositories/test_thesis_repo.py` — roundtrip, default, the wipe-trap resave,
+  in-place-touches-nothing-else); `repositories/mappers.py` (the mapper read-back);
+  `pipeline/backfill_surfaced_terms.py` (`tests/pipeline/test_backfill_surfaced_terms.py`, incl. the
+  degraded-thesis-refuses-and-continues test); the FE capture + display + button (`workbench/ChainEditor.tsx` —
+  `⚓ seeded by` / `+ also matches now` / `⟳ Re-scope`; `workbench/useChainDraft.ts`; `workbench/Workbench.tsx` —
+  `startRescope` + the stale-session gate; `__tests__/ChainEditor.test.tsx`). Shipped to prod 2026-08-02.
 
 ---
 

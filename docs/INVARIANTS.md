@@ -97,6 +97,15 @@ honors this one.) See `FEED_LOOP.md`.
 - *Enforced by:* `pipeline.ingest_thesis` (resolves via `master.get`, skips null / foreign ids;
   `tests/pipeline/test_ingest_thesis.py`).
 
+**One blessed corollary-exception — `surfaced_terms`.** Discovery's display provenance (`matched_terms` /
+`discovery_source`) is never promoted onto the decided `BasketMember` (`DISCOVERY.md` §5). Its **frozen twin
+`basket_member.surfaced_terms`** deliberately IS — the discovery terms that surfaced a name, captured once at
+Basket entry. It crosses that corollary narrowly and on the record: membership was already decided by exact CIK
++ promote, this record **decides nothing**, is never a number and never on the call path (#3), and is exactly
+the provenance #3/#6 want durable. Do **not** "fix" it back off the member. Full rationale: `DISCOVERY.md`
+*Re-scope*. *Enforced by:* migration 0029; the promote freeze pass (`app/routers/workbench.py`);
+`pipeline.backfill_surfaced_terms`.
+
 ## 3. Provenance to a real, checkable source on every trigger
 
 Every fired trigger carries provenance that resolves to a **real source** — a working EDGAR Form-4 URL, a
