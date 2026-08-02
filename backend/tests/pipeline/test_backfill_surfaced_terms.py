@@ -276,6 +276,34 @@ def test_backfill_degraded_coverage_refuses_and_exits_1(db, capsys, monkeypatch)
         get_settings.cache_clear()  # drop the widened-ratio singleton; monkeypatch restores the env
 
 
+def test_backfill_degraded_discovery_refuses_that_thesis_and_continues(db, monkeypatch, capsys):
+    """The HARD case (vs the within-tolerance coverage refusal above): when discovery fails PAST the
+    tolerance it RAISES DiscoveryDegraded — the backfill must catch it PER-THESIS (refuse, no write) and
+    NEVER let it crash the whole run. A --baskets run over a good thesis + a broken one: the good one
+    freezes, the broken one is refused, the run completes and exits 1. (Found on dev: an uncached term set
+    under cache-first raised DiscoveryDegraded and killed the entire backfill.)"""
+    good = _insert_sec(db, "CMPS", name="COMPASS Pathways plc", cik=_A)
+    bad = _insert_sec(db, "NUKE", name="Nuke Co.", cik="0009999999")
+    good_tid = _mk_thesis(db, "Psychedelics", [("CMPS", good, [])], _TERMS)
+    bad_tid = _mk_thesis(db, "Nuclear", [("NUKE", bad, [])], _terms(["power generation"], []))
+    # raises on the nuclear term's page — 100% of that thesis's pages fail (> the default 5% tolerance) ->
+    # discover() raises DiscoveryDegraded; the psychedelic pages are untouched, so that thesis still freezes.
+    monkeypatch.setattr(
+        backfill_surfaced_terms,
+        "EdgarClient",
+        lambda **kw: _FailingEfts(_PAGES, "power_generation"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        backfill_surfaced_terms.main([])  # --baskets: both theses in one run
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "REFUSED (discovery unavailable" in out  # the broken thesis surfaced, not a traceback
+    assert _stored(db, good_tid) == {
+        "CMPS": ["ibogaine", "psilocybin"]
+    }  # the GOOD thesis still froze
+    assert _stored(db, bad_tid) == {"NUKE": []}  # the refused thesis wrote nothing
+
+
 def test_main_bare_run_prints_the_receipt(db, capsys, monkeypatch):
     """Bare invocation = --baskets: every non-archived thesis, and the per-thesis receipt + TOTAL print —
     'did the freeze run, and what did it write' is answerable from the output alone."""

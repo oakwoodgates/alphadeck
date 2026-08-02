@@ -65,7 +65,7 @@ from domain.thesis import Thesis
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
 from securities import master
-from workbench.discovery import run_discovery
+from workbench.discovery import DiscoveryUnavailable, run_discovery
 
 
 @dataclass
@@ -146,9 +146,18 @@ def backfill_thesis(
         r.kept = sum(1 for _, stored, _cik in candidates if stored)
         return r
 
-    universe = run_discovery(
-        conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id or DEFAULT_TENANT_ID
-    )
+    try:
+        universe = run_discovery(
+            conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id or DEFAULT_TENANT_ID
+        )
+    except DiscoveryUnavailable as exc:
+        # Discovery could not enumerate a trustworthy universe (degraded pages / nothing placeable). Freezing
+        # UNDER a broken run would record under-matched originals FOREVER, so REFUSE this thesis (no write)
+        # and CONTINUE — one bad thesis never crashes the whole backfill (per-thesis commit + refusal, exit 1).
+        # On dev this is the copied cache lacking a thesis's terms (cache-first, live off); on prod run --live.
+        r.skipped = f"discovery unavailable: {exc}"
+        r.refused = True
+        return r
     if universe.coverage is not None and universe.coverage.failed_terms and not force:
         # A partial enumeration would freeze UNDER-MATCHED originals forever — refuse the whole thesis
         # (no write), surface it, exit 1. --force is the deliberate override.
