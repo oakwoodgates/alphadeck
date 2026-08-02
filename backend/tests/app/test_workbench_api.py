@@ -1058,6 +1058,96 @@ def test_promote_persists_thesis_fit(client, security_id):
     assert member["authored_by"] == "system_drafted"  # honored, and the prose rides alongside it
 
 
+# --- Re-scope S1: the promote freeze pass — surfaced_terms is frozen at Basket entry ---
+
+
+def _terms_member(ticker, sid, terms=None, **kw):
+    d = {
+        "ticker": ticker,
+        "role": "r",
+        "archetype": "leader",
+        "security_id": str(sid),
+        "segment": "reactors",
+        "authored_by": "system_drafted",
+    }
+    if terms is not None:
+        d["surfaced_terms"] = terms
+    d.update(kw)
+    return d
+
+
+def _terms_payload(tid, members):
+    return {
+        "id": tid,
+        "name": "Nuclear",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": "reactors"}],
+        "basket": members,
+    }
+
+
+def test_promote_freezes_existing_members_surfaced_terms(client, security_id):
+    """THE FREEZE PASS (Q1, a server property): for a member ALREADY in the stored basket, the STORED
+    surfaced_terms win over the incoming payload — a re-draft's fresh matched terms (or a stale client
+    echo) can never rewrite the record of why the name entered. The response reflects the frozen value
+    (the FE re-snapshot never sees its own overwrite attempt succeed)."""
+    r1 = client.post(
+        "/workbench/theses",
+        json=_terms_payload(None, [_terms_member("DEVCO", security_id, ["nuclear", "smr"])]),
+    )
+    assert r1.status_code == 200
+    tid = r1.json()["id"]
+    assert r1.json()["basket"][0]["surfaced_terms"] == ["nuclear", "smr"]  # entry froze the payload
+
+    # the re-promote tries to rewrite the provenance — stored wins
+    r2 = client.post(
+        "/workbench/theses",
+        json=_terms_payload(tid, [_terms_member("DEVCO", security_id, ["refined-term"])]),
+    )
+    assert r2.status_code == 200
+    assert r2.json()["basket"][0]["surfaced_terms"] == ["nuclear", "smr"]  # the response is honest
+    stored = client.get(f"/theses/{tid}").json()["basket"][0]
+    assert stored["surfaced_terms"] == ["nuclear", "smr"]  # and the spine kept the original
+
+
+def test_promote_new_member_keeps_payload_surfaced_terms(client, db, security_id):
+    """A NEW member's promote IS its entry event: the payload's terms are persisted as the frozen value
+    (the freeze pass only shields members already in the stored basket)."""
+    tid = client.post(
+        "/workbench/theses",
+        json=_terms_payload(None, [_terms_member("DEVCO", security_id, ["nuclear"])]),
+    ).json()["id"]
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    r = client.post(
+        "/workbench/theses",
+        json=_terms_payload(
+            tid,
+            [
+                _terms_member("DEVCO", security_id, ["stale-echo"]),  # existing -> frozen wins
+                _terms_member("OKLO", oklo, ["smr", "microreactor"]),  # new -> payload is the entry
+            ],
+        ),
+    )
+    assert r.status_code == 200
+    by_ticker = {
+        m["ticker"]: m["surfaced_terms"] for m in client.get(f"/theses/{tid}").json()["basket"]
+    }
+    assert by_ticker == {"DEVCO": ["nuclear"], "OKLO": ["smr", "microreactor"]}
+
+
+def test_promote_omitted_surfaced_terms_defaults_empty(client, security_id):
+    """A payload that never names the field (a hand-added name — the PSIL case) lands the honest server
+    default []: surfaced by no term, never a guess."""
+    r = client.post(
+        "/workbench/theses",
+        json=_terms_payload(None, [_terms_member("DEVCO", security_id)]),  # field omitted
+    )
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert client.get(f"/theses/{tid}").json()["basket"][0]["surfaced_terms"] == []
+
+
 # --- hybrid-2a: ratify a scoring fact (the first fact-WRITE) ---
 
 

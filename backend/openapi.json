@@ -2627,6 +2627,13 @@
             ],
             "title": "Conviction"
           },
+          "surfaced_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Surfaced Terms"
+          },
           "authored_by": {
             "$ref": "#/components/schemas/Authorship",
             "default": "operator_set"

@@ -838,6 +838,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
       segment: p.segment,
       thesis_fit: p.prose || null,
       conviction: null,
+      surfaced_terms: p.matched_terms, // capture at entry (empty for off-universe — honest)
       authored_by: "system_drafted",
     });
     setAmbiguous((prev) => prev.filter((x) => x !== p));
@@ -857,6 +858,7 @@ export function ChainEditor({ thesis, asof, onDone, scoredById, restored, onStar
       segment: p.segment,
       thesis_fit: p.prose || null,
       conviction: null,
+      surfaced_terms: p.matched_terms, // capture at entry — frozen provenance once the promote persists it
       authored_by: "system_drafted",
     });
     // stash the origin so the Placed row can offer the inverse (send back to To-Review)

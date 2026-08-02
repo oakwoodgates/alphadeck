@@ -610,6 +610,18 @@ def promote(
                 "security_id in identity_overrides to bind it deliberately (the override is logged)."
             ),
         )
+    # THE FREEZE PASS (Re-scope S1): ``surfaced_terms`` is frozen-at-entry PROVENANCE, so for a member
+    # ALREADY in the stored basket the STORED value wins over the incoming payload — a re-draft's fresh
+    # matched terms (or a client echoing stale ones) can never rewrite the record of why a name entered.
+    # A NEW member (or one with no security_id to key by) keeps the payload — its promote IS the entry
+    # event. Runs AFTER canonicalize (ids match what the spine stores); the backfill CLI's --overwrite
+    # is the only correction path. "Frozen at entry" is a server property, not a client courtesy.
+    stored = thesis_repo.get(conn, thesis.id)
+    if stored is not None:
+        frozen = {m.security_id: m.surfaced_terms for m in stored.basket if m.security_id}
+        for i, m in enumerate(thesis.basket):
+            if m.security_id in frozen:
+                thesis.basket[i] = m.model_copy(update={"surfaced_terms": frozen[m.security_id]})
     thesis_repo.upsert(conn, thesis)
     conn.commit()
     return ThesisDetail.from_thesis(thesis)

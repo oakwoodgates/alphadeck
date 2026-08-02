@@ -60,6 +60,12 @@ class BasketMember(DomainModel):
     # NAMING GUARD: this OPERATOR conviction (a size weight, stored metadata) is DISTINCT from SIGNAL
     # conviction in `calls/` (conviction_kinds / conviction_grade / key_conviction — deterministic call
     # triggers). They must NEVER cross: wiring operator conviction into the call is a #4 violation.
+    surfaced_terms: list[str] = Field(
+        default_factory=list
+    )  # the discovery terms that SURFACED this name — factual provenance of the membership event, FROZEN
+    # at Basket entry (the promote freeze pass: stored wins for an existing member; the backfill CLI's
+    # --overwrite is the only correction path). Keyword STRINGS only — never a number, never a call input
+    # (#3). [] = honest empty: a hand-added name (ETF sleeve / manual ticker) was surfaced by no term.
     authored_by: Authorship = (
         Authorship.OPERATOR_SET
     )  # who placed it (the Workbench authorship seam)

@@ -1391,6 +1391,8 @@ export interface components {
             thesis_fit?: string | null;
             /** Conviction */
             conviction?: number | null;
+            /** Surfaced Terms */
+            surfaced_terms?: string[];
             /** @default operator_set */
             authored_by: components["schemas"]["Authorship"];
         };

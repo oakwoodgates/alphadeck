@@ -255,6 +255,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           segment: fileSeg(p.segment), // never invent a link on an established chain
           thesis_fit: p.prose || null,
           conviction: null, // the drafter never weights — the operator sets conviction in the row
+          surfaced_terms: p.matched_terms, // capture at entry — frozen provenance once the promote persists it
           authored_by: "system_drafted",
         }));
       // FIRST draft (no chain yet) adopts the drafter's links; an established chain keeps EXACTLY its links.

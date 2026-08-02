@@ -328,3 +328,83 @@ def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
     db.commit()
 
     assert thesis_repo.get(db, t.id).basket[0].conviction == 3  # not wiped — the mapper carried it
+
+
+# --- Re-scope S1: surfaced_terms — the frozen discovery-term provenance on the member edge ---
+
+
+def _member_count(db, thesis_id) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (thesis_id,))
+        return cur.fetchone()["n"]
+
+
+def test_surfaced_terms_roundtrips(db, security_id):
+    """The frozen provenance persists through upsert and reads back verbatim (order kept — the writer
+    freezes a sorted list, the store must not reorder it)."""
+    t = _thesis(security_id)
+    t.basket[0].surfaced_terms = ["ibogaine", "psilocybin"]
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == ["ibogaine", "psilocybin"]
+
+
+def test_surfaced_terms_default_is_empty_list(db, security_id):
+    """The honest empty: an unset field stores '{}' and reads back [] (a hand-added name was surfaced by
+    no term) — never None, never a guess."""
+    t = _thesis(security_id)
+    assert t.basket[0].surfaced_terms == []  # the model default
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == []
+
+
+def test_surfaced_terms_survives_a_resave_through_the_mapper(db, security_id):
+    """THE WIPE-TRAP guard, surfaced_terms flavor (the conviction twin): a resave of the READ-BACK basket
+    (a narrative edit resends it verbatim) must carry the frozen terms through the mapper — an unmapped
+    field would be silently wiped here. AND count the table: the full-replace resave must not grow it
+    (the idempotency convention — the read alone can hide a duplicate append)."""
+    t = _thesis(security_id)
+    t.basket[0].surfaced_terms = ["psilocybin"]
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _member_count(db, t.id) == 1
+
+    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    assert got.basket[0].surfaced_terms == ["psilocybin"]
+    got.narrative = "edited narrative — the basket is resent verbatim"
+    thesis_repo.upsert(db, got)
+    db.commit()
+
+    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == ["psilocybin"]  # not wiped
+    assert _member_count(db, t.id) == 1  # the table did not grow
+
+
+def test_set_surfaced_terms_updates_in_place_and_touches_nothing_else(db, security_id):
+    """The narrow writer (the backfill's sole write path, the set_term_set idiom): an UPDATE-in-place that
+    freezes the named members' terms and touches NOTHING else — ordinal, authorship, prose, conviction all
+    intact, the row count unchanged (no DELETE/INSERT churn). An unknown security_id updates nothing.
+    """
+    t = _thesis(security_id)
+    t.basket[0].conviction = 4
+    thesis_repo.upsert(db, t)
+    db.commit()
+
+    thesis_repo.set_surfaced_terms(
+        db,
+        t.id,
+        {
+            security_id: ["ketamine", "psilocybin"],
+            uuid.uuid4(): ["ghost"],  # not a member — updates nothing, never inserts
+        },
+    )
+    db.commit()
+
+    got = thesis_repo.get(db, t.id)
+    assert got.basket[0].surfaced_terms == ["ketamine", "psilocybin"]
+    # everything else untouched
+    assert got.basket[0].conviction == 4
+    assert got.basket[0].authored_by is Authorship.OPERATOR_SET
+    assert got.basket[0].thesis_fit == "the leading US telehealth platform"
+    assert got.basket[0].segment == "Telehealth platforms"
+    assert _member_count(db, t.id) == 1  # UPDATE-in-place: no row appeared for the unknown id

@@ -51,6 +51,27 @@ def set_term_set(conn: psycopg.Connection, thesis_id: UUID, term_set: list[TermS
         )
 
 
+def set_surfaced_terms(
+    conn: psycopg.Connection, thesis_id: UUID, terms_by_security: dict[UUID, list[str]]
+) -> None:
+    """Freeze per-member ``surfaced_terms`` (the discovery-term provenance) for the given members — the
+    backfill CLI's narrow writer (``pipeline.backfill_surfaced_terms``, its SOLE caller; the promote path
+    persists the field through ``upsert``). ``terms_by_security`` maps a member's ``security_id`` to its
+    frozen term list.
+
+    The ``set_term_set`` idiom: a per-member UPDATE-in-place that touches ONLY ``surfaced_terms`` — no
+    DELETE/INSERT, so ordinals, authorship, and every other member field are structurally untouched (no
+    ordinal churn, no wipe risk). A ``security_id`` with no matching row updates nothing (an unplaced /
+    since-removed member — the caller counts, never guesses). The caller owns the transaction."""
+    with conn.cursor() as cur:
+        for sid, terms in terms_by_security.items():
+            cur.execute(
+                "UPDATE basket_member SET surfaced_terms = %s "
+                "WHERE thesis_id = %s AND security_id = %s",
+                (terms, thesis_id, sid),  # psycopg adapts list[str] <-> text[]
+            )
+
+
 def set_catalysts(
     conn: psycopg.Connection, thesis_id: UUID, catalysts: list[Catalyst], *, tenant_id: UUID
 ) -> None:
@@ -171,8 +192,8 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
             cur.execute(
                 """INSERT INTO basket_member
                    (tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id, detail,
-                    segment, thesis_fit, conviction, authored_by)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    segment, thesis_fit, conviction, surfaced_terms, authored_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tenant,
                     tid,
@@ -185,6 +206,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     m.segment,
                     m.thesis_fit,
                     m.conviction,
+                    m.surfaced_terms,  # psycopg adapts list[str] <-> text[]
                     m.authored_by.value,
                 ),
             )
