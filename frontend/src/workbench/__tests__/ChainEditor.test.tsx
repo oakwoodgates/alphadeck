@@ -1290,6 +1290,35 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(screen.queryByText("Lowest signal")).not.toBeInTheDocument();
     expect(screen.queryByText("No listed ticker")).not.toBeInTheDocument();
   });
+
+  it("E: a ticker'd blank-check shell splits out of Keepers into its own collapsed drawer (still promotable)", async () => {
+    const user = userEvent.setup();
+    const VSPAC = {
+      name: "Big Sky Growth Partners",
+      ticker: "BSKY",
+      prose: "a blank-check vehicle — the theme terms sit in its S-1 boilerplate",
+      segment: "Discovered",
+      status: "verify",
+      security_id: "s-bsky",
+      candidates: [],
+      matched_terms: ["memory"],
+      off_thesis: false,
+      sector: "Blank Checks", // SIC 6770's description, verbatim — the deterministic shell tell
+    };
+    mockDraft(draft([VKEEP, VSPAC], [{ label: "memory", descriptor: null }]));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // the shell lands in its own drawer, NOT Keepers — the signal slot stays honest
+    await screen.findByText("Blank checks");
+    expect(screen.getByRole("checkbox", { name: "add MU" })).toBeInTheDocument(); // the real keeper, open drawer
+    expect(screen.queryByRole("checkbox", { name: "add BSKY" })).not.toBeInTheDocument(); // collapsed by default
+    // the master To review headline stays keepers-only (the shell never inflates the signal count)
+    expect(screen.getByRole("button", { name: /To review/ })).toHaveTextContent("· 1");
+    // hidden, never dropped (#9): expand → the shell is fully promotable via the same check-to-add
+    await user.click(screen.getByRole("button", { name: "toggle Blank checks" }));
+    expect(screen.getByRole("checkbox", { name: "add BSKY" })).toBeInTheDocument();
+  });
 });
 
 describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
@@ -1725,6 +1754,60 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     await user.selectOptions(screen.getByLabelText("filter by exchange"), "otc");
     expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("segment for CNCO")).not.toBeInTheDocument();
+  });
+
+  it("the Type filter narrows blank-check shells across placed + To-Review (view-only, reversible)", async () => {
+    const user = userEvent.setup();
+    const mk = (
+      ticker: string,
+      security_id: string,
+      sector: string | null,
+      status: "placed" | "verify",
+    ) => ({
+      name: ticker,
+      ticker,
+      prose: "x",
+      segment: "reactors",
+      status,
+      security_id,
+      candidates: [],
+      matched_terms: [],
+      discovery_source: "edgar",
+      sector,
+      exchange: "Nasdaq",
+      listing_status: "active",
+      origin: "US",
+      off_thesis: false,
+    });
+    mockDraft(
+      draft([
+        mk("REAL", "s-real", "Pharmaceutical Preparations", "placed"),
+        mk("SHEL", "s-shel", "Blank Checks", "placed"),
+        mk("SHLV", "s-shlv", "Blank Checks", "verify"), // a ticker'd To-Review shell → the Blank checks drawer
+      ]),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    // baseline: both placed names render; the To-Review shell sits in its Blank checks drawer
+    await screen.findByLabelText("segment for REAL");
+    expect(screen.getByLabelText("segment for SHEL")).toBeInTheDocument();
+    expect(screen.getByText("Blank checks")).toBeInTheDocument();
+
+    // type = blank check → only the shells remain (the operating company drops from view)
+    await user.selectOptions(screen.getByLabelText("filter by type"), "spac");
+    expect(screen.queryByLabelText("segment for REAL")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("segment for SHEL")).toBeInTheDocument();
+
+    // type = other → the shells drop from view, placed AND To-Review alike (the drawer empties away)
+    await user.selectOptions(screen.getByLabelText("filter by type"), "other");
+    expect(screen.getByLabelText("segment for REAL")).toBeInTheDocument();
+    expect(screen.queryByLabelText("segment for SHEL")).not.toBeInTheDocument();
+    expect(screen.queryByText("Blank checks")).not.toBeInTheDocument();
+
+    // reversible: back to all → everything returns (view-only, Save untouched)
+    await user.selectOptions(screen.getByLabelText("filter by type"), "");
+    expect(screen.getByLabelText("segment for SHEL")).toBeInTheDocument();
   });
 
   it("THE #9 SPINE: the VIEW never changes what Save persists — a filtered-out, included name still saves", async () => {

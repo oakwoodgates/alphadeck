@@ -12,6 +12,7 @@ import {
   provChip,
   provNotes,
   sharesAsof,
+  spacClass,
   staleSharesMonths,
 } from "../format";
 
@@ -141,6 +142,23 @@ describe("exchangeClass (the Exchange filter bucket)", () => {
     expect(exchangeClass(null)).toBe("unknown");
     expect(exchangeClass(undefined)).toBe("unknown");
     expect(exchangeClass("")).toBe("unknown");
+  });
+});
+
+describe("spacClass (the blank-check / Type filter bucket)", () => {
+  it("maps the stored SIC sector description to spac / other / unknown", () => {
+    // SIC 6770's official description, verbatim from submissions `sicDescription`
+    expect(spacClass("Blank Checks")).toBe("spac");
+    expect(spacClass("BLANK CHECKS")).toBe("spac"); // case-insensitive
+    expect(spacClass(" Blank Checks ")).toBe("spac"); // whitespace tolerated
+    // any operating sector → other
+    expect(spacClass("Pharmaceutical Preparations")).toBe("other");
+    expect(spacClass("Services-Prepackaged Software")).toBe("other");
+    // no sector loaded (un-enriched / off-universe) → unknown; never a guessed shell
+    expect(spacClass(null)).toBe("unknown");
+    expect(spacClass(undefined)).toBe("unknown");
+    expect(spacClass("")).toBe("unknown");
+    expect(spacClass("   ")).toBe("unknown");
   });
 });
 
