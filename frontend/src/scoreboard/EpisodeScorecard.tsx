@@ -60,12 +60,15 @@ export function EpisodeScorecard({
   const hasSetup = showArmUntil || showGrades;
 
   // --- Slice B: lift the price window + the unified numbered events HERE so the chart and the ledger share
-  // the ONE array (row #N ↔ chip #N, built once). The window request mirrors the old in-PriceSparkline gate
-  // (asof present AND a forward bar exists); the server owns the effective floor and asof cap (invariant #1).
+  // the ONE array (row #N ↔ chip #N, built once). Fetched whenever the drawer is open (asof present): the
+  // window is the name's full relevance-floor history, NOT arm-relative — so a just-armed episode with no
+  // forward bar YET still has months of pre-arm path to draw. Drawing the path and scoring the forward
+  // OUTCOME are separate concerns: the outcome lenses below stay gated on noForwardBar; the chart does not.
+  // The server owns the effective floor + asof cap (invariant #1).
   const end = ep.exit_by ?? asof ?? "";
   const windowQ = useEpisodePriceWindow(
     { thesisId: ep.thesis_id, securityId: ep.security_id, start: ep.arm_date, end, asof: asof ?? "" },
-    Boolean(asof) && !noBar,
+    Boolean(asof),
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
   const events = useMemo(
@@ -241,10 +244,10 @@ export function EpisodeScorecard({
       )}
 
       {/* Slice B — the event ledger + Cockpit strip: the SAME numbered events the chart drew (row #N ↔ chip
-          #N, one shared array), cross-highlighting with it. Gated exactly as the chart is (asof + a forward
-          bar); a no-forward-bar episode gets neither. Empty events (still loading) → the ledger renders
-          nothing yet. */}
-      {asof && !noBar && (
+          #N, one shared array), cross-highlighting with it. Rendered whenever the chart is (asof present) —
+          a just-armed episode gets both, its pre-arm insider/arm chips numbered alike. Empty events (still
+          loading, or a name with none) → EventLedger self-hides. */}
+      {asof && (
         <EventLedger
           events={events}
           activeN={activeN}

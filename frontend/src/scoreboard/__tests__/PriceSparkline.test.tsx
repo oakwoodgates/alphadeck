@@ -123,10 +123,12 @@ beforeEach(() => {
 });
 
 describe("PriceSparkline — honest loudness", () => {
-  it("a no-forward-bar episode draws NO chart, just the quiet line", () => {
-    renderSpark({ ep: ep({ insufficient_prices: true }), bars: [] });
-    expect(screen.getByText("no price path yet")).toBeInTheDocument();
-    expect(lw.createChart).not.toHaveBeenCalled();
+  it("a no-forward-bar episode WITH a price path still draws its (pre-arm) chart", () => {
+    // the window is the name's full history, not arm-relative — a just-armed episode has months of pre-arm
+    // path to draw; only the forward-OUTCOME lenses stay gated (covered in EpisodeScorecard's tests)
+    renderSpark({ ep: ep({ insufficient_prices: true }), bars: BARS });
+    expect(lw.createChart).toHaveBeenCalled();
+    expect(screen.queryByText("no price path yet")).toBeNull();
   });
 
   it("a single-bar (thin) series draws NO chart, just the quiet line", () => {
