@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { todayISO } from "../util/format";
 
-// The route-mapping suite. The four PAGES are stubbed — each renders its key props as text plus
-// buttons that fire its navigation callbacks — so what's under test is exactly App's URL ↔ props
-// translation: paths render the right page, params reach props, callbacks move the URL. Page
-// internals have their own suites.
+// The route-mapping suite. The pages are stubbed — each renders its `header` slot (the real shared
+// AppHeader) plus its key props as text and its own onSelect button — so what's under test is App's
+// URL ↔ props translation AND the shared top-nav wiring: paths render the right page, params reach
+// props, and AppHeader's links move the URL (carrying ?asof=). Page internals have their own suites.
 
 const h = vi.hoisted(() => ({
   theses: {
@@ -27,13 +27,10 @@ vi.mock("../api/hooks", () => ({
 vi.mock("../board/Board", () => ({
   Board: (p: any) => (
     <div>
+      {p.header}
       <h1>BOARD</h1>
       <span data-testid="board-asof">{p.asof}</span>
       <button onClick={() => p.onSelect("t-9")}>board-select</button>
-      <button onClick={() => p.onOpenScoreboard()}>board-to-scoreboard</button>
-      <button onClick={() => p.onOpenWorkbench()}>board-to-workbench</button>
-      <button onClick={() => p.onOpenAdmin()}>board-to-admin</button>
-      <button onClick={() => p.onOpenRadar()}>board-to-radar</button>
     </div>
   ),
 }));
@@ -41,9 +38,8 @@ vi.mock("../board/Board", () => ({
 vi.mock("../radar/Radar", () => ({
   Radar: (p: any) => (
     <div>
+      {p.header}
       <h1>RADAR</h1>
-      <button onClick={() => p.onBack()}>rd-back</button>
-      <button onClick={() => p.onOpenWorkbench()}>rd-to-workbench</button>
     </div>
   ),
 }));
@@ -51,10 +47,8 @@ vi.mock("../radar/Radar", () => ({
 vi.mock("../admin/Admin", () => ({
   Admin: (p: any) => (
     <div>
+      {p.header}
       <h1>ADMIN</h1>
-      <button onClick={() => p.onBack()}>adm-back</button>
-      <button onClick={() => p.onOpenWorkbench()}>adm-to-workbench</button>
-      <button onClick={() => p.onOpenScoreboard()}>adm-to-scoreboard</button>
     </div>
   ),
 }));
@@ -62,12 +56,11 @@ vi.mock("../admin/Admin", () => ({
 vi.mock("../scoreboard/Scoreboard", () => ({
   Scoreboard: (p: any) => (
     <div>
+      {p.header}
       <h1>SCOREBOARD</h1>
       <span data-testid="sb-asof">{p.asof}</span>
       <button onClick={() => p.onSelect("t-9", "HIMS")}>sb-select</button>
       <button onClick={() => p.onSelect("t-9")}>sb-select-bare</button>
-      <button onClick={() => p.onBack()}>sb-back</button>
-      <button onClick={() => p.onOpenWorkbench()}>sb-to-workbench</button>
     </div>
   ),
 }));
@@ -75,9 +68,9 @@ vi.mock("../scoreboard/Scoreboard", () => ({
 vi.mock("../workbench/Workbench", () => ({
   Workbench: (p: any) => (
     <div>
+      {p.header}
       <h1>WORKBENCH</h1>
       <span data-testid="wb-asof">{p.asof}</span>
-      <button onClick={() => p.onBack()}>wb-back</button>
     </div>
   ),
 }));
@@ -175,9 +168,11 @@ describe("App routes — ?asof=", () => {
   it("is carried across Board → Scoreboard → Workbench tab moves", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
-    await user.click(screen.getByText("board-to-scoreboard"));
+    await user.click(screen.getByText("Scoreboard"));
+    expect(screen.getByText("SCOREBOARD")).toBeInTheDocument();
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
-    await user.click(screen.getByText("sb-to-workbench"));
+    await user.click(screen.getByText("Workbench"));
+    expect(screen.getByText("WORKBENCH")).toBeInTheDocument();
     expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
   });
 });
@@ -186,9 +181,9 @@ describe("App routes — the Admin tab", () => {
   it("Board → Admin → Back round-trips with asof intact", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
-    await user.click(screen.getByText("board-to-admin"));
+    await user.click(screen.getByText("Admin"));
     expect(screen.getByText("ADMIN")).toBeInTheDocument();
-    await user.click(screen.getByText("adm-back"));
+    await user.click(screen.getByText("Board"));
     expect(screen.getByText("BOARD")).toBeInTheDocument();
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });
@@ -196,16 +191,16 @@ describe("App routes — the Admin tab", () => {
   it("Admin → Workbench keeps the asof param riding", async () => {
     const user = userEvent.setup();
     renderAt("/admin?asof=2026-06-01");
-    await user.click(screen.getByText("adm-to-workbench"));
+    await user.click(screen.getByText("Workbench"));
     expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
   });
 
   it("Board → Radar → Back round-trips with asof intact", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
-    await user.click(screen.getByText("board-to-radar"));
+    await user.click(screen.getByText("Radar"));
     expect(screen.getByText("RADAR")).toBeInTheDocument();
-    await user.click(screen.getByText("rd-back"));
+    await user.click(screen.getByText("Board"));
     expect(screen.getByText("BOARD")).toBeInTheDocument();
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });

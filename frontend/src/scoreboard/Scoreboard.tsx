@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 
 import type { ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
 import { useScoreboard } from "../api/hooks";
@@ -25,11 +25,8 @@ import {
 // is an exception, not a constant. Read-only: the write surface stays the Cockpit's rail.
 
 type Props = {
+  header?: ReactNode;
   asof: string;
-  onAsofChange: (v: string) => void;
-  onBack: () => void;
-  onOpenWorkbench: () => void;
-  onOpenAdmin: () => void;
   /** nameKey (when the row has a name) deep-links that member's panel in the Cockpit (?name=). */
   onSelect: (thesisId: string, nameKey?: string) => void;
 };
@@ -123,14 +120,7 @@ function SpanRow({
   );
 }
 
-export function Scoreboard({
-  asof,
-  onAsofChange,
-  onBack,
-  onOpenWorkbench,
-  onOpenAdmin,
-  onSelect,
-}: Props) {
+export function Scoreboard({ header, asof, onSelect }: Props) {
   const { data, isLoading, error } = useScoreboard(asof);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
@@ -154,23 +144,7 @@ export function Scoreboard({
 
   return (
     <div className="board-shell sb-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="dot" />
-          ALPHA&nbsp;DECK <small>// research cockpit</small>
-        </div>
-        <nav className="nav">
-          <a onClick={onBack}>Board</a>
-          <a onClick={onOpenWorkbench}>Workbench</a>
-          <a className="on">Scoreboard</a>
-          <a onClick={onOpenAdmin}>Admin</a>
-        </nav>
-        <div className="spacer" />
-        <label className="asof">
-          as-of
-          <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
-        </label>
-      </header>
+      {header}
 
       {isLoading && <div className="center-note">Scoring the record…</div>}
       {error != null && (

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useSetArchived, useTheses } from "../api/hooks";
 import { tickerLabel, verdictLabel } from "../util/format";
@@ -11,16 +13,12 @@ const COLUMNS = [
 ] as const;
 
 interface Props {
+  header?: ReactNode;
   asof: string;
-  onAsofChange: (asof: string) => void;
   /** Open the Cockpit for a thesis. `nameKey` (optional) deep-links a member's panel (?name=) —
    *  the Decision Queue passes the armed headline name so the Cockpit lands on it (same idiom as
    *  the Scoreboard's row click). A column card omits it (opens the thesis, no name pre-selected). */
   onSelect: (thesisId: string, nameKey?: string) => void;
-  onOpenWorkbench: () => void;
-  onOpenScoreboard: () => void;
-  onOpenAdmin: () => void;
-  onOpenRadar: () => void;
 }
 
 interface Row {
@@ -28,15 +26,7 @@ interface Row {
   call: CallCardResponse;
 }
 
-export function Board({
-  asof,
-  onAsofChange,
-  onSelect,
-  onOpenWorkbench,
-  onOpenScoreboard,
-  onOpenAdmin,
-  onOpenRadar,
-}: Props) {
+export function Board({ header, asof, onSelect }: Props) {
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
@@ -62,24 +52,7 @@ export function Board({
 
   return (
     <div className="board-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="dot" />
-          ALPHA&nbsp;DECK <small>// research cockpit</small>
-        </div>
-        <nav className="nav">
-          <a className="on">Board</a>
-          <a onClick={onOpenWorkbench}>Workbench</a>
-          <a onClick={onOpenScoreboard}>Scoreboard</a>
-          <a onClick={onOpenRadar}>Radar</a>
-          <a onClick={onOpenAdmin}>Admin</a>
-        </nav>
-        <div className="spacer" />
-        <label className="asof">
-          as-of
-          <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
-        </label>
-      </header>
+      {header}
 
       {/* Decision Queue — the loud, armed-only anti-forgetting strip */}
       <div className="dq">
