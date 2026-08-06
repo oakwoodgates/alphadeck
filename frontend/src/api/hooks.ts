@@ -794,6 +794,80 @@ export function usePutCatalysts(thesisId: string) {
   });
 }
 
+// --- the SPAC Radar (slices 1+2): the tape read + the reversible act-ons ---
+
+export type RadarSpacOut = components["schemas"]["RadarSpacOut"];
+export type SpacEventOut = components["schemas"]["SpacEventOut"];
+export type SpacMatchOut = components["schemas"]["SpacMatchOut"];
+export type SpacAttachOut = components["schemas"]["SpacAttachOut"];
+
+// The blank-check transition tape: latest version per filing + read-time deal state + per-thesis
+// term matches. Pull-only (#7 — the radar never notifies); the cron feeds it nightly.
+export function useRadarSpac(days = 90) {
+  return useQuery({
+    queryKey: ["radar-spac", days] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/radar/spac", { params: { query: { days } } });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// attach ⇄ detach: the one-click add and its visible inverse (#1); the click IS the operator's
+// decision on the radar's recommendation (#10). Invalidates the tape (in_basket_of), the thesis
+// spine, and the scored view so the new member appears everywhere it should.
+export function useSpacAttach() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { thesis_id: string; cik: string; detach?: boolean }) => {
+      const path = v.detach ? "/radar/spac/detach" : "/radar/spac/attach";
+      const { data, error } = await api.POST(path, {
+        body: { thesis_id: v.thesis_id, cik: v.cik },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["radar-spac"] });
+      qc.invalidateQueries({ queryKey: ["theses"] });
+      qc.invalidateQueries({ queryKey: ["thesis", v.thesis_id] });
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+    },
+  });
+}
+
+// "+ vote catalyst" — prefill ONE display-calendar entry (read-modify-PUT through the sole writer;
+// NEVER an auto fact_catalyst: that arms Key-1 and stays the ratify path's). Idempotent by label.
+export function useSpacCatalyst() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { thesisId: string; label: string }) => {
+      const detail = await api.GET("/theses/{thesis_id}", {
+        params: { path: { thesis_id: v.thesisId } },
+      });
+      if (detail.error) throw detail.error;
+      const current: CatalystIn[] = (detail.data?.catalysts ?? []).map((c) => ({
+        label: c.label,
+        kind: c.kind ?? null,
+        when_date: c.when_date ?? null,
+        when_label: c.when_label ?? null,
+      }));
+      if (current.some((c) => c.label === v.label)) return { already: true };
+      const { error } = await api.PUT("/theses/{thesis_id}/catalysts", {
+        params: { path: { thesis_id: v.thesisId } },
+        body: [...current, { label: v.label, kind: "spac", when_date: null, when_label: "TBD" }],
+      });
+      if (error) throw error;
+      return { already: false };
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["thesis", v.thesisId] });
+      qc.invalidateQueries({ queryKey: ["call", v.thesisId] });
+    },
+  });
+}
+
 // #7: the durable exclusion set — Save persists the editor's pruning (session decisions ∪ the
 // carried-forward prior NOs) so a re-draft never re-surfaces a rejected name as fresh work.
 export function usePutExclusions(thesisId: string) {

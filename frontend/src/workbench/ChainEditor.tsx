@@ -42,6 +42,8 @@ import {
   exchangeClass,
   type ExchangeClass,
   memberHasFundamentals,
+  spacClass,
+  type SpacClass,
 } from "./format";
 import {
   matchesAnyJunkTell,
@@ -162,8 +164,17 @@ const IdentityChips = ({
   origin?: string | null;
 }) => (
   <>
+    {/* a blank-check shell (SIC "Blank Checks") gets a quiet warm tint — the one sector that means
+        "nothing to act on until a deal". An identity nuance, not a warning flag (#7). */}
     {sector && (
-      <span className="idchip" title="sector (SEC SIC) — machine-parsed from EDGAR submissions">
+      <span
+        className={`idchip${spacClass(sector) === "spac" ? " spac" : ""}`}
+        title={
+          spacClass(sector) === "spac"
+            ? 'blank-check shell (SEC SIC "Blank Checks") — a SPAC still hunting a target; nothing to act on until a deal'
+            : "sector (SEC SIC) — machine-parsed from EDGAR submissions"
+        }
+      >
         {sector}
       </span>
     )}
@@ -466,6 +477,7 @@ export function ChainEditor({
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (2+ terms; collapsed)
   const [lowestSignalOpen, setLowestSignalOpen] = useState(false); // the lowest-signal sub-drawer (≤1 term; collapsed)
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
+  const [spacOpen, setSpacOpen] = useState(false); // the blank-check shells sub-drawer (collapsed — #7)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
   // Keeper set-aside (#1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
   // stub and stays on screen, one ✕-click from restore. #7 made it durable for RESOLVED keepers: the
@@ -579,6 +591,7 @@ export function ChainEditor({
   const [fInc, setFInc] = useState<"" | "included" | "excluded">("");
   const [fCountry, setFCountry] = useState<"" | CountryClass>("");
   const [fExch, setFExch] = useState<"" | ExchangeClass>("");
+  const [fSpac, setFSpac] = useState<"" | SpacClass>("");
   const [fOffUniv, setFOffUniv] = useState(false);
   const [compact, setCompact] = useState(false);
   const filtersActive =
@@ -590,6 +603,7 @@ export function ChainEditor({
     !!fInc ||
     !!fCountry ||
     !!fExch ||
+    !!fSpac ||
     fOffUniv;
   const clearFilters = () => {
     setSortBy("draft");
@@ -600,6 +614,7 @@ export function ChainEditor({
     setFInc("");
     setFCountry("");
     setFExch("");
+    setFSpac("");
     setFOffUniv(false);
   };
   const sec = (m: BasketMember) => idFor(m.security_id)?.sector ?? "";
@@ -611,17 +626,21 @@ export function ChainEditor({
         .filter((a): a is NonNullable<BasketMember["archetype"]> => a != null),
     ),
   );
-  // Country + Exchange filters classify a name's stored IDENTITY (origin / exchange) and span the Basket
-  // panel, the working Placed list, AND the To-Review candidates (like INCLUDE) — origin/exchange ride the
-  // placement and, for a placed member, the read-time `identity` join. View-only (#9): they narrow what
-  // RENDERS, never what Save persists. A name with no loaded identity classifies unknown/other — kept under
-  // "all", filtered only by a specific pick, never dropped from the basket.
+  // Country + Exchange + Type filters classify a name's stored IDENTITY (origin / exchange / sector) and
+  // span the Basket panel, the working Placed list, AND the To-Review candidates (like INCLUDE) — the
+  // fields ride the placement and, for a placed member, the read-time `identity` join. View-only (#9):
+  // they narrow what RENDERS, never what Save persists. A name with no loaded identity classifies
+  // unknown/other — kept under "all", filtered only by a specific pick, never dropped from the basket.
+  // Type = the blank-check bucket (spacClass on the stored SIC description) — the explicit, reversible
+  // hide for SPAC shells the operator used to delete one by one.
   const matchesIdentity = (
     origin: string | null | undefined,
     exchange: string | null | undefined,
+    sector: string | null | undefined,
   ): boolean => {
     if (fCountry && countryClass(origin) !== fCountry) return false;
     if (fExch && exchangeClass(exchange) !== fExch) return false;
+    if (fSpac && spacClass(sector) !== fSpac) return false;
     return true;
   };
   const matchesFilters = (m: BasketMember): boolean => {
@@ -638,7 +657,7 @@ export function ChainEditor({
     // the scored-join-baseline read (idFor) — so the filters work on a saved thesis opened with NO
     // draft/session (the #241-blocked scenario): the join alone classifies the placed members
     const idn = idFor(m.security_id);
-    if (!matchesIdentity(idn?.origin, idn?.exchange)) return false;
+    if (!matchesIdentity(idn?.origin, idn?.exchange, idn?.sector)) return false;
     return true;
   };
   const verifyAsideId = (p: ResolvedPlacement, key?: string) =>
@@ -998,10 +1017,12 @@ export function ChainEditor({
     );
   };
 
-  // Items 4 + 5 — the To-Review triage partition. Precedence off-thesis > ticker-less > keeper: the model's
-  // off-thesis names are the majority NOISE (quiet, collapsed — never yellow-flagged, that's inverse loudness);
-  // the ticker-less names are likely subs/holdcos (quiet, collapsed); what remains are the KEEPERS — the rare
-  // signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
+  // Items 4 + 5 — the To-Review triage partition. Precedence off-thesis > ticker-less > blank-check > keeper:
+  // the model's off-thesis names are the majority NOISE (quiet, collapsed — never yellow-flagged, that's
+  // inverse loudness); the ticker-less names are likely subs/holdcos (quiet, collapsed); a ticker'd
+  // blank-check SHELL (deterministic identity, SIC "Blank Checks") splits into its own collapsed drawer so
+  // it never takes the Keepers signal slot — a shell is nothing to act on until it announces a deal; what
+  // remains are the KEEPERS — the rare signal, surfaced up top (the keepers block). Every group stays PROMOTABLE (#9 — nothing dropped). The
   // keeper vs noise distinction is carried STRUCTURALLY (keepers up top; the noise in labeled drawers), so no
   // per-row "recommend add" badge — it would be true of every visible keeper, which is noise (honest loudness #7).
   // A re-draft can re-surface a name ALREADY in the basket as a VERIFY candidate — an "unselectable keeper"
@@ -1011,7 +1032,7 @@ export function ChainEditor({
   // `keys`, so a name sent back down out of the basket re-appears here.
   const verifyCandidates = verify.filter((p) => !(p.security_id && keys.has(p.security_id)));
   const verifyVisible = verifyCandidates.filter(
-    (p) => matchesVerifyInclude(p) && matchesIdentity(p.origin, p.exchange),
+    (p) => matchesVerifyInclude(p) && matchesIdentity(p.origin, p.exchange, p.sector),
   );
   // The off-thesis noise, split by keyword provenance so the flood is read at a glance (honest loudness #7):
   //   Low signal    = matched 2+ discovery terms (the stronger keyword evidence — more likely a missed keeper).
@@ -1028,7 +1049,14 @@ export function ChainEditor({
     .slice()
     .sort((a, b) => a.matched_terms.length - b.matched_terms.length); // 0-term (off-universe) at the top
   const vNoTicker = verifyVisible.filter((p) => !p.off_thesis && !p.ticker);
-  const vKeepers = verifyVisible.filter((p) => !p.off_thesis && p.ticker);
+  // the blank-check shells — would-be keepers whose stored identity says "shell, no target yet". An
+  // off-thesis or ticker-less shell stays in those (already-quiet) drawers; only the keeper slot is protected.
+  const vSpac = verifyVisible.filter(
+    (p) => !p.off_thesis && p.ticker && spacClass(p.sector) === "spac",
+  );
+  const vKeepers = verifyVisible.filter(
+    (p) => !p.off_thesis && p.ticker && spacClass(p.sector) !== "spac",
+  );
   const verifyRow = (p: ResolvedPlacement, key: string) => {
     const inBasket = p.security_id ? keys.has(p.security_id) : false;
     // "add" is a checkbox styled affordance (model A): checking it promotes the candidate → the row MOVES up to
@@ -2028,6 +2056,19 @@ export function ChainEditor({
                   <option value="unknown">unknown</option>
                 </select>
               </label>
+              <label className="wb-find-ctl">
+                type
+                <select
+                  aria-label="filter by type"
+                  value={fSpac}
+                  onChange={(e) => setFSpac(e.target.value as typeof fSpac)}
+                >
+                  <option value="">all</option>
+                  <option value="spac">blank check</option>
+                  <option value="other">other</option>
+                  <option value="unknown">unknown</option>
+                </select>
+              </label>
               <button
                 type="button"
                 className={`wb-mini ghost${fOffUniv ? " on" : ""}`}
@@ -2054,7 +2095,7 @@ export function ChainEditor({
                 {/* whole-basket count across BOTH lists (Basket panel + working) — the denominator stays
                     the full draft basket, so a filter reads the same as before the split */}
                 showing {basketRows.length + triaged.length} of {d.draft.basket.length} placed
-                {(fInc || fCountry || fExch) && verifyCandidates.length > 0
+                {(fInc || fCountry || fExch || fSpac) && verifyCandidates.length > 0
                   ? ` · ${verifyVisible.length} of ${verifyCandidates.length} to review`
                   : ""}
               </span>
@@ -2165,8 +2206,34 @@ export function ChainEditor({
                   </div>
                 ) : (
                   <div className="note">
-                    No clear keepers — the model didn't flag any of these as a strong fit. The Low signal /
-                    Lowest signal / No listed ticker drawers below hold the rest.
+                    No clear keepers — the model didn't flag any of these as a strong fit. The Blank checks /
+                    Low signal / Lowest signal / No listed ticker drawers below hold the rest.
+                  </div>
+                )}
+                {/* blank-check shells — deterministic identity (SIC "Blank Checks"), split out of Keepers so
+                    a ticker'd SPAC never takes the signal slot. Quiet + collapsed (#7 — a shell is maximally
+                    early); every row stays promotable via the same check-to-add (#9 — hidden, never dropped). */}
+                {vSpac.length > 0 && (
+                  <div className="resolve wb-placed-group">
+                    <button
+                      type="button"
+                      className="resolve-h"
+                      aria-expanded={spacOpen}
+                      aria-label="toggle Blank checks"
+                      onClick={() => setSpacOpen((o) => !o)}
+                    >
+                      <span className="chev">{spacOpen ? "▾" : "▸"}</span>
+                      <span className="rt">Blank checks</span>
+                      <span className="rm-meta">
+                        SPAC shells, no target yet — nothing to act on until a deal · {vSpac.length}{" "}
+                        hidden
+                      </span>
+                    </button>
+                    {spacOpen && (
+                      <div className="resolve-body">
+                        {vSpac.map((p, i) => verifyRow(p, `spac-${i}`))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {/* off-thesis noise, split by keyword provenance — quiet, NO yellow (the majority; highlight

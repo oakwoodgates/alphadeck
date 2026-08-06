@@ -39,6 +39,20 @@ export const exchangeClass = (exchange: string | null | undefined): ExchangeClas
   return "other";
 };
 
+/** The blank-check (SPAC) bucket for the Type filter + the shell chip tint, derived from the stored
+ *  sector: EDGAR's `sicDescription` lands verbatim in `sector`, and SIC 6770's official description is
+ *  literally "Blank Checks" — so an enriched blank-check row self-identifies with zero new ingest. A
+ *  shell is worthless to the operator until it announces a deal, so the editor quiets it (collapsed
+ *  drawer, chip tint), never drops it (#9). Case-insensitive exact match; any other sector → other;
+ *  no sector loaded (un-enriched / off-universe) → unknown — never a guessed shell. View-only display
+ *  identity; never a call input (#3/#4). */
+export type SpacClass = "spac" | "other" | "unknown";
+export const spacClass = (sector: string | null | undefined): SpacClass => {
+  const s = (sector ?? "").trim();
+  if (!s) return "unknown";
+  return s.toUpperCase() === "BLANK CHECKS" ? "spac" : "other";
+};
+
 /** Gate-3 readiness (ONE rule, three surfaces): does the scored member carry ANY confirmed SURFACE fact
  *  (purity / runway / market cap)? Catalysts + dilution come from the feeds/converts, not the extract, so
  *  they don't count. Shared by the editor's fundamentals badge, the scored row's "get data" control, and

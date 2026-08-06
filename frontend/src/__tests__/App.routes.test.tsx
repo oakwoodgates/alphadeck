@@ -33,6 +33,17 @@ vi.mock("../board/Board", () => ({
       <button onClick={() => p.onOpenScoreboard()}>board-to-scoreboard</button>
       <button onClick={() => p.onOpenWorkbench()}>board-to-workbench</button>
       <button onClick={() => p.onOpenAdmin()}>board-to-admin</button>
+      <button onClick={() => p.onOpenRadar()}>board-to-radar</button>
+    </div>
+  ),
+}));
+
+vi.mock("../radar/Radar", () => ({
+  Radar: (p: any) => (
+    <div>
+      <h1>RADAR</h1>
+      <button onClick={() => p.onBack()}>rd-back</button>
+      <button onClick={() => p.onOpenWorkbench()}>rd-to-workbench</button>
     </div>
   ),
 }));
@@ -120,6 +131,11 @@ describe("App routes — path → page", () => {
     expect(screen.getByText("ADMIN")).toBeInTheDocument();
   });
 
+  it("/radar renders the SPAC Radar", () => {
+    renderAt("/radar");
+    expect(screen.getByText("RADAR")).toBeInTheDocument();
+  });
+
   it("/thesis/:thesisId renders the Cockpit with the id from the path", () => {
     renderAt("/thesis/t-42");
     expect(screen.getByText("COCKPIT")).toBeInTheDocument();
@@ -182,6 +198,16 @@ describe("App routes — the Admin tab", () => {
     renderAt("/admin?asof=2026-06-01");
     await user.click(screen.getByText("adm-to-workbench"));
     expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
+  });
+
+  it("Board → Radar → Back round-trips with asof intact", async () => {
+    const user = userEvent.setup();
+    renderAt("/?asof=2026-06-01");
+    await user.click(screen.getByText("board-to-radar"));
+    expect(screen.getByText("RADAR")).toBeInTheDocument();
+    await user.click(screen.getByText("rd-back"));
+    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });
 });
 

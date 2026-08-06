@@ -1324,3 +1324,71 @@ class AdminRunJobStatus(BaseModel):
     status: Literal["running", "done", "failed"]
     result: AdminRunOut | None = None
     error: str | None = None
+
+
+class SpacMatchOut(BaseModel):
+    """One thesis's term-set hits against one radar filing (SPAC Radar, slice 2) — a RECOMMENDATION
+    (INVARIANTS #10): display-only provenance, it changes nothing until the operator clicks an
+    action. The matched term STRINGS by tier (the ``matched_terms`` idiom); ``truncated`` = the
+    document was capped before matching (no silent caps — a cap must never read as "no match")."""
+
+    thesis_id: UUID
+    thesis_name: str
+    signal_terms: list[str]
+    broad_terms: list[str]
+    truncated: bool = False
+
+
+class SpacEventOut(BaseModel):
+    """One blank-check TRANSITION filing on the radar tape (SPAC Radar, slice 1) plus its read-time
+    ``deal_state`` (derived from the CIK's FULL event history — searching → announced → terminated |
+    completed; announcement and termination are a PAIR, a dead deal never reads live). ``items`` =
+    8-K item codes when resolvable (None = unknown → the state derive ignores the filing). A DA is
+    a LEAD, not a live name: the target is pre-liquidity and the deal can die — the state chip is
+    the honest frame. ``in_basket_of`` = theses already holding this security (drives the
+    reversible added-toggle)."""
+
+    cik: str
+    ticker: str | None = None
+    company_name: str
+    security_id: UUID | None = None
+    form: str
+    items: list[str] | None = None
+    filed: date
+    accession: str
+    url: str
+    deal_state: Literal["searching", "announced", "terminated", "completed"]
+    in_basket_of: list[UUID] = Field(default_factory=list)
+    matches: list[SpacMatchOut] = Field(default_factory=list)
+
+
+class RadarSpacOut(BaseModel):
+    """The SPAC Radar tape (``GET /radar/spac``): the latest version of each transition filing in
+    the window, newest first, with per-CIK deal state and per-thesis term matches. Pull-only and
+    quiet by design (#7 — a blank check is maximally early); every row links its filing (#6)."""
+
+    events: list[SpacEventOut]
+    window_days: int
+    shells_known: int
+
+
+class SpacAttachRequest(BaseModel):
+    """Body for ``POST /radar/spac/attach`` / ``.../detach`` — one radar name, one thesis. The
+    server resolves the CIK to the canonical master row and derives ``surfaced_terms`` from the
+    stored matches (never client-supplied provenance)."""
+
+    thesis_id: UUID
+    cik: str
+
+
+class SpacAttachOut(BaseModel):
+    """The attach/detach receipt. ``added`` / ``removed`` say what actually happened; ``already``
+    marks the idempotent no-op (the member was already in the basket). Reversible by design
+    (workbench principle #1): attach ⇄ detach round-trips to the prior state."""
+
+    thesis_id: UUID
+    security_id: UUID | None = None
+    ticker: str | None = None
+    added: bool = False
+    already: bool = False
+    removed: bool = False
