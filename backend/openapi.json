@@ -5859,6 +5859,17 @@
             ],
             "title": "Ticker"
           },
+          "company_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Name"
+          },
           "is_headline": {
             "type": "boolean",
             "title": "Is Headline",

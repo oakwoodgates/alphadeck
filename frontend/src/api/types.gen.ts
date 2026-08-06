@@ -2849,6 +2849,8 @@ export interface components {
             security_id: string;
             /** Ticker */
             ticker?: string | null;
+            /** Company Name */
+            company_name?: string | null;
             /**
              * Is Headline
              * @default false
