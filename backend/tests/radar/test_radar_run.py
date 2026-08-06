@@ -172,3 +172,22 @@ def test_uncached_day_skips_quietly_no_live(db, cache):
     assert r.dates_scanned == [] and r.events_appended == 0
     assert any("not cached" in s for s in r.dates_skipped)
     assert r.errors == []
+
+
+def test_no_index_day_classifier_takes_403_and_404():
+    """MEASURED live 2026-08-05: EDGAR's edge serves 403 (not 404) for an absent weekend/holiday
+    master.idx — both must classify as the quiet no-index skip, never a logged error."""
+    from radar.spac import _is_no_index_day
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    class _HttpErr(Exception):
+        def __init__(self, code):
+            self.response = _Resp(code)
+
+    assert _is_no_index_day(_HttpErr(403))
+    assert _is_no_index_day(_HttpErr(404))
+    assert not _is_no_index_day(_HttpErr(500))
+    assert not _is_no_index_day(RuntimeError("boom"))

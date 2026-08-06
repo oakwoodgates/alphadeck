@@ -78,8 +78,11 @@ class RadarRunResult:
         return " · ".join(parts)
 
 
-def _is_http_404(e: Exception) -> bool:
-    return getattr(getattr(e, "response", None), "status_code", None) == 404
+def _is_no_index_day(e: Exception) -> bool:
+    """A missing daily index (weekend/holiday). MEASURED live 2026-08-05: EDGAR's edge answers
+    **403 Forbidden** (not 404) for an absent master.idx date — treat both as the quiet no-index
+    skip, never an error (loudness marks the exception; a weekend is not one)."""
+    return getattr(getattr(e, "response", None), "status_code", None) in (403, 404)
 
 
 def _resolve_shell(
@@ -165,8 +168,8 @@ def run_spac_radar(
         except CacheMiss:
             result.dates_skipped.append(f"{d} (not cached)")
             continue
-        except Exception as e:  # noqa: BLE001 — a 404 is a no-index day, anything else is an error
-            if _is_http_404(e):
+        except Exception as e:  # noqa: BLE001 — 403/404 = a no-index day, anything else is an error
+            if _is_no_index_day(e):
                 result.dates_skipped.append(str(d))
             else:
                 result.errors.append(f"{d}: index fetch: {e}")

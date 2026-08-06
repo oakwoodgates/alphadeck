@@ -65,7 +65,8 @@ def parse_master_idx(text: str) -> list[IndexFiling]:
 
 
 def fetch_daily_index(client: EdgarClient, d: date) -> list[IndexFiling]:
-    """Fetch + parse one day's master index. Raises on a fetch failure (404 = no index posted for
-    that date — weekends/holidays; the caller decides whether that is a skip or an error)."""
+    """Fetch + parse one day's master index. Raises on a fetch failure (EDGAR answers 403 — not
+    404 — for a date with no index posted, i.e. weekends/holidays; the caller decides whether
+    that is a skip or an error)."""
     text = client.get_text(daily_index_url(d), f"daily-index/master.{d:%Y%m%d}.idx")
     return parse_master_idx(text)
