@@ -1,11 +1,10 @@
+import type { ReactNode } from "react";
+
 import { useRadarSpac, useSpacAttach, useSpacCatalyst, type SpacEventOut } from "../api/hooks";
 import { errText } from "../workbench/format";
 
 interface Props {
-  onBack: () => void;
-  onOpenWorkbench: () => void;
-  onOpenScoreboard: () => void;
-  onOpenAdmin: () => void;
+  header?: ReactNode;
 }
 
 // The deal-state chip copy — the honest frame (Rev 2): a DA is a LEAD to watch, not a live name.
@@ -20,7 +19,7 @@ const STATE_LABEL: Record<SpacEventOut["deal_state"], string> = {
 /** The SPAC Radar (docs/temp/spac-radar-options.md slices 1+2): the blank-check transition tape —
  *  quiet, pull-only (#7), every row linked to its filing (#6). Matches are recommendations (#10):
  *  nothing changes until the operator clicks; add ⇄ remove is a reversible pair (#1). */
-export function Radar({ onBack, onOpenWorkbench, onOpenScoreboard, onOpenAdmin }: Props) {
+export function Radar({ header }: Props) {
   const q = useRadarSpac(90);
   const attach = useSpacAttach();
   const catalyst = useSpacCatalyst();
@@ -28,21 +27,7 @@ export function Radar({ onBack, onOpenWorkbench, onOpenScoreboard, onOpenAdmin }
 
   return (
     <div className="board-shell adm-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="dot" />
-          ALPHA&nbsp;DECK <small>// research cockpit</small>
-        </div>
-        <nav className="nav">
-          <a onClick={onBack}>Board</a>
-          <a onClick={onOpenWorkbench}>Workbench</a>
-          <a onClick={onOpenScoreboard}>Scoreboard</a>
-          <a className="on">Radar</a>
-          <a onClick={onOpenAdmin}>Admin</a>
-        </nav>
-        <div className="spacer" />
-        {/* no as-of dial: a "now" watch surface, like Admin */}
-      </header>
+      {header}
 
       <main className="radar-main">
         <div className="sect">

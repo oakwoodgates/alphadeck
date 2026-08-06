@@ -134,13 +134,7 @@ beforeEach(() => {
 });
 
 function renderAdmin() {
-  const onBack = vi.fn();
-  const onOpenWorkbench = vi.fn();
-  const onOpenScoreboard = vi.fn();
-  render(
-    <Admin onBack={onBack} onOpenWorkbench={onOpenWorkbench} onOpenScoreboard={onOpenScoreboard} />,
-  );
-  return { onBack, onOpenWorkbench, onOpenScoreboard };
+  render(<Admin />);
 }
 
 describe("Admin — loading + guards", () => {
@@ -436,18 +430,5 @@ describe("Admin — backups (create + list, operator-initiated)", () => {
     h.backups = { ...h.backups, data: { backups: [] } };
     renderAdmin();
     expect(screen.getByTestId("adm-backups").textContent).toContain("no snapshots yet");
-  });
-});
-
-describe("Admin — nav wiring", () => {
-  it("the topbar links fire the page callbacks", async () => {
-    const user = userEvent.setup();
-    const { onBack, onOpenWorkbench, onOpenScoreboard } = renderAdmin();
-    await user.click(screen.getByText("Board"));
-    expect(onBack).toHaveBeenCalled();
-    await user.click(screen.getByText("Workbench"));
-    expect(onOpenWorkbench).toHaveBeenCalled();
-    await user.click(screen.getByText("Scoreboard"));
-    expect(onOpenScoreboard).toHaveBeenCalled();
   });
 });

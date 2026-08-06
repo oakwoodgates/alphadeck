@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { AdminRunOut } from "../api/hooks";
 import {
@@ -13,9 +13,7 @@ import {
 import { errText } from "../workbench/format";
 
 interface Props {
-  onBack: () => void;
-  onOpenWorkbench: () => void;
-  onOpenScoreboard: () => void;
+  header?: ReactNode;
 }
 
 /** UTC artifact stamp -> a compact readable form ("2026-07-20 22:30Z"). */
@@ -72,7 +70,7 @@ function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
  *  plus ONE explicit trigger: "Run daily now". Honest loudness throughout: loud styling is reserved
  *  for stale / unhealthy; "current", "never begun", and "never ran" stay quiet. The trigger fires
  *  ONLY on the button click — never on mount, render, or poll (reads may poll; the trigger may not). */
-export function Admin({ onBack, onOpenWorkbench, onOpenScoreboard }: Props) {
+export function Admin({ header }: Props) {
   const statusQ = useAdminStatus();
   const runsQ = useAdminRuns(20);
   const start = useStartDailyRun();
@@ -125,20 +123,7 @@ export function Admin({ onBack, onOpenWorkbench, onOpenScoreboard }: Props) {
 
   return (
     <div className="board-shell adm-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="dot" />
-          ALPHA&nbsp;DECK <small>// research cockpit</small>
-        </div>
-        <nav className="nav">
-          <a onClick={onBack}>Board</a>
-          <a onClick={onOpenWorkbench}>Workbench</a>
-          <a onClick={onOpenScoreboard}>Scoreboard</a>
-          <a className="on">Admin</a>
-        </nav>
-        <div className="spacer" />
-        {/* no as-of dial: this is a "now" ops surface, not an as-of-scrubable view */}
-      </header>
+      {header}
 
       {statusQ.isLoading && <div className="center-note">Reading the run record…</div>}
       {statusQ.error != null && (

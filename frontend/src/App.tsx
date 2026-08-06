@@ -9,20 +9,11 @@ import {
 } from "react-router";
 
 import { Admin } from "./admin/Admin";
+import { AppHeader } from "./AppHeader";
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import {
-  ASOF,
-  NAME,
-  adminPath,
-  boardPath,
-  radarPath,
-  scoreboardPath,
-  thesisPath,
-  validAsof,
-  workbenchPath,
-} from "./nav";
+import { ASOF, NAME, boardPath, thesisPath, validAsof } from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
@@ -65,17 +56,13 @@ function BoardRoute() {
   const { asof, asofParam, setAsof } = useAsof();
   return (
     <Board
+      header={<AppHeader current="board" asof={asof} onAsofChange={setAsof} />}
       asof={asof}
-      onAsofChange={setAsof}
       onSelect={(id, nameKey) =>
         navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
           state: { from: here },
         })
       }
-      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
-      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
-      onOpenAdmin={() => navigate(adminPath(asofParam))}
-      onOpenRadar={() => navigate(radarPath(asofParam))}
     />
   );
 }
@@ -86,11 +73,8 @@ function ScoreboardRoute() {
   const { asof, asofParam, setAsof } = useAsof();
   return (
     <Scoreboard
+      header={<AppHeader current="scoreboard" asof={asof} onAsofChange={setAsof} />}
       asof={asof}
-      onAsofChange={setAsof}
-      onBack={() => navigate(boardPath(asofParam))}
-      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
-      onOpenAdmin={() => navigate(adminPath(asofParam))}
       onSelect={(id, nameKey) =>
         navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
           state: { from: here },
@@ -101,45 +85,23 @@ function ScoreboardRoute() {
 }
 
 function WorkbenchRoute() {
-  const navigate = useNavigate();
-  const { asof, asofParam, setAsof } = useAsof();
+  const { asof, setAsof } = useAsof();
   return (
     <Workbench
+      header={<AppHeader current="workbench" asof={asof} onAsofChange={setAsof} />}
       asof={asof}
-      onAsofChange={setAsof}
-      onBack={() => navigate(boardPath(asofParam))}
-      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
-      onOpenAdmin={() => navigate(adminPath(asofParam))}
     />
   );
 }
 
 function AdminRoute() {
-  const navigate = useNavigate();
-  const { asofParam } = useAsof();
-  // The Admin page is a "now" ops surface — no as-of dial of its own; the param rides the nav
-  // callbacks so tabbing back to a scrubbed view keeps the operator's as-of.
-  return (
-    <Admin
-      onBack={() => navigate(boardPath(asofParam))}
-      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
-      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
-    />
-  );
+  // A "now" ops surface — no as-of dial; AppHeader still carries ?asof= on its nav links.
+  return <Admin header={<AppHeader current="admin" />} />;
 }
 
 function RadarRoute() {
-  const navigate = useNavigate();
-  const { asofParam } = useAsof();
-  // Like Admin: a "now" watch surface — no as-of dial; the param rides the nav callbacks.
-  return (
-    <Radar
-      onBack={() => navigate(boardPath(asofParam))}
-      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
-      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
-      onOpenAdmin={() => navigate(adminPath(asofParam))}
-    />
-  );
+  // Like Admin: a "now" watch surface — no as-of dial; AppHeader carries ?asof= on its nav links.
+  return <Radar header={<AppHeader current="radar" />} />;
 }
 
 function CockpitRoute() {
