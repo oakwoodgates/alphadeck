@@ -2026,6 +2026,150 @@
         }
       }
     },
+    "/radar/spac": {
+      "get": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Spac Tape",
+        "description": "The SPAC Radar tape: blank-check transition filings (latest version per accession) newest\nfirst, each with its CIK's read-time deal state (derived over the FULL stored history, not just\nthe window), the canonical master join (ticker), per-thesis term-set matches (#10\nrecommendations), and which theses already hold the name (the reversible added-toggle).",
+        "operationId": "spac_tape_radar_spac_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "description": "tape window (filed within the last N days)",
+              "default": 90,
+              "title": "Days"
+            },
+            "description": "tape window (filed within the last N days)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadarSpacOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radar/spac/attach": {
+      "post": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Spac Attach",
+        "description": "Add a radar name to a thesis basket \u2014 the operator's click, so ``operator_set`` (#10: the\nradar recommended, the operator decided). The member lands uncharacterized (role \"\u2014\", no\narchetype, no segment \u2014 the finalize rail characterizes it, item F), with ``surfaced_terms``\nfrozen from the stored term matches (factual provenance, never client-supplied). Idempotent:\nalready-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).",
+        "operationId": "spac_attach_radar_spac_attach_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpacAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpacAttachOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radar/spac/detach": {
+      "post": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Spac Detach",
+        "description": "The attach inverse (#1 reversibility): remove the name from the basket, returning to the\nprior state \u2014 facts/prices stay bitemporal, a re-attach re-binds the same id. Not-in-basket\nis the idempotent no-op (``removed=False``).",
+        "operationId": "spac_detach_radar_spac_detach_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpacAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpacAttachOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -5114,6 +5258,33 @@
         ],
         "title": "ProvenanceOut"
       },
+      "RadarSpacOut": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/SpacEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "shells_known": {
+            "type": "integer",
+            "title": "Shells Known"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "window_days",
+          "shells_known"
+        ],
+        "title": "RadarSpacOut",
+        "description": "The SPAC Radar tape (``GET /radar/spac``): the latest version of each transition filing in\nthe window, newest first, with per-CIK deal state and per-thesis term matches. Pull-only and\nquiet by design (#7 \u2014 a blank check is maximally early); every row links its filing (#6)."
+      },
       "RatifiedFactOut": {
         "properties": {
           "fact_id": {
@@ -6921,6 +7092,223 @@
         ],
         "title": "Segment",
         "description": "A link in the thesis's value chain (the Workbench decomposition) \u2014 STRUCTURE, not a score.\n\nThe per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored."
+      },
+      "SpacAttachOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "added": {
+            "type": "boolean",
+            "title": "Added",
+            "default": false
+          },
+          "already": {
+            "type": "boolean",
+            "title": "Already",
+            "default": false
+          },
+          "removed": {
+            "type": "boolean",
+            "title": "Removed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id"
+        ],
+        "title": "SpacAttachOut",
+        "description": "The attach/detach receipt. ``added`` / ``removed`` say what actually happened; ``already``\nmarks the idempotent no-op (the member was already in the basket). Reversible by design\n(workbench principle #1): attach \u21c4 detach round-trips to the prior state."
+      },
+      "SpacAttachRequest": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "cik": {
+            "type": "string",
+            "title": "Cik"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "cik"
+        ],
+        "title": "SpacAttachRequest",
+        "description": "Body for ``POST /radar/spac/attach`` / ``.../detach`` \u2014 one radar name, one thesis. The\nserver resolves the CIK to the canonical master row and derives ``surfaced_terms`` from the\nstored matches (never client-supplied provenance)."
+      },
+      "SpacEventOut": {
+        "properties": {
+          "cik": {
+            "type": "string",
+            "title": "Cik"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "company_name": {
+            "type": "string",
+            "title": "Company Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "deal_state": {
+            "type": "string",
+            "enum": [
+              "searching",
+              "announced",
+              "terminated",
+              "completed"
+            ],
+            "title": "Deal State"
+          },
+          "in_basket_of": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "In Basket Of"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/SpacMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cik",
+          "company_name",
+          "form",
+          "filed",
+          "accession",
+          "url",
+          "deal_state"
+        ],
+        "title": "SpacEventOut",
+        "description": "One blank-check TRANSITION filing on the radar tape (SPAC Radar, slice 1) plus its read-time\n``deal_state`` (derived from the CIK's FULL event history \u2014 searching \u2192 announced \u2192 terminated |\ncompleted; announcement and termination are a PAIR, a dead deal never reads live). ``items`` =\n8-K item codes when resolvable (None = unknown \u2192 the state derive ignores the filing). A DA is\na LEAD, not a live name: the target is pre-liquidity and the deal can die \u2014 the state chip is\nthe honest frame. ``in_basket_of`` = theses already holding this security (drives the\nreversible added-toggle)."
+      },
+      "SpacMatchOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "signal_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Signal Terms"
+          },
+          "broad_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Broad Terms"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "signal_terms",
+          "broad_terms"
+        ],
+        "title": "SpacMatchOut",
+        "description": "One thesis's term-set hits against one radar filing (SPAC Radar, slice 2) \u2014 a RECOMMENDATION\n(INVARIANTS #10): display-only provenance, it changes nothing until the operator clicks an\naction. The matched term STRINGS by tier (the ``matched_terms`` idiom); ``truncated`` = the\ndocument was capped before matching (no silent caps \u2014 a cap must never read as \"no match\")."
       },
       "State": {
         "type": "string",

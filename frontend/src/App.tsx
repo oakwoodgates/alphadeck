@@ -17,11 +17,13 @@ import {
   NAME,
   adminPath,
   boardPath,
+  radarPath,
   scoreboardPath,
   thesisPath,
   validAsof,
   workbenchPath,
 } from "./nav";
+import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
@@ -73,6 +75,7 @@ function BoardRoute() {
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
       onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
       onOpenAdmin={() => navigate(adminPath(asofParam))}
+      onOpenRadar={() => navigate(radarPath(asofParam))}
     />
   );
 }
@@ -121,6 +124,20 @@ function AdminRoute() {
       onBack={() => navigate(boardPath(asofParam))}
       onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
       onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
+    />
+  );
+}
+
+function RadarRoute() {
+  const navigate = useNavigate();
+  const { asofParam } = useAsof();
+  // Like Admin: a "now" watch surface — no as-of dial; the param rides the nav callbacks.
+  return (
+    <Radar
+      onBack={() => navigate(boardPath(asofParam))}
+      onOpenWorkbench={() => navigate(workbenchPath(asofParam))}
+      onOpenScoreboard={() => navigate(scoreboardPath(asofParam))}
+      onOpenAdmin={() => navigate(adminPath(asofParam))}
     />
   );
 }
@@ -179,6 +196,7 @@ export function App() {
       <Route path="/workbench" element={<WorkbenchRoute />} />
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
+      <Route path="/radar" element={<RadarRoute />} />
       <Route path="/thesis/:thesisId" element={<CockpitRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

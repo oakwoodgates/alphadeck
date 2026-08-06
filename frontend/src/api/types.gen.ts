@@ -1075,6 +1075,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/radar/spac": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Spac Tape
+         * @description The SPAC Radar tape: blank-check transition filings (latest version per accession) newest
+         *     first, each with its CIK's read-time deal state (derived over the FULL stored history, not just
+         *     the window), the canonical master join (ticker), per-thesis term-set matches (#10
+         *     recommendations), and which theses already hold the name (the reversible added-toggle).
+         */
+        get: operations["spac_tape_radar_spac_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/radar/spac/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Spac Attach
+         * @description Add a radar name to a thesis basket — the operator's click, so ``operator_set`` (#10: the
+         *     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
+         *     archetype, no segment — the finalize rail characterizes it, item F), with ``surfaced_terms``
+         *     frozen from the stored term matches (factual provenance, never client-supplied). Idempotent:
+         *     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).
+         */
+        post: operations["spac_attach_radar_spac_attach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/radar/spac/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Spac Detach
+         * @description The attach inverse (#1 reversibility): remove the name from the basket, returning to the
+         *     prior state — facts/prices stay bitemporal, a re-attach re-binds the same id. Not-in-basket
+         *     is the idempotent no-op (``removed=False``).
+         */
+        post: operations["spac_detach_radar_spac_detach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2486,6 +2555,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * RadarSpacOut
+         * @description The SPAC Radar tape (``GET /radar/spac``): the latest version of each transition filing in
+         *     the window, newest first, with per-CIK deal state and per-thesis term matches. Pull-only and
+         *     quiet by design (#7 — a blank check is maximally early); every row links its filing (#6).
+         */
+        RadarSpacOut: {
+            /** Events */
+            events: components["schemas"]["SpacEventOut"][];
+            /** Window Days */
+            window_days: number;
+            /** Shells Known */
+            shells_known: number;
+        };
         /** RatifiedFactOut */
         RatifiedFactOut: {
             /**
@@ -3294,6 +3377,120 @@ export interface components {
             label: string;
             /** Descriptor */
             descriptor?: string | null;
+        };
+        /**
+         * SpacAttachOut
+         * @description The attach/detach receipt. ``added`` / ``removed`` say what actually happened; ``already``
+         *     marks the idempotent no-op (the member was already in the basket). Reversible by design
+         *     (workbench principle #1): attach ⇄ detach round-trips to the prior state.
+         */
+        SpacAttachOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Added
+             * @default false
+             */
+            added: boolean;
+            /**
+             * Already
+             * @default false
+             */
+            already: boolean;
+            /**
+             * Removed
+             * @default false
+             */
+            removed: boolean;
+        };
+        /**
+         * SpacAttachRequest
+         * @description Body for ``POST /radar/spac/attach`` / ``.../detach`` — one radar name, one thesis. The
+         *     server resolves the CIK to the canonical master row and derives ``surfaced_terms`` from the
+         *     stored matches (never client-supplied provenance).
+         */
+        SpacAttachRequest: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Cik */
+            cik: string;
+        };
+        /**
+         * SpacEventOut
+         * @description One blank-check TRANSITION filing on the radar tape (SPAC Radar, slice 1) plus its read-time
+         *     ``deal_state`` (derived from the CIK's FULL event history — searching → announced → terminated |
+         *     completed; announcement and termination are a PAIR, a dead deal never reads live). ``items`` =
+         *     8-K item codes when resolvable (None = unknown → the state derive ignores the filing). A DA is
+         *     a LEAD, not a live name: the target is pre-liquidity and the deal can die — the state chip is
+         *     the honest frame. ``in_basket_of`` = theses already holding this security (drives the
+         *     reversible added-toggle).
+         */
+        SpacEventOut: {
+            /** Cik */
+            cik: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Company Name */
+            company_name: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Form */
+            form: string;
+            /** Items */
+            items?: string[] | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /** Url */
+            url: string;
+            /**
+             * Deal State
+             * @enum {string}
+             */
+            deal_state: "searching" | "announced" | "terminated" | "completed";
+            /** In Basket Of */
+            in_basket_of?: string[];
+            /** Matches */
+            matches?: components["schemas"]["SpacMatchOut"][];
+        };
+        /**
+         * SpacMatchOut
+         * @description One thesis's term-set hits against one radar filing (SPAC Radar, slice 2) — a RECOMMENDATION
+         *     (INVARIANTS #10): display-only provenance, it changes nothing until the operator clicks an
+         *     action. The matched term STRINGS by tier (the ``matched_terms`` idiom); ``truncated`` = the
+         *     document was capped before matching (no silent caps — a cap must never read as "no match").
+         */
+        SpacMatchOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Signal Terms */
+            signal_terms: string[];
+            /** Broad Terms */
+            broad_terms: string[];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
         };
         /**
          * State
@@ -4856,6 +5053,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackupsOut"];
+                };
+            };
+        };
+    };
+    spac_tape_radar_spac_get: {
+        parameters: {
+            query?: {
+                /** @description tape window (filed within the last N days) */
+                days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadarSpacOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    spac_attach_radar_spac_attach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpacAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpacAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    spac_detach_radar_spac_detach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpacAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpacAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

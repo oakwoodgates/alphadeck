@@ -256,6 +256,25 @@ def run_daily_pass(
     health = assess_health(results, asof=asof, allow_live=allow_live)
     if health is not None:
         notifier.notify_health(health)
+    # The SPAC Radar's universe-level leg (docs/temp/spac-radar-options.md, slice 1) — deliberately
+    # OUTSIDE run_daily: its own connection + EdgarClient, so it can never pollute the per-thesis
+    # edgar_fetches freeze counters or the recording gate. Fail-open: a radar fault never fails the
+    # call cron (printed loud, not raised). Skipped on --no-live (the recording-gate philosophy — a
+    # cache-only run can't scan new indexes; the CLI `python -m pipeline.spac_radar` is the manual path).
+    if allow_live:
+        try:
+            from radar.spac import run_spac_radar
+
+            radar_conn = connect()
+            try:
+                rr = run_spac_radar(radar_conn, until=asof, days=3, allow_live=True)
+            finally:
+                radar_conn.close()
+            print(f"SPAC radar: {rr.summary}")
+            for err in rr.errors:
+                print(f"  SPAC radar ERROR: {err}")
+        except Exception as e:  # noqa: BLE001 — the radar is a passenger, never the driver
+            print(f"WARNING: SPAC radar leg failed: {e}")
     return DailyPassOutcome(
         results=results,
         asof=asof,

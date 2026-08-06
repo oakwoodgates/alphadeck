@@ -20,6 +20,7 @@ interface Props {
   onOpenWorkbench: () => void;
   onOpenScoreboard: () => void;
   onOpenAdmin: () => void;
+  onOpenRadar: () => void;
 }
 
 interface Row {
@@ -34,6 +35,7 @@ export function Board({
   onOpenWorkbench,
   onOpenScoreboard,
   onOpenAdmin,
+  onOpenRadar,
 }: Props) {
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
@@ -69,6 +71,7 @@ export function Board({
           <a className="on">Board</a>
           <a onClick={onOpenWorkbench}>Workbench</a>
           <a onClick={onOpenScoreboard}>Scoreboard</a>
+          <a onClick={onOpenRadar}>Radar</a>
           <a onClick={onOpenAdmin}>Admin</a>
         </nav>
         <div className="spacer" />

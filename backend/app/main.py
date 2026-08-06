@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
-from app.routers import admin, scoreboard, theses, workbench
+from app.routers import admin, radar, scoreboard, theses, workbench
 from domain.settings import get_settings
 from workbench.draft_jobs import assert_single_worker
 
@@ -36,6 +36,7 @@ app.include_router(theses.router)
 app.include_router(workbench.router)
 app.include_router(scoreboard.router)
 app.include_router(admin.router)
+app.include_router(radar.router)
 
 
 @app.get("/health", tags=["meta"], response_model=HealthResponse)

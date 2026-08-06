@@ -237,6 +237,12 @@ class Settings(BaseSettings):
     sec_archives_base: str = (
         "https://www.sec.gov/Archives/edgar/data"  # filing docs + the provenance index link
     )
+    sec_daily_index_base: str = (
+        # The daily filing index (one master.idx per trading day: CIK|Company|Form|Date|Filename) — the
+        # SPAC Radar's enumeration spine (radar/spac.py). Deliberately NOT the EFTS search host: the radar
+        # never touches discovery's full-text path, so it can't drift the recall-gated universe.
+        "https://www.sec.gov/Archives/edgar/daily-index"
+    )
     sec_company_tickers_url: str = (
         # The EXCHANGE variant ({fields, data} rows in the SEC's own order) — it carries a PER-INSTRUMENT
         # exchange for the whole universe (ASML=Nasdaq vs ASMLF=OTC), which the canonical-primary rank needs;

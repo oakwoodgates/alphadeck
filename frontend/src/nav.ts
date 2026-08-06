@@ -4,6 +4,7 @@
 //   /scoreboard          the Scoreboard (the API's own /scoreboard lives behind /api — see api/client.ts)
 //   /workbench           the Workbench
 //   /admin               the Operator Admin (ops: record freshness, cron health, run-now)
+//   /radar               the SPAC Radar (the blank-check transition tape)
 //   /thesis/:thesisId    the Cockpit (singular, deliberately outside the API's /theses namespace)
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
@@ -45,6 +46,9 @@ export const workbenchPath = (asof: string | null) => withParams("/workbench", {
 // The Admin page itself has no as-of dial (it is a "now" ops surface), but the param rides along so
 // tabbing away and back to a scrubbed view keeps the operator's as-of.
 export const adminPath = (asof: string | null) => withParams("/admin", { [ASOF]: asof });
+
+// The SPAC Radar — a "now" watch surface like Admin (no as-of dial; the param rides along).
+export const radarPath = (asof: string | null) => withParams("/radar", { [ASOF]: asof });
 
 export const thesisPath = (
   id: string,
