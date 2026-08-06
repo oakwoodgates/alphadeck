@@ -15,7 +15,7 @@ import {
   type BucketRow,
 } from "./buckets";
 import { NamePanel } from "./NamePanel";
-import { exportKeptNames, toExportedName } from "../util/exportNames";
+import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
 import {
   accentVar,
   archLabel,
@@ -87,6 +87,13 @@ export function Cockpit({
   const exportRows = groups
     .flatMap((g) => g.rows)
     .map((r) => toExportedName({ ticker: r.member.ticker, name: r.scored?.name }));
+  // The TradingView-watchlist export needs the exchange (mapped to a TV prefix, bare when unmappable) —
+  // and only a tickered name can go in a watchlist, so drop the ticker-less rows (the count then reflects
+  // exactly what exports). Exchange rides on the scored member, bridged by security_id like the name.
+  const watchlistRows = groups
+    .flatMap((g) => g.rows)
+    .map((r) => ({ ticker: r.member.ticker ?? "", exchange: r.scored?.exchange ?? null }))
+    .filter((r) => r.ticker.trim() !== "");
 
   // The per-name panel's selection — lifted to the URL (the selectedName prop, ?name= via App's
   // CockpitRoute) and RESOLVED to a row on every render, so a deep link opens the panel the moment
@@ -182,6 +189,7 @@ export function Cockpit({
                     className="wb-mini ghost"
                     disabled={exportRows.length === 0}
                     aria-label={`export ${exportRows.length} board names`}
+                    title="Download the basket as JSON (ticker + name, sorted for a stable diff)"
                     onClick={() =>
                       exportKeptNames({
                         thesisName: thesis.name,
@@ -191,7 +199,19 @@ export function Cockpit({
                       })
                     }
                   >
-                    Export ({exportRows.length})
+                    Export JSON ({exportRows.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="wb-mini ghost"
+                    disabled={watchlistRows.length === 0}
+                    aria-label={`export ${watchlistRows.length} names as a TradingView watchlist`}
+                    title="Download a .txt that imports directly into a TradingView watchlist (EXCHANGE:TICKER)"
+                    onClick={() =>
+                      exportWatchlist({ thesisName: thesis.name, asof, rows: watchlistRows })
+                    }
+                  >
+                    Export Watchlist ({watchlistRows.length})
                   </button>
                 </div>
                 {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's

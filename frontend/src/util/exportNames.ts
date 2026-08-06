@@ -93,3 +93,90 @@ export function exportSegmentedNames(opts: {
   }
   downloadJson(exportFilename(opts.thesisName, opts.stage, opts.asof), out);
 }
+
+// --- TradingView watchlist export ------------------------------------------------------------------
+// A SECOND export shape beside the JSON dump: a TradingView-importable symbol list (.txt). TradingView's
+// watchlist import reads a comma-separated stream where `###Name` opens a named section and each symbol is
+// ideally `EXCHANGE:TICKER` (a bare TICKER also resolves, but the prefix pins the US listing over a foreign
+// one). We PREFIX only the exchanges we can map with confidence and fall back to a BARE ticker for anything
+// else — a WRONG prefix fails to resolve, strictly worse than bare (which TradingView resolves to the primary
+// listing). The confident map was measured against the live security-master vocabulary (Nasdaq / NYSE / OTC
+// dominate; CBOE / null are the tail → bare).
+
+export type WatchlistRow = {
+  ticker: string;
+  /** The security-master exchange string (EDGAR's `submissions.exchanges[0]` vocabulary), or null. */
+  exchange?: string | null;
+};
+
+/** Map a security-master exchange string to a TradingView exchange code — CONFIDENT cases only. Returns null
+ *  → the caller emits a bare ticker (which TradingView still resolves). Case/space-insensitive so "Nasdaq",
+ *  "NASDAQ", "NasdaqGS" all land. Deliberately omits CBOE / BATS / IEX and anything unrecognized (→ bare): a
+ *  wrong prefix is worse than none. NYSE Arca maps to AMEX — where TradingView files US-listed ETFs (AMEX:SPY). */
+export function tvExchangePrefix(exchange: string | null | undefined): string | null {
+  const key = (exchange ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!key) return null;
+  if (key.startsWith("nasdaq")) return "NASDAQ";
+  if (key === "nyse" || key === "new york stock exchange") return "NYSE";
+  if (key.startsWith("nyse american") || key === "nyseamerican" || key === "nyse mkt" || key === "amex")
+    return "AMEX";
+  if (key.startsWith("nyse arca") || key === "nysearca" || key === "arca") return "AMEX";
+  if (key.startsWith("otc") || key.startsWith("pink")) return "OTC";
+  return null; // CBOE / BATS / IEX / unknown / null → bare ticker
+}
+
+/** The TradingView symbol for a row: `EXCHANGE:TICKER` when the exchange maps confidently, else the bare
+ *  (uppercased) ticker. An empty ticker → "" (the caller drops it). */
+export function tvSymbol(row: WatchlistRow): string {
+  const ticker = row.ticker.trim().toUpperCase();
+  if (!ticker) return "";
+  const prefix = tvExchangePrefix(row.exchange);
+  return prefix ? `${prefix}:${ticker}` : ticker;
+}
+
+/** Build the TradingView import payload: one `###<section>` header then the comma-joined symbols, sorted by
+ *  ticker (stable + diff-friendly, the JSON export's idiom) and de-duplicated by emitted symbol. Ticker-less
+ *  rows are dropped. The section label is comma-stripped (comma is the format's delimiter). */
+export function buildWatchlistTxt(section: string, rows: WatchlistRow[]): string {
+  const seen = new Set<string>();
+  const symbols: string[] = [];
+  const ordered = [...rows].sort((a, b) =>
+    a.ticker.localeCompare(b.ticker, undefined, { sensitivity: "base" }),
+  );
+  for (const row of ordered) {
+    const sym = tvSymbol(row);
+    if (!sym) continue;
+    const dedupeKey = sym.toUpperCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    symbols.push(sym);
+  }
+  const header = section.replace(/,/g, " ").replace(/\s+/g, " ").trim() || "Watchlist";
+  return [`###${header}`, ...symbols].join(",");
+}
+
+export function watchlistFilename(thesisName: string, asof: string): string {
+  return `${slugForFilename(thesisName)}-watchlist-${asof}.txt`;
+}
+
+export function downloadText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Download the thesis basket as a TradingView-importable watchlist (.txt) — the thesis name is the section. */
+export function exportWatchlist(opts: {
+  thesisName: string;
+  asof: string;
+  rows: WatchlistRow[];
+}): void {
+  downloadText(
+    watchlistFilename(opts.thesisName, opts.asof),
+    buildWatchlistTxt(opts.thesisName, opts.rows),
+  );
+}
