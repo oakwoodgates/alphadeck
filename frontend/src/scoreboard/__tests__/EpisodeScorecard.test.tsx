@@ -306,13 +306,18 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
     expect(section).toHaveTextContent("current tape · as-of Jul 15");
   });
 
-  it("a no-forward-bar episode gets NO ledger, even with an asof (mirrors no chart)", async () => {
-    renderCard(<EpisodeScorecard ep={ep({ insufficient_prices: true })} asof={ASOF} />, (qc) => {
-      // seed the two enabled Cockpit reads so no real fetch fires (the price window is gated off by noBar)
+  it("a no-forward-bar episode WITH pre-arm price data renders the ledger + chart (not gated on the forward bar)", async () => {
+    const noBarEp = ep({ insufficient_prices: true });
+    renderCard(<EpisodeScorecard ep={noBarEp} asof={ASOF} />, (qc) => {
+      // the price window is the name's full pre-arm history (not arm-relative) → it loads for a fresh arm too
+      qc.setQueryData(["episode-price-window", "t1", "s1", noBarEp.arm_date, ASOF], {
+        bars: LBARS,
+        insider_buys: [LBUY],
+      });
       qc.setQueryData(["workbench-scored", "t1", ASOF], { members: [] });
       qc.setQueryData(["display-signals", "t1", ASOF], { members: [] });
     });
-    await screen.findByText("The move"); // flush the lazy chart's Suspense inside act
-    expect(screen.queryByText("Event ledger")).toBeNull();
+    const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
+    expect(section.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
   });
 });

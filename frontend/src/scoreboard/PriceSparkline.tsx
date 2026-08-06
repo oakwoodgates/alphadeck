@@ -10,7 +10,6 @@ import {
   overlayTooltip,
   stackChips,
 } from "./overlay";
-import { noForwardBar } from "./scorecard";
 
 // The drawer's episode chart (Slice 3, evolved in Slice A/R1, and — Slice B — lifted onto shared props). It
 // draws the CLOSE line with faint SMA 50/200 context behind it, plus a CUSTOM numbered-chip overlay for the
@@ -19,7 +18,8 @@ import { noForwardBar } from "./scorecard";
 // hoverable (a tooltip with the disclosure lag + market-price context, and a guide-line to its point on the
 // price), a legend names the present families, and collision-stacking never drops a chip (a hidden one shows
 // as "+N"). #229 lessons preserved: the close series pins the y-axis autoscale (SMA lines + chips never
-// re-inflate it), a no-forward-bar episode draws NO chart, and the chart disposes on unmount.
+// re-inflate it), the chart draws on ≥2 bars (a just-armed episode still shows its pre-arm path — only
+// genuinely-thin/absent data falls back to the quiet line), and the chart disposes on unmount.
 // lightweight-charts' built-in setMarkers is static + hover-less, so the chips are a positioned DOM layer.
 //
 // Slice B: the price WINDOW fetch and the ONE `buildOverlayEvents` numbering now live in the parent
@@ -84,7 +84,6 @@ export function PriceSparkline({
   loading?: boolean;
   error?: boolean;
 }) {
-  const noBar = noForwardBar(ep);
   const hasPath = bars.length >= 2;
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -244,7 +243,6 @@ export function PriceSparkline({
     // render below, never a canvas rebuild (the anti-storm invariant).
   }, [bars, events, ep]);
 
-  if (noBar) return <div className="sc-spark sc-spark-empty">no price path yet</div>;
   if (error) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
   if (!hasPath)
     return (
