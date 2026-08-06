@@ -70,6 +70,12 @@ def _seed_five_matured_cycles(db, security_id):
 
 def test_scoreboard_shape_counts_and_provenance(client, db, security_id):
     thesis = _seed_one_open_censored(db, security_id)
+    # the scorecard shows the full company name beside the ticker (master.names_for) — seed one
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET name = %s WHERE id = %s", ("DevCo Inc.", security_id)
+        )
+    db.commit()
 
     r = client.get("/scoreboard", params={"asof": ASOF})
     assert r.status_code == 200
@@ -90,6 +96,7 @@ def test_scoreboard_shape_counts_and_provenance(client, db, security_id):
     (ep,) = t["episodes"]
     assert ep["status"] == "open" and ep["censored_start"] is True and ep["matured"] is False
     assert ep["arm_date"] == "2026-07-10" and ep["ticker"] == "DEVCO"
+    assert ep["company_name"] == "DevCo Inc."  # resolved from the master, beside the ticker
     assert ep["entry_close"] == 100.0 and ep["exit_close"] == 104.0
     assert ep["truncated"] is True  # running to the last bar <= asof
     assert len(ep["triggers_at_arm"]) >= 1  # the WHY rides the row

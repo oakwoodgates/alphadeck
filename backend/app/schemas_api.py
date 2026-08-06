@@ -826,6 +826,9 @@ class ScoreboardEpisodeOut(BaseModel):
     thesis_id: UUID
     security_id: UUID
     ticker: str | None = None
+    company_name: str | None = (
+        None  # the security's registered master name — shown beside the ticker
+    )
     is_headline: bool = False
     theme_armed: bool = False
     arm_date: date
@@ -864,13 +867,17 @@ class ScoreboardEpisodeOut(BaseModel):
 
 
 def _scoreboard_episode_out(
-    e: ScoredEpisode, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+    e: ScoredEpisode,
+    ciks: Mapping[UUID, str | None],
+    tickers: Mapping[UUID, str | None],
+    names: Mapping[UUID, str | None],
 ) -> ScoreboardEpisodeOut:
     ep, out = e.episode, e.outcome
     return ScoreboardEpisodeOut(
         thesis_id=ep.thesis_id,
         security_id=ep.security_id,
         ticker=tickers.get(ep.security_id),
+        company_name=names.get(ep.security_id),
         is_headline=ep.is_headline,
         theme_armed=ep.theme_armed,
         arm_date=ep.arm_date,
@@ -929,7 +936,10 @@ class ScoreboardThesisOut(BaseModel):
 
 
 def _scoreboard_thesis_out(
-    t: ThesisRecord, ciks: Mapping[UUID, str | None], tickers: Mapping[UUID, str | None]
+    t: ThesisRecord,
+    ciks: Mapping[UUID, str | None],
+    tickers: Mapping[UUID, str | None],
+    names: Mapping[UUID, str | None],
 ) -> ScoreboardThesisOut:
     return ScoreboardThesisOut(
         thesis_id=t.thesis_id,
@@ -942,7 +952,7 @@ def _scoreboard_thesis_out(
         current_state=t.current_state,
         current_verdict=t.current_verdict,
         warming_since=t.warming_since,
-        episodes=[_scoreboard_episode_out(e, ciks, tickers) for e in t.episodes],
+        episodes=[_scoreboard_episode_out(e, ciks, tickers, names) for e in t.episodes],
         operator_spans=[_operator_span_out(s, tickers) for s in t.operator_spans],
         decision_anomaly=t.decision_anomaly,
         record_error=t.error,

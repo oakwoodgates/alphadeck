@@ -552,6 +552,26 @@ def tickers_for(
         return {row["id"]: row["ticker"] for row in cur.fetchall()}
 
 
+def names_for(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, str | None]:
+    """Map security ids -> their registered company name — the scorecard shows the full name beside
+    the ticker (the ticker alone doesn't say what the company is). Ids with no master row are omitted.
+    """
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, name FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+            (tenant_id, ids),
+        )
+        return {row["id"]: row["name"] for row in cur.fetchall()}
+
+
 def exists(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> bool:

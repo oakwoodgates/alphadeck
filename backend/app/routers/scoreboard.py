@@ -91,7 +91,8 @@ def get_scoreboard(
         tenant = t.tenant_id or DEFAULT_TENANT_ID
         ciks = master.ciks_for(conn, sids, tenant_id=tenant)
         tickers = master.tickers_for(conn, sids, tenant_id=tenant)
-        theses_out.append(_scoreboard_thesis_out(t, ciks, tickers))
+        names = master.names_for(conn, sids, tenant_id=tenant)
+        theses_out.append(_scoreboard_thesis_out(t, ciks, tickers, names))
     summary = result.summary  # assemble_scoreboard always fills it
 
     # Record freshness (compute-on-read; the read still writes nothing) — the same staleness the admin
@@ -185,13 +186,14 @@ def get_scoreboard_replay(
         tenant = t.tenant_id or DEFAULT_TENANT_ID
         ciks = master.ciks_for(conn, sids, tenant_id=tenant)
         tickers = master.tickers_for(conn, sids, tenant_id=tenant)
+        names = master.names_for(conn, sids, tenant_id=tenant)
         theses_out.append(
             ScoreboardReplayThesisOut(
                 thesis_id=t.thesis_id,
                 name=t.name,
                 ticker=t.ticker,
                 basket_size=t.basket_size,
-                episodes=[_scoreboard_episode_out(e, ciks, tickers) for e in t.episodes],
+                episodes=[_scoreboard_episode_out(e, ciks, tickers, names) for e in t.episodes],
             )
         )
     return ScoreboardReplayResponse(

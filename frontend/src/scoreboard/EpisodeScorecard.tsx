@@ -96,6 +96,7 @@ export function EpisodeScorecard({
     <div className="sc">
       <div className="sc-head">
         <span className="sc-tk">{ep.ticker ?? "—"}</span>
+        {ep.company_name && <span className="sc-co">{ep.company_name}</span>}
         {thesisName && <span>· {thesisName}</span>}
         <span className="sc-span">
           {fmtDate(ep.arm_date)} → {ep.dearm_date ? fmtDate(ep.dearm_date) : "still armed"}
