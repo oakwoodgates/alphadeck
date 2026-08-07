@@ -50,9 +50,11 @@ nights, and containers that don't always restart. Three questions and one safety
   `stale` false), never an alarm.
 
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
-(`pipeline/schedule.py`), two surfaces. *(Earmark: `schedule.py` is now the second home of the Mon-Fri +
-`RUN_AT` contract, alongside the shell's sleep-loop; a durable `market_today()` would unify them — see
-`ROADMAP.md` "what's next".)*
+(`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
+`ZoneInfo`) rather than an ambient `datetime.now()`. *(Earmark, still open: `schedule.py` remains the second
+home of the Mon-Fri + `RUN_AT` contract alongside the shell's sleep-loop. `market_today()` did **not** unify
+them — it answers "what day is it in market time" and does no trading-calendar logic; the remaining work is
+shrinking the shell to a dumb trigger. See `ROADMAP.md` "what's next".)*
 
 ## Cron health — "did last night's run work?"
 

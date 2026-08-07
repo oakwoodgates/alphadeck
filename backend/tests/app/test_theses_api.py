@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date
 from pathlib import Path
 
 from app.openapi_export import export
 from app.schemas_api import edgar_url
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype
+from domain.market_time import market_today
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
@@ -158,7 +158,9 @@ def test_get_thesis_populates_attributed_position_security_id(client, db, securi
         f"/theses/{tid}/decisions",
         json={
             "action": "take",
-            "decision_date": str(date.today()),
+            # the PRODUCTION clock — the route's guard validates against `market_today()`, so an
+            # ambient `date.today()` reads as future-dated (422) on any runner ahead of market time
+            "decision_date": str(market_today()),
             "security_id": str(security_id),
             "price": 12.5,
         },
@@ -170,7 +172,7 @@ def test_get_thesis_populates_attributed_position_security_id(client, db, securi
     # the previously-structurally-null field, now populated from the log's authoritative position
     assert detail["position"]["security_id"] == str(security_id)
     assert detail["position"]["entry_price"] == 12.5
-    assert detail["position"]["opened_on"] == str(date.today())
+    assert detail["position"]["opened_on"] == str(market_today())
 
 
 def test_call_endpoint_unknown_thesis_404(client):

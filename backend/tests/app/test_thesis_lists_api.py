@@ -12,14 +12,18 @@ arming path) with a REQUIRED citation — an uncited catalyst is a bare operator
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Archetype
+from domain.market_time import market_today
 from domain.thesis import BasketMember, Segment, Thesis
 from repositories import thesis_repo
 
-TODAY = date.today()
+# Option (b), INVARIANTS.md §6: read the PRODUCTION clock (market_today) so these test dates and the
+# code agree by construction — never an ambient date.today() that drifts on a runner whose zone leads
+# market time (CI runs UTC).
+TODAY = market_today()
 
 
 def _thesis(db, security_id=None) -> Thesis:

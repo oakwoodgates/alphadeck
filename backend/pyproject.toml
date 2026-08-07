@@ -21,6 +21,15 @@ dependencies = [
     "httpx>=0.27",
     "uvicorn>=0.29",  # to serve: python -m uvicorn app.main:app --reload
     "anthropic>=0.40",  # the one LLM seam (the FLAG-explanation drafter); imported lazily, like httpx
+    # tzdata: REQUIRED, not optional — `domain/market_time.market_today()` resolves an explicit
+    # ZoneInfo("America/New_York"), and Windows ships NO system tz database (`zoneinfo.TZPATH` is empty
+    # there), so without this every trading-day read raises ZoneInfoNotFoundError and the whole local dev
+    # loop breaks. It has been arriving ACCIDENTALLY — psycopg declares `tzdata; sys_platform == "win32"`
+    # — which is exactly the #125 shape from the cron post-mortem: a latent break masked by an accidental
+    # mitigation that an upstream change can remove at any time. Declared here so the dependency is ours.
+    # (The container ALSO installs system tzdata via apt — see backend/Dockerfile — for the cron sidecar's
+    # shell TZ; that covers the shell, not the Python zoneinfo lookup.)
+    "tzdata",
 ]
 
 [project.optional-dependencies]

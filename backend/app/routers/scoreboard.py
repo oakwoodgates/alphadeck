@@ -20,6 +20,7 @@ from app.schemas_api import (
     _scoreboard_thesis_out,
 )
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_now
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
@@ -43,10 +44,11 @@ router = APIRouter(prefix="/scoreboard", tags=["scoreboard"])
 
 
 def _now() -> datetime:
-    """Container-local wall clock (compose pins ``TZ=America/New_York``) — a seam so tests pin the
-    clock; the schedule math itself is pure over the injected now. Copied from ``admin.py`` (one
-    contract, two surfaces — the earmark until a durable ``market_today()`` lands)."""
-    return datetime.now()
+    """The MARKET wall clock (``domain/market_time.market_now`` — an explicit ``ZoneInfo``) — a seam so
+    tests pin the clock; the schedule math itself is pure over the injected now. The earmark this
+    duplication carried is RESOLVED: both surfaces now share one contract in ``domain/market_time``, and
+    the two ``_now`` wrappers survive only as the per-router monkeypatch seams the tests pin."""
+    return market_now()
 
 
 def _run_at() -> time:

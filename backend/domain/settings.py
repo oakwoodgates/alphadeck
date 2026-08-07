@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     # wrong var). Parsed at the edge by schedule.parse_run_at (a malformed value fails LOUD there).
     cron_run_at: str = Field(default="22:30", validation_alias=AliasChoices("ALPHADECK_CRON_AT"))
 
+    # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
+    # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the
+    # process's AMBIENT timezone, so a UTC container after ~20:00 ET derived TOMORROW's trading day and
+    # computed a materially different call (asof is a liveness PARAMETER, not a label). This field is the
+    # explicit answer; `market_today()` / `market_now()` are its only readers. Read via the env_prefix
+    # (ALPHADECK_MARKET_TZ) — deliberately NOT the bare `TZ` compose pins (which stays as defense-in-depth
+    # for wall-clock consumers like the cron shell), so a stray TZ can't capture the domain clock.
+    # A bad zone fails LOUD in market_tz() — never a silent UTC fallback.
+    market_tz: str = "America/New_York"
+
     # --- Admin ops surface (Slice 4) — the DB-snapshot job registry + retention ---
     # The snapshot job's OWN reaper TTLs (pipeline/backup_job.py — deliberately NOT the daily dials: a
     # pg_dump runs ~30-90s, far below the ~65-min daily pass, so it warrants a tighter running TTL). A

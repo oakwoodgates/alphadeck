@@ -8,11 +8,15 @@ import uuid
 from datetime import date, timedelta
 
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_today
 from domain.thesis import Thesis
 from radar import repo
 from repositories import thesis_repo
 
-TODAY = date.today()
+# Option (b), INVARIANTS.md §6: read the PRODUCTION clock (market_today) so these test dates and the
+# code agree by construction — never an ambient date.today() that drifts on a runner whose zone leads
+# market time (CI runs UTC).
+TODAY = market_today()
 
 
 def _master(db, cik10: str, ticker: str | None, sector: str | None) -> uuid.UUID:

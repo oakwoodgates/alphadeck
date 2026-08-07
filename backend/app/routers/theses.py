@@ -20,6 +20,7 @@ from app.schemas_api import (
     ThesisDetail,
     ThesisSummary,
 )
+from domain.market_time import market_today
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -85,7 +86,7 @@ def get_thesis(
     # so nothing regresses; ``known_at=None`` reads decisions as of current knowledge (no-lookahead
     # #1 holds — a fill can't be dated in the future).
     thesis.position = decisions_repo.effective_position(
-        conn, thesis, asof=date.today(), known_at=None
+        conn, thesis, asof=market_today(), known_at=None
     )
     return ThesisDetail.from_thesis(thesis)
 
@@ -249,12 +250,12 @@ def post_decision(
     is corrected by ``void`` (an append pointing at the mistaken row — reversibility, never a delete).
     The append feeds the Managing state on the next call read (the position derives from this log).
     """
-    if body.decision_date > date.today():
+    if body.decision_date > market_today():
         raise HTTPException(
             status_code=422,
             detail="decision_date cannot be in the future — the log records decisions already made",
         )
-    open_pos = decisions_repo.effective_position(conn, thesis, asof=date.today())
+    open_pos = decisions_repo.effective_position(conn, thesis, asof=market_today())
     if body.action == "take" and open_pos is not None:
         raise HTTPException(
             status_code=422,

@@ -13,6 +13,7 @@ import pytest
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_today
 from domain.settings import get_settings
 from ingest.funds.polygon import PolygonError
 from pipeline.backfill_fund_shares import BackfillResult, backfill_dates, backfill_thesis
@@ -218,12 +219,14 @@ def test_a_real_failure_stops_that_members_walk_and_is_captured(db):
 def test_end_is_capped_at_today_never_future_dated(db):
     sid = _add_master(db, ticker="URA")
     tid = _make_thesis(db, [("URA", sid)])
-    future = date.today() + timedelta(days=10)
-    stub = _StubPolygon(_flat_counts(backfill_dates(date.today(), 3, 1)))
+    # Option (b), INVARIANTS.md §6: the cap is market_today() in production, so the test computes the
+    # window against the SAME clock — never an ambient date.today() that could lead market time (CI runs UTC).
+    future = market_today() + timedelta(days=10)
+    stub = _StubPolygon(_flat_counts(backfill_dates(market_today(), 3, 1)))
 
     backfill_thesis(db, tid, days=3, cadence=1, end=future, polygon=stub)
 
-    assert max(d for _, d in stub.calls) <= date.today()  # no future-dated sample (#1)
+    assert max(d for _, d in stub.calls) <= market_today()  # no future-dated sample (#1)
 
 
 def test_without_a_key_the_backfill_refuses_loudly(db, monkeypatch):
