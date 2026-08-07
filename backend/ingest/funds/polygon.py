@@ -34,6 +34,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+from domain.market_time import market_today
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import RateLimiter, polite_get
@@ -109,7 +110,7 @@ class PolygonFundSource:
         """The forward daily sample: query TODAY and stamp ``d`` = today (the queried date — Polygon
         states no effective date of its own)."""
         return self.get_snapshot_at(
-            ticker, date.today(), allow_live=allow_live, force_refresh=force_refresh
+            ticker, market_today(), allow_live=allow_live, force_refresh=force_refresh
         )
 
     def get_snapshot_at(

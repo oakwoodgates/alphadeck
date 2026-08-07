@@ -87,7 +87,8 @@ alphadeck/
     │   ├── extraction.py           #   ExtractedFact · Tier (AUTO/FLAG/HUMAN) · LocatedPassage
     │   ├── workbench.py            #   ScoredMember · ScoredFigure (the meter results)
     │   ├── config.py               #   CallConfig (the trust-validated call-engine dials) · ExtractorConfig
-    │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle (ALPHADECK_*; config refactor)
+    │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle + market_tz (ALPHADECK_*; config refactor)
+    │   ├── market_time.py          #   market_today()/market_now() — "today" on an EXPLICIT ZoneInfo: the ONE home for the trading day (INVARIANTS #6; NO calendar logic)
     │   └── coerce.py               #   to_float — the shared scalar coercer (Tier-1 dedup)
     ├── llm/                        # THE LLM SEAMS (model-agnostic; fail-open; SDK lazy-imported)
     │   ├── client.py               #   LLMClient.draft_structured (forced tool-use) + research (web_search) + the allow_live gate
@@ -230,8 +231,9 @@ alphadeck/
   2026-07-10 and is still accruing — the aggregate metrics stay honestly empty until clean-data arms mature,
   #214) → the second, out-of-sample recalibration; the **restatement re-version** + the **source-strategy A/B
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
-  **cron-scaling** (active theses daily, dormant less) + **cron-ops hardening** (a durable `market_today()`,
-  the R4 0-fetch false-positive, a dead-man's-switch); **2f "the real WHY"** + the deferred
+  **cron-scaling** (active theses daily, dormant less) + the REMAINING **cron-ops hardening** (the R4 0-fetch
+  false-positive, the attempts-vs-successes fetch counter, a dead-man's-switch — the durable `market_today()`
+  is DONE, `INVARIANTS.md` §6); **2f "the real WHY"** + the deferred
   **replay-regenerate button**; **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
   (laggard scanner, ETF radar *coming-launches* N-1A/485, more catalyst sources, umbrella hierarchy, live LLM
   counter-case) — by appetite. See `ROADMAP.md`.

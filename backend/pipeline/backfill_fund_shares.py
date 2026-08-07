@@ -37,6 +37,7 @@ import psycopg
 
 from db.session import connect
 from domain.enums import InstrumentKind
+from domain.market_time import market_today
 from domain.settings import get_settings
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.polygon import PolygonFundSource
@@ -118,7 +119,7 @@ def backfill_thesis(
                 "history). Put the key in .env / the environment and re-run."
             )
         polygon = PolygonFundSource(api_key=key)
-    end = min(end or date.today(), date.today())  # never a future-dated sample (#1)
+    end = min(end or market_today(), market_today())  # never a future-dated sample (#1)
     dates = backfill_dates(end, days, cadence)
     results: list[BackfillResult] = []
     for m in thesis.basket:
@@ -213,7 +214,7 @@ def main(argv: list[str] | None = None) -> None:
         help="re-pull live + overwrite cached dates (a deliberate re-spend)",
     )
     args = p.parse_args(argv)
-    end = min(date.fromisoformat(args.end) if args.end else date.today(), date.today())
+    end = min(date.fromisoformat(args.end) if args.end else market_today(), market_today())
     n = len(backfill_dates(end, args.days, args.cadence))
     # `->` not `→`: the operator runs this CLI from a Windows console (cp1252), where a non-encodable
     # glyph crashes the banner print BEFORE any work — caught by the live e2e walk, not the tests

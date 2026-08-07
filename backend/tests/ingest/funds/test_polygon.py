@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from domain.market_time import market_today
 from domain.settings import Settings, get_settings
 from ingest import CacheMiss
 from ingest.funds import polygon as poly_mod
@@ -105,7 +106,10 @@ def test_get_snapshot_at_stamps_the_queried_date_and_a_keyless_source_ref(tmp_pa
 
 
 def test_get_snapshot_queries_today(tmp_path):
-    today = date.today()
+    # `get_snapshot` queries the PRODUCTION clock (`market_today()`), so the cache must be seeded on
+    # that date — an ambient `date.today()` seeds the wrong file and CacheMisses on any runner whose
+    # zone is ahead of market time (CI runs UTC).
+    today = market_today()
     _seed(tmp_path, "URA", today, _URA)
     snap = _src(tmp_path).get_snapshot("URA")  # the forward daily sample
     assert snap is not None and snap["d"] == today

@@ -1,10 +1,9 @@
 """Pure Mon-Fri + RUN_AT schedule math — "when was the daily cron last EXPECTED to have run?"
 
-The schedule's source of truth has been SHELL-ONLY until now (``scripts/daily_cron.sh``: sleep until
-RUN_AT in the container's TZ, Mon-Fri, plus the R6 catch-up) — no Python trading-day helper exists
-(``market_today()`` is logged, not built). The admin freshness read needs the same contract in Python,
-so this module replicates it as PURE functions (``now``/``run_at`` injected — no ambient clock, no env
-read) that the status endpoint and its tests share.
+The schedule's source of truth was SHELL-ONLY at first (``scripts/daily_cron.sh``: sleep until RUN_AT in
+the container's TZ, Mon-Fri, plus the R6 catch-up). The admin freshness read needs the same contract in
+Python, so this module replicates it as PURE functions (``now``/``run_at`` injected — no ambient clock, no
+env read) that the status endpoint and its tests share.
 
 Two deliberate modeling choices:
 
@@ -12,12 +11,16 @@ Two deliberate modeling choices:
   holiday run is an idempotent near-no-op), so "expected" here is Mon-Fri too. A Monday-holiday evening
   therefore expects a run — which the trigger genuinely fires — and a weekend never expects one, so a
   Friday-dated record read on a Monday morning is NOT stale (the don't-cry-wolf case the spec names).
-- **Container-local time.** Compose pins ``TZ=America/New_York`` on the backend + cron; callers pass a
-  container-local ``datetime.now()`` and the RUN_AT wall time. No TZ math lives here.
+- **MARKET time, resolved by the caller.** The routers pass ``domain/market_time.market_now()`` (an
+  explicit ``ZoneInfo``, no longer the container's ambient clock) plus the RUN_AT wall time. No TZ math
+  lives here — and the injected ``now`` may be aware or naive, since ``.time()`` drops the tzinfo, so the
+  RUN_AT comparison stays naive-vs-naive either way.
 
-EARMARK (consultant watch-item): this is now the SECOND home of the Mon-Fri + RUN_AT contract — the
-shell's sleep-loop is the first. When the durable ``market_today()`` / schedule work lands, it should
-live HERE and the shell should shrink to a dumb trigger; until then keep the two in step.
+EARMARK (consultant watch-item): this is still the SECOND home of the Mon-Fri + RUN_AT contract — the
+shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in
+market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
+schedule math belongs HERE; the remaining consolidation is shrinking the shell to a dumb trigger. Until
+then keep the two in step.
 """
 
 from __future__ import annotations

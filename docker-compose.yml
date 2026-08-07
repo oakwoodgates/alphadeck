@@ -56,14 +56,15 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      # The process wall-clock TIMEZONE. `date.today()` (the daily-cron asof, the scoreboard/master
-      # "today") reads AMBIENT TZ; unset it defaults to UTC, so a manual `docker exec ... python -m
-      # pipeline.daily` after ~20:00 ET records TOMORROW's asof — a different call, not a mislabel: the
-      # asof is a LIVENESS PARAMETER, so a signal whose window closes that day is dropped and the derived
-      # countdowns shift a day. Pin the trading-day zone here so a manual backend run agrees with the cron
-      # sidecar (which already sets TZ). NOTE: this fixes the two CONTAINERS only — "today" is still
-      # ambient-derived at 9 call sites; the durable fix is a shared market_today() on an explicit ZoneInfo
-      # (logged, not built here).
+      # The process wall-clock TIMEZONE — now DEFENSE-IN-DEPTH, no longer the mechanism. The trading day
+      # is resolved IN CODE by `domain/market_time.market_today()` on an EXPLICIT ZoneInfo
+      # (ALPHADECK_MARKET_TZ, default America/New_York), so a UTC container — or a CLI run outside a
+      # container, which this pin never reached — computes the right day regardless of TZ. That was the
+      # #202 bug: an ambient `date.today()` after ~20:00 ET recorded TOMORROW's asof, a materially different
+      # call (asof is a LIVENESS PARAMETER, so a signal whose window closed that day drops out and the
+      # derived countdowns shift a day). Keep this pin anyway — it is what everything still reading a WALL
+      # CLOCK uses: log timestamps and the cron sidecar's shell `sleep`-to-RUN_AT loop, neither of which
+      # goes through Python's zoneinfo.
       TZ: ${ALPHADECK_TZ:-America/New_York}
       # The cron's RUN_AT wall time, mirrored to the backend (Settings.cron_run_at) so the admin page's
       # staleness read models the SAME Mon-Fri+RUN_AT schedule the sidecar (below) actually runs — one
