@@ -25,6 +25,16 @@ every staleness read that calls it — a behavior change, deliberately out of sc
 we learned a fact) and is correctly UTC — bitemporal record-keeping, not a trading day. Do not route those
 through here; they are a different axis (``INVARIANTS.md`` §4).
 
+**TESTS must use this too when they assert a production date contract** — and this bit on the very PR that
+introduced the helper. A test that posts ``decision_date=date.today()`` or seeds a cache keyed on
+``date.today()`` is asserting a DIFFERENT contract than the code implements: the route validates against
+``market_today()``, so an ambient date reads as *future-dated* (422) and a cache seeded on the ambient day
+is a structural miss. Ambient ``date.today()`` is fine in a test only when the test genuinely does not care
+which day it is. The trap is that this failure is **time-of-day flaky**: the two clocks agree for most of
+the day and diverge only after ~20:00 ET, so CI (which runs UTC) goes green at 10am and red at 9pm on the
+same commit. Twelve tests failed exactly this way here, invisible on an ET dev box where the clocks never
+diverge. **Verify a change like this with ``TZ=UTC pytest``**, not just the local run.
+
 The zone is ``Settings.market_tz`` (env ``ALPHADECK_MARKET_TZ``, default ``America/New_York``), so the
 answer is config, never ambient. The container ``TZ`` pin in ``docker-compose.yml`` remains as
 defense-in-depth for anything that still reads a wall clock (logs, the cron sidecar's shell ``sleep``) —

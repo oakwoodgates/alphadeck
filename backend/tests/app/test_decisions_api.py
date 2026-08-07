@@ -16,11 +16,16 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_today
 from domain.thesis import Position, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import decisions_repo, thesis_repo
 
-TODAY = date.today()
+# The PRODUCTION clock, not the ambient one: the decision-date guard in `app/routers/theses.py`
+# validates against `market_today()`, so a test posting an ambient `date.today()` asserts a DIFFERENT
+# contract than the code implements — and 422s wherever the runner's zone is ahead of market time
+# (CI runs UTC; after ~20:00 ET the two dates diverge and every take/close in this module failed).
+TODAY = market_today()
 
 
 def _thesis(db, position: Position | None = None) -> Thesis:
