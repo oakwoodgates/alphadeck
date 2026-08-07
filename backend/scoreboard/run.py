@@ -7,6 +7,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.market_time import market_today
 from scoreboard.record import scoreboard_records
 from scoreboard.schema import ScoreboardResult, ScoredEpisode
 
@@ -100,7 +101,7 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description="The live Scoreboard (SCORE) — score the call-of-record as-of a date. Read-only."
     )
-    p.add_argument("--asof", default=date.today().isoformat(), help="YYYY-MM-DD (default: today)")
+    p.add_argument("--asof", default=market_today().isoformat(), help="YYYY-MM-DD (default: today)")
     p.add_argument("--json", action="store_true", help="print the full analytical dump")
     p.add_argument(
         "--exclude-archived",

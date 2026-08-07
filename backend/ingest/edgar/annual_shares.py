@@ -33,6 +33,7 @@ from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
+from domain.market_time import market_today
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.extract import _doc_url, companyfacts_url
@@ -490,7 +491,7 @@ def annual_shares_for_security(
         annual_ref=url,
         annual_form=form,
         report_date=report_dt,
-        today=today or date.today(),
+        today=today or market_today(),
         has_f6_filing=has_f6,
         cfg=cfg,
     )

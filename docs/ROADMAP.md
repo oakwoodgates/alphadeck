@@ -180,9 +180,12 @@ non-`alphadeck_test` name).
 5. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
    send-back discoverability, accept-color decoupling, pre-revenue purity chip, explain transport-error,
    FE async-boundary tests, off-universe label copy, dilution polarity styling.
-6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load): a **durable
-   `market_today()` / trading-day helper** so the Mon-Fri + `RUN_AT` schedule contract has ONE home (today
-   it lives in both `scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand); the **R4
+6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load). The
+   ambient-`date.today()` item is **DONE** — `domain/market_time.market_today()` + the repo-scan guard
+   (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri + `RUN_AT` schedule contract, which still has two
+   homes (`scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand) — `market_today()`
+   deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
+   Still open: the **R4
    0-fetch false-positive** (a run entirely inside the 12h EDGAR TTL looks like a freeze — page on 0 only
    when the cache was outside its TTL, or restrict the freeze page to scheduled runs); the **fetch counter
    counts ATTEMPTS, not successes** — `EdgarClient.get_text` does `live_fetches += 1` immediately *before*

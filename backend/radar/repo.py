@@ -13,6 +13,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_today
 
 # SIC 6770's official description, verbatim — the deterministic shell tell (`sector` stores
 # EDGAR's sicDescription; the slice-0 FE classifier reads the same string).
@@ -156,7 +157,7 @@ def list_events(
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> list[dict[str, Any]]:
     """The tape read: the LATEST version of each accession filed within the window, newest first."""
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = market_today() - timedelta(days=days)
     with conn.cursor() as cur:
         cur.execute(
             """SELECT * FROM (

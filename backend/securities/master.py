@@ -9,6 +9,7 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import InstrumentKind
+from domain.market_time import market_today
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
 from securities.origin import resolve_origin
@@ -103,7 +104,7 @@ def resolve(
                 str(
                     instrument_kind
                 ),  # StrEnum -> its 'equity'/'etf' value (explicit, no adapter guesswork)
-                effective_date or date.today(),
+                effective_date or market_today(),
             ),
         )
     conn.commit()
@@ -179,7 +180,7 @@ def populate_universe(
         seen.add(key)
         deduped.append((cik, str(ticker).upper(), name, exchange))
 
-    valid_from = effective_date or date.today()
+    valid_from = effective_date or market_today()
     inserts: list[tuple] = []
     updates: list[tuple] = []
     for cik, ticker, name, exchange, is_primary in sec_tickers.flag_primaries(deduped):

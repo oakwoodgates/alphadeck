@@ -26,6 +26,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import market_today
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
@@ -154,7 +155,7 @@ def run_spac_radar(
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
     client with ``allow_live=False``)."""
     client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
-    until = until or date.today()
+    until = until or market_today()
     result = RadarRunResult()
     submissions_by_cik: dict[str, dict[str, Any] | None] = {}
     shells = repo.known_shell_ciks(conn, tenant_id=tenant_id)

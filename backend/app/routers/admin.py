@@ -40,6 +40,7 @@ from app.schemas_api import (
     BackupOut,
     BackupsOut,
 )
+from domain.market_time import market_now
 from domain.settings import get_settings
 from notify import HealthEvent
 from pipeline.backup import BackupInfo, list_backups, run_backup
@@ -59,9 +60,12 @@ _BENIGN_MARK = "not an error"
 
 
 def _now() -> datetime:
-    """Container-local wall clock (compose pins ``TZ=America/New_York`` on backend + cron) — a seam so
-    tests pin the clock; the schedule functions themselves are pure over the injected now."""
-    return datetime.now()
+    """The MARKET wall clock (``domain/market_time.market_now`` — an explicit ``ZoneInfo``, no longer the
+    container's ambient TZ) — a seam so tests pin the clock; the schedule functions themselves are pure
+    over the injected now. Aware, unlike the ``datetime.now()`` it replaced; ``last_expected_asof`` reads
+    it via ``.date()`` / ``.time()``, and ``.time()`` drops the tzinfo, so the RUN_AT comparison against a
+    naive ``time`` still holds (a test may keep pinning this with a naive datetime)."""
+    return market_now()
 
 
 def _problems(health: HealthEvent | None) -> list[str]:

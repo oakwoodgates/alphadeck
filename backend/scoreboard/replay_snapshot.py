@@ -9,6 +9,7 @@ from uuid import UUID
 
 import psycopg
 
+from domain.market_time import market_today
 from replay.episodes import derive_episodes
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot, Episode, Outcome
@@ -185,7 +186,7 @@ def main() -> None:
         end = (
             date.fromisoformat(args.end)
             if args.end
-            else (record_began - timedelta(days=1) if record_began else date.today())
+            else (record_began - timedelta(days=1) if record_began else market_today())
         )
         start = date.fromisoformat(args.start) if args.start else end - timedelta(days=365)
         pin = datetime.now(timezone.utc)
@@ -222,7 +223,7 @@ def main() -> None:
                     window_end=end,
                     pin=pin,
                     generated_at=pin,
-                    matured_asof=date.today(),
+                    matured_asof=market_today(),
                     record_began=record_began,
                     realized=realized,
                     single_name_security=single_name,

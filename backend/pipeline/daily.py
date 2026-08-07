@@ -31,6 +31,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.market_time import market_today
 from ingest.edgar.client import EdgarClient
 from notify import HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
@@ -81,7 +82,7 @@ def run_daily(
     a stale cache hit) — otherwise the cron would re-ingest the same frozen cache every day and never see a
     new bar. It threads to the price source (``eod_loader.fetch_eod``).
     """
-    asof = asof or date.today()
+    asof = asof or market_today()
     notifier = notifier or get_notifier()
     # The canonical-primary health guard: a master with multi-row CIKs but ZERO is_primary flags resolves
     # every multi-sibling CIK to an ARBITRARY row (warrant / preferred / OTC foreign ordinary) — and nothing
@@ -232,7 +233,7 @@ def run_daily_pass(
     "Run daily now" trigger fires the exact pass the nightly cron does — a manual run writes the same
     artifact (it shows in the run history) and pages through the same health seam. ``main`` keeps the CLI
     concerns only (args, the R6 catch-up guard, the printed report + exit code)."""
-    asof = asof or date.today()
+    asof = asof or market_today()
     notifier = notifier or get_notifier()
     started_at = datetime.now(timezone.utc)
     conn = connect()
@@ -342,7 +343,7 @@ def main(argv: list[str] | None = None) -> None:
         "catch-up, so a rebuild after RUN_AT self-heals instead of skipping the night); a no-op otherwise",
     )
     args = p.parse_args(argv)
-    asof = date.fromisoformat(args.asof) if args.asof else date.today()
+    asof = date.fromisoformat(args.asof) if args.asof else market_today()
     allow_live = not args.no_live
 
     # R6 — catch-up guard: if a LIVE pass already ran for this asof, this invocation is a no-op. The sidecar

@@ -65,6 +65,7 @@ from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
+from domain.market_time import market_today
 from ingest.edgar.annual_shares import (
     _companyfacts_or_none,
     _latest_annual_filing,
@@ -814,7 +815,7 @@ def annual_facts_for_security(
     forms = subs.get("filings", {}).get("recent", {}).get("form", [])
     has_f6 = any(str(f).startswith("F-6") for f in forms)
     cf = _companyfacts_or_none(client, cik)
-    when = today or date.today()
+    when = today or market_today()
     shares = extract_annual_shares(
         cf,
         text,

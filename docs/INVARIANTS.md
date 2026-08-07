@@ -161,15 +161,30 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
   still recomputes from facts, and the log is never read back to serve. (`_canonical` makes the compare
   order-independent so a pure reorder can't re-append; `tests/repositories/test_calls_repo.py`,
   `tests/pipeline/test_daily.py`.) See `FEED_LOOP.md`.
-- *Known gap — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
-  parameter (above). But at the **edges** that choose the `asof` for a run, "today" is derived from
-  `date.today()`, which reads the process's **ambient timezone** — at **9** non-test call sites (`pipeline/daily.py`
-  ×2 incl. the `--catch-up` default, `scoreboard/run.py`, `scoreboard/replay_snapshot.py` ×2,
-  `app/routers/theses.py` ×2, `securities/master.py` ×2). A manual `pipeline.daily` in a UTC container after
-  ~20:00 ET therefore recorded **tomorrow's** `asof` — a different call (a signal whose liveness window closed
-  that day drops; the derived countdowns shift), not a mislabel. The trading day is a domain fact, not an
-  environment fact. The `TZ` pin (#202) fixes the two containers but **not** a CLI run elsewhere; the durable
-  fix is a shared `market_today()` on an explicit `ZoneInfo`. See `POSTMORTEM_CRON_FREEZE_2026-07.md`.
+- *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
+  parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
+  `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual
+  `pipeline.daily` in a UTC container after ~20:00 ET recorded **tomorrow's** `asof` — a materially different
+  call (a signal whose liveness window closed that day drops out of the inclusive `entry_signal_is_live`;
+  the derived countdowns shift), not a mislabel. The `TZ` pin (#202) fixed the two containers but **not** a
+  CLI run elsewhere. The trading day is a domain fact, not an environment fact — which is why the fix lives
+  in `domain/`, not in ops.
+  **The rule now:** no backend module reads the ambient clock; every trading-day answer comes from
+  `domain/market_time.market_today()` / `market_now()`, on an explicit `ZoneInfo` from `Settings.market_tz`
+  (env `ALPHADECK_MARKET_TZ`, default `America/New_York`; a bad zone fails loud, never a silent UTC
+  fallback). `market_today()` is *today in market time* and does **no trading-calendar logic** — no weekend
+  skip, no holidays; the Mon-Fri + `RUN_AT` math stays in `pipeline/schedule.py`. `datetime.now(timezone.utc)`
+  is untouched and still correct: that is transaction time (`recorded_at`, #4), a different axis.
+  *The growth is the argument for the guard:* the gap was written up at **9** call sites and was **18** by
+  the time it was fixed — new modules kept reaching for `date.today()` because there was nothing else to
+  reach for, and nothing noticed.
+- *Enforced by:* `domain/market_time.py` (the single helper) + the **repo scan**
+  `tests/domain/test_market_time.py::test_no_backend_module_reads_the_ambient_clock`, which fails on any new
+  bare `date.today()` / no-arg `datetime.now()` in non-test backend code (allowlist: the helper itself), with
+  a meta-test proving the scan actually detects a violation rather than reading vacuously green. The
+  contract tests pin a UTC-evening instant to the previous ET date, and pin that the helper does NOT skip
+  weekends. `docker-compose.yml`'s `TZ` pin remains as defense-in-depth, no longer the mechanism.
+  See `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 ## 7. Factor behavior on the property that drives it — never on grade-as-a-bundle or signal kind
 
