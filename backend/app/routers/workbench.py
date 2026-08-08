@@ -62,6 +62,7 @@ from ingest.edgar.extract import extract_for_security, extract_with_annual_fallb
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
+from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from llm.chain_decomposition import (
@@ -443,6 +444,32 @@ def ingest_security_prices(
         raise HTTPException(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
+    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on the operator's own finalize pull
+    # (never the cron — resolution is operator-triggered, cost is the operator's to spend). Only an OTC name
+    # whose symbol is still unresolved (``price_symbol IS NULL``) triggers it; on an AUTO the resolver writes
+    # the symbol, so THIS very pull fetches the fuller history. FAIL-OPEN: any miss/error NEVER blocks the
+    # add — the member enters priced under its canonical ticker, and the backfill sweep (Slice D) + the
+    # thin-history flag (Slice F) catch what a live resolution missed.
+    if sec.exchange == "OTC" and sec.price_symbol is None:
+        try:
+            proposal = resolve_price_symbol(sec, allow_live=True)
+            if proposal.tier == "AUTO" and proposal.proposed_symbol:
+                master.set_price_symbol(
+                    conn,
+                    sec.id,
+                    proposal.proposed_symbol,
+                    basis=f"resolver:auto {proposal.why}",
+                    tenant_id=tenant_id,
+                )
+                conn.commit()
+                sec = (
+                    master.get(conn, security_id, tenant_id=tenant_id) or sec
+                )  # use the resolved symbol
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — fail-open: a resolution failure never blocks the pull
+            conn.rollback()
+            _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
     try:
         bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
         conn.commit()
