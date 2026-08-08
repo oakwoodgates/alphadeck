@@ -62,13 +62,18 @@ export interface IdentityCell {
  *  is the ladder's honest unknown. Deliberately NOT the scoring meters / fit / size-weight — that
  *  duplication is the NamePanel's job, which the operator asked the Scoreboard drawer to stay out of. */
 export function identityCells(scored: ScoredMemberOut | null | undefined): IdentityCell[] {
-  return [
+  const cells: IdentityCell[] = [
     { label: "archetype", value: scored?.archetype ? archLabel(scored.archetype) : "—" },
     { label: "sector", value: scored?.sector ?? "—" },
     { label: "exchange", value: scored?.exchange ?? "—" },
     { label: "origin", value: scored?.origin ?? "—" },
     { label: "market cap", value: formatMarketCap(scored?.market_cap?.value) },
   ];
+  // The resolved vendor price symbol — an EXCEPTION cell, appended ONLY when the name is priced under a
+  // symbol other than its SEC ticker (honest loudness #7: the healthy common case has none, so a "—" here
+  // would carry no signal). Off the scored wire (identity_for), never a call input — pure identity.
+  if (scored?.price_symbol) cells.push({ label: "priced under", value: scored.price_symbol });
+  return cells;
 }
 
 // The display-signal registry render order (backend signals/display/__init__.py). The ledger owns the order

@@ -6931,6 +6931,17 @@
             ],
             "title": "Foreign Filer Form"
           },
+          "price_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Symbol"
+          },
           "archetype": {
             "anyOf": [
               {

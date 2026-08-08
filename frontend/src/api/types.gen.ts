@@ -3311,6 +3311,8 @@ export interface components {
             origin?: string | null;
             /** Foreign Filer Form */
             foreign_filer_form?: string | null;
+            /** Price Symbol */
+            price_symbol?: string | null;
             archetype?: components["schemas"]["Archetype"] | null;
             archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */

@@ -115,6 +115,14 @@ describe("identityCells — the Cockpit identity line, honest '—' for a missin
     // origin absent → "—": the ladder's abstain surfaces as the honest unknown, never a guessed place
     expect(identityCells(partial).map((c) => c.value)).toEqual(["—", "Energy", "—", "—", "—"]);
   });
+
+  it("appends 'priced under' ONLY when a resolved price symbol is set (honest loudness, no '—' row)", () => {
+    // the healthy common case: no exception cell at all (never a "priced under —" that carries no signal)
+    expect(identityCells(scored).some((c) => c.label === "priced under")).toBe(false);
+    // the exception: an OTC name priced under a different vendor symbol surfaces the cell, loudly
+    const otc = { ...scored, price_symbol: "FDCTD" } as unknown as ScoredMemberOut;
+    expect(identityCells(otc).at(-1)).toEqual({ label: "priced under", value: "FDCTD" });
+  });
 });
 
 describe("signalHeadlines — present-only, in the display registry order (#7)", () => {

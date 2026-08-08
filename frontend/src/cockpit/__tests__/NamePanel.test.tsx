@@ -99,3 +99,20 @@ describe("NamePanel — the foreign-filer explainability tell", () => {
     expect(screen.queryByText(/no Form 4/)).toBeNull();
   });
 });
+
+describe("NamePanel — the resolved price-symbol note (honest loudness)", () => {
+  const pricedCell = () =>
+    [...document.querySelectorAll(".np-idgrid .cell")].find(
+      (c) => c.querySelector(".k")?.textContent === "Priced under",
+    );
+
+  it("shows a 'Priced under {symbol}' cell ONLY when a resolved vendor symbol is set", () => {
+    renderPanel(scored({ ticker: "FDCT", price_symbol: "FDCTD" } as Partial<ScoredMemberOut>));
+    expect(pricedCell()?.querySelector(".v")?.textContent).toBe("FDCTD");
+  });
+
+  it("renders NO 'Priced under' cell for a name priced under its canonical ticker (no '—' row)", () => {
+    renderPanel(scored({ ticker: "CCJ", price_symbol: null } as Partial<ScoredMemberOut>));
+    expect(pricedCell()).toBeUndefined(); // the healthy common case is silent, not a blank cell
+  });
+});

@@ -304,6 +304,17 @@ describe("exportNames", () => {
         "###Watchlist,NASDAQ:MU",
       );
     });
+
+    it("emits the RESOLVED OTC vendor symbol the Cockpit supplies (price_symbol ?? ticker → OTC:FDCTD)", () => {
+      // the Cockpit call-site maps `price_symbol ?? member.ticker` into `ticker`, so an OTC name resolved
+      // to FDCTD arrives here already as FDCTD → OTC:FDCTD (the symbol TradingView indexes the full history
+      // under), and two members that resolve to the SAME vendor symbol collapse via the emitted-symbol dedupe.
+      const txt = buildWatchlistTxt("OTC basket", [
+        { ticker: "FDCTD", exchange: "OTC" },
+        { ticker: "FDCTD", exchange: "OTC" }, // a second member resolving to the same symbol → deduped
+      ]);
+      expect(txt).toBe("###OTC basket,OTC:FDCTD");
+    });
   });
 
   describe("watchlistFilename", () => {

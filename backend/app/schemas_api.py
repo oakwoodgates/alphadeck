@@ -299,6 +299,12 @@ class ScoredMemberOut(BaseModel):
     # structurally unavailable, not quiet. Display identity like origin, never a call input (#3/#4). None =
     # not a foreign filer / unknown.
     foreign_filer_form: str | None = None
+    # The RESOLVED vendor price symbol (migration 0032) — carried verbatim from the master (``identity_for``).
+    # A non-null value is the EXCEPTION: the name is priced under a different symbol than its SEC ticker
+    # (FDCT priced under "FDCTD"). Display identity like origin, never a call input (#1/#3). ``None`` = priced
+    # under the canonical ticker (the common, healthy case) — the FE renders the note ONLY when set, and the
+    # watchlist export emits ``price_symbol ?? ticker`` so TradingView resolves the right listing.
+    price_symbol: str | None = None
     # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
     # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
     archetype: Archetype | None = None
@@ -344,6 +350,7 @@ class ScoredMemberOut(BaseModel):
             category=ident.get("category"),
             origin=ident.get("origin"),
             foreign_filer_form=ident.get("foreign_filer_form"),
+            price_symbol=ident.get("price_symbol"),
             archetype=m.archetype,
             archetype_hint=m.archetype_hint,
             segment=m.segment,
