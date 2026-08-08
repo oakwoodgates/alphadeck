@@ -62,6 +62,14 @@ class Security(DomainModel):
     # present) is the domestic veto that kills the legacy-foreign-form false positive (the UUUU case).
     files_domestic_forms: bool | None = None
     recent_foreign_form: str | None = None
+    # RESOLVED PRICE SYMBOL (migration 0032) — the vendor symbol to PRICE under when it DIFFERS from the SEC
+    # ``ticker`` (FDCT priced under FDCTD: 251 bars vs 16). Identity like the above, never a fact / call input
+    # (#1/#3). NULL is the healthy common case ("priced under the canonical ticker"); a non-null value is the
+    # EXCEPTION marker. Consumers price under ``price_symbol or ticker``; the SEC ``ticker`` is NEVER overwritten.
+    # ``price_symbol_basis`` is the provenance of the resolution (resolver:auto / operator:adopt), stored as a
+    # basis (like ``enriched_source``), never a fact's ``ratified_by``. NULL = un-resolved.
+    price_symbol: str | None = None
+    price_symbol_basis: str | None = None
 
 
 class SecurityIdentity(DomainModel):

@@ -41,6 +41,9 @@ def _row_to_security(row: dict) -> Security:
         # filer-form ingredients (0031) — for the derive-on-read foreign-filer tell; NULL = un-enriched
         files_domestic_forms=row.get("files_domestic_forms"),
         recent_foreign_form=row.get("recent_foreign_form"),
+        # resolved price symbol (0032) — the vendor symbol to price under; NULL = priced under the canonical ticker
+        price_symbol=row.get("price_symbol"),
+        price_symbol_basis=row.get("price_symbol_basis"),
     )
 
 
@@ -298,6 +301,45 @@ def mark_instrument_kind(
         return cur.rowcount > 0
 
 
+def set_price_symbol(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    price_symbol: str | None,
+    *,
+    basis: str,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Stamp one master row's RESOLVED PRICE SYMBOL (migration 0032) — UPDATE-in-place, the SAME
+    identity-mutable pattern as ``mark_instrument_kind`` / ``enrich``: the id stays stable (FK'd facts never
+    orphan), nothing reads the master as-of so overwriting leaks into no point-in-time read, and it is
+    idempotent (a re-write of the same value is a no-op UPDATE, never an append — count-the-table safe).
+
+    NEVER writes ``ticker`` — the SEC form is canon (the whole point of the fix). ``price_symbol`` is the
+    vendor symbol to price under, stored ONLY when it DIFFERS from the canonical ticker: a value equal to the
+    row's ticker (case-insensitive) is coerced to NULL (the healthy "priced under the canonical ticker" state)
+    so the column stays the honest EXCEPTION marker. ``price_symbol=None`` clears the resolution (the
+    correction path). ``basis`` is the provenance stored alongside (resolver:auto / operator:adopt), the
+    identity-basis discipline — never a fact's ``ratified_by`` (#3: a resolved symbol is identity, not a number).
+
+    IDENTITY, not a fact: ``price_symbol`` never enters a fact_* table, never feeds a number on a call card,
+    and never gates the call path (#1/#3/#4). Returns whether a row was updated: a foreign/unknown id under
+    this tenant updates nothing (fail-closed, the same write-side boundary as ``exists`` / ``mark_instrument_kind``).
+    The caller commits."""
+    with conn.cursor() as cur:
+        # coerce a symbol that equals the canonical ticker to NULL — the column is stored ONLY when it differs
+        # (``NULLIF(upper(%s), upper(ticker))`` maps FDCTD!=FDCT -> FDCTD, but FDCT==FDCT -> NULL). A None input
+        # stays None (clear). Guarded so a self-referential resolution never masquerades as an exception.
+        cur.execute(
+            "UPDATE security_master SET "
+            "price_symbol = CASE WHEN %s::text IS NULL THEN NULL "
+            "  ELSE NULLIF(upper(%s::text), upper(ticker)) END, "
+            "price_symbol_basis = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (price_symbol, price_symbol, basis, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
 def ciks_for(
     conn: psycopg.Connection,
     security_ids: Iterable[UUID],
@@ -338,7 +380,13 @@ def identity_for(
 
     ``foreign_filer_form`` is DERIVED the same way via ``foreign_filer_form`` from the stored 0031 filer-form
     ingredients (the raw ``recent_foreign_form`` / ``files_domestic_forms`` stay off the wire): "20-F" / "40-F"
-    for a §16-exempt no-Form-4 foreign filer, else ``None``."""
+    for a §16-exempt no-Form-4 foreign filer, else ``None``.
+
+    ``price_symbol`` is the STORED resolved vendor symbol (migration 0032) — carried verbatim (NOT derived):
+    the exception symbol a name is priced under when it differs from the canonical ticker (FDCT -> "FDCTD"),
+    or ``None`` (priced under the canonical ticker — the healthy common case). Display identity like the
+    above, never a call input (#1/#3): the FE renders a "Priced under {price_symbol}" note only when set.
+    """
     ids = list({sid for sid in security_ids})
     if not ids:
         return {}
@@ -346,7 +394,7 @@ def identity_for(
         cur.execute(
             "SELECT id, name, sector, exchange, category,"
             " incorporation, business_city, business_country,"
-            " files_domestic_forms, recent_foreign_form FROM security_master"
+            " files_domestic_forms, recent_foreign_form, price_symbol FROM security_master"
             " WHERE tenant_id = %s AND id = ANY(%s)",
             (tenant_id, ids),
         )
@@ -365,6 +413,8 @@ def identity_for(
                     recent_foreign_form=row["recent_foreign_form"],
                     files_domestic_forms=row["files_domestic_forms"],
                 ),
+                # stored verbatim (not derived): the exception vendor symbol, or None (canonical)
+                "price_symbol": row["price_symbol"],
             }
             for row in cur.fetchall()
         }

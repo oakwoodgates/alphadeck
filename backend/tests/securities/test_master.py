@@ -368,6 +368,7 @@ def test_identity_for_derives_origin_from_stored_ingredients(db):
         "category",
         "origin",
         "foreign_filer_form",
+        "price_symbol",
     }
 
 
@@ -395,6 +396,7 @@ def test_identity_for_still_carries_the_enrichment_strings(db):
         "category": "Large accelerated filer",
         "origin": None,  # no locator ingredients stored -> the ladder abstains
         "foreign_filer_form": None,  # no filer-form ingredients stored -> the tell abstains
+        "price_symbol": None,  # no resolved symbol -> priced under the canonical ticker
     }
 
 
@@ -574,3 +576,86 @@ def test_mark_instrument_kind_unknown_id_updates_nothing(db):
     """A foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary as
     ``exists`` / ``enrich``) — never conjures a row."""
     assert master.mark_instrument_kind(db, uuid.uuid4(), InstrumentKind.ETF) is False
+
+
+# --- price_symbol: the resolved vendor-symbol writer + column (migration 0032, the OTC fix) ---
+
+
+def test_price_symbol_column_defaults_null_and_reads_back(db):
+    """The 0032 columns are additive + nullable — a row inserted without naming them reads back NULL
+    (the healthy "priced under the canonical ticker" default), never a guessed value."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'security_master' AND column_name = 'price_symbol'"
+        )
+        assert cur.fetchone()["is_nullable"] == "YES"
+    sid = _insert(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    sec = master.get(db, sid)
+    assert sec.price_symbol is None and sec.price_symbol_basis is None
+
+
+def test_set_price_symbol_stores_and_is_update_in_place_count_the_table(db):
+    """The writer stamps the resolved symbol UPDATE-in-place (the ``mark_instrument_kind`` pattern): the id
+    is stable, the row COUNT never grows (count the table, not the read), and a re-write of the same value
+    is idempotent. NEVER touches the SEC ticker — it stays canon."""
+    sid = _insert(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        before = cur.fetchone()["n"]
+
+    assert master.set_price_symbol(db, sid, "FDCTD", basis="resolver:auto 251/16") is True
+    db.commit()
+    sec = master.get(db, sid)
+    assert sec.price_symbol == "FDCTD" and sec.price_symbol_basis == "resolver:auto 251/16"
+    assert sec.ticker == "FDCT"  # the SEC form is untouched — canon
+
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before  # UPDATE-in-place, never appended
+
+    assert master.set_price_symbol(db, sid, "FDCTD", basis="resolver:auto 251/16") is True
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_master")
+        assert cur.fetchone()["n"] == before  # idempotent re-write — still one row
+
+
+def test_set_price_symbol_coerces_a_self_match_to_null(db):
+    """A symbol equal to the canonical ticker is NOT an exception — it coerces to NULL (the healthy state),
+    so the column stays the honest exception marker (never a redundant "priced under FDCT" on FDCT).
+    """
+    sid = _insert(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    assert (
+        master.set_price_symbol(db, sid, "fdct", basis="operator:adopt") is True
+    )  # case-insensitive
+    db.commit()
+    assert master.get(db, sid).price_symbol is None
+
+
+def test_set_price_symbol_clears_with_none(db):
+    """``None`` clears a prior resolution (the correction path) — back to the canonical-ticker default."""
+    sid = _insert(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    master.set_price_symbol(db, sid, "FDCTD", basis="resolver:auto")
+    db.commit()
+    assert master.set_price_symbol(db, sid, None, basis="operator:clear") is True
+    db.commit()
+    assert master.get(db, sid).price_symbol is None
+
+
+def test_set_price_symbol_unknown_id_updates_nothing(db):
+    """A foreign/unknown id updates nothing (fail-closed, the same write-side boundary as the other writers)."""
+    assert master.set_price_symbol(db, uuid.uuid4(), "FDCTD", basis="x") is False
+
+
+def test_identity_for_carries_the_resolved_price_symbol(db):
+    """``identity_for`` carries ``price_symbol`` verbatim beside origin / foreign_filer_form — the exception
+    symbol when set, ``None`` when priced under the canonical ticker (the FE renders the note only when set).
+    """
+    fdct = _insert(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    hims = _insert(db, ticker="HIMS", name="Hims & Hers Health, Inc.", cik="0001773751")
+    master.set_price_symbol(db, fdct, "FDCTD", basis="resolver:auto")
+    db.commit()
+    out = master.identity_for(db, [fdct, hims])
+    assert out[fdct]["price_symbol"] == "FDCTD"  # the exception symbol travels
+    assert out[hims]["price_symbol"] is None  # priced under the canonical ticker
