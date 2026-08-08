@@ -68,6 +68,7 @@ const sm = (identity: {
   exchange?: string | null;
   category?: string | null;
   origin?: string | null;
+  foreign_filer_form?: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }): any => ({ purity: { pips: null, value: null, provenance: [] }, market_cap: { value: null, provenance: [] }, ...identity });
 
@@ -175,6 +176,29 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
     expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
     expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
+  });
+
+  it("renders the foreign-filer chip '{form} · no Form 4' off the join, abstains for a domestic name", () => {
+    // s-cn is a §16-exempt foreign filer (a 40-F on file); s-us is domestic. The chip is ADDITIVE — it
+    // rides BESIDE origin, never replaces it (origin is already its own chip).
+    const scored = {
+      "s-us": sm({ name: "US Co", sector: "Semiconductors", exchange: "Nasdaq", origin: "US" }),
+      "s-cn": sm({
+        name: "CN Co",
+        sector: "Uranium",
+        exchange: "NYSE",
+        origin: "Canada",
+        foreign_filer_form: "40-F",
+      }),
+    };
+    render(
+      <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scored} />,
+    );
+    // the foreign filer gets the second chip; its origin chip still renders (additive)
+    expect(screen.getByText("40-F · no Form 4", { selector: ".idchip" })).toBeInTheDocument();
+    expect(screen.getByText("Canada", { selector: ".idchip" })).toBeInTheDocument();
+    // exactly ONE filer chip across the basket — the US name abstains (honest, no guessed regime)
+    expect(screen.queryAllByText(/no Form 4/)).toHaveLength(1);
   });
 
   it("a field the join LACKS falls back to the draft-time map (chips never regress mid-session)", async () => {

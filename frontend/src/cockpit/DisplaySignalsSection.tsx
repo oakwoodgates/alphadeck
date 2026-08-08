@@ -5,6 +5,7 @@ import type {
   MemberDisplaySignalsOut,
 } from "../api/hooks";
 import { fmtDate } from "../util/format";
+import { insiderNaLabel } from "../workbench/format";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
  *  backend member renders with ZERO frontend change (the framework's whole point). */
@@ -81,13 +82,26 @@ function basisLine(sig: DisplaySignal): string {
 /** "Indicators · this name" — the read-only display signals (docs/DISPLAY_SIGNALS.md): quiet
  *  metric chips, muted dated flip lines, and a fine-print basis (show-the-work, #6). Ambient tape
  *  context, never a trigger and never loud (#7): honest gaps read "—" with the why; no data at all
- *  reads one muted line. Renders every registered member uniformly off the generic payload. */
-export function DisplaySignalsSection({ display }: { display: MemberDisplaySignalsOut | null }) {
+ *  reads one muted line. Renders every registered member uniformly off the generic payload.
+ *
+ *  `foreignFilerForm` (the wire `foreign_filer_form`): when set (a §16-exempt 20-F/40-F filer) AND the
+ *  payload carries no insider signal, an ambient MUTED N/A row explains the STRUCTURAL absence of the
+ *  insider read — "unavailable, not quiet" (#7). Belt-and-suspenders on the insider check: a foreign filer
+ *  files no Form 4, so it never carries one anyway. */
+export function DisplaySignalsSection({
+  display,
+  foreignFilerForm,
+}: {
+  display: MemberDisplaySignalsOut | null;
+  foreignFilerForm?: string | null;
+}) {
   const signals = display?.signals ?? [];
+  const showInsiderNa =
+    !!foreignFilerForm && !signals.some((s) => s.kind === "insider_flow_90d");
   return (
     <>
       <div className="np-h">Indicators · this name</div>
-      {signals.length === 0 ? (
+      {signals.length === 0 && !showInsiderNa ? (
         <div className="np-stateline">No indicator data at this as-of.</div>
       ) : (
         signals.map((sig) => (
@@ -126,6 +140,23 @@ export function DisplaySignalsSection({ display }: { display: MemberDisplaySigna
             </div>
           </div>
         ))
+      )}
+      {/* the §16-exempt foreign-filer insider N/A — ambient, never loud (#7): reuses the np-ind markup +
+          .na muted styling; the structural "why" rides the fine-print basis line */}
+      {showInsiderNa && (
+        <div className="np-ind">
+          <div className="np-ind-label">Insider flow</div>
+          <div className="np-ind-chips">
+            <span className="np-ind-chip">
+              <span className="k">insider flow</span>
+              <span className="v na">{insiderNaLabel(foreignFilerForm)}</span>
+            </span>
+          </div>
+          <div className="np-ind-basis">
+            §16 exempts foreign private issuers / MJDS filers from Form 4 — the insider signal is
+            structurally unavailable here, not quiet.
+          </div>
+        </div>
       )}
     </>
   );

@@ -232,6 +232,59 @@ def test_scored_carries_derived_origin(client, db, security_id):
     assert "incorporation" not in by_ticker["DEVCO"]
 
 
+def test_scored_carries_derived_foreign_filer_form(client, db, security_id):
+    """The foreign-filer explainability tell on the scored wire: a member enriched as a §16-exempt foreign
+    filer (a 40-F, no domestic forms) derives ``foreign_filer_form`` "40-F"; the Energy-Fuels veto shape (a
+    40-F BUT recent domestic forms) derives ``None``; an un-enriched member reads ``None``. The RAW 0031
+    ingredients stay OFF the wire — only the derived string travels (#3: display identity, never a number).
+    """
+    veto = uuid.uuid4()
+    bare = uuid.uuid4()
+    with db.cursor() as cur:
+        # the fire case (Cameco/40-F shape) on the seeded member (its master ticker is DEVCO — the scored
+        # row's ticker comes from the master row, not the basket member)
+        cur.execute(
+            "UPDATE security_master SET files_domestic_forms=%s, recent_foreign_form=%s WHERE id=%s",
+            (False, "40-F", security_id),
+        )
+        # the veto case (Energy-Fuels/UUUU shape): a 40-F on file, but recent domestic forms
+        cur.execute(
+            "INSERT INTO security_master"
+            " (id, tenant_id, ticker, cik, files_domestic_forms, recent_foreign_form, valid_from)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (veto, DEFAULT_TENANT_ID, "VETO", "0009999992", True, "40-F", "2026-01-01"),
+        )
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (bare, DEFAULT_TENANT_ID, "BARE2", "0009999993", "2026-01-01"),
+        )
+    db.commit()
+    thesis = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="Filer read",
+        narrative="x",
+        segments=[Segment(label="reactors", descriptor=None)],
+        basket=[
+            BasketMember(ticker="DEVCO", role="r", security_id=security_id, segment="reactors"),
+            BasketMember(ticker="VETO", role="r", security_id=veto, segment="reactors"),
+            BasketMember(ticker="BARE2", role="r", security_id=bare, segment="reactors"),
+        ],
+    )
+    thesis_repo.upsert(db, thesis)
+    db.commit()
+    r = client.get(f"/workbench/theses/{thesis.id}/scored", params={"asof": "2026-06-02"})
+    assert r.status_code == 200
+    by_ticker = {m["ticker"]: m for m in r.json()["members"]}
+    assert by_ticker["DEVCO"]["foreign_filer_form"] == "40-F"  # foreign + no domestic -> fires
+    assert by_ticker["VETO"]["foreign_filer_form"] is None  # THE VETO: domestic forms present
+    assert by_ticker["BARE2"]["foreign_filer_form"] is None  # un-enriched -> honest abstain
+    # derive-on-read discipline: the raw filer-form ingredients never ride the scored wire
+    assert "recent_foreign_form" not in by_ticker["DEVCO"]
+    assert "files_domestic_forms" not in by_ticker["DEVCO"]
+
+
 def test_promote_and_scored_carry_a_null_archetype(client, security_id):
     """Item F (PR-B): promote accepts a member with NO archetype (un-decided — placement doesn't
     characterize; the finalize screen does), stores NULL, reads it back null on the thesis detail, and

@@ -311,6 +311,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .trg-item.hit .ic { color: var(--pos); }
 .trg-item.miss .ic { color: var(--txt-4); }
 .trg-item.warn .ic { color: var(--warm); }
+/* the foreign-filer scoped sub-note under a missing conviction line — muted, indented, ambient (#7) */
+.trg-item.miss .miss-note { display: block; margin-top: 4px; font-size: 10px; line-height: 1.45; color: var(--txt-4); font-style: italic; }
 /* the source link is an unbreakable unit — "↗ source" never splits across a wrap */
 .trg-item a { color: var(--txt-3); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; white-space: nowrap; }
 .trg-item a:hover { color: var(--txt-2); }

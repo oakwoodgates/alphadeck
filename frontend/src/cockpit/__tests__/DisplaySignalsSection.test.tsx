@@ -100,6 +100,53 @@ describe("DisplaySignalsSection — the quiet Indicators block", () => {
     expect(screen.getByText("No indicator data at this as-of.")).toBeInTheDocument();
   });
 
+  it("injects a muted foreign-filer insider N/A when foreign + no insider signal (§16-exempt)", () => {
+    // a foreign filer with only tape signals (no insider signal — it files no Form 4): the ambient N/A
+    // explains the STRUCTURAL absence, reusing the .na muted styling (#7). The panel's SMA block stays.
+    render(<DisplaySignalsSection display={member} foreignFilerForm="40-F" />);
+    const na = screen.getByText("N/A — foreign filer (40-F), no Form 4 (§16-exempt)");
+    expect(na).toBeInTheDocument();
+    expect(screen.getByText(/§16 exempts foreign private issuers/)).toBeInTheDocument();
+    // the N/A rides the muted .v.na value styling (#7 — ambient, never loud), inside an np-ind-chip
+    expect(na.className).toContain("na");
+    expect(na.closest(".np-ind-chip")).not.toBeNull();
+  });
+
+  it("shows the N/A even with NO tape data (and suppresses the empty 'no data' line)", () => {
+    render(
+      <DisplaySignalsSection display={{ ...member, signals: [] }} foreignFilerForm="20-F" />,
+    );
+    expect(
+      screen.getByText("N/A — foreign filer (20-F), no Form 4 (§16-exempt)"),
+    ).toBeInTheDocument();
+    // the N/A is the honest content — the "no indicator data" empty line does NOT also render
+    expect(screen.queryByText("No indicator data at this as-of.")).toBeNull();
+  });
+
+  it("renders NOTHING foreign-filer-related for a domestic name (no foreignFilerForm)", () => {
+    render(<DisplaySignalsSection display={{ ...member, signals: [] }} />);
+    expect(screen.queryByText(/no Form 4/)).toBeNull();
+    expect(screen.getByText("No indicator data at this as-of.")).toBeInTheDocument();
+  });
+
+  it("does NOT inject the N/A when an insider signal IS present (belt-and-suspenders)", () => {
+    const withInsider = {
+      security_id: "s-x",
+      ticker: "X",
+      signals: [
+        {
+          kind: "insider_flow_90d",
+          label: "Insider flow (90d)",
+          metrics: [],
+          events: [],
+          basis: { source: "fact_insider_txn", params: {} },
+        },
+      ],
+    } as unknown as MemberDisplaySignalsOut;
+    render(<DisplaySignalsSection display={withInsider} foreignFilerForm="20-F" />);
+    expect(screen.queryByText(/no Form 4/)).toBeNull();
+  });
+
   it("fmtMetricValue covers every wire unit (a new member needs zero frontend change)", () => {
     const m = (value: number | null, unit: string | null) =>
       ({ key: "k", label: "l", value, unit, note: null }) as Parameters<typeof fmtMetricValue>[0];

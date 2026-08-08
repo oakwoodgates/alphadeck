@@ -84,6 +84,15 @@ export function Cockpit({
   // display-only joins over data this page already fetches (no call is re-derived here). While the
   // call is still computing (card undefined) everything reads Quiet, honestly.
   const groups = groupBasket(basket, card, scoredQ.data?.members);
+  // Foreign-filer annotation on the thesis CallCard — ONLY for a single-name thesis whose sole member is a
+  // §16-exempt 20-F/40-F filer (a multi-name basket annotates per-name on the NamePanel instead, #7). The
+  // form scopes the card's conviction sub-note; absent (domestic, unknown, multi-name, or scored not yet
+  // loaded) → the card renders unannotated (byte-identical to before).
+  const soleMember = basket.length === 1 ? basket[0] : undefined;
+  const soleForeignForm = soleMember
+    ? scoredQ.data?.members.find((m) => m.security_id === soleMember.security_id)?.foreign_filer_form
+    : undefined;
+  const foreignFiler = soleForeignForm ? { form: soleForeignForm } : null;
   const exportRows = groups
     .flatMap((g) => g.rows)
     .map((r) => toExportedName({ ticker: r.member.ticker, name: r.scored?.name }));
@@ -381,7 +390,7 @@ export function Cockpit({
         <aside className={`cp-rail${selected ? " dimmed" : ""}`}>
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
-          {card && <CallCard card={card} thesisId={thesisId} />}
+          {card && <CallCard card={card} thesisId={thesisId} foreignFiler={foreignFiler} />}
           {card && <MemberMenu card={card} />}
         </aside>
       </div>

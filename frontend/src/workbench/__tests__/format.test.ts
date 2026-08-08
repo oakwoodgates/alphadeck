@@ -4,11 +4,14 @@ import {
   archLabel,
   countryClass,
   exchangeClass,
+  filerRegime,
   formatMarketCap,
+  insiderNaLabel,
   isAcronymTerm,
   memberHasFundamentals,
   meterValueLabel,
   onFileValues,
+  originWithFiler,
   provChip,
   provNotes,
   sharesAsof,
@@ -128,6 +131,49 @@ describe("countryClass (the Country filter bucket)", () => {
     expect(countryClass(undefined)).toBe("unknown");
     expect(countryClass("")).toBe("unknown");
     expect(countryClass("   ")).toBe("unknown");
+  });
+});
+
+describe("filerRegime (the foreign-filer regime name)", () => {
+  it("maps the wire form to its §16-exempt regime, else null", () => {
+    expect(filerRegime("40-F")).toBe("Canadian MJDS");
+    expect(filerRegime("20-F")).toBe("FPI");
+    expect(filerRegime("40-f")).toBe("Canadian MJDS"); // case-insensitive
+    expect(filerRegime("10-K")).toBeNull(); // a domestic form is not a foreign regime
+    expect(filerRegime(null)).toBeNull();
+    expect(filerRegime(undefined)).toBeNull();
+    expect(filerRegime("")).toBeNull();
+  });
+});
+
+describe("originWithFiler (origin composed with the foreign-filer tell)", () => {
+  it("composes 'origin · form · no Form 4' for a foreign filer", () => {
+    expect(originWithFiler("Canada", "40-F")).toBe("Canada · 40-F · no Form 4");
+    expect(originWithFiler("Cayman Islands", "20-F")).toBe("Cayman Islands · 20-F · no Form 4");
+  });
+  it("drops the origin half when origin is unknown (the bare filer chip — the ChainEditor's use)", () => {
+    expect(originWithFiler(null, "40-F")).toBe("40-F · no Form 4");
+    expect(originWithFiler("", "20-F")).toBe("20-F · no Form 4");
+    expect(originWithFiler("  ", "40-F")).toBe("40-F · no Form 4");
+  });
+  it("leaves the origin UNCHANGED for a domestic / unknown filer (form null)", () => {
+    expect(originWithFiler("US", null)).toBe("US");
+    expect(originWithFiler("Shanghai", undefined)).toBe("Shanghai");
+    expect(originWithFiler(null, null)).toBeNull(); // both unknown → the honest abstain (no cell)
+    expect(originWithFiler("", "")).toBeNull();
+  });
+});
+
+describe("insiderNaLabel (the structural insider N/A)", () => {
+  it("names the regime form and the §16 exemption", () => {
+    expect(insiderNaLabel("40-F")).toBe("N/A — foreign filer (40-F), no Form 4 (§16-exempt)");
+    expect(insiderNaLabel("20-F")).toBe("N/A — foreign filer (20-F), no Form 4 (§16-exempt)");
+  });
+  it("falls back to a generic label with no form (defensive, never crashes)", () => {
+    expect(insiderNaLabel(null)).toBe("N/A — foreign filer (foreign form), no Form 4 (§16-exempt)");
+    expect(insiderNaLabel(undefined)).toBe(
+      "N/A — foreign filer (foreign form), no Form 4 (§16-exempt)",
+    );
   });
 });
 

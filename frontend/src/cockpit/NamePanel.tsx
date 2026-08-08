@@ -10,7 +10,7 @@ import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
-import { formatMarketCap, meterValueLabel } from "../workbench/format";
+import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/format";
 import { archLabel, byEventDateDesc, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
 import type { BucketDef, BucketKey, BucketRow } from "./buckets";
 
@@ -108,8 +108,10 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
     ["Exchange", scored?.exchange ?? "—"],
     ["Category", scored?.category ?? "—"],
     // WHERE the name is from — derived server-side from the SEC's own locators (the origin ladder),
-    // free on the scored wire (the identity-lifecycle read). "—" when unknown — never a guess.
-    ["Origin", scored?.origin ?? "—"],
+    // free on the scored wire (the identity-lifecycle read). Composed with the foreign-filer tell: a
+    // §16-exempt foreign filer reads "Canada · 40-F · no Form 4" (the who-and-why in one cell). "—" when
+    // unknown — never a guess.
+    ["Origin", originWithFiler(scored?.origin, scored?.foreign_filer_form) ?? "—"],
     ["Mkt cap", formatMarketCap(scored?.market_cap.value)],
     ["Size weight (yours)", weight],
     ["Role", member.role || "—"],
@@ -299,7 +301,7 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
         </>
       )}
 
-      <DisplaySignalsSection display={display} />
+      <DisplaySignalsSection display={display} foreignFilerForm={scored?.foreign_filer_form} />
 
       {myDecisions.length > 0 && (
         <>

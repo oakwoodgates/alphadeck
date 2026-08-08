@@ -255,3 +255,72 @@ def test_parse_identity_origin_ingredients_sparse_doc_abstains():
 def test_parse_identity_files_foreign_forms_via_40f():
     """The Canadian-MJDS arm: a 40-F alone flips the stored ingredient."""
     assert parse_identity(_recent(["40-F", "6-K"])).files_foreign_forms is True
+
+
+# --- parse_identity: the FILER-FORM ingredients (migration 0031 — the foreign-filer explainability tell) ---
+
+
+def _recent_dated(rows: list[tuple[str, str]]) -> dict:
+    """A filings.recent block with per-row (form, filingDate) — for the 20-F-vs-40-F tie-break."""
+    forms = [f for f, _ in rows]
+    dates = [d for _, d in rows]
+    n = len(rows)
+    return {
+        "filings": {
+            "recent": {
+                "form": forms,
+                "accessionNumber": [f"0000000000-26-{i:06d}" for i in range(n)],
+                "primaryDocument": [f"doc{i}.htm" for i in range(n)],
+                "filingDate": dates,
+                "reportDate": dates,
+            }
+        }
+    }
+
+
+def test_parse_identity_recent_foreign_form_20f_alone():
+    """An FPI: a 20-F present, no 10-K/10-Q → recent_foreign_form "20-F", domestic-forms False (the tell fires)."""
+    ident = parse_identity(_recent(["6-K", "20-F", "6-K"]))
+    assert ident.recent_foreign_form == "20-F"
+    assert ident.files_domestic_forms is False
+
+
+def test_parse_identity_recent_foreign_form_40f_alone():
+    """A Canadian-MJDS filer: a 40-F present, no 10-K/10-Q → "40-F", domestic-forms False."""
+    ident = parse_identity(_recent(["40-F", "6-K"]))
+    assert ident.recent_foreign_form == "40-F"
+    assert ident.files_domestic_forms is False
+
+
+def test_parse_identity_files_domestic_forms_vetoes_via_10k():
+    """The domestic veto (the Energy-Fuels/UUUU shape): a legacy 40-F BUT a recent 10-K/10-Q on file —
+    recent_foreign_form still carries the form, but files_domestic_forms is True so the derived tell abstains.
+    """
+    ident = parse_identity(_recent(["10-K", "10-Q", "40-F"]))
+    assert ident.recent_foreign_form == "40-F"
+    assert ident.files_domestic_forms is True  # the veto ingredient
+    assert ident.files_foreign_forms is True  # the 0028 bool still sees the 40-F
+
+
+def test_parse_identity_recent_foreign_form_both_present_picks_newer_by_filed():
+    """Both a 20-F and a 40-F on file (pathological — the regimes are mutually exclusive): the NEWER filing
+    date wins, deterministically."""
+    assert (
+        parse_identity(
+            _recent_dated([("20-F", "2026-04-01"), ("40-F", "2025-04-01")])
+        ).recent_foreign_form
+        == "20-F"
+    )
+    assert (
+        parse_identity(
+            _recent_dated([("40-F", "2026-04-01"), ("20-F", "2025-04-01")])
+        ).recent_foreign_form
+        == "40-F"
+    )
+
+
+def test_parse_identity_filer_forms_sparse_doc_abstains():
+    """No filings at all → recent_foreign_form None, files_domestic_forms False (the tell's honest abstain)."""
+    ident = parse_identity({})
+    assert ident.recent_foreign_form is None
+    assert ident.files_domestic_forms is False
