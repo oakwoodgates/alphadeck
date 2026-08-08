@@ -10,6 +10,7 @@ from __future__ import annotations
 from securities.price_symbol import (
     normalize_company_name,
     propose_price_symbol,
+    shortened_name_queries,
     us_equity_name_matches,
 )
 
@@ -151,3 +152,70 @@ def test_self_match_is_not_a_resolution():
         candidate_bars={"HIMS": 250},
     )
     assert p.tier == "NONE"
+
+
+# --- shortened-name search fallback (the CURLD/Curaleaf recall miss) --------------------------------
+
+
+def test_shortened_name_queries_progressively_shorten():
+    assert shortened_name_queries("Curaleaf Holdings, Inc.") == ["Curaleaf Holdings", "Curaleaf"]
+    assert shortened_name_queries("Verdera Energy Corp.") == ["Verdera Energy", "Verdera"]
+    assert shortened_name_queries("PureTech Health plc") == ["PureTech Health", "PureTech"]
+    assert shortened_name_queries("") == [] and shortened_name_queries(None) == []
+
+
+def test_shortened_name_search_recovers_the_us_listing_as_auto():
+    """THE RECALL FIX: the ticker (CURLD) and the FULL legal name both miss, but a SHORTENED query
+    ("Curaleaf") surfaces CURLF — which still exact-normalize-matches the FULL master name, so it's AUTO
+    via the shortened-name search. The match gate never loosened."""
+    p = propose_price_symbol(
+        ticker="CURLD",
+        name="Curaleaf Holdings, Inc.",
+        ticker_search={"quotes": []},  # ticker search: nothing
+        name_search={"quotes": []},  # FULL legal name: the recall miss
+        extra_searches=[
+            {
+                "quotes": [_q("CURA.TO", "Curaleaf Holdings, Inc.", exchange="TOR")]
+            },  # "Curaleaf Holdings"
+            {"quotes": [_q("CURLF", "Curaleaf Holdings, Inc.")]},  # "Curaleaf" → the US listing
+        ],
+        canonical_bars=12,
+        candidate_bars={"CURLF": 251},
+    )
+    assert (p.tier, p.proposed_symbol) == ("AUTO", "CURLF")
+    assert "shortened-name search" in p.why  # provenance names the winning search
+
+
+def test_shortened_name_search_keeps_precision_wrong_company_still_none():
+    """The shortened query only widens RECALL — the precision gate is unchanged: a shortened search that
+    returns a DIFFERENT company (whose name doesn't exact-normalize-match the full master name) still
+    yields NONE, never a bad AUTO."""
+    p = propose_price_symbol(
+        ticker="CURLD",
+        name="Curaleaf Holdings, Inc.",
+        ticker_search={"quotes": []},
+        name_search={"quotes": []},
+        extra_searches=[
+            {
+                "quotes": [_q("CURI", "Curaleaf International Ltd")]
+            },  # a DIFFERENT company — no match
+        ],
+        canonical_bars=12,
+        candidate_bars={"CURI": 251},
+    )
+    assert p.tier == "NONE"
+
+
+def test_shortened_name_search_two_genuine_matches_still_flag():
+    """Precision holds for the ambiguous case too: two genuine exact-name matches from a shortened search
+    go to FLAG (>1), never a bad AUTO."""
+    p = propose_price_symbol(
+        ticker="ACME",
+        name="Acme Corp",
+        ticker_search={"quotes": []},
+        name_search={"quotes": []},
+        extra_searches=[{"quotes": [_q("ACMEA", "Acme Corp"), _q("ACMEB", "Acme Corp")]}],
+        canonical_bars=5,
+        candidate_bars={"ACMEA": 250, "ACMEB": 250},
+    )
+    assert p.tier == "FLAG" and set(p.candidates) == {"ACMEA", "ACMEB"}

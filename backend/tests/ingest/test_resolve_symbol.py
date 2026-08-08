@@ -93,6 +93,32 @@ def test_probe_failure_is_guarded_to_flag_not_crash(monkeypatch):
     assert (p.tier, p.proposed_symbol) == ("FLAG", "FDCTD")  # candidate found, unverified
 
 
+def test_shortened_name_fallback_resolves_curaleaf(monkeypatch):
+    """THE RECALL FIX end-to-end: the ticker (CURLD) and the FULL name both search to nothing, but a
+    SHORTENED query ("Curaleaf") surfaces CURLF — the resolver issues that shorter query and adopts it AUTO.
+    The full-name query returns empty (the measured miss); only the shortened one returns the US listing.
+    """
+    searches = {
+        # "CURLD" and the full legal name both miss
+        "Curaleaf Holdings, Inc.": {"quotes": []},
+        # the suffix-stripped and first-token shortened queries surface the US listing
+        "Curaleaf Holdings": {
+            "quotes": [
+                {"symbol": "CURA.TO", "shortname": "Curaleaf Holdings, Inc.", "quoteType": "EQUITY"}
+            ]
+        },  # foreign only → filtered out
+        "Curaleaf": {
+            "quotes": [
+                {"symbol": "CURLF", "shortname": "Curaleaf Holdings, Inc.", "quoteType": "EQUITY"}
+            ]
+        },
+    }
+    _patch(monkeypatch, searches=searches, bars={"CURLD": 12, "CURLF": 251})
+    p = resolve_price_symbol(_sec(ticker="CURLD", name="Curaleaf Holdings, Inc."), allow_live=True)
+    assert (p.tier, p.proposed_symbol) == ("AUTO", "CURLF")
+    assert "shortened-name search" in p.why
+
+
 def test_tickerless_is_none(monkeypatch):
     _patch(monkeypatch, searches={}, bars={})
     p = resolve_price_symbol(_sec(ticker=None), allow_live=True)

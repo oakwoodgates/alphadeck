@@ -35,7 +35,7 @@ Tiers (recall is sacred, #9 — a name is NEVER dropped, only classified):
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 # How much MORE history the resolved symbol must carry to count as "longer history" (gate 4). A genuine
@@ -80,6 +80,40 @@ def normalize_company_name(name: str | None) -> str:
     return " ".join(tokens)
 
 
+def shortened_name_queries(name: str | None) -> list[str]:
+    """SHORTENED search queries derived from the master name, in priority order — a RECALL aid only (the
+    match gate is unchanged: candidates are still exact-normalize-matched to the FULL master name). Yahoo's
+    search surfaces the US listing for a shorter query where the full legal name misses it ("Curaleaf
+    Holdings, Inc." finds nothing, but "Curaleaf" cleanly returns CURLF). Preserves original-ish case (the
+    search is case-insensitive; the display casing is kept for readable provenance):
+
+    1. the name with punctuation + trailing legal-form suffixes stripped ("Curaleaf Holdings, Inc." →
+       "Curaleaf Holdings");
+    2. the first two significant tokens ("Curaleaf Holdings");
+    3. the first token ("Curaleaf").
+
+    De-duplicated, blanks dropped. The caller additionally skips any query equal to the ticker or the full
+    name (already searched), so this never re-issues a redundant search."""
+    if not name:
+        return []
+    tokens = re.sub(r"[^A-Za-z0-9 ]+", " ", name).split()
+    if tokens and tokens[0].upper() == "THE":
+        tokens = tokens[1:]
+    while tokens and tokens[-1].upper() in _LEGAL_SUFFIXES:
+        tokens = tokens[:-1]
+    candidates = [
+        " ".join(tokens),  # 1. suffix-stripped full name
+        " ".join(tokens[:2]),  # 2. first two significant tokens
+        tokens[0] if tokens else "",  # 3. first token
+    ]
+    out: list[str] = []
+    for q in candidates:
+        q = q.strip()
+        if q and q not in out:
+            out.append(q)
+    return out
+
+
 def _is_us_symbol(symbol: str) -> bool:
     """A US Yahoo symbol carries no dotted foreign-venue suffix (``.TO``/``.CN``/``.F``/…). US class/derivative
     lines use a hyphen (BRK-B, KTTA-WT), never a dot — so "a dot means foreign" cleanly rejects the
@@ -114,15 +148,19 @@ def propose_price_symbol(
     name: str | None,
     ticker_search: Mapping | None,
     name_search: Mapping | None = None,
+    extra_searches: Sequence[Mapping | None] | None = None,
     canonical_bars: int = 0,
     candidate_bars: Mapping[str, int] | None = None,
 ) -> PriceSymbolProposal:
-    """The pure decider. Filter the ticker search to US-EQUITY exact-name matches; on empty, fall back to the
-    NAME search (VREOD's ticker-search is empty; "Vireo Growth" → VREOF). Drop any self-match (a candidate
-    equal to the canonical ticker is not a resolution). Then:
+    """The pure decider. Try each search in PRIORITY ORDER — ticker → full name → each shortened-name
+    search (``extra_searches``, a RECALL aid: "Curaleaf Holdings, Inc." misses, "Curaleaf" finds CURLF) —
+    filtering every result through the SAME strict ``us_equity_name_matches`` gate (US-equity + exact-
+    normalize-match to the FULL master name) and dropping any self-match. The first search that yields a
+    usable match wins; the match CRITERION never loosens (a shorter query only changes which candidates
+    Yahoo returns, not what counts as a match). Then:
 
     - 0 matches → NONE (keep the name, priced under its canonical ticker — #9).
-    - >1 match → FLAG (ambiguous — the operator picks).
+    - >1 match → FLAG (ambiguous — the operator picks; two genuine exact-name matches never auto-adopt).
     - exactly 1 match ``C``:
         - ``candidate_bars[C] > canonical_bars + _MIN_HISTORY_GAIN`` → AUTO (longer history confirms).
         - else → FLAG (unverified — a lone match without materially longer history).
@@ -132,12 +170,19 @@ def propose_price_symbol(
     tkr = (ticker or "").upper()
     candidate_bars = candidate_bars or {}
 
-    matches = us_equity_name_matches(ticker_search, name)
+    ordered: list[tuple[str, Mapping | None]] = [
+        ("ticker search", ticker_search),
+        ("name search", name_search),
+    ]
+    ordered += [("shortened-name search", s) for s in (extra_searches or [])]
+    matches: list[str] = []
     via = "ticker search"
-    if not matches:
-        matches = us_equity_name_matches(name_search, name)
-        via = "name search"
-    matches = [m for m in matches if m != tkr]  # a self-match isn't a resolution
+    for label, search in ordered:
+        # the SAME gate each time; a self-match isn't a resolution so it never blocks the fallthrough
+        found = [m for m in us_equity_name_matches(search, name) if m != tkr]
+        if found:
+            matches, via = found, label
+            break
 
     if not matches:
         return PriceSymbolProposal(
