@@ -226,9 +226,11 @@ def ingest_thesis(
 
 def _report(results: list[NameResult]) -> int:
     """Print a per-name summary; return the number of names that errored (the process exit signal).
-    Skips surface only when nonzero — loudness marks the exception."""
+    Skips + backfilled bars surface only when nonzero — loudness marks the exception."""
     total_f4 = sum(r.form4_appended for r in results)
-    total_px = sum(r.price_bars_appended for r in results)
+    # price bars that LANDED = the incremental tail + the re-versioned/hole-backfilled bars (the resolve-heal
+    # writes the whole recovered history via the reversioned path); count both, like the fund-shares tally
+    total_px = sum(r.price_bars_appended + r.price_bars_reversioned for r in results)
     total_sk = sum(r.form4_skipped for r in results)
     total_fs = sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results)
     errored = [r for r in results if r.error]
@@ -239,6 +241,9 @@ def _report(results: list[NameResult]) -> int:
             if r.form4_skipped
             else ""
         )
+        # the exceptional path (a split re-base or a resolve-heal hole-backfill) — surfaced DISTINCTLY,
+        # loud only when nonzero, so the big backfill is visible and not silently folded into "+bars"
+        backfill = f", +{r.price_bars_reversioned} backfilled" if r.price_bars_reversioned else ""
         # only an ETF sleeve ever samples — the line rides only when something landed (exception-loud)
         fund = (
             f", +{r.fund_shares_appended + r.fund_shares_reversioned} fund shares"
@@ -247,7 +252,7 @@ def _report(results: list[NameResult]) -> int:
         )
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{fund}{skips}{tail}"
+            f"+{r.price_bars_appended} bars{backfill}{fund}{skips}{tail}"
         )
     sk = f", {total_sk} form4 skipped" if total_sk else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""

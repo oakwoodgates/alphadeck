@@ -99,9 +99,15 @@ export function Cockpit({
   // The TradingView-watchlist export needs the exchange (mapped to a TV prefix, bare when unmappable) —
   // and only a tickered name can go in a watchlist, so drop the ticker-less rows (the count then reflects
   // exactly what exports). Exchange rides on the scored member, bridged by security_id like the name.
+  // Emit the RESOLVED vendor symbol when set (price_symbol ?? ticker) so an OTC name exports as OTC:FDCTD —
+  // the symbol TradingView actually indexes the full history under — not the starved SEC ticker (OTC:FDCT).
+  // buildWatchlistTxt dedupes by emitted symbol, so two members resolving to one vendor symbol collapse.
   const watchlistRows = groups
     .flatMap((g) => g.rows)
-    .map((r) => ({ ticker: r.member.ticker ?? "", exchange: r.scored?.exchange ?? null }))
+    .map((r) => ({
+      ticker: r.scored?.price_symbol ?? r.member.ticker ?? "",
+      exchange: r.scored?.exchange ?? null,
+    }))
     .filter((r) => r.ticker.trim() !== "");
 
   // The per-name panel's selection — lifted to the URL (the selectedName prop, ?name= via App's
@@ -281,7 +287,19 @@ export function Cockpit({
                             <td className="dotc">
                               <span className="rowdot" title={def.label} />
                             </td>
-                            <td className="tk">{r.member.ticker}</td>
+                            <td className="tk">
+                              {r.member.ticker}
+                              {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest
+                                  loudness). A data-health mark, never a call input. */}
+                              {r.scored?.thin_price_history && (
+                                <span
+                                  className="thin-mark"
+                                  title="thin price history — history-window signals may be starved"
+                                >
+                                  ⚠
+                                </span>
+                              )}
+                            </td>
                             <td className="co">
                               {r.scored?.name ?? <span className="muted">—</span>}
                             </td>

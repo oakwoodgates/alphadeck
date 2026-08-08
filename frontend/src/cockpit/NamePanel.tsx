@@ -116,6 +116,10 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
     ["Size weight (yours)", weight],
     ["Role", member.role || "—"],
   ];
+  // The resolved vendor price symbol — an EXCEPTION cell, present ONLY when the name is priced under a
+  // symbol other than its SEC ticker (honest loudness: the common healthy case has none, so a "—" here
+  // would carry no signal). Free on the scored wire (identity_for), never a call input.
+  if (scored?.price_symbol) cells.push(["Priced under", scored.price_symbol]);
 
   return (
     <aside className={`npanel ${def.cls}`} aria-label={`${member.ticker} — per-name panel`}>
@@ -264,6 +268,13 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       {!member.archetype && scored?.archetype_hint && (
         <div className="np-hintline">
           ✦ figures suggest {archLabel(scored.archetype_hint)} — decide in the Workbench
+        </div>
+      )}
+      {/* #1 thin-history DATA-HEALTH flag — only when starved (honest loudness). A bar count, never a call
+          input; it says the history-window reads may be unreliable, not that the call is wrong. */}
+      {scored?.thin_price_history && (
+        <div className="np-thinflag">
+          ⚠ thin price history — history-window signals may be starved
         </div>
       )}
 

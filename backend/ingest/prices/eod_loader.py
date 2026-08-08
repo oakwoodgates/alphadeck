@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import date, datetime, timezone
+from collections.abc import Iterable
+from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from uuid import UUID
@@ -195,3 +196,44 @@ def latest_bar_date(
             (tenant_id, security_id),
         )
         return cur.fetchone()["d"]
+
+
+def recent_distinct_bar_counts(
+    conn: psycopg.Connection,
+    security_ids: Iterable[UUID],
+    *,
+    asof: date,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    window_days: int = 365,
+) -> dict[UUID, int]:
+    """Map each security id -> its count of DISTINCT stored bar-dates within the trailing ``window_days``
+    ending at ``asof`` — the thin-history measure (a date counts ONCE regardless of re-versions; ``d <= asof``
+    keeps it no-lookahead, so a scored view at ``asof`` sees only tape knowable then). Ids with no bars in
+    the window are OMITTED (the caller reads a missing id as 0 — a genuinely-uncovered name). Batched so the
+    scored view + the backfill sweep pay one query, not one per name."""
+    ids = list({sid for sid in security_ids})
+    if not ids:
+        return {}
+    since = asof - timedelta(days=window_days)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id, count(DISTINCT d) AS n FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) AND d > %s AND d <= %s "
+            "GROUP BY security_id",
+            (tenant_id, ids, since, asof),
+        )
+        return {r["security_id"]: r["n"] for r in cur.fetchall()}
+
+
+def recent_distinct_bar_count(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    *,
+    asof: date,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    window_days: int = 365,
+) -> int:
+    """The single-security form of ``recent_distinct_bar_counts`` (0 when no bars fall in the window)."""
+    return recent_distinct_bar_counts(
+        conn, [security_id], asof=asof, tenant_id=tenant_id, window_days=window_days
+    ).get(security_id, 0)

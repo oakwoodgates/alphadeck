@@ -74,6 +74,45 @@ def test_scored_endpoint_serves_meters_on_real_data(client, db, security_id):
     )  # "behind the scores" traces to the filing
 
 
+def test_scored_flags_thin_price_history_including_the_zero_bar_blind_spot(client, db, security_id):
+    """#1 thin-history flag: a name with < 200 stored bar-dates in the trailing year reads
+    thin_price_history=True — including a genuinely-uncovered name with ZERO bars (the resolver's blind
+    spot). Derive-on-read, display-only."""
+    from ingest.prices.eod_loader import ingest_prices
+
+    tid = _scored_thesis(db, security_id)
+    # zero bars ingested for DEVCO -> the blind-spot case flags starved
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["thin_price_history"] is True
+
+    # a handful of bars is still far under the threshold -> still starved
+    ingest_prices(db, security_id, [_bar(date(2026, 5, d), 10.0) for d in (26, 27, 28)])
+    db.commit()
+    m2 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m2["thin_price_history"] is True
+
+
+def test_scored_healthy_history_is_not_flagged(client, db, security_id):
+    """A full year of tape (>= 200 bar-dates in the trailing year) reads thin_price_history=False — the
+    healthy common case shows no flag (honest loudness)."""
+    from datetime import timedelta
+
+    from ingest.prices.eod_loader import ingest_prices
+
+    tid = _scored_thesis(db, security_id)
+    base = date(2026, 6, 1)
+    ingest_prices(db, security_id, [_bar(base - timedelta(days=i), 10.0) for i in range(200)])
+    db.commit()
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["thin_price_history"] is False
+
+
 def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     payload = {
         "name": "Nuclear (promoted)",
@@ -168,6 +207,98 @@ def test_ingest_prices_source_failure_is_a_visible_502(client, security_id, monk
     r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
     assert r.status_code == 502
     assert "price pull failed" in r.json()["detail"]
+
+
+def _insert_otc(db, *, ticker, name, cik):
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, exchange, valid_from)"
+            " VALUES (%s, %s, %s, %s, %s, 'OTC', %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, cik, name, "2026-01-01"),
+        )
+    db.commit()
+    return sid
+
+
+class _RecordingSource:
+    """A PriceSource that records the symbol it was asked to fetch."""
+
+    def __init__(self):
+        self.requested = []
+
+    def get_bars(self, ticker, *, allow_live=True, force_refresh=False):
+        self.requested.append(ticker)
+        return [_bar(date(2026, 7, 1), 10.0)]
+
+
+def test_ingest_prices_self_heals_otc_symbol_at_add_time(client, db, monkeypatch):
+    """#2 SELF-HEAL: an OTC name with an unresolved price symbol triggers ONE resolution on the operator's
+    finalize pull; on an AUTO the resolved symbol is written AND this very pull fetches under it (FDCTD),
+    not the starved SEC ticker (FDCT)."""
+    from app.routers import workbench as wb
+    from ingest.prices import ingest_security as ing_mod
+    from securities.price_symbol import PriceSymbolProposal
+
+    sid = _insert_otc(db, ticker="FDCT", name="First Digital Corp", cik="0001111111")
+    calls = []
+
+    def _fake_resolve(sec, **kw):
+        calls.append(sec.ticker)
+        return PriceSymbolProposal(tier="AUTO", proposed_symbol="FDCTD", why="251 vs 16")
+
+    monkeypatch.setattr(wb, "resolve_price_symbol", _fake_resolve)
+    src = _RecordingSource()
+    monkeypatch.setattr(ing_mod, "YahooPriceSource", lambda: src)
+
+    r = client.post(f"/workbench/securities/{sid}/ingest-prices")
+    assert r.status_code == 200
+    assert calls == ["FDCT"]  # resolved exactly once, on the OTC name
+    assert src.requested == ["FDCTD"]  # the pull fetched under the RESOLVED symbol
+    from securities import master
+
+    assert master.get(db, sid).price_symbol == "FDCTD"  # written to the master
+
+
+def test_ingest_prices_resolver_failure_does_not_block_the_add(client, db, monkeypatch):
+    """FAIL-OPEN: a resolver error NEVER blocks the pull — the name enters priced under its canonical
+    ticker (price_symbol stays NULL), and the bars still append (the sweep + thin-flag catch it later).
+    """
+    from app.routers import workbench as wb
+    from ingest.prices import ingest_security as ing_mod
+
+    sid = _insert_otc(db, ticker="VUECF", name="Vuzix Something", cik="0002222222")
+
+    def _boom(sec, **kw):
+        raise RuntimeError("yahoo search down")
+
+    monkeypatch.setattr(wb, "resolve_price_symbol", _boom)
+    src = _RecordingSource()
+    monkeypatch.setattr(ing_mod, "YahooPriceSource", lambda: src)
+
+    r = client.post(f"/workbench/securities/{sid}/ingest-prices")
+    assert r.status_code == 200  # the add succeeded despite the resolver failure
+    assert src.requested == ["VUECF"]  # fell back to the canonical ticker
+    assert r.json()["bars_appended"] == 1
+    from securities import master
+
+    assert master.get(db, sid).price_symbol is None  # unresolved — the sweep/flag catch it
+
+
+def test_ingest_prices_non_otc_never_resolves(client, db, security_id, monkeypatch):
+    """A non-OTC name (DEVCO, exchange NULL) NEVER triggers a resolution — the resolver is OTC-scoped, so
+    a normal name pays no resolution cost (and the cron path, which never hits this endpoint, is untouched).
+    """
+    from app.routers import workbench as wb
+    from ingest.prices import ingest_security as ing_mod
+
+    calls = []
+    monkeypatch.setattr(wb, "resolve_price_symbol", lambda sec, **kw: calls.append(sec.ticker))
+    monkeypatch.setattr(ing_mod, "YahooPriceSource", lambda: _RecordingSource())
+
+    r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
+    assert r.status_code == 200
+    assert calls == []  # DEVCO is not OTC — the resolver never ran
 
 
 def test_scored_carries_master_identity(client, db, security_id):

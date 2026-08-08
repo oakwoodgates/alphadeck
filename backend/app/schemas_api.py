@@ -299,6 +299,12 @@ class ScoredMemberOut(BaseModel):
     # structurally unavailable, not quiet. Display identity like origin, never a call input (#3/#4). None =
     # not a foreign filer / unknown.
     foreign_filer_form: str | None = None
+    # The RESOLVED vendor price symbol (migration 0032) — carried verbatim from the master (``identity_for``).
+    # A non-null value is the EXCEPTION: the name is priced under a different symbol than its SEC ticker
+    # (FDCT priced under "FDCTD"). Display identity like origin, never a call input (#1/#3). ``None`` = priced
+    # under the canonical ticker (the common, healthy case) — the FE renders the note ONLY when set, and the
+    # watchlist export emits ``price_symbol ?? ticker`` so TradingView resolves the right listing.
+    price_symbol: str | None = None
     # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
     # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
     archetype: Archetype | None = None
@@ -316,6 +322,13 @@ class ScoredMemberOut(BaseModel):
     # HONEST CONFIDENCE (SURFACE Slice 1a): how many fact-backed meters (purity/runway/market cap) have no
     # operator-confirmed value yet. A "rests on N unconfirmed" readiness signal; never a scoring input.
     unconfirmed_estimates: int = 0
+    # DATA-HEALTH (#1 thin-history flag) — the name's stored EOD bar-dates in the trailing year fall below the
+    # longest active price-history lookback (``THIN_HISTORY_BARS`` = 200), so the history-window reads may be
+    # STARVED. A derive-on-read bar COUNT (from ``recent_distinct_bar_counts``), NEVER persisted and NEVER a
+    # call input — structurally out of the call path (like origin). It COVERS the resolver's blind spots: a
+    # genuinely-uncovered name (0 bars, no resolvable symbol) still flags True. Honest loudness: the FE
+    # renders the flag ONLY when True (a healthy name shows nothing).
+    thin_price_history: bool = False
 
     @classmethod
     def from_scored(
@@ -324,6 +337,7 @@ class ScoredMemberOut(BaseModel):
         ciks: Mapping[UUID, str | None],
         tickers: Mapping[UUID, str | None],
         identity: Mapping[UUID, Mapping[str, str | None]] | None = None,
+        thin_history: Mapping[UUID, bool] | None = None,
     ) -> "ScoredMemberOut":
         cik = ciks.get(m.security_id)
         ident = (identity or {}).get(m.security_id, {})
@@ -344,6 +358,7 @@ class ScoredMemberOut(BaseModel):
             category=ident.get("category"),
             origin=ident.get("origin"),
             foreign_filer_form=ident.get("foreign_filer_form"),
+            price_symbol=ident.get("price_symbol"),
             archetype=m.archetype,
             archetype_hint=m.archetype_hint,
             segment=m.segment,
@@ -354,6 +369,7 @@ class ScoredMemberOut(BaseModel):
             market_cap=fig(m.market_cap),
             fit=m.fit,
             unconfirmed_estimates=m.unconfirmed_estimates,
+            thin_price_history=bool((thin_history or {}).get(m.security_id, False)),
         )
 
 

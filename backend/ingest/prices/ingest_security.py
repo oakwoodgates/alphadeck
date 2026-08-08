@@ -92,7 +92,13 @@ def ingest_bars_for_security(
     if not sec.ticker:
         return BarsResult(0, 0)
     src = source or YahooPriceSource()
-    fresh = src.get_bars(sec.ticker, allow_live=allow_live, force_refresh=force_refresh)
+    # Price under the RESOLVED vendor symbol when set (FDCT's history lives under FDCTD: 251 bars vs 16),
+    # else the canonical SEC ticker. ``price_symbol`` is stored ONLY when it differs (migration 0032), and
+    # only for a name that HAS a ticker — so ``price_symbol or ticker`` is the effective symbol, and the
+    # ticker guard above still holds. The bars land under the same ``security_id`` regardless of which
+    # symbol fetched them, so the detectors simply start seeing the fuller history (no call-path touch).
+    price_symbol = sec.price_symbol or sec.ticker
+    fresh = src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh)
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
 
     appended = ingest_prices(

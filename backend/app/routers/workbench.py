@@ -60,8 +60,9 @@ from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
-from ingest.prices.eod_loader import latest_bar_date
+from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
+from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from llm.chain_decomposition import (
@@ -76,6 +77,7 @@ from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import coherence, figi, fund_tickers, master
+from securities.price_history_health import is_thin_history
 from signals.base import PointInTimeData
 from workbench import etf_overlap, run_loader, triage_store
 from workbench.chain_draft import (
@@ -116,11 +118,18 @@ def get_scored(
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ident_for = master.identity_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    # #1 thin-history DATA-HEALTH flag (derive-on-read, structurally OUT of the call path): count each name's
+    # stored EOD bar-dates in the trailing year at ``asof`` (a name with 0 bars is simply absent from the map
+    # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.
+    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=thesis.tenant_id)
+    thin_for = {sid: is_thin_history(bar_counts.get(sid, 0)) for sid in sec_ids}
     return WorkbenchScored(
         thesis_id=thesis.id,
         asof=asof,
         segments=list(thesis.segments),
-        members=[ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for) for m in scored],
+        members=[
+            ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for, thin_for) for m in scored
+        ],
     )
 
 
@@ -443,6 +452,32 @@ def ingest_security_prices(
         raise HTTPException(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
+    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on the operator's own finalize pull
+    # (never the cron — resolution is operator-triggered, cost is the operator's to spend). Only an OTC name
+    # whose symbol is still unresolved (``price_symbol IS NULL``) triggers it; on an AUTO the resolver writes
+    # the symbol, so THIS very pull fetches the fuller history. FAIL-OPEN: any miss/error NEVER blocks the
+    # add — the member enters priced under its canonical ticker, and the backfill sweep (Slice D) + the
+    # thin-history flag (Slice F) catch what a live resolution missed.
+    if sec.exchange == "OTC" and sec.price_symbol is None:
+        try:
+            proposal = resolve_price_symbol(sec, allow_live=True)
+            if proposal.tier == "AUTO" and proposal.proposed_symbol:
+                master.set_price_symbol(
+                    conn,
+                    sec.id,
+                    proposal.proposed_symbol,
+                    basis=f"resolver:auto {proposal.why}",
+                    tenant_id=tenant_id,
+                )
+                conn.commit()
+                sec = (
+                    master.get(conn, security_id, tenant_id=tenant_id) or sec
+                )  # use the resolved symbol
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — fail-open: a resolution failure never blocks the pull
+            conn.rollback()
+            _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
     try:
         bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
         conn.commit()

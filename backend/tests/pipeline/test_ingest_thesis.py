@@ -417,3 +417,45 @@ def test_cache_miss_still_aborts_the_form4_leg(db, security_id, monkeypatch):
     assert r.form4_appended == 0 and r.form4_skipped == 0
     assert r.price_bars_appended == 1  # the price leg still committed
     assert _counts(db) == (0, 1)
+
+
+# --- _report: the price-bar tally must count re-versioned / hole-backfilled bars -------------------
+
+
+def test_report_counts_hole_backfilled_reversioned_bars(capsys):
+    """The resolve-heal writes the whole recovered history via the REVERSIONED path (CURLD wrote ~250
+    bars there, all hole-backfill), so the summary must count appended + reversioned — not just the
+    incremental tail. Total reflects 5 + 246 = 251, and the per-name line surfaces the 246 DISTINCTLY.
+    """
+    results = [
+        IT.NameResult(
+            ticker="CURLD",
+            security_id=uuid.uuid4(),
+            form4_appended=0,
+            price_bars_appended=5,
+            price_bars_reversioned=246,
+        )
+    ]
+    errored = IT._report(results)
+    out = capsys.readouterr().out
+    assert errored == 0
+    assert (
+        "+251 price bars" in out
+    )  # the total counts appended + reversioned (was "+5" before the fix)
+    assert (
+        "+5 bars, +246 backfilled" in out
+    )  # the per-name line surfaces the backfill loudly + distinctly
+
+
+def test_report_omits_backfill_segment_when_zero(capsys):
+    """Honest loudness: a normal name with no re-versioned bars shows just '+N bars' — no backfill noise —
+    and the total is still correct (appended + 0)."""
+    results = [
+        IT.NameResult(
+            ticker="DEVCO", security_id=uuid.uuid4(), form4_appended=2, price_bars_appended=3
+        )
+    ]
+    IT._report(results)
+    out = capsys.readouterr().out
+    assert "+3 bars" in out and "backfilled" not in out
+    assert "+3 price bars" in out  # total = 3 + 0
