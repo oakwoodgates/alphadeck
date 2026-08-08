@@ -8,6 +8,8 @@ from ingest.prices.eod_loader import (
     latest_bar_date,
     parse_stooq_csv,
     parse_yahoo_chart,
+    recent_distinct_bar_count,
+    recent_distinct_bar_counts,
 )
 
 _CSV = (Path(__file__).resolve().parent.parent / "fixtures" / "prices" / "DEVCO.csv").read_text(
@@ -64,3 +66,36 @@ def test_latest_bar_date_none_then_max(db, security_id):
     )
     db.commit()
     assert latest_bar_date(db, security_id) == date(2026, 6, 17)
+
+
+def test_recent_distinct_bar_count_windows_and_dedups(db, security_id):
+    """The thin-history measure: DISTINCT bar-dates within the trailing window ending at asof. A re-version
+    of a date counts ONCE (distinct); a bar OUTSIDE the window (older than a year, or after asof) is
+    excluded (no-lookahead upper bound); a security with no bars reads 0."""
+    from datetime import datetime, timezone
+
+    asof = date(2026, 6, 30)
+    ingest_prices(
+        db,
+        security_id,
+        [
+            _bar(date(2026, 6, 15)),
+            _bar(date(2026, 6, 16)),
+            _bar(date(2025, 1, 1)),  # older than the trailing year — excluded
+            _bar(date(2026, 7, 5)),  # AFTER asof — excluded (no-lookahead)
+        ],
+    )
+    # a re-version of 2026-06-15 (a later recorded_at, the bitemporal move) — DISTINCT d counts it ONCE
+    ingest_prices(
+        db,
+        security_id,
+        [_bar(date(2026, 6, 15))],
+        recorded_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    )
+    db.commit()
+    assert recent_distinct_bar_count(db, security_id, asof=asof) == 2  # the two in-window dates
+    # a security with no bars in the window reads 0 (omitted from the batch map)
+    import uuid
+
+    assert recent_distinct_bar_count(db, uuid.uuid4(), asof=asof) == 0
+    assert recent_distinct_bar_counts(db, [security_id], asof=asof) == {security_id: 2}
