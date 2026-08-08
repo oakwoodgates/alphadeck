@@ -60,7 +60,7 @@ from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
-from ingest.prices.eod_loader import latest_bar_date
+from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
@@ -77,6 +77,7 @@ from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import coherence, figi, fund_tickers, master
+from securities.price_history_health import is_thin_history
 from signals.base import PointInTimeData
 from workbench import etf_overlap, run_loader, triage_store
 from workbench.chain_draft import (
@@ -117,11 +118,18 @@ def get_scored(
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
     ident_for = master.identity_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    # #1 thin-history DATA-HEALTH flag (derive-on-read, structurally OUT of the call path): count each name's
+    # stored EOD bar-dates in the trailing year at ``asof`` (a name with 0 bars is simply absent from the map
+    # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.
+    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=thesis.tenant_id)
+    thin_for = {sid: is_thin_history(bar_counts.get(sid, 0)) for sid in sec_ids}
     return WorkbenchScored(
         thesis_id=thesis.id,
         asof=asof,
         segments=list(thesis.segments),
-        members=[ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for) for m in scored],
+        members=[
+            ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for, thin_for) for m in scored
+        ],
     )
 
 

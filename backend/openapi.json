@@ -6996,6 +6996,11 @@
             "type": "integer",
             "title": "Unconfirmed Estimates",
             "default": 0
+          },
+          "thin_price_history": {
+            "type": "boolean",
+            "title": "Thin Price History",
+            "default": false
           }
         },
         "type": "object",

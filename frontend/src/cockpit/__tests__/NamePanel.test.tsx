@@ -116,3 +116,15 @@ describe("NamePanel — the resolved price-symbol note (honest loudness)", () =>
     expect(pricedCell()).toBeUndefined(); // the healthy common case is silent, not a blank cell
   });
 });
+
+describe("NamePanel — the #1 thin-history data-health flag (honest loudness)", () => {
+  it("shows the thin-history warning ONLY when the tape is starved", () => {
+    renderPanel(scored({ thin_price_history: true } as Partial<ScoredMemberOut>));
+    expect(screen.getByText(/thin price history/)).toBeInTheDocument();
+  });
+
+  it("renders no warning for a name with a full year of tape", () => {
+    renderPanel(scored({ thin_price_history: false } as Partial<ScoredMemberOut>));
+    expect(screen.queryByText(/thin price history/)).toBeNull();
+  });
+});

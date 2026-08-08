@@ -74,6 +74,45 @@ def test_scored_endpoint_serves_meters_on_real_data(client, db, security_id):
     )  # "behind the scores" traces to the filing
 
 
+def test_scored_flags_thin_price_history_including_the_zero_bar_blind_spot(client, db, security_id):
+    """#1 thin-history flag: a name with < 200 stored bar-dates in the trailing year reads
+    thin_price_history=True — including a genuinely-uncovered name with ZERO bars (the resolver's blind
+    spot). Derive-on-read, display-only."""
+    from ingest.prices.eod_loader import ingest_prices
+
+    tid = _scored_thesis(db, security_id)
+    # zero bars ingested for DEVCO -> the blind-spot case flags starved
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["thin_price_history"] is True
+
+    # a handful of bars is still far under the threshold -> still starved
+    ingest_prices(db, security_id, [_bar(date(2026, 5, d), 10.0) for d in (26, 27, 28)])
+    db.commit()
+    m2 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m2["thin_price_history"] is True
+
+
+def test_scored_healthy_history_is_not_flagged(client, db, security_id):
+    """A full year of tape (>= 200 bar-dates in the trailing year) reads thin_price_history=False — the
+    healthy common case shows no flag (honest loudness)."""
+    from datetime import timedelta
+
+    from ingest.prices.eod_loader import ingest_prices
+
+    tid = _scored_thesis(db, security_id)
+    base = date(2026, 6, 1)
+    ingest_prices(db, security_id, [_bar(base - timedelta(days=i), 10.0) for i in range(200)])
+    db.commit()
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["thin_price_history"] is False
+
+
 def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     payload = {
         "name": "Nuclear (promoted)",

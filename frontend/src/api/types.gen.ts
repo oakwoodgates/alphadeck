@@ -3329,6 +3329,11 @@ export interface components {
              * @default 0
              */
             unconfirmed_estimates: number;
+            /**
+             * Thin Price History
+             * @default false
+             */
+            thin_price_history: boolean;
         };
         /**
          * SecurityCandidate

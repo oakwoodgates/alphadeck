@@ -287,7 +287,19 @@ export function Cockpit({
                             <td className="dotc">
                               <span className="rowdot" title={def.label} />
                             </td>
-                            <td className="tk">{r.member.ticker}</td>
+                            <td className="tk">
+                              {r.member.ticker}
+                              {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest
+                                  loudness). A data-health mark, never a call input. */}
+                              {r.scored?.thin_price_history && (
+                                <span
+                                  className="thin-mark"
+                                  title="thin price history — history-window signals may be starved"
+                                >
+                                  ⚠
+                                </span>
+                              )}
+                            </td>
                             <td className="co">
                               {r.scored?.name ?? <span className="muted">—</span>}
                             </td>

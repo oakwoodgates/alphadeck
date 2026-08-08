@@ -270,6 +270,13 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
           ✦ figures suggest {archLabel(scored.archetype_hint)} — decide in the Workbench
         </div>
       )}
+      {/* #1 thin-history DATA-HEALTH flag — only when starved (honest loudness). A bar count, never a call
+          input; it says the history-window reads may be unreliable, not that the call is wrong. */}
+      {scored?.thin_price_history && (
+        <div className="np-thinflag">
+          ⚠ thin price history — history-window signals may be starved
+        </div>
+      )}
 
       {member.thesis_fit && (
         <>
