@@ -287,6 +287,32 @@ def test_enrich_persists_origin_ingredients_and_reads_back_count_the_table(db):
     )
 
 
+def test_enrich_persists_filer_form_ingredients_and_reads_back(db):
+    """The 0031 filer-form ingredients (raw inputs to the derive-on-read foreign-filer tell) round-trip:
+    enrich writes ``files_domestic_forms`` / ``recent_foreign_form``, ``get``/``_row_to_security`` reads
+    them back. The Cameco (CCJ) shape: a 40-F on file, no domestic forms. An un-enriched row abstains (both
+    NULL — the honest fallback the tell derives ``None`` from)."""
+    sid = _insert(db, ticker="CCJ", name="Cameco Corp", cik="0001009001")
+    master.enrich(
+        db,
+        sid,
+        SecurityIdentity(
+            sector="Uranium",
+            status="active",
+            files_foreign_forms=True,
+            files_domestic_forms=False,
+            recent_foreign_form="40-F",
+        ),
+        source="submissions:CIK0001009001",
+    )
+    db.commit()
+    sec = master.get(db, sid)
+    assert (sec.files_domestic_forms, sec.recent_foreign_form) == (False, "40-F")
+    # an un-enriched row abstains on both (NULL -> the tell derives None)
+    bare = master.get(db, _insert(db, ticker="RAWZ", name="Raw Co", cik="0000000043"))
+    assert (bare.files_domestic_forms, bare.recent_foreign_form) == (None, None)
+
+
 # --- identity_for: the scored view's display join + the DERIVED origin (the identity-lifecycle read) ---
 
 
@@ -334,8 +360,15 @@ def test_identity_for_derives_origin_from_stored_ingredients(db):
     assert out[aapl]["origin"] == "US"  # a US-state abbreviation reads "US"
     assert out[bare]["origin"] is None  # un-enriched -> honest abstain (no chip)
     # derive-on-read discipline: the raw locator ingredients never leave the accessor — only the
-    # derived display string (plus the existing identity strings) rides toward the wire
-    assert set(out[nio].keys()) == {"name", "sector", "exchange", "category", "origin"}
+    # derived display strings (plus the existing identity strings) ride toward the wire
+    assert set(out[nio].keys()) == {
+        "name",
+        "sector",
+        "exchange",
+        "category",
+        "origin",
+        "foreign_filer_form",
+    }
 
 
 def test_identity_for_still_carries_the_enrichment_strings(db):
@@ -361,7 +394,49 @@ def test_identity_for_still_carries_the_enrichment_strings(db):
         "exchange": "NYSE",
         "category": "Large accelerated filer",
         "origin": None,  # no locator ingredients stored -> the ladder abstains
+        "foreign_filer_form": None,  # no filer-form ingredients stored -> the tell abstains
     }
+
+
+def test_identity_for_derives_foreign_filer_form_with_the_domestic_veto(db):
+    """``identity_for`` derives ``foreign_filer_form`` on read from the stored 0031 ingredients (the same
+    discipline as origin): the Cameco (CCJ) shape fires "40-F"; the Energy-Fuels (UUUU) shape — a legacy
+    40-F BUT recent domestic forms — is VETOED to ``None`` (the key false-positive kill); a plain domestic
+    filer and an un-enriched row both abstain. The RAW ingredients stay OFF the returned identity.
+    """
+    ccj = _insert(db, ticker="CCJ", name="Cameco Corp", cik="0001009001")
+    uuuu = _insert(db, ticker="UUUU", name="Energy Fuels Inc", cik="0001385849")
+    uec = _insert(db, ticker="UEC", name="Uranium Energy Corp", cik="0001334933")
+    bare = _insert(db, ticker="RAWZ", name="Raw Co", cik="0000000043")  # never enriched
+    master.enrich(
+        db,
+        ccj,
+        SecurityIdentity(status="active", files_domestic_forms=False, recent_foreign_form="40-F"),
+        source="submissions:CIK0001009001",
+    )
+    master.enrich(
+        db,
+        uuuu,
+        # the veto shape: a 40-F is on file, but so are recent 10-K/10-Q filings -> DOES file Form 4
+        SecurityIdentity(status="active", files_domestic_forms=True, recent_foreign_form="40-F"),
+        source="submissions:CIK0001385849",
+    )
+    master.enrich(
+        db,
+        uec,
+        SecurityIdentity(status="active", files_domestic_forms=True, recent_foreign_form=None),
+        source="submissions:CIK0001334933",
+    )
+    db.commit()
+
+    out = master.identity_for(db, [ccj, uuuu, uec, bare])
+    assert out[ccj]["foreign_filer_form"] == "40-F"  # foreign + no domestic forms -> fires
+    assert out[uuuu]["foreign_filer_form"] is None  # THE VETO: 40-F present but domestic-vetoed
+    assert out[uec]["foreign_filer_form"] is None  # no foreign form at all
+    assert out[bare]["foreign_filer_form"] is None  # un-enriched -> honest abstain
+    # derive-on-read discipline: the raw ingredients never leave the accessor, only the derived string
+    assert "recent_foreign_form" not in out[ccj]
+    assert "files_domestic_forms" not in out[ccj]
 
 
 # --- all_cik_primary_ids: the --universe scope resolver (identity lifecycle) ---

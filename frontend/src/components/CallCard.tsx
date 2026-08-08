@@ -16,7 +16,20 @@ type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
 // The rail: the opinionated, auditable call. Recomputed live at `card.asof` (the read path).
 // With `thesisId` the action row wires to the operator-decisions log (the Cockpit); without it the
 // card is purely presentational (tests, previews) — no dead buttons either way.
-export function CallCard({ card, thesisId }: { card: CallCardResponse; thesisId?: string }) {
+// `foreignFiler` (a single-name thesis whose sole member is a §16-exempt 20-F/40-F filer) scopes a
+// sub-note under the conviction "still missing" line — the insider ingredient is structurally
+// unavailable, but the key is NOT dead (a structural/theme catalyst still arms). Absent → the card is
+// byte-identical (the optional-thesisId pattern); a multi-name basket never sets it (the NamePanel carries
+// the per-name N/A instead).
+export function CallCard({
+  card,
+  thesisId,
+  foreignFiler,
+}: {
+  card: CallCardResponse;
+  thesisId?: string;
+  foreignFiler?: { form: string } | null;
+}) {
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   const armed = card.state === "armed";
@@ -84,12 +97,27 @@ export function CallCard({ card, thesisId }: { card: CallCardResponse; thesisId?
         {missing.length > 0 && (
           <div className="trg">
             <div className="trg-h">Still missing</div>
-            {missing.map((m, i) => (
-              <div className="trg-item miss" key={i}>
-                <span className="ic">○</span>
-                <span>{m}</span>
-              </div>
-            ))}
+            {missing.map((m, i) => {
+              // the assembler bundles insider + structural catalyst into ONE conviction line; a foreign
+              // filer scopes the note to the INSIDER half only — the key is NOT dead (a structural or theme
+              // catalyst still arms). Match the assembler's literal conviction line.
+              const isConviction = m.startsWith("Conviction trigger");
+              return (
+                <div className="trg-item miss" key={i}>
+                  <span className="ic">○</span>
+                  <span>
+                    {m}
+                    {foreignFiler && isConviction && (
+                      <span className="miss-note">
+                        insider-cluster conviction is structurally unavailable (foreign filer{" "}
+                        {foreignFiler.form}, no Form 4); a structural or theme catalyst can still arm
+                        this.
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 

@@ -12,6 +12,7 @@ from domain.enums import InstrumentKind
 from domain.market_time import market_today
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
+from securities.filer_coverage import foreign_filer_form
 from securities.origin import resolve_origin
 
 
@@ -37,6 +38,9 @@ def _row_to_security(row: dict) -> Security:
         business_city=row.get("business_city"),
         business_country=row.get("business_country"),
         files_foreign_forms=row.get("files_foreign_forms"),
+        # filer-form ingredients (0031) — for the derive-on-read foreign-filer tell; NULL = un-enriched
+        files_domestic_forms=row.get("files_domestic_forms"),
+        recent_foreign_form=row.get("recent_foreign_form"),
     )
 
 
@@ -245,6 +249,7 @@ def enrich(
             "UPDATE security_master SET sector = %s, exchange = COALESCE(exchange, %s), "
             "status = %s, category = %s, "
             "incorporation = %s, business_city = %s, business_country = %s, files_foreign_forms = %s, "
+            "files_domestic_forms = %s, recent_foreign_form = %s, "
             "enriched_source = %s, enriched_at = now() WHERE tenant_id = %s AND id = %s",
             (
                 identity.sector,
@@ -257,6 +262,9 @@ def enrich(
                 identity.business_city,
                 identity.business_country,
                 identity.files_foreign_forms,
+                # filer-form ingredients (0031) — same company-level overwrite (latest submissions wins)
+                identity.files_domestic_forms,
+                identity.recent_foreign_form,
                 source,
                 tenant_id,
                 security_id,
@@ -326,14 +334,19 @@ def identity_for(
     ``origin`` is DERIVED ON READ via ``resolve_origin`` from the stored 0028 locator ingredients — the same
     discipline as the draft path (``chain_draft._carry_identity_and_gate``): the RAW ingredients stay off the
     wire, only the display string travels, and the ladder can be tuned with zero re-enrich. ``None`` on an
-    un-enriched row (the honest abstain — no chip)."""
+    un-enriched row (the honest abstain — no chip).
+
+    ``foreign_filer_form`` is DERIVED the same way via ``foreign_filer_form`` from the stored 0031 filer-form
+    ingredients (the raw ``recent_foreign_form`` / ``files_domestic_forms`` stay off the wire): "20-F" / "40-F"
+    for a §16-exempt no-Form-4 foreign filer, else ``None``."""
     ids = list({sid for sid in security_ids})
     if not ids:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, name, sector, exchange, category,"
-            " incorporation, business_city, business_country FROM security_master"
+            " incorporation, business_city, business_country,"
+            " files_domestic_forms, recent_foreign_form FROM security_master"
             " WHERE tenant_id = %s AND id = ANY(%s)",
             (tenant_id, ids),
         )
@@ -347,6 +360,10 @@ def identity_for(
                     business_country=row["business_country"],
                     business_city=row["business_city"],
                     incorporation=row["incorporation"],
+                ),
+                "foreign_filer_form": foreign_filer_form(
+                    recent_foreign_form=row["recent_foreign_form"],
+                    files_domestic_forms=row["files_domestic_forms"],
                 ),
             }
             for row in cur.fetchall()

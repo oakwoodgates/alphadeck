@@ -31,8 +31,14 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     a US state abbrev like "CA"), ``business_city`` / ``business_country`` (``addresses.business`` — the SEC
     quirk: for US entities ``stateOrCountryDescription`` holds the US STATE abbreviation, not "United States",
     and for the China-ADR class it is often null while ``city`` ("SHANGHAI") is the only populated locator),
-    and ``files_foreign_forms`` (a 20-F or 40-F in ``filings.recent.form`` — a stored ingredient for a later
-    upgrade; today's ladder doesn't read it). Blank/missing → None (the chip abstains, never a guessed origin).
+    and ``files_foreign_forms`` (a 20-F or 40-F in ``filings.recent.form``). Blank/missing → None.
+
+    FILER-FORM ingredients (migration 0031) — for the derive-on-read foreign-filer explainability tell
+    (``securities/filer_coverage.py``): ``recent_foreign_form`` (the newer of a 20-F vs 40-F in
+    ``filings.recent.form`` — "20-F" FPI · "40-F" Canadian-MJDS; the two regimes are mutually exclusive, so
+    single-form is the common case, and ``filed`` breaks the rare both-present tie) and
+    ``files_domestic_forms`` (a 10-K or 10-Q present — the domestic veto that kills the legacy-foreign-form
+    false positive, e.g. Energy Fuels' stale 40-F). Neither present → None/False (the tell abstains).
 
     Pure (no I/O) — feed it the dict from ``fetch_submissions``. Machine-parsed identity, never a fact (#1/#3).
     Tolerates a sparse/old submissions (missing keys) without raising.
@@ -56,7 +62,24 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     incorporation = (submissions.get("stateOfIncorporationDescription") or "").strip() or None
     business_city = (business.get("city") or "").strip() or None
     business_country = (business.get("stateOrCountryDescription") or "").strip() or None
-    files_foreign_forms = bool(filings_of(submissions, "20-F") or filings_of(submissions, "40-F"))
+    # Foreign-form filings (each list newest-first): reused for both the 0028 bool and the 0031 form string.
+    f20 = filings_of(submissions, "20-F")
+    f40 = filings_of(submissions, "40-F")
+    files_foreign_forms = bool(f20 or f40)
+    # recent_foreign_form — the newer of the two by FILING date. Single-form is the common case (the FPI vs
+    # MJDS regimes are mutually exclusive); compare ``filed`` only when both are present (an ISO date string,
+    # so a lexicographic compare is chronological — 20-F wins an exact tie, deterministically).
+    if f20 and f40:
+        recent_foreign_form: str | None = "20-F" if f20[0]["filed"] >= f40[0]["filed"] else "40-F"
+    elif f20:
+        recent_foreign_form = "20-F"
+    elif f40:
+        recent_foreign_form = "40-F"
+    else:
+        recent_foreign_form = None
+    # files_domestic_forms — the domestic veto: a recent 10-K/10-Q means the issuer DOES file Form 4, so the
+    # foreign-filer tell must abstain even with a stale foreign form on file (the Energy-Fuels/UUUU case).
+    files_domestic_forms = bool(filings_of(submissions, "10-K") or filings_of(submissions, "10-Q"))
     return SecurityIdentity(
         sector=sector,
         exchange=exchange,
@@ -67,6 +90,8 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
         business_city=business_city,
         business_country=business_country,
         files_foreign_forms=files_foreign_forms,
+        files_domestic_forms=files_domestic_forms,
+        recent_foreign_form=recent_foreign_form,
     )
 
 

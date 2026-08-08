@@ -293,6 +293,12 @@ class ScoredMemberOut(BaseModel):
     # like the block above: never promoted (#2), never a call input, never a number (#3). ``None`` =
     # un-enriched / unknown — the FE renders NOTHING (honest abstain, never a guessed origin).
     origin: str | None = None
+    # WHETHER this is a §16-exempt foreign filer that files NO Form 4 — DERIVED ON READ the same way
+    # (``identity_for`` -> ``foreign_filer_form`` over the stored 0031 ingredients; raw ingredients stay OFF
+    # the wire). "20-F" FPI / "40-F" Canadian-MJDS — §16-exempt, files NO Form 4; the insider signal is
+    # structurally unavailable, not quiet. Display identity like origin, never a call input (#3/#4). None =
+    # not a foreign filer / unknown.
+    foreign_filer_form: str | None = None
     # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
     # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
     archetype: Archetype | None = None
@@ -337,6 +343,7 @@ class ScoredMemberOut(BaseModel):
             exchange=ident.get("exchange"),
             category=ident.get("category"),
             origin=ident.get("origin"),
+            foreign_filer_form=ident.get("foreign_filer_form"),
             archetype=m.archetype,
             archetype_hint=m.archetype_hint,
             segment=m.segment,

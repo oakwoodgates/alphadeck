@@ -6920,6 +6920,17 @@
             ],
             "title": "Origin"
           },
+          "foreign_filer_form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Foreign Filer Form"
+          },
           "archetype": {
             "anyOf": [
               {

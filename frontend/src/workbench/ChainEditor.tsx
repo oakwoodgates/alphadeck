@@ -41,7 +41,9 @@ import {
   errText,
   exchangeClass,
   type ExchangeClass,
+  filerRegime,
   memberHasFundamentals,
+  originWithFiler,
   spacClass,
   type SpacClass,
 } from "./format";
@@ -147,6 +149,7 @@ type MemberIdentity = {
   exchange?: string | null;
   category?: string | null;
   origin?: string | null;
+  foreignFilerForm?: string | null;
 };
 
 // Machine-parsed IDENTITY (Slice 2 enrichment) — quiet sector / exchange chips. Display-only (parsed from the
@@ -157,11 +160,13 @@ const IdentityChips = ({
   exchange,
   category,
   origin,
+  foreignFilerForm,
 }: {
   sector?: string | null;
   exchange?: string | null;
   category?: string | null;
   origin?: string | null;
+  foreignFilerForm?: string | null;
 }) => (
   <>
     {/* a blank-check shell (SIC "Blank Checks") gets a quiet warm tint — the one sector that means
@@ -200,6 +205,17 @@ const IdentityChips = ({
         title="origin — business address country/city (or incorporation) machine-parsed from EDGAR submissions"
       >
         {origin}
+      </span>
+    )}
+    {/* FOREIGN FILER — a second origin chip beside origin: a §16-exempt 20-F (FPI) / 40-F (Canadian MJDS)
+        filer files NO Form 4, so the insider signal is structurally unavailable. "40-F · no Form 4" (the
+        origin is already its own chip). Identity like the rest; unknown renders NOTHING (honest abstain). */}
+    {foreignFilerForm && (
+      <span
+        className="idchip"
+        title={`${filerRegime(foreignFilerForm) ?? "foreign"} filer — §16-exempt, files no Form 4 (the insider signal is structurally unavailable, not quiet)`}
+      >
+        {originWithFiler(null, foreignFilerForm)}
       </span>
     )}
   </>
@@ -426,6 +442,7 @@ export function ChainEditor({
     exchange: sm.exchange,
     category: sm.category,
     origin: sm.origin,
+    foreignFilerForm: sm.foreign_filer_form,
   });
   const idFor = (sid: string | null | undefined): MemberIdentity | undefined => {
     if (!sid) return undefined;
@@ -438,6 +455,7 @@ export function ChainEditor({
       exchange: live.exchange ?? fromMap?.exchange,
       category: live.category ?? fromMap?.category,
       origin: live.origin ?? fromMap?.origin,
+      foreignFilerForm: live.foreignFilerForm ?? fromMap?.foreignFilerForm,
     };
   };
 

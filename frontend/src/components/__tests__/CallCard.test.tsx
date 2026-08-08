@@ -99,3 +99,43 @@ describe("CallCard — trigger event dates", () => {
     expect(container.querySelector(".trg-date")).toBeNull();
   });
 });
+
+describe("CallCard — foreign-filer conviction annotation (single-name)", () => {
+  // a not-yet card missing BOTH keys. The conviction "missing" line is the assembler's literal — the one
+  // that bundles insider AND structural catalyst; the annotation must scope to the INSIDER half only.
+  const notYet = {
+    ...card,
+    state: "warming",
+    verdict: "not_yet",
+    triggers_fired: [],
+    risk_signals: [],
+    key_conviction: { turned: false, detail: "conviction" },
+    missing: [
+      "Conviction trigger (e.g. insider cluster / structural catalyst)",
+      "Volume-confirmed breakout (the confirmation key)",
+    ],
+  } as unknown as CallCardResponse;
+
+  it("scopes a sub-note UNDER the conviction line (only) when foreignFiler is set", () => {
+    const { container } = render(<CallCard card={notYet} foreignFiler={{ form: "40-F" }} />);
+    const note = container.querySelector(".miss-note");
+    expect(note).not.toBeNull();
+    // scoped to the INSIDER ingredient; carries the form; must NOT claim the key is dead — a catalyst still arms
+    expect(note?.textContent).toMatch(/insider-cluster conviction is structurally unavailable/);
+    expect(note?.textContent).toMatch(/40-F, no Form 4/);
+    expect(note?.textContent).toMatch(/structural or theme catalyst can still arm/);
+    // the note sits under the CONVICTION line, never the confirmation line
+    const items = [...container.querySelectorAll(".trg-item.miss")];
+    const conv = items.find((n) => n.textContent?.includes("Conviction trigger"));
+    const conf = items.find((n) => n.textContent?.includes("Volume-confirmed"));
+    expect(conv?.querySelector(".miss-note")).not.toBeNull();
+    expect(conf?.querySelector(".miss-note")).toBeNull();
+  });
+
+  it("renders NO sub-note when the prop is absent (preview / byte-parity)", () => {
+    const { container } = render(<CallCard card={notYet} />);
+    expect(container.querySelector(".miss-note")).toBeNull();
+    // the missing lines themselves are unchanged
+    expect(screen.getByText(/Conviction trigger/)).toBeInTheDocument();
+  });
+});

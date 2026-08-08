@@ -50,11 +50,18 @@ class Security(DomainModel):
     # a fact / call input. NULL = un-enriched (the chip abstains). `business_country` is the SEC's
     # stateOrCountryDescription — a US STATE abbreviation ("CA") for US entities, often null for foreign ADRs
     # (where `business_city`, e.g. "SHANGHAI", is the only populated locator). `files_foreign_forms` (20-F/40-F
-    # in recent filings) is a stored ingredient for a later upgrade — today's ladder doesn't read it.
+    # in recent filings) is a stored ingredient now SUBSUMED by `recent_foreign_form` (0031, carries the form).
     incorporation: str | None = None
     business_city: str | None = None
     business_country: str | None = None
     files_foreign_forms: bool | None = None
+    # FILER-FORM ingredients (migration 0031) — for the foreign-filer explainability tell, DERIVED ON READ
+    # (securities/filer_coverage.foreign_filer_form); no computed label is stored. Identity like origin, never
+    # a fact / call input (#3). NULL = un-enriched (the tell abstains). `recent_foreign_form` is the newer of
+    # 20-F/40-F in recent filings ("20-F" FPI · "40-F" Canadian-MJDS); `files_domestic_forms` (10-K/10-Q
+    # present) is the domestic veto that kills the legacy-foreign-form false positive (the UUUU case).
+    files_domestic_forms: bool | None = None
+    recent_foreign_form: str | None = None
 
 
 class SecurityIdentity(DomainModel):
@@ -86,5 +93,10 @@ class SecurityIdentity(DomainModel):
         None  # addresses.business.stateOrCountryDescription (US state abbrev / country / null)
     )
     files_foreign_forms: bool | None = (
-        None  # 20-F/40-F in filings.recent.form (stored ingredient only)
+        None  # 20-F/40-F in filings.recent.form (subsumed by recent_foreign_form, 0031)
     )
+    # FILER-FORM ingredients (0031) — parsed by ``parse_identity``, persisted by ``master.enrich``, derived on
+    # read by ``securities/filer_coverage.py``. Default None so a hand-built identity (tests, partial writers)
+    # writes NULL — "un-parsed", never a false "files no foreign form" / "files domestic forms".
+    files_domestic_forms: bool | None = None  # 10-K/10-Q in filings.recent.form (the domestic veto)
+    recent_foreign_form: str | None = None  # the newer of 20-F/40-F in filings.recent.form

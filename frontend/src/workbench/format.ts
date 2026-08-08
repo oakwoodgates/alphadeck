@@ -26,6 +26,41 @@ export const countryClass = (origin: string | null | undefined): CountryClass =>
   return o.toUpperCase() === "US" ? "us" : "foreign";
 };
 
+/** The filer REGIME name behind a foreign form (the wire `foreign_filer_form`, derived server-side): 40-F →
+ *  "Canadian MJDS", 20-F → "FPI" (foreign private issuer), anything else / null → null. Display-only identity
+ *  — these regimes are §16-EXEMPT, which is WHY the name files no Form 4 and the insider signal is
+ *  structurally unavailable. Never a call input (#3/#4). */
+export const filerRegime = (form: string | null | undefined): string | null => {
+  const f = (form ?? "").trim().toUpperCase();
+  if (f === "40-F") return "Canadian MJDS";
+  if (f === "20-F") return "FPI";
+  return null;
+};
+
+/** Compose the origin string with the foreign-filer tell for the identity cell: a §16-exempt foreign filer
+ *  (`form` set) reads "{origin} · {form} · no Form 4" — or "{form} · no Form 4" when the origin is unknown; a
+ *  domestic / unknown filer (`form` null) reads its origin UNCHANGED (possibly null → the cell abstains). The
+ *  one-line who-and-why; display-only, never a call input. Passing a null origin yields the bare
+ *  "{form} · no Form 4" (the ChainEditor's second chip, where origin is already its own chip). */
+export const originWithFiler = (
+  origin: string | null | undefined,
+  form: string | null | undefined,
+): string | null => {
+  const o = (origin ?? "").trim() || null;
+  const f = (form ?? "").trim() || null;
+  if (!f) return o; // domestic / unknown filer — origin unchanged (honest abstain when also unknown)
+  const filer = `${f} · no Form 4`;
+  return o ? `${o} · ${filer}` : filer;
+};
+
+/** The insider-signal N/A label for a foreign filer: "N/A — foreign filer (40-F), no Form 4 (§16-exempt)".
+ *  The honest "structurally unavailable, not quiet" label shown where an insider-flow reading would otherwise
+ *  sit (the NamePanel Indicators + the CallCard sub-note). Display-only. */
+export const insiderNaLabel = (form: string | null | undefined): string => {
+  const f = (form ?? "").trim() || "foreign form";
+  return `N/A — foreign filer (${f}), no Form 4 (§16-exempt)`;
+};
+
 /** The exchange bucket for the Exchange filter. The security master carries only five values ever
  *  (measured: Nasdaq / NYSE / OTC / CBOE / empty): NYSE|Nasdaq → main; OTC → otc; empty → unknown;
  *  anything else (CBOE, or a future value) → other. Case-insensitive. View-only; never a call input. */
