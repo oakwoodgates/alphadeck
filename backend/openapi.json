@@ -5878,6 +5878,21 @@
             ],
             "title": "Origin"
           },
+          "business_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty",
+            "default": false
+          },
           "off_thesis": {
             "type": "boolean",
             "title": "Off Thesis",

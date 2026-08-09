@@ -29,8 +29,10 @@ from pydantic import ValidationError
 
 from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
+from domain.enums import BusinessType
 from domain.security import Security
 from securities import master
+from securities.business_type import resolve_business_type
 from securities.origin import resolve_origin
 from workbench.discovery import DiscoveredUniverse
 
@@ -144,6 +146,18 @@ class ResolvedPlacement(DomainModel):
     # never a call input. It TAGS, never filters (#9 — the foreign name stays in the draft; the operator's
     # existing prune is the decision, #10). ``None`` = unknown → the FE renders NOTHING (honest abstain).
     origin: str | None = None
+    # WHAT the company DOES — the two-level business type (Business-Type M1), DERIVED ON READ via
+    # ``resolve_business_type`` over the BOUND master row's stored ``sector`` + name + ticker, with the
+    # operator's stored 0033 re-tag winning when present (``_carry_identity_and_gate`` passes it as
+    # ``override``). ``business_type`` is the EFFECTIVE leaf; MONITOR display identity like the block above —
+    # never a number (#3), never promoted onto a ``BasketMember`` (#2), never a call input (#4). ``None`` =
+    # no sector on the bound row (un-enriched → the FE renders NO chip, the honest abstain) or the row is
+    # UNBOUND (AMBIGUOUS / ABSENT — no master identity to derive from). ``BusinessType.OTHER`` (a sector on
+    # file the maps don't cover) DOES render — the visible tail (#9), not a guess.
+    business_type: BusinessType | None = None
+    # The royalty/streaming OVERLAY (a company-NAME tell; a SIC-invisible class) — co-exists with the leaf,
+    # derive-only. Honest loudness: the FE marks ONLY when True (measured live: 32 of 8,106 names).
+    royalty: bool = False
     off_thesis: bool = (
         False  # the narrator's on/off-thesis opinion (display-only; set at the narration merge)
     )
@@ -222,6 +236,18 @@ def _carry_identity_and_gate(
             business_city=s.business_city,
             incorporation=s.incorporation,
         )
+        # derive-on-read business type (Business-Type M1) — the two-level MONITOR characterization over the
+        # bound row's stored sector/name/ticker, the operator's 0033 re-tag winning (``override``); mirrors
+        # ``securities.master.identity_for``. Display-only, never a call input (#3/#4). None on a no-sector
+        # row → the chip abstains. Set BEFORE the inactive-gate below so an inactive-gated AMBIGUOUS row still
+        # carries it (like sector).
+        bt = resolve_business_type(
+            sector=s.sector,
+            name=s.name,
+            ticker=s.ticker,
+            override=s.business_type,
+        )
+        p.business_type, p.royalty = bt.business_type, bt.royalty
         if p.status is PlacementStatus.PLACED and s.status == "inactive":
             p.status = PlacementStatus.AMBIGUOUS
             p.candidates = [_candidate(s)]

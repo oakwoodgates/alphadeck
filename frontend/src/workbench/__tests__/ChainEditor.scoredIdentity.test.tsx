@@ -69,6 +69,8 @@ const sm = (identity: {
   category?: string | null;
   origin?: string | null;
   foreign_filer_form?: string | null;
+  business_type?: string | null;
+  royalty?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }): any => ({ purity: { pips: null, value: null, provenance: [] }, market_cap: { value: null, provenance: [] }, ...identity });
 
@@ -238,5 +240,71 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
     expect(screen.getByText("Shanghai", { selector: ".idchip" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
     expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+  });
+});
+
+// The discovery business-type chip (Business-Type M1): the cockpit's SIC-derived "Type" read, rendered on
+// the discovery workbench as a MUTED chip (the `.idchip` class its neighbours use — NOT the cockpit's
+// coloured `.btype`), riding right after the raw SIC chip. Display identity, never a call input (#3/#4).
+describe("ChainEditor — the discovery business-type chip (muted)", () => {
+  it("renders the MUTED leaf chip on placed rows off the scored join, with the ◈ royalty overlay", () => {
+    // s-us: a plain leaf (no overlay); s-cn: a royalty/streaming house (the company-NAME tell → overlay).
+    const scored = {
+      "s-us": sm({ name: "US Co", sector: "Semiconductors", business_type: "semiconductors", royalty: false }),
+      "s-cn": sm({ name: "Roy Co", sector: "Metal Mining", business_type: "miner", royalty: true }),
+    };
+    render(
+      <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scored} />,
+    );
+    // the leaf label (businessTypeLabel) rides a MUTED .idchip, distinct from the raw SIC chip beside it
+    expect(screen.getByText("semis", { selector: ".idchip" })).toBeInTheDocument();
+    // honest loudness (#7): the ◈ overlay marks ONLY the royalty name — exactly one across the basket…
+    expect(screen.getAllByText("◈")).toHaveLength(1);
+    // …and it rides INSIDE the royalty name's muted business-type chip (which also shows its leaf label)
+    expect(screen.getByText("◈").closest(".idchip")).toHaveTextContent("miner");
+  });
+
+  it("a no-sector placed name shows NO business-type chip — honest absence, never a guessed '—'/'other'", () => {
+    // both members are un-enriched (no sector → the backend derives no leaf → business_type null). The guard
+    // is `{businessType && …}`, so NOTHING renders — never a "—" placeholder, never a guessed "other" (#9).
+    const scored = {
+      "s-us": sm({ name: "US Co", sector: null, business_type: null, royalty: false }),
+      "s-cn": sm({ name: "CN Co", sector: null, business_type: null, royalty: false }),
+    };
+    render(
+      <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scored} />,
+    );
+    // the rows still render (the name is never dropped, #9) — only the chip abstains
+    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.queryByText("—", { selector: ".idchip" })).not.toBeInTheDocument();
+    expect(screen.queryByText("other", { selector: ".idchip" })).not.toBeInTheDocument();
+    expect(screen.queryByText("◈")).not.toBeInTheDocument();
+  });
+
+  it("renders the MUTED leaf chip on a To-Review candidate row off the placement's OWN business_type", async () => {
+    // the candidate (To-Review) path reads identity from the PLACEMENT directly (p.business_type), not the
+    // scored join — a re-draft surfaces a VERIFY keeper carrying its derived leaf; the chip rides its row.
+    const keeper = {
+      name: "Keeper Bio",
+      ticker: "KBIO",
+      prose: "why it sits here",
+      segment: "chips",
+      status: "verify",
+      security_id: "s-kbio",
+      candidates: [],
+      matched_terms: ["thing"],
+      discovery_source: "edgar",
+      sector: "Pharmaceutical Preparations",
+      business_type: "biotech_pharma",
+      royalty: false,
+      off_thesis: false,
+    };
+    const user = userEvent.setup();
+    mockDraft(draft([keeper], [{ label: "chips", descriptor: null }]));
+    render(<ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByRole("checkbox", { name: "add KBIO" }); // the To-Review candidate row is live
+    // the muted leaf chip rides the candidate row, fed by p.business_type (not the scored join)
+    expect(screen.getByText("biotech/pharma", { selector: ".idchip" })).toBeInTheDocument();
   });
 });

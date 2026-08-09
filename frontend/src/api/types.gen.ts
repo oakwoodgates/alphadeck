@@ -2862,6 +2862,12 @@ export interface components {
             category?: string | null;
             /** Origin */
             origin?: string | null;
+            business_type?: components["schemas"]["BusinessType"] | null;
+            /**
+             * Royalty
+             * @default false
+             */
+            royalty: boolean;
             /**
              * Off Thesis
              * @default false

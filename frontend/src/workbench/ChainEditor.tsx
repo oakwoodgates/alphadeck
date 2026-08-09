@@ -29,6 +29,7 @@ import {
   toExportedName,
   type ExportGroup,
 } from "../util/exportNames";
+import { businessTypeLabel } from "../util/format";
 import { useDebouncedCallback } from "../util/useDebouncedCallback";
 import { AddName } from "./AddName";
 import { SurfaceEtf } from "./SurfaceEtf";
@@ -145,6 +146,10 @@ const OffUniversePill = () => (
 // baseline (`idFor` merges the two; see the D4 comment at its definition).
 type MemberIdentity = {
   sector?: string | null;
+  // the normalized two-level business type (Business-Type M1) + its royalty overlay — derived server-side
+  // from the SIC; the cockpit's Type read, shown here MUTED. Both carried from the scored join (`sm.*`).
+  businessType?: string | null;
+  royalty?: boolean | null;
   exchange?: string | null;
   category?: string | null;
   origin?: string | null;
@@ -156,12 +161,16 @@ type MemberIdentity = {
 // (an un-enriched / off-universe name — the honest fallback).
 const IdentityChips = ({
   sector,
+  businessType,
+  royalty,
   exchange,
   category,
   origin,
   foreignFilerForm,
 }: {
   sector?: string | null;
+  businessType?: string | null;
+  royalty?: boolean | null;
   exchange?: string | null;
   category?: string | null;
   origin?: string | null;
@@ -180,6 +189,21 @@ const IdentityChips = ({
         }
       >
         {sector}
+      </span>
+    )}
+    {/* BUSINESS TYPE — the normalized two-level bucket derived server-side from the SIC (Business-Type M1):
+        the cockpit's "Type" read, shown here MUTED (matching its neighbours, NOT the cockpit's coloured
+        `bt-` chip). Rides right after the raw SIC so the two read as a pair. Display identity like the rest;
+        a no-sector name has no `businessType` → renders NOTHING (honest abstain). `other` (a SIC the maps
+        don't cover) DOES show — the visible tail (#9), not a guess. ◈ marks the royalty/streaming overlay
+        (honest loudness — a rare company-NAME tell, ~32 of 8k names). */}
+    {businessType && (
+      <span
+        className="idchip"
+        title={`business type — normalized from the SEC SIC (securities/business_type)${royalty ? " · ◈ royalty/streaming" : ""}`}
+      >
+        {businessTypeLabel(businessType)}
+        {royalty && <span className="bt-royalty">◈</span>}
       </span>
     )}
     {exchange && (
@@ -456,6 +480,8 @@ export function ChainEditor({
   // draft-time state, never the join.
   const identityFromScored = (sm: ScoredMemberOut): MemberIdentity => ({
     sector: sm.sector,
+    businessType: sm.business_type,
+    royalty: sm.royalty,
     exchange: sm.exchange,
     category: sm.category,
     origin: sm.origin,
@@ -469,6 +495,8 @@ export function ChainEditor({
     const live = identityFromScored(sm);
     return {
       sector: live.sector ?? fromMap?.sector,
+      businessType: live.businessType ?? fromMap?.businessType,
+      royalty: live.royalty ?? fromMap?.royalty,
       exchange: live.exchange ?? fromMap?.exchange,
       category: live.category ?? fromMap?.category,
       origin: live.origin ?? fromMap?.origin,
@@ -1111,6 +1139,8 @@ export function ChainEditor({
             <>
               <IdentityChips
                 sector={p.sector}
+                businessType={p.business_type}
+                royalty={p.royalty}
                 exchange={p.exchange}
                 category={p.category}
                 origin={p.origin}
@@ -2324,6 +2354,8 @@ export function ChainEditor({
                         {p.discovery_source === "off_universe" && <OffUniversePill />}
                         <IdentityChips
                           sector={p.sector}
+                          businessType={p.business_type}
+                          royalty={p.royalty}
                           exchange={p.exchange}
                           category={p.category}
                           origin={p.origin}

@@ -876,6 +876,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-results .idchip { font-family: var(--mono); font-size: 9px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
 /* the blank-check shell tell — a quiet warm tint on the sector chip (an identity nuance, not a ⚑ warning) */
 .wb-results .idchip.spac, .ddcard .idchip.spac { color: var(--warm); border-color: rgba(224, 162, 60, 0.3); background: rgba(224, 162, 60, 0.07); }
+/* the royalty/streaming ◈ overlay on the MUTED discovery business-type chip (.btype .bt-royalty above is
+   the cockpit's COLOURED chip; this is its quiet twin — inherits the idchip's --txt-3, just a small nudge) */
+.wb-results .idchip .bt-royalty { margin-left: 4px; opacity: 0.85; }
 
 /* --- the SPAC Radar tape (/radar) — quiet, Admin-toned; loudness only on the state that matters --- */
 .radar-main { padding: 18px 22px 40px; max-width: 1080px; margin: 0 auto; width: 100%; }
