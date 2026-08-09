@@ -37,6 +37,20 @@ def test_return_math_over_the_four_windows():
     assert all(m[k].unit == "pct" and m[k].note is None for k in _KEYS)
 
 
+def test_1y_window_is_252_trading_bars_with_a_stable_key():
+    # 1Y = 252 trading BARS (needs 253 bars), the same bar-count convention as the shorter windows —
+    # NOT a calendar-365d lookup. The key is bar-count-agnostic ("ret_1y") and the label is "1Y".
+    closes = [120.0] * 253
+    closes[0] = 100.0  # 252 bars back (index -253) — the 1Y base
+    closes[-1] = 150.0  # now
+    m = _by_key(trailing_returns.compute(_bars(closes), _ASOF))["ret_1y"]
+    assert m.value == 50.0  # 150 / 100 - 1
+    assert m.label == "1Y" and m.unit == "pct" and m.tone == "pos" and m.note is None
+    # one bar short of the year is an honest gap, never a fabricated number (#6/#9)
+    short = _by_key(trailing_returns.compute(_bars([120.0] * 252), _ASOF))["ret_1y"]
+    assert short.value is None and short.note == "n/a: 252/253 bars"
+
+
 def test_1d_is_the_prior_close_not_intraday():
     # the shortest window is one trading day: the last close vs the PRIOR close (EOD, never a 24h move)
     m = _by_key(trailing_returns.compute(_bars([100.0, 102.5]), _ASOF))
@@ -68,6 +82,8 @@ def test_thin_history_blanks_only_the_windows_it_cannot_reach():
     assert m["ret_90d"].value is None  # needs 91 bars
     assert m["ret_90d"].note == "n/a: 40/91 bars"
     assert m["ret_90d"].tone is None
+    assert m["ret_1y"].value is None  # needs 253 bars — young names blank the 1Y cell (honest #9)
+    assert m["ret_1y"].note == "n/a: 40/253 bars"
 
 
 def test_a_flat_window_is_a_real_zero_neutral_not_a_gap():
@@ -100,6 +116,6 @@ def test_basis_shows_the_work():
     sig = trailing_returns.compute(_bars([10.0, 11.0, 12.0]), _ASOF)
     assert sig.kind == "trailing_returns"
     assert sig.basis.source == "fact_price_eod"
-    assert sig.basis.params == {"windows_trading_days": [1, 7, 30, 90], "lookback_days": 200}
+    assert sig.basis.params == {"windows_trading_days": [1, 7, 30, 90, 252], "lookback_days": 420}
     assert sig.basis.bars_used == 3
     assert sig.basis.window_end == _ASOF

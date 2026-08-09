@@ -1,4 +1,4 @@
-"""Trailing price returns — the name's EOD close return over 1/7/30/90 trading days.
+"""Trailing price returns — the name's EOD close return over 1/7/30/90/252 trading days (1Y).
 
 Display-only tape context: a single subtraction over two closes, never predictive. For each window
 the latest close vs the close N trading BARS back, over ONLY bars dated <= asof (the bitemporal read
@@ -28,11 +28,16 @@ from signals.display.registry import register_display_member
 MEMBER_NAME = "trailing_returns"
 LABEL = "Trailing returns"
 # Windows in TRADING days (bars), NOT calendar: 1d = last close vs the prior close. A window of N
-# needs N+1 bars (the close now + the close N bars back).
-WINDOWS = (1, 7, 30, 90)
-# ``price_history`` trims by CALENDAR days; 90 trading bars ~= 126 calendar days, so 200 comfortably
-# covers the longest window (needs 91 bars) with holiday slack. A thinner name reads honest gaps.
-LOOKBACK_DAYS = 200
+# needs N+1 bars (the close now + the close N bars back). 252 ~= one trading year.
+WINDOWS = (1, 7, 30, 90, 252)
+# Friendly overrides for a window whose mechanical "{n}d" would read poorly. The 1Y key is
+# bar-count-AGNOSTIC ("ret_1y", not "ret_252d"), so retuning 252 never churns the FE contract.
+_KEY = {252: "ret_1y"}
+_LABEL = {252: "1Y"}
+# ``price_history`` trims by CALENDAR days; the longest window (1Y = 252 trading bars ~= 353 calendar
+# days) needs 253 bars, so 420 calendar days (~300 trading bars) covers it with holiday slack. A
+# thinner name reads honest gaps ("—" + the why); a name under ~1y of tape simply blanks the 1Y cell.
+LOOKBACK_DAYS = 420
 
 
 def _tone(value: float) -> str | None:
@@ -49,7 +54,7 @@ def _metric(closes: list[float], n: int, window: int) -> DisplayMetric:
     (value=None + the why) — never a fabricated or zero-filled number — when the tape is shorter than
     ``window + 1`` bars or the base close is non-positive; the note distinguishes the two reasons (#6).
     """
-    key, label = f"ret_{window}d", f"{window}d"
+    key, label = _KEY.get(window, f"ret_{window}d"), _LABEL.get(window, f"{window}d")
     if n < window + 1:
         return DisplayMetric(key=key, label=label, unit="pct", note=f"n/a: {n}/{window + 1} bars")
     base = closes[-(window + 1)]
