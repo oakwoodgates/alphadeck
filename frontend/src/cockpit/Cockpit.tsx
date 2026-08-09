@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { PostureCell, ReturnCells } from "./DisplaySignalsSection";
+import { PostureCell, ReturnCells, RvolCell } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -83,6 +83,13 @@ export function Cockpit({
   for (const m of displayQ.data?.members ?? []) {
     const sig = (m.signals ?? []).find((s) => s.kind === "trailing_returns");
     if (sig) trailBySid.set(m.security_id, sig);
+  }
+  // relative volume (RVOL) — the SAME display-signals query, bridged by security_id like the SMA and
+  // trailing-return cells; a volume-backed move reads a warm accent off the wire's loud threshold
+  const rvolBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "rvol");
+    if (sig) rvolBySid.set(m.security_id, sig);
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
@@ -348,6 +355,9 @@ export function Cockpit({
                       <th style={{ textAlign: "right" }}>90d</th>
                       {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
                       <th style={{ textAlign: "right" }}>1Y</th>
+                      {/* relative volume: the as-of bar's volume vs the prior 8-bar average — is the
+                          move volume-backed? (a warm accent marks the volume-backed exception, #7) */}
+                      <th style={{ textAlign: "right" }}>RVOL</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -356,7 +366,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={12}>
+                          <td colSpan={13}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -455,6 +465,18 @@ export function Cockpit({
                                   : null
                               }
                             />
+                            <td className="met rvolc">
+                              {/* relative volume at table grain — a warm 'hot' accent on a
+                                  volume-backed move (>= the wire's loud threshold), "—" on a
+                                  volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
+                              <RvolCell
+                                sig={
+                                  r.member.security_id
+                                    ? (rvolBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                              />
+                            </td>
                             <td className="met">
                               {/* computed market cap (the scoring engine, re-derived on read),
                                   bridged by security_id — "—" when un-scored / no price+shares facts */}

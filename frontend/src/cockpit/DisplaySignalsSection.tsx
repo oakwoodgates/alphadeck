@@ -101,6 +101,29 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
   );
 }
 
+/** The basket-table RVOL cell from the `rvol` display member: the as-of bar's volume ÷ the mean
+ *  volume of the 8 bars before it (mirrors the breakout detector's base window). Renders "N.NN×"; a
+ *  volume-backed reading — value at/above the loud threshold the backend ships in
+ *  `basis.params.loud_mult` — reads a WARM 'hot' accent (the exception, not every row, #7), never the
+ *  return-green tone. The threshold rides the wire so the FE hardcodes nothing. A gap (a halt / thin
+ *  OTC as-of bar, or a young name) is an HONEST "—" with the why on hover (#6/#9). */
+export function RvolCell({ sig }: { sig: DisplaySignal | null }) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "rvol");
+  if (!m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? undefined}>
+        —
+      </span>
+    );
+  const loud = sig?.basis.params?.loud_mult;
+  const hot = typeof loud === "number" && m.value >= loud;
+  return (
+    <span className={`rvol${hot ? " hot" : ""}`} title={hot ? "volume-backed move" : undefined}>
+      {fmtMetricValue(m)}
+    </span>
+  );
+}
+
 function basisLine(sig: DisplaySignal): string {
   const b = sig.basis;
   const parts: string[] = [];
