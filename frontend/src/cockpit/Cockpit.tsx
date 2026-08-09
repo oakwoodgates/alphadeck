@@ -355,9 +355,13 @@ export function Cockpit({
                       <th style={{ textAlign: "right" }}>90d</th>
                       {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
                       <th style={{ textAlign: "right" }}>1Y</th>
-                      {/* relative volume: the as-of bar's volume vs the prior 8-bar average — is the
-                          move volume-backed? (a warm accent marks the volume-backed exception, #7) */}
-                      <th style={{ textAlign: "right" }}>RVOL</th>
+                      {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
+                          vs the prior 8-bar average (mirrors the breakout detector — the call-matched
+                          read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
+                          its month?" convention, deliberately call-decoupled). A warm accent marks the
+                          volume-backed exception, #7 — each column off its OWN threshold. */}
+                      <th style={{ textAlign: "right" }}>RVOL|8</th>
+                      <th style={{ textAlign: "right" }}>RVOL|20</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -366,7 +370,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={13}>
+                          <td colSpan={14}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -466,8 +470,8 @@ export function Cockpit({
                               }
                             />
                             <td className="met rvolc">
-                              {/* relative volume at table grain — a warm 'hot' accent on a
-                                  volume-backed move (>= the wire's loud threshold), "—" on a
+                              {/* RVOL|8 — the call-matched 8-bar read: a warm 'hot' accent on a
+                                  volume-backed move (>= the wire's loud_mult), "—" on a
                                   volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
                               <RvolCell
                                 sig={
@@ -475,6 +479,20 @@ export function Cockpit({
                                     ? (rvolBySid.get(r.member.security_id) ?? null)
                                     : null
                                 }
+                              />
+                            </td>
+                            <td className="met rvolc">
+                              {/* RVOL|20 — the 20-bar trader-convention read (call-decoupled), off
+                                  the SAME member's second metric, accenting from its OWN threshold
+                                  (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
+                              <RvolCell
+                                sig={
+                                  r.member.security_id
+                                    ? (rvolBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                                metricKey="rvol20"
+                                loudKey="loud_mult_20"
                               />
                             </td>
                             <td className="met">

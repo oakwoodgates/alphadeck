@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-// The RVOL column on the Cockpit basket table: the `rvol` display member (the as-of bar's volume vs
-// the prior 8-bar average), the SAME display-signals query the SMA / return cells read, bridged by
-// security_id. The load-bearing checks: the header renders, a volume-backed move (>= the wire's
-// loud_mult) gets the WARM 'hot' accent while an ordinary one stays muted, a volumeless as-of bar is
-// an HONEST em-dash with the why on hover, and the column survives the business-type lens (it lives
-// on the per-name row). Mirrors the trailing-returns test's fixture shape.
+// The two RVOL columns on the Cockpit basket table, both off the `rvol` display member (which emits
+// TWO windows off one fetch): RVOL|8 (the as-of bar's volume vs the prior 8-bar average — call-
+// matched) and RVOL|20 (the same idea over 20 bars — the trader "unusually active vs its month?"
+// read, call-decoupled), the SAME display-signals query the SMA / return cells read, bridged by
+// security_id. The load-bearing checks: both headers render (RVOL|8 renamed + RVOL|20 added), each
+// column accents from its OWN loud threshold on the wire (a volume-backed move gets the WARM 'hot'
+// accent, an ordinary one stays muted) INDEPENDENTLY, a volumeless as-of bar is an HONEST em-dash in
+// both, and the columns survive the business-type lens (they live on the per-name row).
 const fx = vi.hoisted(() => {
   const fig = (value: number | null) => ({ pips: null, value, provenance: [] });
   const scoredRow = (sid: string, ticker: string, name: string, over: Record<string, unknown>) => ({
@@ -17,18 +19,31 @@ const fx = vi.hoisted(() => {
     dilution: fig(null), market_cap: fig(null), fit: "", unconfirmed_estimates: 0,
     ...over,
   });
-  // the loud threshold rides the wire (basis.params.loud_mult) so the FE hardcodes nothing
-  const rvolSig = (value: number | null, note: string | null = null) => ({
+  // both loud thresholds ride the wire (basis.params.loud_mult / loud_mult_20) so the FE hardcodes
+  // nothing; the member carries the 8-bar (rvol) and the 20-bar (rvol20) metrics off one fetch
+  const rvolSig = (
+    value: number | null,
+    value20: number | null,
+    note: string | null = null,
+    note20: string | null = null,
+  ) => ({
     kind: "rvol", label: "Relative volume",
-    metrics: [{ key: "rvol", label: "RVOL", value, unit: "ratio", tone: null, note }],
+    metrics: [
+      { key: "rvol", label: "RVOL", value, unit: "ratio", tone: null, note },
+      { key: "rvol20", label: "RVOL20", value: value20, unit: "ratio", tone: null, note: note20 },
+    ],
     basis: {
       source: "fact_price_eod",
-      params: { baseline_bars: 8, loud_mult: 1.5, lookback_days: 40 },
-      bars_used: value == null ? null : 9, window_start: null, window_end: null, note: null,
+      params: { baseline_bars: 8, loud_mult: 1.5, baseline_bars_20: 20, loud_mult_20: 1.5, lookback_days: 55 },
+      bars_used: value == null ? null : 21, window_start: null, window_end: null, note: null,
     },
   });
-  const member = (sid: string, ticker: string, value: number | null, note: string | null = null) => ({
-    security_id: sid, ticker, signals: [rvolSig(value, note)],
+  const member = (
+    sid: string, ticker: string,
+    value: number | null, value20: number | null,
+    note: string | null = null, note20: string | null = null,
+  ) => ({
+    security_id: sid, ticker, signals: [rvolSig(value, value20, note, note20)],
   });
   return {
     thesis: {
@@ -52,9 +67,13 @@ const fx = vi.hoisted(() => {
     },
     display: {
       members: [
-        member("s-oklo", "OKLO", 2.4), // volume-backed -> hot (>= 1.5)
-        member("s-fisn", "FISN", 0.9), // ordinary -> muted (< 1.5)
-        member("s-mnmd", "MNMD", null, "n/a: no volume on the as-of bar"), // halted -> honest gap
+        // the two windows accent INDEPENDENTLY off their own thresholds: OKLO is 8-bar hot (2.4x) but
+        // 20-bar quiet (1.1x); FISN is the OPPOSITE (8-bar quiet 0.9x, 20-bar hot 1.8x) — proving each
+        // cell reads its OWN metric + threshold, not a shared one
+        member("s-oklo", "OKLO", 2.4, 1.1),
+        member("s-fisn", "FISN", 0.9, 1.8),
+        // a halted as-of bar blanks BOTH windows with the honest why
+        member("s-mnmd", "MNMD", null, null, "n/a: no volume on the as-of bar", "n/a: no volume on the as-of bar"),
       ],
     },
   };
@@ -84,39 +103,60 @@ function renderCockpit() {
   );
 }
 
-describe("Cockpit — RVOL column", () => {
-  it("renders the RVOL header", () => {
+describe("Cockpit — RVOL columns (8-bar + 20-bar)", () => {
+  it("renders both headers — RVOL|8 (renamed) and RVOL|20 (added), not a bare RVOL", () => {
     renderCockpit();
-    expect(screen.getByRole("columnheader", { name: "RVOL" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL|8" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL|20" })).toBeInTheDocument();
+    // the old single "RVOL" header is gone (renamed, not left behind)
+    expect(screen.queryByRole("columnheader", { name: "RVOL" })).not.toBeInTheDocument();
   });
 
-  it("accents a volume-backed move (>= loud_mult) warm, leaves an ordinary one muted", () => {
+  it("accents each window from its OWN threshold (8-bar and 20-bar are independent)", () => {
     renderCockpit();
-    // OKLO 2.4x is volume-backed -> the warm 'hot' accent (the exception, #7)
-    const hot = screen.getByText("2.40×");
-    expect(hot.className).toContain("rvol");
-    expect(hot.className).toContain("hot");
-    // FISN 0.9x is ordinary -> rendered, but NOT hot (loudness marks the exception, not every row)
-    const quiet = screen.getByText("0.90×");
-    expect(quiet.className).toContain("rvol");
-    expect(quiet.className).not.toContain("hot");
+    // OKLO: the 8-bar 2.4x is volume-backed -> the warm 'hot' accent; its 20-bar 1.1x is quiet -> NOT
+    // hot. Same row, opposite accents -> each cell reads its OWN metric + threshold (#7).
+    const okloCells = (screen.getByText("OKLO").closest("tr") as HTMLElement).querySelectorAll(
+      "td.rvolc .rvol",
+    );
+    expect(okloCells).toHaveLength(2);
+    expect(okloCells[0].textContent).toBe("2.40×");
+    expect(okloCells[0].className).toContain("hot");
+    expect(okloCells[1].textContent).toBe("1.10×");
+    expect(okloCells[1].className).not.toContain("hot");
+    // FISN: the OPPOSITE — 8-bar 0.9x quiet, 20-bar 1.8x unusually active -> hot
+    const fisnCells = (screen.getByText("FISN").closest("tr") as HTMLElement).querySelectorAll(
+      "td.rvolc .rvol",
+    );
+    expect(fisnCells[0].textContent).toBe("0.90×");
+    expect(fisnCells[0].className).not.toContain("hot");
+    expect(fisnCells[1].textContent).toBe("1.80×");
+    expect(fisnCells[1].className).toContain("hot");
   });
 
-  it("renders a volumeless as-of bar as an honest em-dash with the why on hover, never a number", () => {
+  it("renders a volumeless as-of bar as an honest em-dash in BOTH windows, never a number", () => {
     renderCockpit();
-    const mnmdRow = screen.getByText("MNMD").closest("tr") as HTMLElement;
-    const cell = mnmdRow.querySelector("td.rvolc span") as HTMLElement;
-    expect(cell.textContent).toBe("—");
-    expect(cell.className).toContain("muted");
-    expect(cell.title).toBe("n/a: no volume on the as-of bar");
+    const cells = (screen.getByText("MNMD").closest("tr") as HTMLElement).querySelectorAll(
+      "td.rvolc",
+    );
+    expect(cells).toHaveLength(2);
+    cells.forEach((cell) => {
+      const span = cell.querySelector("span") as HTMLElement;
+      expect(span.textContent).toBe("—");
+      expect(span.className).toContain("muted");
+      expect(span.title).toBe("n/a: no volume on the as-of bar");
+    });
   });
 
-  it("keeps the RVOL column in BOTH lenses (call-state and business-type)", () => {
+  it("keeps BOTH RVOL columns in BOTH lenses (call-state and business-type)", () => {
     renderCockpit();
-    expect(screen.getByText("2.40×")).toBeInTheDocument(); // default (call-state) lens
+    expect(screen.getByText("2.40×")).toBeInTheDocument(); // 8-bar, default (call-state) lens
+    expect(screen.getByText("1.80×")).toBeInTheDocument(); // 20-bar, default lens
     fireEvent.click(screen.getByRole("button", { name: "business type" }));
-    // the lens re-groups the rows by super-sector, but the per-name RVOL cell still renders
+    // the lens re-groups the rows by super-sector, but both per-name RVOL cells still render
     expect(screen.getByText("2.40×")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "RVOL" })).toBeInTheDocument();
+    expect(screen.getByText("1.80×")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL|8" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL|20" })).toBeInTheDocument();
   });
 });

@@ -101,21 +101,31 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
   );
 }
 
-/** The basket-table RVOL cell from the `rvol` display member: the as-of bar's volume ÷ the mean
- *  volume of the 8 bars before it (mirrors the breakout detector's base window). Renders "N.NN×"; a
- *  volume-backed reading — value at/above the loud threshold the backend ships in
- *  `basis.params.loud_mult` — reads a WARM 'hot' accent (the exception, not every row, #7), never the
- *  return-green tone. The threshold rides the wire so the FE hardcodes nothing. A gap (a halt / thin
- *  OTC as-of bar, or a young name) is an HONEST "—" with the why on hover (#6/#9). */
-export function RvolCell({ sig }: { sig: DisplaySignal | null }) {
-  const m = (sig?.metrics ?? []).find((x) => x.key === "rvol");
+/** One basket-table RVOL cell from the `rvol` display member: the as-of bar's volume ÷ the mean
+ *  volume of the N bars before it. The member emits TWO windows off one fetch and `metricKey` /
+ *  `loudKey` select which — `rvol` / `loud_mult` is the **8-bar** (call-matched) read, `rvol20` /
+ *  `loud_mult_20` the **20-bar** (trader-convention, call-decoupled) read; each accents from its OWN
+ *  threshold on the wire so the FE hardcodes nothing. Renders "N.NN×"; a volume-backed reading —
+ *  value at/above that window's threshold — reads a WARM 'hot' accent (the exception, not every row,
+ *  #7), never the return-green tone. A gap (a halt / thin OTC as-of bar, or a name short of the
+ *  window's base) is an HONEST "—" with the why on hover (#6/#9). */
+export function RvolCell({
+  sig,
+  metricKey = "rvol",
+  loudKey = "loud_mult",
+}: {
+  sig: DisplaySignal | null;
+  metricKey?: string;
+  loudKey?: string;
+}) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === metricKey);
   if (!m || m.value == null)
     return (
       <span className="muted" title={m?.note ?? undefined}>
         —
       </span>
     );
-  const loud = sig?.basis.params?.loud_mult;
+  const loud = sig?.basis.params?.[loudKey];
   const hot = typeof loud === "number" && m.value >= loud;
   return (
     <span className={`rvol${hot ? " hot" : ""}`} title={hot ? "volume-backed move" : undefined}>
