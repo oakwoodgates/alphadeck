@@ -1,0 +1,18 @@
+# Alpha Deck — business-type PREFERENCE OVERRIDES (the operator's exception layer).
+#
+# EDIT THIS FILE to overrule the classification without touching the main map:
+#   kind=ticker  ->  one exact name (key = its SEC ticker) classifies as business_type, whatever
+#                    its SIC says. The home for single-name exceptions (ERII below).
+#   kind=sic     ->  re-rule a WHOLE SIC description string (key = the string, matched
+#                    whitespace-collapsed + case-insensitive) without editing sic_map.csv — e.g. to
+#                    re-rule coal / patent-owners / motor-vehicles wholesale later.
+# Precedence: the operator's per-security DB re-tag (the UI) > ticker row > sic row > sic_map.csv.
+# business_type must be a valid BusinessType (domain/enums.py); note is free text for humans.
+#
+# columns:
+kind,key,business_type,note
+
+# "Special Industry Machinery, NEC" maps to semiconductors (the ASML/AMAT semicap class files
+# there — operator ruling 2026-08). ERII is the documented exception: Energy Recovery's pressure
+# exchangers are industrial flow machinery, not semicap.
+ticker,ERII,industrials_machinery,"Energy Recovery — SIC 'Special Industry Machinery, NEC' reads semicap; ERII is pressure-exchanger industrials (operator ruling 2026-08)"

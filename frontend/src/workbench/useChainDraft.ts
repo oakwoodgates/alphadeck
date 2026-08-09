@@ -250,7 +250,6 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
         .map((p) => ({
           ticker: p.ticker || p.name,
           role: "—",
-          archetype: null, // un-decided (item F) — the finalize rail sets it; never a placement default
           security_id: p.security_id,
           segment: fileSeg(p.segment), // never invent a link on an established chain
           thesis_fit: p.prose || null,
@@ -280,7 +279,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
 
   // Accept ⇄ un-accept (reversibility, principle #1) — a TOGGLE. Accept ratifies a drafted placement
   // (system_drafted → operator_set, the operator owns it now). Un-accept is the visible inverse: it flips
-  // authorship back to system_drafted and KEEPS every field value (segment / prose / conviction / archetype)
+  // authorship back to system_drafted and KEEPS every field value (segment / prose / conviction)
   // untouched — "I don't vouch anymore, let it re-roll next draft", NOT "undo my edits". Uniform across all
   // three states (operator_set / operator_edited both → system_drafted, edits intact). Composes with a
   // re-draft (loadDraft): a name back at system_drafted is re-rolled, which is the whole point.
@@ -303,10 +302,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       ),
     }));
 
-  // (item F: there is NO editArchetype here — the archetype is decided ONCE, on the finalize rail
-  // (DDRail hint → apply/override through the promote writer); the editor never sets or defaults it.)
-
-  // The operator's per-name conviction/size (1–5; null = unset). ORTHOGONAL to authorship — unlike archetype/
+  // The operator's per-name conviction/size (1–5; null = unset). ORTHOGONAL to authorship — unlike the
   // prose (drafted CONTENT the operator overrides), conviction is a fresh operator axis the drafter never sets,
   // so weighting a still-drafted name does NOT consume its "accept" (same orthogonality as include). Stored
   // metadata: it never feeds the meters/verdict/grade (#4).

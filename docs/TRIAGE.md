@@ -27,7 +27,8 @@ the buy-side screen → shortlist → diligence funnel (`STAGE_MODEL.md`, "the t
    per-section, the control is the trigger, cost visible per click. The **shortlist** (the survivors) is the
    only set expensive operations ever touch. *The "Mark for data" section below.*
 3. **FINALIZE ON DATA** (the existing ratify) — confirm each fact against its honest flag, decide the
-   archetype on the rail, weight with conviction, promote. `WORKBENCH_EXTRACTION.md` owns the flags.
+   re-tag the business type on the rail if the maps misread it, weight with conviction, promote.
+   `WORKBENCH_EXTRACTION.md` owns the flags.
 
 ## The prune — include-controls (#113) + the durable NO (#7)
 
@@ -53,8 +54,8 @@ full-replaces, so excluded names simply aren't sent).
 
 ## The find — the sortable / filterable view (#114)
 
-The placed list becomes a triage instrument: **sort** by name / archetype / segment / sector, **filter** by
-archetype / segment / fundamentals / authorship / include / off-universe, and a **compact** toggle that collapses
+The placed list becomes a triage instrument: **sort** by name / segment / sector, **filter** by
+segment / fundamentals / authorship / include / off-universe, and a **compact** toggle that collapses
 the thesis-fit prose for a scannable read. This is how pruning 90 names stays fast.
 
 > **THE #9 SPINE (test-guarded): the VIEW never changes what Save persists.** Save is `basket − excluded` computed
@@ -158,9 +159,9 @@ independently-collapsible **display groups** (same first word = same membership;
 - **The #9 spine is untouched:** membership, include, and Save are computed over the whole draft regardless of
   grouping (test-guarded, same as the sort/filter view).
 
-**No archetype at placement (item F).** The placed row carries **no archetype editor** — a stored value shows as
-a read-only chip; an unset one shows nothing. The archetype is decided ONCE, on the scored view's rail (the
-`archetype_hint` → apply, or the rail's manual set — both `operator_edited`, #10); a placed-but-not-finalized
+**No characterization at placement (item F).** The placed row carries **no type control** — the business type
+derives from the master identity (Business-Type M1) and is re-taggable ONCE, on the scored view's rail
+(the per-security endpoint, #10); a placed-but-not-finalized
 member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `INVARIANTS.md` #10.
 
 ## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
@@ -169,7 +170,7 @@ member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `I
 section — for every member it pulls EOD price bars (the DECOUPLED price leg,
 `POST /workbench/securities/{id}/ingest-prices` — incremental, cache-first; see `FEED_LOOP.md`) and
 prefetches the extraction candidates into the same query the rows + rail read — so the section lands
-mostly-complete: caps computed where shares are already ratified, archetype hints live, purity candidates
+mostly-complete: caps computed where shares are already ratified, business types derived, purity candidates
 staged one ratify away. **Bounded by the section** (a slice of the saved shortlist, never the draft),
 **extract-and-proposes only** (nothing auto-confirms — purity stays HUMAN; every fact still passes the
 operator's per-fact ratify), failures reported LOUD and named per ticker. The per-name row button stays

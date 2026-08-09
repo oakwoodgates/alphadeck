@@ -36,8 +36,8 @@ def _thesis_with_member(db, ticker, sid):
         )
         cur.execute(
             "INSERT INTO basket_member "
-            "(id, tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id) "
-            "VALUES (%s, %s, %s, 0, %s, 'r', 'leader', %s)",
+            "(id, tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+            "VALUES (%s, %s, %s, 0, %s, 'r', %s)",
             (uuid.uuid4(), DEFAULT_TENANT_ID, tid, ticker, sid),
         )
     db.commit()

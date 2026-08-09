@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // SurfaceEtf (ETF Sleeve, Slice 1): the operator types an ETF ticker; on resolve it adds a `fund` sleeve
-// member (archetype set at surface-time) and pulls the sleeve's price. The hooks are mocked — the resolve
+// member (the master row carries instrument_kind=etf — the sleeve's one marker) and pulls its price. The hooks are mocked — the resolve
 // mock invokes its onSuccess with a canned marked-'etf' match (the real hook passes onSuccess through).
 const h = vi.hoisted(() => ({
   resolveMutate: vi.fn(),
@@ -38,7 +38,7 @@ describe("SurfaceEtf — the surface-ETF flow", () => {
     h.ingestMutate.mockReset();
   });
 
-  it("resolves the ticker, adds a `fund` member, and pulls the sleeve price", async () => {
+  it("resolves the ticker, adds the sleeve member, and pulls its price", async () => {
     const user = userEvent.setup();
     const onAdd = vi.fn();
     render(<SurfaceEtf existingKeys={new Set()} onAdd={onAdd} />);
@@ -49,7 +49,7 @@ describe("SurfaceEtf — the surface-ETF flow", () => {
     expect(h.resolveMutate).toHaveBeenCalledWith("LIT"); // upper-cased before resolve
     expect(onAdd).toHaveBeenCalledTimes(1);
     const [member, name] = onAdd.mock.calls[0];
-    expect(member.archetype).toBe("fund"); // the sleeve archetype, set at surface-time
+    expect(member.role).toBe("ETF sleeve"); // the sleeve marker is the master row's instrument_kind
     expect(member.security_id).toBe("s-lit");
     expect(member.authored_by).toBe("operator_set");
     expect(name).toBe("Global X Lithium & Battery Tech ETF"); // the name bridge

@@ -1,5 +1,5 @@
 import type { DisplaySignal, MemberDisplaySignalsOut, ScoredMemberOut } from "../api/hooks";
-import { archLabel } from "../util/format";
+import { businessTypeLabel } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
 import { familyCls, type LifecycleKind, type OverlayEvent, overlayTooltip } from "./overlay";
 
@@ -56,14 +56,25 @@ export interface IdentityCell {
   value: string;
 }
 
-/** The Cockpit identity line for the drawer — archetype · sector · exchange · origin · market cap, off the
+/** The Cockpit identity line for the drawer — type · sector · exchange · origin · market cap, off the
  *  scored member (found by security_id in the parent). A missing field reads "—" (NEVER a guess, #6) —
- *  origin included: it is derived server-side from the SEC's own locators and abstains to null, so the "—"
- *  is the ladder's honest unknown. Deliberately NOT the scoring meters / fit / size-weight — that
+ *  type/origin included: both derive server-side (the SIC maps / the SEC's own locators) and abstain to
+ *  null, so the "—" is the honest unknown. Deliberately NOT the scoring meters / fit / size-weight — that
  *  duplication is the NamePanel's job, which the operator asked the Scoreboard drawer to stay out of. */
 export function identityCells(scored: ScoredMemberOut | null | undefined): IdentityCell[] {
   const cells: IdentityCell[] = [
-    { label: "archetype", value: scored?.archetype ? archLabel(scored.archetype) : "—" },
+    // the business-type LEAF (Business-Type M1) + the royalty overlay when it lights (never a bare
+    // marker without its leaf); an ETF reads its instrument (a fund has no SIC)
+    {
+      label: "type",
+      value:
+        scored?.instrument_kind === "etf"
+          ? "ETF sleeve"
+          : scored?.business_type
+            ? businessTypeLabel(scored.business_type) +
+              (scored.royalty ? " · royalty/streaming" : "")
+            : "—",
+    },
     { label: "sector", value: scored?.sector ?? "—" },
     { label: "exchange", value: scored?.exchange ?? "—" },
     { label: "origin", value: scored?.origin ?? "—" },

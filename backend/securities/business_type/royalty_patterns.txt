@@ -1,0 +1,14 @@
+# Alpha Deck — royalty/streaming OVERLAY: company-NAME regexes (one per line, case-insensitive).
+#
+# WHY a name tell: royalty/streaming houses are SIC-invisible — UROY files under "Commodity
+# Contracts Brokers & Dealers", RPRX/XOMA under "Pharmaceutical Preparations", ELE under "Gold and
+# Silver Ores", GULTU under "Crude Petroleum & Natural Gas". The NAME is the one honest, uniform
+# tell. Measured over the full live master (8,106 names, 2026-08): these two patterns hit exactly
+# 32 rows, every one a genuine royalty/streaming company — zero false positives.
+#
+# The overlay CO-EXISTS with the industry leaf (a royalty house keeps its leaf) and is derive-only
+# (operator ruling: no override in v1). EDIT here to tune; \b guards word boundaries — "\broyalt"
+# covers Royalty/Royalties; "\bstreaming\b" deliberately does NOT match CuriosityStream-style names.
+
+\broyalt
+\bstreaming\b

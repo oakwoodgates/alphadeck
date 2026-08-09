@@ -8,9 +8,8 @@ from pathlib import Path
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, CatalystType, Grade
+from domain.enums import CatalystType, Grade
 from domain.thesis import BasketMember
-from domain.workbench import ScoredFigure
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
 from ingest.edgar.converts import ConvertTerms, ingest_convert_terms
@@ -18,16 +17,14 @@ from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from signals.base import PointInTimeData
 from workbench import scoring
-from workbench.scoring import _archetype_hint, score_member
+from workbench.scoring import score_member
 
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(2026, 6, 2)
 
 
 def _member(security_id, segment=None) -> BasketMember:
-    return BasketMember(
-        ticker="X", role="r", archetype=Archetype.LEADER, security_id=security_id, segment=segment
-    )
+    return BasketMember(ticker="X", role="r", security_id=security_id, segment=segment)
 
 
 def _price(db, security_id, d: date, close: float) -> None:
@@ -144,7 +141,7 @@ def test_fund_sleeve_price_reads_as_of_no_lookahead(db):
     _price(db, sid, date(2026, 6, 10), 100.0)
     _price(db, sid, date(2026, 7, 1), 200.0)  # a FUTURE bar relative to the scored asof below
     db.commit()
-    fund = BasketMember(ticker="LIT", role="ETF sleeve", archetype=Archetype.FUND, security_id=sid)
+    fund = BasketMember(ticker="LIT", role="ETF sleeve", security_id=sid)
     pit = PointInTimeData(db, asof=date(2026, 6, 15), tenant_id=DEFAULT_TENANT_ID)
     m = score_member(pit, fund, DEFAULT_CONFIG)
     assert m.market_cap.value is None  # no shares -> no cap; the sleeve is priced, not valued
@@ -359,8 +356,6 @@ def test_score_member_golden(db, security_id):
     assert (
         sm.fit == "core exposure"
     )  # purity 3; runway 4 (no funding risk); dilution 1 (no dilution risk)
-    # archetype recommendation (#10): $2.5B (>= $500M, < $10B) + purity 3 (not off-thesis) -> high_beta
-    assert sm.archetype_hint is Archetype.HIGH_BETA
     # all three fact-backed meters (purity / runway / market cap) are confirmed -> nothing unconfirmed
     assert sm.unconfirmed_estimates == 0
 
@@ -374,9 +369,6 @@ def test_no_data_reads_dash_not_zero(db, security_id):
     assert sm.dilution.pips is None and sm.market_cap.pips is None
     assert sm.catalysts.pips == 0
     assert sm.fit == "unrated"  # no purity data
-    assert (
-        sm.archetype_hint is None
-    )  # no market cap -> the recommendation abstains (the operator's default stands)
     # all three fact-backed meters blank -> "rests on 3 unconfirmed"
     assert sm.unconfirmed_estimates == 3
 
@@ -464,50 +456,6 @@ def test_pip_cutoffs_are_config_driven(db, security_id):
     assert score_member(pit, _member(security_id)).purity.pips == 3  # default 80-bar: 77 -> 3
     loosened = DEFAULT_CONFIG.model_copy(update={"purity_pip_pct": (10.0, 25.0, 50.0, 75.0)})
     assert score_member(pit, _member(security_id), loosened).purity.pips == 4  # 75-bar: 77 -> 4
-
-
-# --- the archetype recommendation (Slice 4, #10) — a pure function of the figures; every branch + abstention ---
-
-
-def _cap(value: float) -> ScoredFigure:
-    return ScoredFigure(value=value)  # a market-cap figure (pips stay None)
-
-
-def _purity(pips: int | None) -> ScoredFigure:
-    return ScoredFigure(pips=pips, value=None if pips is None else float(pips * 25))
-
-
-def test_archetype_hint_abstains_without_market_cap():
-    """No market cap (no facts yet) -> None: the recommendation abstains, the operator's default stands."""
-    assert _archetype_hint(ScoredFigure(), _purity(4), DEFAULT_CONFIG) is None
-
-
-def test_archetype_hint_reads_cap_tiers():
-    """The size read: large-cap -> leader, mid -> high_beta, micro -> lotto (default $10B / $500M bars)."""
-    assert _archetype_hint(_cap(12e9), _purity(4), DEFAULT_CONFIG) is Archetype.LEADER
-    assert _archetype_hint(_cap(2.5e9), _purity(4), DEFAULT_CONFIG) is Archetype.HIGH_BETA
-    assert _archetype_hint(_cap(2e8), _purity(4), DEFAULT_CONFIG) is Archetype.LOTTO
-
-
-def test_archetype_hint_adjacent_for_low_purity_regardless_of_size():
-    """An off-thesis (low-purity) name reads adjacent even at large-cap size — purity gates before cap."""
-    assert _archetype_hint(_cap(12e9), _purity(0), DEFAULT_CONFIG) is Archetype.ADJACENT
-    assert _archetype_hint(_cap(12e9), _purity(1), DEFAULT_CONFIG) is Archetype.ADJACENT
-
-
-def test_archetype_hint_cap_tier_when_purity_unknown():
-    """Purity with no data (pips None) never blocks a cap-tier read — a mid-cap still recommends high_beta."""
-    assert _archetype_hint(_cap(2.5e9), ScoredFigure(), DEFAULT_CONFIG) is Archetype.HIGH_BETA
-
-
-def test_archetype_hint_cutoffs_are_config_driven():
-    """The magic-number guard for the recommendation: a changed CallConfig cap bar changes the hint."""
-    cap = _cap(2.5e9)  # mid-cap -> high_beta by default
-    assert _archetype_hint(cap, _purity(4), DEFAULT_CONFIG) is Archetype.HIGH_BETA
-    lowered = DEFAULT_CONFIG.model_copy(update={"archetype_leader_min_cap_usd": 2e9})
-    assert (
-        _archetype_hint(cap, _purity(4), lowered) is Archetype.LEADER
-    )  # now $2.5B clears the leader bar
 
 
 def test_scorer_has_no_magic_number_thresholds():

@@ -11,7 +11,7 @@ const fx = vi.hoisted(() => {
     {
       ticker: "OKLO",
       role: "r",
-      archetype: "high_beta",
+      
       security_id: "s-oklo",
       segment: "reactors",
       conviction: null,
@@ -24,7 +24,7 @@ const fx = vi.hoisted(() => {
     {
       security_id: "s-oklo",
       ticker: "OKLO",
-      archetype: "high_beta",
+      
       segment: "reactors",
       purity: fig(4, 100),
       runway: fig(4, null),
@@ -54,6 +54,8 @@ const fx = vi.hoisted(() => {
 const h = vi.hoisted(() => ({ mutate: vi.fn() }));
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),

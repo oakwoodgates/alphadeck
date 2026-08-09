@@ -8,7 +8,7 @@ import pytest
 
 from db.migrate import apply_migrations
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import InstrumentKind
+from domain.enums import BusinessSupersector, BusinessType, InstrumentKind
 from domain.security import SecurityIdentity
 from ingest import CacheMiss
 from securities import master
@@ -369,6 +369,12 @@ def test_identity_for_derives_origin_from_stored_ingredients(db):
         "origin",
         "foreign_filer_form",
         "price_symbol",
+        # the business-type read (Business-Type M1) — derived on read, same discipline as origin
+        "business_type",
+        "business_supersector",
+        "business_type_override",
+        "royalty",
+        "instrument_kind",
     }
 
 
@@ -397,6 +403,12 @@ def test_identity_for_still_carries_the_enrichment_strings(db):
         "origin": None,  # no locator ingredients stored -> the ladder abstains
         "foreign_filer_form": None,  # no filer-form ingredients stored -> the tell abstains
         "price_symbol": None,  # no resolved symbol -> priced under the canonical ticker
+        # the business-type read derives from the SAME stored sector (Business-Type M1)
+        "business_type": BusinessType.UTILITIES,  # "Electric Services" -> utilities
+        "business_supersector": BusinessSupersector.ENERGY_UTILITIES,
+        "business_type_override": None,  # no re-tag stored -> classified by the maps
+        "royalty": False,
+        "instrument_kind": "equity",
     }
 
 

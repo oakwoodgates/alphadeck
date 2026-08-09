@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import (
-    Archetype,
+    BusinessSupersector,
+    BusinessType,
     CatalystType,
     Grade,
     InstrumentKind,
@@ -305,13 +306,23 @@ class ScoredMemberOut(BaseModel):
     # under the canonical ticker (the common, healthy case) — the FE renders the note ONLY when set, and the
     # watchlist export emits ``price_symbol ?? ticker`` so TradingView resolves the right listing.
     price_symbol: str | None = None
-    # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
-    # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
-    archetype: Archetype | None = None
-    # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
-    # purity. Display-only — the operator confirms/overrides; NEVER auto-applied to ``archetype``, never
-    # promoted. ``None`` = abstain (no facts yet, or a relational role — shovel/fund — the rule won't guess).
-    archetype_hint: Archetype | None = None
+    # WHAT the company DOES — the two-level business type (Business-Type M1), DERIVED ON READ by the master
+    # join (``identity_for`` -> ``resolve_business_type`` over the stored ``sector``/name/ticker + the 0033
+    # re-tag). MONITOR display identity like origin: never promoted (#2), never a call input (#3/#4).
+    # ``business_type`` is the EFFECTIVE leaf (the stored re-tag already folded in); ``None`` = unclassified
+    # (un-enriched — the FE renders its own visible group, never a guess).
+    business_type: BusinessType | None = None
+    # The super-sector rollup of the effective leaf ("are the utilities moving?"); ``None`` iff the leaf is.
+    business_supersector: BusinessSupersector | None = None
+    # The stored operator re-tag VERBATIM (0033; NULL = classified by the maps — the store-on-diff exception
+    # marker). Non-null lets the FE mark "your tag" and offer the revert-to-derived (reversibility, WB #1).
+    business_type_override: BusinessType | None = None
+    # The royalty/streaming OVERLAY (a company-NAME tell; SIC-invisible class) — co-exists with the leaf,
+    # derive-only. Honest loudness: the FE marks ONLY when True (measured live: 32 of 8,106 names).
+    royalty: bool = False
+    # What the instrument IS (``equity``/``etf``), carried verbatim from the master — an ETF's sleeve label
+    # keys on THIS, not the SIC maps (a fund has no sector). ``None`` only for a pre-migration hand-built row.
+    instrument_kind: InstrumentKind | None = None
     segment: str | None = None
     purity: ScoredFigureOut
     runway: ScoredFigureOut
@@ -336,7 +347,7 @@ class ScoredMemberOut(BaseModel):
         m: ScoredMember,
         ciks: Mapping[UUID, str | None],
         tickers: Mapping[UUID, str | None],
-        identity: Mapping[UUID, Mapping[str, str | None]] | None = None,
+        identity: Mapping[UUID, Mapping[str, str | bool | None]] | None = None,
         thin_history: Mapping[UUID, bool] | None = None,
     ) -> "ScoredMemberOut":
         cik = ciks.get(m.security_id)
@@ -349,18 +360,25 @@ class ScoredMemberOut(BaseModel):
                 provenance=[_provenance_out(p, cik) for p in f.provenance],
             )
 
+        def s(key: str) -> str | None:
+            v = ident.get(key)
+            return v if isinstance(v, str) else None
+
         return cls(
             security_id=m.security_id,
             ticker=tickers.get(m.security_id),
-            name=ident.get("name"),
-            sector=ident.get("sector"),
-            exchange=ident.get("exchange"),
-            category=ident.get("category"),
-            origin=ident.get("origin"),
-            foreign_filer_form=ident.get("foreign_filer_form"),
-            price_symbol=ident.get("price_symbol"),
-            archetype=m.archetype,
-            archetype_hint=m.archetype_hint,
+            name=s("name"),
+            sector=s("sector"),
+            exchange=s("exchange"),
+            category=s("category"),
+            origin=s("origin"),
+            foreign_filer_form=s("foreign_filer_form"),
+            price_symbol=s("price_symbol"),
+            business_type=s("business_type"),
+            business_supersector=s("business_supersector"),
+            business_type_override=s("business_type_override"),
+            royalty=bool(ident.get("royalty", False)),
+            instrument_kind=s("instrument_kind"),
             segment=m.segment,
             purity=fig(m.purity),
             runway=fig(m.runway),
@@ -395,6 +413,31 @@ class PriceIngestOut(BaseModel):
     bars_reversioned: int = 0
     bars_appended: int
     latest_bar: date | None = None  # None = the source returned nothing (e.g. an unquoted line)
+
+
+class SetBusinessTypeRequest(BaseModel):
+    """Body for ``POST /workbench/securities/{security_id}/business-type`` — the operator's per-security
+    business-type RE-TAG (Business-Type M1). ``business_type`` is the leaf to tag, or ``null`` to CLEAR the
+    re-tag (the visible revert back to the maps-derived classification — reversibility, WB #1). Identity
+    metadata, never a fact (#3); the server stores it ONLY when it differs from the derived leaf (0033
+    store-on-diff) and stamps ``operator:retag`` as the basis."""
+
+    business_type: BusinessType | None = None
+
+
+class BusinessTypeOut(BaseModel):
+    """The re-tag receipt: the security's business-type read AFTER the write, re-derived server-side —
+    what every scored surface will now show (#6: the response shows the effective state, not an echo).
+    """
+
+    security_id: UUID
+    # the EFFECTIVE leaf after the write (re-tag folded in); None = unclassified (no sector, no tag)
+    business_type: BusinessType | None = None
+    business_supersector: BusinessSupersector | None = None
+    # the STORED re-tag after store-on-diff coercion: None = classified by the maps (an agreeing pick
+    # coerces to None — the derived read already says it), non-null = the standing exception
+    business_type_override: BusinessType | None = None
+    royalty: bool = False
 
 
 class SecurityMatchOut(BaseModel):

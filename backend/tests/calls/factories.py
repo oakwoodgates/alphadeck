@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, CatalystType, Grade, Kind, Role
+from domain.enums import CatalystType, Grade, Kind, Role
 from domain.signal import Provenance, SignalEvent
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
 
@@ -22,7 +22,6 @@ def make_thesis(**overrides) -> Thesis:
             BasketMember(
                 ticker="DEVCO",
                 role="Lead developer (launch-ready)",
-                archetype=Archetype.LEADER,
                 security_id=SID,
             )
         ],

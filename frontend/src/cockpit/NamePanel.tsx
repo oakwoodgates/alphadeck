@@ -11,7 +11,15 @@ import { TriggerRow } from "../components/CallCard";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/format";
-import { archLabel, byEventDateDesc, daysFrom, fmtDate, gradeClass, verdictLabel } from "../util/format";
+import {
+  businessTypeLabel,
+  byEventDateDesc,
+  daysFrom,
+  fmtDate,
+  gradeClass,
+  supersectorLabel,
+  verdictLabel,
+} from "../util/format";
 import type { BucketDef, BucketKey, BucketRow } from "./buckets";
 
 interface Props {
@@ -47,7 +55,7 @@ const AUTHOR_TAG: Record<string, string> = {
 
 /** The per-name panel — a fixed, NON-MODAL slide-over (no scrim: the table stays clickable, so
  *  switching names is one click on the next row; the table itself never unmounts). READ-ONLY by
- *  design: every value is a wire field this page already fetched — sizing, facts, and archetype
+ *  design: every value is a wire field this page already fetched — sizing, facts, and re-tag
  *  decisions live in the Workbench. Esc / ✕ / re-clicking the row closes it. */
 export function NamePanel({ row, def, card, thesisId, position, display, asof, onClose }: Props) {
   useEffect(() => {
@@ -101,8 +109,19 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       : member.conviction >= 1 && member.conviction <= 5
         ? `${"●".repeat(member.conviction)}${"○".repeat(5 - member.conviction)} ${member.conviction}`
         : String(member.conviction);
+  // WHAT the company DOES — the two-level business type (leaf · super), derived server-side from
+  // the SIC maps (the raw Sector cell below stays: it is the evidence behind this label, #6). An
+  // ETF reads its instrument kind (a fund has no SIC); the royalty overlay rides only when true.
+  const btype =
+    scored?.instrument_kind === "etf"
+      ? "ETF sleeve"
+      : scored?.business_type
+        ? `${businessTypeLabel(scored.business_type)} · ${supersectorLabel(scored.business_supersector)}` +
+          (scored.royalty ? " · royalty/streaming" : "") +
+          (scored.business_type_override ? " · your tag" : "")
+        : "—";
   const cells: [string, string][] = [
-    ["Archetype", member.archetype ? archLabel(member.archetype) : "—"],
+    ["Type", btype],
     ["Segment", member.segment ?? "—"],
     ["Sector", scored?.sector ?? "—"],
     ["Exchange", scored?.exchange ?? "—"],
@@ -264,12 +283,6 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
           </div>
         )}
       </div>
-      {/* the enrichment's archetype RECOMMENDATION, quietly (#10: display-only, decided elsewhere) */}
-      {!member.archetype && scored?.archetype_hint && (
-        <div className="np-hintline">
-          ✦ figures suggest {archLabel(scored.archetype_hint)} — decide in the Workbench
-        </div>
-      )}
       {/* #1 thin-history DATA-HEALTH flag — only when starved (honest loudness). A bar count, never a call
           input; it says the history-window reads may be unreliable, not that the call is wrong. */}
       {scored?.thin_price_history && (
@@ -339,7 +352,7 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       )}
 
       <div className="np-note">
-        Read-only — sizing, facts, and archetype decisions live in the Workbench; acting, passing,
+        Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing,
         and undo live on the thesis rail. Closing returns the table exactly as you left it.
       </div>
     </aside>

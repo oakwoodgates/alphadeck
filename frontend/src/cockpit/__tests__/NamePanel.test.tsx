@@ -25,8 +25,8 @@ const scored = (over: Partial<ScoredMemberOut>): ScoredMemberOut =>
     category: null,
     origin: "Canada",
     foreign_filer_form: null,
-    archetype: null,
-    archetype_hint: null,
+    
+    
     segment: "reactors",
     purity: fig,
     runway: fig,
@@ -42,7 +42,7 @@ const rowFor = (sc: ScoredMemberOut): BucketRow => ({
   member: {
     ticker: sc.ticker ?? "CCJ",
     role: "leader",
-    archetype: null,
+    
     security_id: sc.security_id,
     segment: "reactors",
     conviction: null,

@@ -38,21 +38,51 @@ export function gradeClass(g: string | null | undefined): string {
   return g === "core" ? "core" : g === "flip" ? "flip" : "";
 }
 
-const ARCH_LABEL: Record<string, string> = {
-  leader: "leader",
-  high_beta: "high-beta",
-  lotto: "lotto",
-  shovel: "shovel",
-  adjacent: "adjacent",
-  fund: "ETF sleeve",
+const BUSINESS_TYPE_LABEL: Record<string, string> = {
+  miner: "miner",
+  bank: "bank",
+  utilities: "utilities",
+  oil_gas: "oil & gas",
+  semiconductors: "semis",
+  biotech_pharma: "biotech/pharma",
+  medical_devices: "med devices",
+  healthcare_services: "healthcare svcs",
+  software_it: "software/IT",
+  finance_brokers: "finance & brokers",
+  real_estate: "real estate",
+  industrials_machinery: "industrials",
+  chemicals_materials: "chemicals",
+  comms_media: "comms/media",
+  transportation: "transport",
+  consumer_retail: "consumer",
+  business_services: "biz services",
+  spac: "SPAC",
+  other: "other",
 };
 
-/** Basket-member archetype → its display label (the `.arch` chip; CSS uppercases it visually). The single
- *  source of archetype labels, shared by the Cockpit board, the Workbench chips, and the DDRail picker.
- *  Null/undefined = not yet characterized (item F — placement never stamps a default) → "unset"; render
- *  sites usually guard and show nothing, this is the defensive fallback so "null" never reaches the UI. */
-export function archLabel(archetype: string | null | undefined): string {
-  return archetype ? (ARCH_LABEL[archetype] ?? archetype) : "unset";
+/** Business-type LEAF → its display label (the cockpit Type chip / the NamePanel identity cell).
+ *  Derived server-side from the SIC maps (`securities/business_type/`); display identity, never a
+ *  call input. Null/undefined = unclassified (un-enriched) → render sites guard and show "—". */
+export function businessTypeLabel(businessType: string | null | undefined): string {
+  return businessType ? (BUSINESS_TYPE_LABEL[businessType] ?? businessType) : "—";
+}
+
+const SUPERSECTOR_LABEL: Record<string, string> = {
+  healthcare: "Healthcare",
+  financials: "Financials",
+  technology: "Technology",
+  industrials: "Industrials",
+  consumer_comms: "Consumer & Comms",
+  materials: "Materials",
+  energy_utilities: "Energy & Utilities",
+  real_estate: "Real Estate",
+  other: "Other",
+};
+
+/** Business-type SUPER-SECTOR → its display label (the cockpit's "watch through the types" group
+ *  headers — "are the utilities moving?"). Same identity discipline as the leaf label. */
+export function supersectorLabel(supersector: string | null | undefined): string {
+  return supersector ? (SUPERSECTOR_LABEL[supersector] ?? supersector) : "Unclassified";
 }
 
 /** A single-name thesis shows its ticker; a multi-name theme shows a basket marker (never a bare "—",

@@ -7,7 +7,7 @@ import pytest
 
 from app.main import app
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype, TermTier
+from domain.enums import TermTier
 from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.revenue_mix import ingest_revenue_mix
@@ -43,7 +43,6 @@ def _scored_thesis(db, security_id) -> uuid.UUID:
             BasketMember(
                 ticker="DEVCO",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
                 segment="reactors",
             )
@@ -123,7 +122,6 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
             {
                 "ticker": "DEVCO",
                 "role": "the name",
-                "archetype": "high_beta",
                 "security_id": str(security_id),
                 "segment": "reactors",
                 "authored_by": "operator_set",
@@ -416,13 +414,13 @@ def test_scored_carries_derived_foreign_filer_form(client, db, security_id):
     assert "files_domestic_forms" not in by_ticker["DEVCO"]
 
 
-def test_promote_and_scored_carry_a_null_archetype(client, security_id):
-    """Item F (PR-B): promote accepts a member with NO archetype (un-decided — placement doesn't
-    characterize; the finalize screen does), stores NULL, reads it back null on the thesis detail, and
-    the scored view carries it verbatim while the archetype HINT (the finalize screen's recommendation
-    seam, #10) still computes independently of the missing value."""
-    payload = {
-        "name": "Null-arch",
+def test_promote_rejects_a_legacy_archetype_payload_loudly(client, security_id):
+    """Business-Type M1 (S4): the archetype field is RETIRED from the spine. A stale FE bundle still
+    sending it must fail LOUDLY (DomainModel is extra="forbid" — a 422, never a silent drop), and the
+    scored wire no longer carries the archetype/archetype_hint pair (what a name IS rides the
+    business_type identity block instead)."""
+    base = {
+        "name": "Legacy-arch",
         "narrative": "x",
         "ticker": None,
         "segments": [{"label": "reactors"}],
@@ -430,21 +428,22 @@ def test_promote_and_scored_carry_a_null_archetype(client, security_id):
             {
                 "ticker": "DEVCO",
                 "role": "r",
-                # archetype OMITTED — un-decided is un-decided all the way through the spine
                 "security_id": str(security_id),
                 "segment": "reactors",
                 "authored_by": "operator_set",
             }
         ],
     }
-    r = client.post("/workbench/theses", json=payload)
+    legacy = {**base, "basket": [{**base["basket"][0], "archetype": "high_beta"}]}
+    assert client.post("/workbench/theses", json=legacy).status_code == 422  # loud, never silent
+    r = client.post("/workbench/theses", json=base)
     assert r.status_code == 200
     tid = r.json()["id"]
-    assert client.get(f"/theses/{tid}").json()["basket"][0]["archetype"] is None
+    assert "archetype" not in r.json()["basket"][0]  # gone from the thesis detail wire
     scored = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()
     m = scored["members"][0]
-    assert m["archetype"] is None  # carried verbatim — no crash, no resurrected default
-    assert "archetype_hint" in m  # the hint seam still rides (None = abstain without facts)
+    assert "archetype" not in m and "archetype_hint" not in m  # gone from the scored wire
+    assert "business_type" in m  # the replacement identity block rides instead
 
 
 def test_promote_rejects_orphan_segment_placement(client, security_id):
@@ -458,7 +457,6 @@ def test_promote_rejects_orphan_segment_placement(client, security_id):
             {
                 "ticker": "DEVCO",
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(security_id),
                 "segment": "fuel",  # not in segments
             }
@@ -1030,7 +1028,6 @@ def test_promote_honors_authorship_from_the_body(client, security_id):
                 {
                     "ticker": "DEVCO",
                     "role": "r",
-                    "archetype": "leader",
                     "security_id": str(security_id),
                     "segment": "reactors",
                     "authored_by": authored_by,
@@ -1060,7 +1057,6 @@ def test_promote_rejects_a_security_not_in_this_tenants_master(client):
             {
                 "ticker": "GHOST",
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(uuid.uuid4()),  # not in this tenant's master
                 "segment": "reactors",
             }
@@ -1090,7 +1086,6 @@ def test_promote_canonicalizes_a_non_primary_sibling(client, db):
             {
                 "ticker": "ASMLF",  # the draft surfaced the foreign ordinary
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(asmlf),
                 "segment": "equipment",
                 "authored_by": "system_drafted",
@@ -1124,7 +1119,6 @@ def test_promote_stores_the_primary_as_is(client, db):
             {
                 "ticker": "ASML",
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(asml),
                 "segment": "equipment",
             }
@@ -1144,7 +1138,6 @@ def _identity_payload(ticker, sid, *, overrides=None):
             {
                 "ticker": ticker,
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(sid),
                 "segment": "controllers",
             }
@@ -1228,7 +1221,6 @@ def test_promote_persists_thesis_fit(client, security_id):
             {
                 "ticker": "DEVCO",
                 "role": "r",
-                "archetype": "leader",
                 "security_id": str(security_id),
                 "segment": "reactors",
                 "thesis_fit": "the only NRC-approved SMR designer in the US",
@@ -1249,7 +1241,6 @@ def _terms_member(ticker, sid, terms=None, **kw):
     d = {
         "ticker": ticker,
         "role": "r",
-        "archetype": "leader",
         "security_id": str(sid),
         "segment": "reactors",
         "authored_by": "system_drafted",
@@ -1346,7 +1337,6 @@ def _thesis_with(db, security_id) -> uuid.UUID:
             BasketMember(
                 ticker="DEVCO",
                 role="r",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
                 segment="reactors",
             )
@@ -2588,7 +2578,6 @@ def _fat_session_state() -> dict:
                     {
                         "ticker": "OKLO",
                         "role": "leader",
-                        "archetype": "leader",
                         "security_id": "11111111-1111-1111-1111-111111111111",
                         "segment": "Enrichment",
                         "thesis_fit": "core name",

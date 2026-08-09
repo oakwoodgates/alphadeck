@@ -5,7 +5,6 @@ from datetime import date, timedelta
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype
 from domain.thesis import BasketMember, Thesis
 from repositories import thesis_repo
 
@@ -37,9 +36,7 @@ def _seed_bars(db, security_id, n: int, end: date = _ASOF) -> None:
 
 
 def _member(security_id, ticker: str = "DEVCO") -> BasketMember:
-    return BasketMember(
-        ticker=ticker, role="the name", archetype=Archetype.LEADER, security_id=security_id
-    )
+    return BasketMember(ticker=ticker, role="the name", security_id=security_id)
 
 
 def _seed_thesis(db, members: list[BasketMember]) -> uuid.UUID:
@@ -118,7 +115,7 @@ def test_unresolved_member_is_omitted_and_dupes_collapse(client, db, security_id
         [
             _member(security_id),
             _member(security_id),  # same security twice in the basket -> one row
-            BasketMember(ticker="GHOST", role="r", archetype=Archetype.LOTTO, security_id=None),
+            BasketMember(ticker="GHOST", role="r", security_id=None),
         ],
     )
     r = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()})

@@ -8,7 +8,6 @@ from calls.assembler import assemble_call
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype
 from domain.signal import SignalEvent
 from domain.thesis import BasketMember, Thesis
 from repositories import calls_repo, thesis_repo
@@ -28,7 +27,6 @@ def persist_thesis(db, security_id: UUID, thesis_id: UUID | None = None) -> Thes
             BasketMember(
                 ticker="DEVCO",
                 role="Lead developer",
-                archetype=Archetype.LEADER,
                 security_id=security_id,
             )
         ],

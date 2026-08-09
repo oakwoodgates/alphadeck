@@ -1,11 +1,12 @@
 import { Fragment, useState, type ReactNode } from "react";
 
 import {
-  type ScoredMemberOut,
+  type BusinessTypeLeaf,
   type ThesisDetail,
   useDeleteTriageSession,
   usePromoteThesis,
   useSectionData,
+  useSetBusinessType,
   useTheses,
   useThesis,
   useTriageSession,
@@ -18,7 +19,7 @@ import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
-import { archLabel, errText, memberHasFundamentals } from "./format";
+import { errText, memberHasFundamentals } from "./format";
 
 interface Props {
   header?: ReactNode;
@@ -103,8 +104,8 @@ export function Workbench({ header, asof }: Props) {
   // by the segment filter below. Split them out: the value-chain view scores the equity `chainMembers`, and
   // the sleeves render in their OWN always-visible section (with price). Display-only; a sleeve never touches
   // the call path (#4/#6).
-  const sleeveMembers = members.filter((m) => m.archetype === "fund");
-  const chainMembers = members.filter((m) => m.archetype !== "fund");
+  const sleeveMembers = members.filter((m) => m.instrument_kind === "etf");
+  const chainMembers = members.filter((m) => m.instrument_kind !== "etf");
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   const grouped = segments.length > 0;
@@ -224,34 +225,20 @@ export function Workbench({ header, asof }: Props) {
     });
   };
 
-  // #10 apply: the operator confirms the derived archetype recommendation for ONE name. Persists via the
-  // existing promote writer (one member's archetype changed -> operator_edited; the rest of the chain is
-  // resent untouched, the wipe-trap guard); the scored read re-derives, clearing the chip. Never auto-applied.
-  const applyArchetype = (
-    securityId: string,
-    archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
-  ) => {
-    if (!thesis) return;
-    promote.mutate({
-      id: thesis.id,
-      name: thesis.name,
-      narrative: thesis.narrative,
-      ticker: thesis.ticker ?? null,
-      basket: thesis.basket.map((b) =>
-        b.security_id === securityId
-          ? { ...b, archetype, authored_by: "operator_edited" as const }
-          : b,
-      ),
-      segments: thesis.segments,
-    });
-  };
+  // Business-Type M1 (#10): the operator RE-TAGS one security's business type — overruling the SIC
+  // maps for one name, or clearing back to derived (null — the visible revert, WB #1). A MASTER-level
+  // identity write (durable across theses), NOT a promote: the spine carries no type field. The hook
+  // invalidates the scored read, so the chip/leaf re-derive everywhere they join.
+  const setBType = useSetBusinessType();
+  const retagBusinessType = (securityId: string, businessType: BusinessTypeLeaf | null) =>
+    setBType.mutate({ securityId, businessType });
 
   // Slice 2b — INCLUDE an available N-PORT holding into the basket (from the SleeveRail). Persists via the
-  // SAME promote writer as applyArchetype (a scored-view change persists immediately), but APPENDS a member
-  // in AddName's shape — an include IS a placement: role "—", archetype unset (the finalize rail
-  // characterizes it, item F / #10), authored_by operator_set. Idempotent: a name already in the basket is a
-  // no-op. The scored read re-derives (the new name joins its master identity + scores); the holdings overlap
-  // is a PULL SNAPSHOT and deliberately does NOT re-fetch (cost thread) — the button reflects the live basket.
+  // promote writer (a scored-view change persists immediately), APPENDING a member in AddName's shape — an
+  // include IS a placement: role "—", uncharacterized (item F), authored_by operator_set. Idempotent: a
+  // name already in the basket is a no-op. The scored read re-derives (the new name joins its master
+  // identity + scores); the holdings overlap is a PULL SNAPSHOT and deliberately does NOT re-fetch (cost
+  // thread) — the button reflects the live basket.
   const includeHolding = (securityId: string, ticker: string) => {
     if (!thesis) return;
     if (thesis.basket.some((b) => b.security_id === securityId)) return;
@@ -265,7 +252,6 @@ export function Workbench({ header, asof }: Props) {
         {
           ticker,
           role: "—",
-          archetype: null,
           security_id: securityId,
           segment: null,
           conviction: null,
@@ -824,10 +810,6 @@ export function Workbench({ header, asof }: Props) {
                               ⚠ label {mm.stored} ≠ bound {mm.bound}
                             </span>
                           )}
-                          {/* only a DECIDED archetype renders (item F) — unset is quiet, not "null" */}
-                          {m.archetype && (
-                            <span className={`arch ${m.archetype}`}>{archLabel(m.archetype)}</span>
-                          )}
                           {m.segment ? <small>{m.segment}</small> : null}
                           {auth ? (
                             <span className="wb-author">
@@ -895,8 +877,8 @@ export function Workbench({ header, asof }: Props) {
                         ?.thesis_fit ?? null)
                     : null
                 }
-                onApplyArchetype={applyArchetype}
-                applying={promote.isPending}
+                onRetag={retagBusinessType}
+                retagPending={setBType.isPending}
                 thesisId={thesisId}
                 asof={asof}
                 // Slice 2b — the sleeve's include/remove write path (used only by the SleeveRail branch).

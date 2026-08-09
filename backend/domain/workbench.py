@@ -13,7 +13,6 @@ from uuid import UUID
 from pydantic import Field
 
 from domain.base import DomainModel
-from domain.enums import Archetype
 from domain.signal import Provenance
 
 
@@ -33,14 +32,8 @@ class ScoredMember(DomainModel):
     ``security_id`` are scored (no facts to read otherwise)."""
 
     security_id: UUID
-    # The member's archetype, carried verbatim. ``None`` = not yet characterized (item F: placement never
-    # stamps a default) — the hint below is then the finalize screen's starting recommendation.
-    archetype: Archetype | None = None
-    # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
-    # purity. Display-only — the operator confirms/overrides; it is NEVER auto-applied to ``archetype`` and
-    # never promoted onto a ``BasketMember``. ``None`` = abstain (no facts yet, or a relational role the rule
-    # won't guess — shovel / fund). The LLM does not touch this (no model, no number — #1/#3).
-    archetype_hint: Archetype | None = None
+    # NOTE the archetype/archetype_hint pair is GONE (Business-Type M1): what a name IS rides the
+    # master identity join (business_type/…, ``identity_for``), not the scored domain object.
     segment: str | None = None
     purity: ScoredFigure
     runway: ScoredFigure

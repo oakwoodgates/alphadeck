@@ -21,7 +21,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID, connect
-from domain.enums import Archetype, CatalystType, Grade
+from domain.enums import CatalystType, Grade
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
@@ -90,7 +90,6 @@ def _hims_thesis(security_id: UUID) -> Thesis:
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
                 detail="single-name conviction play",
             )
@@ -196,28 +195,24 @@ def _nuclear_thesis() -> Thesis:
             BasketMember(
                 ticker="SMR",
                 role="Most de-risked SMR (NRC-approved design)",
-                archetype=Archetype.LEADER,
                 security_id=SMR_ID,
                 detail="the leader",
             ),
             BasketMember(
                 ticker="OKLO",
                 role="High-profile microreactor pure-play",
-                archetype=Archetype.HIGH_BETA,
                 security_id=OKLO_ID,
                 detail="high-beta",
             ),
             BasketMember(
                 ticker="NNE",
                 role="Early micro-reactor",
-                archetype=Archetype.LOTTO,
                 security_id=NNE_ID,
                 detail="speculative",
             ),
             BasketMember(
                 ticker="LEU",
                 role="HALEU enrichment — the fuel supplier",
-                archetype=Archetype.SHOVEL,
                 security_id=LEU_ID,
                 detail="picks-and-shovels",
             ),
@@ -384,7 +379,6 @@ def _unh_thesis() -> Thesis:
             BasketMember(
                 ticker="UNH",
                 role="the name",
-                archetype=Archetype.LEADER,
                 security_id=UNH_SECURITY_ID,
                 detail="mega-cap insider-cluster conviction play",
             )

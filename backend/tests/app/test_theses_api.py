@@ -7,7 +7,6 @@ from pathlib import Path
 from app.openapi_export import export
 from app.schemas_api import edgar_url
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype
 from domain.market_time import market_today
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
@@ -43,7 +42,6 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
             )
         ],

@@ -2,14 +2,14 @@
 
 > Repo path: `docs/WORKBENCH_ENRICHMENT.md`. Part of the **SURFACE** stage (`STAGE_MODEL.md`): when a discovered
 > name arrives, the system POPULATES its **machine-parsed identity** (sector / exchange / listing status / filer
-> category) and a **derived archetype recommendation** — so a discovered name shows up already characterized, for
+> category) and the **derived business type** — so a discovered name shows up already characterized, for
 > the operator to confirm. Companion to `WORKBENCH_EXTRACTION.md` (the *scoring-fact* side of SURFACE) and
 > `DISCOVERY.md` (the DISCOVER stage that feeds it). Engine: `backend/ingest/edgar/submissions.py:parse_identity`,
 > `backend/workbench/enrichment.py`, `backend/securities/master.py`; carried on
 > `backend/workbench/chain_draft.py:ResolvedPlacement`.
 >
 > **Status: BUILT** — identity columns + parser (#105), lazy enrich + listing-status gate (#106), identity badges
-> + market cap on the FE (#107), the derived archetype recommendation (#108), the filer-category chip (#118),
+> + market cap on the FE (#107), the retired archetype recommendation (#108; replaced by Business-Type M1), the filer-category chip (#118),
 > the identity LIFECYCLE (the standalone `pipeline.enrich_identity` command + the scored-join read with derived
 > `origin`).
 
@@ -92,32 +92,29 @@ yet in the snapshot) costs **one extra click, never a silent drop** (#9); an un-
 `listing_status=None` — no flag, no gate. This is the allowlist discipline of #2 applied to listing presence: a
 guess surfaces for the operator to ratify, it never decides.
 
-## The derived archetype — a #10 recommendation the operator confirms
+## The business type — the two-level derived characterization (RETIRED: the archetype hint)
 
-The blanket `high_beta` default is **gone entirely** (item F, the three-gate round): a placed-but-not-finalized
-member carries **`archetype = NULL`** — placement never characterizes, and save never coerces a default (nullable
-end-to-end since migration `0018`). What replaces it is a **deterministic** archetype recommendation computed from
-the name's **market cap + purity** (not the LLM — a pure derivation), surfaced as **`archetype_hint`** on
-`ScoredMemberOut`, distinct from the placed `archetype` the operator owns:
-
-- **Abstention is a feature.** When cap or purity is missing, or the signal is ambiguous, the derivation **declines
-  to recommend** (no hint) rather than guessing — the honest fallback, matching the enrichment discipline.
-- **It RECOMMENDS, the operator DECIDES (#10) — on the rail, the archetype's SINGLE home.** The hint rides
-  display-only; the operator applies it (or picks manually from the rail's set control — the same decision point;
-  relational calls like `shovel`/`fund` the rule never guesses) and either act stamps
-  `authored_by → operator_edited` — so a confirmed recommendation is operator-authored and stable across a
-  re-roll. Nothing auto-applies, and no other surface (placement rows, AddName, the editor) offers the field —
-  one decision point, one moment, one provenance.
-- **It never feeds the call.** Archetype is basket-member role metadata; the back-half categorical
-  call-strength grade still flows from the signals (`INVARIANTS.md` #7 — never an `if kind ==` branch).
-  Position sizing is external and does not flow from grade or archetype.
+> **Business-Type M1 (2026-08):** the size-derived archetype recommendation (`_archetype_hint`,
+> `archetype`/`archetype_hint` on the wire, the `basket_member.archetype` column) is **retired** — measured
+> live, 486/494 members never carried a value; the operator organizes by what a name DOES, not its size
+> tier. What replaced it: the **two-level business type** — a `BusinessType` leaf + `BusinessSupersector`
+> rollup + the royalty/streaming name-overlay — derived on read from the stored `sector` via the
+> **operator-editable maps in `backend/securities/business_type/`** (see that folder's README). It rides
+> `ScoredMemberOut` (`business_type` / `business_supersector` / `royalty` / `business_type_override` /
+> `instrument_kind`) like `sector`/`origin`: auto-enriched identity with a basis, never a fact.
+>
+> The #10 seam moved with it: the maps RECOMMEND (the derived leaf shows immediately, marked "from SIC");
+> the operator can **re-tag** one security on the rail (`POST /workbench/securities/{id}/business-type`,
+> master-level, store-on-diff — an agreeing pick stores nothing) and a standing re-tag reads
+> **"your tag · revert"** (the visible inverse, WB #1). The old `fund` archetype's information lives on
+> `instrument_kind='etf'`; `adjacent` (off-thesis) lives in the purity meter's off-thesis read.
 
 ## Invariant fit
 
 - **#1 / #3** — identity + category are descriptive strings, never numbers, never a fact row, never on the call
-  path. The archetype derivation is deterministic (cap+purity), not model-sourced.
+  path. The business-type derivation is deterministic (the SIC maps + a name regex), not model-sourced.
 - **#2** — identity is display-only on the placement, **never promoted onto `BasketMember`**; the listing-status
   gate is the exact-membership allowlist applied to listing presence (a guess surfaces, never decides).
-- **#9** — every gate/abstention is VISIBLE + reversible (the hedged "not listed" pick, the declined-to-recommend
-  archetype); a bad fetch abstains, never hardens into a false verdict.
-- **#10** — the archetype hint is a pending recommendation; the operator's confirm is what acts.
+- **#9** — every gate/abstention is VISIBLE + reversible (the hedged "not listed" pick; an unmapped sector reads
+  a visible `other`, an un-enriched one an honest unclassified); a bad fetch abstains, never hardens into a false verdict.
+- **#10** — the maps recommend the classification; the operator's re-tag (or their leaving it derived) is what stands.

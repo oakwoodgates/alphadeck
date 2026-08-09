@@ -1,15 +1,16 @@
-import type { ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
+import type { BusinessTypeLeaf, ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
 import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import { SleeveRail } from "./SleeveRail";
 import {
-  ARCHETYPES,
-  archLabel,
+  BUSINESS_TYPES,
+  businessTypeLabel,
   formatMarketCap,
   meterValueLabel,
   onFileValues,
   provChip,
   provNotes,
+  supersectorLabel,
 } from "./format";
 
 const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[] = [
@@ -65,14 +66,12 @@ interface Props {
   // the member's persisted thesis-fit prose ("why this name sits in its link"), bridged from the
   // thesis basket by the parent — display of a stored field, never derived here
   thesisFit?: string | null;
-  // The rail is the archetype's SINGLE home (item F): this callback persists a decision — confirming the
-  // derived hint OR a manual pick from the select — as operator_edited (#10, the operator decides).
-  // Omitted (read-only) when there's no write path. The recommendation shows pending regardless.
-  onApplyArchetype?: (
-    securityId: string,
-    archetype: NonNullable<ScoredMemberOut["archetype_hint"]>,
-  ) => void;
-  applying?: boolean;
+  // The rail is the business-type RE-TAG's home (Business-Type M1, #10): this callback persists the
+  // operator overruling the SIC-derived leaf for ONE name — a master-level identity write (durable
+  // across theses), `null` = clear (the visible revert back to derived, WB #1). Omitted (read-only)
+  // when there's no write path; the derived chip shows regardless.
+  onRetag?: (securityId: string, businessType: BusinessTypeLeaf | null) => void;
+  retagPending?: boolean;
   // the active thesis — passed to the facts panel so the extract can request the GROUNDED purity estimate
   // (SURFACE 1b; purity's on-thesis segment depends on the narrative). Optional: no thesis -> no purity estimate.
   thesisId?: string;
@@ -95,7 +94,7 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId, asof, sleeve }: Props) {
+export function DDRail({ member, thesisFit, onRetag, retagPending, thesisId, asof, sleeve }: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -107,67 +106,68 @@ export function DDRail({ member, thesisFit, onApplyArchetype, applying, thesisId
   }
   // A `fund` sleeve is an EXPRESSION, not a scored equity (#4/#6): none of the meters / extract / ratify
   // machinery below applies. Its dossier is identity + price + N-PORT holdings — a wholly separate panel.
-  if (member.archetype === "fund") {
+  // Keyed on the instrument (a fund has no SIC) — the master's instrument_kind is the sleeve's one marker.
+  if (member.instrument_kind === "etf") {
     return <SleeveRail member={member} thesisId={thesisId} asof={asof} {...sleeve} />;
   }
-  // The #10 recommendation: a derived default (market cap + purity) that DIFFERS from the current archetype.
-  // Pending + display-only — the operator confirms it (apply -> operator_edited) or ignores it. No chip when
-  // the rule abstains (hint null) or already agrees (quiet agreement) — only pending disagreement shows.
-  // With a NULL archetype (item F: placement never characterizes) any non-null hint is pending — the rail is
-  // where the un-decided become decided, by the hint's apply or the manual set below.
-  const hint = member.archetype_hint;
-  const recommends = hint != null && hint !== member.archetype;
+  // The business type (Business-Type M1): the SIC maps auto-derive the leaf (shown immediately, with
+  // its basis); the operator can RE-TAG it here (#10 — the maps recommend, the operator overrules per
+  // name). "your tag" marks a standing override, with the revert one click away (WB #1).
+  const over = member.business_type_override;
   return (
     <div className="ddcard">
       <div className="dd-head">
         <span className="tk">{member.ticker ?? "◇"}</span>
-        {member.archetype ? (
-          <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
+        {member.business_type ? (
+          <span
+            className={`btype bt-${member.business_supersector ?? "other"}`}
+            title={`${supersectorLabel(member.business_supersector)}${
+              member.royalty ? " · royalty/streaming" : ""
+            }`}
+          >
+            {businessTypeLabel(member.business_type)}
+            {member.royalty && <span className="bt-royalty">◈</span>}
+          </span>
         ) : (
-          <span className="arch unset" title="not yet characterized — decide it here (the hint recommends; you pick)">
+          <span
+            className="btype bt-other"
+            title="unclassified — no SIC on file; set a type here if you know what it does"
+          >
             unclassified
           </span>
         )}
-        {recommends && (
-          <span
-            className="arch-rec"
-            title="derived from the figures (market cap + purity) — a recommendation, not a verdict; you decide"
-          >
-            ✦ suggests {archLabel(hint)}
-            {onApplyArchetype && (
-              <button
-                type="button"
-                className="arch-apply"
-                disabled={applying}
-                aria-label={`apply ${archLabel(hint)} to ${member.ticker ?? "this name"}`}
-                onClick={() => onApplyArchetype(member.security_id, hint)}
-              >
-                {applying ? "applying…" : "apply"}
-              </button>
-            )}
-          </span>
+        {/* the basis, honestly: a standing re-tag reads "your tag" with its revert; a derived leaf
+            reads "from SIC" (quiet — the common case) */}
+        {over ? (
+          onRetag && (
+            <button
+              type="button"
+              className="bt-revert"
+              disabled={retagPending}
+              aria-label={`revert ${member.ticker ?? "this name"} to the SIC-derived type`}
+              title="your tag — click to revert to the SIC-derived classification"
+              onClick={() => onRetag(member.security_id, null)}
+            >
+              your tag · revert
+            </button>
+          )
+        ) : (
+          member.business_type && <span className="bt-basis">from SIC</span>
         )}
-        {/* the manual set/override — the SAME single decision point as the hint's apply (one home, one
-            authorship: operator_edited). Offered whenever there's a write path; a pick is a decision even
-            where the rule abstained (shovel / fund are relational calls the hint never guesses). */}
-        {onApplyArchetype && (
+        {onRetag && (
           <select
-            className="arch-set"
-            value={member.archetype ?? ""}
-            disabled={applying}
-            aria-label={`set archetype for ${member.ticker ?? "this name"}`}
+            className="bt-set"
+            value={member.business_type ?? ""}
+            disabled={retagPending}
+            aria-label={`set business type for ${member.ticker ?? "this name"}`}
             onChange={(e) =>
-              e.target.value &&
-              onApplyArchetype(
-                member.security_id,
-                e.target.value as NonNullable<ScoredMemberOut["archetype_hint"]>,
-              )
+              e.target.value && onRetag(member.security_id, e.target.value as BusinessTypeLeaf)
             }
           >
-            {!member.archetype && <option value="">— set —</option>}
-            {ARCHETYPES.map((a) => (
-              <option key={a} value={a}>
-                {archLabel(a)}
+            {!member.business_type && <option value="">— set —</option>}
+            {BUSINESS_TYPES.map((b) => (
+              <option key={b} value={b}>
+                {businessTypeLabel(b)}
               </option>
             ))}
           </select>

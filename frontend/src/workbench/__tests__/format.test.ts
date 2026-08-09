@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  archLabel,
+  BUSINESS_TYPES,
+  businessTypeLabel,
   countryClass,
   exchangeClass,
   filerRegime,
@@ -90,11 +91,14 @@ describe("memberHasFundamentals — a ratified shares fact counts before a price
   });
 });
 
-describe("archLabel", () => {
-  it("maps the enum to friendly labels", () => {
-    expect(archLabel("high_beta")).toBe("high-beta");
-    expect(archLabel("fund")).toBe("ETF sleeve");
-    expect(archLabel("leader")).toBe("leader");
+describe("BUSINESS_TYPES (the re-tag select's option list)", () => {
+  it("every offered leaf carries a real display label (no raw-key fallback in the picker)", () => {
+    for (const b of BUSINESS_TYPES) {
+      expect(businessTypeLabel(b)).toBeTruthy();
+      expect(businessTypeLabel(b)).not.toBe("—"); // a pickable leaf never reads as the unclassified dash
+    }
+    expect(BUSINESS_TYPES).toContain("spac"); // the operator-ruled leaf (A-now)
+    expect(BUSINESS_TYPES).toContain("other"); // the visible tail stays pickable
   });
 });
 

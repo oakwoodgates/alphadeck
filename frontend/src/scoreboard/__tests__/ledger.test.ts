@@ -83,16 +83,18 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
 describe("identityCells — the Cockpit identity line, honest '—' for a missing field (#6)", () => {
   const scored = {
     security_id: "s1",
-    archetype: "high_beta",
+    business_type: "software_it",
+    royalty: false,
+    instrument_kind: "equity",
     sector: "Technology",
     exchange: "NYSE",
     origin: "Shanghai", // the derived where-from string, free on the scored wire (identity lifecycle)
     market_cap: { value: 8e9, provenance: [] },
   } as unknown as ScoredMemberOut;
 
-  it("labels archetype (via archLabel), sector, exchange, origin, and formats the market cap", () => {
+  it("labels the business-type leaf, sector, exchange, origin, and formats the market cap", () => {
     expect(identityCells(scored)).toEqual([
-      { label: "archetype", value: "high-beta" },
+      { label: "type", value: "software/IT" },
       { label: "sector", value: "Technology" },
       { label: "exchange", value: "NYSE" },
       { label: "origin", value: "Shanghai" },
@@ -104,10 +106,10 @@ describe("identityCells — the Cockpit identity line, honest '—' for a missin
     expect(identityCells(null).map((c) => c.value)).toEqual(["—", "—", "—", "—", "—"]);
   });
 
-  it("a missing individual field reads '—' (archetype unset, origin unknown, market cap without a value)", () => {
+  it("a missing individual field reads '—' (type unclassified, origin unknown, market cap without a value)", () => {
     const partial = {
       security_id: "s1",
-      archetype: null,
+      business_type: null,
       sector: "Energy",
       exchange: null,
       market_cap: { value: null, provenance: [] },

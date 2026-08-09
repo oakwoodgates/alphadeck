@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
@@ -79,7 +78,7 @@ def _seed_thesis(db, members: list[BasketMember]) -> uuid.UUID:
 
 
 def _member(sid: uuid.UUID, ticker: str) -> BasketMember:
-    return BasketMember(ticker=ticker, role="the name", archetype=Archetype.LEADER, security_id=sid)
+    return BasketMember(ticker=ticker, role="the name", security_id=sid)
 
 
 def _count(db, table: str) -> int:

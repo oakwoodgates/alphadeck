@@ -134,8 +134,8 @@ def spac_attach(
 ) -> SpacAttachOut:
     """Add a radar name to a thesis basket — the operator's click, so ``operator_set`` (#10: the
     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
-    archetype, no segment — the finalize rail characterizes it, item F), with ``surfaced_terms``
-    frozen from the stored term matches (factual provenance, never client-supplied). Idempotent:
+    segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
+    the stored term matches (factual provenance, never client-supplied). Idempotent:
     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1)."""
     thesis, sid, ticker = _resolve_attach_target(conn, req)
     if any(m.security_id == sid for m in thesis.basket):

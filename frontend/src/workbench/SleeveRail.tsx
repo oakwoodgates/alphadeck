@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { DisplaySignal, EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
 import { useDisplaySignals, useEtfHoldings } from "../api/hooks";
 import { GLYPH, fmtMetricValue } from "../cockpit/DisplaySignalsSection";
-import { archLabel, errText, formatMarketCap, sleevePriceLabel } from "./format";
+import { errText, formatMarketCap, sleevePriceLabel } from "./format";
 
 /** One holding line: weight · ticker/name · the filing's identifier (some filers list equity holdings
  *  with no ticker at all — then name+CUSIP/ISIN IS the identity; shown, never dropped, #9). `action` is
@@ -155,7 +155,7 @@ export function SleeveRail({
     <div className="ddcard sleeve">
       <div className="dd-head">
         <span className="tk">{member.ticker ?? "◇"}</span>
-        <span className="arch fund">{archLabel("fund")}</span>
+        <span className="btype bt-etf">ETF sleeve</span>
       </div>
       <div className="dd-body">
         {member.name && (

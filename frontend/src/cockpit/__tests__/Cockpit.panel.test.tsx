@@ -14,11 +14,12 @@ const fx = vi.hoisted(() => {
     ticker: null,
     segments: [],
     basket: [
-      // quiet, fully-authored row: decided archetype, size weight, detail, fit — the panel shows them
-      { ticker: "URA", role: "the fund", archetype: "fund", security_id: "s-ura", detail: "the ETF sleeve", segment: "Safe exposure", thesis_fit: "The low-torque sleeve of the theme.", conviction: 4, authored_by: "operator_set" },
-      { ticker: "J", role: "core", archetype: null, security_id: "s-j", detail: null, segment: "EPC & services", thesis_fit: "Nuclear-adjacent EPC backlog.", conviction: null, authored_by: "system_drafted" },
-      { ticker: "XE", role: "core", archetype: null, security_id: "s-xe", detail: null, authored_by: "operator_set" },
-      { ticker: "ZTEK", role: "core", archetype: null, security_id: "s-ztek", detail: null, authored_by: "operator_set" },
+      // quiet, fully-authored row: size weight, detail, fit — the panel shows them (its Type reads
+      // the scored row's instrument_kind: the ETF sleeve)
+      { ticker: "URA", role: "the fund", security_id: "s-ura", detail: "the ETF sleeve", segment: "Safe exposure", thesis_fit: "The low-torque sleeve of the theme.", conviction: 4, authored_by: "operator_set" },
+      { ticker: "J", role: "core", security_id: "s-j", detail: null, segment: "EPC & services", thesis_fit: "Nuclear-adjacent EPC backlog.", conviction: null, authored_by: "system_drafted" },
+      { ticker: "XE", role: "core", security_id: "s-xe", detail: null, authored_by: "operator_set" },
+      { ticker: "ZTEK", role: "core", security_id: "s-ztek", detail: null, authored_by: "operator_set" },
     ],
     evidence: [],
     catalysts: [],
@@ -80,9 +81,22 @@ const fx = vi.hoisted(() => {
     members: [
       {
         security_id: "s-j", name: "Jacobs Solutions Inc.", sector: "Engineering & construction",
-        exchange: "NYSE", category: "operating co", archetype: null, archetype_hint: "shovel",
+        exchange: "NYSE", category: "operating co",
+        // the two-level business type rides the scored identity (derived server-side; the raw
+        // sector above is its evidence) — the panel composes "industrials · Industrials"
+        business_type: "industrials_machinery", business_supersector: "industrials",
+        business_type_override: null, royalty: false, instrument_kind: "equity",
         purity: fig(2, 38), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(0, null),
         market_cap: fig(null, 16.4e9), fit: "fits", unconfirmed_estimates: 1,
+      },
+      // the sleeve: identity only (a fund's meters are all-blank) — the panel's Type keys on
+      // instrument_kind, never a SIC leaf (a fund has none)
+      {
+        security_id: "s-ura", name: "Global X Uranium ETF", sector: null,
+        exchange: null, category: null, business_type: null, business_supersector: null,
+        business_type_override: null, royalty: false, instrument_kind: "etf",
+        purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null),
+        dilution: fig(null, null), market_cap: fig(null, null), fit: "", unconfirmed_estimates: 0,
       },
     ],
   },
@@ -280,7 +294,7 @@ describe("Cockpit — the per-name panel", () => {
     const { container } = renderCockpit();
     fireEvent.click(row(container, "bkt-quiet")); // URA — the fully-authored row
     const p = within(panel(container) as HTMLElement);
-    expect(p.getByText("ETF sleeve")).toBeInTheDocument(); // archetype, via the shared label
+    expect(p.getByText("ETF sleeve")).toBeInTheDocument(); // Type, keyed on instrument_kind
     expect(p.getByText("Safe exposure")).toBeInTheDocument(); // segment
     expect(p.getByText("the ETF sleeve")).toBeInTheDocument(); // detail — preserved off the table
     expect(p.getByText("the fund")).toBeInTheDocument(); // role — likewise
@@ -290,13 +304,15 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("yours")).toBeInTheDocument(); // authorship tag (operator_set)
   });
 
-  it("renders '—' for unset weight, the archetype suggestion quietly, and the scoring snapshot", () => {
+  it("renders '—' for unset weight, the two-level Type cell, and the scoring snapshot", () => {
     const { container } = renderCockpit();
-    fireEvent.click(row(container, "bkt-armed")); // J — unset weight/archetype, scored row
+    fireEvent.click(row(container, "bkt-armed")); // J — unset weight, scored row
     const p = within(panel(container) as HTMLElement);
     expect(p.getByText("Size weight (yours)").nextElementSibling?.textContent).toBe("—"); // NULL ≠ 0
     expect(p.queryByText("Detail")).toBeNull(); // null detail renders NO row, not an empty one
-    expect(p.getByText(/figures suggest shovel — decide in the Workbench/)).toBeInTheDocument();
+    // the two-level business type (leaf · super), derived server-side — beside the raw Sector evidence
+    expect(p.getByText("industrials · Industrials")).toBeInTheDocument();
+    expect(p.getByText("Engineering & construction")).toBeInTheDocument();
     expect(p.getByText("Jacobs Solutions Inc.")).toBeInTheDocument();
     expect(p.getByText("NYSE")).toBeInTheDocument();
     expect(p.getByText("Purity")).toBeInTheDocument(); // the four meters ride along (already fetched)

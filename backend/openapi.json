@@ -697,7 +697,7 @@
           "workbench"
         ],
         "summary": "Resolve Etf",
-        "description": "Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The\noperator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked\n``instrument_kind='etf'`` \u2014 the row the FE then adds to the basket as an ``archetype='fund'`` member (the\nETF attaches UNDER a thesis, never free-floating \u2014 #2).\n\nLOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD \u2014 the few\nmega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT\nfrom SEC (LIT/URA/SMH \u2014 a fund-trust series, not an operating-company CIK, so ``cik`` resolves to ``None``,\nwhich ``resolve`` already handles) is CREATED via ``resolve(instrument_kind='etf', allow_live=True)`` \u2014\nOpenFIGI names it, ``cik=None`` is fine for a price-only sleeve. ``allow_live`` mirrors the extract\nendpoint's live-on-an-operator-click precedent (the cost thread: surfacing is an explicit operator click,\nnever ambient). WRITES the master row (an operational universe write \u2014 no thesis spine, no fact, no number,\n#3); the operator's promote stays the only spine writer.\n\nNO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity \u2014 it never fires,\nwarms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op\nfor free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.",
+        "description": "Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The\noperator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked\n``instrument_kind='etf'`` \u2014 the row the FE then adds to the basket as the sleeve member (the ETF\nattaches UNDER a thesis, never free-floating \u2014 #2; ``instrument_kind`` is the sleeve's one marker).\n\nLOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD \u2014 the few\nmega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT\nfrom SEC (LIT/URA/SMH \u2014 a fund-trust series, not an operating-company CIK, so ``cik`` resolves to ``None``,\nwhich ``resolve`` already handles) is CREATED via ``resolve(instrument_kind='etf', allow_live=True)`` \u2014\nOpenFIGI names it, ``cik=None`` is fine for a price-only sleeve. ``allow_live`` mirrors the extract\nendpoint's live-on-an-operator-click precedent (the cost thread: surfacing is an explicit operator click,\nnever ambient). WRITES the master row (an operational universe write \u2014 no thesis spine, no fact, no number,\n#3); the operator's promote stays the only spine writer.\n\nNO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity \u2014 it never fires,\nwarms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op\nfor free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.",
         "operationId": "resolve_etf_workbench_securities_resolve_etf_post",
         "requestBody": {
           "content": {
@@ -884,7 +884,7 @@
           "workbench"
         ],
         "summary": "Ingest Security Prices",
-        "description": "Pull EOD price bars for ONE security \u2014 the price leg DECOUPLED from the back-half ingest, so the\nfinalize screen can complete a name (real market cap, live archetype hint) BEFORE the operator\npromotes. This endpoint WRITES (``fact_price_eod``) \u2014 deliberately, per explicit click: price bars are\nFEED data (the same class as Form 4s), never operator-ratified facts; what they feed (the cap, the\nhint) stays display/recommendation until the operator acts.\n\nBounded + polite by construction: one name per call (the tightest bound \u2014 the section button fans out\nclient-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest\nstored one append \u2014 a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on\na fresh name is a cache miss and fetches live; a same-day re-click serves from the cache \u2014 the daily\ncron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.\nShares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).",
+        "description": "Pull EOD price bars for ONE security \u2014 the price leg DECOUPLED from the back-half ingest, so the\nfinalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint\nWRITES (``fact_price_eod``) \u2014 deliberately, per explicit click: price bars are FEED data (the same\nclass as Form 4s), never operator-ratified facts; what they feed (the cap) stays display until the\noperator acts.\n\nBounded + polite by construction: one name per call (the tightest bound \u2014 the section button fans out\nclient-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest\nstored one append \u2014 a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on\na fresh name is a cache miss and fetches live; a same-day re-click serves from the cache \u2014 the daily\ncron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.\nShares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).",
         "operationId": "ingest_security_prices_workbench_securities__security_id__ingest_prices_post",
         "parameters": [
           {
@@ -905,6 +905,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PriceIngestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/securities/{security_id}/business-type": {
+      "post": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Set Business Type",
+        "description": "Re-tag one security's BUSINESS TYPE (Business-Type M1) \u2014 the operator overruling the maps-derived\nclassification for ONE name (#10: the maps recommend, the operator decides). ``business_type: null``\nCLEARS the re-tag \u2014 the visible revert back to derived (reversibility, WB #1). Durable, master-level\nidentity (what a company DOES holds across theses), stored ONLY when it differs from the derived leaf\n(0033 store-on-diff \u2014 ``securities/master.set_business_type``). MONITOR display identity, never a fact,\nnever a call input (#3/#4). The receipt is the security's business-type read AFTER the write.",
+        "operationId": "set_business_type_workbench_securities__security_id__business_type_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBusinessTypeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessTypeOut"
                 }
               }
             }
@@ -2092,7 +2146,7 @@
           "radar"
         ],
         "summary": "Spac Attach",
-        "description": "Add a radar name to a thesis basket \u2014 the operator's click, so ``operator_set`` (#10: the\nradar recommended, the operator decided). The member lands uncharacterized (role \"\u2014\", no\narchetype, no segment \u2014 the finalize rail characterizes it, item F), with ``surfaced_terms``\nfrozen from the stored term matches (factual provenance, never client-supplied). Idempotent:\nalready-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).",
+        "description": "Add a radar name to a thesis basket \u2014 the operator's click, so ``operator_set`` (#10: the\nradar recommended, the operator decided). The member lands uncharacterized (role \"\u2014\", no\nsegment \u2014 the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from\nthe stored term matches (factual provenance, never client-supplied). Idempotent:\nalready-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).",
         "operationId": "spac_attach_radar_spac_attach_post",
         "requestBody": {
           "content": {
@@ -2479,19 +2533,6 @@
         "title": "AdminStatusOut",
         "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot. READ-ONLY \u2014 the endpoint owns no tables and writes nothing (test-proved; the\n``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet \"no\nsnapshots yet\" state."
       },
-      "Archetype": {
-        "type": "string",
-        "enum": [
-          "leader",
-          "high_beta",
-          "lotto",
-          "shovel",
-          "adjacent",
-          "fund"
-        ],
-        "title": "Archetype",
-        "description": "A basket member's role in expressing the thesis."
-      },
       "Authorship": {
         "type": "string",
         "enum": [
@@ -2703,16 +2744,6 @@
             "type": "string",
             "title": "Role"
           },
-          "archetype": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Archetype"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "security_id": {
             "anyOf": [
               {
@@ -2790,6 +2821,98 @@
           "role"
         ],
         "title": "BasketMember"
+      },
+      "BusinessSupersector": {
+        "type": "string",
+        "enum": [
+          "healthcare",
+          "financials",
+          "technology",
+          "industrials",
+          "consumer_comms",
+          "materials",
+          "energy_utilities",
+          "real_estate",
+          "other"
+        ],
+        "title": "BusinessSupersector",
+        "description": "The business-type SUPER-SECTOR \u2014 the coarse watch grouping above the leaf (\"are the utilities\nmoving?\"). Pure code map from the leaf (``securities/business_type/supersectors.csv``), zero\nstorage, re-drawable without a migration. Identity like ``BusinessType``; never a call input."
+      },
+      "BusinessType": {
+        "type": "string",
+        "enum": [
+          "miner",
+          "bank",
+          "utilities",
+          "oil_gas",
+          "semiconductors",
+          "biotech_pharma",
+          "medical_devices",
+          "healthcare_services",
+          "software_it",
+          "finance_brokers",
+          "real_estate",
+          "industrials_machinery",
+          "chemicals_materials",
+          "comms_media",
+          "transportation",
+          "consumer_retail",
+          "business_services",
+          "spac",
+          "other"
+        ],
+        "title": "BusinessType",
+        "description": "WHAT a company DOES \u2014 the business-type LEAF (MONITOR/organization identity, Business-Type M1).\n\nDerived on read from the master's stored ``sector`` (EDGAR ``sicDescription``) via the editable\ndata files in ``securities/business_type/`` \u2014 descriptive IDENTITY like ``sector``/``origin``\n(#1/#3 govern numbers, not identity strings): never a fact, never a call input, never fires/arms/\nvetoes/grades. ``OTHER`` is the visible tail (an unmapped-but-present sector \u2014 never a silent\ndrop, #9); an un-enriched row derives ``None`` (unclassified \u2014 the honest abstain). This enum is\nthe TYPE CONTRACT; the SIC\u2192leaf DATA lives in ``sic_map.csv`` (operator-editable)."
+      },
+      "BusinessTypeOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_supersector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessSupersector"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_type_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "BusinessTypeOut",
+        "description": "The re-tag receipt: the security's business-type read AFTER the write, re-derived server-side \u2014\nwhat every scored surface will now show (#6: the response shows the effective state, not an echo)."
       },
       "CallCardResponse": {
         "properties": {
@@ -6950,20 +7073,45 @@
             ],
             "title": "Price Symbol"
           },
-          "archetype": {
+          "business_type": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Archetype"
+                "$ref": "#/components/schemas/BusinessType"
               },
               {
                 "type": "null"
               }
             ]
           },
-          "archetype_hint": {
+          "business_supersector": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Archetype"
+                "$ref": "#/components/schemas/BusinessSupersector"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_type_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty",
+            "default": false
+          },
+          "instrument_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InstrumentKind"
               },
               {
                 "type": "null"
@@ -7138,6 +7286,23 @@
         ],
         "title": "Segment",
         "description": "A link in the thesis's value chain (the Workbench decomposition) \u2014 STRUCTURE, not a score.\n\nThe per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored."
+      },
+      "SetBusinessTypeRequest": {
+        "properties": {
+          "business_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "SetBusinessTypeRequest",
+        "description": "Body for ``POST /workbench/securities/{security_id}/business-type`` \u2014 the operator's per-security\nbusiness-type RE-TAG (Business-Type M1). ``business_type`` is the leaf to tag, or ``null`` to CLEAR the\nre-tag (the visible revert back to the maps-derived classification \u2014 reversibility, WB #1). Identity\nmetadata, never a fact (#3); the server stores it ONLY when it differs from the derived leaf (0033\nstore-on-diff) and stamps ``operator:retag`` as the basis."
       },
       "SpacAttachOut": {
         "properties": {

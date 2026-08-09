@@ -1,0 +1,46 @@
+# Alpha Deck — business-type leaf -> super-sector (the two-level rollup's upper map).
+#
+# EDIT THIS FILE to re-draw the coarse watch grouping ("are the utilities moving?"). Every
+# BusinessType leaf MUST appear exactly once (the loader fails loudly on a gap or a dupe); values
+# must be valid BusinessSupersector members (domain/enums.py is the type contract). Zero storage —
+# re-drawing this map needs no migration and no re-enrich.
+#
+# columns:
+business_type,supersector
+
+# healthcare
+biotech_pharma,healthcare
+medical_devices,healthcare
+healthcare_services,healthcare
+
+# financials  (spac here by operator ruling — a blank check is a financial vehicle until its deal)
+bank,financials
+finance_brokers,financials
+spac,financials
+
+# technology
+semiconductors,technology
+software_it,technology
+
+# industrials  (business_services here by operator ruling)
+industrials_machinery,industrials
+transportation,industrials
+business_services,industrials
+
+# consumer & comms
+comms_media,consumer_comms
+consumer_retail,consumer_comms
+
+# materials
+miner,materials
+chemicals_materials,materials
+
+# energy & utilities
+utilities,energy_utilities
+oil_gas,energy_utilities
+
+# real estate
+real_estate,real_estate
+
+# the visible tail rolls up to its own visible group — never a silent drop (#9)
+other,other

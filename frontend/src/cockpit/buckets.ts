@@ -127,6 +127,56 @@ export function groupBasket(
   })).filter((g) => g.rows.length > 0);
 }
 
+/** The business-type LENS (Business-Type M1): the SAME rows re-partitioned by the scored
+ *  super-sector ("are the utilities moving?"). Display-only, built FROM groupBasket's output so
+ *  every row keeps its call-state def — the state dot and exit-by survive the lens (the call never
+ *  disappears behind a view). Rows inside a group keep the call-strength order (the flatten walks
+ *  the state buckets strongest → weakest); groups render in the fixed super order below with the
+ *  visible tails LAST — `other` (mapped-to-other) then `unclassified` (no sector on file): pruning
+ *  hides, it never vanishes (#9 — an un-enriched name still has a row). Empty groups are omitted. */
+export interface TypeGroup {
+  /** The supersector value, or "unclassified" (scored missing / un-enriched). */
+  key: string;
+  rows: { row: BucketRow; def: BucketDef }[];
+}
+
+/** Display order for the lens: the 8 supers, then the visible tails. */
+export const SUPERSECTOR_ORDER = [
+  "energy_utilities",
+  "materials",
+  "technology",
+  "healthcare",
+  "financials",
+  "industrials",
+  "consumer_comms",
+  "real_estate",
+  "other",
+  "unclassified",
+] as const;
+
+export function groupByBusinessType(groups: BucketGroup[]): TypeGroup[] {
+  const by = new Map<string, { row: BucketRow; def: BucketDef }[]>();
+  for (const g of groups) {
+    for (const row of g.rows) {
+      const key = row.scored?.business_supersector ?? "unclassified";
+      const list = by.get(key) ?? [];
+      list.push({ row, def: g.def });
+      by.set(key, list);
+    }
+  }
+  const known = SUPERSECTOR_ORDER.filter((k) => by.has(k)).map((key) => ({
+    key,
+    rows: by.get(key) as { row: BucketRow; def: BucketDef }[],
+  }));
+  // a super this order list doesn't know yet (a future enum value) still renders — after the
+  // knowns, before nothing: over-include, never a silent drop
+  const unknown = [...by.keys()]
+    .filter((k) => !(SUPERSECTOR_ORDER as readonly string[]).includes(k))
+    .sort()
+    .map((key) => ({ key, rows: by.get(key) as { row: BucketRow; def: BucketDef }[] }));
+  return [...known, ...unknown];
+}
+
 /** The URL key (?name=) for a cockpit row: the ticker when it's unique in the basket (readable —
  *  the overwhelmingly common case), the security_id when the ticker duplicates (precise across the
  *  duplicates). A duplicate-ticker row with NO security_id degrades to the ticker, which

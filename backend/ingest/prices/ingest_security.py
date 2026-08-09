@@ -2,7 +2,7 @@
 
 Moved verbatim out of ``pipeline.ingest_thesis._price_leg`` so the price ingest is callable OUTSIDE the
 per-thesis back-half loop: the Workbench's finalize screen pulls bars per name / per section BEFORE the
-operator promotes (real market caps + live archetype hints inform the finalize decisions), while
+operator promotes (real market caps inform the finalize decisions), while
 ``pipeline.ingest_thesis`` and the daily cron keep calling the same function inside their loops. One
 implementation means the invariants can't fork:
 
@@ -23,8 +23,7 @@ implementation means the invariants can't fork:
   the bitemporal store exists for. The mixed-basis window is at most one cron tick.
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
-not apply to them; what they feed (market cap, the archetype hint) stays display/recommendation until the
-operator acts.
+not apply to them; what they feed (the market cap) stays display until the operator acts.
 """
 
 from __future__ import annotations

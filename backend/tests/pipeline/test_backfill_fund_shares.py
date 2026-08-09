@@ -72,9 +72,9 @@ def _make_thesis(db, members, *, tenant=DEFAULT_TENANT_ID) -> uuid.UUID:
         for i, (ticker, sid) in enumerate(members):
             cur.execute(
                 "INSERT INTO basket_member "
-                "(id, tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (uuid.uuid4(), tenant, tid, i, ticker, "—", "fund", sid),
+                "(id, tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (uuid.uuid4(), tenant, tid, i, ticker, "—", sid),
             )
     db.commit()
     return tid

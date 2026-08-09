@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import Field, model_validator
 
 from domain.base import DomainModel
-from domain.enums import Archetype, Authorship, TermTier
+from domain.enums import Authorship, TermTier
 
 
 class TermSetEntry(DomainModel):
@@ -40,12 +40,9 @@ class Segment(DomainModel):
 class BasketMember(DomainModel):
     ticker: str
     role: str  # the name's role in the thesis (operator/decomposition prose)
-    archetype: Archetype | None = (
-        None  # the name's risk class — decided ONCE, on the finalize screen (the DDRail hint → the
-    )
-    # operator applies/overrides, #10). NULL = not yet characterized: placement NEVER stamps a default
-    # and save NEVER coerces one (item F) — a defaulted archetype on a saved member would read as an
-    # operator decision that never happened. Un-decided is un-decided all the way through the spine.
+    # NOTE the archetype column is GONE (Business-Type M1): the durable "what does this name DO"
+    # characterization is master-level identity now (security_master.business_type + the derive-on-read
+    # maps in securities/business_type/), never a per-thesis spine field.
     security_id: UUID | None = None
     detail: str | None = None  # the board/cockpit "met" cell (e.g. "mkt $1.2B")
     segment: str | None = None  # the value-chain link this name sits in (a Thesis.segments label)

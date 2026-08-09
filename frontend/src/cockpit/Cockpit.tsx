@@ -9,20 +9,22 @@ import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
   groupBasket,
+  groupByBusinessType,
   nameKeyFor,
   resolveNameKey,
-  type BucketKey,
+  type BucketDef,
   type BucketRow,
 } from "./buckets";
 import { NamePanel } from "./NamePanel";
 import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
 import {
   accentVar,
-  archLabel,
+  businessTypeLabel,
   daysFrom,
   fmtDate,
   STATE_CLASS,
   STATE_LABEL,
+  supersectorLabel,
   tickerLabel,
 } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
@@ -121,10 +123,40 @@ export function Cockpit({
   const toggleRow = (r: BucketRow) =>
     onSelectName(r.ordinal === selOrdinal ? null : nameKeyFor(r, basket));
 
+  // The basket LENS (Business-Type M1): group by each member's call-state bucket (the default — the
+  // call is the product) or by business-type super-sector ("are the utilities moving?"). Local view
+  // state (operator ruling Q5); both lenses render the SAME rows — a lens re-orders, never drops.
+  const [groupMode, setGroupMode] = useState<"state" | "type">("state");
+  // One render shape for both lenses: each group carries its header identity + the rows WITH their
+  // call-state def, so the state dot / exit-by survive the type lens (the call never disappears).
+  const renderGroups: {
+    key: string;
+    cls: string;
+    label: string;
+    hint: string | null;
+    rows: { row: BucketRow; def: BucketDef }[];
+  }[] =
+    groupMode === "state"
+      ? groups.map((g) => ({
+          key: g.def.key,
+          cls: g.def.cls,
+          label: g.def.label,
+          hint: g.def.hint,
+          rows: g.rows.map((row) => ({ row, def: g.def })),
+        }))
+      : groupByBusinessType(groups).map((g) => ({
+          key: `type:${g.key}`,
+          cls: "bkt-type",
+          label: supersectorLabel(g.key === "unclassified" ? null : g.key),
+          hint: null,
+          rows: g.rows,
+        }));
+
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
-  // header keeps its count while closed, so nothing reads as dropped). Local view state only.
-  const [closedGroups, setClosedGroups] = useState<Set<BucketKey>>(new Set());
-  const toggleGroup = (key: BucketKey) => {
+  // header keeps its count while closed, so nothing reads as dropped). Local view state only,
+  // keyed per lens (a fold in one lens doesn't leak into the other).
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (key: string) => {
     const apply = () =>
       setClosedGroups((s) => {
         const next = new Set(s);
@@ -228,6 +260,28 @@ export function Cockpit({
                   >
                     Export Watchlist ({watchlistRows.length})
                   </button>
+                  {/* the lens toggle (Business-Type M1): call-state stays the DEFAULT (the call is
+                      the product); the type lens re-groups the SAME rows by super-sector. A view
+                      choice, not a filter — nothing hides, nothing drops. */}
+                  <span className="lens" role="group" aria-label="group basket by">
+                    <button
+                      type="button"
+                      className={`wb-mini ghost${groupMode === "state" ? " on" : ""}`}
+                      aria-pressed={groupMode === "state"}
+                      onClick={() => setGroupMode("state")}
+                    >
+                      call state
+                    </button>
+                    <button
+                      type="button"
+                      className={`wb-mini ghost${groupMode === "type" ? " on" : ""}`}
+                      aria-pressed={groupMode === "type"}
+                      title="group by business-type super-sector — are the utilities moving?"
+                      onClick={() => setGroupMode("type")}
+                    >
+                      business type
+                    </button>
+                  </span>
                 </div>
                 {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's
                     column idiom in-table). The dead Role/Detail columns are gone from the table —
@@ -239,16 +293,16 @@ export function Cockpit({
                       <th className="dotc" aria-label="status" />
                       <th>Ticker</th>
                       <th>Name</th>
-                      <th>Archetype</th>
+                      <th>Type</th>
                       <th style={{ textAlign: "right" }}>SMA</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map(({ def, rows }) => (
-                      <Fragment key={def.key}>
-                        <tr className={`grp ${def.cls}`}>
+                    {renderGroups.map((g) => (
+                      <Fragment key={g.key}>
+                        <tr className={`grp ${g.cls}`}>
                           <td colSpan={7}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
@@ -256,24 +310,24 @@ export function Cockpit({
                             <button
                               type="button"
                               className="grp-h"
-                              aria-expanded={!closedGroups.has(def.key)}
-                              onClick={() => toggleGroup(def.key)}
+                              aria-expanded={!closedGroups.has(g.key)}
+                              onClick={() => toggleGroup(g.key)}
                             >
                               {/* one glyph, rotated closed — the swap read as a flicker */}
                               <span className="chev">▾</span>
-                              <span className="lbl">{def.label}</span>
-                              <em className="hint">· {def.hint}</em>
-                              <span className="ct">· {rows.length}</span>
+                              <span className="lbl">{g.label}</span>
+                              {g.hint && <em className="hint">· {g.hint}</em>}
+                              <span className="ct">· {g.rows.length}</span>
                             </button>
                           </td>
                         </tr>
                         {/* folded rows stay MOUNTED and visibility-COLLAPSE (never unmount):
                             a collapsed row still feeds the column-width algorithm, so folding
                             the bucket with the widest cells can't re-flow the columns */}
-                        {rows.map((r) => (
+                        {g.rows.map(({ row: r, def }) => (
                           <tr
                             key={r.ordinal}
-                            className={`bkt ${def.cls}${closedGroups.has(def.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
+                            className={`bkt ${def.cls}${closedGroups.has(g.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                             tabIndex={0}
                             aria-selected={r.ordinal === selOrdinal}
                             onClick={() => toggleRow(r)}
@@ -285,6 +339,8 @@ export function Cockpit({
                             }}
                           >
                             <td className="dotc">
+                              {/* the CALL-STATE dot rides the row's own def in BOTH lenses — the
+                                  type lens re-groups, it never hides the call */}
                               <span className="rowdot" title={def.label} />
                             </td>
                             <td className="tk">
@@ -304,11 +360,22 @@ export function Cockpit({
                               {r.scored?.name ?? <span className="muted">—</span>}
                             </td>
                             <td>
-                              {/* a DECIDED archetype only (item F): an unset one renders a quiet "—",
-                                  never the string "null" (the decision lives on the Workbench rail) */}
-                              {r.member.archetype ? (
-                                <span className={`arch ${r.member.archetype}`}>
-                                  {archLabel(r.member.archetype)}
+                              {/* the business-type LEAF (Business-Type M1) — derived from the SIC
+                                  maps server-side, joined off the scored read; the super rides the
+                                  hover, ◈ marks the royalty overlay (honest loudness — 32 names
+                                  live). An ETF keys on instrument_kind (a fund has no SIC); an
+                                  un-enriched name reads a quiet "—", never a guess. */}
+                              {r.scored?.instrument_kind === "etf" ? (
+                                <span className="btype bt-etf">ETF sleeve</span>
+                              ) : r.scored?.business_type ? (
+                                <span
+                                  className={`btype bt-${r.scored.business_supersector ?? "other"}`}
+                                  title={`${supersectorLabel(r.scored.business_supersector)}${
+                                    r.scored.business_type_override ? " · your tag" : " · from SIC"
+                                  }${r.scored.royalty ? " · royalty/streaming" : ""}`}
+                                >
+                                  {businessTypeLabel(r.scored.business_type)}
+                                  {r.scored.royalty && <span className="bt-royalty">◈</span>}
                                 </span>
                               ) : (
                                 <span className="muted">—</span>

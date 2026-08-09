@@ -310,7 +310,8 @@ export function useResolveSecurities(query: string) {
 
 // Surface an operator-supplied ETF ticker as a `fund` sleeve's master row (ETF Sleeve, Slice 1): the server
 // resolves it (lookup-or-create) and marks it instrument_kind='etf', returning the SecurityMatchOut the FE
-// adds to the basket as an archetype='fund' member. An EXPLICIT operator action (typing a ticker + click);
+// adds to the basket as the sleeve member (the master row's instrument_kind is its marker). An EXPLICIT
+// operator action (typing a ticker + click);
 // retry:false (a one-shot resolve, re-click on failure). No invalidation here — the caller fires the existing
 // ingest-prices (which re-derives the scored view) after adding the member. Unlike useResolveSecurities this
 // needs NO prior master match (a thematic ETF absent from the master is the point).
@@ -483,6 +484,36 @@ export function useIngestPrices() {
   return useMutation({
     retry: false,
     mutationFn: postIngestPrices,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workbench-scored"] }),
+  });
+}
+
+/** The leaf values the re-tag accepts (the generated BusinessType union, sans null). */
+export type BusinessTypeLeaf = NonNullable<
+  components["schemas"]["SetBusinessTypeRequest"]["business_type"]
+>;
+
+async function postBusinessType(input: {
+  securityId: string;
+  businessType: BusinessTypeLeaf | null;
+}) {
+  const { data, error } = await api.POST("/workbench/securities/{security_id}/business-type", {
+    params: { path: { security_id: input.securityId } },
+    body: { business_type: input.businessType },
+  });
+  if (error) throw error;
+  return data;
+}
+
+// Re-tag ONE security's BUSINESS TYPE (Business-Type M1) — the operator overruling the SIC maps for
+// one name (#10); `businessType: null` CLEARS the re-tag (the visible revert, WB #1). Master-level
+// identity (durable across theses; the server stores it only when it differs from the derived leaf),
+// so success re-derives the scored surface everywhere it joins.
+export function useSetBusinessType() {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: postBusinessType,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workbench-scored"] }),
   });
 }

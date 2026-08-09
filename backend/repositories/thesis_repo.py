@@ -191,16 +191,15 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
         for i, m in enumerate(thesis.basket):
             cur.execute(
                 """INSERT INTO basket_member
-                   (tenant_id, thesis_id, ordinal, ticker, role, archetype, security_id, detail,
+                   (tenant_id, thesis_id, ordinal, ticker, role, security_id, detail,
                     segment, thesis_fit, conviction, surfaced_terms, authored_by)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tenant,
                     tid,
                     i,
                     m.ticker,
                     m.role,
-                    m.archetype.value if m.archetype else None,
                     m.security_id,
                     m.detail,
                     m.segment,

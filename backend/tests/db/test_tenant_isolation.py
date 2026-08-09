@@ -21,7 +21,7 @@ from pathlib import Path
 
 from db.bitemporal import append_fact, as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype, State, Verdict
+from domain.enums import State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar.form4 import ingest_form4
@@ -101,7 +101,6 @@ def _single_name_thesis(security_id: uuid.UUID, tenant_id: uuid.UUID, name: str)
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
             )
         ],
@@ -492,12 +491,8 @@ def test_workbench_scored_read_is_tenant_isolated(db):
         tenant_id=PROD_TENANT_ID,
     )
     asof = date(2026, 6, 1)
-    demo_member = BasketMember(
-        ticker="HIMS", role="r", archetype=Archetype.HIGH_BETA, security_id=demo_sec
-    )
-    prod_member = BasketMember(
-        ticker="HIMS", role="r", archetype=Archetype.HIGH_BETA, security_id=prod_sec
-    )
+    demo_member = BasketMember(ticker="HIMS", role="r", security_id=demo_sec)
+    prod_member = BasketMember(ticker="HIMS", role="r", security_id=prod_sec)
     demo_scored = score_member(
         PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID), demo_member
     )

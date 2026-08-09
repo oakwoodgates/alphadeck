@@ -56,7 +56,7 @@ const EVENTS = buildOverlayEvents(
 );
 
 const IDENTITY: IdentityCell[] = [
-  { label: "archetype", value: "high-beta" },
+  { label: "type", value: "software/IT" },
   { label: "sector", value: "Technology" },
   { label: "exchange", value: "NYSE" },
   { label: "market cap", value: "$8.0B" },
@@ -138,7 +138,7 @@ describe("EventLedger — the cross-highlight (hover-only v1)", () => {
 describe("EventLedger — the Cockpit strip", () => {
   it("shows the identity line and the present signal headlines", () => {
     renderLedger({ signals: [sig("sma_position", "above the 50d"), sig("range_52w", "mid-range")] });
-    expect(screen.getByText("high-beta")).toBeInTheDocument();
+    expect(screen.getByText("software/IT")).toBeInTheDocument();
     expect(screen.getByText("Technology")).toBeInTheDocument();
     expect(screen.getByText("$8.0B")).toBeInTheDocument();
     expect(screen.getByText("above the 50d")).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("EventLedger — the Cockpit strip", () => {
     const { container } = renderLedger({ signals: [] });
     expect(container.querySelector(".evled-headlines")).toBeNull();
     // the identity line still renders (the "—" discipline lives in identityCells, tested there)
-    expect(screen.getByText("high-beta")).toBeInTheDocument();
+    expect(screen.getByText("software/IT")).toBeInTheDocument();
   });
 
   it("captions the strip 'current tape · as-of X' only when a closed/matured asof is passed", () => {

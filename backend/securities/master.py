@@ -8,10 +8,11 @@ from uuid import UUID, uuid4
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import InstrumentKind
+from domain.enums import BusinessType, InstrumentKind
 from domain.market_time import market_today
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
+from securities.business_type import resolve_business_type
 from securities.filer_coverage import foreign_filer_form
 from securities.origin import resolve_origin
 
@@ -44,6 +45,9 @@ def _row_to_security(row: dict) -> Security:
         # resolved price symbol (0032) — the vendor symbol to price under; NULL = priced under the canonical ticker
         price_symbol=row.get("price_symbol"),
         price_symbol_basis=row.get("price_symbol_basis"),
+        # business-type re-tag (0033) — the operator's stored override; NULL = classified by the maps
+        business_type=row.get("business_type"),
+        business_type_basis=row.get("business_type_basis"),
     )
 
 
@@ -340,6 +344,52 @@ def set_price_symbol(
         return cur.rowcount > 0
 
 
+def set_business_type(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    business_type: str | None,
+    *,
+    basis: str,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Stamp one master row's BUSINESS-TYPE RE-TAG (migration 0033) — UPDATE-in-place, the SAME
+    identity-mutable pattern as ``set_price_symbol``: the id stays stable, nothing reads the master
+    as-of, and it is idempotent (a re-write of the same value is a no-op UPDATE, never an append —
+    count-the-table safe).
+
+    ``business_type`` must be a ``BusinessType`` value (fail loud on an unknown leaf — the write seam
+    is where out-of-contract values are stopped); ``None`` clears the re-tag (the visible revert back
+    to the derived classification, principle #1). STORE-ON-DIFF like ``set_price_symbol``: a re-tag
+    equal to what the maps already DERIVE for this row (sector + name + ticker, no override) is
+    coerced to NULL — the column stays the honest exception marker, and the maps stay the single
+    source for the agreeing majority. (Corollary, inherited from the price_symbol precedent: an
+    agreement stored as NULL follows the maps if they are later re-tuned — identity metadata, not a
+    ratified fact.) ``basis`` is the provenance stored alongside (``operator:retag``), identity-basis
+    discipline — never a fact's ``ratified_by`` (#3).
+
+    IDENTITY, not a fact: never enters a fact_* table, never feeds a number on a call card, never
+    gates the call path (#1/#3/#4 — MONITOR display only). Returns whether a row was updated: a
+    foreign/unknown id under this tenant updates nothing (fail-closed, the same write-side boundary
+    as ``exists`` / ``set_price_symbol``). The caller commits."""
+    stored: str | None = None
+    if business_type is not None:
+        leaf = BusinessType(business_type)  # unknown leaf -> ValueError, loud, before any write
+        row = get(conn, security_id, tenant_id=tenant_id)
+        if row is None:
+            return False  # unknown/foreign id: write nothing (fail-closed, matching the UPDATE's 0)
+        derived = resolve_business_type(
+            sector=row.sector, name=row.name, ticker=row.ticker, override=None
+        ).business_type
+        stored = None if leaf is derived else leaf.value
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET business_type = %s, business_type_basis = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (stored, basis, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
 def ciks_for(
     conn: psycopg.Connection,
     security_ids: Iterable[UUID],
@@ -367,7 +417,7 @@ def identity_for(
     security_ids: Iterable[UUID],
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
-) -> dict[UUID, dict[str, str | None]]:
+) -> dict[UUID, dict[str, str | bool | None]]:
     """Map security ids -> display identity (company ``name`` + the enrichment strings ``sector`` /
     ``exchange`` / ``category`` + the derived ``origin``) for READ surfaces — the scored view joins it so a
     row shows who the company IS, not just its ticker. Display-only (#2): never promoted onto a
@@ -386,20 +436,35 @@ def identity_for(
     the exception symbol a name is priced under when it differs from the canonical ticker (FDCT -> "FDCTD"),
     or ``None`` (priced under the canonical ticker — the healthy common case). Display identity like the
     above, never a call input (#1/#3): the FE renders a "Priced under {price_symbol}" note only when set.
+
+    ``business_type`` / ``business_supersector`` / ``royalty`` are DERIVED ON READ via
+    ``resolve_business_type`` (Business-Type M1) — the two-level MONITOR characterization over the stored
+    ``sector`` + company name + ticker, with the stored 0033 re-tag winning when present (carried alongside
+    as ``business_type_override`` so the FE can mark "your tag" and offer the revert). ``instrument_kind``
+    rides verbatim (an ETF's sleeve label keys on it, not on the maps — a fund has no SIC). Display
+    identity like everything here, never a call input (#3/#4). ``None``/``False`` on an un-enriched row.
     """
     ids = list({sid for sid in security_ids})
     if not ids:
         return {}
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, name, sector, exchange, category,"
+            "SELECT id, ticker, name, sector, exchange, category,"
             " incorporation, business_city, business_country,"
-            " files_domestic_forms, recent_foreign_form, price_symbol FROM security_master"
+            " files_domestic_forms, recent_foreign_form, price_symbol,"
+            " business_type, instrument_kind FROM security_master"
             " WHERE tenant_id = %s AND id = ANY(%s)",
             (tenant_id, ids),
         )
-        return {
-            row["id"]: {
+        out: dict[UUID, dict[str, str | bool | None]] = {}
+        for row in cur.fetchall():
+            btype = resolve_business_type(
+                sector=row["sector"],
+                name=row["name"],
+                ticker=row["ticker"],
+                override=row["business_type"],
+            )
+            out[row["id"]] = {
                 "name": row["name"],
                 "sector": row["sector"],
                 "exchange": row["exchange"],
@@ -415,9 +480,15 @@ def identity_for(
                 ),
                 # stored verbatim (not derived): the exception vendor symbol, or None (canonical)
                 "price_symbol": row["price_symbol"],
+                # the two-level business type (derived; the stored re-tag already folded in) + the
+                # raw override so the FE can tell "your tag" from "derived" and offer the revert
+                "business_type": btype.business_type,
+                "business_supersector": btype.supersector,
+                "royalty": btype.royalty,
+                "business_type_override": row["business_type"],
+                "instrument_kind": row["instrument_kind"] or "equity",
             }
-            for row in cur.fetchall()
-        }
+        return out
 
 
 def ids_for_tickers(
