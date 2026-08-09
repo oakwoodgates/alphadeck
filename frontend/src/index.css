@@ -121,6 +121,9 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 /* the business-type lens's group header (Business-Type M1) — a neutral accent: the CALL keeps the
    color (each row's own state dot); the type grouping is organization, not urgency (inverse loudness) */
 .bkt-type { --gc: var(--txt-3); }
+/* the value-chain (segment) lens header — same neutral accent, same reasoning: it's structure, not
+   urgency; each row still shows its own call-state dot */
+.bkt-segment { --gc: var(--txt-3); }
 tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
 }

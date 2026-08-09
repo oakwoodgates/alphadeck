@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import type { BasketMember, CallCardResponse, MemberCallOut, TriggerRefOut } from "../../api/hooks";
-import { groupBasket, nameKeyFor, resolveNameKey } from "../buckets";
+import type {
+  BasketMember,
+  CallCardResponse,
+  MemberCallOut,
+  Segment,
+  TriggerRefOut,
+} from "../../api/hooks";
+import {
+  dedupeBySecurityId,
+  groupBasket,
+  groupBySegment,
+  nameKeyFor,
+  resolveNameKey,
+  UNSEGMENTED_KEY,
+  type SegmentGroup,
+} from "../buckets";
 
 // --- fixture builders (loose partials cast to the wire types — test-only) ----------------------
 function member(ticker: string, sid: string | null, over: Partial<BasketMember> = {}): BasketMember {
@@ -147,6 +161,109 @@ describe("groupBasket — the per-name bucket derivation", () => {
     const basket = [member("A", "sa")];
     const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
     expect(keysOf(groupBasket(basket, c, []))).toEqual(["armed"]);
+  });
+});
+
+describe("dedupeBySecurityId — one row per name for the NON-segment lenses", () => {
+  const rows = (groups: ReturnType<typeof groupBasket>) => groups.flatMap((g) => g.rows);
+
+  it("collapses a multi-segment name (same security_id, N rows) to a single first-occurrence row", () => {
+    // the Rainbow Rush shape: KTTA sits in two value-chain links -> two identical BasketMember rows
+    const basket = [
+      member("KTTA", "sk", { segment: "Ketamine Clinics & Therapy Delivery" }),
+      member("KTTA", "sk", { segment: "Psychedelic & Ketamine Drug Developers" }),
+      member("SOLO", "ss"),
+    ];
+    const out = rows(dedupeBySecurityId(groupBasket(basket, undefined, [])));
+    expect(out.map((r) => [r.member.ticker, r.member.security_id])).toEqual([
+      ["KTTA", "sk"],
+      ["SOLO", "ss"],
+    ]);
+    expect(out[0].ordinal).toBe(0); // the FIRST occurrence (lowest ordinal) survives
+  });
+
+  it("keeps a duplicate TICKER with DISTINCT security_ids separate (different companies)", () => {
+    const basket = [member("DUP", "s1"), member("DUP", "s2")];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, []))).map((r) => r.member.security_id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
+
+  it("NEVER dedupes rows with no security_id — recall-safe over-include", () => {
+    const basket = [member("GHOST", null), member("GHOST", null)];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, [])))).toHaveLength(2);
+  });
+
+  it("is a no-op when every name is unique (the common thesis)", () => {
+    const basket = [member("A", "sa"), member("B", "sb"), member("C", null)];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, [])))).toHaveLength(3);
+  });
+});
+
+describe("groupBySegment — the value-chain lens", () => {
+  const seg = (label: string, descriptor: string | null = null): Segment => ({ label, descriptor });
+  const shape = (out: SegmentGroup[]) =>
+    out.map((g) => [g.key, g.rows.map((r) => r.row.member.ticker)] as const);
+
+  it("places a multi-segment name under EACH of its links (show them all — NOT deduped)", () => {
+    const basket = [
+      member("KTTA", "sk", { segment: "Clinics" }),
+      member("KTTA", "sk", { segment: "Developers" }),
+      member("ATAI", "sa", { segment: "Developers" }),
+    ];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Clinics"), seg("Developers")]);
+    expect(shape(out)).toEqual([
+      ["Clinics", ["KTTA"]],
+      ["Developers", ["KTTA", "ATAI"]],
+    ]);
+  });
+
+  it("orders groups by the thesis's authored segment order and OMITS empty links", () => {
+    const basket = [member("A", "sa", { segment: "Third" }), member("B", "sb", { segment: "First" })];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [
+      seg("First"),
+      seg("Second"), // no members -> omitted (a header over nothing is noise)
+      seg("Third"),
+    ]);
+    expect(out.map((g) => g.key)).toEqual(["First", "Third"]);
+  });
+
+  it("surfaces the segment descriptor as the header hint", () => {
+    const out = groupBySegment(
+      groupBasket([member("A", "sa", { segment: "Clinics" })], undefined, []),
+      [seg("Clinics", "catalyst-rich")],
+    );
+    expect(out[0].descriptor).toBe("catalyst-rich");
+  });
+
+  it("collects null AND empty-string segments into a keep-visible 'Unsegmented' group, LAST", () => {
+    const basket = [
+      member("A", "sa", { segment: "Clinics" }),
+      member("B", "sb"), // null segment
+      member("C", "sc", { segment: "" }), // empty string -> unsegmented too
+    ];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Clinics")]);
+    expect(out.map((g) => [g.key, g.label])).toEqual([
+      ["Clinics", "Clinics"],
+      [UNSEGMENTED_KEY, "Unsegmented"],
+    ]);
+    expect(out[1].rows.map((r) => r.row.member.ticker)).toEqual(["B", "C"]);
+  });
+
+  it("preserves each row's call-state def so the state dot survives the lens", () => {
+    const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
+    const out = groupBySegment(
+      groupBasket([member("A", "sa", { segment: "Clinics" })], c, []),
+      [seg("Clinics")],
+    );
+    expect(out[0].rows[0].def.key).toBe("armed");
+  });
+
+  it("renders a label present on a row but ABSENT from the list after the knowns (never dropped)", () => {
+    const basket = [member("A", "sa", { segment: "Known" }), member("B", "sb", { segment: "Rogue" })];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Known")]);
+    expect(out.map((g) => g.key)).toEqual(["Known", "Rogue"]); // "Rogue" over-included, never lost
   });
 });
 
