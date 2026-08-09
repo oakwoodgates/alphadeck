@@ -89,6 +89,7 @@ def test_display_signals_happy_path(client, db, security_id):
         "trailing_returns",
         "range_52w",
         "volume_regime",
+        "rvol",
     ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
@@ -104,12 +105,34 @@ def test_display_signals_happy_path(client, db, security_id):
     # across every window, tone=pos, unit=pct — each an EOD trading-day return (1d = prior close)
     ret = next(s for s in m["signals"] if s["kind"] == "trailing_returns")
     ret_by_key = {mt["key"]: mt for mt in ret["metrics"]}
-    assert [mt["key"] for mt in ret["metrics"]] == ["ret_1d", "ret_7d", "ret_30d", "ret_90d"]
+    assert [mt["key"] for mt in ret["metrics"]] == [
+        "ret_1d",
+        "ret_7d",
+        "ret_30d",
+        "ret_90d",
+        "ret_1y",
+    ]
     assert ret_by_key["ret_1d"]["value"] == 0.31  # 31.9 / 31.8 - 1
-    assert all(
-        ret_by_key[k]["tone"] == "pos" and ret_by_key[k]["unit"] == "pct" for k in ret_by_key
+    # the four reachable windows are all up on the ascending fixture (tone=pos, unit=pct)
+    for k in ("ret_1d", "ret_7d", "ret_30d", "ret_90d"):
+        assert ret_by_key[k]["tone"] == "pos" and ret_by_key[k]["unit"] == "pct"
+    # 1Y needs 253 bars; a 220-bar name honestly BLANKS it (value None + the why), never a fake number
+    assert ret_by_key["ret_1y"]["value"] is None
+    assert ret_by_key["ret_1y"]["note"] == "n/a: 220/253 bars"
+    assert ret["basis"]["params"]["windows_trading_days"] == [1, 7, 30, 90, 252]
+    # rvol rides the SAME generic wire (zero schema change): TWO windows off one member — the 8-bar
+    # (call-matched) rvol and the 20-bar (trader-convention) rvol20, each a quiet 1.0x on the
+    # flat-volume fixture (below the 1.5x loud thresholds the FE reads off basis.params)
+    rv = next(s for s in m["signals"] if s["kind"] == "rvol")
+    assert [mt["key"] for mt in rv["metrics"]] == ["rvol", "rvol20"]
+    rv_by_key = {mt["key"]: mt for mt in rv["metrics"]}
+    assert rv_by_key["rvol"]["value"] == 1.0 and rv_by_key["rvol"]["unit"] == "ratio"
+    assert rv_by_key["rvol20"]["value"] == 1.0 and rv_by_key["rvol20"]["unit"] == "ratio"
+    assert rv["basis"]["params"]["loud_mult"] == 1.5
+    assert (
+        rv["basis"]["params"]["loud_mult_20"] == 1.5
+        and rv["basis"]["params"]["baseline_bars_20"] == 20
     )
-    assert ret["basis"]["params"]["windows_trading_days"] == [1, 7, 30, 90]
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):

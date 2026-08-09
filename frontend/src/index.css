@@ -225,6 +225,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.retc .ret { color: var(--txt-3); }
 .basket td.retc .ret.pos { color: var(--pos); }
 .basket td.retc .ret.neg { color: var(--neg); }
+/* relative volume: mono like the return cells; a volume-backed move (value >= the wire's loud
+   threshold) reads a WARM 'hot' accent — the exception, not every row (#7) — never the return-green */
+.basket td.rvolc { white-space: nowrap; }
+.basket td.rvolc .rvol { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.basket td.rvolc .rvol.hot { color: var(--warm); font-weight: 600; }
 .np-ind-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .np-ind-chip { display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 3px 8px; }
 .np-ind-chip .k { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }

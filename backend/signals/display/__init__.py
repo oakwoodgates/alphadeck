@@ -14,6 +14,7 @@ from signals.display import sma as sma
 from signals.display import trailing_returns as trailing_returns
 from signals.display import range52w as range52w
 from signals.display import volume_regime as volume_regime
+from signals.display import rvol as rvol
 from signals.display import insider_flow as insider_flow
 from signals.display import etf_flow as etf_flow
 
@@ -24,6 +25,7 @@ __all__ = [
     "insider_flow",
     "range52w",
     "registered_display_members",
+    "rvol",
     "sma",
     "trailing_returns",
     "volume_regime",

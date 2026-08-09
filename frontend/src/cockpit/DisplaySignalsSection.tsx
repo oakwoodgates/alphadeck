@@ -70,13 +70,14 @@ export function PostureCell({ sig }: { sig: DisplaySignal | null }) {
   );
 }
 
-/** The four trailing-return columns (1d/7d/30d/90d) for one basket row, from the `trailing_returns`
+/** The trailing-return columns (1d/7d/30d/90d/1Y) for one basket row, from the `trailing_returns`
  *  display member — rendered as a Fragment of `<td>`s so they sit inline as separate columns (and so
  *  they render in BOTH cockpit lenses; they live on the per-name row). Each is the window's % return,
  *  tinted green (up) / red (down) off the metric's OWN `tone` (the same --pos/--neg tokens the panel
  *  chips use); a thin-history / non-positive-base gap is an HONEST "—" with the why on hover (#6/#9),
- *  never a fabricated number, and a flat 0.0% stays neutral. Reuses fmtMetricValue (+2.6% / -12.3%). */
-export const RETURN_WINDOW_KEYS = ["ret_1d", "ret_7d", "ret_30d", "ret_90d"] as const;
+ *  never a fabricated number, and a flat 0.0% stays neutral. Reuses fmtMetricValue (+2.6% / -12.3%).
+ *  1Y (`ret_1y`) is 252 trading bars — a young name (<~1y of tape) honestly blanks that cell. */
+export const RETURN_WINDOW_KEYS = ["ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y"] as const;
 
 export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
   const byKey = new Map((sig?.metrics ?? []).map((m) => [m.key, m]));
@@ -97,6 +98,39 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
         );
       })}
     </>
+  );
+}
+
+/** One basket-table RVOL cell from the `rvol` display member: the as-of bar's volume ÷ the mean
+ *  volume of the N bars before it. The member emits TWO windows off one fetch and `metricKey` /
+ *  `loudKey` select which — `rvol` / `loud_mult` is the **8-bar** (call-matched) read, `rvol20` /
+ *  `loud_mult_20` the **20-bar** (trader-convention, call-decoupled) read; each accents from its OWN
+ *  threshold on the wire so the FE hardcodes nothing. Renders "N.NN×"; a volume-backed reading —
+ *  value at/above that window's threshold — reads a WARM 'hot' accent (the exception, not every row,
+ *  #7), never the return-green tone. A gap (a halt / thin OTC as-of bar, or a name short of the
+ *  window's base) is an HONEST "—" with the why on hover (#6/#9). */
+export function RvolCell({
+  sig,
+  metricKey = "rvol",
+  loudKey = "loud_mult",
+}: {
+  sig: DisplaySignal | null;
+  metricKey?: string;
+  loudKey?: string;
+}) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === metricKey);
+  if (!m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? undefined}>
+        —
+      </span>
+    );
+  const loud = sig?.basis.params?.[loudKey];
+  const hot = typeof loud === "number" && m.value >= loud;
+  return (
+    <span className={`rvol${hot ? " hot" : ""}`} title={hot ? "volume-backed move" : undefined}>
+      {fmtMetricValue(m)}
+    </span>
   );
 }
 

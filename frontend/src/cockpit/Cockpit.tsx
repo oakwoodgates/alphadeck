@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { PostureCell, ReturnCells } from "./DisplaySignalsSection";
+import { PostureCell, ReturnCells, RvolCell } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -83,6 +83,13 @@ export function Cockpit({
   for (const m of displayQ.data?.members ?? []) {
     const sig = (m.signals ?? []).find((s) => s.kind === "trailing_returns");
     if (sig) trailBySid.set(m.security_id, sig);
+  }
+  // relative volume (RVOL) — the SAME display-signals query, bridged by security_id like the SMA and
+  // trailing-return cells; a volume-backed move reads a warm accent off the wire's loud threshold
+  const rvolBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "rvol");
+    if (sig) rvolBySid.set(m.security_id, sig);
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
@@ -346,6 +353,15 @@ export function Cockpit({
                       <th style={{ textAlign: "right" }}>7d</th>
                       <th style={{ textAlign: "right" }}>30d</th>
                       <th style={{ textAlign: "right" }}>90d</th>
+                      {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
+                      <th style={{ textAlign: "right" }}>1Y</th>
+                      {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
+                          vs the prior 8-bar average (mirrors the breakout detector — the call-matched
+                          read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
+                          its month?" convention, deliberately call-decoupled). A warm accent marks the
+                          volume-backed exception, #7 — each column off its OWN threshold. */}
+                      <th style={{ textAlign: "right" }}>RVOL|8</th>
+                      <th style={{ textAlign: "right" }}>RVOL|20</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -354,7 +370,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={11}>
+                          <td colSpan={14}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -443,7 +459,7 @@ export function Cockpit({
                                 }
                               />
                             </td>
-                            {/* trailing returns (1d/7d/30d/90d) — four cells from the trailing_returns
+                            {/* trailing returns (1d/7d/30d/90d/1Y) — five cells from the trailing_returns
                                 display member, bridged by security_id; green up / red down, "—" on a
                                 thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
                             <ReturnCells
@@ -453,6 +469,32 @@ export function Cockpit({
                                   : null
                               }
                             />
+                            <td className="met rvolc">
+                              {/* RVOL|8 — the call-matched 8-bar read: a warm 'hot' accent on a
+                                  volume-backed move (>= the wire's loud_mult), "—" on a
+                                  volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
+                              <RvolCell
+                                sig={
+                                  r.member.security_id
+                                    ? (rvolBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                              />
+                            </td>
+                            <td className="met rvolc">
+                              {/* RVOL|20 — the 20-bar trader-convention read (call-decoupled), off
+                                  the SAME member's second metric, accenting from its OWN threshold
+                                  (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
+                              <RvolCell
+                                sig={
+                                  r.member.security_id
+                                    ? (rvolBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                                metricKey="rvol20"
+                                loudKey="loud_mult_20"
+                              />
+                            </td>
                             <td className="met">
                               {/* computed market cap (the scoring engine, re-derived on read),
                                   bridged by security_id — "—" when un-scored / no price+shares facts */}
