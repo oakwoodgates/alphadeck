@@ -70,13 +70,14 @@ export function PostureCell({ sig }: { sig: DisplaySignal | null }) {
   );
 }
 
-/** The four trailing-return columns (1d/7d/30d/90d) for one basket row, from the `trailing_returns`
+/** The trailing-return columns (1d/7d/30d/90d/1Y) for one basket row, from the `trailing_returns`
  *  display member — rendered as a Fragment of `<td>`s so they sit inline as separate columns (and so
  *  they render in BOTH cockpit lenses; they live on the per-name row). Each is the window's % return,
  *  tinted green (up) / red (down) off the metric's OWN `tone` (the same --pos/--neg tokens the panel
  *  chips use); a thin-history / non-positive-base gap is an HONEST "—" with the why on hover (#6/#9),
- *  never a fabricated number, and a flat 0.0% stays neutral. Reuses fmtMetricValue (+2.6% / -12.3%). */
-export const RETURN_WINDOW_KEYS = ["ret_1d", "ret_7d", "ret_30d", "ret_90d"] as const;
+ *  never a fabricated number, and a flat 0.0% stays neutral. Reuses fmtMetricValue (+2.6% / -12.3%).
+ *  1Y (`ret_1y`) is 252 trading bars — a young name (<~1y of tape) honestly blanks that cell. */
+export const RETURN_WINDOW_KEYS = ["ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y"] as const;
 
 export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
   const byKey = new Map((sig?.metrics ?? []).map((m) => [m.key, m]));

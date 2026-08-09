@@ -166,8 +166,8 @@ describe("DisplaySignalsSection — the quiet Indicators block", () => {
   });
 });
 
-describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () => {
-  // one name's trailing_returns member: up 1d, down 7d, a real flat 30d, and a thin-history 90d gap
+describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d/1Y)", () => {
+  // one name's trailing_returns member: up 1d, down 7d, a real flat 30d, a thin-history 90d gap, up 1Y
   const trailSig = {
     kind: "trailing_returns",
     label: "Trailing returns",
@@ -176,6 +176,7 @@ describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () =
       { key: "ret_7d", label: "7d", value: -12.3, unit: "pct", tone: "neg", note: null },
       { key: "ret_30d", label: "30d", value: 0.0, unit: "pct", tone: null, note: null },
       { key: "ret_90d", label: "90d", value: null, unit: "pct", tone: null, note: "n/a: 34/91 bars" },
+      { key: "ret_1y", label: "1Y", value: 55.0, unit: "pct", tone: "pos", note: null },
     ],
     basis: { source: "fact_price_eod", params: {} },
   } as unknown as DisplaySignal;
@@ -191,9 +192,9 @@ describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () =
       </table>,
     );
 
-  it("renders four cells: signed % tinted green/red, a neutral flat 0, and an honest em-dash gap", () => {
+  it("renders five cells: signed % tinted green/red, a neutral flat 0, and an honest em-dash gap", () => {
     const { container } = renderCells(trailSig);
-    expect(container.querySelectorAll("td.retc")).toHaveLength(4);
+    expect(container.querySelectorAll("td.retc")).toHaveLength(5);
 
     const up = screen.getByText("+2.6%"); // green — the same +/- format the panel chips use
     expect(up.className).toContain("pos");
@@ -201,6 +202,7 @@ describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () =
     const down = screen.getByText("-12.3%"); // red
     expect(down.className).toContain("neg");
     expect(down.className).not.toContain("pos");
+    expect(screen.getByText("+55.0%").className).toContain("pos"); // the 1Y cell renders like the rest
 
     // a flat 0.0% move is neutral — the sign didn't move, so it's neither green nor red (#7)
     const flat = screen.getByText("0.0%");
@@ -213,9 +215,9 @@ describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () =
     expect(dash.title).toBe("n/a: 34/91 bars");
   });
 
-  it("renders four em-dash cells when the name has no trailing signal at all (no bars)", () => {
+  it("renders five em-dash cells when the name has no trailing signal at all (no bars)", () => {
     const { container } = renderCells(null);
-    expect(container.querySelectorAll("td.retc")).toHaveLength(4);
-    expect(screen.getAllByText("—")).toHaveLength(4); // never a blank/zero cell — always the honest dash
+    expect(container.querySelectorAll("td.retc")).toHaveLength(5);
+    expect(screen.getAllByText("—")).toHaveLength(5); // never a blank/zero cell — always the honest dash
   });
 });

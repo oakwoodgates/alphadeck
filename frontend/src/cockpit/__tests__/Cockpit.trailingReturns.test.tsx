@@ -48,6 +48,7 @@ const fx = vi.hoisted(() => {
           signals: [trailSig([
             metric("ret_1d", -1.86, "neg"), metric("ret_7d", 6.59, "pos"),
             metric("ret_30d", -21.96, "neg"), metric("ret_90d", -16.01, "neg"),
+            metric("ret_1y", 128.4, "pos"),
           ])],
         },
         {
@@ -55,6 +56,7 @@ const fx = vi.hoisted(() => {
           signals: [trailSig([
             metric("ret_1d", 5.98, "pos"), metric("ret_7d", -6.77, "neg"),
             metric("ret_30d", -5.53, "neg"), metric("ret_90d", null, null, "n/a: 34/91 bars"),
+            metric("ret_1y", null, null, "n/a: 34/253 bars"),
           ])],
         },
       ],
@@ -86,11 +88,12 @@ function renderCockpit() {
   );
 }
 
-describe("Cockpit — trailing-return columns (1d/7d/30d/90d)", () => {
-  it("renders the four window headers", () => {
+describe("Cockpit — trailing-return columns (1d/7d/30d/90d/1Y)", () => {
+  it("renders the five window headers", () => {
     renderCockpit();
-    // the headers are honest EOD trading-day windows (1d = last close vs the prior close, never 24h)
-    for (const w of ["1d", "7d", "30d", "90d"]) {
+    // the headers are honest EOD trading-day windows (1d = last close vs the prior close, never 24h);
+    // 1Y is 252 trading bars, the same bar convention
+    for (const w of ["1d", "7d", "30d", "90d", "1Y"]) {
       expect(screen.getByRole("columnheader", { name: w })).toBeInTheDocument();
     }
   });
@@ -102,19 +105,24 @@ describe("Cockpit — trailing-return columns (1d/7d/30d/90d)", () => {
     expect(up.className).toContain("pos");
     const down = screen.getByText("-22.0%");
     expect(down.className).toContain("neg");
+    // OKLO's 1Y (+128.4%) renders and tints green — the new column carries the same tone treatment
+    expect(screen.getByText("+128.4%").className).toContain("pos");
     // FISN's 1d up also renders (both names get their own row of cells)
     expect(screen.getByText("+6.0%").className).toContain("pos");
   });
 
-  it("renders a thin-history 90d as an honest em-dash with the why on hover, never a number", () => {
+  it("renders a thin-history 90d and 1Y as honest em-dashes with the why on hover, never a number", () => {
     renderCockpit();
     const fisnRow = screen.getByText("FISN").closest("tr") as HTMLElement;
     const retCells = fisnRow.querySelectorAll("td.retc");
-    expect(retCells).toHaveLength(4);
+    expect(retCells).toHaveLength(5);
     const gap = retCells[3].querySelector("span") as HTMLElement; // the 90d cell
     expect(gap.textContent).toBe("—");
     expect(gap.className).toContain("muted");
     expect(gap.title).toBe("n/a: 34/91 bars");
+    const yGap = retCells[4].querySelector("span") as HTMLElement; // the 1Y cell (young name)
+    expect(yGap.textContent).toBe("—");
+    expect(yGap.title).toBe("n/a: 34/253 bars");
   });
 
   it("keeps the return columns in BOTH lenses (call-state and business-type)", () => {
@@ -124,5 +132,6 @@ describe("Cockpit — trailing-return columns (1d/7d/30d/90d)", () => {
     // the lens re-groups the rows by super-sector, but the per-name return cells still render
     expect(screen.getByText("+6.6%")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "30d" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "1Y" })).toBeInTheDocument();
   });
 });

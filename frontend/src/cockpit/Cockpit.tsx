@@ -346,6 +346,8 @@ export function Cockpit({
                       <th style={{ textAlign: "right" }}>7d</th>
                       <th style={{ textAlign: "right" }}>30d</th>
                       <th style={{ textAlign: "right" }}>90d</th>
+                      {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
+                      <th style={{ textAlign: "right" }}>1Y</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -354,7 +356,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={11}>
+                          <td colSpan={12}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -443,7 +445,7 @@ export function Cockpit({
                                 }
                               />
                             </td>
-                            {/* trailing returns (1d/7d/30d/90d) — four cells from the trailing_returns
+                            {/* trailing returns (1d/7d/30d/90d/1Y) — five cells from the trailing_returns
                                 display member, bridged by security_id; green up / red down, "—" on a
                                 thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
                             <ReturnCells
