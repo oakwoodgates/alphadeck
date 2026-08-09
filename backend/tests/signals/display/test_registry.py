@@ -15,6 +15,7 @@ from signals.display import (
     range52w,
     registered_display_members,
     sma,
+    trailing_returns,
     volume_regime,
 )
 from signals.display.base import DisplayBasis, DisplayMember, DisplaySignal
@@ -28,6 +29,7 @@ def test_registry_contains_exactly_the_members_in_display_order():
     members = registered_display_members()
     assert [m.name for m in members] == [
         "sma_position",
+        "trailing_returns",
         "range_52w",
         "volume_regime",
         "insider_flow_90d",
@@ -35,6 +37,7 @@ def test_registry_contains_exactly_the_members_in_display_order():
     ]
     assert [m.compute for m in members] == [
         sma.display,
+        trailing_returns.display,
         range52w.display,
         volume_regime.display,
         insider_flow.display,
