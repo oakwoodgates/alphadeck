@@ -387,6 +387,21 @@ export function ChainEditor({
         ⚠ capped
       </span>
     ) : null;
+  // The ∅ dead-seed marker (the #9 recall gap made visible — the zero-hit counterpart to ⚠ capped): on the
+  // LAST draft this term matched NO EDGAR filer, so a seed here placed no names. Loudness is tier-decided —
+  // LOUD for a SIGNAL seed (it places alone, so a dead one is a real silent miss: the exceptional, high-stakes
+  // case) and QUIET for a BROAD term (corroboration-only, muted). RUN state from the draft report (display-only,
+  // cleared on re-draft) — never persisted, and NEVER auto-removes the term: the operator's existing remove /
+  // re-tier / replace controls stay the only (reversible) way out (keep-it-visible).
+  const emptyTag = (e: TermSetEntry) =>
+    emptyTerms.has(norm(e.term)) ? (
+      <span
+        className={e.tier === "signal" ? "wb-rec wb-empty-loud" : "wb-rec wb-empty-quiet"}
+        title="On the last draft this term matched no EDGAR filer — a seed here placed no names. Remove it, re-tier it, or replace it (or re-draft if you expect hits)."
+      >
+        ∅ no EDGAR hits
+      </span>
+    ) : null;
   const [ambiguous, setAmbiguous] = useState<ResolvedPlacement[]>(() => re?.ambiguous ?? []);
   const [verify, setVerify] = useState<ResolvedPlacement[]>(() => re?.verify ?? []);
   const [absent, setAbsent] = useState<ResolvedPlacement[]>(() => re?.absent ?? []);
@@ -398,6 +413,9 @@ export function ChainEditor({
     report: DraftReportOut;
   } | null>(() => re?.draftStatus ?? null);
   const [cappedTerms, setCappedTerms] = useState<Set<string>>(() => re?.cappedTerms ?? new Set());
+  // The dead ("empty") terms from the last draft — a term that matched ZERO EDGAR filers -> the ∅ chip marker.
+  // Same RUN-state lifecycle as cappedTerms (set on a draft, cleared on re-draft, never persisted).
+  const [emptyTerms, setEmptyTerms] = useState<Set<string>>(() => re?.emptyTerms ?? new Set());
   // Reversibility (principle #1): the origin placement of a name PULLED from To-Review into Placed, keyed by
   // security_id. It lets a Placed row that CAME from To-Review offer a "send back" — the visible inverse of add
   // (add ⇄ send-back). Only these names get the control (others were never in To-Review). Never persisted.
@@ -536,6 +554,7 @@ export function ChainEditor({
     names,
     draftStatus,
     cappedTerms,
+    emptyTerms,
     draftEmpty,
     termSet,
     recs,
@@ -853,6 +872,7 @@ export function ChainEditor({
         : null,
     );
     setCappedTerms(new Set((data.report?.capped_terms ?? []).map(norm)));
+    setEmptyTerms(new Set((data.report?.empty_terms ?? []).map(norm)));
   };
 
   const clearPollTimeout = () => {
@@ -865,8 +885,9 @@ export function ChainEditor({
   const onDraft = async () => {
     setDraftError(null);
     setDraftEmpty(false);
-    setDraftStatus(null); // the strip + capped markers describe the LAST run — stale once a new one starts
+    setDraftStatus(null); // the strip + capped/empty markers describe the LAST run — stale once a new one starts
     setCappedTerms(new Set());
+    setEmptyTerms(new Set());
     try {
       const ref = await startDraft.mutateAsync();
       setJobId(ref.job_id);
@@ -1658,6 +1679,7 @@ export function ChainEditor({
                     </button>
                     {recTag(e)}
                     {cappedTag(e)}
+                    {emptyTag(e)}
                   </li>
                 ))}
                 {signalTerms.length === 0 && (
@@ -1694,6 +1716,7 @@ export function ChainEditor({
                     </button>
                     {recTag(e)}
                     {cappedTag(e)}
+                    {emptyTag(e)}
                   </li>
                 ))}
                 {broadTerms.length === 0 && <li className="muted">none</li>}

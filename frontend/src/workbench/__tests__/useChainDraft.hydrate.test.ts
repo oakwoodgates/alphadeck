@@ -47,6 +47,7 @@ const emptyEditor = (): EditorRuntime => ({
   names: {},
   draftStatus: null,
   cappedTerms: new Set(),
+  emptyTerms: new Set(),
   draftEmpty: false,
   termSet: [],
   recs: {},

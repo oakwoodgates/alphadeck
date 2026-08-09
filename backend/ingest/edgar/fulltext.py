@@ -86,11 +86,14 @@ class DiscoveryRun:
     """``discover``'s result: the enumerated universe + the run's own honesty report. ``capped_terms`` names
     every keyword whose EFTS total exceeded the hit-cap — pages beyond the cap were NOT enumerated, so a name
     surfacing only that deep is invisible this run (#9 rule 4: the cap is a pathology backstop, and hitting
-    it goes on the record, never silent)."""
+    it goes on the record, never silent). ``empty_terms`` is the zero-hit counterpart: a keyword whose page-0
+    came back with NO hits at all — a dead seed that placed no names, recorded so it is never silently
+    discarded (#9)."""
 
     filers: dict[str, Filer]
     coverage: DiscoveryCoverage
     capped_terms: list[str] = field(default_factory=list)
+    empty_terms: list[str] = field(default_factory=list)
 
 
 # "NAME  (TICKER[, TICKER2])  (CIK 000...)" — capture the ticker group that immediately precedes the CIK group.
@@ -267,6 +270,9 @@ def discover(
             return None
 
     capped: set[str] = set()
+    # Zero-hit seeds — the too-FEW counterpart to ``capped`` (too many). Accumulated at the SERIAL page-0
+    # branches below (never inside a threaded map), so no lock is needed. Returned as ``empty_terms``.
+    empty: set[str] = set()
 
     def _offsets_for(kw: str, total: int, page_size: int) -> list[tuple[str, int]]:
         # The keyword's remaining pages after a successful page-0 — the ONE site the cap applies, so the
@@ -294,6 +300,8 @@ def discover(
         rows, total, page_size = res
         _merge_rows(uni, kw, rows)
         if page_size == 0:
+            # page-0 succeeded with ZERO hits — a dead seed (no EDGAR filer mentions it)
+            empty.add(kw)
             continue
         offsets.extend(_offsets_for(kw, total, page_size))
     # Phase B: every remaining page, concurrently (map preserves offsets order -> deterministic merge).
@@ -326,6 +334,9 @@ def discover(
                 # (recovering only page 0 would be a silent partial). Fetch them inside the same pass; they
                 # are first attempts (each still gets polite_get's internal retries), never a further pass.
                 late_offsets.extend(_offsets_for(kw, total, page_size))
+            elif frm == 0 and page_size == 0:
+                # page-0 recovered on retry but ZERO hits — a dead seed, same as the phase-A branch
+                empty.add(kw)
         if late_offsets:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 for kw, res in ex.map(
@@ -358,6 +369,7 @@ def discover(
             recovered=recovered,
         ),
         capped_terms=[k for k in kws if k in capped],
+        empty_terms=[k for k in kws if k in empty],
     )
 
 

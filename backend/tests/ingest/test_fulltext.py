@@ -335,13 +335,14 @@ def test_discover_pervasive_failure_raises_not_returns_empty():
 
 def test_discover_clean_run_coverage():
     """A clean run's coverage is the FULL-ENUMERATION statement: every page fetched, nothing retried, no term
-    capped — the quiet baseline the Workbench strip renders as one muted line."""
+    capped or dead — the quiet baseline the Workbench strip renders as one muted line."""
     run = discover(_FakeEfts(_pages_3()), ["kw"], max_workers=4)
     assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}
     cov = run.coverage
     assert cov.pages_ok == cov.pages_attempted == 3
     assert (cov.retried, cov.recovered, cov.failed_terms) == (0, 0, [])
     assert run.capped_terms == []
+    assert run.empty_terms == []  # a fully-populated run has no dead seed
 
 
 def test_discover_retry_recovers_a_transient_page():
@@ -385,6 +386,32 @@ def test_discover_reports_capped_term():
     assert set(run.filers) == {f"{i:010d}" for i in range(1, 5)}  # pages 0 + 2 only
     cov = run.coverage
     assert cov.pages_ok == cov.pages_attempted == 2  # the capped enumeration itself was clean
+
+
+def test_discover_reports_empty_term():
+    """A seed that matches NO EDGAR filer (page-0 comes back with zero hits) is the too-FEW counterpart to a
+    capped term — and, like capping, it goes ON THE RECORD (#9): the dead term lands in ``empty_terms`` instead
+    of being silently discarded, while a live term never does. ``empty_terms`` preserves input order.
+    """
+    fake = _FakeEfts(_pages_3())  # 'kw' has hits; any other key -> the unknown-key empty page
+    run = discover(fake, ["kw", "deadterm"], max_workers=4)
+    assert run.empty_terms == ["deadterm"]  # the zero-hit seed is NAMED...
+    assert "kw" not in run.empty_terms  # ...and the live term is not
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}  # live term's universe intact
+    assert run.capped_terms == []  # dead, not capped — the orthogonal too-few / too-many axes
+
+
+def test_discover_retry_recovered_empty_page0_reports_empty_term():
+    """The retry-recovered zero-hit path: a term whose page-0 fails TRANSIENTLY and then comes back EMPTY on the
+    retry pass is still a dead seed — it lands in ``empty_terms`` exactly as the phase-A branch does, so a blip
+    on a dead term never hides that it placed no names. The live term's universe is untouched."""
+    fake = _FakeEfts(_pages_3(), fail_once={"efts/deadterm_0.json"})  # page-0 blips, then empty
+    run = discover(fake, ["kw", "deadterm"], max_workers=4)
+    assert run.empty_terms == ["deadterm"]
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}  # live term's universe intact
+    cov = run.coverage
+    assert (cov.retried, cov.recovered) == (1, 1)  # the transient page-0 was retried and recovered
+    assert cov.failed_terms == []  # recovered -> not a failed term (empty is a separate axis)
 
 
 # --- classify: the PLACED / VERIFY tiers (Slice 2b) ---

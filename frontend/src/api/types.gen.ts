@@ -1871,6 +1871,11 @@ export interface components {
              */
             capped_terms: string[];
             /**
+             * Empty Terms
+             * @default []
+             */
+            empty_terms: string[];
+            /**
              * Tail Sweep
              * @enum {string}
              */

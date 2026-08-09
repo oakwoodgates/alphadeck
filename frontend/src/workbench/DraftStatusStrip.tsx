@@ -33,6 +33,12 @@ export function DraftStatusStrip({ counts, report }: Props) {
         "cap; deep hits for these terms were not searched, so names may be missing.",
     );
   }
+  if ((report.empty_terms ?? []).length > 0) {
+    gaps.push(
+      `Zero EDGAR hits: ${(report.empty_terms ?? []).join(", ")} — matched no filer; a seed here ` +
+        "placed no names.",
+    );
+  }
   if (report.tail_sweep === "failed") {
     gaps.push("Tail-sweep failed — foreign / newly-listed names may be missing; re-draft to retry it.");
   }

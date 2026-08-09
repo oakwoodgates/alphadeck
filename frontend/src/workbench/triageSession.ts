@@ -50,6 +50,7 @@ export interface EditorRuntime {
   names: Record<string, string>;
   draftStatus: DraftStatus;
   cappedTerms: Set<string>;
+  emptyTerms: Set<string>;
   draftEmpty: boolean;
   termSet: TermSetEntry[];
   recs: Record<string, { tier: string; reason: string }>;
@@ -78,6 +79,7 @@ export interface SerializedSession {
     names: Record<string, string>;
     draftStatus: DraftStatus;
     cappedTerms: string[];
+    emptyTerms: string[];
     draftEmpty: boolean;
     termSet: TermSetEntry[];
     recs: Record<string, { tier: string; reason: string }>;
@@ -119,6 +121,7 @@ export function clearedRestore(
       names: {},
       draftStatus: null,
       cappedTerms: new Set(),
+      emptyTerms: new Set(),
       draftEmpty: false,
       termSet, // KEEP the seeds
       recs: {},
@@ -148,6 +151,7 @@ export function serialize(hook: HookRuntime, editor: EditorRuntime): SerializedS
       names: editor.names,
       draftStatus: editor.draftStatus,
       cappedTerms: [...editor.cappedTerms],
+      emptyTerms: [...editor.emptyTerms],
       draftEmpty: editor.draftEmpty,
       termSet: editor.termSet,
       recs: editor.recs,
@@ -202,6 +206,7 @@ export function deserialize(session: {
       names: rec<string>(e.names),
       draftStatus: (e.draftStatus as DraftStatus) ?? null,
       cappedTerms: strSet(e.cappedTerms),
+      emptyTerms: strSet(e.emptyTerms),
       draftEmpty: Boolean(e.draftEmpty),
       termSet: arr<TermSetEntry>(e.termSet),
       recs: rec<{ tier: string; reason: string }>(e.recs),

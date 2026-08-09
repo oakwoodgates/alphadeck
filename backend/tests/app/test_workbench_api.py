@@ -2278,6 +2278,7 @@ def test_draft_report_rides_the_response(client, db):
     assert rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 1
     assert rep["coverage"]["failed_terms"] == []
     assert rep["capped_terms"] == []
+    assert rep["empty_terms"] == []  # the single seed hit — no dead term this run
     assert (
         rep["tail_sweep"] == "ran"
     )  # the fake research COMPLETED (returned nothing) — ran, not skipped
@@ -2312,6 +2313,25 @@ def test_draft_report_carries_capped_term(client, db, monkeypatch):
     rep = body["result"]["report"]
     assert rep["capped_terms"] == ["nuclear"]  # the truncation is ON THE RECORD, never silent
     assert rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 1
+
+
+def test_draft_report_carries_empty_term(client, db):
+    """A seed that matches NO EDGAR filer (zero hits) rides the report's ``empty_terms`` — the zero-hit
+    counterpart to ``capped_terms`` (#9): the operator is TOLD the dead seed placed no names instead of it
+    being silently discarded. The live seed ('nuclear' -> Oklo) still places, so the universe isn't empty.
+    """
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db, terms=("nuclear", "deadterm"))  # 'deadterm' hits nothing
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft(client, tid)
+    assert body["status"] == "done", body
+    rep = body["result"]["report"]
+    assert rep["empty_terms"] == ["deadterm"]  # the dead seed is ON THE RECORD, never silent
+    assert "nuclear" not in rep["empty_terms"]  # the live seed placed names
+    assert rep["capped_terms"] == []  # dead, not capped — the too-FEW counterpart
 
 
 def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):

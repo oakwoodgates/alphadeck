@@ -86,10 +86,12 @@ class DiscoveredUniverse:
     signal: list[str] = field(default_factory=list)
     broad: list[str] = field(default_factory=list)
     # The run's honesty report (#9 rules 2/3): how much of the universe the EFTS enumeration actually covered
-    # + which terms hit the cap. ``run_discovery`` ALWAYS sets coverage; ``None`` exists only for bare test
-    # constructions. Both ride the draft report to the operator — display-only run state, never persisted.
+    # + which terms hit the cap + which returned ZERO hits (a dead seed that placed no names). ``run_discovery``
+    # ALWAYS sets coverage; ``None`` exists only for bare test constructions. All ride the draft report to the
+    # operator — display-only run state, never persisted.
     coverage: DiscoveryCoverage | None = None
     capped_terms: list[str] = field(default_factory=list)
+    empty_terms: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -215,6 +217,7 @@ def run_discovery(
         broad=broad,
         coverage=run.coverage,
         capped_terms=run.capped_terms,
+        empty_terms=run.empty_terms,
     )
     if universe.is_empty:
         # Keyword-gen produced real keywords but NOTHING placeable came back — against the full master that

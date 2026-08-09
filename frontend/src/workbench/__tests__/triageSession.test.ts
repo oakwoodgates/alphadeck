@@ -48,6 +48,7 @@ function fullEditor(): EditorRuntime {
   const report: DraftReportOut = {
     coverage: { pages_ok: 4, pages_attempted: 4, failed_terms: [] },
     capped_terms: [],
+    empty_terms: [],
     tail_sweep: "skipped",
     narration_needed: 0,
     narration_filled: 0,
@@ -64,6 +65,7 @@ function fullEditor(): EditorRuntime {
     names: { "sid-1": "Oklo Inc." },
     draftStatus: { counts: { placed: 1, verify: 1, ambiguous: 1, absent: 1 }, report },
     cappedTerms: new Set(["nuclear power"]),
+    emptyTerms: new Set(["dead seed"]),
     draftEmpty: false,
     termSet: [term],
     recs: { nuclear: { tier: "signal", reason: "core" } },
@@ -98,6 +100,7 @@ describe("triageSession serialize/deserialize", () => {
     expect(result.editor.offUniverse).toEqual(editor.offUniverse);
     expect(result.editor.offThesisSet).toEqual(editor.offThesisSet);
     expect(result.editor.cappedTerms).toEqual(editor.cappedTerms);
+    expect(result.editor.emptyTerms).toEqual(editor.emptyTerms); // the dead-seed markers survive save→restore
     expect(result.editor.adopted).toEqual(editor.adopted);
     expect(result.editor.setAside).toEqual(editor.setAside);
     expect(result.editor.ambiguous).toEqual(editor.ambiguous);
