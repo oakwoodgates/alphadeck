@@ -678,6 +678,8 @@ class DraftReportOut(BaseModel):
 
     coverage: DraftCoverageOut
     capped_terms: list[str] = []
+    # terms that returned zero EDGAR hits — a seed here placed no names (compute-on-read, response-only)
+    empty_terms: list[str] = []
     tail_sweep: Literal["ran", "failed", "skipped"]
     narration_needed: int
     narration_filled: int

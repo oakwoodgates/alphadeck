@@ -887,6 +887,7 @@ def execute_draft(
             failed_terms=list(cov.failed_terms) if cov else [],
         ),
         capped_terms=list(universe.capped_terms),
+        empty_terms=list(universe.empty_terms),
         tail_sweep=tail_status,
         narration_needed=len(needs),
         narration_filled=narration_filled,

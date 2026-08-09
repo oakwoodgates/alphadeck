@@ -3752,6 +3752,14 @@
             "title": "Capped Terms",
             "default": []
           },
+          "empty_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Empty Terms",
+            "default": []
+          },
           "tail_sweep": {
             "type": "string",
             "enum": [
