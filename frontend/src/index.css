@@ -731,6 +731,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-rec-defense { color: var(--warn, #b8860b); }  /* your SIGNAL seed flagged BROAD — caution */
 .wb-rec-offense { color: var(--accent, #2d7d46); }  /* an unseeded term flagged SIGNAL — the opportunity */
 .wb-capped { color: var(--warm); font-weight: 700; }  /* the last draft hit-capped this term — deep hits unsearched (#9) */
+/* the ∅ dead-seed marker — the zero-hit counterpart to ⚠ capped, tier-split by loudness (#9 + inverse-loudness) */
+.wb-empty-loud { color: var(--danger, #c0392b); font-weight: 700; }  /* a SIGNAL seed matched ZERO filers — it places alone, so a dead one is a real silent miss */
+.wb-empty-quiet { color: var(--txt-4); }  /* a BROAD term matched zero — corroboration-only, quietly muted */
 @media (max-width: 720px) { .wb-terms-split { grid-template-columns: 1fr; } }
 
 /* The draft-run status strip (the honesty report, #9 rules 2/3): quiet ONE muted line at 100% healthy, a loud

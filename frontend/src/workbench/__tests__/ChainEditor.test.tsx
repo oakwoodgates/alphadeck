@@ -1992,6 +1992,7 @@ describe("ChainEditor — tier recommendations (INVARIANT #10)", () => {
 const healthyReport = (over: Record<string, unknown> = {}): any => ({
   coverage: { pages_ok: 40, pages_attempted: 40, failed_terms: [] as string[] },
   capped_terms: [] as string[],
+  empty_terms: [] as string[],
   tail_sweep: "ran",
   narration_needed: 5,
   narration_filled: 5,
@@ -2105,6 +2106,40 @@ describe("ChainEditor — the draft status strip (the run's honesty report)", ()
     const capped = screen.getAllByText("⚠ capped");
     expect(capped).toHaveLength(1); // psilocybin's chip only — ketamine carries no marker
     expect(capped[0].closest("li")).toHaveTextContent("psilocybin");
+  });
+
+  it("a dead SIGNAL seed renders the ∅ marker LOUD on its own chip, and the strip names it", async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ empty_terms: ["psilocybin"] })));
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/); // a dead seed IS a gap -> the strip goes loud
+    expect(screen.getByText(/Zero EDGAR hits: psilocybin/)).toBeInTheDocument(); // the strip NAMES it
+    const empty = screen.getAllByText("∅ no EDGAR hits");
+    expect(empty).toHaveLength(1); // psilocybin's chip only — ketamine hit, so no marker
+    expect(empty[0].closest("li")).toHaveTextContent("psilocybin"); // on the matching chip
+    expect(empty[0]).toHaveClass("wb-empty-loud"); // a SIGNAL seed places alone -> a dead one is loud
+  });
+
+  it("dead-seed loudness SPLITS by tier — a SIGNAL seed is loud, a BROAD term is quiet", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport([PLACED_SMR], healthyReport({ empty_terms: ["psilocybin", "ketamine"] })),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    await screen.findByText(/completed with gaps/);
+    const chips = screen.getAllByText("∅ no EDGAR hits");
+    expect(chips).toHaveLength(2); // BOTH dead terms are flagged — nothing hidden (keep-it-visible)
+    const chipFor = (term: string) =>
+      chips.find((c) => c.closest("li")?.textContent?.includes(term))!;
+    const signalChip = chipFor("psilocybin");
+    const broadChip = chipFor("ketamine");
+    expect(signalChip).toHaveClass("wb-empty-loud"); // SIGNAL seed -> loud (the high-stakes silent miss)
+    expect(broadChip).toHaveClass("wb-empty-quiet"); // BROAD term -> quiet (corroboration-only)
+    expect(signalChip.className).not.toEqual(broadChip.className); // the treatment DIFFERS by tier
   });
 });
 
