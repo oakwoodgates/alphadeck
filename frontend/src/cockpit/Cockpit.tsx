@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { PostureCell, ReturnCells, RvolCell } from "./DisplaySignalsSection";
+import { InsiderCell, PostureCell, ReturnCells, RvolCell } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -90,6 +90,15 @@ export function Cockpit({
   for (const m of displayQ.data?.members ?? []) {
     const sig = (m.signals ?? []).find((s) => s.kind === "rvol");
     if (sig) rvolBySid.set(m.security_id, sig);
+  }
+  // insider open-market buys (30d + 90d) — the SAME display-signals query, bridged by security_id
+  // like the SMA / trailing-return / RVOL cells. The `insider_flow_90d` member now emits a 30d
+  // sub-window alongside its 90d metrics off ONE fetch; two basket columns read `{buys}/{buyers}`
+  // per window off it (a cluster of ≥2 distinct buyers accents — breadth is the conviction tell).
+  const insiderBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "insider_flow_90d");
+    if (sig) insiderBySid.set(m.security_id, sig);
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
@@ -362,6 +371,11 @@ export function Cockpit({
                           volume-backed exception, #7 — each column off its OWN threshold. */}
                       <th style={{ textAlign: "right" }}>RVOL|8</th>
                       <th style={{ textAlign: "right" }}>RVOL|20</th>
+                      {/* insider open-market buys: {buys}/{distinct buyers} per trailing window,
+                          short before long (matching the return ladder). A ≥2-buyer cluster accents
+                          — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—" */}
+                      <th style={{ textAlign: "right" }}>Ins 30d</th>
+                      <th style={{ textAlign: "right" }}>Ins 90d</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -370,7 +384,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={14}>
+                          <td colSpan={16}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -493,6 +507,33 @@ export function Cockpit({
                                 }
                                 metricKey="rvol20"
                                 loudKey="loud_mult_20"
+                              />
+                            </td>
+                            {/* insider open-market buys — {buys}/{distinct buyers} off the
+                                insider_flow_90d member's 30d / 90d metrics, bridged by security_id.
+                                Renders in BOTH lenses (per-name row); a ≥2-buyer cluster accents. */}
+                            <td className="met insc">
+                              <InsiderCell
+                                sig={
+                                  r.member.security_id
+                                    ? (insiderBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                                countKey="buy_count_30d"
+                                buyersKey="distinct_buyers_30d"
+                                window="30d"
+                              />
+                            </td>
+                            <td className="met insc">
+                              <InsiderCell
+                                sig={
+                                  r.member.security_id
+                                    ? (insiderBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                                countKey="buy_count"
+                                buyersKey="distinct_buyers"
+                                window="90d"
                               />
                             </td>
                             <td className="met">

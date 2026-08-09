@@ -134,6 +134,45 @@ export function RvolCell({
   );
 }
 
+/** One basket-table insider-buys cell from the `insider_flow_90d` display member:
+ *  **`{open-market buys}/{distinct buyers}`** over the cell's trailing window (30d or 90d — the
+ *  member emits both off ONE fetch; `countKey` / `buyersKey` select which). Renders "8/3"; a MUTED
+ *  "—" when there are zero buys OR the metric is absent (the COMMON case — most names have no insider
+ *  buying, so the quiet default marks the rule and the accent the exception, #7). A CLUSTER (≥2
+ *  distinct buyers) reads the leader-blue 'conviction' accent — breadth is the stronger insider tell
+ *  (the platform's insider theses fire on MULTIPLE insiders, not one insider's volume); a lone buyer
+ *  still shows, just un-accented. The accent is deliberately NOT the RVOL warm nor the return
+ *  green/red — a distinct cool 'conviction' hue. The per-cell tooltip spells the window out. */
+export function InsiderCell({
+  sig,
+  countKey,
+  buyersKey,
+  window,
+}: {
+  sig: DisplaySignal | null;
+  countKey: string;
+  buyersKey: string;
+  window: string;
+}) {
+  const buys = (sig?.metrics ?? []).find((m) => m.key === countKey)?.value;
+  const buyers = (sig?.metrics ?? []).find((m) => m.key === buyersKey)?.value;
+  // zero buys is the rule, not a gap — a muted "—" (never "0/0"); an absent metric reads the same
+  if (buys == null || buys === 0) return <span className="muted">—</span>;
+  const buyN = Math.round(buys);
+  const buyerN = Math.round(buyers ?? 0);
+  const cluster = buyerN >= 2; // breadth, not volume, is the conviction tell (#7)
+  return (
+    <span
+      className={`insider${cluster ? " cluster" : ""}`}
+      title={`${buyN} open-market ${buyN === 1 ? "buy" : "buys"} by ${buyerN} ${
+        buyerN === 1 ? "insider" : "insiders"
+      }, last ${window}`}
+    >
+      {buyN}/{buyerN}
+    </span>
+  );
+}
+
 function basisLine(sig: DisplaySignal): string {
   const b = sig.basis;
   const parts: string[] = [];
