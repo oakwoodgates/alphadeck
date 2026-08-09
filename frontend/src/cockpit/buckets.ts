@@ -3,6 +3,7 @@ import type {
   CallCardResponse,
   MemberCallOut,
   ScoredMemberOut,
+  Segment,
 } from "../api/hooks";
 
 /** The per-name buckets (strongest → weakest) — the Board's column idiom applied INSIDE a basket.
@@ -200,6 +201,58 @@ export function groupByBusinessType(groups: BucketGroup[]): TypeGroup[] {
     .sort()
     .map((key) => ({ key, rows: by.get(key) as { row: BucketRow; def: BucketDef }[] }));
   return [...known, ...unknown];
+}
+
+/** The value-chain (segment) LENS: the SAME rows re-partitioned by each member's `segment` — the
+ *  value-chain link the chain drafter placed it in. UNLIKE the other lenses this shows the FULL
+ *  groups (never deduped): a name placed in N links has N rows and appears under EACH link header
+ *  ("show them all"), which is the whole point. Built FROM groupBasket's output so every row keeps
+ *  its call-state `def` (the state dot / exit-by survive the lens). Group ORDER is the thesis's
+ *  authored `segments` order; a label present on a row but not in that list still renders (after the
+ *  knowns — over-include, never a silent drop); empty links are omitted (a header over nothing is
+ *  noise); the keep-visible "Unsegmented" tail collects the null/empty-segment rows (the
+ *  business-type "Unclassified" mirror — #9, a name is never dropped). */
+export const UNSEGMENTED_KEY = "__unsegmented__";
+
+export interface SegmentGroup {
+  /** The value-chain link label, or ``UNSEGMENTED_KEY`` for null/empty-segment rows. */
+  key: string;
+  /** The header text: the link label, or "Unsegmented". */
+  label: string;
+  /** The operator's per-segment tag (``Segment.descriptor``), surfaced as the header hint. */
+  descriptor: string | null;
+  rows: { row: BucketRow; def: BucketDef }[];
+}
+
+export function groupBySegment(groups: BucketGroup[], segments: Segment[]): SegmentGroup[] {
+  const by = new Map<string, { row: BucketRow; def: BucketDef }[]>();
+  for (const g of groups) {
+    for (const row of g.rows) {
+      // `|| UNSEGMENTED_KEY` folds a null AND an empty-string segment into the same honest tail
+      const key = row.member.segment || UNSEGMENTED_KEY;
+      const list = by.get(key) ?? [];
+      list.push({ row, def: g.def });
+      by.set(key, list);
+    }
+  }
+  const descriptorByLabel = new Map(segments.map((s) => [s.label, s.descriptor ?? null]));
+  const ordered = segments.map((s) => s.label);
+  const known = new Set(ordered);
+  const extras = [...by.keys()].filter((k) => k !== UNSEGMENTED_KEY && !known.has(k)).sort();
+
+  const out: SegmentGroup[] = [];
+  const rendered = new Set<string>();
+  for (const label of [...ordered, ...extras]) {
+    const rows = by.get(label);
+    if (rendered.has(label) || !rows || rows.length === 0) continue; // dedupe labels; omit empty
+    rendered.add(label);
+    out.push({ key: label, label, descriptor: descriptorByLabel.get(label) ?? null, rows });
+  }
+  const unseg = by.get(UNSEGMENTED_KEY);
+  if (unseg && unseg.length > 0) {
+    out.push({ key: UNSEGMENTED_KEY, label: "Unsegmented", descriptor: null, rows: unseg });
+  }
+  return out;
 }
 
 /** The URL key (?name=) for a cockpit row: the ticker when it's unique in the basket (readable —

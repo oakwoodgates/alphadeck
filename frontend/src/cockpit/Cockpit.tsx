@@ -11,6 +11,7 @@ import {
   dedupeBySecurityId,
   groupBasket,
   groupByBusinessType,
+  groupBySegment,
   nameKeyFor,
   resolveNameKey,
   type BucketDef,
@@ -135,10 +136,19 @@ export function Cockpit({
   const toggleRow = (r: BucketRow) =>
     onSelectName(r.ordinal === selOrdinal ? null : nameKeyFor(r, basket));
 
-  // The basket LENS (Business-Type M1): group by each member's call-state bucket (the default — the
-  // call is the product) or by business-type super-sector ("are the utilities moving?"). Local view
-  // state (operator ruling Q5); both lenses render the SAME rows — a lens re-orders, never drops.
-  const [groupMode, setGroupMode] = useState<"state" | "type">("state");
+  // The basket LENS: group by each member's call-state bucket (the default — the call is the
+  // product), by business-type super-sector ("are the utilities moving?"), or by value-chain link
+  // ("which part of the chain is moving?"). Local view state; every lens renders the SAME names — a
+  // lens re-orders, never drops. Call-state + business-type dedupe to one row per name; the
+  // value-chain lens shows every link-row (a multi-segment name appears under each of its links).
+  const [groupMode, setGroupMode] = useState<"state" | "type" | "segment">("state");
+  const segments = thesis?.segments ?? [];
+  // Gate the value-chain lens on the thesis actually having a decomposed chain (≥1 placed segment):
+  // an undecomposed basket has nothing to group by (interaction principle #3 — a control that can't
+  // discriminate shouldn't render). If it can't be shown, coerce a stale "segment" mode back to state.
+  const hasValueChain = basket.some((m) => !!m.segment);
+  const lensMode: "state" | "type" | "segment" =
+    groupMode === "segment" && !hasValueChain ? "state" : groupMode;
   // One render shape for both lenses: each group carries its header identity + the rows WITH their
   // call-state def, so the state dot / exit-by survive the type lens (the call never disappears).
   const renderGroups: {
@@ -148,7 +158,7 @@ export function Cockpit({
     hint: string | null;
     rows: { row: BucketRow; def: BucketDef }[];
   }[] =
-    groupMode === "state"
+    lensMode === "state"
       ? dedupedGroups.map((g) => ({
           key: g.def.key,
           cls: g.def.cls,
@@ -156,13 +166,23 @@ export function Cockpit({
           hint: g.def.hint,
           rows: g.rows.map((row) => ({ row, def: g.def })),
         }))
-      : groupByBusinessType(dedupedGroups).map((g) => ({
-          key: `type:${g.key}`,
-          cls: "bkt-type",
-          label: supersectorLabel(g.key === "unclassified" ? null : g.key),
-          hint: null,
-          rows: g.rows,
-        }));
+      : lensMode === "type"
+        ? groupByBusinessType(dedupedGroups).map((g) => ({
+            key: `type:${g.key}`,
+            cls: "bkt-type",
+            label: supersectorLabel(g.key === "unclassified" ? null : g.key),
+            hint: null,
+            rows: g.rows,
+          }))
+        : // the value-chain lens uses the FULL groups (never deduped) — a multi-segment name is
+          // meant to appear under each of its links; the descriptor rides the header hint
+          groupBySegment(groups, segments).map((g) => ({
+            key: `seg:${g.key}`,
+            cls: "bkt-segment",
+            label: g.label,
+            hint: g.descriptor,
+            rows: g.rows,
+          }));
 
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
@@ -272,27 +292,40 @@ export function Cockpit({
                   >
                     Export Watchlist ({watchlistRows.length})
                   </button>
-                  {/* the lens toggle (Business-Type M1): call-state stays the DEFAULT (the call is
-                      the product); the type lens re-groups the SAME rows by super-sector. A view
+                  {/* the lens toggle: call-state stays the DEFAULT (the call is the product); the
+                      other lenses re-group the SAME names by super-sector or value-chain link. A view
                       choice, not a filter — nothing hides, nothing drops. */}
                   <span className="lens" role="group" aria-label="group basket by">
                     <button
                       type="button"
-                      className={`wb-mini ghost${groupMode === "state" ? " on" : ""}`}
-                      aria-pressed={groupMode === "state"}
+                      className={`wb-mini ghost${lensMode === "state" ? " on" : ""}`}
+                      aria-pressed={lensMode === "state"}
                       onClick={() => setGroupMode("state")}
                     >
                       call state
                     </button>
                     <button
                       type="button"
-                      className={`wb-mini ghost${groupMode === "type" ? " on" : ""}`}
-                      aria-pressed={groupMode === "type"}
+                      className={`wb-mini ghost${lensMode === "type" ? " on" : ""}`}
+                      aria-pressed={lensMode === "type"}
                       title="group by business-type super-sector — are the utilities moving?"
                       onClick={() => setGroupMode("type")}
                     >
                       business type
                     </button>
+                    {/* the value-chain lens renders ONLY when the basket is decomposed into links
+                        (nothing to group by otherwise) — honest loudness (#7) */}
+                    {hasValueChain && (
+                      <button
+                        type="button"
+                        className={`wb-mini ghost${lensMode === "segment" ? " on" : ""}`}
+                        aria-pressed={lensMode === "segment"}
+                        title="group by value-chain link — which part of the chain is moving?"
+                        onClick={() => setGroupMode("segment")}
+                      >
+                        value chain
+                      </button>
+                    )}
                   </span>
                 </div>
                 {/* Grouped by each member's own call-state bucket (strongest → weakest, the Board's
