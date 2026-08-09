@@ -118,6 +118,9 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .bkt-warming { --gc: var(--warm); }
 .bkt-watch { --gc: var(--incub); }
 .bkt-quiet { --gc: var(--txt-4); }
+/* the business-type lens's group header (Business-Type M1) — a neutral accent: the CALL keeps the
+   color (each row's own state dot); the type grouping is organization, not urgency (inverse loudness) */
+.bkt-type { --gc: var(--txt-3); }
 tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
 }
@@ -237,6 +240,26 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-dlog.voided { opacity: 0.45; }
 .np-note { margin-top: 18px; font-size: 10px; color: var(--txt-4); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 10px; }
 @media (max-width: 880px) { .npanel { width: min(600px, 92vw); } }
+/* the business-type chip (Business-Type M1): one hue PER SUPER-SECTOR (8, not 17 — the leaf text
+   carries the detail, the hue carries the family), reusing the lifecycle/identity tokens. ◈ marks
+   the royalty/streaming overlay (32 names live — honest loudness). Quiet by design: organization
+   metadata, not a signal. */
+.btype { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; --bt: var(--txt-3); color: var(--bt); background: color-mix(in srgb, var(--bt) 9%, transparent); border: 1px solid color-mix(in srgb, var(--bt) 26%, transparent); }
+.btype .bt-royalty { margin-left: 4px; opacity: 0.85; }
+.bt-energy_utilities { --bt: var(--warm); }
+.bt-materials { --bt: #c9a227; }
+.bt-technology { --bt: var(--leader); }
+.bt-healthcare { --bt: var(--manage); }
+.bt-financials { --bt: #9d8cff; }
+.bt-industrials { --bt: #a8b2c1; }
+.bt-consumer_comms { --bt: #ff9d6e; }
+.bt-real_estate { --bt: #6ecfcf; }
+.bt-other { --bt: var(--txt-4); }
+.btype.bt-etf { --bt: var(--leader); border-style: dashed; }
+/* the basket-section lens toggle — the active lens reads pressed (the triage-find .on idiom) */
+.sect-h .lens { display: inline-flex; gap: 4px; margin-left: 6px; }
+.sect-h .lens .wb-mini.on { color: var(--leader); border-color: rgba(138, 180, 255, 0.4); background: rgba(138, 180, 255, 0.1); }
+
 .arch { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; white-space: nowrap; }
 .arch.leader { color: #8ab4ff; background: rgba(138, 180, 255, 0.1); border: 1px solid rgba(138, 180, 255, 0.25); }
 .arch.high_beta { color: var(--armed); background: rgba(255, 87, 51, 0.1); border: 1px solid rgba(255, 87, 51, 0.28); }

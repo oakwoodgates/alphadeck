@@ -55,6 +55,53 @@ export function archLabel(archetype: string | null | undefined): string {
   return archetype ? (ARCH_LABEL[archetype] ?? archetype) : "unset";
 }
 
+const BUSINESS_TYPE_LABEL: Record<string, string> = {
+  miner: "miner",
+  bank: "bank",
+  utilities: "utilities",
+  oil_gas: "oil & gas",
+  semiconductors: "semis",
+  biotech_pharma: "biotech/pharma",
+  medical_devices: "med devices",
+  healthcare_services: "healthcare svcs",
+  software_it: "software/IT",
+  finance_brokers: "finance & brokers",
+  real_estate: "real estate",
+  industrials_machinery: "industrials",
+  chemicals_materials: "chemicals",
+  comms_media: "comms/media",
+  transportation: "transport",
+  consumer_retail: "consumer",
+  business_services: "biz services",
+  spac: "SPAC",
+  other: "other",
+};
+
+/** Business-type LEAF → its display label (the cockpit Type chip / the NamePanel identity cell).
+ *  Derived server-side from the SIC maps (`securities/business_type/`); display identity, never a
+ *  call input. Null/undefined = unclassified (un-enriched) → render sites guard and show "—". */
+export function businessTypeLabel(businessType: string | null | undefined): string {
+  return businessType ? (BUSINESS_TYPE_LABEL[businessType] ?? businessType) : "—";
+}
+
+const SUPERSECTOR_LABEL: Record<string, string> = {
+  healthcare: "Healthcare",
+  financials: "Financials",
+  technology: "Technology",
+  industrials: "Industrials",
+  consumer_comms: "Consumer & Comms",
+  materials: "Materials",
+  energy_utilities: "Energy & Utilities",
+  real_estate: "Real Estate",
+  other: "Other",
+};
+
+/** Business-type SUPER-SECTOR → its display label (the cockpit's "watch through the types" group
+ *  headers — "are the utilities moving?"). Same identity discipline as the leaf label. */
+export function supersectorLabel(supersector: string | null | undefined): string {
+  return supersector ? (SUPERSECTOR_LABEL[supersector] ?? supersector) : "Unclassified";
+}
+
 /** A single-name thesis shows its ticker; a multi-name theme shows a basket marker (never a bare "—",
  *  which reads as missing data). */
 export function tickerLabel(ticker: string | null | undefined, basketSize?: number | null): string {

@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A thesis whose basket has a `fund` member — the archetype Cockpit's old LOCAL ARCH_LABEL was missing, so it
-// fell back to the raw key ("fund"). Tier 3 routes Cockpit through the shared archLabel(), which knows `fund`.
+// A thesis whose basket has an ETF sleeve member — the Type cell keys on the SCORED row's
+// instrument_kind (a fund has no SIC, so the business-type maps abstain; the instrument is the label).
 const fx = vi.hoisted(() => ({
   thesis: {
     id: "t-etf",
@@ -15,7 +15,6 @@ const fx = vi.hoisted(() => ({
       {
         ticker: "URA",
         role: "core",
-        archetype: "fund",
         security_id: "s-ura",
         detail: null,
         authored_by: "operator_set",
@@ -26,8 +25,8 @@ const fx = vi.hoisted(() => ({
     kill_criteria: [],
     position: null,
   },
-  // the Workbench scored read (Slice 3): computed market cap bridged by security_id onto the basket rows
-  scored: { members: [{ security_id: "s-ura", ticker: "URA", name: "Global X Uranium ETF", market_cap: { value: 3.2e9 } }] },
+  // the Workbench scored read (Slice 3): computed market cap + identity bridged by security_id
+  scored: { members: [{ security_id: "s-ura", ticker: "URA", name: "Global X Uranium ETF", instrument_kind: "etf", market_cap: { value: 3.2e9 } }] },
 }));
 
 const exportSpy = vi.hoisted(() => vi.fn());
@@ -48,7 +47,7 @@ vi.mock("../../api/hooks", () => ({
 
 import { Cockpit } from "../Cockpit";
 
-describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", () => {
+describe("Cockpit — the basket Type cell (Business-Type M1)", () => {
   beforeEach(() => {
     exportSpy.mockReset();
   });
@@ -76,7 +75,7 @@ describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", 
     });
   });
 
-  it("renders a `fund` member as 'ETF sleeve' via the shared archLabel, not the raw key", () => {
+  it("renders an `instrument_kind: etf` member as 'ETF sleeve' in the Type cell", () => {
     const { container } = render(
       <Cockpit
         thesisId="t-etf"
@@ -87,14 +86,14 @@ describe("Cockpit — basket archetype label (Tier-3 archLabel consolidation)", 
         onSelectName={() => {}}
       />,
     );
-    // The chip's DOM text is "ETF sleeve" — the `.arch { text-transform: uppercase }` is visual-only, so we
-    // assert on the textContent ("ETF sleeve"), NOT the rendered "ETF SLEEVE".
-    const chip = container.querySelector(".arch.fund");
+    // The chip's DOM text is "ETF sleeve" — the `.btype { text-transform: uppercase }` is visual-only,
+    // so we assert on the textContent ("ETF sleeve"), NOT the rendered "ETF SLEEVE".
+    const chip = container.querySelector(".btype.bt-etf");
     expect(chip).not.toBeNull();
     expect(chip?.textContent).toBe("ETF sleeve");
     expect(screen.getByText("ETF sleeve")).toBeInTheDocument();
-    // The old incomplete-map fallback (`ARCH_LABEL[x] ?? x`) would have rendered the raw key "fund".
-    expect(screen.queryByText("fund")).toBeNull();
+    // the sleeve label keys on the instrument, never a raw enum key leaking to the UI
+    expect(screen.queryByText("etf")).toBeNull();
   });
 
   it("surfaces computed market cap per basket row, bridged by security_id (Slice 3)", () => {
