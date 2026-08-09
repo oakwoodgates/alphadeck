@@ -89,6 +89,7 @@ def test_display_signals_happy_path(client, db, security_id):
         "trailing_returns",
         "range_52w",
         "volume_regime",
+        "rvol",
     ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
@@ -119,6 +120,12 @@ def test_display_signals_happy_path(client, db, security_id):
     assert ret_by_key["ret_1y"]["value"] is None
     assert ret_by_key["ret_1y"]["note"] == "n/a: 220/253 bars"
     assert ret["basis"]["params"]["windows_trading_days"] == [1, 7, 30, 90, 252]
+    # rvol rides the SAME generic wire (a new member, zero schema change): a flat-volume fixture is a
+    # quiet 1.0x (below the 1.5x loud threshold the FE reads off basis.params)
+    rv = next(s for s in m["signals"] if s["kind"] == "rvol")
+    rv_by_key = {mt["key"]: mt for mt in rv["metrics"]}
+    assert rv_by_key["rvol"]["value"] == 1.0 and rv_by_key["rvol"]["unit"] == "ratio"
+    assert rv["basis"]["params"]["loud_mult"] == 1.5
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):

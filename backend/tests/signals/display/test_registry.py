@@ -14,6 +14,7 @@ from signals.display import (
     insider_flow,
     range52w,
     registered_display_members,
+    rvol,
     sma,
     trailing_returns,
     volume_regime,
@@ -32,6 +33,7 @@ def test_registry_contains_exactly_the_members_in_display_order():
         "trailing_returns",
         "range_52w",
         "volume_regime",
+        "rvol",
         "insider_flow_90d",
         "etf_flow",
     ]
@@ -40,6 +42,7 @@ def test_registry_contains_exactly_the_members_in_display_order():
         trailing_returns.display,
         range52w.display,
         volume_regime.display,
+        rvol.display,
         insider_flow.display,
         etf_flow.display,
     ]

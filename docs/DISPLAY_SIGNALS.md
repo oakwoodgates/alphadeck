@@ -65,8 +65,10 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | member (kind) | reads | metrics | events | params |
 |---|---|---|---|---|
 | `sma_position` | `fact_price_eod` | close, ma_fast, ma_slow, pct_vs_fast, pct_vs_slow | cross_sma50, cross_sma200, golden_cross/death_cross | fast=50, slow=200, lookback_days=600, slope_bars=5 |
+| `trailing_returns` | `fact_price_eod` | ret_1d, ret_7d, ret_30d, ret_90d, ret_1y (% return over N trading BARS back; 1Y = 252) | — | windows_trading_days=[1,7,30,90,252], lookback_days=420 |
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
+| `rvol` | `fact_price_eod` | rvol (as-of bar volume ÷ mean volume of the prior 8 bars) | — | baseline_bars=8, loud_mult=1.5, lookback_days=40 |
 | `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
 | `etf_flow` | `fact_fund_shares` (+ `fact_price_eod` closes) | flow_1w_usd, flow_1w_pct_of_shares, flow_1m_usd, flow_1m_pct_of_shares | — | window_1w_days=7, window_1m_days=30 |
 
@@ -97,6 +99,23 @@ phenomenon; sells are the raw code-S tape.
 
 `volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
 highs/lows on the most recent print and notes a sub-year window.
+
+**`rvol` vs `volume_regime` — two different volume reads, both quiet.** `rvol` is a SINGLE-BAR
+relative volume — the **as-of bar's volume ÷ the mean volume of the 8 bars before it** — answering
+"is *today's* move volume-backed?"; `volume_regime.vol_ratio` is a **20-bar mean ÷ the prior 60-bar
+mean**, answering "is participation *rising* vs its own base?". Both render as panel chips (and `rvol`
+is the basket table's RVOL column); they are not redundant.
+
+**`rvol` mirrors the call, it is not the call's number.** Its `baseline_bars` (8) and `loud_mult`
+(1.5) are **display module constants that mirror `CallConfig.breakout_base_window` /
+`breakout_volume_mult`** — the seam cannot import `CallConfig` (`base.py` + the `test_registry`
+import-ban), so they are hand-kept equal and `test_rvol.py::test_dials_mirror_the_call_config_exactly`
+catches a drift. Because the window and threshold match, the column and the breakout trigger never
+**contradict** — but the breakout computes its `vol_ratio` at the **breakout bar's date** while `rvol`
+computes at the **as-of bar**, so on a non-breakout day the two legitimately differ (a different
+anchor bar), and an as-of bar with no volume reads an honest "—", never a stale bar's ratio. The
+**loud accent is FE-derived** (`value >= basis.params.loud_mult`) and renders a **warm 'hot'**, never
+the return-green `pos`/`neg` tone — so the threshold lives in exactly one place, this module (#7).
 
 **`etf_flow` (the fund sleeve's inflow/outflow read).** Flow is the fund's OWN shares-outstanding
 change, priced: Δshares between consecutive sampled counts (`fact_fund_shares` — the daily ingest's
