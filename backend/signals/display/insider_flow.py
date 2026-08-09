@@ -9,6 +9,11 @@ code P yet transacts below the public tape, so it drops out of the buy total —
 subscription $ is NAMED in the basis, never silently dropped (recall-safe, #9). See
 ``_is_open_market_buy`` and ``docs/CALL_LOGIC.md`` §3. Zero rows in the window is honestly zero
 *ingested* filings, never a proof of no filings — the basis says so.
+
+It also emits a **30-day sub-window** (``buy_count_30d`` / ``distinct_buyers_30d``): the subset of
+the ALREADY-screened open-market buys whose ``valid_from`` falls inside the tighter trailing window —
+a pure filter on the same rows (no re-screen, no lookahead). The Cockpit basket surfaces both as the
+**Ins 30d / Ins 90d** columns (``{open-market buys}/{distinct buyers}`` per window).
 """
 
 from __future__ import annotations
@@ -31,6 +36,9 @@ from signals.display.registry import register_display_member
 MEMBER_NAME = "insider_flow_90d"
 LABEL = "Insider flow (90d, open-market)"
 WINDOW_DAYS = 90  # trailing window: valid_from in (asof-90, asof] — 90 days ending at asof
+# the tighter sub-window (Ins 30d): valid_from in (asof-30, asof], a pure slice of the SAME screened
+# 90d buys — no re-screen, no lookahead (the 90d rows are already ``<= asof``)
+WINDOW_DAYS_SHORT = 30
 
 BUY, SELL = "P", "S"
 
@@ -171,6 +179,12 @@ def compute(
             continue
         (buys if _is_open_market_buy(r, lows) else offmarket).append(r)
     sells = [r for r in windowed if r.get("txn_code") == SELL]
+    # the 30d sub-window: the subset of the ALREADY-screened open-market buys whose valid_from sits
+    # inside the tighter trailing window (asof-30, asof]. A pure filter on the same rows — no
+    # re-screen, no lookahead (buys are already <= asof); mirrors the 90d boundary (day 29 in, day 30
+    # out, exactly as the 90d window includes day 89 and excludes day 90).
+    start_short = asof - timedelta(days=WINDOW_DAYS_SHORT)
+    buys_30d = [r for r in buys if r["valid_from"] > start_short]
     buy_usd, buys_unpriced = _usd_sum(buys)
     sell_usd, sells_unpriced = _usd_sum(sells)
 
@@ -178,6 +192,9 @@ def compute(
         _count("buy_count", "buys", len(buys)),
         _count("sell_count", "sells", len(sells)),
         _count("distinct_buyers", "buyers", len({r.get("insider_name") for r in buys})),
+        # the 30d sub-window counts (Ins 30d) — same screened rows, tighter window
+        _count("buy_count_30d", "buys 30d", len(buys_30d)),
+        _count("distinct_buyers_30d", "buyers 30d", len({r.get("insider_name") for r in buys_30d})),
         _usd("buy_usd", "buy $", buy_usd, buys_unpriced),
         _usd("sell_usd", "sell $", sell_usd, sells_unpriced),
         _usd("net_usd", "net $", buy_usd - sell_usd, buys_unpriced + sells_unpriced),
@@ -205,6 +222,7 @@ def compute(
         source="fact_insider_txn",
         params={
             "window_days": WINDOW_DAYS,
+            "window_days_short": WINDOW_DAYS_SHORT,
             "codes": [BUY, SELL],
             "offmarket_below_low_frac": OFFMARKET_BELOW_LOW_FRAC,
             "max_plausible_txn_usd": MAX_PLAUSIBLE_TXN_USD,

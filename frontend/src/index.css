@@ -230,6 +230,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.rvolc { white-space: nowrap; }
 .basket td.rvolc .rvol { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.rvolc .rvol.hot { color: var(--warm); font-weight: 600; }
+/* insider open-market buys ({buys}/{buyers}, two windows: Ins 30d / Ins 90d): mono like the RVOL
+   cells; a CLUSTER (>=2 distinct buyers) reads the leader-BLUE 'conviction' accent — breadth is the
+   stronger insider tell (#7), and blue is deliberately distinct from the RVOL warm + the return
+   green/red so the columns don't blur. A lone buyer stays muted (shown, not accented); 0 buys is "—" */
+.basket td.insc { white-space: nowrap; }
+.basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
 .np-ind-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .np-ind-chip { display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 3px 8px; }
 .np-ind-chip .k { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }

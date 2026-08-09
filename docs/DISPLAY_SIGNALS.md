@@ -69,7 +69,7 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
 | `rvol` | `fact_price_eod` | rvol (as-of vol ÷ mean of the prior **8** bars — call-matched), rvol20 (÷ the prior **20** bars — trader convention, call-decoupled) | — | baseline_bars=8, loud_mult=1.5, baseline_bars_20=20, loud_mult_20=1.5, lookback_days=55 |
-| `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
+| `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, **buy_count_30d / distinct_buyers_30d** (a 30d sub-window off the SAME screened buys), buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, window_days_short=30, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
 | `etf_flow` | `fact_fund_shares` (+ `fact_price_eod` closes) | flow_1w_usd, flow_1w_pct_of_shares, flow_1m_usd, flow_1m_pct_of_shares | — | window_1w_days=7, window_1m_days=30 |
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
@@ -79,6 +79,18 @@ is information); its basis note carries the "zero ingested ≠ proven-zero filin
 detail) renders **only when the window has actual flow**: a quiet name adds no "no flow" line to
 the panel's top strip (the strip marks the exception, #7); the section's zero metrics still carry
 the quiet read.
+
+**The 30d sub-window (the `Ins 30d` / `Ins 90d` basket columns).** Alongside the 90d metrics the
+member emits `buy_count_30d` / `distinct_buyers_30d` — the subset of the **already-screened**
+open-market buys whose `valid_from` sits in the tighter trailing window `(asof-30, asof]`. It is a
+**pure filter on the same rows** (no second screen, no lookahead — the 90d rows are already
+`<= asof`), and its boundary mirrors the 90d convention (day 29 in, day 30 out, exactly as the 90d
+window includes day 89 and excludes day 90). The Cockpit basket surfaces both windows as the
+**`Ins 30d` / `Ins 90d`** columns (short before long, matching the return ladder), each rendering
+`{open-market buys}/{distinct buyers}` — a muted "—" on zero buys (the common case, #7) and a
+leader-blue **cluster** accent when `distinct_buyers ≥ 2` (breadth is the stronger insider tell; a
+lone buyer shows un-accented). Both windows ride the generic `metrics[]` list — zero wire/OpenAPI
+change.
 
 **The open-market screen (agreeing with the call).** Because the block is LABELED "open-market", its
 code-P buys are screened the **same way `backend/signals/insider_conviction.py` screens the call** —
