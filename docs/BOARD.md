@@ -72,10 +72,10 @@ The Cockpit shares the Board's as-of; the call rail beside it recomputes live at
 
 ### The grouped basket — per-name buckets
 
-The basket table partitions by each member's **own** call state — the Board's column idiom applied
-in-table, strongest → weakest, one **collapsible header** (chev · label · hint · count — the
-Workbench's To Review heading idiom, the toggle bucket-colored) per **populated** bucket (an empty
-bucket renders no header — loudness marks the exception) and a status dot per row:
+The basket table partitions, **in the default lens**, by each member's **own** call state — the
+Board's column idiom applied in-table, strongest → weakest, one **collapsible header** (chev · label ·
+hint · count — the Workbench's To Review heading idiom, the toggle bucket-colored) per **populated**
+bucket (an empty bucket renders no header — loudness marks the exception) and a status dot per row:
 
 - **Managing** — `verdict === "managing"`: the held name, when the open position carries its
   `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
@@ -99,18 +99,60 @@ the bucket with the widest cells cannot re-flow the columns; the vertical reflow
 Transition (instant where unsupported, off under reduced motion) instead of snapping.
 
 Wire rank is preserved inside the armed/watch buckets (the call machinery already ranked them — the
-FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order. Columns:
-`Dot · Ticker · Name · Archetype (only if decided — an unset one renders "—", never a default) ·
-Mkt cap (bridged from the scoring read) · Exit-by` (the member's **own** signal-validity horizon; amber
-"lapses ‹date›" on a Lapsing row). **Inside that exit-by cell, an armed-family row (Armed / Lapsing /
-Theme-armed) also carries its entry-window (`arm_until`) clock** — "entry closes ‹date› · Nd", loud within a
-week or once lapsed (Slice 2, #209). That is the **confirmation** clock, which actually governs how long the
-member STAYS armed and can fall a month before the `exit_by` "lapses" date the cell leads with (the live
-CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19). A **Watch**-tier row carries `arm_until` on the
-wire too but must NOT light it up — the gate is bucket-based, not presence-based (the load-bearing negative).
-The old Role/Detail columns are gone from the table; the
-authored text survives on the per-name panel. No card yet (loading/error) → everything reads
-Quiet, honestly.
+FE never re-ranks the brain's output); Warming/Quiet keep the authored basket order.
+
+**Three lenses over the same names.** A toggle above the table — `call state · business type · value
+chain` — re-groups the *identical* basket; it is a view choice, never a filter (nothing hides, nothing
+drops, every name is present in every lens). **Call state** is the default (the call is the product) —
+the buckets above. **Business type** re-partitions by the scored business-type **super-sector** ("are
+the utilities moving?"), with the fixed super order and its visible tails last (a mapped-`other` or
+un-enriched name still has a row, #9). **Value chain** re-partitions by each member's **value-chain
+segment** ("which part of the chain is moving?") and renders **only when the basket is decomposed into
+links** (nothing to group by otherwise — honest loudness, #7); unlike the other two it shows **every
+link-row**, so a name placed in N links appears under each of its N headers, and a null/empty-segment
+row lands in the keep-visible `Unsegmented` tail. The two non-segment lenses **dedupe to one row per
+`security_id`** (a multi-segment name's otherwise-identical duplicate rows collapse — losslessly, since
+same `security_id` ⇒ same call bucket + scored join); the value-chain lens keeps them all (that's the
+point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never
+disappears behind a view.
+
+**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · RVOL|8 · RVOL|20 · Ins 30d ·
+Ins 90d · Mkt cap · Exit-by`.
+
+- **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
+  colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
+  fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).
+- **SMA · 1d/7d/30d/90d/1Y · RVOL|8 · RVOL|20 · Ins 30d · Ins 90d** — the read-only **display-signal**
+  columns (the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet per-name tape context bridged onto the row
+  by `security_id`, **structurally off the call path**. SMA is the posture glyph + % vs the slow line; the
+  ladder is the trailing EOD returns (green up / red down; `1d` = last close vs the prior close, not a
+  24h move; `1Y` = 252 trading bars); RVOL|8 is the as-of bar's volume vs its prior 8-bar mean (mirrors
+  the breakout detector — the **call-matched** read) and RVOL|20 the same over 20 bars (the "vs its month"
+  trader convention, **call-decoupled**), each warming a 'hot' accent past its **own** loud threshold; the
+  insider cells read `{open-market buys}/{distinct buyers}` per trailing window (a ≥2-buyer **cluster**
+  takes the leader-blue accent — breadth is the tell). Every display cell is a muted "—" when absent — the
+  accent marks the exception (#7).
+- **Mkt cap** — bridged from the scoring read ("—" when un-scored). **Exit-by** — the member's **own**
+  signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
+
+**Inside that exit-by cell, an armed-family row (Armed / Lapsing / Theme-armed) also carries its
+entry-window (`arm_until`) clock** — "entry closes ‹date› · Nd", loud within a week or once lapsed (Slice
+2, #209). That is the **confirmation** clock, which actually governs how long the member STAYS armed and
+can fall a month before the `exit_by` "lapses" date the cell leads with (the live CRVO/MPLT confusion:
+"Armed · Dec 8" yet de-armed Jul 19). A **Watch**-tier row carries `arm_until` on the wire too but must
+NOT light it up — the gate is bucket-based, not presence-based (the load-bearing negative).
+
+**Sorting — within-group, reversible, FE-only.** Clicking a column header ranks the basket by that
+column **inside each group** — the call hierarchy stays put (the biggest mover inside Quiet surfaces
+without leaving Quiet). The header cycles **desc → asc → off** (off restores the default order:
+call-rank, then authored ordinal); a "—" cell is **ABSENT** (not a low/high value) and **sinks last in
+both directions** (#9/#2 — the sort re-orders, never drops), and the insider columns sort
+**buyers-first, then buys** (breadth-first, matching the cluster accent). The sort **persists across a
+lens switch** (re-ranking within the new lens's groups). A flat leaderboard *across* groups is deferred,
+not shipped.
+
+The old Role/Detail columns are gone from the table; the authored text survives on the per-name panel.
+No card yet (loading/error) → everything reads Quiet, honestly.
 
 ### The per-name panel
 
@@ -139,11 +181,13 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
 - **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
-  the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet metric chips (SMA position + % distances),
-  muted dated flip lines (price × 50d/200d crosses, golden/death), and a fine-print basis line
-  (bars used · through-date — the show-the-work, #6). Honest gaps read "—" with the why
-  ("n/a: 140/200 bars"); no data at all reads one muted line. Ambient tape context beside the call,
-  never an input to it and never loud (#7). Fetched once at Cockpit level, joined by security_id.
+  the engine doc is `docs/DISPLAY_SIGNALS.md`): every registered member rendered uniformly as quiet
+  metric chips (SMA position + % distances, the trailing-return ladder, RVOL|8 / RVOL|20, insider
+  open-market buys, the 52w range, …), muted dated flip lines (price × 50d/200d crosses,
+  golden/death), and a fine-print basis line (bars used · through-date — the show-the-work, #6).
+  Honest gaps read "—" with the why ("n/a: 140/200 bars"); no data at all reads one muted line.
+  Ambient tape context beside the call, never an input to it and never loud (#7). Fetched once at
+  Cockpit level, joined by security_id — the SAME query the basket-table display-signal columns read.
 
 Everything on the panel is a wire field this page already fetched; fact/archetype decisions live in the
 Workbench, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time
