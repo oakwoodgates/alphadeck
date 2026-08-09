@@ -215,6 +215,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sma-cell { display: inline-flex; align-items: baseline; gap: 5px; font-family: var(--mono); font-size: 10.5px; }
 .sma-cell .g { font-size: 12px; }
 .sma-cell .pv { color: var(--txt-3); }
+/* trailing-return cells (1d/7d/30d/90d): compact mono %, tinted green (up) / red (down) off the
+   metric's OWN tone — the same --pos/--neg tokens the panel chips + scoreboard returns use. A flat 0
+   or an honest gap stays neutral (never green/red on no move). Rides .met for mono + right-align. */
+.basket td.retc { white-space: nowrap; }
+.basket td.retc .ret { color: var(--txt-3); }
+.basket td.retc .ret.pos { color: var(--pos); }
+.basket td.retc .ret.neg { color: var(--neg); }
 .np-ind-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .np-ind-chip { display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 3px 8px; }
 .np-ind-chip .k { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }

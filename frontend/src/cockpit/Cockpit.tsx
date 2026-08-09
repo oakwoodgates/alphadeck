@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { PostureCell } from "./DisplaySignalsSection";
+import { PostureCell, ReturnCells } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -74,6 +74,13 @@ export function Cockpit({
   for (const m of displayQ.data?.members ?? []) {
     const sig = (m.signals ?? []).find((s) => s.kind === "sma_position");
     if (sig) smaBySid.set(m.security_id, sig);
+  }
+  // trailing price returns (1d/7d/30d/90d) — the SAME display-signals query, one more member on the
+  // generic payload, bridged by security_id exactly like the SMA cell above
+  const trailBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "trailing_returns");
+    if (sig) trailBySid.set(m.security_id, sig);
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
@@ -295,6 +302,12 @@ export function Cockpit({
                       <th>Name</th>
                       <th>Type</th>
                       <th style={{ textAlign: "right" }}>SMA</th>
+                      {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
+                          24h/intraday move; this platform is end-of-day) */}
+                      <th style={{ textAlign: "right" }}>1d</th>
+                      <th style={{ textAlign: "right" }}>7d</th>
+                      <th style={{ textAlign: "right" }}>30d</th>
+                      <th style={{ textAlign: "right" }}>90d</th>
                       <th style={{ textAlign: "right" }}>Mkt cap</th>
                       <th style={{ textAlign: "right" }}>Exit-by</th>
                     </tr>
@@ -303,7 +316,7 @@ export function Cockpit({
                     {renderGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={7}>
+                          <td colSpan={11}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -392,6 +405,16 @@ export function Cockpit({
                                 }
                               />
                             </td>
+                            {/* trailing returns (1d/7d/30d/90d) — four cells from the trailing_returns
+                                display member, bridged by security_id; green up / red down, "—" on a
+                                thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
+                            <ReturnCells
+                              sig={
+                                r.member.security_id
+                                  ? (trailBySid.get(r.member.security_id) ?? null)
+                                  : null
+                              }
+                            />
                             <td className="met">
                               {/* computed market cap (the scoring engine, re-derived on read),
                                   bridged by security_id — "—" when un-scored / no price+shares facts */}

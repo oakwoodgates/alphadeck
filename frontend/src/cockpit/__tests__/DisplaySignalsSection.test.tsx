@@ -1,8 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { DisplayHeadline, MemberDisplaySignalsOut } from "../../api/hooks";
-import { DisplayHeadlineRow, DisplaySignalsSection, fmtMetricValue } from "../DisplaySignalsSection";
+import type { DisplayHeadline, DisplaySignal, MemberDisplaySignalsOut } from "../../api/hooks";
+import {
+  DisplayHeadlineRow,
+  DisplaySignalsSection,
+  fmtMetricValue,
+  ReturnCells,
+} from "../DisplaySignalsSection";
 
 // One member's readings, exercising every unit the wire can carry plus an honest gap — the section
 // must render ANY registered member off the generic payload (no per-kind frontend code).
@@ -158,5 +163,59 @@ describe("DisplaySignalsSection — the quiet Indicators block", () => {
     expect(fmtMetricValue(m(3.0, "count"))).toBe("3");
     expect(fmtMetricValue(m(7.5, null))).toBe("7.5"); // unitless: raw, never invented formatting
     expect(fmtMetricValue(m(null, "pct"))).toBe("—");
+  });
+});
+
+describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d)", () => {
+  // one name's trailing_returns member: up 1d, down 7d, a real flat 30d, and a thin-history 90d gap
+  const trailSig = {
+    kind: "trailing_returns",
+    label: "Trailing returns",
+    metrics: [
+      { key: "ret_1d", label: "1d", value: 2.6, unit: "pct", tone: "pos", note: null },
+      { key: "ret_7d", label: "7d", value: -12.3, unit: "pct", tone: "neg", note: null },
+      { key: "ret_30d", label: "30d", value: 0.0, unit: "pct", tone: null, note: null },
+      { key: "ret_90d", label: "90d", value: null, unit: "pct", tone: null, note: "n/a: 34/91 bars" },
+    ],
+    basis: { source: "fact_price_eod", params: {} },
+  } as unknown as DisplaySignal;
+
+  const renderCells = (sig: DisplaySignal | null) =>
+    render(
+      <table>
+        <tbody>
+          <tr>
+            <ReturnCells sig={sig} />
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+  it("renders four cells: signed % tinted green/red, a neutral flat 0, and an honest em-dash gap", () => {
+    const { container } = renderCells(trailSig);
+    expect(container.querySelectorAll("td.retc")).toHaveLength(4);
+
+    const up = screen.getByText("+2.6%"); // green — the same +/- format the panel chips use
+    expect(up.className).toContain("pos");
+    expect(up.className).not.toContain("neg");
+    const down = screen.getByText("-12.3%"); // red
+    expect(down.className).toContain("neg");
+    expect(down.className).not.toContain("pos");
+
+    // a flat 0.0% move is neutral — the sign didn't move, so it's neither green nor red (#7)
+    const flat = screen.getByText("0.0%");
+    expect(flat.className).toContain("ret");
+    expect(flat.className).not.toMatch(/pos|neg/);
+
+    // the 90d gap: an HONEST em-dash with the "why" on hover, never a fabricated or zero number (#6/#9)
+    const dash = screen.getByText("—");
+    expect(dash.className).toContain("muted");
+    expect(dash.title).toBe("n/a: 34/91 bars");
+  });
+
+  it("renders four em-dash cells when the name has no trailing signal at all (no bars)", () => {
+    const { container } = renderCells(null);
+    expect(container.querySelectorAll("td.retc")).toHaveLength(4);
+    expect(screen.getAllByText("—")).toHaveLength(4); // never a blank/zero cell — always the honest dash
   });
 });
