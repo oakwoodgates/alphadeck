@@ -174,9 +174,10 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   decisions-log-derived position (`effective_position`, the SAME source the call path uses) onto the
   thesis, so `Position.security_id` is populated for an attributed take — #216. Before that the read path
   built the position from the seed columns alone, which carry no name, and the block sat dead.)*
-- **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): archetype
-  (+ the enrichment's quiet "figures suggest …" line when undecided, #10), segment, sector,
-  exchange, category, mkt cap, the operator's **size weight — labeled "yours"** so it can never
+- **Identity** — the free wire fields ("—" where a field didn't resolve, never a guess): the
+  business-type **Type** (leaf · super-sector, + the royalty/streaming overlay and a "your tag" mark
+  when the operator has re-tagged it), segment, sector, exchange, category, origin (with the
+  foreign-filer tell), mkt cap, the operator's **size weight — labeled "yours"** so it can never
   read as the signal conviction beside it (the two meanings never cross), and the authored
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
@@ -189,8 +190,8 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   Ambient tape context beside the call, never an input to it and never loud (#7). Fetched once at
   Cockpit level, joined by security_id — the SAME query the basket-table display-signal columns read.
 
-Everything on the panel is a wire field this page already fetched; fact/archetype decisions live in the
-Workbench, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time
+Everything on the panel is a wire field this page already fetched; fact ratifications and the
+business-type re-tag live on the TRIAGE rail, while actual sizing lives in the firm's external OMS / execution / risk stack. Omitted deliberately: description/website — draft-time
 enrichment fields that are never promoted onto a `BasketMember`.
 
 ## The CallCard — the opinionated, auditable rail

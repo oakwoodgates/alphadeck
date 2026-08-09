@@ -67,6 +67,18 @@ call-of-record, migrations `0021→0024`; Rainbow Rush re-armed on a forward `da
 the root cause** (a per-worktree test DB + a fail-closed guard that refuses to truncate any
 non-`alphadeck_test` name).
 
+**The cockpit became a scannable instrument (through #262).** Past the Scoreboard episode drill-down
+(#227–#230), a batch of SURFACE-identity, radar, and ops work landed — the ETF safe-exposure **sleeve** +
+its net-flow ingest leg (#233–#237), the origin/country + **foreign-filer** identity tells and the
+`enrich_identity` lifecycle (#238–#242, #251), the **SPAC radar** deal tape (#244), **OTC price-symbol
+healing** (#252), **empty-seed** ("∅ no EDGAR hits") visibility (#253), and `market_today()` closing
+INVARIANTS §6 (#250). Then the headline: **Business-type M1** (#255) retired the size-tier archetype for a
+durable two-level **SIC → leaf → super-sector** characterization (operator-editable maps, the operator's
+per-security re-tag winning), and the **cockpit-refinement arc** (#256–#262) turned the basket table into a
+scannable **display-signal instrument** — trailing-return columns (1d/7d/30d/90d/1Y), `RVOL|8`/`RVOL|20`,
+insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-chain), and within-group sort
+— **every column and lens off the call path**, riding that business-type characterization.
+
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE (literally so only after #196 — the EDGAR cache silently froze insider data ~11 days until the
 > key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`); **"the forward trust loop is closed" is NOT** —
@@ -136,6 +148,16 @@ non-`alphadeck_test` name).
 | **Scoreboard record-provenance + maturity (Slice 3)** + the operator **DB-snapshot button + nightly (Slice 4)** | #214, #215 | `SCOREBOARD.md`, `FEED_LOOP.md`, `ADMIN.md` |
 | Board view fixes (dead per-name Position, silent error-vanish, DQ deep-link) · per-worktree test-DB isolation (the shared-Postgres root-cause fix) | #216, #217 | `BOARD.md`, `PROJECT_LAYOUT.md` |
 | **Scoreboard episode drill-down (SCORE)**: the row-opened drawer + 4 timing lenses + Summary\|Timing toggle + row/icon split · the price chart with a numbered insider/trigger/lifecycle overlay (relevance-floored, as-of-correct on both axes) · the event ledger sharing the chart's numbering + a Cockpit strip | #227–#230 + the chart/ledger (Slice A/B) | `SCOREBOARD.md` |
+| ETF sleeve + net flow (the safe-exposure expression sleeve): CUSIP→ticker holdings resolution · holdings on the SleeveRail DD + include-a-holding (reversible) · fund internals (AUM / asset composition) · the fund-shares ingest leg with a Polygon-primary flow read | #233–#237 | `PROJECT_OVERVIEW.md` §10, `FEED_LOOP.md` |
+| SURFACE identity + Workbench editor round: the per-name origin/country chip (derive-on-read, migration 0028) · the `enrich_identity` lifecycle + the scored-join origin read · Country/Exchange find-bar filters · the additive **Basket section** (an established thesis's re-draft only ADDS, never invents links) | #238–#242 | `WORKBENCH_ENRICHMENT.md`, `TRIAGE.md` |
+| Re-scope loop: frozen `basket_member.surfaced_terms` seed-provenance + "also matches now" + the ⟳ Re-scope button + the stale-session badge/expire | #243 | `DISCOVERY.md`, `INVARIANTS.md` |
+| SPAC radar: the blank-check deal tape (daily-index DA scan) + the term-set thesis matcher + the quiet To-Review drawer / Type filter, on an always-on shared AppHeader nav | #244, #245 | `PROJECT_LAYOUT.md` |
+| Ops/UX touchups: the Scoreboard's full company name + a drawn chart for a just-armed (no-forward-bar) episode · the TradingView-importable watchlist Export · `market_today()` — "today" as a market-tz domain fact (closes `INVARIANTS.md` §6) | #246–#248, #250 | `SCOREBOARD.md`, `BOARD.md`, `INVARIANTS.md` |
+| Foreign-filer explainability: the §16-exempt "Canada · 40-F · no Form 4" tell on the origin cell | #251 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
+| OTC price-symbol healing: resolve the vendor price symbol when the SEC ticker ≠ vendor symbol (ingest under it · self-heal at add-time · export the resolved symbol · thin-history data-health flag · shortened-name search fallback) | #252 | `DATA_SOURCES.md` |
+| Empty-seed visibility: dead ("∅ no EDGAR hits") seed terms ride the draft report (the `empty_terms` chip + strip line) + a DecisionActions name-dedupe fix | #253, #254 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
+| **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
+| **Cockpit-refinement arc**: trailing-return columns (1d/7d/30d/90d + 1Y) · RVOL\|8 (call-matched) + RVOL\|20 (call-decoupled) · insider **Ins 30d/90d** buys/buyers · the **value-chain lens** (a third basket grouping) · the business-type chip on discovery rows · within-group **sortable columns** — the cockpit as a scannable display-signal instrument, all off the call path | #256–#262 | `BOARD.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
 
 ## Standing design decisions (made once, still steering)
 
