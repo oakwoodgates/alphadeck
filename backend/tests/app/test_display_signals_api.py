@@ -120,12 +120,19 @@ def test_display_signals_happy_path(client, db, security_id):
     assert ret_by_key["ret_1y"]["value"] is None
     assert ret_by_key["ret_1y"]["note"] == "n/a: 220/253 bars"
     assert ret["basis"]["params"]["windows_trading_days"] == [1, 7, 30, 90, 252]
-    # rvol rides the SAME generic wire (a new member, zero schema change): a flat-volume fixture is a
-    # quiet 1.0x (below the 1.5x loud threshold the FE reads off basis.params)
+    # rvol rides the SAME generic wire (zero schema change): TWO windows off one member — the 8-bar
+    # (call-matched) rvol and the 20-bar (trader-convention) rvol20, each a quiet 1.0x on the
+    # flat-volume fixture (below the 1.5x loud thresholds the FE reads off basis.params)
     rv = next(s for s in m["signals"] if s["kind"] == "rvol")
+    assert [mt["key"] for mt in rv["metrics"]] == ["rvol", "rvol20"]
     rv_by_key = {mt["key"]: mt for mt in rv["metrics"]}
     assert rv_by_key["rvol"]["value"] == 1.0 and rv_by_key["rvol"]["unit"] == "ratio"
+    assert rv_by_key["rvol20"]["value"] == 1.0 and rv_by_key["rvol20"]["unit"] == "ratio"
     assert rv["basis"]["params"]["loud_mult"] == 1.5
+    assert (
+        rv["basis"]["params"]["loud_mult_20"] == 1.5
+        and rv["basis"]["params"]["baseline_bars_20"] == 20
+    )
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):
