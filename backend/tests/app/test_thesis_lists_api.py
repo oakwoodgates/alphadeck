@@ -15,7 +15,6 @@ import uuid
 from datetime import timedelta
 
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype
 from domain.market_time import market_today
 from domain.thesis import BasketMember, Segment, Thesis
 from repositories import thesis_repo
@@ -32,7 +31,6 @@ def _thesis(db, security_id=None) -> Thesis:
             BasketMember(
                 ticker="DEVCO",
                 role="r",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
                 segment="reactors",
             )

@@ -10,9 +10,9 @@ interface Props {
 
 /** Add a name to the basket via the resolver typeahead (Slice 4b): search the master (a discovery net),
  *  pick an EXACT row, give it a role, and add it as an `operator_set` placement (the server re-stamps
- *  `operator_set` on save). No match → the honest "ingest first" note; never a guess. NO archetype here
- *  (item F): placement never characterizes — the archetype is decided ONCE, on the finalize rail (the
- *  DDRail hint → apply/override), so the name lands unset (null). */
+ *  `operator_set` on save). No match → the honest "ingest first" note; never a guess. Placement never
+ *  characterizes (item F): what the name IS (its business type) derives from the master's identity —
+ *  it needs nothing stamped here. */
 export function AddName({ existingKeys, onAdd }: Props) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<SecurityMatchOut | null>(null);
@@ -32,7 +32,6 @@ export function AddName({ existingKeys, onAdd }: Props) {
       {
         ticker: picked.ticker,
         role: role.trim() || "—",
-        archetype: null, // un-decided — the finalize rail is the archetype's single home (item F, #10)
         security_id: picked.security_id,
         segment: null, // starts unplaced; the operator places it via the row's segment select
         conviction: null, // unset until the operator weights it in the row

@@ -49,8 +49,8 @@ const savedThesis = {
   ticker: null,
   segments: [{ label: "chips", descriptor: null }],
   basket: [
-    { ticker: "USCO", role: "r", archetype: null, security_id: "s-us", segment: "chips", conviction: null, authored_by: "operator_set" },
-    { ticker: "CNCO", role: "r", archetype: null, security_id: "s-cn", segment: "chips", conviction: null, authored_by: "operator_set" },
+    { ticker: "USCO", role: "r", security_id: "s-us", segment: "chips", conviction: null, authored_by: "operator_set" },
+    { ticker: "CNCO", role: "r", security_id: "s-cn", segment: "chips", conviction: null, authored_by: "operator_set" },
   ],
   evidence: [],
   catalysts: [],

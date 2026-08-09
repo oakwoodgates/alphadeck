@@ -79,17 +79,6 @@ class InstrumentKind(StrEnum):
     ETF = "etf"
 
 
-class Archetype(StrEnum):
-    """A basket member's role in expressing the thesis."""
-
-    LEADER = "leader"
-    HIGH_BETA = "high_beta"
-    LOTTO = "lotto"
-    SHOVEL = "shovel"
-    ADJACENT = "adjacent"  # off-thesis / impure exposure — surfaced and FLAGGED, never hidden (Workbench hero)
-    FUND = "fund"  # an ETF: the low-torque safe-exposure sleeve expression of the thesis
-
-
 class BusinessType(StrEnum):
     """WHAT a company DOES — the business-type LEAF (MONITOR/organization identity, Business-Type M1).
 

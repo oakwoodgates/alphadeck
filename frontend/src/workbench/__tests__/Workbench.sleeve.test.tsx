@@ -18,14 +18,14 @@ const fx = vi.hoisted(() => {
   ];
   const segs = [{ label: "reactors", descriptor: "the SMR designers" }];
   const basket = [
-    { ticker: "OKLO", role: "r", archetype: "leader", security_id: "s-oklo", segment: "reactors", authored_by: "operator_set", thesis_fit: null },
-    // the surfaced sleeve: archetype 'fund', segment null (SurfaceEtf sets both)
-    { ticker: "URA", role: "ETF sleeve", archetype: "fund", security_id: "s-ura", segment: null, authored_by: "operator_set", thesis_fit: null },
+    { ticker: "OKLO", role: "r", security_id: "s-oklo", segment: "reactors", authored_by: "operator_set", thesis_fit: null },
+    // the surfaced sleeve: segment null; its marker is the master row's instrument_kind (on scored)
+    { ticker: "URA", role: "ETF sleeve", security_id: "s-ura", segment: null, authored_by: "operator_set", thesis_fit: null },
   ];
   const members = [
-    { security_id: "s-oklo", ticker: "OKLO", name: "Oklo Inc.", archetype: "leader", archetype_hint: null, segment: "reactors", purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1.2e10), fit: "pure-play" },
+    { security_id: "s-oklo", ticker: "OKLO", name: "Oklo Inc.", instrument_kind: "equity", segment: "reactors", purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1.2e10), fit: "pure-play" },
     // a fund has no shares fact -> market_cap value null, price provenance carries the sleeve price
-    { security_id: "s-ura", ticker: "URA", name: "Global X Uranium ETF", archetype: "fund", archetype_hint: null, segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null, priceProv), fit: "" },
+    { security_id: "s-ura", ticker: "URA", name: "Global X Uranium ETF", instrument_kind: "etf", segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null, priceProv), fit: "" },
   ];
   const thesis = { id: "t-nuke", name: "Nuclear", narrative: "n", ticker: null, segments: segs, basket, evidence: [], catalysts: [], kill_criteria: [], position: null };
   const scored = { thesis_id: "t-nuke", asof: "2026-06-08", segments: segs, members };
@@ -33,6 +33,8 @@ const fx = vi.hoisted(() => {
 });
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),

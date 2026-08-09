@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import (
-    Archetype,
     BusinessSupersector,
     BusinessType,
     CatalystType,
@@ -324,13 +323,6 @@ class ScoredMemberOut(BaseModel):
     # What the instrument IS (``equity``/``etf``), carried verbatim from the master — an ETF's sleeve label
     # keys on THIS, not the SIC maps (a fund has no sector). ``None`` only for a pre-migration hand-built row.
     instrument_kind: InstrumentKind | None = None
-    # ``None`` = not yet characterized (item F: placement never stamps a default; the archetype is decided
-    # ONCE, on the finalize screen — the hint below recommends, the operator applies/overrides).
-    archetype: Archetype | None = None
-    # A DERIVED-DEFAULT archetype recommendation (Slice 4, INVARIANT #10): deterministic, from market cap +
-    # purity. Display-only — the operator confirms/overrides; NEVER auto-applied to ``archetype``, never
-    # promoted. ``None`` = abstain (no facts yet, or a relational role — shovel/fund — the rule won't guess).
-    archetype_hint: Archetype | None = None
     segment: str | None = None
     purity: ScoredFigureOut
     runway: ScoredFigureOut
@@ -387,8 +379,6 @@ class ScoredMemberOut(BaseModel):
             business_type_override=s("business_type_override"),
             royalty=bool(ident.get("royalty", False)),
             instrument_kind=s("instrument_kind"),
-            archetype=m.archetype,
-            archetype_hint=m.archetype_hint,
             segment=m.segment,
             purity=fig(m.purity),
             runway=fig(m.runway),

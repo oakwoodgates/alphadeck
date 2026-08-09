@@ -7,9 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 const fx = vi.hoisted(() => {
   const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
   const members = [
-    { security_id: "s-oklo", ticker: "OKLO", archetype: "high_beta", segment: "reactors", purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
-    { security_id: "s-smr", ticker: "SMR", archetype: "leader", segment: "reactors", purity: fig(4, 100), runway: fig(4, 60), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "pure-play" },
-    { security_id: "s-leu", ticker: "LEU", archetype: "shovel", segment: "fuel", purity: fig(3, 77), runway: fig(4, 160), catalysts: fig(2, 1), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "core exposure" },
+    { security_id: "s-oklo", ticker: "OKLO", segment: "reactors", purity: fig(4, 100), runway: fig(4, null), catalysts: fig(1, 1), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
+    { security_id: "s-smr", ticker: "SMR", segment: "reactors", purity: fig(4, 100), runway: fig(4, 60), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "pure-play" },
+    { security_id: "s-leu", ticker: "LEU", segment: "fuel", purity: fig(3, 77), runway: fig(4, 160), catalysts: fig(2, 1), dilution: fig(null, null), market_cap: fig(null, 3e9), fit: "core exposure" },
   ];
   const segments = [
     { label: "reactors", descriptor: "catalyst-rich" },
@@ -39,6 +39,8 @@ const fx = vi.hoisted(() => {
 });
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),

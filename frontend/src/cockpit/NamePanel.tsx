@@ -55,7 +55,7 @@ const AUTHOR_TAG: Record<string, string> = {
 
 /** The per-name panel — a fixed, NON-MODAL slide-over (no scrim: the table stays clickable, so
  *  switching names is one click on the next row; the table itself never unmounts). READ-ONLY by
- *  design: every value is a wire field this page already fetched — sizing, facts, and archetype
+ *  design: every value is a wire field this page already fetched — sizing, facts, and re-tag
  *  decisions live in the Workbench. Esc / ✕ / re-clicking the row closes it. */
 export function NamePanel({ row, def, card, thesisId, position, display, asof, onClose }: Props) {
   useEffect(() => {
@@ -352,7 +352,7 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       )}
 
       <div className="np-note">
-        Read-only — sizing, facts, and archetype decisions live in the Workbench; acting, passing,
+        Read-only — sizing, facts, and business-type re-tags live in the Workbench; acting, passing,
         and undo live on the thesis rail. Closing returns the table exactly as you left it.
       </div>
     </aside>

@@ -24,9 +24,9 @@ const fx = vi.hoisted(() => {
   };
   const members = [
     // WARM: has a confirmed fact (purity) → NO get-data control; counts toward the funnel
-    { security_id: "s-warm", ticker: "WARM", archetype: "leader", archetype_hint: null, segment: null, purity: purityOnFile, runway: fig(4, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
+    { security_id: "s-warm", ticker: "WARM", segment: null, purity: purityOnFile, runway: fig(4, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, 1e10), fit: "pure-play" },
     // COLD: the honest cold path — nothing confirmed → the get-data control renders
-    { security_id: "s-cold", ticker: "COLD", archetype: null, archetype_hint: null, segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, null), fit: "unscored" },
+    { security_id: "s-cold", ticker: "COLD", segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(0, 0), dilution: fig(null, null), market_cap: fig(null, null), fit: "unscored" },
   ];
   const thesis = {
     id: "t1",
@@ -54,6 +54,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),

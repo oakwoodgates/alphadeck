@@ -2,7 +2,6 @@ import type { ScoredMemberOut } from "../api/hooks";
 import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
 import { Meter } from "./Meter";
 import {
-  archLabel,
   errText,
   formatMarketCap,
   memberHasFundamentals,
@@ -24,7 +23,7 @@ interface Props {
   asof?: string;
 }
 
-/** One scored basket member: ticker + archetype + market-cap figure, then the four meters. purity /
+/** One scored basket member: ticker + name + market-cap figure, then the four meters. purity /
  *  runway / catalysts cluster as the "goodness" group; dilution sits after a faint separator as the
  *  ember RISK axis (the pressure meter), so it can't be misread as a fourth goodness meter.
  *
@@ -85,14 +84,14 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
   // rail (SleeveRail) exactly like a scored name: its N-PORT holdings + basket overlap live THERE now, not
   // in an inline drawer that shoved the basket down. (All hooks above run regardless — they're inert here —
   // so rules-of-hooks hold.)
-  if (member.archetype === "fund") {
+  if (member.instrument_kind === "etf") {
     return (
       <div className={`nmrow fund${selected ? " sel" : ""}`} onClick={onSelect}>
         <div className="top">
           <button type="button" className="nmrow-sel" onClick={onSelect}>
             <span className="tk">{member.ticker ?? "◇"}</span>
             {member.name && <span className="co">{member.name}</span>}
-            <span className="arch fund">{archLabel("fund")}</span>
+            <span className="btype bt-etf">ETF sleeve</span>
           </button>
           <span className="cap">
             <small>sleeve price</small>
@@ -118,19 +117,8 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
           {/* the company NAME rides the row (joined from the master on read) — a ticker-only list made
               the finalize pass a memory quiz over 68 four-letter codes */}
           {member.name && <span className="co">{member.name}</span>}
-          {/* archetype chip only when DECIDED (item F: unset renders nothing here — quiet; the ✦ dot +
-              the rail carry the pending decision, so an all-unset fresh basket isn't a wall of chips) */}
-          {member.archetype && (
-            <span className={`arch ${member.archetype}`}>{archLabel(member.archetype)}</span>
-          )}
-          {member.archetype_hint && member.archetype_hint !== member.archetype && (
-            <span
-              className="arch-rec-dot"
-              title={`figures suggest ${archLabel(member.archetype_hint)} — open the name to apply`}
-            >
-              ✦
-            </span>
-          )}
+          {/* no type chip on the list row — the identity chips (sector) already say what it is, and
+              the rail's business-type head is the one decision surface (quiet list, loud exception) */}
         </button>
         <span className="cap">
           <small>mkt cap</small>

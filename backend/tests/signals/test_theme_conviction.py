@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, Grade, Kind
+from domain.enums import Grade, Kind
 from domain.thesis import BasketMember, Thesis
 from signals import theme_conviction
 from tests.calls.factories import breakout_event, catalyst_event
@@ -38,9 +38,7 @@ def _thesis(*security_ids):
         narrative="a theme",
         ticker=None,
         basket=[
-            BasketMember(
-                ticker=f"T{i}", role="member", archetype=Archetype.HIGH_BETA, security_id=s
-            )
+            BasketMember(ticker=f"T{i}", role="member", security_id=s)
             for i, s in enumerate(security_ids)
         ],
     )

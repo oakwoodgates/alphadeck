@@ -18,7 +18,7 @@ const fx = vi.hoisted(() => {
     {
       ticker: "OKLO",
       role: "—",
-      archetype: null,
+      
       security_id: "s-oklo",
       segment: "reactors",
       thesis_fit: "F0",
@@ -29,7 +29,7 @@ const fx = vi.hoisted(() => {
     {
       ticker: "GEV",
       role: "—",
-      archetype: null,
+      
       security_id: "s-gev",
       segment: "reactors",
       thesis_fit: null,
@@ -41,7 +41,7 @@ const fx = vi.hoisted(() => {
   const member = (sid: string, ticker: string) => ({
     security_id: sid,
     ticker,
-    archetype: null,
+    
     segment: "reactors",
     purity: fig(null, null),
     runway: fig(null, null),
@@ -83,6 +83,8 @@ const s = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: s.sessionData, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: s.del }),
@@ -135,7 +137,7 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000).to
 const smem = (ticker: string, sid: string, over: Record<string, unknown> = {}) => ({
   ticker,
   role: "—",
-  archetype: null,
+  
   security_id: sid,
   segment: "reactors",
   thesis_fit: null,

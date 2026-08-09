@@ -82,7 +82,7 @@ const flatThesis = {
     {
       ticker: "OKLO",
       role: "r",
-      archetype: "high_beta",
+      
       security_id: "s-oklo",
       segment: null,
       conviction: null, // the API returns null for an unweighted member (unset ≠ 0)
@@ -214,8 +214,6 @@ describe("ChainEditor — authoring", () => {
     const match = await screen.findByRole("button", { name: /CCJ/ });
     expect(match).toHaveTextContent("CIK 0001"); // the homonym tell is surfaced
     await user.click(match);
-    // item F: NO archetype control at placement — the pick is ticker + role only (the rail decides later)
-    expect(screen.queryByLabelText("archetype")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("role"), "the uranium anchor");
     await user.click(screen.getByRole("button", { name: "add to basket" }));
 
@@ -742,14 +740,6 @@ describe("ChainEditor — placed-row polish (R1/R2/R3)", () => {
     expect(acceptBtn.closest(".ctls")).toBe(segSel.closest(".ctls"));
   });
 
-  it("item F: the row has NO archetype editor — a SET archetype shows as a read-only chip", () => {
-    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />); // OKLO carries a stored "high_beta"
-    // no select — the archetype is decided ONCE, on the finalize rail, never at placement
-    expect(screen.queryByLabelText("archetype for OKLO")).not.toBeInTheDocument();
-    // the stored value still SHOWS (read-only chip) — a re-opened finalized basket keeps its context
-    expect(screen.getByText("high-beta")).toBeInTheDocument();
-  });
-
   it("R2: the thesis-fit box auto-sizes (rows=1, not a fixed 3) and still edits", async () => {
     const user = userEvent.setup();
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
@@ -1145,7 +1135,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
       {
         ticker: "CCJ",
         role: "—",
-        archetype: "leader",
+        
         security_id: "s-ccj",
         segment: "fuel",
         authored_by: "operator_set" as const,
@@ -1574,7 +1564,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     expect(saveBody().basket.map((m) => m.ticker)).toEqual(["OKLO", "MU"]);
   });
 
-  it("item F: a drafted name carries NO archetype through Save (null — never a placement default)", async () => {
+  it("a drafted name carries NO archetype key through Save (the field is retired from the wire)", async () => {
     const user = userEvent.setup();
     withOnSuccess();
     mockDraft(draft([P_CLEAN], MEM_SEG));
@@ -1583,7 +1573,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     await screen.findByLabelText("segment for MU");
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const mu = saveBody().basket.find((b) => b.ticker === "MU");
-    expect(mu?.archetype).toBeNull(); // un-decided rides the wire as null — the finalize rail decides later
+    expect(mu && "archetype" in mu).toBe(false); // retired: the spine carries no type field at all
   });
 
   it("G precedence: off-thesis + junk tell lands in low-quality group, not flagged", async () => {
@@ -1658,13 +1648,13 @@ describe("ChainEditor — TRIAGE conviction/size", () => {
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument(); // drafted
 
     await user.selectOptions(screen.getByLabelText("conviction for SMR"), "5");
-    // weighting a drafted name does NOT consume its accept (unlike editing archetype/prose) — still "accept"
+    // weighting a drafted name does NOT consume its accept (unlike editing the prose) — still "accept"
     expect(screen.getByRole("button", { name: "accept SMR" })).toBeInTheDocument();
   });
 });
 
 describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
-  // a 3-name basket spanning archetypes / segments / authorship — enough to sort + filter (the bar shows for >1)
+  // a 3-name basket spanning segments / authorship — enough to sort + filter (the bar shows for >1)
   const triageThesis = {
     ...flatThesis,
     segments: [
@@ -1672,9 +1662,9 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
       { label: "fuel", descriptor: null },
     ],
     basket: [
-      { ticker: "OKLO", role: "—", archetype: "high_beta", security_id: "s-oklo", segment: "reactors", authored_by: "operator_set" },
-      { ticker: "CCJ", role: "—", archetype: "leader", security_id: "s-ccj", segment: "fuel", authored_by: "system_drafted" },
-      { ticker: "BWXT", role: "—", archetype: "shovel", security_id: "s-bwxt", segment: "reactors", authored_by: "operator_set" },
+      { ticker: "OKLO", role: "—", security_id: "s-oklo", segment: "reactors", authored_by: "operator_set" },
+      { ticker: "CCJ", role: "—", security_id: "s-ccj", segment: "fuel", authored_by: "system_drafted" },
+      { ticker: "BWXT", role: "—", security_id: "s-bwxt", segment: "reactors", authored_by: "operator_set" },
     ],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -1687,15 +1677,6 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
     expect(tickerOrder(container)).toEqual(["OKLO", "CCJ", "BWXT"]); // draft order
     await user.selectOptions(screen.getByLabelText("sort placed names"), "name");
     expect(tickerOrder(container)).toEqual(["BWXT", "CCJ", "OKLO"]); // A→Z
-  });
-
-  it("filters the view by archetype and reports the shown count", async () => {
-    const user = userEvent.setup();
-    render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
-    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
-    expect(screen.getByLabelText("segment for CCJ")).toBeInTheDocument();
-    expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // hidden
-    expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
   });
 
   it("the Country + Exchange filters narrow BOTH the placed rows and the To-Review candidates", async () => {
@@ -1816,7 +1797,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
       opts?.onSuccess?.(),
     );
     render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
-    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader"); // hides OKLO + BWXT
+    await user.selectOptions(screen.getByLabelText("filter by segment"), "fuel"); // hides OKLO + BWXT (reactors)
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { basket: Record<string, unknown>[] };
     // all three persist — the filter hides, only exclude drops (basket − excluded, over the whole draft)
@@ -1826,7 +1807,7 @@ describe("ChainEditor — TRIAGE sort/filter (the find)", () => {
   it("clear filters restores the full view (#9 — a hidden name is one click from visible)", async () => {
     const user = userEvent.setup();
     render(<ChainEditor asof="2026-06-08" thesis={triageThesis} onDone={vi.fn()} />);
-    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
+    await user.selectOptions(screen.getByLabelText("filter by segment"), "fuel");
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "clear filters" }));
     expect(screen.getByLabelText("segment for OKLO")).toBeInTheDocument();
@@ -2147,7 +2128,7 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
   const member = (ticker: string, sid: string) => ({
     ticker,
     role: "r",
-    archetype: null,
+    
     security_id: sid,
     segment: null,
     thesis_fit: null,
@@ -2213,7 +2194,6 @@ describe("ChainEditor — the Basket section (the additive editor)", () => {
   const est = (ticker: string, sid: string, over: Record<string, unknown> = {}) => ({
     ticker,
     role: "—",
-    archetype: null,
     security_id: sid,
     segment: null,
     thesis_fit: null,
@@ -2392,22 +2372,19 @@ describe("ChainEditor — the Basket section (the additive editor)", () => {
 
   it("(g) the find bar filters BOTH lists — Basket rows and working rows filter with the one control", async () => {
     const user = userEvent.setup();
-    const twoArch = {
+    const twoEst = {
       ...flatThesis,
-      basket: [
-        est("OKLO", "s-oklo", { archetype: "high_beta" }),
-        est("CCJ", "s-ccj2", { archetype: "leader" }),
-      ],
+      basket: [est("OKLO", "s-oklo"), est("CCJ", "s-ccj2")],
     };
-    mockDraft(draft([PLACED_SMR])); // a new drafted name (archetype null)
-    render(<ChainEditor asof="2026-06-08" thesis={twoArch as never} onDone={vi.fn()} />);
+    mockDraft(draft([PLACED_SMR])); // a new drafted name (system_drafted)
+    render(<ChainEditor asof="2026-06-08" thesis={twoEst as never} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
     await screen.findByLabelText("segment for SMR");
 
-    await user.selectOptions(screen.getByLabelText("filter by archetype"), "leader");
-    expect(screen.getByLabelText("segment for CCJ").closest(".wb-basket")).not.toBeNull(); // basket row kept
+    await user.selectOptions(screen.getByLabelText("filter by authorship"), "drafted");
+    expect(screen.getByLabelText("segment for SMR")).toBeInTheDocument(); // working (drafted) row kept
     expect(screen.queryByLabelText("segment for OKLO")).not.toBeInTheDocument(); // basket row filtered out
-    expect(screen.queryByLabelText("segment for SMR")).not.toBeInTheDocument(); // working row filtered out
+    expect(screen.queryByLabelText("segment for CCJ")).not.toBeInTheDocument(); // basket row filtered out
     // ONE whole-basket count across both lists (the denominator existing tests depend on)
     expect(screen.getByText("showing 1 of 3 placed")).toBeInTheDocument();
   });
@@ -2422,7 +2399,7 @@ describe("ChainEditor — S2: frozen seed terms + also-matches-now (the re-scope
       {
         ticker: "OKLO",
         role: "r",
-        archetype: null,
+        
         security_id: "s-oklo",
         segment: null,
         thesis_fit: null,

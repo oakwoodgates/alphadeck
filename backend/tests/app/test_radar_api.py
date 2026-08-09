@@ -122,7 +122,7 @@ def test_attach_is_operator_set_idempotent_and_reversible(client, db):
     loaded = thesis_repo.get(db, t.id)
     (member,) = loaded.basket
     assert member.security_id == sid
-    assert member.archetype is None  # un-decided all the way through the spine (item F)
+    assert member.segment is None  # un-characterized all the way through the spine (item F)
     assert member.authored_by.value == "operator_set"  # the CLICK is the operator's decision (#10)
     assert member.surfaced_terms == ["psilocybin"]  # provenance frozen from the stored match
 

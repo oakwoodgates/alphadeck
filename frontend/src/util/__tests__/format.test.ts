@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { archLabel, todayISO } from "../format";
+import { businessTypeLabel, supersectorLabel, todayISO } from "../format";
 
 describe("util/format", () => {
   afterEach(() => {
@@ -13,10 +13,12 @@ describe("util/format", () => {
     expect(todayISO()).toBe("2026-06-20");
   });
 
-  it("archLabel maps the full archetype set (the consolidated 6-key map)", () => {
-    expect(archLabel("fund")).toBe("ETF sleeve");
-    expect(archLabel("adjacent")).toBe("adjacent");
-    expect(archLabel("leader")).toBe("leader");
-    expect(archLabel("unknown")).toBe("unknown"); // unknown -> raw-key fallback
+  it("businessTypeLabel / supersectorLabel map the taxonomy (raw-key fallback, honest '—')", () => {
+    expect(businessTypeLabel("oil_gas")).toBe("oil & gas");
+    expect(businessTypeLabel("software_it")).toBe("software/IT");
+    expect(businessTypeLabel("some_future_leaf")).toBe("some_future_leaf"); // unknown -> raw-key fallback
+    expect(businessTypeLabel(null)).toBe("—"); // unclassified -> the honest dash, never a guess
+    expect(supersectorLabel("energy_utilities")).toBe("Energy & Utilities");
+    expect(supersectorLabel(null)).toBe("Unclassified"); // the visible tail group's label
   });
 });

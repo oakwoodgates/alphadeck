@@ -35,7 +35,6 @@ import { SurfaceEtf } from "./SurfaceEtf";
 import { AutoTextarea } from "./AutoTextarea";
 import { DraftStatusStrip, type DraftCounts } from "./DraftStatusStrip";
 import {
-  archLabel,
   countryClass,
   type CountryClass,
   errText,
@@ -189,7 +188,7 @@ const IdentityChips = ({
       </span>
     )}
     {/* SEC filer category — a maturity/size tell. IDENTITY (sits with sector/exchange), NOT a re-classification
-        of the archetype. Machine-parsed from EDGAR submissions, display-only. */}
+        of the risk read. Machine-parsed from EDGAR submissions, display-only. */}
     {category && (
       <span className="idchip" title="SEC filer category — a maturity/size tell (EDGAR submissions)">
         {category}
@@ -620,8 +619,7 @@ export function ChainEditor({
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
   // draft, not this view — the #9 spine, test-guarded). `compact` collapses the prose for a scannable, table-like
   // read without losing the inline editors.
-  const [sortBy, setSortBy] = useState<"draft" | "name" | "archetype" | "segment" | "sector">("draft");
-  const [fArch, setFArch] = useState("");
+  const [sortBy, setSortBy] = useState<"draft" | "name" | "segment" | "sector">("draft");
   const [fSeg, setFSeg] = useState("");
   const [fFund, setFFund] = useState<"" | "loaded" | "needs">("");
   const [fAuth, setFAuth] = useState<"" | "accepted" | "drafted">("");
@@ -633,7 +631,6 @@ export function ChainEditor({
   const [compact, setCompact] = useState(false);
   const filtersActive =
     sortBy !== "draft" ||
-    !!fArch ||
     !!fSeg ||
     !!fFund ||
     !!fAuth ||
@@ -644,7 +641,6 @@ export function ChainEditor({
     fOffUniv;
   const clearFilters = () => {
     setSortBy("draft");
-    setFArch("");
     setFSeg("");
     setFFund("");
     setFAuth("");
@@ -655,14 +651,6 @@ export function ChainEditor({
     setFOffUniv(false);
   };
   const sec = (m: BasketMember) => idFor(m.security_id)?.sector ?? "";
-  // the archetype filter offers the values PRESENT (+ "— unset —" for the un-characterized, item F)
-  const archsPresent = Array.from(
-    new Set(
-      d.draft.basket
-        .map((m) => m.archetype)
-        .filter((a): a is NonNullable<BasketMember["archetype"]> => a != null),
-    ),
-  );
   // Country + Exchange + Type filters classify a name's stored IDENTITY (origin / exchange / sector) and
   // span the Basket panel, the working Placed list, AND the To-Review candidates (like INCLUDE) — the
   // fields ride the placement and, for a placed member, the read-time `identity` join. View-only (#9):
@@ -683,7 +671,6 @@ export function ChainEditor({
   const matchesFilters = (m: BasketMember): boolean => {
     const k = memberKey(m);
     const loaded = hasFundamentals(m.security_id, scoredById);
-    if (fArch && (fArch === "__unset__" ? m.archetype != null : m.archetype !== fArch)) return false;
     if (fSeg && (fSeg === "__unplaced__" ? !!m.segment : m.segment !== fSeg)) return false;
     if (fFund && (fFund === "loaded" ? !loaded : loaded)) return false;
     if (fAuth === "accepted" && m.authored_by === "system_drafted") return false;
@@ -710,8 +697,6 @@ export function ChainEditor({
     if (sortBy === "draft") return list;
     const cmp = (a: BasketMember, b: BasketMember): number => {
       if (sortBy === "name") return (a.ticker || "").localeCompare(b.ticker || "");
-      if (sortBy === "archetype")
-        return (a.archetype ?? "￿").localeCompare(b.archetype ?? "￿"); // unset sorts last (item F)
       if (sortBy === "segment") return (a.segment || "￿").localeCompare(b.segment || "￿");
       return (sec(a) || "￿").localeCompare(sec(b) || "￿"); // sector; blanks sort last
     };
@@ -768,7 +753,7 @@ export function ChainEditor({
   // "Placed, flagged" is a noise-review group (off-thesis, but saved) — in the DEFAULT (draft) sort, order it by
   // keyword provenance, the strongest evidence FIRST (mirrors the To-Review Low/Lowest split), so the most-likely-
   // real names surface for a keep pass and the weak single/zero-term hits fall to the bottom for a scan-and-exclude.
-  // An explicit dropdown sort (ticker/archetype/segment/sector) OVERRIDES this — `triaged` is already in that order,
+  // An explicit dropdown sort (ticker/segment/sector) OVERRIDES this — `triaged` is already in that order,
   // so we leave it. View-only: reads the already-present `matched` counts (free client-side sort), writes nothing.
   if (sortBy === "draft") {
     const mtCount = (m: BasketMember): number =>
@@ -799,15 +784,6 @@ export function ChainEditor({
       else next.add(name);
       return next;
     });
-  // The archetype palette (matches .arch.* / the lifecycle tokens) — the ticker tint for a SET archetype.
-  // (No arch select here anymore: the archetype is decided on the finalize rail, item F.)
-  const ARCH_COLOR: Record<string, string> = {
-    leader: "var(--leader)",
-    high_beta: "var(--armed)",
-    lotto: "var(--warm)",
-    shovel: "var(--manage)",
-  };
-
   // Load a completed draft into the editor (MERGE, not replace). Fail-open: an empty draft (no key / the model
   // declined) loads nothing and shows the quiet "returned nothing" note.
   const applyDraft = (data: ChainDraftOut) => {
@@ -940,12 +916,11 @@ export function ChainEditor({
 
   // An AMBIGUOUS name enters the basket ONLY here, by an explicit pick — the operator commits the exact
   // security_id (the membership decision, INVARIANT #2). It lands `system_drafted` (the prose is still
-  // drafted) for the operator to accept / edit, like any drafted placement. Archetype stays UNSET (item F).
+  // drafted) for the operator to accept / edit, like any drafted placement.
   const pickAmbiguous = (p: ResolvedPlacement, c: SecurityCandidate) => {
     d.addMember({
       ticker: c.ticker,
       role: "—",
-      archetype: null,
       security_id: c.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
@@ -965,7 +940,6 @@ export function ChainEditor({
     d.addMember({
       ticker: p.ticker || p.name,
       role: "—",
-      archetype: null, // un-decided (item F) — the finalize rail sets it
       security_id: p.security_id,
       segment: p.segment,
       thesis_fit: p.prose || null,
@@ -1220,16 +1194,7 @@ export function ChainEditor({
             checked={included}
             onChange={() => d.toggleInclude(k)}
           />
-          {/* the archetype color (incl. red high-beta) only shows on an operator-owned name whose
-              archetype IS set (a finalize-rail decision) — unset renders neutral, not a wall of red. */}
-          <span
-            className="tk"
-            style={
-              !drafted && m.archetype ? { color: ARCH_COLOR[m.archetype] } : undefined
-            }
-          >
-            {m.ticker}
-          </span>
+          <span className="tk">{m.ticker}</span>
           {/* the company name (bridged by security_id — BasketMember carries no name), like To Review */}
           {m.security_id && names[m.security_id] ? (
             <span className="co">{names[m.security_id]}</span>
@@ -1275,21 +1240,9 @@ export function ChainEditor({
                   </span>
                 ))}
               {/* R1: the SEG / CONV controls sit on their own line; the row actions (accept +
-                  send-back) right-align at the END of this row. NO archetype control here (item F):
-                  the archetype is decided ONCE, on the finalize rail — a set value shows read-only
-                  (a re-opened finalized basket), an unset one shows nothing. */}
+                  send-back) right-align at the END of this row. No type control here: the business
+                  type derives from the master identity (re-taggable on the scored view's rail). */}
               <span className="ctls">
-                {m.archetype && (
-                  <span className="ctl">
-                    <span className="lab">arch</span>
-                    <span
-                      className={`arch ${m.archetype}`}
-                      title="set on the scored view's rail (the finalize step) — not editable at placement"
-                    >
-                      {archLabel(m.archetype)}
-                    </span>
-                  </span>
-                )}
                 <span className="ctl">
                   <span className="lab">seg</span>
                   {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
@@ -1912,7 +1865,7 @@ export function ChainEditor({
             onClick={() => setPlacedOpen((o) => !o)}
           >
             <span className="chev">{placedOpen ? "▾" : "▸"}</span>
-            Placed names <em>· segment drafted, overridable · archetype decided later, on the scored rail</em>
+            Placed names <em>· segment drafted, overridable · business type derives from the master identity</em>
             {d.draft.basket.length > 0 && (
               <span className="ct">
                 · {d.includedBasket.length} of {d.draft.basket.length} included
@@ -1997,25 +1950,8 @@ export function ChainEditor({
                 >
                   <option value="draft">draft order</option>
                   <option value="name">name</option>
-                  <option value="archetype">archetype</option>
                   <option value="segment">segment</option>
                   <option value="sector">sector</option>
-                </select>
-              </label>
-              <label className="wb-find-ctl">
-                archetype
-                <select
-                  aria-label="filter by archetype"
-                  value={fArch}
-                  onChange={(e) => setFArch(e.target.value)}
-                >
-                  <option value="">all</option>
-                  {archsPresent.map((a) => (
-                    <option key={a} value={a}>
-                      {archLabel(a)}
-                    </option>
-                  ))}
-                  <option value="__unset__">— unset —</option>
                 </select>
               </label>
               <label className="wb-find-ctl">

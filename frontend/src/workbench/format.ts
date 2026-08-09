@@ -3,12 +3,33 @@
 
 import type { ProvenanceOut, ScoredFigureOut } from "../api/hooks";
 
-// archLabel + its ARCH_LABEL map moved to the shared util/format (the Cockpit board uses it too); re-exported
-// here so the Workbench / ChainEditor call sites import it unchanged.
-export { archLabel } from "../util/format";
+// the business-type labels live in the shared util/format (the Cockpit board uses them too); re-exported
+// here so the Workbench / DDRail call sites import them alongside the other display helpers.
+export { businessTypeLabel, supersectorLabel } from "../util/format";
 
-/** The basket-member archetypes the operator classifies a name as (the finalize rail's set control). */
-export const ARCHETYPES = ["leader", "high_beta", "lotto", "shovel", "adjacent", "fund"] as const;
+/** The business-type leaves the re-tag select offers (the finalize rail's set control) — mirrors
+ *  domain BusinessType; labels via businessTypeLabel. Display order: the operator-ratified taxonomy. */
+export const BUSINESS_TYPES = [
+  "miner",
+  "bank",
+  "utilities",
+  "oil_gas",
+  "semiconductors",
+  "biotech_pharma",
+  "medical_devices",
+  "healthcare_services",
+  "software_it",
+  "finance_brokers",
+  "real_estate",
+  "industrials_machinery",
+  "chemicals_materials",
+  "comms_media",
+  "transportation",
+  "consumer_retail",
+  "business_services",
+  "spac",
+  "other",
+] as const;
 
 /** A collision-prone SIGNAL acronym term (single all-caps token, letters+digits, ≥2 chars — HBM,
  *  DRAM). Used by the low-quality junk-tell set (`junkTells.ts`). Deliberately the simple v1 rule

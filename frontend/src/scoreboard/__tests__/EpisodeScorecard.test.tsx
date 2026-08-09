@@ -253,7 +253,9 @@ const SCORED = {
   security_id: "s1",
   ticker: "DEVCO",
   name: "Dev Co",
-  archetype: "high_beta",
+  business_type: "software_it",
+  royalty: false,
+  instrument_kind: "equity",
   sector: "Technology",
   exchange: "NYSE",
   market_cap: { value: 8e9, provenance: [] },
@@ -298,7 +300,7 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
   it("surfaces the Cockpit identity line + the present signal headline, joined by security_id", async () => {
     renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, seedLedger);
     const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
-    expect(section).toHaveTextContent("high-beta"); // archetype via archLabel
+    expect(section).toHaveTextContent("software/IT"); // the business-type leaf via its label
     expect(section).toHaveTextContent("Technology"); // sector
     expect(section).toHaveTextContent("$8.0B"); // market cap
     expect(section).toHaveTextContent("above the 50d"); // the display headline

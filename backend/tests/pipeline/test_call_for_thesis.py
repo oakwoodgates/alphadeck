@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import Archetype, State, Verdict
+from domain.enums import State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
@@ -47,7 +47,6 @@ def _seed_hims_thesis(db, security_id) -> uuid.UUID:
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
             )
         ],

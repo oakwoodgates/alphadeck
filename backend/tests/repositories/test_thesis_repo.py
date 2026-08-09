@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from db.session import DEFAULT_TENANT_ID, connect
-from domain.enums import Archetype, Authorship, TermTier
+from domain.enums import Authorship, TermTier
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -36,7 +36,6 @@ def _thesis(security_id) -> Thesis:
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
                 detail="mkt ~$6B",
                 segment="Telehealth platforms",
@@ -125,7 +124,6 @@ def test_thesis_rejects_member_in_unknown_segment():
                 BasketMember(
                     ticker="ZZZ",
                     role="r",
-                    archetype=Archetype.ADJACENT,
                     segment="Fuel & enrichment",  # not among the thesis's segments
                 )
             ],
@@ -269,50 +267,25 @@ def test_unset_conviction_stays_none_never_zero(db, security_id):
 def test_conviction_out_of_range_rejected(bad):
     """The 1–5 scale is validated at the model (no DB): 0 is not "unset" — unset is NULL."""
     with pytest.raises(ValidationError):
-        BasketMember(ticker="X", role="r", archetype=Archetype.HIGH_BETA, conviction=bad)
+        BasketMember(ticker="X", role="r", conviction=bad)
 
 
-# --- item F (PR-B): the nullable archetype — un-decided is un-decided through the spine ---
+# --- Business-Type M1 (S4): the archetype field is GONE from the spine ---
 
 
-def test_archetype_default_is_unset():
-    """Placement never stamps an archetype (item F): the model default is None — the risk class is
-    decided ONCE, on the finalize screen (the DDRail hint → apply/override, #10)."""
+def test_archetype_is_gone_from_the_spine_and_rejected_loudly():
+    """The retirement is total: BasketMember carries no archetype attribute, and a legacy payload
+    still sending one FAILS LOUDLY (DomainModel is extra='forbid' — never silently dropped). What a
+    name IS lives on the master now (business_type, derive-on-read), not the per-thesis spine."""
     m = BasketMember(ticker="X", role="r")
-    assert m.archetype is None
-
-
-def test_null_archetype_roundtrips_and_is_never_coerced(db, security_id):
-    """A placed-but-not-finalized name has NO archetype: None stores as NULL and reads back None —
-    never coerced to a default on save (a defaulted archetype on a saved member would read as an
-    operator decision that never happened)."""
-    t = _thesis(security_id)
-    t.basket[0].archetype = None
-    thesis_repo.upsert(db, t)
-    db.commit()
-    got = thesis_repo.get(db, t.id)
-    assert (
-        got.basket[0].archetype is None
-    )  # not high_beta (the old placement default), not anything
-
-
-def test_null_archetype_survives_a_resave_through_the_mapper(db, security_id):
-    """The wipe-trap guard, F-flavored: a resave of the READ-BACK basket (a narrative edit resends it
-    verbatim) must keep NULL as NULL — no default resurrected through the mapper/upsert path."""
-    t = _thesis(security_id)
-    t.basket[0].archetype = None
-    thesis_repo.upsert(db, t)
-    db.commit()
-    got = thesis_repo.get(db, t.id)
-    got.narrative = "edited — the basket is resent verbatim"
-    thesis_repo.upsert(db, got)
-    db.commit()
-    assert thesis_repo.get(db, t.id).basket[0].archetype is None
+    assert not hasattr(m, "archetype")
+    with pytest.raises(ValidationError):
+        BasketMember(ticker="X", role="r", archetype="high_beta")
 
 
 def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
     """THE WIPE-TRAP guard: every promote reads the basket THROUGH _row_to_basket_member before DELETE+reinsert,
-    so an UNMAPPED field is silently wiped on any unrelated resave (a narrative edit, the archetype-apply). Set
+    so an UNMAPPED field is silently wiped on any unrelated resave (a narrative edit). Set
     conviction, then resave the READ-BACK thesis with only the narrative changed — conviction must survive.
     """
     t = _thesis(security_id)
@@ -322,7 +295,7 @@ def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
 
     got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
     assert got.basket[0].conviction == 3
-    # an unrelated edit that resends the read-back basket verbatim (mimics the narrative-edit / archetype-apply)
+    # an unrelated edit that resends the read-back basket verbatim (mimics the narrative-edit resave)
     got.narrative = "edited narrative — the basket is resent verbatim"
     thesis_repo.upsert(db, got)
     db.commit()

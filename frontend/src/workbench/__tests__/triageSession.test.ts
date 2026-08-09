@@ -20,7 +20,7 @@ function fullHook(): HookRuntime {
         {
           ticker: "OKLO",
           role: "leader",
-          archetype: "leader",
+          
           security_id: "sid-1",
           detail: null,
           segment: "Enrichment",

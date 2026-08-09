@@ -293,8 +293,8 @@ export interface paths {
          * Resolve Etf
          * @description Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
          *     operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
-         *     ``instrument_kind='etf'`` — the row the FE then adds to the basket as an ``archetype='fund'`` member (the
-         *     ETF attaches UNDER a thesis, never free-floating — #2).
+         *     ``instrument_kind='etf'`` — the row the FE then adds to the basket as the sleeve member (the ETF
+         *     attaches UNDER a thesis, never free-floating — #2; ``instrument_kind`` is the sleeve's one marker).
          *
          *     LOOKUP-OR-CREATE-AND-MARK, both branches recall-safe: a ticker ALREADY in the master (SPY/GLD — the few
          *     mega-ETFs present as equities) is MARKED ``etf`` in place (``mark_instrument_kind``); a thematic ETF ABSENT
@@ -418,10 +418,10 @@ export interface paths {
         /**
          * Ingest Security Prices
          * @description Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
-         *     finalize screen can complete a name (real market cap, live archetype hint) BEFORE the operator
-         *     promotes. This endpoint WRITES (``fact_price_eod``) — deliberately, per explicit click: price bars are
-         *     FEED data (the same class as Form 4s), never operator-ratified facts; what they feed (the cap, the
-         *     hint) stays display/recommendation until the operator acts.
+         *     finalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint
+         *     WRITES (``fact_price_eod``) — deliberately, per explicit click: price bars are FEED data (the same
+         *     class as Form 4s), never operator-ratified facts; what they feed (the cap) stays display until the
+         *     operator acts.
          *
          *     Bounded + polite by construction: one name per call (the tightest bound — the section button fans out
          *     client-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest
@@ -1136,8 +1136,8 @@ export interface paths {
          * Spac Attach
          * @description Add a radar name to a thesis basket — the operator's click, so ``operator_set`` (#10: the
          *     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
-         *     archetype, no segment — the finalize rail characterizes it, item F), with ``surfaced_terms``
-         *     frozen from the stored term matches (factual provenance, never client-supplied). Idempotent:
+         *     segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
+         *     the stored term matches (factual provenance, never client-supplied). Idempotent:
          *     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).
          */
         post: operations["spac_attach_radar_spac_attach_post"];
@@ -1337,12 +1337,6 @@ export interface components {
             last_backup?: components["schemas"]["BackupOut"] | null;
         };
         /**
-         * Archetype
-         * @description A basket member's role in expressing the thesis.
-         * @enum {string}
-         */
-        Archetype: "leader" | "high_beta" | "lotto" | "shovel" | "adjacent" | "fund";
-        /**
          * Authorship
          * @description Who placed a basket member in its value-chain segment (the Workbench authorship seam).
          *
@@ -1474,7 +1468,6 @@ export interface components {
             ticker: string;
             /** Role */
             role: string;
-            archetype?: components["schemas"]["Archetype"] | null;
             /** Security Id */
             security_id?: string | null;
             /** Detail */
@@ -3393,8 +3386,6 @@ export interface components {
              */
             royalty: boolean;
             instrument_kind?: components["schemas"]["InstrumentKind"] | null;
-            archetype?: components["schemas"]["Archetype"] | null;
-            archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */
             segment?: string | null;
             purity: components["schemas"]["ScoredFigureOut"];

@@ -10,13 +10,13 @@ const fx = vi.hoisted(() => {
   const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
   const basket = [
     // the misbind: stored label SIMO, but the id is MaxLinear's row (bound ticker MXL below)
-    { ticker: "SIMO", role: "r", archetype: "leader", security_id: "s-mxl", segment: null, authored_by: "system_drafted", thesis_fit: null },
+    { ticker: "SIMO", role: "r", security_id: "s-mxl", segment: null, authored_by: "system_drafted", thesis_fit: null },
     // a clean member: label agrees with the bound row
-    { ticker: "KLAC", role: "r", archetype: "shovel", security_id: "s-klac", segment: null, authored_by: "operator_set", thesis_fit: null },
+    { ticker: "KLAC", role: "r", security_id: "s-klac", segment: null, authored_by: "operator_set", thesis_fit: null },
   ];
   const members = [
-    { security_id: "s-mxl", ticker: "MXL", name: "MAXLINEAR, INC", archetype: "leader", archetype_hint: null, segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null), fit: "" },
-    { security_id: "s-klac", ticker: "KLAC", name: "KLA CORP", archetype: "shovel", archetype_hint: null, segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null), fit: "" },
+    { security_id: "s-mxl", ticker: "MXL", name: "MAXLINEAR, INC", segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null), fit: "" },
+    { security_id: "s-klac", ticker: "KLAC", name: "KLA CORP", segment: null, purity: fig(null, null), runway: fig(null, null), catalysts: fig(null, null), dilution: fig(null, null), market_cap: fig(null, null), fit: "" },
   ];
   const thesis = {
     id: "t-semis",
@@ -39,6 +39,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
+  useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),
   useDeleteTriageSession: () => ({ mutate: vi.fn() }),

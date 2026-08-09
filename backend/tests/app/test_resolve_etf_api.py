@@ -47,7 +47,6 @@ def _promote_fund_sleeve(client, security_id, ticker):
                 {
                     "ticker": ticker,
                     "role": "ETF sleeve",
-                    "archetype": "fund",
                     "security_id": str(security_id),
                     "segment": None,
                     "authored_by": "operator_set",
@@ -77,7 +76,7 @@ def test_resolve_etf_marks_present_row_and_returns_etf(client, db):
 
 def test_resolve_etf_present_row_promotes_as_fund_sleeve(client, db):
     """After surfacing, a `fund` basket member referencing the marked row PROMOTES through the exists +
-    identity-coherence guards (the ETF attaches UNDER a thesis — #2) and the sleeve archetype persists.
+    identity-coherence guards (the ETF attaches UNDER a thesis — #2) and the sleeve member persists.
     """
     sid = _insert_equity(db, "GLD", "SPDR Gold Shares", "0001222333")
     assert (
@@ -88,8 +87,8 @@ def test_resolve_etf_present_row_promotes_as_fund_sleeve(client, db):
     assert promote.status_code == 200
     detail = client.get(f"/theses/{promote.json()['id']}").json()
     assert (
-        detail["basket"][0]["archetype"] == "fund"
-    )  # the sleeve member persisted under the thesis
+        detail["basket"][0]["ticker"] == "GLD"
+    )  # the sleeve member persisted under the thesis (its marker is the master's instrument_kind)
 
 
 def test_resolve_etf_creates_null_cik_row_and_promotes(client, db, monkeypatch):
@@ -119,7 +118,9 @@ def test_resolve_etf_creates_null_cik_row_and_promotes(client, db, monkeypatch):
     promote = _promote_fund_sleeve(client, body["security_id"], "URA")
     assert promote.status_code == 200
     detail = client.get(f"/theses/{promote.json()['id']}").json()
-    assert detail["basket"][0]["archetype"] == "fund"
+    assert (
+        detail["basket"][0]["ticker"] == "URA"
+    )  # persisted; the etf marker lives on the master row
 
 
 def test_resolve_etf_blank_ticker_is_422(client):

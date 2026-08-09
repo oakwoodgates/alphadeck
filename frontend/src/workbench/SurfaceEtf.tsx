@@ -11,10 +11,10 @@ interface Props {
 
 /** Surface an ETF as a low-torque `fund` sleeve (ETF Sleeve, Slice 1) — sits directly below `AddName`. The
  *  operator types a ticker (e.g. LIT); the server resolves it (lookup-or-create) and marks it
- *  instrument_kind='etf', and we add it to the basket as an `archetype='fund'` member, then pull its EOD
- *  price so the sleeve shows its price. Unlike AddName this needs NO prior master match — surfacing an ETF
- *  absent from the master is the whole point (hold the theme, skip picking names). The archetype is set HERE
- *  (surfacing an ETF IS declaring its sleeve archetype); the member + price machinery is reused, not rebuilt.
+ *  instrument_kind='etf' — the sleeve's ONE marker (every sleeve surface keys on it; a fund has no SIC) —
+ *  and we add it to the basket as a plain member, then pull its EOD price so the sleeve shows its price.
+ *  Unlike AddName this needs NO prior master match — surfacing an ETF absent from the master is the whole
+ *  point (hold the theme, skip picking names). The member + price machinery is reused, not rebuilt.
  *  Reversible like any member (interaction #1): the row's own remove is the inverse. */
 export function SurfaceEtf({ existingKeys, onAdd }: Props) {
   const [ticker, setTicker] = useState("");
@@ -33,7 +33,6 @@ export function SurfaceEtf({ existingKeys, onAdd }: Props) {
           {
             ticker: match.ticker,
             role: "ETF sleeve",
-            archetype: "fund", // set at surface-time — surfacing an ETF declares its sleeve archetype
             security_id: match.security_id,
             segment: null,
             conviction: null,

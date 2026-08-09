@@ -7,7 +7,7 @@ from pathlib import Path
 
 from calls.assembler import assemble_call
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Archetype, Grade, State, Verdict
+from domain.enums import Grade, State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
@@ -45,7 +45,6 @@ def _thesis(security_id) -> Thesis:
             BasketMember(
                 ticker="HIMS",
                 role="the name",
-                archetype=Archetype.HIGH_BETA,
                 security_id=security_id,
             )
         ],

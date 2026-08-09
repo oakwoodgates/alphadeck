@@ -38,23 +38,6 @@ export function gradeClass(g: string | null | undefined): string {
   return g === "core" ? "core" : g === "flip" ? "flip" : "";
 }
 
-const ARCH_LABEL: Record<string, string> = {
-  leader: "leader",
-  high_beta: "high-beta",
-  lotto: "lotto",
-  shovel: "shovel",
-  adjacent: "adjacent",
-  fund: "ETF sleeve",
-};
-
-/** Basket-member archetype → its display label (the `.arch` chip; CSS uppercases it visually). The single
- *  source of archetype labels, shared by the Cockpit board, the Workbench chips, and the DDRail picker.
- *  Null/undefined = not yet characterized (item F — placement never stamps a default) → "unset"; render
- *  sites usually guard and show nothing, this is the defensive fallback so "null" never reaches the UI. */
-export function archLabel(archetype: string | null | undefined): string {
-  return archetype ? (ARCH_LABEL[archetype] ?? archetype) : "unset";
-}
-
 const BUSINESS_TYPE_LABEL: Record<string, string> = {
   miner: "miner",
   bank: "bank",

@@ -62,7 +62,7 @@ def _sec(db, ticker, *, cik=None, tenant_id=DEFAULT_TENANT_ID, is_primary=None) 
 
 
 def _thesis(db, name, members, *, tenant_id=DEFAULT_TENANT_ID, archived=False) -> uuid.UUID:
-    """A thesis with ``members`` = [(ticker, security_id-or-None)]; archetype stays NULL (item F)."""
+    """A thesis with ``members`` = [(ticker, security_id-or-None)] — the minimal spine rows."""
     tid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
