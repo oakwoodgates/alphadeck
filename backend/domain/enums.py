@@ -90,6 +90,55 @@ class Archetype(StrEnum):
     FUND = "fund"  # an ETF: the low-torque safe-exposure sleeve expression of the thesis
 
 
+class BusinessType(StrEnum):
+    """WHAT a company DOES — the business-type LEAF (MONITOR/organization identity, Business-Type M1).
+
+    Derived on read from the master's stored ``sector`` (EDGAR ``sicDescription``) via the editable
+    data files in ``securities/business_type/`` — descriptive IDENTITY like ``sector``/``origin``
+    (#1/#3 govern numbers, not identity strings): never a fact, never a call input, never fires/arms/
+    vetoes/grades. ``OTHER`` is the visible tail (an unmapped-but-present sector — never a silent
+    drop, #9); an un-enriched row derives ``None`` (unclassified — the honest abstain). This enum is
+    the TYPE CONTRACT; the SIC→leaf DATA lives in ``sic_map.csv`` (operator-editable)."""
+
+    MINER = "miner"
+    BANK = "bank"
+    UTILITIES = "utilities"
+    OIL_GAS = "oil_gas"
+    SEMICONDUCTORS = "semiconductors"
+    BIOTECH_PHARMA = "biotech_pharma"
+    MEDICAL_DEVICES = "medical_devices"
+    HEALTHCARE_SERVICES = "healthcare_services"
+    SOFTWARE_IT = "software_it"
+    FINANCE_BROKERS = "finance_brokers"
+    REAL_ESTATE = "real_estate"
+    INDUSTRIALS_MACHINERY = "industrials_machinery"
+    CHEMICALS_MATERIALS = "chemicals_materials"
+    COMMS_MEDIA = "comms_media"
+    TRANSPORTATION = "transportation"
+    CONSUMER_RETAIL = "consumer_retail"
+    BUSINESS_SERVICES = "business_services"
+    # a blank-check shell (SIC "Blank Checks") — a LEAF for now by operator ruling; flagged as a
+    # candidate to move to the instrument-kind axis later (a SPAC is arguably what the INSTRUMENT is)
+    SPAC = "spac"
+    OTHER = "other"
+
+
+class BusinessSupersector(StrEnum):
+    """The business-type SUPER-SECTOR — the coarse watch grouping above the leaf ("are the utilities
+    moving?"). Pure code map from the leaf (``securities/business_type/supersectors.csv``), zero
+    storage, re-drawable without a migration. Identity like ``BusinessType``; never a call input."""
+
+    HEALTHCARE = "healthcare"
+    FINANCIALS = "financials"
+    TECHNOLOGY = "technology"
+    INDUSTRIALS = "industrials"
+    CONSUMER_COMMS = "consumer_comms"
+    MATERIALS = "materials"
+    ENERGY_UTILITIES = "energy_utilities"
+    REAL_ESTATE = "real_estate"
+    OTHER = "other"
+
+
 class TermTier(StrEnum):
     """A discovery keyword's tier in the thesis's persisted term set — the precision filter's INPUT.
 
