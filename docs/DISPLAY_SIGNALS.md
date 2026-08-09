@@ -197,7 +197,12 @@ protocol); if one ever needs clickable filing provenance, add an `*Out` mirror w
 The NamePanel's **"Indicators · this name"** section (S2) renders metrics as quiet chips, events as
 muted dated lines, and the basis as fine print — inverse loudness (#7): indicators are ambient
 context, never an alert, and an Incubating name's panel must not get louder because a moving
-average moved. Board/basket-table surfaces are explicit follow-ups, not defaults.
+average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
+the trailing-return ladder (`1d/7d/30d/90d/1Y`), `RVOL|8` / `RVOL|20`, and `Ins 30d` / `Ins 90d` —
+each bridged onto its row by `security_id` and holding the same discipline: a muted "—" is the
+default, an accent marks the exception (#7). The columns are individually sortable **within** each
+call-state group (nulls-last; the call hierarchy never moves) — the surface detail lives in
+`docs/BOARD.md`.
 
 **Perf note.** Each member does its own PIT read (2–3 price reads + 1 insider read per name per
 request — the `/scored` cost profile). If latency ever shows on a big basket, memoize the PIT reads

@@ -197,6 +197,21 @@ Each surfaced name carries two display layers, both value-free (#3):
   tail-sweep sourced this" (`decompose` may surface an off-universe name from its own knowledge); display-only
   like `matched_terms`, never a number (#3), never promoted onto a `BasketMember` (#2).
 
+**Identity chips carried onto the placement — the derived business type (Business-Type M1).** Beyond those
+value-free layers, `_carry_identity_and_gate` binds machine-parsed IDENTITY from the resolved master row
+onto every PLACED/VERIFY placement (`ResolvedPlacement`): sector, exchange, filer category, derived origin,
+and — new — the **derived business type + royalty overlay**. `business_type` is
+`resolve_business_type(sector, name, ticker, override)`, the SAME derive-on-read the Cockpit *Type* column
+uses (the operator-editable SIC maps in `securities/business_type/`, the operator's per-security re-tag
+winning); the FE renders it as a **muted `.idchip`** riding right after the raw SIC chip on both the
+candidate (To-Review / Couldn't-resolve) and placed rows, with the ◈ **royalty/streaming** overlay marked
+only when true (honest loudness — ~32 of ~8k names). A no-sector name shows **no** chip (honest abstain,
+#9); `other` (a SIC the maps don't cover) still shows — the visible tail. Display-only like the rest: never
+a number (#3), never promoted onto a `BasketMember` (#2), never a call input (#4). *Enforced by:*
+`workbench/chain_draft.py` (`ResolvedPlacement.business_type` / `royalty`, set in `_carry_identity_and_gate`;
+`tests/app/test_workbench_api.py`); `frontend/src/workbench/ChainEditor.tsx` (the `.idchip` at all three
+`IdentityChips` sites; `__tests__/ChainEditor.scoredIdentity.test.tsx`).
+
 - *War story:* this seam shipped green on 388 fake-client tests yet produced EMPTY prose for every name live —
   two faults a 1-name fake can't surface (token-ceiling truncation; a name-as-join-key the model formatted as
   "Name (TICKER)"). **A fake-client suite proves wiring, never that the live LLM call succeeds** — live
