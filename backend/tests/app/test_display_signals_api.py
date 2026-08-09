@@ -84,7 +84,12 @@ def test_display_signals_happy_path(client, db, security_id):
     assert m["security_id"] == str(security_id)
     assert m["ticker"] == "DEVCO"  # resolved from the master, not echoed from the basket
     # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed
-    assert [s["kind"] for s in m["signals"]] == ["sma_position", "range_52w", "volume_regime"]
+    assert [s["kind"] for s in m["signals"]] == [
+        "sma_position",
+        "trailing_returns",
+        "range_52w",
+        "volume_regime",
+    ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
     assert sig["basis"]["window_end"] == _ASOF.isoformat()
@@ -95,6 +100,16 @@ def test_display_signals_happy_path(client, db, security_id):
     # the posture chip rides the wire: ascending fixture = the strongest quadrant
     assert sig["headline"]["key"] == "above_rising"
     assert sig["headline"]["glyph"] == "up"
+    # trailing returns ride the SAME generic wire (zero schema change): the ascending fixture is up
+    # across every window, tone=pos, unit=pct — each an EOD trading-day return (1d = prior close)
+    ret = next(s for s in m["signals"] if s["kind"] == "trailing_returns")
+    ret_by_key = {mt["key"]: mt for mt in ret["metrics"]}
+    assert [mt["key"] for mt in ret["metrics"]] == ["ret_1d", "ret_7d", "ret_30d", "ret_90d"]
+    assert ret_by_key["ret_1d"]["value"] == 0.31  # 31.9 / 31.8 - 1
+    assert all(
+        ret_by_key[k]["tone"] == "pos" and ret_by_key[k]["unit"] == "pct" for k in ret_by_key
+    )
+    assert ret["basis"]["params"]["windows_trading_days"] == [1, 7, 30, 90]
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):
@@ -131,10 +146,15 @@ def test_no_lookahead_a_post_asof_bar_is_invisible(client, db, security_id):
     db.commit()
     tid = _seed_thesis(db, [_member(security_id)])
     r = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()})
-    sig = r.json()["members"][0]["signals"][0]
+    signals = r.json()["members"][0]["signals"]
+    sig = signals[0]
     assert sig["basis"]["window_end"] == _ASOF.isoformat()
     by_key = {mt["key"]: mt for mt in sig["metrics"]}
     assert by_key["close"]["value"] == 15.9  # the asof bar (10.0 + 59*0.1), not the 999 print
+    # and the trailing return is 15.9/15.8-1, computed from the asof close vs the prior close — the
+    # 999 future bar is invisible, so the 1d return is a quiet +0.63%, never a lookahead-blown spike
+    ret = next(s for s in signals if s["kind"] == "trailing_returns")
+    assert {mt["key"]: mt["value"] for mt in ret["metrics"]}["ret_1d"] == 0.63
 
 
 def test_display_get_writes_nothing(client, db, security_id):
