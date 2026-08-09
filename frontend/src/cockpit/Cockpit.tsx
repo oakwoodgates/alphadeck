@@ -8,6 +8,7 @@ import { PostureCell, ReturnCells } from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
+  dedupeBySecurityId,
   groupBasket,
   groupByBusinessType,
   nameKeyFor,
@@ -93,6 +94,10 @@ export function Cockpit({
   // display-only joins over data this page already fetches (no call is re-derived here). While the
   // call is still computing (card undefined) everything reads Quiet, honestly.
   const groups = groupBasket(basket, card, scoredQ.data?.members);
+  // The NON-segment lenses show ONE row per name: a multi-segment name has N identical rows (one per
+  // value-chain link) that would otherwise render as confusing duplicates. The value-chain lens keeps
+  // the FULL `groups` (each link-row intended); `groups` also stays full for selection + exports.
+  const dedupedGroups = dedupeBySecurityId(groups);
   // Foreign-filer annotation on the thesis CallCard — ONLY for a single-name thesis whose sole member is a
   // §16-exempt 20-F/40-F filer (a multi-name basket annotates per-name on the NamePanel instead, #7). The
   // form scopes the card's conviction sub-note; absent (domestic, unknown, multi-name, or scored not yet
@@ -144,14 +149,14 @@ export function Cockpit({
     rows: { row: BucketRow; def: BucketDef }[];
   }[] =
     groupMode === "state"
-      ? groups.map((g) => ({
+      ? dedupedGroups.map((g) => ({
           key: g.def.key,
           cls: g.def.cls,
           label: g.def.label,
           hint: g.def.hint,
           rows: g.rows.map((row) => ({ row, def: g.def })),
         }))
-      : groupByBusinessType(groups).map((g) => ({
+      : groupByBusinessType(dedupedGroups).map((g) => ({
           key: `type:${g.key}`,
           cls: "bkt-type",
           label: supersectorLabel(g.key === "unclassified" ? null : g.key),

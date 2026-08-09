@@ -127,6 +127,31 @@ export function groupBasket(
   })).filter((g) => g.rows.length > 0);
 }
 
+/** Collapse the multi-row artifact of a multi-SEGMENT name for the NON-segment lenses. A name placed
+ *  in N value-chain links has N `BasketMember` rows (same `security_id`, differing only in `segment`),
+ *  which the call-state and business-type lenses would otherwise render as confusing IDENTICAL
+ *  duplicates. This keeps ONE row per `security_id` — the FIRST in render order (strongest call, then
+ *  authored order), dropping later same-sid rows. Lossless: same `security_id` ⇒ same call bucket,
+ *  scored join, and business-type, so the collapse is purely visual. Rows with NO `security_id` are
+ *  NEVER deduped (each kept — the recall-safe direction: two ticker-only rows may be different
+ *  companies). The value-chain (segment) lens deliberately does NOT call this — there, each link-row
+ *  is the point ("show them all"). */
+export function dedupeBySecurityId(groups: BucketGroup[]): BucketGroup[] {
+  const seen = new Set<string>();
+  return groups
+    .map((g) => ({
+      def: g.def,
+      rows: g.rows.filter((r) => {
+        const sid = r.member.security_id;
+        if (!sid) return true; // no master bind → never merge (over-include, never a silent drop)
+        if (seen.has(sid)) return false;
+        seen.add(sid);
+        return true;
+      }),
+    }))
+    .filter((g) => g.rows.length > 0);
+}
+
 /** The business-type LENS (Business-Type M1): the SAME rows re-partitioned by the scored
  *  super-sector ("are the utilities moving?"). Display-only, built FROM groupBasket's output so
  *  every row keeps its call-state def — the state dot and exit-by survive the lens (the call never

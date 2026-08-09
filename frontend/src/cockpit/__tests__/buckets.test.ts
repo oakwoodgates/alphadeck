@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BasketMember, CallCardResponse, MemberCallOut, TriggerRefOut } from "../../api/hooks";
-import { groupBasket, nameKeyFor, resolveNameKey } from "../buckets";
+import { dedupeBySecurityId, groupBasket, nameKeyFor, resolveNameKey } from "../buckets";
 
 // --- fixture builders (loose partials cast to the wire types — test-only) ----------------------
 function member(ticker: string, sid: string | null, over: Partial<BasketMember> = {}): BasketMember {
@@ -147,6 +147,43 @@ describe("groupBasket — the per-name bucket derivation", () => {
     const basket = [member("A", "sa")];
     const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
     expect(keysOf(groupBasket(basket, c, []))).toEqual(["armed"]);
+  });
+});
+
+describe("dedupeBySecurityId — one row per name for the NON-segment lenses", () => {
+  const rows = (groups: ReturnType<typeof groupBasket>) => groups.flatMap((g) => g.rows);
+
+  it("collapses a multi-segment name (same security_id, N rows) to a single first-occurrence row", () => {
+    // the Rainbow Rush shape: KTTA sits in two value-chain links -> two identical BasketMember rows
+    const basket = [
+      member("KTTA", "sk", { segment: "Ketamine Clinics & Therapy Delivery" }),
+      member("KTTA", "sk", { segment: "Psychedelic & Ketamine Drug Developers" }),
+      member("SOLO", "ss"),
+    ];
+    const out = rows(dedupeBySecurityId(groupBasket(basket, undefined, [])));
+    expect(out.map((r) => [r.member.ticker, r.member.security_id])).toEqual([
+      ["KTTA", "sk"],
+      ["SOLO", "ss"],
+    ]);
+    expect(out[0].ordinal).toBe(0); // the FIRST occurrence (lowest ordinal) survives
+  });
+
+  it("keeps a duplicate TICKER with DISTINCT security_ids separate (different companies)", () => {
+    const basket = [member("DUP", "s1"), member("DUP", "s2")];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, []))).map((r) => r.member.security_id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
+
+  it("NEVER dedupes rows with no security_id — recall-safe over-include", () => {
+    const basket = [member("GHOST", null), member("GHOST", null)];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, [])))).toHaveLength(2);
+  });
+
+  it("is a no-op when every name is unique (the common thesis)", () => {
+    const basket = [member("A", "sa"), member("B", "sb"), member("C", null)];
+    expect(rows(dedupeBySecurityId(groupBasket(basket, undefined, [])))).toHaveLength(3);
   });
 });
 
