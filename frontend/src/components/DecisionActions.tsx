@@ -38,8 +38,12 @@ export function DecisionActions({
   const [price, setPrice] = useState("");
   const [reason, setReason] = useState("");
   // the name being taken — defaults to the platform's headline (the armed pick); the operator can
-  // pick any member the card knows, or log at thesis level (the empty option)
-  const members = [...(card.armed_members ?? []), ...(card.watch_members ?? [])];
+  // pick any member the card knows, or log at thesis level (the empty option). Deduped by
+  // security_id (armed first, then watch): the armed headline can ALSO appear in watch_members, and
+  // a flat concat would render — and key — that name twice (one option per distinct security).
+  const members = [...(card.armed_members ?? []), ...(card.watch_members ?? [])].filter(
+    (m, i, all) => all.findIndex((x) => x.security_id === m.security_id) === i,
+  );
   const [secId, setSecId] = useState(card.armed_security_id ?? "");
 
   const armed = card.state === "armed";
