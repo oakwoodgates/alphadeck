@@ -46,6 +46,60 @@ def test_net_math_window_boundaries_and_code_filter():
     assert sig.headline.detail == "3 buys · 1 sell · 1 unpriced"
 
 
+def test_30d_subwindow_is_a_tighter_slice_of_the_screened_90d_buys():
+    # the 30d metrics are the subset of the SAME screened open-market buys within 30 days of asof.
+    # Its boundary mirrors the 90d convention (asof-30, asof]: day 29 is in, day 30 is out — exactly
+    # as the 90d window includes day 89 and excludes day 90. A buy at day 45 counts in 90d, NOT 30d.
+    rows = [
+        _txn(_ASOF, name="A"),  # day 0 — in BOTH windows
+        _txn(_ASOF - timedelta(days=29), name="B"),  # day 29 — the oldest 30d day (in)
+        _txn(_ASOF - timedelta(days=30), name="C"),  # day 30 — OUT of 30d, in 90d
+        _txn(_ASOF - timedelta(days=45), name="D"),  # day 45 — in 90d, NOT 30d
+        _txn(_ASOF - timedelta(days=89), name="E"),  # day 89 — the oldest 90d day, NOT 30d
+    ]
+    sig = insider_flow.compute(rows, _ASOF)
+    m = _by_key(sig)
+    assert m["buy_count"].value == 5.0  # all five fall inside the 90d window
+    assert m["distinct_buyers"].value == 5.0
+    assert m["buy_count_30d"].value == 2.0  # only A (day 0) + B (day 29)
+    assert m["distinct_buyers_30d"].value == 2.0  # A, B
+    assert m["buy_count_30d"].unit == "count"
+    # the tighter window is shown-the-work in the basis params, beside the 90d one (#6)
+    assert sig.basis.params["window_days"] == 90
+    assert sig.basis.params["window_days_short"] == 30
+
+
+def test_30d_distinct_buyers_dedup_and_no_lookahead():
+    # a pure no-lookahead assertion at the compute grain: a FUTURE buy (valid_from > asof) is
+    # invisible in BOTH windows — the filter is `valid_from <= asof`, never the wall clock (#1). And
+    # the 30d distinct-buyer count de-dups a repeat filer exactly as the 90d count does.
+    rows = [
+        _txn(_ASOF - timedelta(days=2), name="A"),  # two buys, same insider, both in 30d
+        _txn(_ASOF - timedelta(days=5), name="A"),
+        _txn(_ASOF - timedelta(days=10), name="B"),  # a second insider in 30d
+        _txn(_ASOF + timedelta(days=1), name="Z"),  # a FUTURE buy — no lookahead, out of both
+    ]
+    m = _by_key(insider_flow.compute(rows, _ASOF))
+    assert m["buy_count_30d"].value == 3.0  # A, A, B — the future Z is excluded
+    assert m["distinct_buyers_30d"].value == 2.0  # A counted once despite two buys; Z invisible
+    assert m["buy_count"].value == 3.0  # the 90d window likewise never sees the future buy
+    assert m["distinct_buyers"].value == 2.0
+
+
+def test_30d_subwindow_rides_the_price_screen_not_a_re_screen():
+    # the 30d slice is taken from the ALREADY-screened open-market `buys`, so an offer-price
+    # subscription dropped from the 90d total is absent from the 30d total too (no double-screen, no
+    # leak): a $1 buy far below the day's $40 low is set aside, and neither window counts it.
+    rows = [
+        _priced("Jane Doe", 100_000, 1.0, _ASOF - timedelta(days=3)),  # off-market, screened out
+        _priced("Ray Real", 10_000, 25.0, _ASOF - timedelta(days=4)),  # genuine open-market buy
+    ]
+    m = _by_key(insider_flow.compute(rows, _ASOF, day_lows={_ASOF - timedelta(days=3): 40.0}))
+    assert m["buy_count"].value == 1.0  # only the genuine buy survives the screen
+    assert m["buy_count_30d"].value == 1.0  # the 30d slice inherits the screen, never re-adds it
+    assert m["distinct_buyers_30d"].value == 1.0
+
+
 def test_net_selling_headline():
     rows = [
         _txn(_ASOF, usd=500_000.0, name="A"),
