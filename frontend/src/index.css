@@ -95,6 +95,15 @@ table.basket .tk { font-family: var(--mono); font-weight: 700; }
 table.basket .co { color: var(--txt-2); }
 .met { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); text-align: right; }
 
+/* sortable column headers — the label rides a <button> (keyboard-focusable, cycles the sort); the
+   direction arrow is aria-hidden so the header's accessible NAME stays exactly the label. A subtle
+   hover/active brighten marks the opt-in, reversible (3-state desc→asc→off) within-group sort. */
+.basket th .th-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.basket th .th-sort:hover { color: var(--txt-2); }
+.basket th .th-sort.active { color: var(--txt-2); }
+.basket th .th-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.basket th .th-arrow { font-size: 8px; line-height: 1; }
+
 /* --- the per-name buckets (grouped basket): group headers + status dots --------------------
    Each bucket class sets `--gc`, the group accent the swatch/dot/label all read. The weaker-basis
    buckets (theme-armed / warming / quiet) wear a HOLLOW dot — same hue, weaker claim. */

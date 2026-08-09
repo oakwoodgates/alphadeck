@@ -17,6 +17,7 @@ import {
   type BucketDef,
   type BucketRow,
 } from "./buckets";
+import { nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
 import { NamePanel } from "./NamePanel";
 import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
 import {
@@ -55,6 +56,46 @@ function EntryWindow({ asof, armUntil }: { asof: string; armUntil: string }) {
       entry closes {fmtDate(armUntil)}
       {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
     </span>
+  );
+}
+
+/** A sortable column header. The label rides a real <button> (keyboard-focusable, cycles the sort);
+ *  the direction arrow is `aria-hidden` so the column header's accessible NAME stays EXACTLY the
+ *  label — the shipped `getByRole("columnheader", { name })` assertions and screen readers key off
+ *  that, so it must never change. `aria-sort` on the <th> marks the active column for a11y. */
+function SortableTh({
+  col,
+  label,
+  align = "left",
+  sort,
+  onSort,
+}: {
+  col: SortColId;
+  label: string;
+  align?: "left" | "right";
+  sort: SortState | null;
+  onSort: (col: SortColId) => void;
+}) {
+  const dir = sort && sort.col === col ? sort.dir : null;
+  return (
+    <th
+      aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none"}
+      style={{ textAlign: align }}
+    >
+      <button
+        type="button"
+        className={`th-sort${dir ? " active" : ""}`}
+        title={`sort by ${label}`}
+        onClick={() => onSort(col)}
+      >
+        {label}
+        {dir && (
+          <span className="th-arrow" aria-hidden="true">
+            {dir === "asc" ? "▲" : "▼"}
+          </span>
+        )}
+      </button>
+    </th>
   );
 }
 
@@ -158,6 +199,12 @@ export function Cockpit({
   // lens re-orders, never drops. Call-state + business-type dedupe to one row per name; the
   // value-chain lens shows every link-row (a multi-segment name appears under each of its links).
   const [groupMode, setGroupMode] = useState<"state" | "type" | "segment">("state");
+  // The active column SORT — a local, reversible view choice (the lens-toggle precedent); null = the
+  // default order (call-rank within each group). It re-orders rows WITHIN each group only (the call
+  // hierarchy stays put) and PERSISTS across a lens switch (re-ranks within the new lens's groups).
+  // Click cycles desc → asc → off.
+  const [sort, setSort] = useState<SortState | null>(null);
+  const onSort = (col: SortColId) => setSort((cur) => nextSort(cur, col));
   const segments = thesis?.segments ?? [];
   // Gate the value-chain lens on the thesis actually having a decomposed chain (≥1 placed segment):
   // an undecomposed basket has nothing to group by (interaction principle #3 — a control that can't
@@ -199,6 +246,23 @@ export function Cockpit({
             hint: g.descriptor,
             rows: g.rows,
           }));
+
+  // Apply the active sort WITHIN each group — ONE seam covers all three lenses (they share this
+  // render shape). Off (sort null) leaves the default order untouched. `signalsFor` bridges a row to
+  // its four display signals by security_id, exactly like the cells; the sort re-orders and drops
+  // nothing (`[...rows]` in sortRenderRows — a re-order, never a filter, #9/#2). The dot is not sortable.
+  const signalsFor = (r: BucketRow) => {
+    const sid = r.member.security_id;
+    return {
+      sma: sid ? (smaBySid.get(sid) ?? null) : null,
+      trail: sid ? (trailBySid.get(sid) ?? null) : null,
+      rvol: sid ? (rvolBySid.get(sid) ?? null) : null,
+      insider: sid ? (insiderBySid.get(sid) ?? null) : null,
+    };
+  };
+  const sortedGroups = sort
+    ? renderGroups.map((g) => ({ ...g, rows: sortRenderRows(g.rows, sort, signalsFor) }))
+    : renderGroups;
 
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
@@ -350,38 +414,43 @@ export function Cockpit({
                     Empty buckets render no header (loudness marks the exception). */}
                 <table className="basket">
                   <thead>
+                    {/* Click a header to rank the basket by that column — WITHIN each group (the
+                        call hierarchy stays; the biggest mover inside Quiet still surfaces). A "—"
+                        cell is ABSENT and sorts LAST in both directions (#9/#2); the sort re-orders,
+                        never drops. The status-dot column is not sortable. */}
                     <tr>
                       <th className="dotc" aria-label="status" />
-                      <th>Ticker</th>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th style={{ textAlign: "right" }}>SMA</th>
+                      <SortableTh col="ticker" label="Ticker" sort={sort} onSort={onSort} />
+                      <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
+                      <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
+                      <SortableTh col="sma" label="SMA" align="right" sort={sort} onSort={onSort} />
                       {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
                           24h/intraday move; this platform is end-of-day) */}
-                      <th style={{ textAlign: "right" }}>1d</th>
-                      <th style={{ textAlign: "right" }}>7d</th>
-                      <th style={{ textAlign: "right" }}>30d</th>
-                      <th style={{ textAlign: "right" }}>90d</th>
+                      <SortableTh col="ret_1d" label="1d" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="ret_7d" label="7d" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="ret_30d" label="30d" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="ret_90d" label="90d" align="right" sort={sort} onSort={onSort} />
                       {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
-                      <th style={{ textAlign: "right" }}>1Y</th>
+                      <SortableTh col="ret_1y" label="1Y" align="right" sort={sort} onSort={onSort} />
                       {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
                           vs the prior 8-bar average (mirrors the breakout detector — the call-matched
                           read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
                           its month?" convention, deliberately call-decoupled). A warm accent marks the
                           volume-backed exception, #7 — each column off its OWN threshold. */}
-                      <th style={{ textAlign: "right" }}>RVOL|8</th>
-                      <th style={{ textAlign: "right" }}>RVOL|20</th>
+                      <SortableTh col="rvol8" label="RVOL|8" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="rvol20" label="RVOL|20" align="right" sort={sort} onSort={onSort} />
                       {/* insider open-market buys: {buys}/{distinct buyers} per trailing window,
                           short before long (matching the return ladder). A ≥2-buyer cluster accents
-                          — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—" */}
-                      <th style={{ textAlign: "right" }}>Ins 30d</th>
-                      <th style={{ textAlign: "right" }}>Ins 90d</th>
-                      <th style={{ textAlign: "right" }}>Mkt cap</th>
-                      <th style={{ textAlign: "right" }}>Exit-by</th>
+                          — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—".
+                          Sort is buyers-primary, buys-secondary (breadth-first, matching the accent). */}
+                      <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="exit_by" label="Exit-by" align="right" sort={sort} onSort={onSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {renderGroups.map((g) => (
+                    {sortedGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
                           <td colSpan={16}>
