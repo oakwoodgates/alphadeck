@@ -70,6 +70,13 @@ class Security(DomainModel):
     # basis (like ``enriched_source``), never a fact's ``ratified_by``. NULL = un-resolved.
     price_symbol: str | None = None
     price_symbol_basis: str | None = None
+    # BUSINESS-TYPE RE-TAG (migration 0033) — the operator's stored per-security business-type override,
+    # kept ONLY when it DIFFERS from what the securities/business_type maps derive from ``sector`` (the
+    # price_symbol store-on-diff idiom; NULL = classified by the maps, the healthy common case). MONITOR
+    # display identity like the above, never a fact / call input (#1/#3/#4). ``business_type_basis`` is
+    # the re-tag's provenance ("operator:retag"), identity-basis like ``price_symbol_basis``.
+    business_type: str | None = None
+    business_type_basis: str | None = None
 
 
 class SecurityIdentity(DomainModel):

@@ -24,6 +24,7 @@ from app.deps import (
 from app.schemas_api import (
     AutoConfirmOut,
     AutoConfirmRequest,
+    BusinessTypeOut,
     ChainDraftOut,
     DraftCoverageOut,
     DraftJobRef,
@@ -42,6 +43,7 @@ from app.schemas_api import (
     SavedRunSummary,
     ScoredMemberOut,
     SecurityMatchOut,
+    SetBusinessTypeRequest,
     ThesisDetail,
     TierRecommendation,
     TriageSessionEnvelope,
@@ -77,6 +79,7 @@ from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from repositories import thesis_repo
 from securities import coherence, figi, fund_tickers, master
+from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
 from signals.base import PointInTimeData
 from workbench import etf_overlap, run_loader, triage_store
@@ -492,6 +495,44 @@ def ingest_security_prices(
         bars_appended=bars.appended,
         bars_reversioned=bars.reversioned,
         latest_bar=latest_bar_date(conn, security_id, tenant_id=tenant_id),
+    )
+
+
+@router.post("/securities/{security_id}/business-type", response_model=BusinessTypeOut)
+def set_business_type(
+    security_id: UUID,
+    req: SetBusinessTypeRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> BusinessTypeOut:
+    """Re-tag one security's BUSINESS TYPE (Business-Type M1) — the operator overruling the maps-derived
+    classification for ONE name (#10: the maps recommend, the operator decides). ``business_type: null``
+    CLEARS the re-tag — the visible revert back to derived (reversibility, WB #1). Durable, master-level
+    identity (what a company DOES holds across theses), stored ONLY when it differs from the derived leaf
+    (0033 store-on-diff — ``securities/master.set_business_type``). MONITOR display identity, never a fact,
+    never a call input (#3/#4). The receipt is the security's business-type read AFTER the write."""
+    if not master.exists(conn, security_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="unknown security for this tenant")
+    master.set_business_type(
+        conn,
+        security_id,
+        req.business_type.value if req.business_type is not None else None,
+        basis="operator:retag",
+        tenant_id=tenant_id,
+    )
+    conn.commit()
+    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    if sec is None:  # defensive: the row was just written under this tenant
+        raise HTTPException(status_code=404, detail="security not found after re-tag")
+    read = resolve_business_type(
+        sector=sec.sector, name=sec.name, ticker=sec.ticker, override=sec.business_type
+    )
+    return BusinessTypeOut(
+        security_id=security_id,
+        business_type=read.business_type,
+        business_supersector=read.supersector,
+        business_type_override=sec.business_type,
+        royalty=read.royalty,
     )
 
 

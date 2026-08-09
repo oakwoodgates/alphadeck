@@ -437,6 +437,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/securities/{security_id}/business-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Business Type
+         * @description Re-tag one security's BUSINESS TYPE (Business-Type M1) — the operator overruling the maps-derived
+         *     classification for ONE name (#10: the maps recommend, the operator decides). ``business_type: null``
+         *     CLEARS the re-tag — the visible revert back to derived (reversibility, WB #1). Durable, master-level
+         *     identity (what a company DOES holds across theses), stored ONLY when it differs from the derived leaf
+         *     (0033 store-on-diff — ``securities/master.set_business_type``). MONITOR display identity, never a fact,
+         *     never a call input (#3/#4). The receipt is the security's business-type read AFTER the write.
+         */
+        post: operations["set_business_type_workbench_securities__security_id__business_type_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/facts/explain": {
         parameters: {
             query?: never;
@@ -1464,6 +1489,47 @@ export interface components {
             surfaced_terms?: string[];
             /** @default operator_set */
             authored_by: components["schemas"]["Authorship"];
+        };
+        /**
+         * BusinessSupersector
+         * @description The business-type SUPER-SECTOR — the coarse watch grouping above the leaf ("are the utilities
+         *     moving?"). Pure code map from the leaf (``securities/business_type/supersectors.csv``), zero
+         *     storage, re-drawable without a migration. Identity like ``BusinessType``; never a call input.
+         * @enum {string}
+         */
+        BusinessSupersector: "healthcare" | "financials" | "technology" | "industrials" | "consumer_comms" | "materials" | "energy_utilities" | "real_estate" | "other";
+        /**
+         * BusinessType
+         * @description WHAT a company DOES — the business-type LEAF (MONITOR/organization identity, Business-Type M1).
+         *
+         *     Derived on read from the master's stored ``sector`` (EDGAR ``sicDescription``) via the editable
+         *     data files in ``securities/business_type/`` — descriptive IDENTITY like ``sector``/``origin``
+         *     (#1/#3 govern numbers, not identity strings): never a fact, never a call input, never fires/arms/
+         *     vetoes/grades. ``OTHER`` is the visible tail (an unmapped-but-present sector — never a silent
+         *     drop, #9); an un-enriched row derives ``None`` (unclassified — the honest abstain). This enum is
+         *     the TYPE CONTRACT; the SIC→leaf DATA lives in ``sic_map.csv`` (operator-editable).
+         * @enum {string}
+         */
+        BusinessType: "miner" | "bank" | "utilities" | "oil_gas" | "semiconductors" | "biotech_pharma" | "medical_devices" | "healthcare_services" | "software_it" | "finance_brokers" | "real_estate" | "industrials_machinery" | "chemicals_materials" | "comms_media" | "transportation" | "consumer_retail" | "business_services" | "spac" | "other";
+        /**
+         * BusinessTypeOut
+         * @description The re-tag receipt: the security's business-type read AFTER the write, re-derived server-side —
+         *     what every scored surface will now show (#6: the response shows the effective state, not an echo).
+         */
+        BusinessTypeOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            business_type?: components["schemas"]["BusinessType"] | null;
+            business_supersector?: components["schemas"]["BusinessSupersector"] | null;
+            business_type_override?: components["schemas"]["BusinessType"] | null;
+            /**
+             * Royalty
+             * @default false
+             */
+            royalty: boolean;
         };
         /**
          * CallCardResponse
@@ -3318,6 +3384,15 @@ export interface components {
             foreign_filer_form?: string | null;
             /** Price Symbol */
             price_symbol?: string | null;
+            business_type?: components["schemas"]["BusinessType"] | null;
+            business_supersector?: components["schemas"]["BusinessSupersector"] | null;
+            business_type_override?: components["schemas"]["BusinessType"] | null;
+            /**
+             * Royalty
+             * @default false
+             */
+            royalty: boolean;
+            instrument_kind?: components["schemas"]["InstrumentKind"] | null;
             archetype?: components["schemas"]["Archetype"] | null;
             archetype_hint?: components["schemas"]["Archetype"] | null;
             /** Segment */
@@ -3393,6 +3468,17 @@ export interface components {
             label: string;
             /** Descriptor */
             descriptor?: string | null;
+        };
+        /**
+         * SetBusinessTypeRequest
+         * @description Body for ``POST /workbench/securities/{security_id}/business-type`` — the operator's per-security
+         *     business-type RE-TAG (Business-Type M1). ``business_type`` is the leaf to tag, or ``null`` to CLEAR the
+         *     re-tag (the visible revert back to the maps-derived classification — reversibility, WB #1). Identity
+         *     metadata, never a fact (#3); the server stores it ONLY when it differs from the derived leaf (0033
+         *     store-on-diff) and stamps ``operator:retag`` as the basis.
+         */
+        SetBusinessTypeRequest: {
+            business_type?: components["schemas"]["BusinessType"] | null;
         };
         /**
          * SpacAttachOut
@@ -4326,6 +4412,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PriceIngestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_business_type_workbench_securities__security_id__business_type_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetBusinessTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessTypeOut"];
                 };
             };
             /** @description Validation Error */
