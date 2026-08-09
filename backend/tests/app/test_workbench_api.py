@@ -2146,8 +2146,8 @@ def test_draft_endpoint_status_gates_an_unlisted_name(client, db):
 
 
 def test_draft_endpoint_carries_identity_for_a_listed_name(client, db):
-    """A currently-listed name stays PLACED and the enrich pass carries sector / exchange / listing_status onto
-    the placement (display-only, never promoted)."""
+    """A currently-listed name stays PLACED and the enrich pass carries sector / exchange / listing_status +
+    the DERIVED business type onto the placement (display-only, never promoted)."""
     oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     tid = _thesis_for_draft(db)
     edgar = _FakeEfts(
@@ -2169,6 +2169,12 @@ def test_draft_endpoint_carries_identity_for_a_listed_name(client, db):
         "Nasdaq",
         "active",
     )
+    # Business-Type M1 (Discovery chip): the derived leaf rides the placement too. The SIC "Electric
+    # Services" resolves to the ``utilities`` leaf via securities/business_type/sic_map.csv; the royalty
+    # overlay is off (no company-name tell). A fresh insert has no 0033 re-tag, so this is the pure SIC
+    # derive — the same ``resolve_business_type`` the master's ``identity_for`` uses for the scored view.
+    assert p["business_type"] == "utilities"
+    assert p["royalty"] is False
 
 
 def test_draft_endpoint_failopen_never_5xx(client, db, monkeypatch):
