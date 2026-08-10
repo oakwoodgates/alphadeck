@@ -29,7 +29,10 @@ function fullHook(): HookRuntime {
           // S2: the frozen at-entry seed terms ride the blob inside the member (ADDITIVE — no
           // SCHEMA_VERSION bump; an old blob without it deserializes fine, the field just absent)
           surfaced_terms: ["nuclear"],
-          authored_by: "operator_set",
+          // the post-S1 member shape: honest authorship + the sign-off marker (the legacy
+          // `operator_set` blob is covered by its own normalize test — it does NOT round-trip verbatim)
+          authored_by: "system_drafted",
+          signed_off: true,
         },
       ],
     },

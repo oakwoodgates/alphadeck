@@ -1195,7 +1195,6 @@ export function ChainEditor({
   // component).
   const placedRow = (m: BasketMember) => {
     const k = memberKey(m);
-    const drafted = m.authored_by === "system_drafted";
     const mt = m.security_id ? matched[m.security_id] : undefined;
     // S2 (re-scope): the FROZEN seed-term provenance — `surfaced_terms`, persisted on the member when it
     // entered the Basket (S1). Distinct from `mt` (the CURRENT draft/re-scope run's matches, display-only
@@ -1315,23 +1314,23 @@ export function ChainEditor({
                     ))}
                   </select>
                 </span>
-                {/* the row actions right-align at the END of the controls row (accept ⇄ un-accept · the
-                    To-Review send-back) — chosen over the top-right slot to de-orphan them and group the
-                    knobs. Reversibility (#1): accept is a TOGGLE (the state carries authorship, no badge);
-                    un-accept flips back to system_drafted keeping every field value (a re-draft re-rolls it). */}
+                {/* the row actions right-align at the END of the controls row (sign off ⇄ withdraw · the
+                    To-Review send-back). Reversibility (#1): sign-off is a TOGGLE on the confidence
+                    ladder's top rung — it endorses the NAME, never sets authorship, never gates Save. */}
                 <span className="rowactions">
                   <button
                     type="button"
-                    className="wb-mini"
-                    aria-label={`${drafted ? "accept" : "un-accept"} ${m.ticker}`}
+                    className={`wb-mini${m.signed_off ? " on" : ""}`}
+                    aria-pressed={m.signed_off}
+                    aria-label={`${m.signed_off ? "withdraw sign-off" : "sign off"} ${m.ticker}`}
                     title={
-                      drafted
-                        ? "ratify this drafted placement — you own it"
-                        : "un-accept — hand it back to the drafter (values kept; a re-draft re-rolls it)"
+                      m.signed_off
+                        ? "withdraw your sign-off — the name stays included; nothing else changes"
+                        : "sign off — endorse this NAME for the thesis (a marker: never authorship, never a gate)"
                     }
-                    onClick={() => d.toggleAccept(k)}
+                    onClick={() => d.toggleSignOff(k)}
                   >
-                    {drafted ? "✓ accept" : "✕ un-accept"}
+                    {m.signed_off ? "✓ signed off" : "sign off"}
                   </button>
                   {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
                   {m.security_id && verifyOrigin[m.security_id] && (
@@ -1931,10 +1930,10 @@ export function ChainEditor({
               <button
                 type="button"
                 className="wb-mini ghost"
-                title="exclude every still-drafted name — keep only the ones you've accepted or edited"
-                onClick={d.excludeUnaccepted}
+                title="exclude every name you have NOT signed off — keep only your endorsed names (each stays visible, one click back)"
+                onClick={d.excludeNotSignedOff}
               >
-                clear un-accepted
+                clear not signed-off
               </button>
               <button
                 type="button"
