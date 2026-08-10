@@ -1327,6 +1327,115 @@ def test_promote_omitted_surfaced_terms_defaults_empty(client, security_id):
     assert client.get(f"/theses/{tid}").json()["basket"][0]["surfaced_terms"] == []
 
 
+# --- Discovery cleanup S1: signed_off + the legacy translation + the multi-membership rows ---
+
+
+def _s1_member(ticker, sid, segment="reactors", **kw):
+    d = {
+        "ticker": ticker,
+        "role": "r",
+        "security_id": str(sid),
+        "segment": segment,
+        "authored_by": "system_drafted",
+    }
+    d.update(kw)
+    return d
+
+
+def _s1_payload(tid, members, segments=("reactors",)):
+    return {
+        "id": tid,
+        "name": "Nuclear S1",
+        "narrative": "x",
+        "ticker": None,
+        "segments": [{"label": s} for s in segments],
+        "basket": members,
+    }
+
+
+def test_promote_signed_off_round_trips_and_never_gates(client, db, security_id):
+    """`signed_off` is a MARKER that round-trips promote → store → GET — and it NEVER gates: a
+    not-signed-off member persists exactly like a signed-off one (include gates promotion; sign-off
+    only marks). Authorship rides beside it untouched."""
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    r = client.post(
+        "/workbench/theses",
+        json=_s1_payload(
+            None,
+            [
+                _s1_member("DEVCO", security_id, signed_off=True),
+                _s1_member("OKLO", oklo, signed_off=False),  # NOT endorsed — persists all the same
+            ],
+        ),
+    )
+    assert r.status_code == 200
+    by_ticker = {m["ticker"]: m for m in client.get(f"/theses/{r.json()['id']}").json()["basket"]}
+    assert set(by_ticker) == {"DEVCO", "OKLO"}  # sign-off never gated the un-endorsed name
+    assert by_ticker["DEVCO"]["signed_off"] is True
+    assert by_ticker["OKLO"]["signed_off"] is False
+    assert all(m["authored_by"] == "system_drafted" for m in by_ticker.values())
+
+
+def test_promote_translates_the_legacy_operator_set(client, db, security_id):
+    """THE SESSION-BLOB RESURRECTION guard, server half: a pre-change payload (an autosaved triage blob
+    restored after the cutover) still carrying the RETIRED `operator_set` is TRANSLATED at the wire —
+    stored as system_drafted + signed_off=true (the 0035 reset rule) — so Save can never write the
+    retired value back over the reset. Assert the TABLE, not just the response."""
+    r = client.post(
+        "/workbench/theses",
+        json=_s1_payload(None, [_s1_member("DEVCO", security_id, authored_by="operator_set")]),
+    )
+    assert r.status_code == 200
+    member = r.json()["basket"][0]
+    assert member["authored_by"] == "system_drafted" and member["signed_off"] is True
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT authored_by, signed_off FROM basket_member WHERE thesis_id = %s",
+            (r.json()["id"],),
+        )
+        row = cur.fetchone()
+    assert row["authored_by"] == "system_drafted"  # the retired value never reached the spine
+    assert row["signed_off"] is True
+
+
+def test_promote_multi_segment_membership_persists_n_rows(client, db, security_id):
+    """THE MULTI-MEMBERSHIP WIRE (S1): a name the draft recommends into N links promotes as N
+    basket_member rows (same security_id, different segment). COUNT THE TABLE before AND after a
+    re-promote of the same payload — the read's shape alone can hide a duplicate append or a squash.
+    """
+
+    def count():
+        with db.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+            return cur.fetchone()["n"]
+
+    members = [
+        _s1_member("DEVCO", security_id, segment="reactors", signed_off=True),
+        _s1_member("DEVCO", security_id, segment="fuel", signed_off=True),
+    ]
+    r = client.post(
+        "/workbench/theses", json=_s1_payload(None, members, segments=("reactors", "fuel"))
+    )
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert count() == 2  # N rows stored, not squashed
+
+    got = client.get(f"/theses/{tid}").json()["basket"]
+    assert [(m["ticker"], m["segment"]) for m in got] == [
+        ("DEVCO", "reactors"),
+        ("DEVCO", "fuel"),
+    ]
+    assert all(m["security_id"] == str(security_id) for m in got)  # one NAME, two memberships
+    assert all(m["signed_off"] for m in got)  # the per-name marker rides each row
+
+    # the re-promote (the FE re-snapshot resending what it read) keeps EXACTLY the N rows
+    r2 = client.post(
+        "/workbench/theses", json=_s1_payload(tid, members, segments=("reactors", "fuel"))
+    )
+    assert r2.status_code == 200
+    assert count() == 2  # count before + after — neither grown nor squashed
+
+
 # --- hybrid-2a: ratify a scoring fact (the first fact-WRITE) ---
 
 

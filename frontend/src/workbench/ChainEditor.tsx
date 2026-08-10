@@ -1260,8 +1260,9 @@ export function ChainEditor({
         key={k}
       >
         <div className="top">
-          {/* TRIAGE include toggle (default-on, #9): unchecking EXCLUDES the name from Save; the row stays
-              visible (greyed), one click from re-including. Orthogonal to accept — never touches authorship. */}
+          {/* the LADDER's gate (default-on, #9): unchecking EXCLUDES the name from Save (excluded wins);
+              the row stays visible (greyed), one click from re-including. Include never touches
+              authorship or the sign-off flag. */}
           <input
             type="checkbox"
             className="wb-inc"
@@ -1276,9 +1277,10 @@ export function ChainEditor({
           ) : null}
           {m.role && m.role !== "—" ? <span className="co role">{m.role}</span> : null}
           {/* R3: an EXCLUDED (set-aside) row collapses to a quiet stub — checkbox + ticker + name + an
-              "excluded" tag stay visible (#9, re-check to restore); its chips, controls, and prose are
-              hidden so the noise recedes (inverse loudness). Exclude is VIEW-only here — it never touches
-              authorship (orthogonal A: an edited note stays operator_edited, safe from the next re-roll). */}
+              "excluded" tag stay visible (#9, re-check to restore); its chips, controls (incl. the
+              sign-off toggle — structurally unreachable while excluded, the ladder's "excluded wins"),
+              and prose hide so the noise recedes (inverse loudness). Exclude never touches authorship
+              or the flag (an edited note stays operator_edited, safe from the next re-roll). */}
           {!included ? (
             <>
               <span

@@ -131,8 +131,8 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       return next;
     });
   // Bulk-exclude a specific set of names — the group-level "exclude all" on a display lens (the low-quality
-  // cluster). Same contract as excludeUnaccepted: ADDITIVE, exclude-only, never touches authorship;
-  // every row stays visible (greyed) and re-includable in one click (#9).
+  // cluster). Same contract as excludeNotSignedOff: ADDITIVE, exclude-only, never touches authorship or
+  // the sign-off flag; every row stays visible (greyed) and re-includable in one click (#9).
   const excludeKeys = (keys: string[]) =>
     setExcluded((prev) => {
       const next = new Set(prev);

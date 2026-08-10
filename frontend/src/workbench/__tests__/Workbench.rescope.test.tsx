@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -231,9 +231,9 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
     expect(s.del).toHaveBeenCalledTimes(1);
     expect(await screen.findByRole("button", { name: "Save chain" })).toBeInTheDocument();
     // the FULL saved Basket is up top (both spine members, frozen); the stale candidate is nowhere
-    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
-    expect(screen.getByLabelText("segment for GEV").closest(".wb-basket")).not.toBeNull();
-    expect(screen.queryByLabelText("segment for STALE")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("include OKLO").closest(".wb-basket")).not.toBeNull();
+    expect(screen.getByLabelText("include GEV").closest(".wb-basket")).not.toBeNull();
+    expect(screen.queryByLabelText("include STALE")).not.toBeInTheDocument();
   });
 
   it("Resume mounts the stale session anyway (the operator's call) — badged as session-driven", async () => {
@@ -245,7 +245,7 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
     await user.click(screen.getByRole("button", { name: "Resume" }));
     expect(s.del).not.toHaveBeenCalled(); // resuming destroys nothing
     // the restored prune is live (its candidate renders) and the badge says the state is session-driven
-    expect(await screen.findByLabelText("segment for STALE")).toBeInTheDocument();
+    expect(await screen.findByLabelText("include STALE")).toBeInTheDocument();
     expect(screen.getByText("resumed autosave · 15d ago")).toBeInTheDocument();
   });
 
@@ -257,10 +257,10 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
 
     // no gate: the editor mounted straight off the session (today's behavior below the threshold)
     expect(screen.queryByText(/Autosaved working session from/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("segment for ZZZ")).toBeInTheDocument();
+    expect(screen.getByLabelText("include ZZZ")).toBeInTheDocument();
     // …and the session predates GEV, so the spine member is absent from the editor — EXACTLY the
     // 159-vs-160 state the badge exists to make visible
-    expect(screen.queryByLabelText("segment for GEV")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("include GEV")).not.toBeInTheDocument();
     expect(screen.getByText("resumed autosave · 1d ago")).toBeInTheDocument();
   });
 });
@@ -278,7 +278,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     s.jobData = undefined; // the kicked-off draft stays pending — we assert the remounted SEED state
     renderWb();
     await user.click(screen.getByRole("button", { name: /edit the chain/i }));
-    expect(screen.getByLabelText("segment for ZZZ")).toBeInTheDocument(); // the stale candidate pile is live
+    expect(screen.getByLabelText("include ZZZ")).toBeInTheDocument(); // the stale candidate pile is live
 
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
     // the confirm names the inverse and the kept-frozen Basket (reversibility said out loud)
@@ -288,10 +288,10 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
 
     // the remount seeds from the THESIS: the WHOLE saved Basket (operator_set AND system_drafted)
     // freezes into the Basket panel; the working pile + To-Review buckets start empty
-    const gev = await screen.findByLabelText("segment for GEV");
+    const gev = await screen.findByLabelText("include GEV");
     expect(gev.closest(".wb-basket")).not.toBeNull();
-    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
-    expect(screen.queryByLabelText("segment for ZZZ")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("include OKLO").closest(".wb-basket")).not.toBeNull();
+    expect(screen.queryByLabelText("include ZZZ")).not.toBeInTheDocument();
     expect(screen.queryByText("Old Verify Co")).not.toBeInTheDocument();
     expect(screen.getByText(/no new names — draft from the narrative/)).toBeInTheDocument();
     expect(screen.queryByText(/resumed autosave/)).not.toBeInTheDocument(); // spine-seeded, not a restore
@@ -310,7 +310,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
     expect(s.del).not.toHaveBeenCalled();
     expect(s.start).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("segment for ZZZ")).toBeInTheDocument(); // the prune is untouched
+    expect(screen.getByLabelText("include ZZZ")).toBeInTheDocument(); // the prune is untouched
     confirmSpy.mockRestore();
   });
 
@@ -331,12 +331,14 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     // the fresh candidate pile arrives (To Review); the old buckets never re-appear
     expect(await screen.findByText("Fresh Verify Co")).toBeInTheDocument();
     expect(screen.queryByText("Old Verify Co")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("segment for ZZZ")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("include ZZZ")).not.toBeInTheDocument();
 
     // the established row is byte-identical to the SPINE — the re-match's fresh segment/prose never landed
-    expect((screen.getByLabelText("segment for OKLO") as HTMLSelectElement).value).toBe("reactors");
+    // (S1: the drafted link renders as a read-only chip on the row now, not a dropdown)
+    const okloRow = screen.getByLabelText("include OKLO").closest(".nmrow") as HTMLElement;
+    expect(within(okloRow).getByText("reactors", { selector: ".recchip" })).toBeInTheDocument();
     expect(screen.getByLabelText("thesis-fit for OKLO")).toHaveValue("F0");
-    expect(screen.getByLabelText("segment for OKLO").closest(".wb-basket")).not.toBeNull();
+    expect(screen.getByLabelText("include OKLO").closest(".wb-basket")).not.toBeNull();
     // the frozen seed-term record is intact, and the repopulated `matched` feeds S2's also-now diff
     expect(screen.getByText("⚓ seeded by: psilocybin")).toBeInTheDocument();
     expect(screen.getByText("+ also matches now: mdma")).toBeInTheDocument();
@@ -356,7 +358,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     await screen.findByText("Fresh Verify Co"); // the re-scoped draft landed
 
     // GEV — system_drafted, zero current-term matches, absent from the draft — is STILL in the frozen Basket
-    expect(screen.getByLabelText("segment for GEV").closest(".wb-basket")).not.toBeNull();
+    expect(screen.getByLabelText("include GEV").closest(".wb-basket")).not.toBeNull();
     expect(screen.getByText("⚓ seeded by: uranium")).toBeInTheDocument(); // its frozen provenance intact
 
     // …and Save persists it: the promote body carries BOTH saved members (nothing silently dropped)

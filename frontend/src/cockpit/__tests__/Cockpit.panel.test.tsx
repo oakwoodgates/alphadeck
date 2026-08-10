@@ -301,7 +301,10 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("●●●●○ 4")).toBeInTheDocument(); // operator size weight, labeled as yours
     expect(p.getByText("Size weight (yours)")).toBeInTheDocument();
     expect(p.getByText("The low-torque sleeve of the theme.")).toBeInTheDocument(); // thesis fit
-    expect(p.getByText("yours")).toBeInTheDocument(); // authorship tag (operator_set)
+    // S1 HONEST authorship (the third lying surface, fixed): the legacy `operator_set` fit text was
+    // never the operator's typing — it reads "model draft" now, NEVER "yours"
+    expect(p.getByText("model draft")).toBeInTheDocument();
+    expect(p.queryByText("yours")).toBeNull();
   });
 
   it("renders '—' for unset weight, the two-level Type cell, and the scoring snapshot", () => {
@@ -319,7 +322,7 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("38%")).toBeInTheDocument();
     expect(p.getByText("cash-generative")).toBeInTheDocument(); // runway null value, honest label
     expect(p.getByText("1 unconfirmed estimate(s)")).toBeInTheDocument();
-    expect(p.getByText("drafted")).toBeInTheDocument(); // system_drafted fit tag
+    expect(p.getByText("model draft")).toBeInTheDocument(); // system_drafted fit tag (S1 honest label)
   });
 
   it("shows the position and the decision rows logged ON this name — other names' never leak", () => {
