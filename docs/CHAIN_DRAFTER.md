@@ -32,10 +32,13 @@ about the chain + the names** — the flaw-patch (name selection) the whole tool
 
 **The names come from EDGAR-first DISCOVERY, not model recall** (`DISCOVERY.md`): the deterministic EFTS
 enumerator finds the US-listed universe by CIK from the thesis's operator-seeded term set; Sonnet only
-ORGANIZES that stable set into segments + prose (it never enumerates), and the per-CIK reconciler guarantees no
-discovered name is lost to the organizer's layout. This doc is the **authoring / ratify / promote** surface
-that consumes the draft — the resolver-decides-at-promote, the no-number bound, the `thesis_fit` home, the
-draft/ratify UI, and the create-thesis front door.
+ORGANIZES that stable set into segments — **structure + assignment only, no per-name prose** (it never
+enumerates); the batched narration step authors every placed/verify name's thesis-fit sentence (the prose
+reroute — per-name prose in the organize call scaled its output with the universe and truncated large drafts
+to zero segments); and the per-CIK reconciler guarantees no discovered name is lost to the organizer's layout.
+This doc is the **authoring / ratify / promote** surface that consumes the draft — the
+resolver-decides-at-promote, the no-number bound, the `thesis_fit` home, the draft/ratify UI, and the
+create-thesis front door.
 
 **Three authorities stay separate** (the spine of the design):
 - **S5 drafts STRUCTURE + NAMES + PROSE.** Never a number.
@@ -72,30 +75,39 @@ row for the AMBIGUOUS pick list.)
 discovery owning enumeration, the decompose call is now an **ORGANIZER** (it arranges the discovered set), and a
 second focused call NARRATES:
 - **`decompose_narrative(client, narrative, research_context=…)`** + **`DECOMPOSE_TOOL`** — the structured
-  contract `segments[2..6] → {label, descriptor?, placements[] → {name, ticker?, prose}}`, with the discovery
-  universe threaded in as `research_context` so the model ORGANIZES a stable set into segments + prose (it never
-  enumerates). **No value / score / number field anywhere in the schema** (structural). Fail-open on every path
-  → `None`.
-- **`narrate_placements(client, narrative, items)`** + **`NARRATE_TOOL`** — fills thesis-fit prose for the
-  PLACED + VERIFY names the organizer didn't narrate (BATCHED, numbered-`ref` join, per-batch fail-open + logged
-  — the mechanism + its live war story are in `DISCOVERY.md`). `{ref, prose, off_thesis}` — no number.
+  contract `segments[2..6] → {label, descriptor?, placements[] → {name, ticker?}}`, with the discovery
+  universe threaded in as `research_context` so the model ORGANIZES a stable set into segments (it never
+  enumerates). **Structure + assignment only — no per-name prose field** (the prose reroute: per-name sentences
+  made the ONE organize call's output scale with the universe and truncate past `llm_decompose_max_tokens` — a
+  387-name draft collapsed to 0 segments live; the batched narrate step is the prose author). Segment
+  `descriptor`s are retained (the organizer still reasons at the link level). **No value / score / number field
+  anywhere in the schema** (structural). Fail-open on every path → `None`. Defense-in-depth: any stray `prose`
+  the model emits despite the schema is **stripped at the single LLM-output door**
+  (`proposed_from_decomposition`) and WARN-logged with a count — wasted output tokens are a prompt bug, never a
+  silent cost leak.
+- **`narrate_placements(client, narrative, items)`** + **`NARRATE_TOOL`** — **the sole prose author**: fills
+  thesis-fit prose for every empty-prose PLACED + VERIFY name — organizer-placed and reconciler-appended alike,
+  each narrated WITH its real segment label threaded into the numbered line (BATCHED, numbered-`ref` join,
+  per-batch fail-open + logged — the mechanism + its live war story are in `DISCOVERY.md`).
+  `{ref, prose, off_thesis}` — no number. AMBIGUOUS / ABSENT rows are not narrated (accepted: the "Couldn't
+  resolve" drawer is identity triage, not thesis-fit — those rows render without a fit sentence).
 - **The off-thesis flag (#117).** `narrate_placements` also emits a per-name **`off_thesis` bool** — surfacing the
   "doesn't fit the thesis" judgment the narrator already makes in its prose (a boilerplate term-collision) as a
   structured bit. It is set at the narration MERGE (`execute_draft`) onto `ResolvedPlacement.off_thesis`, **display-
   only** like `matched_terms` / `discovery_source` (never a number #3, **never promoted onto a `BasketMember` #2**,
   never on the call path). It **RECOMMENDS (#10), the name STAYS PLACED (#9)** — membership is deterministic
   exact-CIK, so a flagged name is never a silent drop; the operator prunes it (the TRIAGE include-uncheck).
-  **Coverage = reconciler-appended collision names by design** (the organizer's own picks carry prose and aren't
-  re-judged — an unflagged organizer pick reads as scope, not a bug). Conservative: "when unsure, leave false."
-  Fail-open: absent `off_thesis` → False (never flag on missing narration). The prompt makes the prose STATE the
-  reason so it supports the flag. How the buckets consume it (inverse loudness — highlight keepers, quiet the
-  noise): `TRIAGE.md`.
+  **Coverage = every placed/verify name** (since the prose reroute the narrator judges organizer-placed and
+  reconciler-appended names alike — the old organizer-placements-exempt scope is gone). Conservative: "when
+  unsure, leave false." Fail-open: absent `off_thesis` → False (never flag on missing narration). The prompt
+  makes the prose STATE the reason so it supports the flag. How the buckets consume it (inverse loudness —
+  highlight keepers, quiet the noise): `TRIAGE.md`.
 - The system prompts **FORBID any number** (price / % / share count / runway / market cap). Drafted reasoning,
   not fact — Sonnet is the adherence lever, the gate-2 manual no-number check its real test.
-- Dials in `CallConfig`: `llm_decompose_model = "claude-sonnet-4-6"`, `llm_decompose_max_tokens = 2000`,
-  `llm_decompose_timeout_s = 60` — separate from the Haiku flag-drafter dials so the first seam is undisturbed.
+- Dials in `CallConfig`: `llm_decompose_model = "claude-sonnet-4-6"`, `llm_decompose_max_tokens = 8000`,
+  `llm_decompose_timeout_s = 180` — separate from the Haiku flag-drafter dials so the first seam is undisturbed.
   Sonnet because organizing a novel narrative is reasoning-heavy and **is** the product (a weak chain defeats
-  the flaw-patch).
+  the flaw-patch). One client serves both the organize call and every narrate batch.
 
 ## NEVER A NUMBER — schema + prompt + drafted-unscored (INVARIANT #3)
 
@@ -107,8 +119,8 @@ The bound holds three ways:
   exercise a prompt). A deterministic regex post-filter is the noted lever if adherence ever slips — **not
   built** (`[FILED]`).
 - **Drafted-unscored** — a drafted name has no facts, so the scorer reads "—" until the operator extract →
-  ratifies it. Drafting proposes structure + names + prose; the number always enters later, by the operator's
-  hand.
+  ratifies it. Drafting proposes structure + names + prose (the organizer assigns, narration authors the
+  prose); the number always enters later, by the operator's hand.
 
 ## The draft endpoint — a KICK-OFF → POLL job, RESPONSE-ONLY, test-enforced
 

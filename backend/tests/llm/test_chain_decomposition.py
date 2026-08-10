@@ -54,11 +54,13 @@ class _FakeClient:
         return self._research_returns
 
 
+# the organize contract since the prose reroute: structure + assignment ONLY ({name, ticker}) — no per-name
+# prose (narration authors it), so the organize output can't scale with the universe and truncate.
 _OK = {
     "segments": [
         {
             "label": "Reactor developers",
-            "placements": [{"name": "Oklo", "ticker": "OKLO", "prose": "lead SMR developer"}],
+            "placements": [{"name": "Oklo", "ticker": "OKLO"}],
         }
     ]
 }
@@ -71,6 +73,29 @@ def test_decompose_returns_the_tool_output():
     assert len(fake.calls) == 1  # the model WAS consulted
     assert "small modular nuclear" in fake.calls[0]["user"]  # the narrative reaches the model
     assert fake.calls[0]["tool"] is DECOMPOSE_TOOL  # the structured-output contract is wired
+
+
+def test_decompose_tool_schema_carries_no_prose_field():
+    """THE TRUNCATION FIX IS STRUCTURAL (the prose reroute): the organizer's placement schema is
+    ``{name, ticker?}`` — required ``["name"]``, NO ``prose`` property — so its output scales with names, not
+    sentences, and a large universe can't blow the token ceiling into an all-'Discovered' draft. Pinned so a
+    helpful future edit can't quietly re-add the per-name sentence (that's what truncated 387 names to 0
+    segments live)."""
+    placement = DECOMPOSE_TOOL["input_schema"]["properties"]["segments"]["items"]["properties"][
+        "placements"
+    ]["items"]
+    assert placement["required"] == ["name"]
+    assert "prose" not in placement["properties"]
+
+
+def test_decompose_prompt_keeps_no_number_and_drops_per_name_prose():
+    """The prompt CONTRACT (mirrors the tail_sweep/chain_narrate pins): the no-number bound (#3) survives the
+    prose-reroute rewrite, and the per-name-sentence instruction is GONE (the organizer must not be asked for
+    what its schema can't carry — a stray sentence is wasted output tokens the strip guard then logs).
+    """
+    p = load_prompt("chain_decompose")
+    assert "FORBIDDEN from emitting ANY number" in p
+    assert "ONE sentence" not in p
 
 
 def test_decompose_narrative_failopen():
