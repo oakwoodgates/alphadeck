@@ -253,13 +253,17 @@ const NotListedFlag = () => (
   </div>
 );
 
-/** The authoring surface (Slice 4b + the S5 draft/ratify, 5c): build & edit the value chain by hand — or
- *  DRAFT it from the narrative (the narrative→chain drafter) and ratify per name. A drafted placement loads
- *  as `system_drafted` (badged, prunable); accepting it → `operator_set`, editing any field → `operator_edited`.
- *  A name the drafter couldn't resolve uniquely (AMBIGUOUS) enters the basket ONLY by an explicit operator
- *  pick (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
- *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace promote,
- *  which honors each member's authorship and stores the thesis-fit prose). */
+/** The authoring surface (Slice 4b + the S5 draft/ratify, 5c — reworked by Discovery cleanup S1): build
+ *  the value chain by hand — or DRAFT it from the narrative and triage per name on the CONFIDENCE LADDER:
+ *  Excluded → Included (system-recommended) → Signed off (excluded wins). Sign-off ENDORSES the NAME —
+ *  it never sets authorship and never gates Save. HONEST AUTHORSHIP: a description reads "model draft"
+ *  until the operator EDITS it → "your words" (`operator_edited`); nothing else flips it. The draft's
+ *  recommended link(s) render as READ-ONLY chips — a name recommended into N links holds N real
+ *  membership rows (segment sorting + conviction live on the triage screen, not here). A name the
+ *  drafter couldn't resolve uniquely (AMBIGUOUS) enters the basket ONLY by an explicit operator pick
+ *  (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
+ *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace
+ *  promote, which honors authorship and persists every membership row). */
 export function ChainEditor({
   thesis,
   asof,
@@ -510,9 +514,41 @@ export function ChainEditor({
   // once ≥1 name in the basket has confirmed fundamentals. Before any surfacing it's true of every row (pure
   // noise), so we show a single quiet header hint instead of stamping "needs SURFACE" on all of them.
   const anyFundamentals = d.draft.basket.some((m) => hasFundamentals(m.security_id, scoredById));
-  // Item 6(c): how many placed names are still in the "Discovered" holding pen (unsorted into a real link).
-  const discoveredCount = d.draft.basket.filter((m) => m.segment === DISCOVERED).length;
   const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
+
+  // --- the per-NAME display grouping (S1 multi-membership) --------------------------------------------
+  // The basket holds N ROWS per name (one per LLM-recommended link — real memberships Save persists);
+  // the surface renders ONE row per NAME with a read-only chip per link. Every per-name action (include /
+  // sign-off / description-edit) keys on memberKey and co-mutates all of a name's rows, so the group's
+  // FIRST row is representative for every per-name field. DISPLAY-only: Save stays basket − excluded,
+  // computed over the ROWS (#9, test-guarded) — grouping changes what renders, never what persists.
+  type NameGroup = { key: string; first: BasketMember; rows: BasketMember[]; segments: string[] };
+  const groupByName = (list: BasketMember[]): NameGroup[] => {
+    const order: string[] = [];
+    const byKey = new Map<string, BasketMember[]>();
+    for (const m of list) {
+      const k = memberKey(m);
+      if (!byKey.has(k)) {
+        byKey.set(k, []);
+        order.push(k);
+      }
+      byKey.get(k)!.push(m);
+    }
+    return order.map((k) => {
+      const rows = byKey.get(k)!;
+      return {
+        key: k,
+        first: rows[0],
+        rows,
+        segments: [...new Set(rows.map((r) => r.segment).filter((s): s is string => s != null))],
+      };
+    });
+  };
+  const nameGroups = groupByName(d.draft.basket);
+  const nameCount = nameGroups.length;
+  const includedNameCount = nameGroups.filter((g) => d.isIncluded(g.key)).length;
+  // Item 6(c): how many placed NAMES still sit in the "Discovered" holding pen (unsorted into a real link).
+  const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
   // The links editor separates the REAL value-chain links (reorderable) from the "Discovered" holding pen (not a
   // link — no reorder). Rendered as two distinct regions so the editor reads legibly (the arrows apply to links).
   const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED);
@@ -629,10 +665,11 @@ export function ChainEditor({
     const bucket = (arr: ResolvedPlacement[]): ExportGroup["rows"] =>
       arr.map((p) => toExportedName({ ticker: p.ticker, name: p.name }));
     return [
-      // the whole placed basket as ONE group — every basket member regardless of which link it sits in
+      // the whole placed basket as ONE group — every NAME once (a multi-membership name's N rows
+      // export as one line; the export is a name dump, not a placement dump)
       {
         label: "Placed",
-        rows: d.draft.basket.map((m) => toExportedName({ ticker: m.ticker, name: nameOf(m) })),
+        rows: nameGroups.map((g) => toExportedName({ ticker: g.first.ticker, name: nameOf(g.first) })),
       },
       // the To-Review pile — surfaced by the draft but never placed into the basket
       { label: "To Review", rows: bucket(verify) },
@@ -640,8 +677,7 @@ export function ChainEditor({
       { label: "Couldn't resolve", rows: bucket(absent) },
     ];
   };
-  const exportAllCount =
-    d.draft.basket.length + verify.length + ambiguous.length + absent.length;
+  const exportAllCount = nameCount + verify.length + ambiguous.length + absent.length;
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
@@ -650,7 +686,9 @@ export function ChainEditor({
   const [sortBy, setSortBy] = useState<"draft" | "name" | "segment" | "sector">("draft");
   const [fSeg, setFSeg] = useState("");
   const [fFund, setFFund] = useState<"" | "loaded" | "needs">("");
-  const [fAuth, setFAuth] = useState<"" | "accepted" | "drafted">("");
+  // the sign-off find-filter (S1 — replaced the authorship filter: authorship is the DESCRIPTION's
+  // label now, not a triage state; the ladder rung the operator prunes by is the sign-off flag)
+  const [fSign, setFSign] = useState<"" | "signed" | "unsigned">("");
   const [fInc, setFInc] = useState<"" | "included" | "excluded">("");
   const [fCountry, setFCountry] = useState<"" | CountryClass>("");
   const [fExch, setFExch] = useState<"" | ExchangeClass>("");
@@ -661,7 +699,7 @@ export function ChainEditor({
     sortBy !== "draft" ||
     !!fSeg ||
     !!fFund ||
-    !!fAuth ||
+    !!fSign ||
     !!fInc ||
     !!fCountry ||
     !!fExch ||
@@ -671,7 +709,7 @@ export function ChainEditor({
     setSortBy("draft");
     setFSeg("");
     setFFund("");
-    setFAuth("");
+    setFSign("");
     setFInc("");
     setFCountry("");
     setFExch("");
@@ -696,15 +734,18 @@ export function ChainEditor({
     if (fSpac && spacClass(sector) !== fSpac) return false;
     return true;
   };
-  const matchesFilters = (m: BasketMember): boolean => {
-    const k = memberKey(m);
+  const matchesFilters = (g: NameGroup): boolean => {
+    const m = g.first; // per-name fields are uniform across a name's rows (co-mutated)
     const loaded = hasFundamentals(m.security_id, scoredById);
-    if (fSeg && (fSeg === "__unplaced__" ? !!m.segment : m.segment !== fSeg)) return false;
+    // segment: a multi-membership name matches when ANY of its links matches; unplaced = no link at all
+    if (fSeg && (fSeg === "__unplaced__" ? g.segments.length > 0 : !g.segments.includes(fSeg))) {
+      return false;
+    }
     if (fFund && (fFund === "loaded" ? !loaded : loaded)) return false;
-    if (fAuth === "accepted" && m.authored_by === "system_drafted") return false;
-    if (fAuth === "drafted" && m.authored_by !== "system_drafted") return false;
-    if (fInc === "included" && !d.isIncluded(k)) return false;
-    if (fInc === "excluded" && d.isIncluded(k)) return false;
+    if (fSign === "signed" && !m.signed_off) return false;
+    if (fSign === "unsigned" && m.signed_off) return false;
+    if (fInc === "included" && !d.isIncluded(g.key)) return false;
+    if (fInc === "excluded" && d.isIncluded(g.key)) return false;
     if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
     // the scored-join-baseline read (idFor) — so the filters work on a saved thesis opened with NO
     // draft/session (the #241-blocked scenario): the join alone classifies the placed members
@@ -721,30 +762,30 @@ export function ChainEditor({
     if (fInc === "excluded") return aside;
     return true;
   };
-  const sorted = (list: BasketMember[]): BasketMember[] => {
+  const sorted = (list: NameGroup[]): NameGroup[] => {
     if (sortBy === "draft") return list;
-    const cmp = (a: BasketMember, b: BasketMember): number => {
-      if (sortBy === "name") return (a.ticker || "").localeCompare(b.ticker || "");
-      if (sortBy === "segment") return (a.segment || "￿").localeCompare(b.segment || "￿");
-      return (sec(a) || "￿").localeCompare(sec(b) || "￿"); // sector; blanks sort last
+    const cmp = (a: NameGroup, b: NameGroup): number => {
+      if (sortBy === "name") return (a.first.ticker || "").localeCompare(b.first.ticker || "");
+      if (sortBy === "segment") {
+        return (a.segments[0] || "￿").localeCompare(b.segments[0] || "￿"); // by first link; unplaced last
+      }
+      return (sec(a.first) || "￿").localeCompare(sec(b.first) || "￿"); // sector; blanks sort last
     };
     return [...list].sort(cmp);
   };
   // --- the Basket / working split (the additive editor) ---
   // ESTABLISHED (in the saved spine at mount — hook-computed, empty after a Clear or on a new thesis) +
-  // still-INCLUDED members freeze into the Basket panel up top; everything else — new drafted names AND
-  // demoted (unchecked) established members ("sent down") — is the WORKING set the partitions below triage.
-  // Disjoint by construction: a row renders in exactly one of the two lists. The find bar filters BOTH,
+  // still-INCLUDED names freeze into the Basket panel up top; everything else — new drafted names AND
+  // demoted (unchecked) established names ("sent down") — is the WORKING set the partitions below triage.
+  // Disjoint by construction: a NAME renders in exactly one of the two lists. The find bar filters BOTH,
   // each list filtered/sorted independently.
-  const inBasket = (m: BasketMember): boolean =>
-    d.isEstablished(memberKey(m)) && d.isIncluded(memberKey(m));
-  const basketMembers = d.draft.basket.filter((m) => d.isEstablished(memberKey(m)));
-  const basketIncluded = basketMembers.filter((m) => d.isIncluded(memberKey(m)));
-  const basketRows = sorted(basketIncluded.filter(matchesFilters));
-  const working = d.draft.basket.filter((m) => !inBasket(m));
-  const workingKeys = working.map(memberKey);
+  const basketGroups = nameGroups.filter((g) => d.isEstablished(g.key));
+  const basketIncludedGroups = basketGroups.filter((g) => d.isIncluded(g.key));
+  const basketRows = sorted(basketIncludedGroups.filter(matchesFilters));
+  const workingGroups = nameGroups.filter((g) => !(d.isEstablished(g.key) && d.isIncluded(g.key)));
+  const workingKeys = workingGroups.map((g) => g.key);
   // filter → sort → partition → per-group preview-collapse (counts are of the FILTERED set)
-  const triaged = sorted(working.filter(matchesFilters));
+  const triaged = sorted(workingGroups.filter(matchesFilters));
 
   // G — the low-quality lens (a cheap-cut accelerant): model-flagged off-thesis AND any registered junk-tell
   // (see junkTells.ts). The LLM flag is the recall guard — a loose tell can't demote a name the narrator
@@ -770,13 +811,13 @@ export function ChainEditor({
   // C-B + G — ONE membership in up to three DISPLAY partitions, precedence lowQuality > flagged > clean (the
   // To-Review precedence idiom). Grouping renders ONLY when it discriminates (everything in one group is
   // just today's flat list — a partition that doesn't discriminate is noise, honest-loudness #3).
-  const gClean: BasketMember[] = [];
-  const gFlagged: BasketMember[] = [];
-  const gLowQuality: BasketMember[] = [];
-  for (const m of triaged) {
-    if (isLowQuality(m)) gLowQuality.push(m);
-    else if (m.security_id && offThesisSet.has(m.security_id)) gFlagged.push(m);
-    else gClean.push(m);
+  const gClean: NameGroup[] = [];
+  const gFlagged: NameGroup[] = [];
+  const gLowQuality: NameGroup[] = [];
+  for (const g of triaged) {
+    if (isLowQuality(g.first)) gLowQuality.push(g);
+    else if (g.first.security_id && offThesisSet.has(g.first.security_id)) gFlagged.push(g);
+    else gClean.push(g);
   }
   // "Placed, flagged" is a noise-review group (off-thesis, but saved) — in the DEFAULT (draft) sort, order it by
   // keyword provenance, the strongest evidence FIRST (mirrors the To-Review Low/Lowest split), so the most-likely-
@@ -784,16 +825,17 @@ export function ChainEditor({
   // An explicit dropdown sort (ticker/segment/sector) OVERRIDES this — `triaged` is already in that order,
   // so we leave it. View-only: reads the already-present `matched` counts (free client-side sort), writes nothing.
   if (sortBy === "draft") {
-    const mtCount = (m: BasketMember): number =>
-      m.security_id ? (matched[m.security_id]?.length ?? 0) : 0;
+    const mtCount = (g: NameGroup): number =>
+      g.first.security_id ? (matched[g.first.security_id]?.length ?? 0) : 0;
     gFlagged.sort(
-      (a, b) => mtCount(b) - mtCount(a) || (a.ticker || "").localeCompare(b.ticker || ""),
+      (a, b) =>
+        mtCount(b) - mtCount(a) || (a.first.ticker || "").localeCompare(b.first.ticker || ""),
     );
   }
   const groupingActive = gFlagged.length > 0 || gLowQuality.length > 0;
-  const shownRows = (gkey: string, rows: BasketMember[]) =>
+  const shownRows = (gkey: string, rows: NameGroup[]) =>
     showAllGroups.has(gkey) ? rows : rows.slice(0, PLACED_PREVIEW);
-  const showMoreBtn = (gkey: string, rows: BasketMember[]) =>
+  const showMoreBtn = (gkey: string, rows: NameGroup[]) =>
     rows.length > PLACED_PREVIEW && !showAllGroups.has(gkey) ? (
       <div className="showmore">
         <button
@@ -1192,9 +1234,11 @@ export function ChainEditor({
 
   // ONE row renderer shared by the frozen Basket panel, the flat list, and the C-B/G display groups (it
   // closes over the editor's run-state — matched/identity/names/offThesisSet — so it stays a local, not a
-  // component).
-  const placedRow = (m: BasketMember) => {
-    const k = memberKey(m);
+  // component). Renders a NAME (the group of its N membership rows): per-name fields off the first row,
+  // the recommended link(s) as read-only chips.
+  const placedRow = (g: NameGroup) => {
+    const m = g.first;
+    const k = g.key;
     const mt = m.security_id ? matched[m.security_id] : undefined;
     // S2 (re-scope): the FROZEN seed-term provenance — `surfaced_terms`, persisted on the member when it
     // entered the Basket (S1). Distinct from `mt` (the CURRENT draft/re-scope run's matches, display-only
@@ -1270,50 +1314,39 @@ export function ChainEditor({
                     needs SURFACE
                   </span>
                 ))}
-              {/* R1: the SEG / CONV controls sit on their own line; the row actions (accept +
-                  send-back) right-align at the END of this row. No type control here: the business
-                  type derives from the master identity (re-taggable on the scored view's rail). */}
+              {/* R1: the recommended-links chips sit on their own line; the row actions (sign-off +
+                  send-back) right-align at the END of this row. No seg/conviction controls here (S1):
+                  segment sorting + weighting move to the triage screen — this surface shows the DRAFT'S
+                  recommendation, read-only. No type control either: the business type derives from the
+                  master identity (re-taggable on the scored view's rail). */}
               <span className="ctls">
-                <span className="ctl">
-                  <span className="lab">seg</span>
-                  {/* Item 7: WIRED — selecting a link re-segments the name (`placeMember`). No "— remove —"
-                      here: pruning is the include-uncheck + the off-thesis remove; this control does ONE
-                      thing (move a name into a value-chain link — the way to sort keepers out of "Discovered"). */}
-                  <select
-                    value={m.segment ?? ""}
-                    aria-label={`segment for ${m.ticker}`}
-                    onChange={(e) => e.target.value && d.placeMember(k, e.target.value)}
-                  >
-                    {!m.segment && <option value="">— segment —</option>}
-                    {segLabels.map((l) => (
-                      <option key={l} value={l}>
-                        {l === DISCOVERED ? "Discovered (unsorted)" : l}
-                      </option>
+                {/* the LLM's recommended value-chain link(s) — READ-ONLY chips, one per membership row
+                    (multiple links → multiple chips; each is a REAL basket_member row Save persists).
+                    Styled LLM-rec (blue), deliberately DISTINCT from the machine-fact IdentityChips
+                    (muted). An unplaced name renders no chips (the honest abstain). */}
+                {g.segments.length > 0 && (
+                  <span className="ctl wb-reclinks" aria-label={`links for ${m.ticker}`}>
+                    <span
+                      className="lab"
+                      title="the draft's recommended link(s) — read-only here (segment sorting lives on the triage screen); every chip is a real membership Save persists"
+                    >
+                      links
+                    </span>
+                    {g.segments.map((s) => (
+                      <span
+                        key={s}
+                        className={`recchip${s === DISCOVERED ? " pen" : ""}`}
+                        title={
+                          s === DISCOVERED
+                            ? "the unsorted pen — the draft didn't arrange this name into a link"
+                            : "the draft recommends this link — a real membership row; Save persists each chip"
+                        }
+                      >
+                        {s === DISCOVERED ? "Discovered (unsorted)" : s}
+                      </span>
                     ))}
-                  </select>
-                </span>
-                {/* TRIAGE: the operator's per-name conviction/size (1–5; blank = unset, never 0). A crafting
-                    input, orthogonal to accept — it never touches authorship, and it never feeds the score. */}
-                <span className="ctl">
-                  <span className="lab" title="your conviction / intended size — 1 starter … 5 full">
-                    conv
                   </span>
-                  <select
-                    className="wb-conv"
-                    value={m.conviction ?? ""}
-                    aria-label={`conviction for ${m.ticker}`}
-                    onChange={(e) =>
-                      d.editConviction(k, e.target.value ? Number(e.target.value) : null)
-                    }
-                  >
-                    <option value="">—</option>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                </span>
+                )}
                 {/* the row actions right-align at the END of the controls row (sign off ⇄ withdraw · the
                     To-Review send-back). Reversibility (#1): sign-off is a TOGGLE on the confidence
                     ladder's top rung — it endorses the NAME, never sets authorship, never gates Save. */}
@@ -1351,15 +1384,33 @@ export function ChainEditor({
         </div>
         {/* the row's detail (prose · provenance · off-thesis flag) is hidden while EXCLUDED (R3 collapse)
             and while COMPACT (the scannable read). The prose auto-sizes to its content, capped at 3 rows
-            then scrolling (R2). */}
+            then scrolling (R2). HONEST AUTHORSHIP (S1): the label reads "model draft" until the operator
+            EDITS the text → "your words" — nothing else flips it (sign-off endorses the NAME, not the
+            words). No label on an empty description (nothing written by anyone — the honest abstain). */}
         {included && !compact && (
-          <AutoTextarea
-            className="wb-prose"
-            ariaLabel={`thesis-fit for ${m.ticker}`}
-            placeholder="why this name sits in its link — thesis-fit reasoning (drafted, or yours)…"
-            value={m.thesis_fit ?? ""}
-            onChange={(v) => d.editProse(k, v)}
-          />
+          <>
+            {(m.thesis_fit ?? "").trim() !== "" && (
+              <div className="wb-prose-head">
+                <span
+                  className={`wb-author wb-prose-author${m.authored_by === "operator_edited" ? " yours" : ""}`}
+                  title={
+                    m.authored_by === "operator_edited"
+                      ? "you edited this description — these are your words"
+                      : "the model drafted this description — it becomes yours only when you edit it"
+                  }
+                >
+                  {m.authored_by === "operator_edited" ? "your words" : "model draft"}
+                </span>
+              </div>
+            )}
+            <AutoTextarea
+              className="wb-prose"
+              ariaLabel={`thesis-fit for ${m.ticker}`}
+              placeholder="why this name sits in its link — your research note (editing makes it yours)…"
+              value={m.thesis_fit ?? ""}
+              onChange={(v) => d.editProse(k, v)}
+            />
+          </>
         )}
         {/* S2 (re-scope) — provenance as two DISTINGUISHED lines (keep-visible): ⚓ the frozen seed terms
             (why the name ENTERED the Basket — persisted at entry; a term-set edit / re-draft can never
@@ -1401,7 +1452,7 @@ export function ChainEditor({
     gkey: string,
     title: string,
     meta: string,
-    rows: BasketMember[],
+    rows: NameGroup[],
     open: boolean,
     toggle: () => void,
     extra?: ReactNode,
@@ -1537,17 +1588,17 @@ export function ChainEditor({
             >
               <span className="chev">{basketOpen ? "▾" : "▸"}</span>
               Basket <em>· the saved basket — a re-draft only adds; uncheck to send a name down</em>
-              {basketMembers.length > 0 && (
+              {basketGroups.length > 0 && (
                 <span className="ct">
-                  · {basketIncluded.length} of {basketMembers.length} kept
+                  · {basketIncludedGroups.length} of {basketGroups.length} kept
                 </span>
               )}
             </button>
             {basketOpen &&
-              (basketMembers.length > 0 && basketIncluded.length === 0 ? (
+              (basketGroups.length > 0 && basketIncludedGroups.length === 0 ? (
                 // every established name is demoted — keep the header + an honest note, never vanish (#2)
                 <div className="note">
-                  all {basketMembers.length} demoted — re-check below to restore
+                  all {basketGroups.length} demoted — re-check below to restore
                 </div>
               ) : (
                 basketRows.map(placedRow)
@@ -1778,7 +1829,8 @@ export function ChainEditor({
           </div>
           <div className="note wb-seg-desc">
             Each link is a stage in the theme's chain. Reorder with <b>← →</b>, rename inline, <b>×</b> removes
-            it (its names return to the unsorted pen). Sort names into a link on the <b>Placed</b> rows below.
+            it. The <b>Placed</b> rows below show each name's drafted link(s) as read-only chips — per-name
+            segment sorting lives on the triage screen.
           </div>
         </div>
 
@@ -1829,10 +1881,11 @@ export function ChainEditor({
           )}
         </div>
 
-        {/* the "Discovered" holding pen — a SORTING QUEUE, not a value-chain link (Item 6). De-linked (muted,
-            dashed), the label is read-only (renaming it would silently turn the pen into a link), and there are
-            NO reorder arrows (order is meaningless for a pen). Keepers get sorted OUT via the Placed rows' seg
-            dropdown; × dismisses an emptied pen. */}
+        {/* the "Discovered" holding pen — an unsorted HOLDING PEN, not a value-chain link (Item 6).
+            De-linked (muted, dashed), the label is read-only (renaming it would silently turn the pen into
+            a link), and there are NO reorder arrows (order is meaningless for a pen). Sorting keepers OUT
+            of it moves to the triage screen (this surface shows the draft's placement read-only);
+            × dismisses an emptied pen. */}
         {discoveredSeg && (
           <div className="wb-seg-pen">
             <span className="wb-seg-pen-lab">Unsorted</span>
@@ -1851,8 +1904,9 @@ export function ChainEditor({
             </div>
             {discoveredCount > 0 && hasRealLink && (
               <span className="note wb-seg-pen-nudge">
-                {discoveredCount} {discoveredCount === 1 ? "name is" : "names are"} still unsorted — sort
-                keepers into a link with each row's <b>seg</b> dropdown below.
+                {discoveredCount} {discoveredCount === 1 ? "name is" : "names are"} still unsorted — the
+                draft didn't arrange {discoveredCount === 1 ? "it" : "them"} into a link (sorting moves to
+                the triage screen).
               </span>
             )}
           </div>
@@ -1896,10 +1950,10 @@ export function ChainEditor({
             onClick={() => setPlacedOpen((o) => !o)}
           >
             <span className="chev">{placedOpen ? "▾" : "▸"}</span>
-            Placed names <em>· segment drafted, overridable · business type derives from the master identity</em>
-            {d.draft.basket.length > 0 && (
+            Placed names <em>· links are the draft's recommendation (read-only chips) · a description is a model draft until you edit it</em>
+            {nameCount > 0 && (
               <span className="ct">
-                · {d.includedBasket.length} of {d.draft.basket.length} included
+                · {includedNameCount} of {nameCount} included
               </span>
             )}
           </button>
@@ -1908,7 +1962,7 @@ export function ChainEditor({
           {/* TRIAGE bulk actions (the prune) — include is default-on (#9); these are visible bulk excludes, never
               a silent filter. "Clear un-accepted" excludes still-drafted names (the fast path to just-my-vouched
               names) without touching authorship. */}
-          {d.draft.basket.length > 0 && (
+          {nameCount > 0 && (
             <div className="wb-triage-bulk">
               <span className="note">Only included names are saved.</span>
               {/* WORKING-SCOPED bulk include/exclude — they sweep the working set (new + demoted names),
@@ -1938,30 +1992,35 @@ export function ChainEditor({
               <button
                 type="button"
                 className="wb-mini ghost"
-                disabled={d.includedBasket.length === 0}
-                aria-label={`export ${d.includedBasket.length} included names`}
+                disabled={includedNameCount === 0}
+                aria-label={`export ${includedNameCount} included names`}
                 onClick={() =>
                   exportKeptNames({
                     thesisName: thesis.name,
                     stage: "triage",
                     asof,
-                    rows: d.includedBasket.map((m) =>
-                      toExportedName({
-                        ticker: m.ticker,
-                        name:
-                          (m.security_id ? names[m.security_id] : undefined) ??
-                          (m.security_id ? scoredById?.[m.security_id]?.name : undefined),
-                      }),
-                    ),
+                    // per NAME (a multi-membership name exports once), included only
+                    rows: nameGroups
+                      .filter((g) => d.isIncluded(g.key))
+                      .map((g) =>
+                        toExportedName({
+                          ticker: g.first.ticker,
+                          name:
+                            (g.first.security_id ? names[g.first.security_id] : undefined) ??
+                            (g.first.security_id
+                              ? scoredById?.[g.first.security_id]?.name
+                              : undefined),
+                        }),
+                      ),
                   })
                 }
               >
-                Export ({d.includedBasket.length})
+                Export ({includedNameCount})
               </button>
             </div>
           )}
           {/* Item 1: the clean pre-surfacing state — one quiet hint instead of "needs SURFACE" on every row. */}
-          {d.draft.basket.length > 0 && !anyFundamentals && (
+          {nameCount > 0 && !anyFundamentals && (
             <div className="note">
               Surface your shortlist — hit <b>⇣ get data</b> on a name in the scored view, then ratify the
               candidates in its rail — confirmed fundamentals show here.
@@ -1970,7 +2029,7 @@ export function ChainEditor({
           {/* TRIAGE PR-2 (the find) — sort + filter the placed list. VIEW-ONLY: it never changes what Save
               persists (that's basket − excluded, over the whole draft). Clear-filters is always one click away
               so a hidden-but-included name is never lost (#9). */}
-          {d.draft.basket.length > 1 && (
+          {nameCount > 1 && (
             <div className="wb-triage-find">
               <label className="wb-find-ctl">
                 sort
@@ -2014,15 +2073,15 @@ export function ChainEditor({
                 </select>
               </label>
               <label className="wb-find-ctl">
-                authorship
+                sign-off
                 <select
-                  aria-label="filter by authorship"
-                  value={fAuth}
-                  onChange={(e) => setFAuth(e.target.value as typeof fAuth)}
+                  aria-label="filter by sign-off"
+                  value={fSign}
+                  onChange={(e) => setFSign(e.target.value as typeof fSign)}
                 >
                   <option value="">all</option>
-                  <option value="accepted">accepted</option>
-                  <option value="drafted">drafted</option>
+                  <option value="signed">signed off</option>
+                  <option value="unsigned">not signed off</option>
                 </select>
               </label>
               <label className="wb-find-ctl">
@@ -2100,9 +2159,9 @@ export function ChainEditor({
                 </button>
               )}
               <span className="note">
-                {/* whole-basket count across BOTH lists (Basket panel + working) — the denominator stays
-                    the full draft basket, so a filter reads the same as before the split */}
-                showing {basketRows.length + triaged.length} of {d.draft.basket.length} placed
+                {/* whole-basket NAME count across BOTH lists (Basket panel + working) — the denominator
+                    stays the full set of names, so a filter reads the same as before the split */}
+                showing {basketRows.length + triaged.length} of {nameCount} placed
                 {(fInc || fCountry || fExch || fSpac) && verifyCandidates.length > 0
                   ? ` · ${verifyVisible.length} of ${verifyCandidates.length} to review`
                   : ""}
@@ -2146,7 +2205,7 @@ export function ChainEditor({
                       type="button"
                       className="wb-mini ghost"
                       title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
-                      onClick={() => d.excludeKeys(gLowQuality.map(memberKey))}
+                      onClick={() => d.excludeKeys(gLowQuality.map((g) => g.key))}
                     >
                       exclude all {gLowQuality.length}
                     </button>
@@ -2155,18 +2214,18 @@ export function ChainEditor({
               </div>
             );
           })()}
-          {d.draft.basket.length === 0 && (
+          {nameCount === 0 && (
             <div className="note">No names yet — draft from the narrative, or add one below.</div>
           )}
           {/* an established thesis with nothing NEW yet — the working list is honestly empty, not filtered */}
-          {working.length === 0 && d.draft.basket.length > 0 && (
+          {workingGroups.length === 0 && nameCount > 0 && (
             <div className="note">
               no new names — draft from the narrative to surface additions
             </div>
           )}
-          {working.length > 0 && triaged.length === 0 && (
+          {workingGroups.length > 0 && triaged.length === 0 && (
             <div className="note">
-              No names match the filter — <button type="button" className="wb-linkbtn" onClick={clearFilters}>clear filters</button> to see all {d.draft.basket.length}.
+              No names match the filter — <button type="button" className="wb-linkbtn" onClick={clearFilters}>clear filters</button> to see all {nameCount}.
             </div>
           )}
             </>

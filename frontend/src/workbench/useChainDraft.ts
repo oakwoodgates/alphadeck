@@ -204,14 +204,6 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       };
     });
 
-  const placeMember = (key: string, segment: string | null) =>
-    setDraft((d) => ({
-      ...d,
-      basket: d.basket.map((m) =>
-        memberKey(m) === key ? { ...m, segment, authored_by: touched(m) } : m,
-      ),
-    }));
-
   const addMember = (m: BasketMember) =>
     setDraft((d) =>
       d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : { ...d, basket: [...d.basket, m] },
@@ -380,16 +372,6 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       ),
     }));
 
-  // The operator's per-name conviction/size (1–5; null = unset). ORTHOGONAL to authorship — unlike the
-  // prose (drafted CONTENT the operator overrides), conviction is a fresh operator axis the drafter never sets,
-  // so weighting a still-drafted name does NOT consume its "accept" (same orthogonality as include). Stored
-  // metadata: it never feeds the meters/verdict/grade (#4).
-  const editConviction = (key: string, conviction: number | null) =>
-    setDraft((d) => ({
-      ...d,
-      basket: d.basket.map((m) => (memberKey(m) === key ? { ...m, conviction } : m)),
-    }));
-
   return {
     draft,
     dirty,
@@ -397,13 +379,14 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     renameSegment,
     moveSegment,
     removeSegment,
-    placeMember,
+    // NB (S1): `placeMember` and `editConviction` are GONE — per-name segment sorting and the
+    // conviction weight live on the TRIAGE screen now; this surface renders the draft's placement
+    // read-only. The `conviction` FIELD stays on the model/DB and rides Save untouched.
     addMember,
     removeMember,
     loadDraft,
     toggleSignOff,
     editProse,
-    editConviction,
     // THE BASKET FREEZE: the established (saved-spine) keys, frozen against the drafter
     establishedKeys,
     isEstablished,

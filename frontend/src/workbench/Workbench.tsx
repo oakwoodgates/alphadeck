@@ -813,9 +813,12 @@ export function Workbench({ header, asof }: Props) {
                             </span>
                           )}
                           {m.segment ? <small>{m.segment}</small> : null}
+                          {/* HONEST authorship (S1): the tag reads who wrote the DESCRIPTION — "your
+                              words" only when the operator actually edited it (operator_edited);
+                              everything else (incl. the retired legacy operator_set) is a model draft. */}
                           {auth ? (
                             <span className="wb-author">
-                              {auth === "operator_set" ? "operator" : auth.replace("_", " ")}
+                              {auth === "operator_edited" ? "your words" : "model draft"}
                             </span>
                           ) : null}
                         </span>
