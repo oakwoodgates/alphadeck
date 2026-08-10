@@ -51,7 +51,10 @@ describe("SurfaceEtf — the surface-ETF flow", () => {
     const [member, name] = onAdd.mock.calls[0];
     expect(member.role).toBe("ETF sleeve"); // the sleeve marker is the master row's instrument_kind
     expect(member.security_id).toBe("s-lit");
-    expect(member.authored_by).toBe("operator_set");
+    // S1 honest authorship: a hand-add is auto-SIGNED-OFF (the surfacing IS the endorsement) but its
+    // description honestly stays a model draft (nothing typed) — never the retired operator_set
+    expect(member.authored_by).toBe("system_drafted");
+    expect(member.signed_off).toBe(true);
     expect(name).toBe("Global X Lithium & Battery Tech ETF"); // the name bridge
     expect(h.ingestMutate).toHaveBeenCalledWith("s-lit"); // the sleeve shows its price
   });

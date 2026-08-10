@@ -96,6 +96,9 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
         surfaced_terms=b.get("surfaced_terms")
         or [],  # load-bearing like conviction: unmapped → the frozen provenance wiped on any resave
         authored_by=Authorship(b["authored_by"]),
+        signed_off=bool(
+            b.get("signed_off", False)
+        ),  # load-bearing like conviction: unmapped → the operator's endorsement wiped on any resave
     )
 
 

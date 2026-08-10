@@ -514,7 +514,11 @@ class PromoteThesisRequest(BaseModel):
     """The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
     it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
-    `authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body.
+    `authored_by` is honored from the body for the two live member values (`system_drafted` = the
+    description is a model draft / `operator_edited` = the operator changed it); the RETIRED
+    `operator_set` is legacy-translated to `signed_off=true` + `system_drafted`, never stored
+    (Discovery cleanup S1). `signed_off` (the per-name endorsement) round-trips as a marker — it never
+    gates promotion.
     """
 
     id: UUID | None = None

@@ -92,6 +92,7 @@ def _hims_thesis(security_id: UUID) -> Thesis:
                 role="the name",
                 security_id=security_id,
                 detail="single-name conviction play",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             )
         ],
         evidence=[
@@ -197,24 +198,28 @@ def _nuclear_thesis() -> Thesis:
                 role="Most de-risked SMR (NRC-approved design)",
                 security_id=SMR_ID,
                 detail="the leader",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             ),
             BasketMember(
                 ticker="OKLO",
                 role="High-profile microreactor pure-play",
                 security_id=OKLO_ID,
                 detail="high-beta",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             ),
             BasketMember(
                 ticker="NNE",
                 role="Early micro-reactor",
                 security_id=NNE_ID,
                 detail="speculative",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             ),
             BasketMember(
                 ticker="LEU",
                 role="HALEU enrichment — the fuel supplier",
                 security_id=LEU_ID,
                 detail="picks-and-shovels",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             ),
         ],
         kill_criteria=[
@@ -381,6 +386,7 @@ def _unh_thesis() -> Thesis:
                 role="the name",
                 security_id=UNH_SECURITY_ID,
                 detail="mega-cap insider-cluster conviction play",
+                signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             )
         ],
         evidence=[

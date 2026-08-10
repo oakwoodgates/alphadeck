@@ -1024,7 +1024,7 @@
           "workbench"
         ],
         "summary": "Promote",
-        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.\n\nWrite-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body \u2014 the human path sends\n``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``\n(an edited one) \u2014 not coerced, so a drafted placement stays drafted until the operator ratifies it. Every\nplaced ``security_id`` must be an EXACT member of this tenant's master (fail-closed \u2014 a caller-supplied\nid is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft\nand writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign\nordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary\ninstrument before the spine write (``master.canonicalize_ids`` \u2014 the same pick as ``ids_for_ciks``), so\nthe basket stores the instrument the operator actually trades; the response carries the canonical\nticker.",
+        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.\n\nWrite-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member\nvalues \u2014 ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator\nedited it \u2014 \"your words\") \u2014 so a drafted description stays honestly drafted until the operator actually\nchanges it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:\n``signed_off=true`` + ``authored_by='system_drafted'`` (the 0035 reset rule applied at the wire \u2014 old\naccept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:\nit never gates promotion and never feeds the call (#4). Every\nplaced ``security_id`` must be an EXACT member of this tenant's master (fail-closed \u2014 a caller-supplied\nid is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft\nand writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign\nordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary\ninstrument before the spine write (``master.canonicalize_ids`` \u2014 the same pick as ``ids_for_ciks``), so\nthe basket stores the instrument the operator actually trades; the response carries the canonical\nticker.",
         "operationId": "promote_workbench_theses_post",
         "requestBody": {
           "content": {
@@ -2811,7 +2811,12 @@
           },
           "authored_by": {
             "$ref": "#/components/schemas/Authorship",
-            "default": "operator_set"
+            "default": "system_drafted"
+          },
+          "signed_off": {
+            "type": "boolean",
+            "title": "Signed Off",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -5352,7 +5357,7 @@
           "narrative"
         ],
         "title": "PromoteThesisRequest",
-        "description": "The promote/update payload \u2014 a thesis-with-chain. The router builds a domain Thesis (the\nsegment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts\nit (create when `id` is null, update otherwise). Scores are NOT sent \u2014 they re-derive on read.\n`authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body."
+        "description": "The promote/update payload \u2014 a thesis-with-chain. The router builds a domain Thesis (the\nsegment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts\nit (create when `id` is null, update otherwise). Scores are NOT sent \u2014 they re-derive on read.\n`authored_by` is honored from the body for the two live member values (`system_drafted` = the\ndescription is a model draft / `operator_edited` = the operator changed it); the RETIRED\n`operator_set` is legacy-translated to `signed_off=true` + `system_drafted`, never stored\n(Discovery cleanup S1). `signed_off` (the per-name endorsement) round-trips as a marker \u2014 it never\ngates promotion."
       },
       "ProvenanceOut": {
         "properties": {

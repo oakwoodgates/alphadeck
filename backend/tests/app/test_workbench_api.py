@@ -136,7 +136,10 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     assert any(t["id"] == tid for t in client.get("/theses").json())
     detail = client.get(f"/theses/{tid}").json()
     assert detail["basket"][0]["segment"] == "reactors"
-    assert detail["basket"][0]["authored_by"] == "operator_set"
+    # the RETIRED `operator_set` (this payload is the pre-S1 human-path shape) is legacy-TRANSLATED at
+    # the wire, never stored: endorsed → signed_off, and the description honestly stays a model draft.
+    assert detail["basket"][0]["authored_by"] == "system_drafted"
+    assert detail["basket"][0]["signed_off"] is True
 
 
 def _bar(d, close):
@@ -1012,11 +1015,11 @@ def test_extract_endpoint_404_without_cik(client, db):
 
 
 def test_promote_honors_authorship_from_the_body(client, security_id):
-    """Promote HONORS `authored_by` (it no longer coerces to operator_set, now that the S5 drafter's own
-    path exists): an S5-drafted placement the operator keeps stays `system_drafted`, an edited one
-    `operator_edited`, a hand-authored one `operator_set` — the seam round-trips so the badge + the eventual
-    ratify can tell drafted from operator-set. An out-of-enum value is rejected at the schema boundary.
-    """
+    """Promote HONORS `authored_by` for the two LIVE member values (S1 honest authorship): a drafted
+    description stays `system_drafted` ("model draft"), an operator-edited one `operator_edited` ("your
+    words") — the seam round-trips so the label always tells the truth about who wrote the text. The
+    RETIRED `operator_set` is legacy-TRANSLATED (see the dedicated test below), and an out-of-enum value
+    is rejected at the schema boundary."""
 
     def _payload(authored_by):
         return {
@@ -1035,10 +1038,11 @@ def test_promote_honors_authorship_from_the_body(client, security_id):
             ],
         }
 
-    for authored_by in ("system_drafted", "operator_edited", "operator_set"):
+    for authored_by in ("system_drafted", "operator_edited"):
         tid = client.post("/workbench/theses", json=_payload(authored_by)).json()["id"]
         detail = client.get(f"/theses/{tid}").json()
         assert detail["basket"][0]["authored_by"] == authored_by  # honored, not coerced
+        assert detail["basket"][0]["signed_off"] is False  # authorship never implies endorsement
     # an out-of-enum authorship is a 422 at parse time (Pydantic validates against the enum)
     assert client.post("/workbench/theses", json=_payload("robot")).status_code == 422
 

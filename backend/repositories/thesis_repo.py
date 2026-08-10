@@ -192,8 +192,8 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
             cur.execute(
                 """INSERT INTO basket_member
                    (tenant_id, thesis_id, ordinal, ticker, role, security_id, detail,
-                    segment, thesis_fit, conviction, surfaced_terms, authored_by)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    segment, thesis_fit, conviction, surfaced_terms, authored_by, signed_off)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tenant,
                     tid,
@@ -207,6 +207,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     m.conviction,
                     m.surfaced_terms,  # psycopg adapts list[str] <-> text[]
                     m.authored_by.value,
+                    m.signed_off,
                 ),
             )
         # evidence is append-only: add new rows, never modify/remove existing ones
