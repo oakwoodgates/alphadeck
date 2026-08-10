@@ -10,7 +10,8 @@
 > `POST /workbench/theses` (`app/routers/workbench.py`).
 >
 > **Status: BUILT, end to end** — the three-gate flow is live (the PR trail: include/find/weight #113–#118,
-> the three-gate round #127–#129, sections + honest flags #132–#136).
+> the three-gate round #127–#129, sections + honest flags #132–#136; **Discovery cleanup S1** replaced
+> include+accept with the confidence ladder + honest authorship — this doc reflects the post-S1 surface).
 
 ---
 
@@ -30,18 +31,32 @@ the buy-side screen → shortlist → diligence funnel (`STAGE_MODEL.md`, "the t
    re-tag the business type on the rail if the maps misread it, weight with conviction, promote.
    `WORKBENCH_EXTRACTION.md` owns the flags.
 
-## The prune — include-controls (#113) + the durable NO (#7)
+## The prune — the confidence LADDER (Discovery cleanup S1) + the durable NO (#7)
 
-A per-name **include toggle** on every placed row. **Save persists ONLY the included subset** (the promote
-full-replaces, so excluded names simply aren't sent).
+The old include+accept pair (two orthogonal axes) collapsed into **ONE ladder** per name — **Excluded →
+Included (system-recommended) → Signed off**, excluded wins. The affordance: the per-name **include
+toggle** stays (the gate — **Save persists ONLY the included subset**; the promote full-replaces, so
+excluded names simply aren't sent) and a **sign-off toggle** rides the row, reachable only while included
+(the excluded stub hides its controls).
 
 - **Default-INCLUDED (#9):** a discovered name starts IN; the operator *unchecks* to exclude. Nothing is silently
   dropped — an excluded row stays **visible** (greyed), one click from re-inclusion.
-- **Orthogonal to accept / authorship.** Include ≠ accept. Accept is the authorship flip (`system_drafted →
-  operator_set/operator_edited`, the re-roll survivor); include is "goes in the saved basket." A name can be
-  **accepted-but-excluded** or **included-but-not-yet-accepted**. Include never touches `authored_by`.
-- **Bulk actions:** include all / exclude all / **clear un-accepted** (exclude every still-`system_drafted` name —
-  the fast path to just-my-vouched names — without touching authorship).
+- **Sign-off endorses the NAME, nothing else.** `BasketMember.signed_off` is a per-NAME marker ("this
+  company belongs in the thesis"): it **never sets authorship** (the description stays a model draft
+  until the operator edits it — the honest-authorship rule below), **never gates Save** (include gates;
+  sign-off marks), and **never feeds the call/score (#4)**. It does **not pin** against a re-draft —
+  only an operator-EDITED description pins; the flag is *carried* across the re-roll, and a signed-off
+  name is never dropped (#9). A **hand-add** (master search / ETF surface / holdings include) enters
+  auto-signed-off — the operator's pick IS the endorsement.
+- **HONEST AUTHORSHIP.** `authored_by` records who wrote the member's *description* (`thesis_fit`):
+  `system_drafted` renders **"model draft"** until the operator EDITS the text → `operator_edited`,
+  **"your words"**. Nothing else flips it (the retired old `accept` flipped authorship *without changing
+  the text* — the lie S1 removed; migration 0035 re-based the stored rows, and promote legacy-translates
+  a stray `operator_set` payload to `signed_off=true` + `system_drafted`). Editing the description does
+  NOT auto-sign-off — writing a note and endorsing the name are separate acts.
+- **Bulk actions:** include all / exclude all / **clear not signed-off** (exclude every name the operator
+  hasn't endorsed — the fast path to just-my-endorsed names — keyed on the flag, touching neither
+  authorship nor the flag itself; working-scoped, the frozen Basket is never swept).
 - **The exclusion is DURABLE (#7).** Save also persists the current exclusion set — with the optional
   **"rejected because X"** reason (a quiet inline input on the greyed row; skippable, editable) — through the
   sole-writer `PUT /theses/{id}/exclusions` (`thesis_exclusion`; the term_set structural wipe-guard, so a
@@ -55,8 +70,12 @@ full-replaces, so excluded names simply aren't sent).
 ## The find — the sortable / filterable view (#114)
 
 The placed list becomes a triage instrument: **sort** by name / segment / sector, **filter** by
-segment / fundamentals / authorship / include / off-universe, and a **compact** toggle that collapses
-the thesis-fit prose for a scannable read. This is how pruning 90 names stays fast.
+segment / fundamentals / **sign-off** (the S1 rename of the old authorship filter — the ladder rung is
+what the operator prunes by) / include / off-universe, and a **compact** toggle that collapses
+the thesis-fit prose for a scannable read. This is how pruning 90 names stays fast. The list renders
+**one row per NAME** — a name the draft recommends into N links holds N real membership rows (see the
+multi-membership note below), displayed as one row with a read-only chip per link; every count counts
+names.
 
 > **THE #9 SPINE (test-guarded): the VIEW never changes what Save persists.** Save is `basket − excluded` computed
 > over the **whole draft**, regardless of the current sort/filter — a filtered-out but *included* name still saves.
@@ -71,8 +90,10 @@ suppressed (it'd be true of every row = noise, inverse loudness), replaced by on
 ## The weight — the conviction field (#115)
 
 A nullable **1–5** integer per name (`BasketMember.conviction`) — the operator's intended size weight (1 = starter
-… 5 = full). Set in the crafting row (TRIAGE / ChainEditor only; the Board is read-only monitoring — re-weighting
-while watching is a later MONITOR-stage feature). A number, so future size-weighted attribution can derive relative
+… 5 = full). **S1 moved the control OFF the discovery surface** (ChainEditor renders no conviction select;
+weighting returns on the dedicated triage screen, a later slice) — the FIELD stays on the model/DB and a
+stored weight rides Save untouched. The Board is read-only monitoring — re-weighting
+while watching is a later MONITOR-stage feature. A number, so future size-weighted attribution can derive relative
 weights directly; soft enough to set fast; and it dodges the sum-to-100 portfolio-construction trap a target-% would
 drag in (position sizing is out of scope — `STAGE_MODEL.md`).
 
@@ -126,12 +147,22 @@ ruleset **highlights the signal, doesn't flag the noise** — the exact inverse 
   **keepers-only** (the
   headline is the signal; each sub-drawer carries its own count).
 
+**The recommended-link chips + the multi-membership rows (S1).** A placed row shows the draft's
+recommended value-chain link(s) as **READ-ONLY chips** — styled as an LLM *recommendation* (blue),
+deliberately distinct from the machine-fact identity chips (muted). **The chips are REAL memberships:**
+a name the organizer recommends into N links is **N `basket_member` rows** (same `security_id`, one per
+`segment`) that `loadDraft` preserves and the promote persists — the display groups them into one row
+per NAME, and every per-name action (include / sign-off / description-edit) co-mutates all of a name's
+rows via the `memberKey` keying. **The seg dropdown and the per-name re-segmenting are GONE from this
+surface** — segment sorting moves to the triage screen (a later slice); this surface shows the draft's
+placement, it doesn't edit it. (A per-membership add/remove — the `(security_id, segment)` re-key — is
+likewise the triage slice, not this one.)
+
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
-"Discovered". It is a **sorting queue, not a value-chain link** — de-linked visually (muted, "unsorted — not a
-link"), with a quiet "N unsorted" nudge. The placed-row **seg dropdown is wired** to `d.placeMember` — selecting a
-real link **re-segments** the name (which flips `authored_by → operator_edited`, so the choice survives a re-roll);
-there is no "remove" in the dropdown (pruning is the include-uncheck). Together these turn a dead catch-all into a
-triage queue. Each placed row also shows the **company name** (bridged by `security_id`) and the SURFACE identity
+"Discovered". It is an **unsorted holding pen, not a value-chain link** — de-linked visually (muted,
+"unsorted — not a link"), with a quiet "N unsorted" nudge (honest about this surface: the draft didn't
+arrange them; sorting lives on the triage screen). Each placed row also shows the **company name**
+(bridged by `security_id`) and the SURFACE identity
 chips incl. the **filer-category** maturity tell (`WORKBENCH_ENRICHMENT.md`).
 
 ## The placed-board partitions (C-B + G) — one membership, display groups
@@ -149,7 +180,7 @@ independently-collapsible **display groups** (same first word = same membership;
   `workbench/format.ts` — HBM ✓, DRAM ✓, "high-bandwidth memory" ✗) and name token co-occurrence pairs
   (BlackRock+Trust, Royce+Trust). Add a tell = one registry line in `JUNK_TELLS`. Starts **collapsed** (a cluster
   to visit, not a wall), with a group-level **"exclude all N"** (visible bulk; every row stays greyed-in-place and
-  re-includable — `excludeKeys`, the same additive contract as clear-un-accepted).
+  re-includable — `excludeKeys`, the same additive contract as clear-not-signed-off).
 - **Precedence:** low quality > flagged > clean (the To-Review precedence idiom). Grouping renders **only when it
   discriminates** — everything-in-one-group is just the flat list (a partition that doesn't discriminate is
   noise, #7).
@@ -209,7 +240,9 @@ visible inverse of Save (reversibility principle #1); cleared on any navigation 
   Save persists.
 - **#7 (inverse loudness):** a badge true of every row doesn't render (the fundamentals gate); loudness marks the
   minority/exception per bucket — Placed flags rare junk, To-Review highlights rare keepers.
-- **#10 (recommends, operator decides):** sort/filter/include/accept/re-segment are all operator acts; the
-  off-thesis flag and the low-quality cluster change nothing on their own (grouping is a lens — the
-  exclude is still the operator's click).
-- **#4 (deferential on thesis):** conviction is the operator's weight, never an input to the call.
+- **#10 (recommends, operator decides):** the drafted placement — the link chips, the drafted description,
+  the off-thesis flag — is a RECOMMENDATION the operator triages on the ladder; sort/filter/include/sign-off
+  are all operator acts, and grouping is a lens (the exclude is still the operator's click). A field is the
+  operator's **only if the operator changed it** — sign-off endorses, it never authors.
+- **#4 (deferential on thesis):** conviction is the operator's weight and sign-off is the operator's
+  endorsement — neither is ever an input to the call.
