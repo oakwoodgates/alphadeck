@@ -46,8 +46,9 @@ drops real names.
 ## The architecture — EDGAR-first, deterministic, operator-seeded
 
 One narrative → a complete universe, in six steps. The deterministic layer (steps 1–4) owns COMPLETENESS; the
-LLM (steps 5–6) only adds DISPLAY prose + the foreign tail. Nothing here sources a number (#3); discovery only
-PROPOSES — exact CIK membership DECIDES (#2).
+LLM (steps 5–6) only arranges LAYOUT and adds DISPLAY prose + the foreign tail (the organizer emits structure
++ assignment only; the batched narration step authors ALL per-name prose — the prose reroute). Nothing here
+sources a number (#3); discovery only PROPOSES — exact CIK membership DECIDES (#2).
 
 ### 1. The term set — the operator owns the discriminating decision
 
@@ -179,11 +180,16 @@ arrangement, never a lost name. (#9 rule: a dropped name is a system failure.)
 Each surfaced name carries two display layers, both value-free (#3):
 
 - **Thesis-fit prose** — `narrate_placements` (a focused Sonnet step, reusing the decompose client) writes one
-  ≤25-word reasoning sentence per PLACED + VERIFY name the organizer didn't narrate. **BATCHED** (chunks of 15
-  — a 100+-name universe in one call truncates the tool JSON to nothing) with a **numbered-`ref` join** (the
-  model replies by list number, never a re-typed name — the key can't drift), **fail-open per batch** (a failed
-  batch keeps `prose=""` and is LOGGED with its reason — visible, never a silent empty), scoped to the
-  promotable tiers.
+  ≤25-word reasoning sentence per empty-prose PLACED + VERIFY name — since the **prose reroute** that is EVERY
+  placed/verify name: the organizer emits structure + assignment only (`{name, ticker}` — per-name prose in the
+  ONE organize call scaled its output with the universe and truncated large drafts to 0 segments), so
+  organizer-placed and reconciler-appended names alike are narrated, each with its real segment label threaded
+  in. **BATCHED** (chunks of 15 — a 100+-name universe in one call truncates the tool JSON to nothing) with a
+  **numbered-`ref` join** (the model replies by list number, never a re-typed name — the key can't drift),
+  **fail-open per batch** (a failed batch keeps `prose=""` and is LOGGED with its reason — visible, never a
+  silent empty), scoped to the promotable tiers (AMBIGUOUS/ABSENT — the identity-triage drawer — render
+  without a fit sentence, accepted). Narration is the SOLE prose author: a stray organizer `prose` is stripped
+  at the single LLM-output door (`proposed_from_decomposition`) and WARN-logged with a count.
 - **Matched terms** — `ResolvedPlacement.matched_terms`, the discovery keyword(s) the name's CIK hit, surfaced
   as a quiet tag (`KAYS ← esketamine, psilocin`). It makes a colliding seed visible at a glance (#6/#9).
   Display-only and **recomputed each draft**; its **frozen twin `surfaced_terms`** persists these onto the
@@ -252,8 +258,9 @@ as `tail_sweep: "failed"` on the draft report rather than silent (the honest-dis
   `tests/app/test_workbench_api.py` (the provenance assertions).
 
 **The end-to-end front door** (`POST /workbench/theses/{id}/draft-chain`): read the stored term set →
-`run_discovery` (EFTS → classify) → `research_tail_sweep` → organize (decompose) → `resolve_discovered_chain`
-(per-CIK reconcile) → fill prose + tags → `ChainDraftOut`. If the thesis has no term set, or EFTS can't
+`run_discovery` (EFTS → classify) → `research_tail_sweep` → organize (decompose — structure + assignment only)
+→ `resolve_discovered_chain` (per-CIK reconcile) → narrate ALL prose + tags → `ChainDraftOut`. If the thesis
+has no term set, or EFTS can't
 enumerate the universe, the draft **503s** (`DiscoveryNoTerms` / `DiscoveryDegraded` / `DiscoveryEmpty`) — never
 a silent fall back to model recall (#9) — and the failed job's operator-facing message **carries the counts**
 (`"discovery unavailable — discovery degraded: N/M EFTS pages failed (X%) after retries"`).
@@ -262,8 +269,9 @@ a silent fall back to model recall (#9) — and the failed job's operator-facing
 (pages ok/attempted + the failed terms), the `capped_terms`, the **tail-sweep tri-state** (`ran | failed |
 skipped` — `research_tail_sweep` returns a `TailSweep`, so a transiently-LOST sweep is no longer
 indistinguishable from "no foreign names exist"; `skipped` = the operator's own no-key/live-disabled config,
-rendered quiet), and the **narration fill** (M of N names that needed prose got it — a partial narration was a
-log line only). The Workbench renders it as a **status strip**: one muted line at 100% healthy, a loud
+rendered quiet), and the **narration fill** (M of N names that needed prose got it — since the prose reroute N
+≈ the whole placed/verify set; a partial narration was a log line only). The Workbench renders it as a
+**status strip**: one muted line at 100% healthy, a loud
 flag-block on any gap (inverse loudness), which also disambiguates *done-but-empty* from *failed*. Display-only
 RUN state — value-free (#3), never persisted (the draft stays response-only). *Enforced by:*
 `app/schemas_api.py` (`DraftReportOut`), the report assembly in `execute_draft`

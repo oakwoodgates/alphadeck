@@ -20,6 +20,7 @@ operator's promote (which re-checks membership — `app/routers/workbench.py`); 
 
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -35,6 +36,9 @@ from securities import master
 from securities.business_type import resolve_business_type
 from securities.origin import resolve_origin
 from workbench.discovery import DiscoveredUniverse
+
+# WARNINGs propagate to uvicorn's root handler — visible in `docker compose logs` (#9: never strip silently).
+_log = logging.getLogger("alphadeck.workbench")
 
 # How many master rows to offer the operator when a proposed name is ambiguous (the pick list).
 _CANDIDATE_LIMIT = 10
@@ -53,8 +57,11 @@ class ProposedPlacement(DomainModel):
 
     ``ticker`` is the model's BEST GUESS — used only as a key to look up an EXACT master row, NEVER trusted
     as the id (a wrong guess simply fails to match and the name falls to the operator's pick). ``prose`` is
-    the drafted thesis-fit reasoning — a display string carried through; it is never a fact and never stored
-    here.
+    normally EMPTY (the prose reroute): the organizer's tool schema carries no prose field — the batched
+    narration step (``llm.chain_decomposition.narrate_placements``) authors every placed/verify name's
+    thesis-fit sentence downstream. The field remains for the resolver's carry-what-given contract, and
+    ``proposed_from_decomposition`` STRIPS (and logs) any stray prose the model emits despite the schema, so
+    narration is the sole prose author by construction. Never a fact and never stored here.
     """
 
     name: str
@@ -119,10 +126,10 @@ class ResolvedPlacement(DomainModel):
     promoted onto a ``BasketMember`` (#2), never on the call path. It RECOMMENDS, never removes: a flagged name
     STAYS placed (membership is deterministic exact-CIK, #2 / #9 — never a silent drop) with a ``remove`` the
     OPERATOR clicks (#10). Set at the narration MERGE (``app.routers.workbench.execute_draft``), not at resolution
-    — so it defaults ``False`` on every construction path here. COVERAGE = reconciler-appended collisions (the
-    unnarrated PLACED/VERIFY names the narration pass fills): the boilerplate-collision flood the flag exists to
-    catch. The organizer's OWN placements carry prose and aren't re-judged — an organizer-placed off-thesis name
-    reading unflagged is SCOPE, not a bug. Fail-open: no narration → ``False`` (never flag on missing data).
+    — so it defaults ``False`` on every construction path here. COVERAGE = every placed/verify name: since the
+    prose reroute the organizer emits structure + assignment only, so organizer-placed and reconciler-appended
+    names alike arrive prose-less, are narrated (narration is the sole prose author), and can be flagged.
+    Fail-open: no narration → ``False`` (never flag on missing data).
     """
 
     name: str
@@ -385,7 +392,8 @@ def resolve_discovered_chain(
 
     - An organizer placement that matches a discovered CIK (exact ticker / name) is PLACED or VERIFY by that
       CIK's ``security_id`` (the cleanest INVARIANT #2 — CIK-exact membership), carrying the organizer's segment
-      + prose. The CIK is recorded as EMITTED.
+      (``prose`` arrives empty since the prose reroute — the narration step downstream authors it). The CIK is
+      recorded as EMITTED.
     - A placement that matches NO discovered CIK is a tail-sweep / off-universe name → the existing master
       resolver (``_resolve_one``: PLACED / AMBIGUOUS / ABSENT). The organizer never sources a number (#3).
     - **The completeness guarantee — per-CIK, not a count heuristic:** after the layout pass, EVERY in-master
@@ -469,13 +477,32 @@ def proposed_from_decomposition(raw: dict | None) -> list[ProposedSegment]:
     """Parse the LLM decomposition's tool output (``{"segments": [...]}``) into proposed segments,
     DEFENSIVELY (fail-open): a missing / non-dict / malformed payload yields ``[]`` (an empty draft, never an
     error), and a single malformed segment is skipped without losing the rest. The resolver then decides
-    membership; this only shapes the input."""
+    membership; this only shapes the input.
+
+    THE SINGLE LLM-OUTPUT DOOR also enforces the prose reroute here: the organizer's schema declares no
+    ``prose``, but a model may emit one anyway — any stray ``prose`` key is STRIPPED before validation, so
+    "narration is the sole prose author" and "off_thesis reaches every placed/verify name" hold by
+    construction (a carried organizer sentence would skip narration and dodge the judge). Never silently
+    (#9): a stripped field is wasted output tokens AND a prompt not holding, so the count is WARNed.
+    """
     if not isinstance(raw, dict):
         return []
     out: list[ProposedSegment] = []
+    stripped = 0
     for s in raw.get("segments", []):
+        if isinstance(s, dict) and isinstance(s.get("placements"), list):
+            for p in s["placements"]:
+                if isinstance(p, dict) and "prose" in p:
+                    p.pop("prose")
+                    stripped += 1
         try:
             out.append(ProposedSegment.model_validate(s))
         except ValidationError:
             continue
+    if stripped:
+        _log.warning(
+            "decompose: stripped %d stray prose field(s) the model emitted despite the schema — wasted "
+            "output tokens; tighten the organizer prompt if this persists.",
+            stripped,
+        )
     return out

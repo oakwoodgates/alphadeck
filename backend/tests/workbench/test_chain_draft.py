@@ -458,3 +458,70 @@ def test_us_placed_name_reads_origin_us(db):
     (p,) = resolve_discovered_chain(db, segs, u).placements
     assert p.status is PlacementStatus.PLACED
     assert p.origin == "US"
+
+
+# --- the prose reroute: the organizer emits NO prose; the single LLM-output door enforces it ---
+
+
+def test_proposed_from_decomposition_strips_stray_prose_and_warns(caplog):
+    """THE Q2 GUARD: the organizer's schema declares no ``prose``, but a model may emit one anyway. The single
+    LLM-output door STRIPS it BEFORE validation — the parsed placements read ``prose==""`` (so they flow to
+    narration; a carried organizer sentence would skip it and dodge the off_thesis judge) — and NEVER silently
+    (#9): a stripped field is wasted output tokens + a prompt not holding, so the count is WARNed.
+    """
+    import logging
+
+    from workbench.chain_draft import proposed_from_decomposition
+
+    raw = {
+        "segments": [
+            {
+                "label": "reactors",
+                "placements": [
+                    {"name": "Oklo Inc.", "ticker": "OKLO", "prose": "a stray sentence"},
+                    {"name": "NuScale Power", "ticker": "SMR", "prose": "another stray"},
+                    {"name": "Centrus Energy", "ticker": "LEU"},  # clean — not counted
+                ],
+            }
+        ]
+    }
+    with caplog.at_level(logging.WARNING, logger="alphadeck.workbench"):
+        segs = proposed_from_decomposition(raw)
+    (s,) = segs
+    assert [p.prose for p in s.placements] == ["", "", ""]  # stripped pre-validation, none dropped
+    assert [p.name for p in s.placements] == ["Oklo Inc.", "NuScale Power", "Centrus Energy"]
+    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warns) == 1  # ONE warn for the run, carrying the count
+    assert "stripped 2 stray prose field(s)" in warns[0].getMessage()
+    assert "wasted" in warns[0].getMessage()  # the money signal, named
+
+
+def test_proposed_from_decomposition_clean_payload_does_not_warn(caplog):
+    """Honest loudness: a schema-conforming (prose-less) payload — the new normal — parses with NO warning;
+    the WARN marks the exception (a prompt not holding), never the rule."""
+    import logging
+
+    from workbench.chain_draft import proposed_from_decomposition
+
+    raw = {
+        "segments": [{"label": "reactors", "placements": [{"name": "Oklo Inc.", "ticker": "OKLO"}]}]
+    }
+    with caplog.at_level(logging.WARNING, logger="alphadeck.workbench"):
+        segs = proposed_from_decomposition(raw)
+    assert segs[0].placements[0].prose == ""  # the ProposedPlacement default — narration's input
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def test_prose_less_placement_resolves_with_empty_prose(db):
+    """The reroute's new NORMAL input, carried end-to-end by the resolver: a prose-less ``ProposedPlacement``
+    resolves PLACED with ``prose==""`` — exactly what the orchestrator's empty-prose selection then routes to
+    narration. (The resolver's carry-what-given contract is unchanged.)"""
+    oklo = _insert(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    chain = resolve_placements(
+        db,
+        [_seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO"))],  # no prose — the new normal
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    (p,) = chain.placements
+    assert p.status is PlacementStatus.PLACED and p.security_id == oklo
+    assert p.prose == ""  # carried empty — narration authors it downstream

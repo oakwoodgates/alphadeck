@@ -813,14 +813,15 @@ def execute_draft(
     the lower-confidence VERIFY tier (``run_discovery``); (3) a directed web-search TAIL-SWEEP
     (``research_tail_sweep``, Opus) adds only the foreign / brand-new names EFTS structurally can't see, given
     the already-found list. Their combined synthesis is threaded as CONTEXT into the DECOMPOSE call (Sonnet
-    ORGANIZES the stable name set into segments + thesis-fit prose — it never enumerates). Then
-    ``resolve_discovered_chain`` reconciles the organizer's layout against the discovered universe PER CIK: a
-    matched name is PLACED / VERIFY by its CIK's exact membership (the cleanest INVARIANT #2), an off-universe
-    name falls to the master resolver, and every discovered CIK the organizer dropped is appended to a
-    'Discovered' bucket — completeness is the deterministic layer's, never the organizer's to lose. A final
-    fail-open narration step then writes thesis-fit prose for the reconciler-appended names the organizer never
-    narrated (so EVERY placed/verify name carries reasoning); each name also carries its matched discovery
-    term(s) as provenance. Both are display strings — no number (#3), nothing persisted.
+    ORGANIZES the stable name set into segments — structure + assignment only, no per-name prose; it never
+    enumerates). Then ``resolve_discovered_chain`` reconciles the organizer's layout against the discovered
+    universe PER CIK: a matched name is PLACED / VERIFY by its CIK's exact membership (the cleanest INVARIANT
+    #2), an off-universe name falls to the master resolver, and every discovered CIK the organizer dropped is
+    appended to a 'Discovered' bucket — completeness is the deterministic layer's, never the organizer's to
+    lose. A final fail-open narration step then authors ALL thesis-fit prose (the prose reroute: organizer-placed
+    and reconciler-appended names alike arrive prose-less, so EVERY placed/verify name gets its reasoning from
+    the batched, truncation-immune narrate step); each name also carries its matched discovery term(s) as
+    provenance. Both are display strings — no number (#3), nothing persisted.
 
     Only the expensive Opus TAIL-SWEEP runs behind the cost-safety wrapper (``workbench.research_runner``): its
     TTL cache keyed by thesis + narrative-hash (``llm_research_cache_ttl_s``; 0 = always fresh) makes a re-draft
@@ -871,14 +872,17 @@ def execute_draft(
     )
     chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
 
-    # Fill thesis-fit prose for the PLACED + VERIFY names the ORGANIZER didn't narrate — the deterministic
-    # reconciler appends discovered CIKs with prose="" (it owns completeness, not prose). Both tiers are
-    # PROMOTABLE (a verify name the operator adds becomes a basket member, and promote — the structured writer,
-    # no LLM — carries whatever prose it had at draft time), so both must carry reasoning or the gap just moves
-    # one tier down onto the names acted on by hand. AMBIGUOUS/ABSENT are left alone. narrate_placements BATCHES
-    # (a large universe would truncate one call to nothing) and logs any batch failure (#9 — visible, never a
-    # silent empty). FAIL-OPEN: a narration miss leaves prose empty, never drops a name; a DISPLAY string only —
-    # no number (#3), nothing persisted (response-only).
+    # Fill thesis-fit prose for every empty-prose PLACED + VERIFY name — since the prose reroute that is ALL of
+    # them: the organizer emits structure + assignment only (no per-name prose — it scaled the organize output
+    # with the universe and truncated large drafts to 0 segments), and the deterministic reconciler appends
+    # dropped CIKs with prose="" (it owns completeness, not prose). Both tiers are PROMOTABLE (a verify name the
+    # operator adds becomes a basket member, and promote — the structured writer, no LLM — carries whatever prose
+    # it had at draft time), so both must carry reasoning or the gap just moves one tier down onto the names
+    # acted on by hand. AMBIGUOUS/ABSENT are left alone (accepted: they render without a fit sentence — the
+    # "Couldn't resolve" drawer is identity triage, not thesis-fit). narrate_placements BATCHES (a large universe
+    # would truncate one call to nothing) and logs any batch failure (#9 — visible, never a silent empty).
+    # FAIL-OPEN: a narration miss leaves prose empty, never drops a name; a DISPLAY string only — no number (#3),
+    # nothing persisted (response-only).
     def _needs_prose(p) -> bool:
         return (
             p.status in (PlacementStatus.PLACED, PlacementStatus.VERIFY)
@@ -897,7 +901,9 @@ def execute_draft(
         # narrate_placements returns {name: {"prose", "off_thesis"}} — the display prose AND the narrator's
         # on/off-thesis opinion (a display recommendation, #10; the flagged name stays placed). This merge is the
         # ONE seam narration lands on placements: off_thesis is set here (not at resolution) and defaults False
-        # everywhere else. Fail-open: a narration miss leaves prose empty + off_thesis False (never flag on a miss).
+        # everywhere else — and since the prose reroute it reaches EVERY placed/verify name (organizer-placed
+        # included), not just the reconciler-appended. Fail-open: a narration miss leaves prose empty +
+        # off_thesis False (never flag on a miss).
         narrated = narrate_placements(decompose_llm, thesis.narrative, needs)
         if narrated:
             placements = [
