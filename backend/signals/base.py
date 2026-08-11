@@ -71,6 +71,51 @@ class PointInTimeData:
         )
         return window_prices(rows, self.asof, lookback_days)
 
+    def benchmark_prices(
+        self, symbol: str, lookback_days: int | None = None
+    ) -> list[dict[str, Any]]:
+        """The as-of EOD bars for a BENCHMARK security (SPY/IWM), resolved by ticker within this tenant
+        — the reference series the relative-strength DISPLAY column prices each member against.
+
+        A SANCTIONED widening of the DISPLAY contract (``DISPLAY_SIGNALS.md``): a display member cannot
+        do a master/db lookup inside the seam (the seam forbids db imports), so the concrete PIT — which
+        already reads the master directly for ``security_name`` — resolves the benchmark here. Deliberately
+        NOT on the detectors' ``SignalPointInTimeData`` protocol: promoting RS to a CALL input is a later,
+        separately-signed step (it would widen ``SignalPointInTimeData`` AND ``ReplayPointInTimeData``).
+
+        Still as-of capped on ``fact_price_eod`` (no lookahead, #1): the benchmark bars honor the same
+        ``valid_from <= asof`` / ``recorded_at <= known_at`` gate as every price read. An unknown symbol
+        or an unseeded/unpriced benchmark returns ``[]`` — the RS column reports an honest gap, never a
+        fabricated ratio (#6/#9). The master read is identity (stable), never as-of, exactly like
+        ``security_name``."""
+        sid = self._benchmark_id(symbol)
+        if sid is None:
+            return []
+        rows = as_of(
+            self.conn,
+            "fact_price_eod",
+            security_id=sid,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+        return window_prices(rows, self.asof, lookback_days)
+
+    def _benchmark_id(self, symbol: str) -> UUID | None:
+        """Resolve a benchmark ticker (SPY/IWM) to its ``security_master`` id within this tenant — the
+        ``instrument_kind = 'etf'`` filter matches the ``securities.benchmarks`` seed so a benchmark can
+        never collide with an operating company that shares the ticker. Identity read, never as-of.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM security_master "
+                "WHERE tenant_id = %s AND ticker = %s AND instrument_kind = 'etf' "
+                "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+                (self.tenant_id, symbol.upper()),
+            )
+            row = cur.fetchone()
+        return row["id"] if row else None
+
     def dilution_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         return as_of(
             self.conn,

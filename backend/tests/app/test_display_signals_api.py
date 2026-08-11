@@ -160,6 +160,55 @@ def test_theme_breadth_is_none_for_a_basketless_thesis(client, db):
     tid = _seed_thesis(db, [])
     body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
     assert body["breadth"] is None
+    assert body["sector_rs"] is None  # §1.3 — no members, no rollup
+
+
+def _seed_flat(db, security_id, n: int, close: float = 50.0, end: date = _ASOF) -> None:
+    """n consecutive-day bars ending at ``end`` at a CONSTANT close — a flat benchmark, so a rising
+    member's RS climbs to a fresh high (the ``_seed_bars`` member vs this benchmark = leading)."""
+    start = end - timedelta(days=n - 1)
+    for i in range(n):
+        _price(db, security_id, start + timedelta(days=i), close, volume=1000.0)
+    db.commit()
+
+
+def test_relative_strength_and_sector_rs_ride_the_response(client, db, security_id):
+    """§2.1 the per-name RS column + §1.3 the supersector rollup, end-to-end on the SAME generic wire
+    (zero call-path touch). A rising member vs a flat SPY/IWM prints a fresh 13-week RS high -> the
+    per-name column is ``leading`` and the (unclassified) supersector rollup reports one leader."""
+    from securities.benchmarks import seed_benchmarks
+
+    ids = seed_benchmarks(db)
+    _seed_bars(db, security_id, 65)  # member: rising closes
+    _seed_flat(db, ids["SPY"], 65)  # benchmarks: flat -> RS rises to a fresh high
+    _seed_flat(db, ids["IWM"], 65)
+    tid = _seed_thesis(db, [_member(security_id)])
+
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+
+    m = body["members"][0]
+    rs = next(s for s in m["signals"] if s["kind"] == "relative_strength")
+    assert rs["headline"]["key"] == "leading"
+    by = {mt["key"]: mt for mt in rs["metrics"]}
+    assert by["rs_spy"]["value"] is not None and by["rs_iwm"]["value"] is not None
+    assert {e["key"] for e in rs["events"]} == {"rs_high_spy", "rs_high_iwm"}
+    # §1.3 — the rollup rides a top-level field; DEVCO has no enriched sector -> the unclassified group
+    sr = body["sector_rs"]
+    assert sr is not None and sr["kind"] == "sector_rs"
+    sr_by = {mt["key"]: mt for mt in sr["metrics"]}
+    assert sr_by["rs_lead_unclassified"]["value"] == 1.0
+    assert sr["headline"]["key"] == "leading"
+
+
+def test_relative_strength_absent_without_a_benchmark(client, db, security_id):
+    """No benchmark tape ingested -> the RS column is honestly ABSENT (like etf_flow with no samples),
+    never a fabricated ratio, and the sector rollup is None."""
+    _seed_bars(db, security_id, 220)
+    tid = _seed_thesis(db, [_member(security_id)])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    m = body["members"][0]
+    assert all(s["kind"] != "relative_strength" for s in m["signals"])
+    assert body["sector_rs"] is None
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):

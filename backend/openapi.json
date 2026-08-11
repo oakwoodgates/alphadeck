@@ -3764,6 +3764,16 @@
               }
             ]
           },
+          "sector_rs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisplaySignal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "members": {
             "items": {
               "$ref": "#/components/schemas/MemberDisplaySignalsOut"

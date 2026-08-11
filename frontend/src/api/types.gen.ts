@@ -1866,6 +1866,7 @@ export interface components {
              */
             asof: string;
             breadth?: components["schemas"]["DisplaySignal"] | null;
+            sector_rs?: components["schemas"]["DisplaySignal"] | null;
             /**
              * Members
              * @default []

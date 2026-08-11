@@ -167,6 +167,36 @@ def ingest_prices(
     return count
 
 
+def ingest_prices_backfill(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    rows: list[dict],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> int:
+    """Append EOD bars stamping BOTH bitemporal axes at the bar date ``d`` — the HISTORICAL backfill
+    contract (Signals R17 / plan A.2). ``valid_from = d`` (event time) AND ``recorded_at = d 00:00 UTC``
+    (transaction time: an EOD bar is knowable that evening), so a past-as-of replay/backtest sees each
+    bar ONLY on its own date. Returns the count appended; the caller owns the transaction.
+
+    DISTINCT from ``ingest_prices`` (which leaves ``recorded_at`` at the DB default ``now()`` — correct
+    for the LIVE incremental ingest, which learns a bar today): a one-shot deep backfill of years-old
+    tape must backdate ``recorded_at`` to the bar date, or a lockstep replay pinned in the past is blind
+    to every historical bar (the "no-backfill trap", repo memory). Reuses ``ingest_prices`` per bar so
+    the exact column mapping (OHLCV + ``valid_from = d``) stays in one place."""
+    count = 0
+    for r in rows:
+        d = r["d"]
+        count += ingest_prices(
+            conn,
+            security_id,
+            [r],
+            tenant_id=tenant_id,
+            recorded_at=datetime(d.year, d.month, d.day, tzinfo=timezone.utc),
+        )
+    return count
+
+
 def stored_bars(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> dict[date, dict]:

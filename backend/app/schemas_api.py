@@ -1270,6 +1270,12 @@ class DisplaySignalsResponse(BaseModel):
     # the per-name members use (``headline.key`` = ``thrust`` | ``quiet`` | ``unknown``), so the FE renders
     # it with the generic display block — the FE chip that reads it is a later step.
     breadth: DisplaySignal | None = None
+    # THESIS-LEVEL supersector RS rollup (§1.3) — "which theme is leading the market": the resolved
+    # members grouped by BusinessSupersector, each with a count of how many LEAD (RS vs SPY at a fresh
+    # 13-week high). DISPLAY-only (#4), same generic ``DisplaySignal`` wire (``kind`` = ``sector_rs``,
+    # ``headline.key`` = ``leading`` | ``quiet`` | ``unknown``, one metric per supersector). ``None`` when
+    # the basket is empty OR no benchmark tape is ingested yet (RS uncomputable — an honest absence).
+    sector_rs: DisplaySignal | None = None
     members: list[MemberDisplaySignalsOut] = []
 
 
