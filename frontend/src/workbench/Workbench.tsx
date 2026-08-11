@@ -1,7 +1,9 @@
 import { Fragment, useState, type ReactNode } from "react";
 
 import {
+  type BasketMember,
   type BusinessTypeLeaf,
+  type Segment,
   type ThesisDetail,
   useDeleteTriageSession,
   usePromoteThesis,
@@ -15,10 +17,20 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
+import {
+  addLink,
+  effectiveSegment,
+  reconcileMemberSegments,
+  removeLink,
+  renameLink,
+  reorderLink,
+  sanitizeBasketForPromote,
+} from "./chainOps";
 import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
+import { DISCOVERED } from "./useChainDraft";
 import { errText, memberHasFundamentals } from "./format";
 
 interface Props {
@@ -48,6 +60,12 @@ export function Workbench({ header, asof }: Props) {
   const [seg, setSeg] = useState<string | null>(null);
   const [pickedMemberId, setPickedMemberId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // #1–3 (chain-editing Phase 2) — the value-chain topology editor on the SCORE view. `editLinks` is the
+  // reveal-toggle: off = the tab strip is pure navigation (inverse-loudness #7 — the edit affordances
+  // don't render until asked for); on = per-link rename / reorder / remove + the `+ add link` bootstrap.
+  // `newLink` is the add-a-link input. Both reset per thesis (switchThesis) and on entering the editor.
+  const [editLinks, setEditLinks] = useState(false);
+  const [newLink, setNewLink] = useState("");
   // D — Save-Chain re-entry legibility: set when the editor exits via a successful Save, so the scored view
   // SAYS the thesis is re-openable. Honest copy: re-entry restores the saved BASKET — not the draft-time
   // discovery context (matched terms / flags are run state; re-discovering is a re-draft). Cleared on any
@@ -109,10 +127,21 @@ export function Workbench({ header, asof }: Props) {
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   const grouped = segments.length > 0;
-  const countFor = (label: string) => chainMembers.filter((m) => m.segment === label).length;
-  const activeSeg = grouped ? (seg ?? segments[0]?.label ?? null) : null;
+  // Group by the EFFECTIVE segment (chain-editing Phase 1): a NULL or ORPHAN (label not in the chain)
+  // name normalizes to Discovered so it surfaces under a synthesized Discovered tab instead of failing
+  // the raw `m.segment === activeSeg` filter and vanishing (#9 / WB#2). Only when there IS a real chain
+  // (`grouped`) — a flat pre-decompose basket stays one ungrouped list.
+  const anyDiscovered =
+    grouped && chainMembers.some((m) => effectiveSegment(m, segments) === DISCOVERED);
+  const renderSegments =
+    anyDiscovered && !segments.some((s) => s.label === DISCOVERED)
+      ? [...segments, { label: DISCOVERED, descriptor: null }]
+      : segments;
+  const countFor = (label: string) =>
+    chainMembers.filter((m) => effectiveSegment(m, segments) === label).length;
+  const activeSeg = grouped ? (seg ?? renderSegments[0]?.label ?? null) : null;
   const shownMembers = activeSeg
-    ? chainMembers.filter((m) => m.segment === activeSeg)
+    ? chainMembers.filter((m) => effectiveSegment(m, segments) === activeSeg)
     : chainMembers;
   // Selection resolves across the scored chain AND the sleeves — a `fund` row drives the DD rail (SleeveRail)
   // just like a scored name. The default (nothing picked) stays the first chain member, never a sleeve.
@@ -125,6 +154,23 @@ export function Workbench({ header, asof }: Props) {
   const authoredByFor = (sid: string) =>
     thesis?.basket.find((b) => b.security_id === sid)?.authored_by;
 
+  // #4 (chain-editing Phase 1) — the DD-rail segment control for the selected name. `options` = the live
+  // chain's real links (Discovered is the automatic floor, never a checkbox); `current` = the name's live
+  // memberships read from the SPINE (`thesis.basket`) and normalized through effectiveSegment (a NULL /
+  // orphan label → Discovered → dropped), so an unsorted name reads as no checked links → the rail's
+  // "Unsorted (Discovered)" line. Deduped: a name never shows the same link twice.
+  const segmentOptions = segments.map((s) => s.label).filter((l) => l !== DISCOVERED);
+  const selectedSegments = selectedMember
+    ? [
+        ...new Set(
+          (thesis?.basket ?? [])
+            .filter((b) => b.security_id === selectedMember.security_id)
+            .map((b) => effectiveSegment(b, segments))
+            .filter((l) => l !== DISCOVERED),
+        ),
+      ]
+    : [];
+
   const activeName = thesis?.name ?? theses.find((t) => t.id === thesisId)?.name ?? "…";
 
   const switchThesis = (id: string) => {
@@ -132,6 +178,8 @@ export function Workbench({ header, asof }: Props) {
     setSeg(null);
     setPickedMemberId(null);
     setEditing(false);
+    setEditLinks(false); // the link-editor reveal is per thesis / per scored session
+    setNewLink("");
     setChainSaved(false);
     setDismissedIncompatible(false); // the incompatible-session choice is per thesis
     setCleared(false); // the cleared state is per thesis / per edit session
@@ -277,6 +325,61 @@ export function Workbench({ header, asof }: Props) {
       basket: thesis.basket.filter((b) => b.security_id !== securityId),
       segments: thesis.segments,
     });
+  };
+
+  // The shared SCORE-view chain writer (chain-editing Phase 1–2): sanitize (self-heal any pre-existing
+  // orphan so a stale label can't 422 the validator) → the SAME full-replace promote the sibling handlers
+  // use. Every mover + topology handler routes through it. Read from the SPINE (`thesis.basket`/
+  // `thesis.segments`) — it carries the full BasketMembers (authored_by / signed_off / conviction /
+  // surfaced_terms) the scored read does NOT. `segment` is display/structure, never a call input (#4): these
+  // edits touch labels + rows only, never verdict/grade/exit-by. Reversible by construction (WB#1).
+  const promoteChain = (next: { basket: BasketMember[]; segments: Segment[] }) => {
+    if (!thesis) return;
+    const clean = sanitizeBasketForPromote(next.basket, next.segments);
+    promote.mutate({
+      id: thesis.id,
+      name: thesis.name,
+      narrative: thesis.narrative,
+      ticker: thesis.ticker ?? null,
+      basket: clean.basket,
+      segments: clean.segments,
+    });
+  };
+
+  // #4 (Phase 1) — the DD-rail mover: rebuild ONE name's rows into the checked links (or the Discovered
+  // floor when cleared), copying every per-name field. Clearing floors to the visible Discovered pen (never
+  // null → never unreachable to re-select).
+  const setMemberSegments = (securityId: string, labels: string[]) => {
+    if (!thesis) return;
+    promoteChain(reconcileMemberSegments(thesis.basket, thesis.segments, securityId, labels));
+  };
+
+  // #1–3 (Phase 2) — value-chain topology on the SCORE view: rename / reorder / add / remove links, each
+  // MIRRORING useChainDraft's transform (rename cascades onto members; reorder swaps; add rejects blank/dup;
+  // remove is multi-safe and routes a LAST placement to the Discovered floor) and immediate-promoting.
+  const renameLinkOnScore = (oldLabel: string, newLabel: string) => {
+    if (!thesis) return;
+    promoteChain(renameLink(thesis.basket, thesis.segments, oldLabel, newLabel));
+  };
+  const reorderLinkOnScore = (label: string, dir: -1 | 1) => {
+    if (!thesis) return;
+    promoteChain(reorderLink(thesis.basket, thesis.segments, label, dir));
+  };
+  const addLinkOnScore = (label: string) => {
+    if (!thesis) return;
+    promoteChain(addLink(thesis.basket, thesis.segments, label));
+  };
+  const removeLinkOnScore = (label: string) => {
+    if (!thesis) return;
+    promoteChain(removeLink(thesis.basket, thesis.segments, label));
+  };
+  // the `+ add link` commit (works flat — the bootstrap): append + clear the input. `addLink` rejects a
+  // blank/dup, so a stray submit is a harmless no-op.
+  const commitAddLink = () => {
+    const l = newLink.trim();
+    if (!l) return;
+    addLinkOnScore(l);
+    setNewLink("");
   };
 
   // Gate the editor mount on the prune-session GET settling — the three (really four) restore cases. A restore
@@ -598,13 +701,122 @@ export function Workbench({ header, asof }: Props) {
               <section className="sect">
                 <div className="sect-h">
                   The value chain <em>— where the money flows, decomposed from your narrative</em>
+                  {thesis && (
+                    <button
+                      type="button"
+                      className="wb-mini ghost wb-edit-links"
+                      aria-pressed={editLinks}
+                      onClick={() => setEditLinks((v) => !v)}
+                    >
+                      {editLinks ? "done" : "✎ edit links"}
+                    </button>
+                  )}
                 </div>
-                {grouped ? (
+                {editLinks ? (
+                  // #1–3 — the inline link editor (rename / reorder / remove per link) + the `+ add link`
+                  // bootstrap, which works FLAT (no links yet) so the first link is buildable from SCORE.
+                  // The synthesized Discovered floor shows read-only (names leave it via a name's links).
+                  <div className="chain chain-edit">
+                    {segments.length === 0 && (
+                      <span className="seg-edit-hint">No links yet — name your first one.</span>
+                    )}
+                    {renderSegments.map((s) =>
+                      s.label === DISCOVERED ? (
+                        <span
+                          key={s.label}
+                          className="seg-floor"
+                          title="the unsorted floor — names land here when a link is cleared or removed; move them out via a name's links"
+                        >
+                          {s.label} · {countFor(s.label)}
+                        </span>
+                      ) : (
+                        <div key={s.label} className="seg-edit">
+                          <input
+                            className="seg-rename"
+                            defaultValue={s.label}
+                            aria-label={`rename ${s.label}`}
+                            disabled={promote.isPending}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const v = (e.target as HTMLInputElement).value.trim();
+                                if (v && v !== s.label) renameLinkOnScore(s.label, v);
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              if (v && v !== s.label) renameLinkOnScore(s.label, v);
+                              else e.target.value = s.label; // revert a blank / unchanged edit
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="seg-move"
+                            disabled={
+                              promote.isPending ||
+                              segments.findIndex((x) => x.label === s.label) <= 0
+                            }
+                            aria-label={`move ${s.label} left`}
+                            onClick={() => reorderLinkOnScore(s.label, -1)}
+                          >
+                            ←
+                          </button>
+                          <button
+                            type="button"
+                            className="seg-move"
+                            disabled={
+                              promote.isPending ||
+                              segments.findIndex((x) => x.label === s.label) >=
+                                segments.length - 1
+                            }
+                            aria-label={`move ${s.label} right`}
+                            onClick={() => reorderLinkOnScore(s.label, 1)}
+                          >
+                            →
+                          </button>
+                          <button
+                            type="button"
+                            className="seg-remove"
+                            disabled={promote.isPending}
+                            aria-label={`remove ${s.label}`}
+                            onClick={() => removeLinkOnScore(s.label)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ),
+                    )}
+                    <div className="seg-add">
+                      <input
+                        className="seg-add-input"
+                        value={newLink}
+                        placeholder="new link name"
+                        aria-label="new link name"
+                        disabled={promote.isPending}
+                        onChange={(e) => setNewLink(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitAddLink();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="seg-add-btn"
+                        disabled={promote.isPending || !newLink.trim()}
+                        onClick={commitAddLink}
+                      >
+                        + add link
+                      </button>
+                    </div>
+                  </div>
+                ) : grouped ? (
                   <>
                     {/* compact tabs (label + count) that WRAP — the per-tab descriptor blew the row out
                         into a horizontal scroll strip; the ACTIVE segment's descriptor is the line below */}
                     <div className="chain">
-                      {segments.map((s, i) => (
+                      {renderSegments.map((s, i) => (
                         <Fragment key={s.label}>
                           <button
                             type="button"
@@ -622,7 +834,7 @@ export function Workbench({ header, asof }: Props) {
                               </span>
                             </div>
                           </button>
-                          {i < segments.length - 1 ? (
+                          {i < renderSegments.length - 1 ? (
                             <span className="chain-arrow" aria-hidden="true">
                               ›
                             </span>
@@ -641,7 +853,7 @@ export function Workbench({ header, asof }: Props) {
                   <div className="wb-empty">
                     {scoredQ.isLoading
                       ? "Scoring…"
-                      : "No value chain yet — the seeded basket isn't decomposed into links. Use “Edit the chain” to build it."}
+                      : "No value chain yet — the seeded basket isn't decomposed into links. Use “✎ edit links” to add one, or “Edit the basket” to draft it from your narrative."}
                   </div>
                 )}
                 <div className="wb-authoring-gap">
@@ -650,15 +862,17 @@ export function Workbench({ header, asof }: Props) {
                     className="wb-edit-btn"
                     onClick={() => {
                       setChainSaved(false);
+                      setEditLinks(false); // leave the link editor when opening the basket builder
                       setEditing(true);
                     }}
                     disabled={!thesis}
                   >
-                    ✎ Edit the chain
+                    ✎ Edit the basket
                   </button>
                   <span className="note">
-                    Build &amp; edit the value chain by hand — or, in the editor, <b>Draft from narrative</b>{" "}
-                    to have the drafter pre-fill the links + names for you to accept, edit, or drop.
+                    Arrange the value chain right here — <b>✎ edit links</b> above renames, reorders, adds
+                    &amp; removes links, and a name&apos;s links live on its card. Open <b>Edit the basket</b>{" "}
+                    to add names or <b>Draft from narrative</b>.
                   </span>
                 </div>
                 {/* D — the visible inverse of Save (reversibility #1): say OUT LOUD that Save isn't a door
@@ -666,7 +880,7 @@ export function Workbench({ header, asof }: Props) {
                     context (matched terms, flags, To-Review queues) is run state — a re-draft re-runs it. */}
                 {chainSaved && (
                   <div className="toast show">
-                    ✓ Chain saved. Reopen it anytime with <b>✎ Edit the chain</b> — you'll be editing your
+                    ✓ Chain saved. Reopen it anytime with <b>✎ Edit the basket</b> — you'll be editing your
                     saved basket (a re-draft is how you re-run discovery).
                   </div>
                 )}
@@ -899,6 +1113,18 @@ export function Workbench({ header, asof }: Props) {
                   onRemove: removeMember,
                   includePending: promote.isPending,
                 }}
+                // #4 (chain-editing Phase 1) — the value-chain mover for the selected equity. The ETF
+                // branch returns early (SleeveRail), so a sleeve never renders it; a null selection omits it.
+                segmentControl={
+                  selectedMember
+                    ? {
+                        options: segmentOptions,
+                        current: selectedSegments,
+                        onChange: (labels) => setMemberSegments(selectedMember.security_id, labels),
+                        pending: promote.isPending,
+                      }
+                    : undefined
+                }
               />
             </aside>
           </>

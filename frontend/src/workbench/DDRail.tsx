@@ -87,6 +87,18 @@ interface Props {
     onRemove: (securityId: string) => void;
     includePending: boolean;
   };
+  // The #4 value-chain mover (chain-editing Phase 1) — a FLAT multi-select that REPLACES the read-only
+  // segment cell: one checkbox per real link, `current` = the name's live memberships, toggling hands the
+  // NEXT label set to `onChange` (the parent's immediate-promote). Discovered is excluded from `options`
+  // (it's the automatic floor, not a checkbox); an empty result floors to Discovered in the reconcile.
+  // Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. `segment`
+  // is display/structure, never a call input (#4) — this moves labels + rows, never verdict/grade.
+  segmentControl?: {
+    options: string[];
+    current: string[];
+    onChange: (labels: string[]) => void;
+    pending: boolean;
+  };
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -94,7 +106,16 @@ interface Props {
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
  *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
  *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
-export function DDRail({ member, thesisFit, onRetag, retagPending, thesisId, asof, sleeve }: Props) {
+export function DDRail({
+  member,
+  thesisFit,
+  onRetag,
+  retagPending,
+  thesisId,
+  asof,
+  sleeve,
+  segmentControl,
+}: Props) {
   if (!member) {
     return (
       <div className="ddcard">
@@ -173,6 +194,51 @@ export function DDRail({ member, thesisFit, onRetag, retagPending, thesisId, aso
           </select>
         )}
       </div>
+      {/* the #4 value-chain mover (chain-editing Phase 1) — under the business-type re-tag, in place of
+          the old read-only segment cell. One checkbox per real link; toggling hands the next label set to
+          the parent's immediate-promote. No links yet → a quiet hint (never an empty control); in no real
+          link → the "Unsorted (Discovered)" floor line. */}
+      {segmentControl && (
+        <div className="dd-segctl">
+          <div className="dd-sub">
+            Value-chain links <em>— where this name sits (check any that fit)</em>
+          </div>
+          {segmentControl.options.length === 0 ? (
+            <p className="muted dd-seg-hint">No links yet — build the basket first.</p>
+          ) : (
+            <>
+              <div className="dd-seg-opts">
+                {segmentControl.options.map((label) => {
+                  const checked = segmentControl.current.includes(label);
+                  return (
+                    <label key={label} className="dd-seg-opt">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={segmentControl.pending}
+                        onChange={() =>
+                          segmentControl.onChange(
+                            // rebuild from the real options (Discovered can't creep in): keep every
+                            // currently-checked link, flip the one just clicked. Empty result → the
+                            // reconcile floors it to Discovered.
+                            segmentControl.options.filter((o) =>
+                              o === label ? !checked : segmentControl.current.includes(o),
+                            ),
+                          )
+                        }
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!segmentControl.options.some((o) => segmentControl.current.includes(o)) && (
+                <p className="muted dd-seg-unsorted">Unsorted (Discovered)</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <div className="dd-body">
         {/* WHO this is — the company name + the machine-parsed identity (master enrichment; display-only,
             never promoted, #2). The rail is where the operator decides, so it says who it's deciding about. */}
@@ -187,14 +253,12 @@ export function DDRail({ member, thesisFit, onRetag, retagPending, thesisId, aso
         {/* the persisted thesis-fit prose — the draft-time "why this name sits in its link", ratified at
             TRIAGE and stored on the member. Absent on a hand-added name = honest blank, not filler. */}
         {thesisFit && <p className="dd-thesis-fit">{thesisFit}</p>}
+        {/* the read-only segment cell is retired — the value-chain links now live in the editable
+            multi-select above the body (chain-editing Phase 1, #4). */}
         <div className="dd-facts">
           <span>
             <b>fit</b>
             {member.fit}
-          </span>
-          <span>
-            <b>segment</b>
-            {member.segment ?? "—"}
           </span>
           <span>
             <b>mkt cap</b>
