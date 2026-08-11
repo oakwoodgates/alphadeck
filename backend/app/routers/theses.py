@@ -26,7 +26,7 @@ from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
 from signals.base import PointInTimeData
-from signals.display import registered_display_members
+from signals.display import registered_display_members, theme_breadth
 
 router = APIRouter(prefix="/theses", tags=["theses"])
 
@@ -151,7 +151,10 @@ def get_display_signals(
         )
         for sid in sids
     ]
-    return DisplaySignalsResponse(thesis_id=thesis.id, asof=asof, members=members)
+    # §1.1 — the thesis-level theme-breadth thrust (DISPLAY-only, #4/#7): one aggregate over the same
+    # resolved members, re-derived from the same as-of bitemporal prices; ``None`` for an empty basket.
+    breadth = theme_breadth.breadth_for(pit, sids)
+    return DisplaySignalsResponse(thesis_id=thesis.id, asof=asof, breadth=breadth, members=members)
 
 
 @router.put("/{thesis_id}/catalysts", response_model=ThesisDetail)

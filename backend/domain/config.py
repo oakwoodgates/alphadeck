@@ -153,6 +153,25 @@ class CallConfig(DomainModel):
     # would otherwise float it high). Calibration dial.
     starter_confidence_cap: float = 0.55
 
+    # --- laggard / §1.2 ROTATION (Key-2 sympathy confirmation) — STARTING calibration ---
+    # A basket LEADER's live volume_breakout is the cue; a co-basket name LAGGING the basket's move but
+    # still in a structural uptrend is the sympathy catch-up candidate. Because Kind.LAGGARD is a
+    # confirmation kind (above), the assembler's existing co-location ARMS a laggard that carries an own
+    # conviction but hasn't broken out itself (R3/R4) — the detector only ever supplies the confirmation
+    # key, never the arm. Dials: the trailing return window whose basket MEDIAN sets the bar, the lag gap
+    # below that median, the uptrend SMA gate, the flip sympathy arm window, and the price-pull lookback.
+    laggard_return_days: int = 30  # trailing return (TRADING bars) compared across the basket
+    laggard_lag_pts: float = (
+        0.15  # B lags the basket median return by >= this (15 pts, as a fraction)
+    )
+    laggard_trend_sma_window: int = 200  # B's close must sit >= its 200d SMA (uptrend intact)
+    laggard_alpha_liveness_days: int = (
+        15  # the flip sympathy arm window, anchored to the leader breakout
+    )
+    laggard_lookback_days: int = (
+        420  # calendar-day price pull: >= 200 trading bars for the SMA + return
+    )
+
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
     # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass

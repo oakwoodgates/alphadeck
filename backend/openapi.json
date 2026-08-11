@@ -3754,6 +3754,16 @@
             "format": "date",
             "title": "Asof"
           },
+          "breadth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisplaySignal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "members": {
             "items": {
               "$ref": "#/components/schemas/MemberDisplaySignalsOut"

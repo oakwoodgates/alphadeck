@@ -7,7 +7,7 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
 from domain.thesis import Thesis
-from signals import registered_detectors, theme_conviction
+from signals import laggard, registered_detectors, theme_conviction
 from signals.base import SignalPointInTimeData
 
 
@@ -43,5 +43,11 @@ def assemble_from_pit(
     # stream; from here the assembler treats the broadcast events as ordinary convictions (no arming change).
     theme_fact = theme_conviction.detect_fact(pit, thesis.id, asof, cfg)
     events += theme_conviction.broadcast(thesis, events, theme_fact, asof, cfg)
+
+    # §1.2 ROTATION — a cross-member laggard sympathy CONFIRMATION (Key 2): while a basket leader has a
+    # live breakout, a lagging-but-uptrend co-member gets a flip laggard confirmation, which the assembler
+    # co-locates with an own conviction to ARM the name that hasn't run yet (R3/R4). Reads the assembled
+    # member stream (the breakout leaders) like the theme broadcast; adds no ingest and no new fact.
+    events += laggard.detect(pit, thesis, events, asof, cfg)
 
     return assemble_call(thesis, events, asof, cfg)

@@ -1865,6 +1865,7 @@ export interface components {
              * Format: date
              */
             asof: string;
+            breadth?: components["schemas"]["DisplaySignal"] | null;
             /**
              * Members
              * @default []

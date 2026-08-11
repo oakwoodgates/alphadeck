@@ -1264,6 +1264,12 @@ class DisplaySignalsResponse(BaseModel):
 
     thesis_id: UUID
     asof: date
+    # THESIS-LEVEL theme-breadth thrust (§1.1) — the share of resolved basket members at/above their 50d
+    # SMA plus the 20-bar surge (the loud "thrust" state, #7). DISPLAY-only, never a SignalEvent / call
+    # input (#4); ``None`` when the thesis has no resolved members. Rides the SAME ``DisplaySignal`` wire
+    # the per-name members use (``headline.key`` = ``thrust`` | ``quiet`` | ``unknown``), so the FE renders
+    # it with the generic display block — the FE chip that reads it is a later step.
+    breadth: DisplaySignal | None = None
     members: list[MemberDisplaySignalsOut] = []
 
 

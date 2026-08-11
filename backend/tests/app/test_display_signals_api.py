@@ -135,6 +135,33 @@ def test_display_signals_happy_path(client, db, security_id):
     )
 
 
+def test_theme_breadth_rides_the_response(client, db, security_id):
+    """§1.1 — the THESIS-LEVEL breadth thrust rides the SAME response as a top-level ``breadth`` field
+    (DISPLAY-only). Two ascending members (each 80 bars) sit above their 50d SMA at both points, so
+    breadth is 100% with a flat delta -> the quiet (non-thrust) state, computed over the 2 counted
+    members. Proves the field is wired end-to-end; the thrust thresholds are unit-tested in
+    tests/signals/display/test_theme_breadth.py."""
+    other = _master_row(db, "COMVR")
+    _seed_bars(db, security_id, 80)
+    _seed_bars(db, other, 80)
+    tid = _seed_thesis(db, [_member(security_id), _member(other, ticker="COMVR")])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    breadth = body["breadth"]
+    assert breadth is not None and breadth["kind"] == "theme_breadth"
+    by_key = {mt["key"]: mt for mt in breadth["metrics"]}
+    assert by_key["breadth"]["value"] == 100.0  # both members above their 50d SMA
+    assert by_key["breadth_delta"]["value"] == 0.0
+    assert by_key["members_counted"]["value"] == 2.0
+    assert breadth["headline"]["key"] == "quiet"  # majority holds but no +25pt surge -> not loud
+
+
+def test_theme_breadth_is_none_for_a_basketless_thesis(client, db):
+    """No resolved members -> no breadth reading (None), never a fabricated 0%."""
+    tid = _seed_thesis(db, [])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    assert body["breadth"] is None
+
+
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):
     _seed_bars(db, security_id, 60)
     bare_sid = _master_row(db, "BARECO")
