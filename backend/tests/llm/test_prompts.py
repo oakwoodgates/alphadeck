@@ -23,10 +23,12 @@ from llm.prompt_loader import PromptNotFound, _normalize, load_prompt
 # constant verified True). An intended prompt change re-captures this DELIBERATELY and re-checks the guards.
 _GOLDEN = {
     "chain_decompose": (
-        # Slice 4b: re-captured for the ORGANIZER reframe — the EDGAR-first decompose ORGANIZES a stable
-        # researched name set into segments (place every researched name, skip foreign/private), never curates.
-        "4ccb7f06c9fcce9bfc848e8d58d227df09fd79f3e45eb93bfca239e75bcb8de7",
-        2423,
+        # Re-captured for the PROSE REROUTE — the organizer emits structure + assignment only (no per-name
+        # sentences; batched narration authors ALL prose), fixing the large-draft organize truncation. The
+        # guards re-checked below: no-number (#3) + the forced draft_value_chain tool call survive the rewrite.
+        # (Previous capture: the Slice-4b ORGANIZER reframe.)
+        "989174d7eb1d9539969236a6f974f24c2b40e4d9ea5549303b47d919cbb52c02",
+        2471,
     ),
     "flag_explain": (
         "d4e4d6b4ebbbc49ebea54c3d5890d511bed3ae660573896d62f9cb350494fe69",

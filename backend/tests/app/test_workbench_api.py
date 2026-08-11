@@ -1930,14 +1930,14 @@ def _efts_page(*rows: tuple[str, str]) -> dict:
 
 
 def _decomp(*placements: tuple[str, str]) -> dict:
-    """A fake decompose tool-output: one segment 'reactors' with the given (name, ticker) placements."""
+    """A fake decompose tool-output: one segment 'reactors' with the given (name, ticker) placements —
+    structure + assignment ONLY (no prose; the organizer's schema dropped it in the prose reroute, so every
+    placed/verify name flows to narration)."""
     return {
         "segments": [
             {
                 "label": "reactors",
-                "placements": [
-                    {"name": n, "ticker": t, "prose": "why it sits here"} for n, t in placements
-                ],
+                "placements": [{"name": n, "ticker": t} for n, t in placements],
             }
         ]
     }
@@ -2380,7 +2380,14 @@ def test_draft_report_rides_the_response(client, db):
     edgar = _FakeEfts(
         {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
     )
-    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    _override_draft(
+        edgar=edgar,
+        decompose=_FakeLLM(
+            returns=_decomp(("Oklo Inc.", "OKLO")),
+            # the prose reroute: the organizer's own placement arrives prose-less -> it needs narration too
+            narrate_returns={"placements": [{"ref": 1, "prose": "fast-reactor developer"}]},
+        ),
+    )
     body = _draft(client, tid)
     assert body["status"] == "done"
     rep = body["result"]["report"]
@@ -2391,8 +2398,8 @@ def test_draft_report_rides_the_response(client, db):
     assert (
         rep["tail_sweep"] == "ran"
     )  # the fake research COMPLETED (returned nothing) — ran, not skipped
-    # the organizer narrated its own placement (prose in _decomp) -> nothing needed the fill step
-    assert rep["narration_needed"] == 0 and rep["narration_filled"] == 0
+    # the honest quiet-strip case: the one placed name needed prose and got it (filled == needed -> muted line)
+    assert rep["narration_needed"] == 1 and rep["narration_filled"] == 1
 
 
 def test_draft_report_carries_capped_term(client, db, monkeypatch):
@@ -2463,11 +2470,14 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
     _override_draft(
         edgar=edgar,
         decompose=_FakeLLM(
-            returns=_decomp(
-                ("Oklo Inc.", "OKLO")
-            ),  # SMR dropped by the organizer (no prose for it)
-            narrate_returns={  # the prose-fill narrates the reconciler-appended name (by ref — NuScale is #1)
-                "placements": [{"ref": 1, "prose": "the only NRC-approved SMR designer"}]
+            returns=_decomp(("Oklo Inc.", "OKLO")),  # SMR dropped by the organizer
+            # the prose reroute: BOTH names narrate now — `needs` follows chain.placements order
+            # (organizer-emitted first, then reconciler-appended), so Oklo is ref 1, NuScale ref 2.
+            narrate_returns={
+                "placements": [
+                    {"ref": 1, "prose": "fast-reactor developer"},
+                    {"ref": 2, "prose": "the only NRC-approved SMR designer"},
+                ]
             },
         ),
     )
@@ -2479,6 +2489,7 @@ def test_draft_endpoint_dropped_discovered_name_surfaces(client, db):
     assert by_name["Oklo Inc."]["matched_terms"] == [
         "nuclear"
     ]  # provenance on the organizer-matched name
+    assert by_name["Oklo Inc."]["prose"] == "fast-reactor developer"  # organizer-placed -> narrated
     nuscale = by_name["NuScale Power Corporation"]
     assert nuscale["status"] == "placed"  # dropped by the organizer, surfaced by reconciliation
     assert nuscale["segment"] == "Discovered" and nuscale["security_id"] == str(smr)
@@ -2514,7 +2525,13 @@ def test_draft_endpoint_narrates_verify_names_too(client, db):
             returns=_decomp(
                 ("Oklo Inc.", "OKLO")
             ),  # GENCO dropped by the organizer -> reconciled as VERIFY
-            narrate_returns={"placements": [{"ref": 1, "prose": "reactor-component supplier"}]},
+            # both narrate since the prose reroute: Oklo (organizer-emitted) ref 1, GENCO (appended) ref 2
+            narrate_returns={
+                "placements": [
+                    {"ref": 1, "prose": "fast-reactor developer"},
+                    {"ref": 2, "prose": "reactor-component supplier"},
+                ]
+            },
         ),
     )
     body = _draft(client, tid)["result"]
@@ -2527,9 +2544,10 @@ def test_draft_endpoint_narrates_verify_names_too(client, db):
 
 
 def test_draft_endpoint_carries_the_off_thesis_flag(client, db):
-    """The narrator's off_thesis OPINION rides onto the reconciler-appended placement at the narration merge
-    (display-only, #10). A flagged name STAYS placed (#9 — membership is deterministic); the organizer's OWN
-    placement isn't re-judged and defaults off_thesis False (the coverage-by-design line)."""
+    """The narrator's off_thesis OPINION rides onto the placement at the narration merge (display-only, #10).
+    Since the prose reroute the narrator judges BOTH names (organizer-placed and reconciler-appended alike —
+    coverage is universal, not an exemption): Kroger reads True and Oklo False because the NARRATOR said so.
+    A flagged name STAYS placed (#9 — membership is deterministic)."""
     _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     _insert_security(db, "KR", name="Kroger Co", cik="0000056873")
     tid = _thesis_for_draft(db, terms=("nuclear",))
@@ -2545,13 +2563,15 @@ def test_draft_endpoint_carries_the_off_thesis_flag(client, db):
         edgar=edgar,
         decompose=_FakeLLM(
             returns=_decomp(("Oklo Inc.", "OKLO")),  # Kroger dropped by the organizer -> reconciled
+            # both narrated: Oklo (organizer-emitted) is ref 1 — judged ON-thesis; Kroger ref 2 — flagged
             narrate_returns={
                 "placements": [
+                    {"ref": 1, "prose": "fast-reactor developer", "off_thesis": False},
                     {
-                        "ref": 1,
+                        "ref": 2,
                         "prose": "no operational tie — a single boilerplate mention of the theme",
                         "off_thesis": True,
-                    }
+                    },
                 ]
             },
         ),
@@ -2562,7 +2582,47 @@ def test_draft_endpoint_carries_the_off_thesis_flag(client, db):
     assert kroger["off_thesis"] is True  # the narrator's opinion rode onto the placement
     assert (
         by_name["Oklo Inc."]["off_thesis"] is False
-    )  # organizer-placed -> not re-judged (default False)
+    )  # judged by the narrator (explicit False), not exempt
+
+
+def test_draft_endpoint_off_thesis_reaches_an_organizer_placed_name(client, db):
+    """The prose reroute's NEW reach: an ORGANIZER-PLACED name (a real segment, never 'Discovered') is narrated
+    too, so the narrator can flag it off_thesis — the old organizer-placements-exempt scope is gone. The flag
+    stays a display recommendation (#10): the name KEEPS its segment and stays placed."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "KR", name="Kroger Co", cik="0000056873")
+    tid = _thesis_for_draft(db, terms=("nuclear",))
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0000056873", "Kroger Co  (KR)  (CIK 0000056873)"),
+            )
+        }
+    )
+    _override_draft(
+        edgar=edgar,
+        decompose=_FakeLLM(
+            # the organizer places BOTH into 'reactors' (Kroger mis-organized in) — nothing is appended
+            returns=_decomp(("Oklo Inc.", "OKLO"), ("Kroger Co", "KR")),
+            narrate_returns={
+                "placements": [
+                    {"ref": 1, "prose": "fast-reactor developer"},
+                    {
+                        "ref": 2,
+                        "prose": "grocery retailer — no tie to the nuclear chain",
+                        "off_thesis": True,
+                    },
+                ]
+            },
+        ),
+    )
+    by_name = {p["name"]: p for p in _draft(client, tid)["result"]["placements"]}
+    kroger = by_name["Kroger Co"]
+    assert kroger["segment"] == "reactors"  # organizer-placed — a REAL segment, not 'Discovered'
+    assert kroger["off_thesis"] is True  # ...and the flag now reaches it (universal coverage)
+    assert kroger["status"] == "placed"  # flagged, never dropped (#9/#10)
+    assert by_name["Oklo Inc."]["off_thesis"] is False
 
 
 def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
@@ -2585,6 +2645,88 @@ def test_draft_endpoint_narration_failopen_leaves_prose_empty(client, db):
     nuscale = next(p for p in body["placements"] if p["name"] == "NuScale Power Corporation")
     assert nuscale["status"] == "placed" and nuscale["prose"] == ""  # surfaced, prose empty, no 5xx
     assert nuscale["matched_terms"] == ["nuclear"]  # provenance still attached
+
+
+class _EchoNarrateLLM(_FakeLLM):
+    """``_FakeLLM`` for the organize call + a ``_BatchEcho``-style narrate: answers EVERY numbered line by ref
+    with "why <Name> fits", so an end-to-end test can assert the whole placed/verify set gets prose without
+    hand-wiring refs (the join is the production ref mechanism, not the test's knowledge of the order).
+    """
+
+    def draft_structured(self, *, system, user, tool):
+        if tool.get("name") != "narrate_placements":
+            return super().draft_structured(system=system, user=user, tool=tool)
+        self.calls.append({"system": system, "user": user, "tool": tool})
+        placements = []
+        for ln in user.splitlines():
+            num, dot, rest = ln.partition(". ")
+            if dot and num.strip().isdigit():
+                name = rest.split(" (")[0].split(" — segment")[0].strip()
+                placements.append({"ref": int(num), "prose": f"why {name} fits"})
+        return {"placements": placements}
+
+
+def test_draft_endpoint_no_prose_organize_flows_every_name_through_narration(client, db):
+    """THE PROSE REROUTE, end to end: the organizer returns {name, ticker} only (its schema since the reroute)
+    -> the resolver carries prose="" -> the orchestrator's empty-prose selection routes EVERY placed/verify
+    name (organizer-placed AND reconciler-appended) to narration -> the batched narrate fills them all. The
+    report's fill counts cover the whole placed/verify set — the honest quiet-strip case."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "SMR", name="NuScale Power Corporation", cik="0001822966")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0001822966", "NuScale Power Corporation  (SMR)  (CIK 0001822966)"),
+            )
+        }
+    )
+    _override_draft(
+        edgar=edgar,
+        # organizer places Oklo into 'reactors'; NuScale is dropped -> reconciler-appended to 'Discovered'
+        decompose=_EchoNarrateLLM(returns=_decomp(("Oklo Inc.", "OKLO"))),
+    )
+    body = _draft(client, tid)["result"]
+    pv = [p for p in body["placements"] if p["status"] in ("placed", "verify")]
+    assert len(pv) == 2
+    assert all(p["prose"].strip() for p in pv)  # EVERY placed/verify placement ends with prose
+    assert {p["prose"] for p in pv} == {
+        "why Oklo Inc. fits",
+        "why NuScale Power Corporation fits",
+    }
+    rep = body["report"]
+    assert rep["narration_needed"] == rep["narration_filled"] == len(pv) == 2
+
+
+def test_draft_endpoint_organizer_placed_name_is_narrated_with_its_real_segment(client, db):
+    """THE CRUX GUARD (the reroute's load-bearing wiring, pinned): a name the organizer PLACED into a REAL
+    segment is narrated WITH that segment label — the narrate call's numbered line carries `— segment:
+    reactors` (so the sentence is segment-specific), and the merged placement keeps the narrated prose AND its
+    real segment, never 'Discovered'. This is the `_needs_prose` empty-prose selection doing the routing —
+    no caller change, the segment threads through `needs`."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    decompose = _FakeLLM(
+        returns=_decomp(("Oklo Inc.", "OKLO")),
+        narrate_returns={
+            "placements": [{"ref": 1, "prose": "fast-reactor developer for the nuclear buildout"}]
+        },
+    )
+    _override_draft(edgar=edgar, decompose=decompose)
+    body = _draft(client, tid)["result"]
+    # the narrate call SAW the real segment label on the name's numbered line
+    narrate_calls = [c for c in decompose.calls if c["tool"].get("name") == "narrate_placements"]
+    assert len(narrate_calls) == 1
+    assert "1. Oklo Inc. (OKLO) — segment: reactors" in narrate_calls[0]["user"]
+    # ...and the merge kept the narrated prose ON the real-segment placement (never rerouted to 'Discovered')
+    oklo = next(p for p in body["placements"] if p["name"] == "Oklo Inc.")
+    assert oklo["segment"] == "reactors"
+    assert oklo["prose"] == "fast-reactor developer for the nuclear buildout"
+    assert "Discovered" not in [s["label"] for s in body["segments"]]
 
 
 def test_draft_endpoint_409_when_a_draft_is_already_running(client, db, monkeypatch):

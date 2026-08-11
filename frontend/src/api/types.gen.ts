@@ -2832,10 +2832,10 @@ export interface components {
          *     promoted onto a ``BasketMember`` (#2), never on the call path. It RECOMMENDS, never removes: a flagged name
          *     STAYS placed (membership is deterministic exact-CIK, #2 / #9 — never a silent drop) with a ``remove`` the
          *     OPERATOR clicks (#10). Set at the narration MERGE (``app.routers.workbench.execute_draft``), not at resolution
-         *     — so it defaults ``False`` on every construction path here. COVERAGE = reconciler-appended collisions (the
-         *     unnarrated PLACED/VERIFY names the narration pass fills): the boilerplate-collision flood the flag exists to
-         *     catch. The organizer's OWN placements carry prose and aren't re-judged — an organizer-placed off-thesis name
-         *     reading unflagged is SCOPE, not a bug. Fail-open: no narration → ``False`` (never flag on missing data).
+         *     — so it defaults ``False`` on every construction path here. COVERAGE = every placed/verify name: since the
+         *     prose reroute the organizer emits structure + assignment only, so organizer-placed and reconciler-appended
+         *     names alike arrive prose-less, are narrated (narration is the sole prose author), and can be flagged.
+         *     Fail-open: no narration → ``False`` (never flag on missing data).
          */
         ResolvedPlacement: {
             /** Name */

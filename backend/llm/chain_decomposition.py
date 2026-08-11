@@ -1,9 +1,12 @@
 """The narrative→chain DECOMPOSE drafter — the SECOND LLM seam (Slice 5b), on the proven `backend/llm`
 plumbing the flag drafter (#59) established.
 
-Given an operator's narrative, draft a value chain: 2-6 **segments** (links in the chain), the **names** that
-sit in each, and one short thesis-fit **prose** sentence per name. The output is STRUCTURE + NAMES + REASONING
-only — it is a drafting aid the operator ratifies, never a decision.
+Given an operator's narrative, draft a value chain: 2-6 **segments** (links in the chain, each with a label +
+descriptor) and the **names** that sit in each. The organize output is STRUCTURE + ASSIGNMENT only — no
+per-name prose: every placed/verify name's thesis-fit sentence is authored by the batched ``narrate_placements``
+step below (the prose reroute — per-name prose in the organize call scaled its OUTPUT with the universe and
+truncated the tool JSON past ``llm_decompose_max_tokens``, collapsing large drafts to 0 segments; narration is
+batched and structurally immune). It is a drafting aid the operator ratifies, never a decision.
 
 EDGAR-FIRST DISCOVERY (Slice 4): the names no longer come from the model's recall. The deterministic EDGAR
 full-text enumerator finds the US-listed universe (``workbench.discovery``); the directed ``research_tail_sweep``
@@ -20,7 +23,7 @@ THE BOUNDS (carried from the gate-1 plan):
   the PROMPT — Sonnet is the adherence lever, and the gate-2 MANUAL no-number-in-the-prose check is its real
   test (a fake-client unit test cannot exercise a prompt).
 - **A name is a discovery suggestion, never a decision** (INVARIANT #2). This module proposes
-  ``{name, ticker?, prose}``; exact master membership DECIDES, downstream in ``workbench.chain_draft`` — the
+  ``{name, ticker?}``; exact master membership DECIDES, downstream in ``workbench.chain_draft`` — the
   model's ticker is a best-guess key, never trusted as the id.
 - **Fail-open.** Every failure path (no key, live disabled, timeout, SDK error, no tool call, blank
   narrative) returns ``None`` — the draft endpoint then returns an empty draft and hand-authoring is
@@ -43,13 +46,15 @@ from llm.prompt_loader import load_prompt
 _log = logging.getLogger("alphadeck.llm")
 
 # The structured-output contract — the model MUST call this tool; we read back its validated input. STRUCTURE
-# + names + reasoning ONLY: there is no value/score/number field anywhere in the schema (INVARIANT #1).
+# + ASSIGNMENT ONLY: no per-name prose field (the prose reroute — per-name sentences made the organize output
+# scale with the universe and truncate; ``narrate_placements`` authors ALL prose, batched) and no
+# value/score/number field anywhere in the schema (INVARIANT #1).
 DECOMPOSE_TOOL: dict[str, Any] = {
     "name": "draft_value_chain",
     "description": (
-        "Return a value-chain decomposition of an investment narrative: 2-6 segments (links in the chain), "
-        "the publicly-listed US companies in each, and one short reasoning sentence per company. Structure, "
-        "names, and reasoning ONLY — never a number."
+        "Return a value-chain decomposition of an investment narrative: 2-6 segments (links in the chain) and "
+        "the publicly-listed US companies in each. Structure and names ONLY — no per-company sentences (a "
+        "separate step authors those), and never a number."
     ),
     "input_schema": {
         "type": "object",
@@ -85,15 +90,8 @@ DECOMPOSE_TOOL: dict[str, Any] = {
                                             "master; omit ONLY if you truly have none — never fabricate one)."
                                         ),
                                     },
-                                    "prose": {
-                                        "type": "string",
-                                        "description": (
-                                            "At most 25 words: why this company sits in this segment, grounded "
-                                            "in the narrative. NO numbers, prices, %, share counts, or valuations."
-                                        ),
-                                    },
                                 },
-                                "required": ["name", "prose"],
+                                "required": ["name"],
                             },
                         },
                     },
@@ -165,10 +163,12 @@ def decompose_narrative(
 
 
 # BATCH the narration: the discovered universe can be 100+ names, but ONE tool call must fit the model's output
-# ceiling (the decompose client's ``max_tokens`` ~2000). Narrating ALL names at once TRUNCATES the tool JSON
-# mid-array (``stop_reason=max_tokens``) so NOTHING parses -> every prose silently empty (the #9 silent-
-# degradation the live gate-2 caught; the fake-client tests passed because they used 1 name). A small batch
-# (~15 names x a <=25-word sentence ~= 750 tokens) sits well under the ceiling, so each call completes.
+# ceiling (the decompose client's ``max_tokens`` — ``llm_decompose_max_tokens``, 8000). Narrating ALL names at
+# once TRUNCATES the tool JSON mid-array (``stop_reason=max_tokens``) so NOTHING parses -> every prose silently
+# empty (the #9 silent-degradation the live gate-2 caught; the fake-client tests passed because they used 1
+# name). A small batch (~15 names x a <=25-word sentence ~= 750 tokens) sits far under the ceiling, so each call
+# completes — the structural immunity the prose reroute leans on (the organize call, by contrast, is ONE call,
+# which is why its schema carries no per-name prose).
 _NARRATE_BATCH = 15
 # Cap on concurrent narration calls — a broad universe is many batches (380 names -> 26); run them in parallel
 # (bounded) so narration is ~one wave, not ~26x a single call. Bounded so a huge draft can't burst the rate limit.
@@ -223,17 +223,18 @@ def narrate_placements(
     client: Any, narrative: str, items: list[dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
     """Draft a per-name thesis-fit sentence for each placement in ``items`` (``{name, ticker?, segment?}``),
-    returning ``{name: {"prose": str, "off_thesis": bool}}``. The deterministic EDGAR reconciler appends
-    discovered CIKs the organizer never narrated (``prose=""``); this fills that gap so EVERY placed/verify name
-    carries reasoning — without the organizer (the reconciler stays deterministic + completeness-owning; this only
+    returning ``{name: {"prose": str, "off_thesis": bool}}``. This step is the SOLE prose author (the prose
+    reroute): the organizer emits structure + assignment only (its schema has no prose field), and the
+    deterministic EDGAR reconciler appends dropped CIKs the same way — so EVERY placed/verify name arrives with
+    ``prose=""`` and gets its reasoning here (the reconciler stays deterministic + completeness-owning; this only
     adds DISPLAY prose + the narrator's on/off-thesis OPINION).
 
     ``off_thesis`` surfaces the model's already-made "this doesn't fit" judgment as a bit (the prose is the why) —
     a display recommendation, never a decision (#10): a flagged name STAYS placed (membership is deterministic,
     #2) with a ``remove`` the operator clicks. Fail-open: an absent ``off_thesis`` defaults ``False`` — never flag
-    on missing data. COVERAGE = reconciler-appended collisions (the names narrated here); the organizer's OWN
-    placements carry prose and aren't re-judged, so an organizer-placed off-thesis name reading unflagged is scope,
-    not a bug (the boilerplate-collision flood IS the reconciler-appended population — the flag catches what matters).
+    on missing data. COVERAGE = every empty-prose PLACED/VERIFY name — organizer-placed and reconciler-appended
+    alike are narrated here, so ANY of them can be flagged (the old organizer-placements-exempt scope ended with
+    the prose reroute; the boilerplate-collision flood is still mostly the reconciler-appended population).
 
     BATCHED (``_NARRATE_BATCH``) so a large universe can't truncate the tool output to nothing (the live failure
     mode). FAIL-OPEN PER BATCH + #9-safe: a batch that errors / returns no tool call is LOGGED (with the reason)
