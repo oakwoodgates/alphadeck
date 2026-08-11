@@ -2970,3 +2970,202 @@ def test_session_endpoints_404_for_unknown_thesis(client, db):
         == 404
     )
     assert client.delete(f"/workbench/theses/{ghost}/triage-session").status_code == 404
+
+
+# --- chain-editing (Phase 3): SCORE-view topology + the #4 mover round-trip through POST /workbench/theses -----
+# The FE transforms (chainOps.ts) are pure and vitest-covered; these prove the PERSISTENCE of the shapes they
+# produce — the promote endpoint stores the intended {basket, segments} as N rows, reads them back correctly,
+# honors the Discovered floor without a 422, and is idempotent. Each COUNTS THE TABLE before + after a verbatim
+# re-promote (the read's shape alone can hide a duplicate append or a silent squash — the count can't).
+
+
+def _ce_member_count(db, tid) -> int:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (uuid.UUID(str(tid)),)
+        )
+        return cur.fetchone()["n"]
+
+
+def _ce_security(db, ticker: str, cik: str) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, cik, "2026-01-01"),
+        )
+    db.commit()
+    return sid
+
+
+def _ce_bm(ticker: str, sid, segment, **kw) -> dict:
+    return {"ticker": ticker, "role": "r", "security_id": str(sid), "segment": segment, **kw}
+
+
+def _ce_promote(client, *, segments, basket, tid=None, name="Chain-edit", narrative="x") -> str:
+    payload = {
+        "name": name,
+        "narrative": narrative,
+        "ticker": None,
+        "segments": segments,
+        "basket": basket,
+    }
+    if tid is not None:
+        payload["id"] = str(tid)
+    r = client.post("/workbench/theses", json=payload)
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_promote_moves_a_member_between_links(client, db, security_id):
+    """#4 move: a name moved from one link to another persists as ONE row under the new segment; the OTHER
+    name is untouched, and the table doesn't grow (moved, not duplicated). Idempotent under a re-promote.
+    """
+    bare = _ce_security(db, "BARE", "0009990001")
+    tid = _ce_promote(
+        client,
+        segments=[{"label": "reactors"}, {"label": "fuel"}],
+        basket=[_ce_bm("DEVCO", security_id, "reactors"), _ce_bm("BARE", bare, "fuel")],
+    )
+    assert _ce_member_count(db, tid) == 2
+
+    # move DEVCO reactors -> fuel (the #4 reconciled shape)
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "fuel"}],
+        basket=[_ce_bm("DEVCO", security_id, "fuel"), _ce_bm("BARE", bare, "fuel")],
+    )
+    detail = client.get(f"/theses/{tid}").json()
+    assert {m["ticker"]: m["segment"] for m in detail["basket"]} == {
+        "DEVCO": "fuel",
+        "BARE": "fuel",
+    }
+    assert _ce_member_count(db, tid) == 2  # moved, not duplicated; BARE untouched
+
+    # a verbatim re-promote keeps EXACTLY the rows (count the table)
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "fuel"}],
+        basket=[_ce_bm("DEVCO", security_id, "fuel"), _ce_bm("BARE", bare, "fuel")],
+    )
+    assert _ce_member_count(db, tid) == 2
+
+
+def test_promote_clears_a_member_to_the_discovered_floor(client, db, security_id):
+    """#4 clear: clearing every real link parks the name in the Discovered FLOOR — one visible row with
+    segment='Discovered' (never null / gone), and the Discovered Segment is present so the consistency
+    validator passes (no 422). Idempotent; the count stays 1."""
+    tid = _ce_promote(
+        client,
+        segments=[{"label": "reactors"}],
+        basket=[_ce_bm("DEVCO", security_id, "reactors", conviction=4, signed_off=True)],
+    )
+    assert _ce_member_count(db, tid) == 1
+
+    # clear all links -> the FE reconcile floors DEVCO to Discovered + ensures the segment
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[_ce_bm("DEVCO", security_id, "Discovered", conviction=4, signed_off=True)],
+    )
+    detail = client.get(f"/theses/{tid}").json()
+    assert [(m["ticker"], m["segment"]) for m in detail["basket"]] == [("DEVCO", "Discovered")]
+    assert any(s["label"] == "Discovered" for s in detail["segments"])
+    assert detail["basket"][0]["conviction"] == 4  # the per-name fields ride the floor
+    assert detail["basket"][0]["signed_off"] is True
+    assert _ce_member_count(db, tid) == 1
+
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[_ce_bm("DEVCO", security_id, "Discovered", conviction=4, signed_off=True)],
+    )
+    assert _ce_member_count(db, tid) == 1
+
+
+def test_promote_rename_link_cascades_onto_members(client, db, security_id):
+    """#1 rename: the label change cascades onto every placed member (none orphaned → no 422), the Segment
+    is renamed, and the row count is unchanged. Idempotent."""
+    bare = _ce_security(db, "BARE", "0009990002")
+    tid = _ce_promote(
+        client,
+        segments=[{"label": "reactors"}],
+        basket=[_ce_bm("DEVCO", security_id, "reactors"), _ce_bm("BARE", bare, "reactors")],
+    )
+    assert _ce_member_count(db, tid) == 2
+
+    # rename reactors -> "reactor builders", cascaded onto both members (the FE renameLink shape)
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactor builders"}],
+        basket=[
+            _ce_bm("DEVCO", security_id, "reactor builders"),
+            _ce_bm("BARE", bare, "reactor builders"),
+        ],
+    )
+    detail = client.get(f"/theses/{tid}").json()
+    assert [s["label"] for s in detail["segments"]] == ["reactor builders"]
+    assert {m["segment"] for m in detail["basket"]} == {
+        "reactor builders"
+    }  # both cascaded, no orphan
+    assert _ce_member_count(db, tid) == 2
+
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactor builders"}],
+        basket=[
+            _ce_bm("DEVCO", security_id, "reactor builders"),
+            _ce_bm("BARE", bare, "reactor builders"),
+        ],
+    )
+    assert _ce_member_count(db, tid) == 2
+
+
+def test_promote_remove_link_routes_last_placement_to_discovered(client, db, security_id):
+    """#3 remove, multi-safe: removing a link drops a name's redundant row when it's kept elsewhere, and
+    routes a name whose LAST placement was the removed link to the Discovered floor (never dropped, #9). The
+    Discovered Segment is ensured (no 422); 'fuel' is gone. Idempotent."""
+    bare = _ce_security(db, "BARE", "0009990003")
+    # DEVCO in reactors AND fuel (2 rows); BARE only in fuel
+    tid = _ce_promote(
+        client,
+        segments=[{"label": "reactors"}, {"label": "fuel"}],
+        basket=[
+            _ce_bm("DEVCO", security_id, "reactors"),
+            _ce_bm("DEVCO", security_id, "fuel"),
+            _ce_bm("BARE", bare, "fuel"),
+        ],
+    )
+    assert _ce_member_count(db, tid) == 3
+
+    # remove "fuel": DEVCO keeps reactors (fuel row dropped); BARE floored to Discovered (the FE removeLink shape)
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[_ce_bm("DEVCO", security_id, "reactors"), _ce_bm("BARE", bare, "Discovered")],
+    )
+    detail = client.get(f"/theses/{tid}").json()
+    assert {m["ticker"]: m["segment"] for m in detail["basket"]} == {
+        "DEVCO": "reactors",
+        "BARE": "Discovered",
+    }
+    assert [s["label"] for s in detail["segments"]] == ["reactors", "Discovered"]  # fuel gone
+    assert (
+        _ce_member_count(db, tid) == 2
+    )  # DEVCO's redundant fuel row dropped; BARE floored, not gone
+
+    _ce_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[_ce_bm("DEVCO", security_id, "reactors"), _ce_bm("BARE", bare, "Discovered")],
+    )
+    assert _ce_member_count(db, tid) == 2

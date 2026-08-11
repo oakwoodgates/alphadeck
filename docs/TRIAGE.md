@@ -195,6 +195,39 @@ derives from the master identity (Business-Type M1) and is re-taggable ONCE, on 
 (the per-security endpoint, #10); a placed-but-not-finalized
 member is `NULL` end-to-end, never a default. See `WORKBENCH_ENRICHMENT.md` + `INVARIANTS.md` #10.
 
+## The value-chain editor (the scored/triage view owns chain arrangement) — chain-editing #1–4
+
+The **two-screen split**: the first screen (the `ChainEditor`, opened by **✎ Edit the basket**) owns basket
+**MEMBERSHIP** — discover, *Draft-from-narrative*, add/remove names, the confidence-ladder prune (WHAT names
+are in the basket). The **scored / triage view** owns the **value chain** — HOW it's arranged (the links) and
+WHERE each name sits. Both persist the full thesis through the SAME full-replace `POST /workbench/theses`
+promote; a scored-view edit **immediate-promotes** per action (the pattern the business-type re-tag / sleeve
+include already use), and each screen re-reads on the other's write. The pure transforms live in
+[`frontend/src/workbench/chainOps.ts`](../frontend/src/workbench/chainOps.ts), **mirroring** `useChainDraft`'s
+draft mutators (never editing them) but wired to the promote instead of a local draft.
+
+- **#4 — move a name between links (the DD-rail mover).** The per-name rail carries a **flat multi-select** of
+  the real links (one checkbox per link) in place of the old read-only segment cell. `checked` = the name's
+  live memberships; toggling rebuilds that name's rows into the checked set (a name in N links = N
+  `basket_member` rows, one per link, sharing a `security_id`) and promotes — copying **every** per-name field
+  forward so nothing is wiped, only the segment differs. Multi-membership is a normal check of >1 box.
+- **#1–3 — the link editor (`✎ edit links` reveal on the tab strip).** Off by default (the tabs stay pure
+  navigation — inverse-loudness #7); reveal → per-link **rename** (cascades the new label onto every placed
+  member so none orphans), **reorder** (←/→ swap), **remove** (multi-safe: drops a name's redundant row when
+  it's kept elsewhere; routes a **last** placement to the Discovered floor), plus **+ add link** — which works
+  **flat** (no links yet), so the first link is buildable from SCORE without opening the editor.
+
+**The Discovered FLOOR (the catch-all, never a vanish).** A name with **no real link** — cleared, its last
+link removed, or a NULL / orphan (a label not in the chain) — normalizes to **Discovered**: a real, visible
+tab, never `null` (a null-segment name drops out of every tab, unreachable to re-select). On **read** the
+scored view groups by an `effectiveSegment` and **synthesizes a Discovered tab** when any name resolves there
+(NULL/orphan names stay visible — #9 / WB#2). On **write** the promote payload self-heals any pre-existing
+orphan → Discovered, so a stale label can't 422 the segment-consistency validator. `segment` is display /
+structure only — these edits touch labels + rows, **never** verdict / grade / exit-by (#4); every action is
+reversible (re-check / re-add / rename-back — WB#1). The promote round-trip is count-the-table–proven end to
+end (`tests/app/test_workbench_api.py` — move / clear→Discovered / rename-cascade / remove-last→Discovered,
+`count(*)` before + after).
+
 ## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
 
 **The section button** (`⇣ get data — {section} (N)`): one deliberate click covers the ACTIVE value-chain
@@ -229,7 +262,7 @@ auto-applying shares would have industrialized on every clean name. It uses the 
 FactsPanel does, so "ratify 2" and the panel's two un-filed rows can't disagree.
 
 **Save legibility (D).** A saved exit from the editor surfaces a note on the scored view: the thesis is
-re-openable with **✎ Edit the chain**. Honest scope: re-entry restores the **saved basket** — not the draft-time
+re-openable with **✎ Edit the basket**. Honest scope: re-entry restores the **saved basket** — not the draft-time
 discovery context (matched terms, flags, To-Review queues are run state; re-discovering is a re-draft). The
 visible inverse of Save (reversibility principle #1); cleared on any navigation that changes what it refers to.
 
