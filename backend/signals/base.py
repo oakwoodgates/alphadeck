@@ -136,6 +136,24 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The as-of quarterly financial series (§2.2) — the revenue-acceleration detector's input.
+
+        A bitemporal read like the others: each row is knowable only from its 10-Q/10-K `filed` date
+        (``valid_from``), so a past-as-of read sees a period's revenue EXACTLY when it was filed, never at
+        the period end (no-lookahead, #1). The as-of read dedups to the latest VERSION per (security,
+        metric_key, period_end), so a restatement supersedes the original. Rows carry ``metric_key`` /
+        ``period_end`` / ``value`` (a general shape so §2.4 adds EPS/margin/FCF as ROWS, not columns).
+        """
+        return as_of(
+            self.conn,
+            "fact_fundamentals",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
     def revenue_mix_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         """Workbench purity basis — operator-ratified revenue-mix facts (10-K segments), as-of."""
         return as_of(
@@ -236,6 +254,8 @@ class SignalPointInTimeData(Protocol):
     def dilution_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
 

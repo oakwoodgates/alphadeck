@@ -74,6 +74,7 @@ def test_detector_registry_is_untouched_by_the_display_seam():
         "catalyst_conviction",
         "volume_breakout",
         "dilution_clock",
+        "revenue_acceleration",
     ]
 
 

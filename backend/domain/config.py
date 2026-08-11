@@ -107,6 +107,17 @@ class CallConfig(DomainModel):
     # default / re-ratification cadence). Liveness is decoupled from grade, exactly like a catalyst.
     theme_conviction_default_horizon_days: int = 365
 
+    # --- revenue_acceleration (§2.2, Key 1) — the structural conviction behind the 5–10x breakout (R6/R8) ---
+    # The detector fires when YoY revenue growth's quarter-over-quarter ACCELERATION flips strictly positive
+    # after being <= 0 (a_q = g_q − g_{q-1} crosses up), with a FLOOR on g_q so a flip off a collapse into a
+    # still-tiny base doesn't fire. 10% = a clearly-material growth rate (well above noise), the R6-ratified
+    # floor. Grade is CORE, fixed in the detector (a fundamental inflection earns core — R6, not a config dial).
+    revenue_accel_min_yoy: float = 0.10
+    # Liveness = how long the inflection edge stays relevant, anchored at the inflection quarter's FILED date,
+    # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
+    # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.
+    revenue_accel_alpha_liveness_days: int = 180
+
     # --- DOE/USASpending automated feed grade rule (#10 feed) — [PROPOSED], confirm at review ---
     # A binding DOE CONTRACT obligating at least this much = a `core` catalyst (contracted revenue is real
     # → build); a smaller contract, or any assistance / OTA / grant (not a contract), = `flip`

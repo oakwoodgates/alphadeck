@@ -29,6 +29,11 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "security_id",
         "d",
     ],  # one fund shares-out sample per day (ETF net flow) — a restated count is a new version
+    "fact_fundamentals": [
+        "security_id",
+        "metric_key",
+        "period_end",
+    ],  # one financial fact per (security, metric, fiscal period) — a restatement is a new version (§2.2)
 }
 
 
