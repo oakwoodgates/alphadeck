@@ -120,7 +120,7 @@ describe("Workbench — Save-Chain re-entry legibility (D)", () => {
     const user = userEvent.setup();
     renderWb();
 
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     await user.click(screen.getByRole("button", { name: "Save chain" }));
 
     // back on the scored view, the reversibility of Save is SAID, with honest scope
@@ -128,7 +128,7 @@ describe("Workbench — Save-Chain re-entry legibility (D)", () => {
     expect(screen.getByText(/editing your saved basket/)).toBeInTheDocument();
 
     // the note refers to the exit that just happened — re-entering clears it
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     expect(screen.queryByText(/Chain saved/)).not.toBeInTheDocument();
   });
 
@@ -136,7 +136,7 @@ describe("Workbench — Save-Chain re-entry legibility (D)", () => {
     const user = userEvent.setup();
     renderWb();
 
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(h.mutate).not.toHaveBeenCalled();

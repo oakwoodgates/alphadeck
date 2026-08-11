@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { BasketMember, Segment } from "../../api/hooks";
 import {
+  addLink,
   effectiveSegment,
   reconcileMemberSegments,
+  removeLink,
+  renameLink,
+  reorderLink,
   sanitizeBasketForPromote,
 } from "../chainOps";
 import { DISCOVERED } from "../useChainDraft";
@@ -191,5 +195,98 @@ describe("sanitizeBasketForPromote — the write-side orphan self-heal", () => {
     const { basket: out, segments } = sanitizeBasketForPromote(basket, CHAIN);
     expect(out).toEqual(basket);
     expect(segments).toBe(CHAIN);
+  });
+});
+
+// --- #1–3 topology transforms (chain-editing Phase 2) ------------------------------------------------
+describe("addLink", () => {
+  it("appends a new link (basket untouched)", () => {
+    const basket = [mem({ security_id: "s-a", segment: "reactors" })];
+    const { basket: out, segments } = addLink(basket, CHAIN, "supply");
+    expect(segments.map((s) => s.label)).toEqual(["reactors", "fuel", "supply"]);
+    expect(out).toBe(basket); // add never touches the basket
+  });
+  it("rejects a blank or duplicate label (no-op)", () => {
+    expect(addLink([], CHAIN, "   ").segments).toBe(CHAIN);
+    expect(addLink([], CHAIN, "fuel").segments).toBe(CHAIN); // dup
+  });
+  it("trims the label and descriptor", () => {
+    const { segments } = addLink([], CHAIN, "  supply  ", "  the feeders  ");
+    expect(segments.at(-1)).toEqual({ label: "supply", descriptor: "the feeders" });
+  });
+});
+
+describe("renameLink — cascades onto placed members", () => {
+  it("renames the Segment AND every member in it (no orphan)", () => {
+    const basket = [
+      mem({ security_id: "s-a", segment: "reactors" }),
+      mem({ security_id: "s-b", segment: "reactors" }),
+      mem({ security_id: "s-c", segment: "fuel" }),
+    ];
+    const { basket: out, segments } = renameLink(basket, CHAIN, "reactors", "reactor builders");
+    expect(segments.map((s) => s.label)).toEqual(["reactor builders", "fuel"]);
+    expect(out.filter((m) => m.segment === "reactor builders")).toHaveLength(2);
+    expect(out.find((m) => m.security_id === "s-c")?.segment).toBe("fuel"); // untouched
+    expect(out.some((m) => m.segment === "reactors")).toBe(false); // nothing left orphaned
+  });
+  it("rejects a blank or duplicate rename (no-op)", () => {
+    const basket = [mem({ security_id: "s-a", segment: "reactors" })];
+    expect(renameLink(basket, CHAIN, "reactors", "  ").segments).toBe(CHAIN);
+    expect(renameLink(basket, CHAIN, "reactors", "fuel").segments).toBe(CHAIN); // collides
+  });
+});
+
+describe("reorderLink — swaps with the neighbor", () => {
+  it("moves a link right / left and persists the order", () => {
+    const right = reorderLink([], CHAIN, "reactors", 1);
+    expect(right.segments.map((s) => s.label)).toEqual(["fuel", "reactors"]);
+    const left = reorderLink([], CHAIN, "fuel", -1);
+    expect(left.segments.map((s) => s.label)).toEqual(["fuel", "reactors"]);
+  });
+  it("a boundary move is a no-op", () => {
+    expect(reorderLink([], CHAIN, "reactors", -1).segments).toBe(CHAIN); // already first
+    expect(reorderLink([], CHAIN, "fuel", 1).segments).toBe(CHAIN); // already last
+  });
+});
+
+describe("removeLink — multi-membership-safe, last placement → Discovered", () => {
+  it("drops only the redundant row for a name kept in another link", () => {
+    const basket = [
+      mem({ security_id: "s-x", ticker: "X", segment: "reactors" }),
+      mem({ security_id: "s-x", ticker: "X", segment: "fuel" }), // kept elsewhere
+      mem({ security_id: "s-y", ticker: "Y", segment: "fuel" }),
+    ];
+    const { basket: out, segments } = removeLink(basket, CHAIN, "reactors");
+    expect(segments.map((s) => s.label)).toEqual(["fuel"]);
+    const xs = out.filter((m) => m.security_id === "s-x");
+    expect(xs).toHaveLength(1);
+    expect(xs[0].segment).toBe("fuel"); // the kept placement — not floored
+    expect(out.some((s) => s.segment === DISCOVERED)).toBe(false); // nobody needed the floor
+  });
+
+  it("routes a LAST placement to the Discovered floor (never null / gone) + ensures the segment", () => {
+    const basket = [
+      mem({ security_id: "s-x", ticker: "X", segment: "reactors" }),
+      mem({ security_id: "s-y", ticker: "Y", segment: "fuel" }), // ONLY in fuel
+    ];
+    const { basket: out, segments } = removeLink(basket, CHAIN, "fuel");
+    const y = out.find((m) => m.security_id === "s-y");
+    expect(y?.segment).toBe(DISCOVERED); // last placement floored, not dropped (#9)
+    expect(out).toHaveLength(2); // Y survives
+    expect(segments.some((s) => s.label === DISCOVERED)).toBe(true); // ensured for the validator
+    expect(segments.some((s) => s.label === "fuel")).toBe(false);
+  });
+
+  it("collapses several rows all in the removed link to ONE Discovered row", () => {
+    const basket = [
+      mem({ security_id: "s-x", ticker: "X", segment: "reactors" }),
+      mem({ security_id: "s-x", ticker: "X", segment: "fuel" }),
+    ];
+    // remove BOTH of X's links is two ops; here removing reactors keeps fuel, removing fuel then floors.
+    const afterReactors = removeLink(basket, CHAIN, "reactors");
+    const afterFuel = removeLink(afterReactors.basket, afterReactors.segments, "fuel");
+    const xs = afterFuel.basket.filter((m) => m.security_id === "s-x");
+    expect(xs).toHaveLength(1);
+    expect(xs[0].segment).toBe(DISCOVERED);
   });
 });

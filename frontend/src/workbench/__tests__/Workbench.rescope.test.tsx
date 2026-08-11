@@ -218,7 +218,7 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
     const user = userEvent.setup();
     s.sessionData = envelope(daysAgo(15), [smem("OKLO", "s-oklo"), smem("STALE", "s-stale")]);
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
 
     // the choice panel renders; the editor did NOT silently mount off the old prune
     expect(screen.getByText(/Autosaved working session from/)).toBeInTheDocument();
@@ -240,7 +240,7 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
     const user = userEvent.setup();
     s.sessionData = envelope(daysAgo(15), [smem("OKLO", "s-oklo"), smem("STALE", "s-stale")]);
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
 
     await user.click(screen.getByRole("button", { name: "Resume" }));
     expect(s.del).not.toHaveBeenCalled(); // resuming destroys nothing
@@ -253,7 +253,7 @@ describe("Workbench — S3: the stale-session age-gate + the resumed badge", () 
     const user = userEvent.setup();
     s.sessionData = envelope(daysAgo(1), [smem("OKLO", "s-oklo"), smem("ZZZ", "s-zzz")]);
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
 
     // no gate: the editor mounted straight off the session (today's behavior below the threshold)
     expect(screen.queryByText(/Autosaved working session from/)).not.toBeInTheDocument();
@@ -277,7 +277,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     s.start.mockResolvedValue({ job_id: "j1", status: "running" });
     s.jobData = undefined; // the kicked-off draft stays pending — we assert the remounted SEED state
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     expect(screen.getByLabelText("include ZZZ")).toBeInTheDocument(); // the stale candidate pile is live
 
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
@@ -305,7 +305,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     s.sessionData = envelope(daysAgo(1), [smem("OKLO", "s-oklo"), smem("ZZZ", "s-zzz")]);
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
 
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
     expect(s.del).not.toHaveBeenCalled();
@@ -325,7 +325,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     s.start.mockResolvedValue({ job_id: "j1", status: "running" });
     s.jobData = { job_id: "j1", status: "done", result: rescopeResult, error: null };
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
 
     // the fresh candidate pile arrives (To Review); the old buckets never re-appear
@@ -353,7 +353,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     s.start.mockResolvedValue({ job_id: "j1", status: "running" });
     s.jobData = { job_id: "j1", status: "done", result: rescopeResult, error: null }; // GEV matches nothing
     renderWb();
-    await user.click(screen.getByRole("button", { name: /edit the chain/i }));
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
     await user.click(screen.getByRole("button", { name: "⟳ Re-scope" }));
     await screen.findByText("Fresh Verify Co"); // the re-scoped draft landed
 
