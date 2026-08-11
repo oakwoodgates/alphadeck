@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from domain.config import DEFAULT_CONFIG
 from domain.enums import CatalystType, Grade, Kind, Role
@@ -181,4 +181,38 @@ def dilution_event(score: float = 0.80, fired: bool = True) -> SignalEvent:
         alpha_liveness_days=None,
         provenance=[Provenance(source="xbrl", ref="cash:DEVCO:2026Q1")],
         asof=ASOF,
+    )
+
+
+def breakdown_event(
+    dearm_grade: Grade = Grade.CORE,
+    score: float = 0.80,
+    fired: bool = True,
+    security_id: uuid.UUID = SID,
+    asof: date = ASOF + timedelta(days=5),
+) -> SignalEvent:
+    """A structural-breakdown RISK signal (§2.5/§3.3) — the grade-aware DE-ARM. ``dearm_grade`` is the
+    grade of armed entry it de-arms (CORE = a close below the 200d base; FLIP = a close back below the
+    8-day breakout base). Carries NO ``grade`` (a risk is ungraded); the de-arm target rides
+    ``dearm_grade``. score >= risk_block_severity so it clears the veto gate.
+
+    Fire-dated 5 days AFTER the factory ASOF by default — the break must POST-DATE the arm (a give-back
+    after the entry) to de-arm; pass ``asof`` to exercise the concurrent/older (no-de-arm) case.
+    """
+    return SignalEvent(
+        detector="breakdown_core" if dearm_grade is Grade.CORE else "breakdown_flip",
+        security_id=security_id,
+        role=Role.RISK_SIGNAL,
+        kind=Kind.BREAKDOWN,
+        dearm_grade=dearm_grade,
+        score=score,
+        fired=fired,
+        label=(
+            "Structural break: closed below the 200-day base (a de-arm, not a sell)"
+            if dearm_grade is Grade.CORE
+            else "Fast breakdown: fell back below the 8-day breakout base (a de-arm, not a sell)"
+        ),
+        alpha_liveness_days=None,
+        provenance=[Provenance(source="price", ref="price:DEVCO:2026-06-20")],
+        asof=asof,
     )

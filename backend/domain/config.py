@@ -227,6 +227,47 @@ class CallConfig(DomainModel):
         420  # calendar-day price pull: >= 200 trading bars for the SMA + return
     )
 
+    # --- breakdown / §2.5 (core) + §3.3 (flip): the grade-aware structural DE-ARM (R10/R11/R12) ---
+    # The exit half CALL_LOGIC §2 spec'd but never had a detector: a genuine breakdown de-arms an armed
+    # entry — price logic in the DETECTOR, the grade-aware veto in the assembler (never price logic in the
+    # assembler). Two detectors, one per grade of arm, each a RISK signal carrying which grade it de-arms
+    # (SignalEvent.dearm_grade), so a flip-style fast breakdown can NEVER shake a core hold and a core
+    # structural break de-arms the core hold even inside its arm_until window. STARTING calibration.
+    #
+    # CORE (R10): a close below the 200-day SMA (the long base) is the STRUCTURAL break — NEVER the first
+    # pullback (a ~20% dip that HOLDS the 200d does not de-arm; the 200d level is exactly what filters a
+    # shallow pullback from a structural break). Gated to a genuine break of an established uptrend: it
+    # fires only when the most recent price-vs-200d cross was DOWNWARD (a name that ran up then broke), so
+    # a chronic downtrend never below its 200d does not fire (honest loudness / #7).
+    breakdown_core_sma_window: int = (
+        200  # the long base (200d SMA) whose close-below is the core break
+    )
+    breakdown_core_min_bars: int = (
+        200  # below this we cannot honestly compute a 200d SMA -> decline (#9)
+    )
+    breakdown_core_lookback_days: int = (
+        430  # calendar pull: >= 200 trading bars for the SMA + the regime scan
+    )
+    # FLIP (R11): a close back below the 8-day breakout base the flip entry cleared — the fast de-arm. The
+    # base + the freshness window REUSE the 8-day volume_breakout dials (breakout_base_window /
+    # breakout_return_days / breakout_alpha_liveness_days / breakout_min_return / breakout_lookback_days):
+    # the flip breakdown is that breakout's mirror, so it reads the SAME base the arm cleared.
+    #
+    # A fired breakdown's score — floored ABOVE the default risk_block_severity (0.7) so a genuine base
+    # break clears the veto gate and de-arms; raising risk_block_severity above this tunes the de-arm OFF.
+    # A close below the base de-arms (R10/R11), so the score is a fixed severity, not a depth gauge here.
+    breakdown_severity: float = 0.8
+    # THE v0 MASTER SWITCH — default OFF. The structural de-arm is a GENUINE re-verdict of a flagship demo
+    # arc (the nuclear a2 name arms at 2026-06-05 on a momentum-only breakout that is then given back, so a
+    # post-arm flip-breakdown would de-arm it). Per the operator's keep-flagships-intact directive it must
+    # not silently change the demo, so OFF is the default: the breakdown DETECTORS no-op (emit nothing) when
+    # this is off, leaving every existing golden + the live app byte-for-byte unchanged. The full de-arm
+    # capability (the fire-date-at-downcross detectors + the grade-aware, post-dating assembler veto) is
+    # built and tested behind it, and the Signals-Lab BACKTEST turns it on to measure the exit half — see
+    # replay.run's --breakdown-dearm flag / ALPHADECK_BREAKDOWN_DEARM. Deliberately NOT env-overridden on the
+    # live DEFAULT_CONFIG (a call-engine dial; the settings.py boundary), only opted-in at the lab entry point.
+    breakdown_dearm_enabled: bool = False
+
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
     # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass

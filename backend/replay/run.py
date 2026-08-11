@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -87,10 +88,25 @@ def main() -> None:
     p.add_argument(
         "--out", required=True, help="output dir for the Parquet mirror + outcomes + metrics"
     )
+    p.add_argument(
+        "--breakdown-dearm",
+        action="store_true",
+        help=(
+            "enable the §2.5/§3.3 structural DE-ARM (default OFF; lab/backtest ONLY — it re-verdicts the "
+            "flagship demo, so the live app keeps it off). Also enabled by ALPHADECK_BREAKDOWN_DEARM=1."
+        ),
+    )
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
         pin = pin.replace(tzinfo=timezone.utc)
+    # The de-arm is opted-in at THIS lab entry point (never on the live DEFAULT_CONFIG — a call-engine dial,
+    # the settings.py boundary): the flag OR the env var flips it on, default OFF. model_copy so the change
+    # rides one explicit cfg into the whole replay, and prod/other callers are untouched.
+    dearm_on = args.breakdown_dearm or os.environ.get(
+        "ALPHADECK_BREAKDOWN_DEARM", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+    cfg = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": dearm_on})
     conn = connect()
     try:
         metrics = run(
@@ -99,6 +115,7 @@ def main() -> None:
             end=date.fromisoformat(args.end),
             pin=pin,
             out_dir=args.out,
+            cfg=cfg,
         )
         print(metrics.model_dump_json(indent=2))
     finally:

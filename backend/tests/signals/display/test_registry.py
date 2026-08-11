@@ -79,6 +79,8 @@ def test_detector_registry_is_untouched_by_the_display_seam():
         "dilution_clock",
         "revenue_acceleration",
         "breakout_52w",
+        "breakdown_core",
+        "breakdown_flip",
     ]
 
 

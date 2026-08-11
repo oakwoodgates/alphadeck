@@ -4735,7 +4735,8 @@
           "squeeze",
           "etf_launch",
           "etf_flow",
-          "dilution_risk"
+          "dilution_risk",
+          "breakdown"
         ],
         "title": "Kind",
         "description": "What produced the signal (extensible)."
