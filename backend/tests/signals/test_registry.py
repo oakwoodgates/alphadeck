@@ -8,6 +8,7 @@ import pytest
 from domain.config import DEFAULT_CONFIG
 from pipeline.core import assemble_from_pit
 from signals import (
+    breakout_52w,
     catalyst_conviction,
     dilution_clock,
     insider_conviction,
@@ -28,7 +29,8 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         "catalyst_conviction",
         "volume_breakout",
         "dilution_clock",
-        "revenue_acceleration",  # §2.2 — appended LAST (existing four keep their order)
+        "revenue_acceleration",  # §2.2 — appended after the original four
+        "breakout_52w",  # §2.3 — appended LAST (existing detectors keep their order)
     ]
     assert [detector.detect for detector in detectors] == [
         insider_conviction.detect,
@@ -36,6 +38,7 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         volume_breakout.detect,
         dilution_clock.detect,
         revenue_acceleration.detect,
+        breakout_52w.detect,
     ]
 
 

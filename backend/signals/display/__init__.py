@@ -18,6 +18,7 @@ from signals.display import rvol as rvol
 from signals.display import relative_strength as relative_strength
 from signals.display import insider_flow as insider_flow
 from signals.display import etf_flow as etf_flow
+from signals.display import vcp as vcp
 
 # isort: on
 
@@ -30,5 +31,6 @@ __all__ = [
     "rvol",
     "sma",
     "trailing_returns",
+    "vcp",
     "volume_regime",
 ]

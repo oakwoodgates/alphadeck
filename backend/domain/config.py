@@ -157,12 +157,56 @@ class CallConfig(DomainModel):
     breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
     breakout_volume_mult: float = 1.5  # vol >= mult x base avg => volume-backed (CORE) confirmation
     breakout_alpha_liveness_days: int = 10
+    # --- §3.1 follow-through / hold quality (R13) — SHARPENS the volume_breakout SCORE (grade unchanged) ---
+    # The breakout is real (it still FIRES) and its GRADE stays volume-based; the follow-through is a SCORE
+    # input only (R13's rail). A weak close or a failed next-day hold is the false-breakout tell: it scores
+    # LOWER (lower confidence — the rejected false breakout). A FRESH breakout with no next bar yet is NOT a
+    # failed hold (unknown, not failed) so it isn't penalized; ABSENT high/low data never penalizes (#9 — a
+    # missing field is not a weak close). The two penalties are score MULTIPLIER cuts (stack
+    # multiplicatively). GRADING a weak-follow-through breakout DOWN to flip is DEFERRED (it re-verdicts the
+    # UNH flagship arc + theme-arm eligibility — sign-off-worthy). STARTING calibration, not precision.
+    breakout_close_strength_min: float = (
+        0.70  # (close-low)/(high-low) >= this = a strong (top-of-range) close
+    )
+    breakout_weak_close_penalty: float = (
+        0.30  # score multiplier cut when the breakout bar closes weak
+    )
+    breakout_failed_hold_penalty: float = (
+        0.35  # score multiplier cut when the NEXT bar loses the breakout level
+    )
     # Confidence ceiling for a STARTER — a call whose entry grade is flip because EITHER key is weak
     # (an unconfirmed/momentum-only breakout, OR a provisional conviction). An "enter small" call must
     # never read loud: it would invert inverse-loudness and out-rank steadier calls in the Decision
     # Queue. Capped here regardless of how strong the OTHER key is (the noisy-OR of the strong key alone
     # would otherwise float it high). Calibration dial.
     starter_confidence_cap: float = 0.55
+
+    # --- breakout_52w / §2.3 (the STRUCTURAL 52-week breakout confirmation, R9) — SEPARATE detector ---
+    # A fresh 52-WEEK closing high on real volume is the structural confirmation behind the 5–10x, distinct
+    # from the 8-day momentum tool above (which stays intact). Grade is fixed CORE in the detector
+    # (structural — R9, not a config dial, like revenue_acceleration's core). Reads EOD bars ONLY (no new
+    # fact table). The RVOL denominator is the ~50-day average volume — the conventional breakout-volume
+    # reference, NOT the 8-bar base the momentum tool uses. The min-base-bars gate REFUSES to assert a
+    # "52-week high" on less than ~a year of tape (#9 — honest, never a fabricated year-high off 3 months);
+    # a name with no volume on the bar declines the volume gate rather than faking a volume-backed breakout.
+    # Liveness is 45d (vs the 8-day tool's 10d): a structural core breakout stays an entry window far
+    # longer, so arm_until is long for a core hold. STARTING calibration, not precision.
+    breakout_52w_lookback_days: int = (
+        430  # calendar pull: the 52-week base (~252 bars) + the 45d scan window
+    )
+    breakout_52w_base_bars: int = (
+        252  # trailing trading-bar window whose max close is the prior 52-week high
+    )
+    breakout_52w_min_base_bars: int = (
+        245  # below this many PRIOR bars we can't honestly assert a 52w high -> decline
+    )
+    breakout_52w_vol_base_bars: int = (
+        50  # RVOL denominator: the ~50-day average (breakout-vol reference)
+    )
+    breakout_52w_volume_mult: float = 1.5  # RVOL >= this x the base average = the volume gate (R9)
+    breakout_52w_alpha_liveness_days: int = (
+        45  # the CORE structural-breakout entry window (R9; vs the 8-day tool's 10d)
+    )
 
     # --- laggard / §1.2 ROTATION (Key-2 sympathy confirmation) — STARTING calibration ---
     # A basket LEADER's live volume_breakout is the cue; a co-basket name LAGGING the basket's move but

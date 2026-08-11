@@ -83,13 +83,16 @@ def test_display_signals_happy_path(client, db, security_id):
     m = body["members"][0]
     assert m["security_id"] == str(security_id)
     assert m["ticker"] == "DEVCO"  # resolved from the master, not echoed from the basket
-    # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed
+    # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed.
+    # vcp (§3.2) computes on the ascending fixture but is NOT coiling (no loud headline) — the quiet
+    # contraction metrics still ride the panel, so it appears in the emitted list.
     assert [s["kind"] for s in m["signals"]] == [
         "sma_position",
         "trailing_returns",
         "range_52w",
         "volume_regime",
         "rvol",
+        "vcp",
     ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
