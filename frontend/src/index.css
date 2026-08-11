@@ -669,6 +669,16 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-sub::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .dd-sub em { font-style: normal; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10px; }
 .dd-sub.deferred { opacity: 0.5; }
+/* the #4 value-chain mover (chain-editing Phase 1): a flat multi-select of the real links, under the
+   business-type re-tag. Padded like .dd-head so it reads as part of the rail head, not the body. */
+.dd-segctl { padding: 0 14px 12px; }
+.dd-segctl .dd-sub { margin-top: 12px; }
+.dd-seg-opts { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.dd-seg-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.dd-seg-opt input { cursor: pointer; accent-color: var(--leader); }
+.dd-seg-opt input:disabled { cursor: default; }
+.dd-seg-hint, .dd-seg-unsorted { font-size: 10.5px; margin: 4px 0 0; }
+.dd-seg-unsorted { color: var(--txt-4); font-style: italic; }
 .dd-meter { margin-bottom: 12px; }
 .dd-meter-h { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; margin-bottom: 6px; }
 .dd-meter-h .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }

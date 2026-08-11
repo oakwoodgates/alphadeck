@@ -15,10 +15,12 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
+import { effectiveSegment, reconcileMemberSegments, sanitizeBasketForPromote } from "./chainOps";
 import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
+import { DISCOVERED } from "./useChainDraft";
 import { errText, memberHasFundamentals } from "./format";
 
 interface Props {
@@ -109,10 +111,21 @@ export function Workbench({ header, asof }: Props) {
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   const grouped = segments.length > 0;
-  const countFor = (label: string) => chainMembers.filter((m) => m.segment === label).length;
-  const activeSeg = grouped ? (seg ?? segments[0]?.label ?? null) : null;
+  // Group by the EFFECTIVE segment (chain-editing Phase 1): a NULL or ORPHAN (label not in the chain)
+  // name normalizes to Discovered so it surfaces under a synthesized Discovered tab instead of failing
+  // the raw `m.segment === activeSeg` filter and vanishing (#9 / WB#2). Only when there IS a real chain
+  // (`grouped`) — a flat pre-decompose basket stays one ungrouped list.
+  const anyDiscovered =
+    grouped && chainMembers.some((m) => effectiveSegment(m, segments) === DISCOVERED);
+  const renderSegments =
+    anyDiscovered && !segments.some((s) => s.label === DISCOVERED)
+      ? [...segments, { label: DISCOVERED, descriptor: null }]
+      : segments;
+  const countFor = (label: string) =>
+    chainMembers.filter((m) => effectiveSegment(m, segments) === label).length;
+  const activeSeg = grouped ? (seg ?? renderSegments[0]?.label ?? null) : null;
   const shownMembers = activeSeg
-    ? chainMembers.filter((m) => m.segment === activeSeg)
+    ? chainMembers.filter((m) => effectiveSegment(m, segments) === activeSeg)
     : chainMembers;
   // Selection resolves across the scored chain AND the sleeves — a `fund` row drives the DD rail (SleeveRail)
   // just like a scored name. The default (nothing picked) stays the first chain member, never a sleeve.
@@ -124,6 +137,23 @@ export function Workbench({ header, asof }: Props) {
   // the authorship seam: who placed each name (operator now; S5's drafter will add "drafted")
   const authoredByFor = (sid: string) =>
     thesis?.basket.find((b) => b.security_id === sid)?.authored_by;
+
+  // #4 (chain-editing Phase 1) — the DD-rail segment control for the selected name. `options` = the live
+  // chain's real links (Discovered is the automatic floor, never a checkbox); `current` = the name's live
+  // memberships read from the SPINE (`thesis.basket`) and normalized through effectiveSegment (a NULL /
+  // orphan label → Discovered → dropped), so an unsorted name reads as no checked links → the rail's
+  // "Unsorted (Discovered)" line. Deduped: a name never shows the same link twice.
+  const segmentOptions = segments.map((s) => s.label).filter((l) => l !== DISCOVERED);
+  const selectedSegments = selectedMember
+    ? [
+        ...new Set(
+          (thesis?.basket ?? [])
+            .filter((b) => b.security_id === selectedMember.security_id)
+            .map((b) => effectiveSegment(b, segments))
+            .filter((l) => l !== DISCOVERED),
+        ),
+      ]
+    : [];
 
   const activeName = thesis?.name ?? theses.find((t) => t.id === thesisId)?.name ?? "…";
 
@@ -276,6 +306,33 @@ export function Workbench({ header, asof }: Props) {
       ticker: thesis.ticker ?? null,
       basket: thesis.basket.filter((b) => b.security_id !== securityId),
       segments: thesis.segments,
+    });
+  };
+
+  // #4 (chain-editing Phase 1) — the DD-rail value-chain mover: rebuild ONE name's basket rows into the
+  // checked links (or the Discovered floor when cleared), copying every per-name field, then immediate-
+  // promote through the SAME full-replace writer the siblings use. Read from the SPINE (`thesis.basket`/
+  // `thesis.segments`) — it carries the full BasketMembers (authored_by / signed_off / conviction /
+  // surfaced_terms), which the scored read does NOT. `sanitizeBasketForPromote` self-heals any pre-existing
+  // orphan among the OTHER rows so a stale label can't 422 the validator. `segment` is display/structure,
+  // never a call input (#4): this touches labels + rows only, never verdict/grade/exit-by. Reversible by
+  // construction (WB#1) — re-checking restores prior links; clearing floors to the visible Discovered pen.
+  const setMemberSegments = (securityId: string, labels: string[]) => {
+    if (!thesis) return;
+    const reconciled = reconcileMemberSegments(
+      thesis.basket,
+      thesis.segments,
+      securityId,
+      labels,
+    );
+    const clean = sanitizeBasketForPromote(reconciled.basket, reconciled.segments);
+    promote.mutate({
+      id: thesis.id,
+      name: thesis.name,
+      narrative: thesis.narrative,
+      ticker: thesis.ticker ?? null,
+      basket: clean.basket,
+      segments: clean.segments,
     });
   };
 
@@ -604,7 +661,7 @@ export function Workbench({ header, asof }: Props) {
                     {/* compact tabs (label + count) that WRAP — the per-tab descriptor blew the row out
                         into a horizontal scroll strip; the ACTIVE segment's descriptor is the line below */}
                     <div className="chain">
-                      {segments.map((s, i) => (
+                      {renderSegments.map((s, i) => (
                         <Fragment key={s.label}>
                           <button
                             type="button"
@@ -622,7 +679,7 @@ export function Workbench({ header, asof }: Props) {
                               </span>
                             </div>
                           </button>
-                          {i < segments.length - 1 ? (
+                          {i < renderSegments.length - 1 ? (
                             <span className="chain-arrow" aria-hidden="true">
                               ›
                             </span>
@@ -899,6 +956,18 @@ export function Workbench({ header, asof }: Props) {
                   onRemove: removeMember,
                   includePending: promote.isPending,
                 }}
+                // #4 (chain-editing Phase 1) — the value-chain mover for the selected equity. The ETF
+                // branch returns early (SleeveRail), so a sleeve never renders it; a null selection omits it.
+                segmentControl={
+                  selectedMember
+                    ? {
+                        options: segmentOptions,
+                        current: selectedSegments,
+                        onChange: (labels) => setMemberSegments(selectedMember.security_id, labels),
+                        pending: promote.isPending,
+                      }
+                    : undefined
+                }
               />
             </aside>
           </>
