@@ -8,7 +8,7 @@
 // This module carries BOTH. Sets serialize to arrays and the one Map to a Record; `deserialize` reverses it
 // so the hydrate initializers get ready-to-use Set/Map values.
 
-import type { DraftReportOut, ResolvedPlacement, TermSetEntry } from "../api/hooks";
+import type { BasketMember, DraftReportOut, ResolvedPlacement, TermSetEntry } from "../api/hooks";
 import type { DraftCounts } from "./DraftStatusStrip";
 import type { ChainDraft } from "./useChainDraft";
 
@@ -168,6 +168,23 @@ const rec = <T>(v: unknown): Record<string, T> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, T>) : {};
 const strSet = (v: unknown): Set<string> => new Set(arr<string>(v));
 
+// THE SESSION-BLOB RESURRECTION GUARD (S1 legacy normalize): a PRE-change autosaved blob carries basket
+// members with the RETIRED `operator_set` (the old accept/hand-add authorship) and no `signed_off` field —
+// restored verbatim, the next Save would write the retired value straight back over the 0035 reset. So a
+// restore normalizes every member to the post-S1 shape: `operator_set` → `system_drafted` + `signed_off:
+// true` (the 0035 rule — old accept meant ENDORSED, and the text stays the model's); any member missing
+// `signed_off` defaults false. Additive tolerance (no SCHEMA_VERSION bump) — old blobs keep restoring.
+// The promote-side legacy translation backstops whatever slips past this.
+const normalizeMember = (m: BasketMember): BasketMember =>
+  (m.authored_by as string) === "operator_set"
+    ? { ...m, authored_by: "system_drafted", signed_off: true }
+    : { ...m, signed_off: m.signed_off ?? false };
+
+const normalizeDraft = (d: ChainDraft): ChainDraft => ({
+  segments: d.segments ?? [],
+  basket: (d.basket ?? []).map(normalizeMember),
+});
+
 /** Reconstruct live working state from a stored session envelope. `schema_version` mismatch (a breaking bump)
  *  → `incompatible` (surfaced, never silently discarded); a same-version blob reconstructs with per-field
  *  defaults (so an additive field added later still restores). */
@@ -189,7 +206,8 @@ export function deserialize(session: {
   return {
     status: "ok",
     hook: {
-      draft: (h.draft as ChainDraft) ?? { segments: [], basket: [] },
+      // the legacy normalize rides the restore seam itself, so no consumer can see a retired value
+      draft: normalizeDraft((h.draft as ChainDraft) ?? { segments: [], basket: [] }),
       excluded: strSet(h.excluded),
       reasons: new Map(Object.entries(rec<string>(h.reasons))),
       reasonsDirty: Boolean(h.reasonsDirty),

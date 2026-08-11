@@ -64,8 +64,18 @@ class BasketMember(DomainModel):
     # --overwrite is the only correction path). Keyword STRINGS only — never a number, never a call input
     # (#3). [] = honest empty: a hand-added name (ETF sleeve / manual ticker) was surfaced by no term.
     authored_by: Authorship = (
-        Authorship.OPERATOR_SET
-    )  # who placed it (the Workbench authorship seam)
+        Authorship.SYSTEM_DRAFTED
+    )  # WHO WROTE the description (`thesis_fit`) — honest by construction (Discovery cleanup S1): a
+    # member reads "model draft" until the operator EDITS the prose → OPERATOR_EDITED ("your words").
+    # NOTHING else flips it — sign-off, include, conviction all leave it alone. OPERATOR_SET is RETIRED
+    # for basket members (it stays in the enum as the TERM SET's load-bearing "seed" authorship); a
+    # legacy payload still carrying it is translated at promote, never stored.
+    signed_off: bool = False  # the operator's per-NAME endorsement — the top rung of the confidence
+    # ladder (Excluded → Included (system-recommended) → Signed off). A MARKER only: never authorship
+    # (the text stays a model draft until edited), never a promote gate (include gates; sign-off marks),
+    # never a call/score input (#4). A hand-add enters signed_off=True (the operator picked the name
+    # deliberately); the flag is CARRIED across a re-draft's re-roll, and a signed-off name is never
+    # dropped (#9).
 
 
 class Evidence(DomainModel):

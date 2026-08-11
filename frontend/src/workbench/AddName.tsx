@@ -9,10 +9,11 @@ interface Props {
 }
 
 /** Add a name to the basket via the resolver typeahead (Slice 4b): search the master (a discovery net),
- *  pick an EXACT row, give it a role, and add it as an `operator_set` placement (the server re-stamps
- *  `operator_set` on save). No match → the honest "ingest first" note; never a guess. Placement never
- *  characterizes (item F): what the name IS (its business type) derives from the master's identity —
- *  it needs nothing stamped here. */
+ *  pick an EXACT row, give it a role, and add it AUTO-SIGNED-OFF (the operator picked the name
+ *  deliberately — the confidence ladder's top rung) but `system_drafted`: its description is honestly
+ *  "model draft" until the operator TYPES one (never a false "your words"). No match → the honest
+ *  "ingest first" note; never a guess. Placement never characterizes (item F): what the name IS (its
+ *  business type) derives from the master's identity — it needs nothing stamped here. */
 export function AddName({ existingKeys, onAdd }: Props) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<SecurityMatchOut | null>(null);
@@ -33,9 +34,10 @@ export function AddName({ existingKeys, onAdd }: Props) {
         ticker: picked.ticker,
         role: role.trim() || "—",
         security_id: picked.security_id,
-        segment: null, // starts unplaced; the operator places it via the row's segment select
-        conviction: null, // unset until the operator weights it in the row
-        authored_by: "operator_set",
+        segment: null, // starts unplaced (segment sorting lives on the triage screen now)
+        conviction: null, // stored metadata; no control on this surface
+        authored_by: "system_drafted", // no description typed yet — honestly a model draft (S1)
+        signed_off: true, // a hand-add IS the endorsement (the ladder's top rung, auto)
       },
       picked.name, // feed the name bridge so the placed row shows it (BasketMember carries no name)
     );

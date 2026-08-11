@@ -47,10 +47,14 @@ const STATE_LINE: Partial<Record<BucketKey, string>> = {
   quiet: "No live signals at this as-of.",
 };
 
+// HONEST authorship (Discovery cleanup S1): the tag reads who wrote the thesis-fit DESCRIPTION — a
+// field is the operator's only if the operator changed it. `operator_set` is RETIRED for basket
+// members (the 0035 reset re-based it; the old accept flipped authorship without changing the text —
+// this map's "yours" was the third surface repeating that lie), but a stale row degrades honestly.
 const AUTHOR_TAG: Record<string, string> = {
-  system_drafted: "drafted",
-  operator_set: "yours",
-  operator_edited: "edited",
+  system_drafted: "model draft",
+  operator_set: "model draft", // legacy value — the text was never the operator's typing
+  operator_edited: "your words",
 };
 
 /** The per-name panel — a fixed, NON-MODAL slide-over (no scrim: the table stays clickable, so

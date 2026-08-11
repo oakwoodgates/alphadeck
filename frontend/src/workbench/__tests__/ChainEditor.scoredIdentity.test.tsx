@@ -113,32 +113,32 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
       <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scoredById} />,
     );
     // baseline: both saved members render
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
-    expect(screen.getByLabelText("segment for CNCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include CNCO")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
-    expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("segment for CNCO")).toBeInTheDocument();
+    expect(screen.queryByLabelText("include USCO")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("include CNCO")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("filter by country"), "us");
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
-    expect(screen.queryByLabelText("segment for CNCO")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
+    expect(screen.queryByLabelText("include CNCO")).not.toBeInTheDocument();
 
     // exchange spans the same join: main keeps both (Nasdaq + NYSE), otc hides both
     await user.selectOptions(screen.getByLabelText("filter by country"), "all");
     await user.selectOptions(screen.getByLabelText("filter by exchange"), "otc");
-    expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("segment for CNCO")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("include USCO")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("include CNCO")).not.toBeInTheDocument();
   });
 
   it("with NO scored row and NO map the filters classify unknown — kept under 'all', never dropped", async () => {
     const user = userEvent.setup();
     render(<ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} />);
     // no scoredById at all: both rows render (nothing classifies, nothing hides by default — #9)
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("filter by country"), "unknown");
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
-    expect(screen.getByLabelText("segment for CNCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include CNCO")).toBeInTheDocument();
   });
 
   it("D4: when BOTH sources carry a value the LIVE join wins (self-heals a stale draft-time entry)", async () => {
@@ -169,15 +169,15 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
       <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scoredById} />,
     );
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    await screen.findByLabelText("segment for USCO");
+    await screen.findByLabelText("include USCO");
 
     // the chip shows the JOIN's value, not the map's stale snapshot
     expect(screen.getByText("US", { selector: ".idchip" })).toBeInTheDocument();
     // and the filter classifies by the join: US keeps the row, foreign hides it
     await user.selectOptions(screen.getByLabelText("filter by country"), "us");
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
-    expect(screen.queryByLabelText("segment for USCO")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("include USCO")).not.toBeInTheDocument();
   });
 
   it("renders the foreign-filer chip '{form} · no Form 4' off the join, abstains for a domestic name", () => {
@@ -235,11 +235,11 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
       <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={staleJoin} />,
     );
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
-    await screen.findByLabelText("segment for USCO");
+    await screen.findByLabelText("include USCO");
     // the join's null origin abstains → the map's fresh draft-time value shows
     expect(screen.getByText("Shanghai", { selector: ".idchip" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("filter by country"), "foreign");
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
   });
 });
 
@@ -275,7 +275,7 @@ describe("ChainEditor — the discovery business-type chip (muted)", () => {
       <ChainEditor asof="2026-07-30" thesis={savedThesis} onDone={vi.fn()} scoredById={scored} />,
     );
     // the rows still render (the name is never dropped, #9) — only the chip abstains
-    expect(screen.getByLabelText("segment for USCO")).toBeInTheDocument();
+    expect(screen.getByLabelText("include USCO")).toBeInTheDocument();
     expect(screen.queryByText("—", { selector: ".idchip" })).not.toBeInTheDocument();
     expect(screen.queryByText("other", { selector: ".idchip" })).not.toBeInTheDocument();
     expect(screen.queryByText("◈")).not.toBeInTheDocument();

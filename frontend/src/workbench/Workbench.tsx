@@ -235,7 +235,8 @@ export function Workbench({ header, asof }: Props) {
 
   // Slice 2b — INCLUDE an available N-PORT holding into the basket (from the SleeveRail). Persists via the
   // promote writer (a scored-view change persists immediately), APPENDING a member in AddName's shape — an
-  // include IS a placement: role "—", uncharacterized (item F), authored_by operator_set. Idempotent: a
+  // include IS a placement: role "—", uncharacterized (item F), a hand-add (auto-signed-off, model-draft
+  // description until the operator types one — S1 honest authorship). Idempotent: a
   // name already in the basket is a no-op. The scored read re-derives (the new name joins its master
   // identity + scores); the holdings overlap is a PULL SNAPSHOT and deliberately does NOT re-fetch (cost
   // thread) — the button reflects the live basket.
@@ -255,7 +256,8 @@ export function Workbench({ header, asof }: Props) {
           security_id: securityId,
           segment: null,
           conviction: null,
-          authored_by: "operator_set" as const,
+          authored_by: "system_drafted" as const, // no description typed — a model draft (S1)
+          signed_off: true, // the include click IS the endorsement (a hand-add — auto sign-off)
         },
       ],
       segments: thesis.segments,
@@ -811,9 +813,12 @@ export function Workbench({ header, asof }: Props) {
                             </span>
                           )}
                           {m.segment ? <small>{m.segment}</small> : null}
+                          {/* HONEST authorship (S1): the tag reads who wrote the DESCRIPTION — "your
+                              words" only when the operator actually edited it (operator_edited);
+                              everything else (incl. the retired legacy operator_set) is a model draft. */}
                           {auth ? (
                             <span className="wb-author">
-                              {auth === "operator_set" ? "operator" : auth.replace("_", " ")}
+                              {auth === "operator_edited" ? "your words" : "model draft"}
                             </span>
                           ) : null}
                         </span>

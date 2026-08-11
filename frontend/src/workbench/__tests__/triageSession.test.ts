@@ -29,7 +29,10 @@ function fullHook(): HookRuntime {
           // S2: the frozen at-entry seed terms ride the blob inside the member (ADDITIVE — no
           // SCHEMA_VERSION bump; an old blob without it deserializes fine, the field just absent)
           surfaced_terms: ["nuclear"],
-          authored_by: "operator_set",
+          // the post-S1 member shape: honest authorship + the sign-off marker (the legacy
+          // `operator_set` blob is covered by its own normalize test — it does NOT round-trip verbatim)
+          authored_by: "system_drafted",
+          signed_off: true,
         },
       ],
     },
@@ -135,6 +138,31 @@ describe("triageSession serialize/deserialize", () => {
   it("treats a structurally-broken state as incompatible, not empty", () => {
     expect(deserialize({ schema_version: SCHEMA_VERSION, state: null }).status).toBe("incompatible");
     expect(deserialize({ schema_version: SCHEMA_VERSION, state: 42 }).status).toBe("incompatible");
+  });
+
+  it("S1 legacy normalize: a pre-change blob's operator_set member restores as system_drafted + signed_off (the resurrection guard)", () => {
+    // a LEGACY blob: the member carries the retired accept-era authorship and NO signed_off field —
+    // restored verbatim, the next Save would write `operator_set` straight back over the 0035 reset.
+    const state = JSON.parse(JSON.stringify(serialize(fullHook(), fullEditor())));
+    state.hook.draft.basket[0].authored_by = "operator_set";
+    delete state.hook.draft.basket[0].signed_off;
+    const result = deserialize({ schema_version: SCHEMA_VERSION, state });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const m = result.hook.draft.basket[0];
+    expect(m.authored_by).toBe("system_drafted"); // the retired value never reaches the hook
+    expect(m.signed_off).toBe(true); // old accept meant ENDORSED — the 0035 rule at the restore seam
+    expect(m.thesis_fit).toBe("core name"); // content untouched (non-destructive, like the migration)
+  });
+
+  it("S1 legacy normalize: a member merely MISSING signed_off defaults false (no false endorsement)", () => {
+    const state = JSON.parse(JSON.stringify(serialize(fullHook(), fullEditor())));
+    delete state.hook.draft.basket[0].signed_off; // an old blob, authorship already system_drafted
+    state.hook.draft.basket[0].authored_by = "system_drafted";
+    const result = deserialize({ schema_version: SCHEMA_VERSION, state });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.hook.draft.basket[0].signed_off).toBe(false); // defaulted, never invented
   });
 });
 

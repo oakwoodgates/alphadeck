@@ -36,7 +36,8 @@ export function SurfaceEtf({ existingKeys, onAdd }: Props) {
             security_id: match.security_id,
             segment: null,
             conviction: null,
-            authored_by: "operator_set",
+            authored_by: "system_drafted", // no description typed — honestly a model draft (S1)
+            signed_off: true, // surfacing the sleeve IS the endorsement (a hand-add — auto sign-off)
           },
           match.name, // feed the name bridge so the placed sleeve shows it (BasketMember carries no name)
         );

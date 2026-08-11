@@ -508,9 +508,13 @@ export interface paths {
          *     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
          *     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
          *
-         *     Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
-         *     ``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``
-         *     (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. Every
+         *     Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member
+         *     values — ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator
+         *     edited it — "your words") — so a drafted description stays honestly drafted until the operator actually
+         *     changes it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:
+         *     ``signed_off=true`` + ``authored_by='system_drafted'`` (the 0035 reset rule applied at the wire — old
+         *     accept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:
+         *     it never gates promotion and never feeds the call (#4). Every
          *     placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
          *     id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
          *     and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
@@ -1480,8 +1484,13 @@ export interface components {
             conviction?: number | null;
             /** Surfaced Terms */
             surfaced_terms?: string[];
-            /** @default operator_set */
+            /** @default system_drafted */
             authored_by: components["schemas"]["Authorship"];
+            /**
+             * Signed Off
+             * @default false
+             */
+            signed_off: boolean;
         };
         /**
          * BusinessSupersector
@@ -2576,7 +2585,11 @@ export interface components {
          * @description The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
          *     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
          *     it (create when `id` is null, update otherwise). Scores are NOT sent — they re-derive on read.
-         *     `authored_by` is STAMPED server-side (the human path authors `operator_set`), not taken from the body.
+         *     `authored_by` is honored from the body for the two live member values (`system_drafted` = the
+         *     description is a model draft / `operator_edited` = the operator changed it); the RETIRED
+         *     `operator_set` is legacy-translated to `signed_off=true` + `system_drafted`, never stored
+         *     (Discovery cleanup S1). `signed_off` (the per-name endorsement) round-trips as a marker — it never
+         *     gates promotion.
          */
         PromoteThesisRequest: {
             /** Id */

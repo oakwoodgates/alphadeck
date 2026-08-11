@@ -353,6 +353,86 @@ def test_surfaced_terms_survives_a_resave_through_the_mapper(db, security_id):
     assert _member_count(db, t.id) == 1  # the table did not grow
 
 
+# --- Discovery cleanup S1: signed_off + the multi-membership (N-rows-per-name) basket ---
+
+
+def test_signed_off_roundtrips_and_survives_a_resave(db, security_id):
+    """The endorsement marker persists through upsert, reads back through the mapper, and SURVIVES a
+    narrative-edit resave of the read-back basket (the wipe-trap class: an unmapped field is silently
+    wiped on any unrelated resave). COUNT THE TABLE before and after — the read alone can hide a
+    duplicate append."""
+    t = _thesis(security_id)
+    t.basket[0].signed_off = True
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _member_count(db, t.id) == 1
+
+    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    assert got.basket[0].signed_off is True
+    got.narrative = "edited narrative — the basket is resent verbatim"
+    thesis_repo.upsert(db, got)
+    db.commit()
+
+    assert (
+        thesis_repo.get(db, t.id).basket[0].signed_off is True
+    )  # not wiped — the mapper carried it
+    assert _member_count(db, t.id) == 1  # the table did not grow
+
+
+def test_signed_off_defaults_false(db, security_id):
+    """The honest default: no recorded endorsement → false, at the model AND through the store."""
+    t = _thesis(security_id)
+    assert t.basket[0].signed_off is False  # the model default
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert thesis_repo.get(db, t.id).basket[0].signed_off is False
+
+
+def test_multi_segment_membership_roundtrips_n_rows(db, security_id):
+    """THE MULTI-MEMBERSHIP CONTRACT (S1): a name recommended into N links is N basket_member rows —
+    same security_id, different segment — and the store round-trips them AS N ROWS (no unique
+    (thesis, security_id); the full-replace upsert re-writes exactly what it was given). COUNT THE
+    TABLE before and after a verbatim resave: the read's shape alone can hide a duplicate append OR a
+    silent squash — the count can't."""
+    t = _thesis(security_id)
+    t.segments = [Segment(label="Telehealth platforms"), Segment(label="Compounding / supply")]
+    t.basket = [
+        BasketMember(
+            ticker="HIMS",
+            role="r",
+            security_id=security_id,
+            segment="Telehealth platforms",
+            thesis_fit="one description, per NAME",
+            signed_off=True,
+        ),
+        BasketMember(
+            ticker="HIMS",
+            role="r",
+            security_id=security_id,
+            segment="Compounding / supply",
+            thesis_fit="one description, per NAME",
+            signed_off=True,
+        ),
+    ]
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _member_count(db, t.id) == 2  # N rows STORED, not squashed
+
+    got = thesis_repo.get(db, t.id)
+    assert [(m.ticker, m.segment) for m in got.basket] == [
+        ("HIMS", "Telehealth platforms"),
+        ("HIMS", "Compounding / supply"),
+    ]
+    assert all(m.security_id == security_id for m in got.basket)  # ONE name, two memberships
+    assert all(m.signed_off for m in got.basket)  # the per-name flag rides every row
+
+    # a verbatim resave of the read-back thesis keeps EXACTLY the N rows (count before + after)
+    thesis_repo.upsert(db, got)
+    db.commit()
+    assert _member_count(db, t.id) == 2
+    assert len(thesis_repo.get(db, t.id).basket) == 2
+
+
 def test_set_surfaced_terms_updates_in_place_and_touches_nothing_else(db, security_id):
     """The narrow writer (the backfill's sole write path, the set_term_set idiom): an UPDATE-in-place that
     freezes the named members' terms and touches NOTHING else — ordinal, authorship, prose, conviction all

@@ -568,9 +568,13 @@ def promote(
     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
     resolver, NOT the body. Scores are never sent and never persist — they re-derive on read.
 
-    Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body — the human path sends
-    ``operator_set``; the S5 draft/ratify path sends ``system_drafted`` (a kept draft) or ``operator_edited``
-    (an edited one) — not coerced, so a drafted placement stays drafted until the operator ratifies it. Every
+    Write-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member
+    values — ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator
+    edited it — "your words") — so a drafted description stays honestly drafted until the operator actually
+    changes it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:
+    ``signed_off=true`` + ``authored_by='system_drafted'`` (the 0035 reset rule applied at the wire — old
+    accept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:
+    it never gates promotion and never feeds the call (#4). Every
     placed ``security_id`` must be an EXACT member of this tenant's master (fail-closed — a caller-supplied
     id is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft
     and writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign
@@ -594,6 +598,19 @@ def promote(
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # THE LEGACY-AUTHORSHIP TRANSLATION (Discovery cleanup S1): `operator_set` is RETIRED for basket
+    # members — authorship is the DESCRIPTION's ("model draft" until the operator edits → operator_edited),
+    # and the old accept's system_drafted→operator_set flip claimed words the operator never wrote. A
+    # pre-change payload can still carry it (an autosaved triage-session blob restored after the cutover —
+    # the session-blob resurrection path), so it is translated here, never stored: the old accept/hand-add
+    # meant ENDORSED → signed_off=True, and the text stays the model's → authored_by='system_drafted'
+    # (the 0035 reset rule, applied at the wire so Save can't write the retired value back). TERM-SET
+    # authorship is untouched — `operator_set` remains the load-bearing "seed" marker there.
+    for i, m in enumerate(thesis.basket):
+        if m.authored_by is Authorship.OPERATOR_SET:
+            thesis.basket[i] = m.model_copy(
+                update={"authored_by": Authorship.SYSTEM_DRAFTED, "signed_off": True}
+            )
     # Bound #2, fail-closed: a placed security must be an EXACT member of this tenant's master (mirrors the
     # ratify write-side check). The id is caller-supplied — the operator's pick or an S5 draft's resolved
     # placement — so a foreign / hallucinated id must NEVER reach the spine. A null id (unplaced name) is OK.
