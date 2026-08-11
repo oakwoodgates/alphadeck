@@ -19,6 +19,7 @@ import {
 } from "./buckets";
 import { nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
 import { NamePanel } from "./NamePanel";
+import { RotationStrip } from "./RotationStrip";
 import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
 import {
   accentVar,
@@ -339,6 +340,15 @@ export function Cockpit({
                   <span className="by">— your notes, preserved</span>
                 </div>
               </section>
+
+              {/* the THESIS-LEVEL rotation strip — theme-breadth thrust + sector-RS leadership off the
+                  SAME display-signals query the basket cells read (its TOP-LEVEL `breadth` / `sector_rs`
+                  readings, not the per-member list). Read-only tape context, above the basket it
+                  summarizes; renders nothing when both are absent (#4/#7). */}
+              <RotationStrip
+                breadth={displayQ.data?.breadth ?? null}
+                sectorRs={displayQ.data?.sector_rs ?? null}
+              />
 
               <section className="sect">
                 <div className="sect-h">

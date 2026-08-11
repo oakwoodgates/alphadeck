@@ -263,6 +263,21 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-ind-event .lbl { color: var(--txt-2); }
 .np-ind-event .dt { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt-3); white-space: nowrap; }
 .np-ind-basis { margin-top: 5px; font-size: 9.5px; color: var(--txt-4); }
+/* the thesis-level ROTATION strip (Cockpit, above the basket): theme-breadth thrust + sector-RS
+   leadership off the /display-signals top-level readings. Reuses the panel headline row + np-ind-chip
+   markup; two compact cards in a wrapping row. Quiet by default (#7) — a reading is neutral unless it
+   sits at its LOUD key (breadth `thrust` / a sector `leading`), which lifts a subtle leader-accent
+   border + brightened label. Display-only tape context, never a trigger (#4). */
+.rot-strip .rot-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.rot-item { flex: 1 1 260px; min-width: 240px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 9px 12px; }
+.rot-item .rot-k { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-bottom: 6px; }
+.rot-item .np-ind-headline { margin-bottom: 8px; }
+/* honest loudness: the accent (not the glyph tint) is the exception marker — the LOUD reading lifts a
+   leader-blue border/wash + a brighter headline; a quiet/unknown/inline reading stays neutral AND its
+   headline glyph is forced muted so a non-loud row can never read as a trigger. */
+.rot-item.loud { border-color: color-mix(in srgb, var(--leader) 40%, transparent); background: color-mix(in srgb, var(--leader) 8%, transparent); }
+.rot-item.loud .np-ind-headline .t { color: var(--txt); }
+.rot-item:not(.loud) .np-ind-headline .g.dirg { color: var(--txt-3); }
 .np-pos { border: 1px solid rgba(52, 194, 160, 0.3); background: rgba(52, 194, 160, 0.07); color: var(--txt-2); border-radius: 8px; padding: 8px 11px; font-size: 11.5px; }
 .np-dlog { display: flex; align-items: baseline; gap: 9px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 11px; color: var(--txt-2); }
 .np-dlog .act { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt); }
