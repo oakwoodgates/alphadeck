@@ -5,7 +5,9 @@ co-located confirmation), core-grade.
 Rule (R6/R7/R8, ratified):
   * YoY growth       g_q  = rev_q / rev_{q-4} − 1        (same fiscal quarter a year prior)
   * acceleration     a_q  = g_q − g_{q-1}                (quarter-over-quarter change in YoY growth)
-  * FIRE when ``a_q`` flips strictly > 0 after being <= 0, with a FLOOR ``g_q >= revenue_accel_min_yoy``.
+  * FIRE when ``a_q`` flips strictly > 0 after being <= 0, with (a) a MAGNITUDE floor
+    ``a_q >= revenue_accel_min_accel`` (a sub-threshold tick isn't a re-acceleration) and (b) a LEVEL
+    floor ``g_q >= revenue_accel_min_yoy``.
   * role=entry_trigger · kind=CATALYST · type=EARNINGS (R7 — REUSE, no new Kind, so no OpenAPI change) ·
     grade=CORE (R6 — a fundamental inflection earns core) · liveness 180d, grade-decoupled (R8).
 
@@ -153,6 +155,10 @@ def _inflection(quarters: list[_Q], q: _Q, cfg: CallConfig) -> _Inflection | Non
     a_q = g_q - g_prev
     a_prev = g_prev - g_prev2
     if not (a_prev <= 0 < a_q):  # the flip: acceleration crosses from <= 0 to strictly > 0
+        return None
+    if a_q < cfg.revenue_accel_min_accel:
+        # MAGNITUDE floor: a sub-threshold tick isn't a re-acceleration (UNH's real +0.07pp / "+12% up
+        # from +12%" fire). Gates the CHANGE (a_q); the YoY floor below gates the LEVEL (g_q).
         return None
     if (
         g_q < cfg.revenue_accel_min_yoy

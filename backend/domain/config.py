@@ -113,6 +113,15 @@ class CallConfig(DomainModel):
     # still-tiny base doesn't fire. 10% = a clearly-material growth rate (well above noise), the R6-ratified
     # floor. Grade is CORE, fixed in the detector (a fundamental inflection earns core — R6, not a config dial).
     revenue_accel_min_yoy: float = 0.10
+    # A MAGNITUDE floor on the ACCELERATION itself (a_q = g_q − g_{q-1}, in YoY-growth points): below this a
+    # positive flip is noise, not a re-acceleration. Distinct from revenue_accel_min_yoy, which floors the
+    # LEVEL (g_q) — this floors the CHANGE (a_q). UNH's real 2025/2026 prints re-accelerated by +0.4pp then
+    # +0.07pp (YoY 12.2% -> 12.3%) and fired a CORE conviction reading "+12% up from +12%" (measured 2026-08).
+    # 2pp (0.02) is the STARTING floor: it cuts the sub-2pp noise tail (5/86 live sig-lab fires — UNH, LQDT,
+    # BAH, RSI, LFST, all <= 1.5pp) while keeping every real inflection (HIMS +34pp, COIN +59pp, ...). A fixed
+    # POINTS floor, deliberately scale-blind: a relative floor mishandles the g_prev <= 0 turns, which are the
+    # strongest signals. Set 0.0 to restore the pre-floor "any positive flip fires" behavior. Calibration dial.
+    revenue_accel_min_accel: float = 0.02
     # Liveness = how long the inflection edge stays relevant, anchored at the inflection quarter's FILED date,
     # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
     # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.

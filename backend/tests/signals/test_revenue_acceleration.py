@@ -145,3 +145,39 @@ def test_detect_reads_the_pit_accessor():
     pit = SimpleNamespace(fundamentals_facts=lambda sid: _series())
     ev = ra.detect(pit, _SID, date(2024, 3, 1), DEFAULT_CONFIG)
     assert ev is not None and ev.grade is Grade.CORE
+
+
+def test_declines_on_a_sub_threshold_acceleration():
+    # A REAL flip (a_prev <= 0 < a_q) that clears the 10% YoY LEVEL floor but whose acceleration is a sub-2pp
+    # tick — the UNH-class noise fire that read "+12% up from +12%" (YoY 12.2% -> 12.3%, a_q=+0.1pp). The
+    # MAGNITUDE floor (revenue_accel_min_accel=0.02) now declines it. Year-prior (2022) bases = 100.
+    rev = {
+        date(2022, 3, 31): 100.0,
+        date(2022, 6, 30): 100.0,
+        date(2022, 9, 30): 100.0,
+        date(2022, 12, 31): 100.0,
+        date(2023, 3, 31): 112.0,  # g=0.120
+        date(2023, 6, 30): 112.5,  # g=0.125   (prev2 of the fire quarter)
+        date(2023, 9, 30): 112.2,  # g=0.122 -> accel -0.003 (<= 0)
+        date(2023, 12, 31): 112.3,  # g=0.123 -> accel +0.001 (a flip, but +0.1pp << the 2pp floor)
+    }
+    assert ra.score(_series(rev), _SID, date(2024, 3, 1), DEFAULT_CONFIG) is None
+
+
+def test_sub_threshold_acceleration_fires_once_the_floor_is_lowered():
+    # The no-magic-number guard (mirrors CallConfig's discipline): the SAME sub-2pp flip FIRES when the dial
+    # is set to 0.0 — proving the floor is load-bearing, not incidental to another guard.
+    from domain.config import CallConfig
+
+    rev = {
+        date(2022, 3, 31): 100.0,
+        date(2022, 6, 30): 100.0,
+        date(2022, 9, 30): 100.0,
+        date(2022, 12, 31): 100.0,
+        date(2023, 3, 31): 112.0,
+        date(2023, 6, 30): 112.5,
+        date(2023, 9, 30): 112.2,
+        date(2023, 12, 31): 112.3,
+    }
+    ev = ra.score(_series(rev), _SID, date(2024, 3, 1), CallConfig(revenue_accel_min_accel=0.0))
+    assert ev is not None and ev.grade is Grade.CORE
