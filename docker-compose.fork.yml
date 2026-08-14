@@ -32,12 +32,15 @@ services:
       POSTGRES_DB: alphadeck_${FORK_NAME:?set FORK_NAME in .env.fork (and pass --env-file .env.fork)}
 
   backend:
-    # Bake the `.[replay]` extra (duckdb + pyarrow) into the fork image by default: forks are experiment
-    # stands and usually want the replay/backtest harness in-container (the Signals-Lab precedent). Set
-    # FORK_PIP_EXTRAS= (empty) in .env.fork for a lean prod-shaped image — `-` (no colon) keeps an explicit
-    # empty value empty; only an UNSET var falls back to `replay`. The bind-mount below shadows the app
-    # CODE for --reload, but the image's site-packages carry the extras — hence the build arg matters even
-    # though /app is mounted. `context: ./backend` is the WORKTREE's own backend.
+    # Ask for the `.[replay]` extra (duckdb + pyarrow — the in-container backtest harness) by default,
+    # the Signals-Lab precedent. HONESTY NOTE (MEASURED 2026-08-14): backend/Dockerfile on MAIN carries no
+    # PIP_EXTRAS ARG — that change lives on the sig branch — so on a main-based fork this arg is INERT
+    # (Docker warns "unused build arg" and builds the lean prod-shaped image; replay then runs from the
+    # host venv instead, docs/REPLAY.md). It becomes live automatically on any fork branch that carries
+    # the Dockerfile ARG (e.g. forks off the sig branch). Set FORK_PIP_EXTRAS= (empty) in .env.fork to ask
+    # for lean explicitly — `-` (no colon) keeps an explicit empty value; only an UNSET var falls back to
+    # `replay`. The bind-mount below shadows the app CODE for --reload; it's the image's site-packages
+    # that would carry the extras. `context: ./backend` is the WORKTREE's own backend.
     build:
       context: ./backend
       args:
