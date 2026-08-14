@@ -1,0 +1,74 @@
+# Fork override — layered OVER the unchanged root docker-compose.yml. NEVER run alone.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.fork.yml -p alphadeck_<name> --env-file .env.fork up -d --build
+#   (or: scripts/fork.sh up — the wrapper reads .env.fork and passes the same invocation)
+#
+# A FORK is an isolated experiment stack (docs/FORKS.md): its own theses/baskets/calls/config and its own
+# signal code (a branch/worktree), seeded ONE-WAY from prod by scripts/refresh-fork.sh. This ONE generic
+# file serves every fork — the identity (name, ports) lives in the fork worktree's .env.fork, injected by
+# Compose ${VAR} interpolation. `${VAR:?...}` is deliberate fail-closed: an invocation that forgot
+# `--env-file .env.fork` (or an unfilled .env.fork) dies at the compose layer instead of resolving to
+# something that could collide with prod/dev/sig.
+#
+# The distinct project name (-p alphadeck_<name>) is what buys the isolation: Compose auto-namespaces the
+# containers, the network, AND the named volumes (-> alphadeck_<name>_pgdata / alphadeck_<name>_appdata),
+# so a fork's Postgres data physically cannot reach prod's `pgdata`. Distinct host ports (the slot ladder:
+# slot N -> 808N/800N/554(4+N); prod=0, dev=1, sig=2, forks start at 3) let every tier run simultaneously.
+# Prod is the base file run alone (`docker compose up`); this override is fork-only and never mutates the
+# base, so prod's resolved config is byte-identical with or without this file present.
+#
+# Like the Signals Lab (and unlike dev), a fork runs FROM ITS WORKTREE — `./backend` / `./frontend` here
+# are the WORKTREE's own dirs, and `.env.fork` lives at the worktree root. Cron is OFF (below): a fork
+# never live-fetches on a schedule — exactly one live scheduled fetcher exists, prod's cron.
+
+services:
+  postgres:
+    # `!override` REPLACES the base ports (Compose otherwise CONCATENATES sequences — the merged list would
+    # carry prod's 5544 too and the fork would try to bind it, colliding with a running prod). Same for
+    # backend + frontend below.
+    ports: !override
+      - "${FORK_PG_PORT:?set FORK_PG_PORT in .env.fork (and pass --env-file .env.fork)}:5432"
+    environment:
+      POSTGRES_DB: alphadeck_${FORK_NAME:?set FORK_NAME in .env.fork (and pass --env-file .env.fork)}
+
+  backend:
+    # Bake the `.[replay]` extra (duckdb + pyarrow) into the fork image by default: forks are experiment
+    # stands and usually want the replay/backtest harness in-container (the Signals-Lab precedent). Set
+    # FORK_PIP_EXTRAS= (empty) in .env.fork for a lean prod-shaped image — `-` (no colon) keeps an explicit
+    # empty value empty; only an UNSET var falls back to `replay`. The bind-mount below shadows the app
+    # CODE for --reload, but the image's site-packages carry the extras — hence the build arg matters even
+    # though /app is mounted. `context: ./backend` is the WORKTREE's own backend.
+    build:
+      context: ./backend
+      args:
+        PIP_EXTRAS: ${FORK_PIP_EXTRAS-replay}
+    ports: !override
+      - "${FORK_API_PORT:?set FORK_API_PORT in .env.fork (and pass --env-file .env.fork)}:8000"
+    environment:
+      # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
+      # switches to the fork's. This is the container's DB URL — not a host dev-loop one.
+      DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck_${FORK_NAME:?set FORK_NAME in .env.fork}
+    volumes:
+      # Dev-loop idiom: mount the WORKTREE's source over the image's /app so a branch edit is live (paired
+      # with --reload below). The editable install (PEP 660 finder in site-packages) resolves the top-level
+      # packages from /app, so this mount shadows the built copy WITHOUT breaking imports (and WITHOUT
+      # dropping the image's installed deps like duckdb/pyarrow). This ADDS to the base's mounts (appdata +
+      # the host binds); Compose concatenates volume lists, so no `!override` here.
+      - ./backend:/app
+    # Override the Dockerfile CMD for the edit loop: keep the (idempotent) migrate + seed, then serve with
+    # --reload. --reload runs a single process, so it stays compatible with the single-worker invariant.
+    # Same as dev/sig.
+    command: ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+
+  frontend:
+    ports: !override
+      - "${FORK_APP_PORT:?set FORK_APP_PORT in .env.fork (and pass --env-file .env.fork)}:80"
+
+  cron:
+    # Cron is OFF in every fork — non-negotiable (docs/FORKS.md): exactly ONE live scheduled fetcher
+    # exists, prod's cron (SEC etiquette is a correctness requirement, not a nicety), and a fork's daily
+    # call-of-record would be withheld by the R2a recording gate anyway (a snapshot-fed stack has no live
+    # ingest to record on). Assigning the service to a profile the fork `up` never enables keeps it out of
+    # the resolved config entirely — the same mechanism dev + sig use.
+    profiles:
+      - donotstart

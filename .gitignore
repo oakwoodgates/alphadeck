@@ -149,9 +149,12 @@ activemq-data/
 
 # Environments
 .env
-# Local env files (.env.dev, .env.local, ...) — never commit real secrets; keep only the template.
+# Local env files (.env.dev, .env.fork, .env.local, ...) — never commit real secrets; keep only templates.
+# The `.env.*` glob also matches `.env.fork.example`, so the committed templates need explicit negations
+# (a bare `!.env.example` re-includes only that exact path, not `.env.fork.example`).
 .env.*
 !.env.example
+!.env.fork.example
 .envrc
 .venv
 env/
