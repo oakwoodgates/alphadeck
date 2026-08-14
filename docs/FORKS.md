@@ -75,8 +75,7 @@ is the right semantics for: the first seed, a throwaway code-side experiment (th
 "start my experiment over."
 
 The app-preserving **data mode** — merge prod's new facts into the fork while keeping the fork's own
-app plane — is **designed but deliberately not built yet**
-(`docs/temp/fork-workflow-build-plan.md` step 3, deferred). The `--reset` flag is required *today* so
+app plane — is **designed but deliberately not built yet** (deferred). The `--reset` flag is required *today* so
 that if data mode ever lands as the default, the bare command's meaning cannot silently flip from
 "wipe + re-clone" to "merge". Until then: if your fork holds theses you care about, **don't refresh** —
 the data you seeded with keeps working (it just ages).
