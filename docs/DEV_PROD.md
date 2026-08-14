@@ -14,7 +14,11 @@ Pairs with: `docker-compose.yml` (prod, unchanged) · `docker-compose.dev.yml` (
 |------|-----------------|---------|-----------------|--------------------------|------|-----|
 | **live / prod** | `alphadeck` | `alphadeck` | `alphadeck_pgdata` | 8080 / 8000 / **5544** | ON | `.env` |
 | **dev** | `alphadeck_dev` | `alphadeck_dev` | `alphadeck_dev_pgdata` | 8081 / 8001 / **5545** | OFF | `.env.dev` |
+| **fork `<name>`** | `alphadeck_<name>` | `alphadeck_<name>` | `alphadeck_<name>_pgdata` | slot ladder (808N/800N/554(4+N), N≥3) | OFF | `.env.fork` |
 | **tests** | (pytest, no stack) | `alphadeck_test_<hash>` | (per-worktree, auto) | n/a | n/a | none |
+
+Forks are self-serve experiment stacks seeded ONE-WAY from prod (`scripts/fork.sh`), run from their own
+worktrees — full model: `docs/FORKS.md`. (The Signals Lab predates them and stays as-is on its branch.)
 
 - **Isolation is structural, not a convention.** A distinct Compose **project name** (`-p alphadeck_dev`)
   auto-namespaces the containers, the network, **and the named volumes** — so the dev stack's Postgres

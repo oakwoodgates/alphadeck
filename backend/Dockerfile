@@ -26,7 +26,17 @@ https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CO
 # the demo seed samples (seed_data/) are read from the filesystem relative to the package, not
 # packaged into site-packages. psycopg[binary] bundles its own libpq, so no system deps are needed.
 COPY . .
-RUN pip install --no-cache-dir -e .
+# PIP_EXTRAS selects the optional-dependency extras baked into the image. It defaults to EMPTY, so the
+# prod + dev + cron builds install exactly `pip install -e .` (the lean image — UNCHANGED). Fork stacks
+# pass `--build-arg PIP_EXTRAS=replay` (docker-compose.fork.yml; the Signals-Lab sig branch pioneered
+# this) so the in-container backtest harness gets the `.[replay]` extra (duckdb + pyarrow) the lean
+# image deliberately omits. Empty extras can't be written `".[]"` (pip rejects it), so branch on set.
+ARG PIP_EXTRAS=""
+RUN if [ -n "$PIP_EXTRAS" ]; then \
+      pip install --no-cache-dir -e ".[$PIP_EXTRAS]"; \
+    else \
+      pip install --no-cache-dir -e .; \
+    fi
 
 EXPOSE 8000
 

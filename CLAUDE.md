@@ -181,6 +181,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev 
 bash scripts/refresh-dev.sh                             # ONE-WAY prod->dev data refresh (pg_dump READ; never writes prod)
 # If `make` is installed (often not on Windows): make prod-up · make dev-up · make dev-down · make refresh-dev
 
+# FORKS — self-serve experiment stacks (own worktree/branch/DB/ports, cron OFF, no live SEC), seeded
+# ONE-WAY from prod: scripts/fork.sh init <name> --slot N · fork.sh refresh --reset · docs/FORKS.md
+
 # infra only — Postgres for the local backend dev loop (SHARES prod's DB/volume — a footgun; see DEV_PROD.md)
 docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
 
