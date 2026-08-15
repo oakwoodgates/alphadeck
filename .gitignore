@@ -223,8 +223,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Claude
-.claude/
+# Claude — local worktrees/settings stay ignored; committed agent skills are the exception
+.claude/*
+!.claude/skills/
 
 # Alpha Deck runtime data — on-disk caches (EDGAR/OpenFIGI/SEC), Parquet snapshots, DuckDB. Not committed.
 data/
