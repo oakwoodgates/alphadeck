@@ -410,11 +410,14 @@ class _Silent:
 
 
 def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False):
-    """Stub run_daily_pass's seams so the two refresh legs run DB-free. Returns (order, calls): ``order`` is
-    the recorded call sequence (for the load-bearing before-run_daily property), ``calls`` counts each seam.
+    """Stub run_daily_pass's seams so the two refresh legs run DB-free. Returns (order, calls, seen):
+    ``order`` is the recorded call sequence (for the load-bearing before-run_daily property), ``calls``
+    counts each seam, and ``seen`` captures the kwargs each ingest leg was invoked with — so a test can
+    prove the load-bearing freshness wiring (benchmarks force_refresh=True; fundamentals no per-call flag).
     """
     order: list[str] = []
     calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0}
+    seen: dict[str, dict] = {}  # last-seen kwargs per ingest leg
 
     monkeypatch.setattr(daily, "connect", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(daily, "write_cron_run_log", lambda *a, **k: None)  # fail-open, no file I/O
@@ -433,6 +436,7 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False):
     def _bench(conn, **k):
         order.append("benchmarks")
         calls["benchmarks"] += 1
+        seen["benchmarks"] = k  # capture kwargs → assert force_refresh + allow_live
         if bench_raises:
             raise RuntimeError("benchmarks boom")
         return []
@@ -442,17 +446,18 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False):
     def _fund(conn, **k):
         order.append("fundamentals")
         calls["fundamentals"] += 1
+        seen["fundamentals"] = k  # capture kwargs → assert NO force_refresh / ttl
         if fund_raises:
             raise RuntimeError("fundamentals boom")
         return []
 
     monkeypatch.setattr("pipeline.ingest_fundamentals.ingest_fundamentals", _fund)
-    return order, calls
+    return order, calls, seen
 
 
 def test_pass_SKIPS_both_refresh_legs_on_no_live(monkeypatch):
     # --no-live: a cache-only run can't refresh/record — both legs gated off, but run_daily still runs
-    _, calls = _prime_pass(monkeypatch)
+    _, calls, _ = _prime_pass(monkeypatch)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
     assert calls["benchmarks"] == 0 and calls["fundamentals"] == 0  # neither invoked
     assert calls["run_daily"] == 1  # run_daily still runs (it owns its own no-live withhold)
@@ -460,7 +465,7 @@ def test_pass_SKIPS_both_refresh_legs_on_no_live(monkeypatch):
 
 
 def test_pass_RUNS_both_refresh_legs_when_live(monkeypatch):
-    _, calls = _prime_pass(monkeypatch)
+    _, calls, _ = _prime_pass(monkeypatch)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     assert calls["benchmarks"] == 1 and calls["fundamentals"] == 1  # both invoked exactly once
     assert calls["run_daily"] == 1  # ...and run_daily still runs
@@ -470,7 +475,7 @@ def test_pass_RUNS_both_refresh_legs_when_live(monkeypatch):
 def test_pass_refresh_legs_run_BEFORE_run_daily(monkeypatch):
     # THE load-bearing property: fresh data is landed before the per-thesis calls read it. Benchmarks
     # first, then fundamentals, then run_daily (the spec order).
-    order, _ = _prime_pass(monkeypatch)
+    order, _, _ = _prime_pass(monkeypatch)
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     assert order.index("benchmarks") < order.index("run_daily")
     assert order.index("fundamentals") < order.index("run_daily")
@@ -479,7 +484,7 @@ def test_pass_refresh_legs_run_BEFORE_run_daily(monkeypatch):
 
 def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):
     # a benchmarks fault must NOT skip fundamentals (separate try per leg) and must NOT fail the cron
-    _, calls = _prime_pass(monkeypatch, bench_raises=True)
+    _, calls, _ = _prime_pass(monkeypatch, bench_raises=True)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
     assert calls["benchmarks"] == 1  # attempted (then raised inside its own try)
     assert calls["fundamentals"] == 1  # ...the next leg STILL ran
@@ -489,9 +494,32 @@ def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):
 
 def test_pass_fundamentals_failure_is_FAIL_OPEN(monkeypatch):
     # symmetric: a fundamentals fault leaves benchmarks + run_daily intact and never fails the cron
-    _, calls = _prime_pass(monkeypatch, fund_raises=True)
+    _, calls, _ = _prime_pass(monkeypatch, fund_raises=True)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
     assert calls["benchmarks"] == 1
     assert calls["fundamentals"] == 1  # attempted (then raised inside its own try)
     assert calls["run_daily"] == 1
     assert isinstance(out, daily.DailyPassOutcome)
+
+
+def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypatch):
+    """The load-bearing freshness KWARGS each leg is written with — the reason both legs read the way they
+    do, asserted where a stub that swallowed `**k` couldn't:
+      - benchmarks MUST be called force_refresh=True (+ allow_live=True): the recurring path bypasses a
+        stale cache HIT and re-pulls fresh SPY/IWM bars, else the tape freezes and benchmark_rs degrades
+        silently (the #72 lesson — the same reason run_daily force-refreshes ingest_thesis).
+      - fundamentals MUST carry NO force_refresh / NO ttl: EDGAR cache freshness is key-classed /
+        default-refresh (companyfacts re-fetches on a 12h TTL when allow_live), NOT a per-call boolean —
+        "the boolean wearing a timedelta" is how the ~11-day insider freeze happened (the #196 decision).
+    """
+    _, _, seen = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    # benchmarks: the recurring fetch force-refreshes past a stale cache hit
+    assert seen["benchmarks"].get("force_refresh") is True
+    assert seen["benchmarks"].get("allow_live") is True
+
+    # fundamentals: NO per-call freshness flag (key-classed / default-refresh), just allow_live
+    assert "force_refresh" not in seen["fundamentals"]
+    assert "ttl" not in seen["fundamentals"]
+    assert seen["fundamentals"].get("allow_live") is True
