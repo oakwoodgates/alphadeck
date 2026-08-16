@@ -4,9 +4,9 @@ Pure, fixed-timestamp tests over crafted EOD bars. The grade-aware VETO these fe
 assembler in ``tests/calls/test_breakdown_dearm.py``; here we prove each detector fires (and, as
 importantly, DECLINES) on the right price shape and carries the right ``dearm_grade``.
 
-The pure ``core_score`` / ``flip_score`` are UNGATED (the math is testable independent of the v0 master
+The pure ``core_score`` / ``flip_score`` are UNGATED (the math is testable independent of the master
 switch); the pit-reading ``detect_core`` / ``detect_flip`` no-op unless ``breakdown_dearm_enabled`` is ON
-(the last test proves that gate), so the live app + goldens emit nothing by default.
+(the last test proves that gate). v1 DEFAULTS the switch ON (go-honest), so the live app now de-arms.
 """
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ from tests.calls.factories import ASOF, SID, breakout_event, insider_event, make
 
 _C = DEFAULT_CONFIG
 _ON = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": True})  # the de-arm turned ON
+_OFF = DEFAULT_CONFIG.model_copy(
+    update={"breakdown_dearm_enabled": False}
+)  # explicit OFF (v1 defaults ON)
 
 
 def _bars(closes: list[float], end: date = ASOF) -> list[dict]:
@@ -169,15 +172,16 @@ class _PricePIT:
         return self._bars
 
 
-def test_the_flag_gates_the_detectors_off_by_default():
-    """``detect_core`` / ``detect_flip`` emit NOTHING with the default config (flag OFF) even on a genuine
-    break, and fire with the flag ON — so the live app + goldens see no breakdown while the lab can turn it
-    on. (The pure ``core_score`` / ``flip_score`` above stay ungated — the math is flag-independent.)
+def test_the_flag_gates_the_detectors():
+    """``detect_core`` / ``detect_flip`` emit NOTHING with the flag OFF even on a genuine break, and fire
+    with it ON — the gate works both ways. v1 DEFAULTS the flag ON (go-honest), so the default config fires
+    and OFF is constructed explicitly. (The pure ``core_score`` / ``flip_score`` above stay ungated.)
     """
     core_pit = _PricePIT(_bars([100.0] * 205 + [120.0] * 10 + [90.0]))
-    assert breakdown.detect_core(core_pit, SID, ASOF, _C) is None  # flag OFF -> no-op
+    assert breakdown.detect_core(core_pit, SID, ASOF, _OFF) is None  # flag OFF -> no-op
     assert breakdown.detect_core(core_pit, SID, ASOF, _ON) is not None  # flag ON -> fires
+    assert breakdown.detect_core(core_pit, SID, ASOF, _C) is not None  # v1 default is ON
 
     flip_pit = _PricePIT(_bars([100.0] * 20 + [115.0] + [95.0]))
-    assert breakdown.detect_flip(flip_pit, SID, ASOF, _C) is None  # flag OFF -> no-op
+    assert breakdown.detect_flip(flip_pit, SID, ASOF, _OFF) is None  # flag OFF -> no-op
     assert breakdown.detect_flip(flip_pit, SID, ASOF, _ON) is not None  # flag ON -> fires

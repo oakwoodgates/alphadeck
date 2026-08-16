@@ -61,9 +61,9 @@ def test_decayed_breakout_is_not_resurrected():
 
 
 # --- §3.1 follow-through / hold quality (R13) — the SCORE input that rejects the false breakout ---------
-# The follow-through is a SCORE input only: the GRADE stays volume-based (grading a weak-follow-through
-# breakout down to flip is deferred — it re-verdicts the UNH flagship arc + theme-arm goldens). So the
-# tests below prove the SCORE ordering while the grade is UNCHANGED.
+# The follow-through de-rates the SCORE for BOTH a weak close and a failed hold. v1 (go-honest) ALSO grades
+# a weak-CLOSE breakout DOWN core -> flip (breakout_weak_close_grade_down, default ON); a failed HOLD stays
+# score-only. So the tests below prove the SCORE ordering AND the weak-close grade demotion.
 
 _C = DEFAULT_CONFIG
 _END = date(2026, 6, 20)
@@ -92,15 +92,18 @@ def _breakout(brk, nxt):
 
 def test_a_top_of_range_breakout_that_holds_scores_above_a_weak_or_failed_one():
     """R13 acceptance: a clean breakout (strong close + next-day hold) scores ABOVE both a weak-close
-    breakout and a failed-hold breakout — that lower score IS the rejected false breakout. The GRADE stays
-    volume-based on all three (score-only; grading the false ones down to flip is deferred)."""
+    breakout and a failed-hold breakout — that lower score IS the rejected false breakout. v1 grade-down:
+    the weak CLOSE also demotes core -> flip; a failed HOLD is score-only (grade stays core)."""
     clean = _breakout(_STRONG, _HOLD)
     weak_close = _breakout(_WEAK, _HOLD)
     failed_hold = _breakout(_STRONG, _FAIL)
     assert clean.score > weak_close.score  # a weak close is de-rated in the score
     assert clean.score > failed_hold.score  # a failed next-day hold is de-rated in the score
-    # all three are volume-backed -> the GRADE is unchanged (the follow-through is a score input only)
-    assert clean.grade is weak_close.grade is failed_hold.grade is Grade.CORE
+    assert clean.grade is Grade.CORE  # strong close + volume-backed -> core
+    assert weak_close.grade is Grade.FLIP  # v1: a weak close demotes core -> flip
+    assert (
+        failed_hold.grade is Grade.CORE
+    )  # a failed HOLD is score-only — it does NOT demote the grade
 
 
 def test_a_still_fresh_breakout_with_no_next_bar_is_not_penalized():
@@ -124,7 +127,7 @@ def test_the_two_follow_through_penalties_stack_in_the_score():
 
 def test_follow_through_details_ride_the_provenance():
     """Show-the-work (#6): the close strength + the next-day hold are recorded on the trigger's
-    provenance so a score-derated breakout can be explained. The grade stays volume-based (score-only).
+    provenance so a score-derated breakout can be explained.
     """
     weak = _breakout(_WEAK, _FAIL)
     clean = _breakout(_STRONG, _HOLD)
@@ -133,7 +136,7 @@ def test_follow_through_details_ride_the_provenance():
     assert d["close_strength"] < _C.breakout_close_strength_min  # ... but the close was weak ...
     assert d["next_bar_held"] is False  # ... and the next bar lost the level ...
     assert weak.score < clean.score  # ... so the SCORE is de-rated ...
-    assert weak.grade is Grade.CORE  # ... but the grade stays volume-based (grade-down is deferred)
+    assert weak.grade is Grade.FLIP  # ... and v1 grades the weak close DOWN core -> flip
 
 
 def test_hims_breakout_is_a_strong_close_that_holds_so_follow_through_is_inert():

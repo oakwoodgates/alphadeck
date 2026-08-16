@@ -172,8 +172,8 @@ class CallConfig(DomainModel):
     # LOWER (lower confidence — the rejected false breakout). A FRESH breakout with no next bar yet is NOT a
     # failed hold (unknown, not failed) so it isn't penalized; ABSENT high/low data never penalizes (#9 — a
     # missing field is not a weak close). The two penalties are score MULTIPLIER cuts (stack
-    # multiplicatively). GRADING a weak-follow-through breakout DOWN to flip is DEFERRED (it re-verdicts the
-    # UNH flagship arc + theme-arm eligibility — sign-off-worthy). STARTING calibration, not precision.
+    # multiplicatively). GRADING a weak-CLOSE breakout DOWN to flip is a GATED opt-in — see
+    # breakout_weak_close_grade_down below (default OFF). STARTING calibration, not precision.
     breakout_close_strength_min: float = (
         0.70  # (close-low)/(high-low) >= this = a strong (top-of-range) close
     )
@@ -183,6 +183,12 @@ class CallConfig(DomainModel):
     breakout_failed_hold_penalty: float = (
         0.35  # score multiplier cut when the NEXT bar loses the breakout level
     )
+    # §3.1 GRADE-DOWN — v1 DEFAULT ON (operator "go honest", 2026-08-15): a volume-backed breakout that
+    # CLOSES WEAK (close_strength < breakout_close_strength_min) grades DOWN core -> flip (a weak-close
+    # breakout is a quick-trade, not a structural hold). Measured on the lab: re-verdicts the UNH arm
+    # CORE_ENTRY -> starter (still armed); demotes weak-close breakouts lab-wide (member ranking / counter-
+    # case) with NO other thesis-level verdict change. Set False to disable.
+    breakout_weak_close_grade_down: bool = True
     # Confidence ceiling for a STARTER — a call whose entry grade is flip because EITHER key is weak
     # (an unconfirmed/momentum-only breakout, OR a provisional conviction). An "enter small" call must
     # never read loud: it would invert inverse-loudness and out-rank steadier calls in the Decision
@@ -266,16 +272,13 @@ class CallConfig(DomainModel):
     # break clears the veto gate and de-arms; raising risk_block_severity above this tunes the de-arm OFF.
     # A close below the base de-arms (R10/R11), so the score is a fixed severity, not a depth gauge here.
     breakdown_severity: float = 0.8
-    # THE v0 MASTER SWITCH — default OFF. The structural de-arm is a GENUINE re-verdict of a flagship demo
-    # arc (the nuclear a2 name arms at 2026-06-05 on a momentum-only breakout that is then given back, so a
-    # post-arm flip-breakdown would de-arm it). Per the operator's keep-flagships-intact directive it must
-    # not silently change the demo, so OFF is the default: the breakdown DETECTORS no-op (emit nothing) when
-    # this is off, leaving every existing golden + the live app byte-for-byte unchanged. The full de-arm
-    # capability (the fire-date-at-downcross detectors + the grade-aware, post-dating assembler veto) is
-    # built and tested behind it, and the Signals-Lab BACKTEST turns it on to measure the exit half — see
-    # replay.run's --breakdown-dearm flag / ALPHADECK_BREAKDOWN_DEARM. Deliberately NOT env-overridden on the
-    # live DEFAULT_CONFIG (a call-engine dial; the settings.py boundary), only opted-in at the lab entry point.
-    breakdown_dearm_enabled: bool = False
+    # v1 DEFAULT ON (operator "go honest", 2026-08-15): the structural de-arm — a close back below the base a
+    # name broke out from de-arms it (the platform's missing EXIT half). The fire-date-at-downcross detectors +
+    # the grade-aware, post-dating assembler veto POST-DATE the arm (a name never de-arms concurrent with its
+    # own arm). Measured on the lab: prunes given-back breakouts with NO thesis-level verdict change at "today";
+    # the one deeper re-verdict is a thesis armed ONLY on given-back flip breakouts (starter -> not_yet). Set
+    # False to disable; replay.run's --breakdown-dearm / ALPHADECK_BREAKDOWN_DEARM still force it on for the backtest.
+    breakdown_dearm_enabled: bool = True
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

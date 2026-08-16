@@ -18,8 +18,8 @@ from pipeline.seed import (
 
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(
-    2026, 6, 5
-)  # all four nuclear names have a live breakout here (see test_nuclear_thesis)
+    2026, 6, 2
+)  # the REAL moment the breakouts are fresh AND holding; by 06-03 they give back and breakdown de-arms
 
 
 def test_a_ratified_catalyst_arms_the_theme_as_a_disciplined_starter(db):
@@ -60,11 +60,12 @@ def test_a_ratified_catalyst_arms_the_theme_as_a_disciplined_starter(db):
 
 
 def test_per_member_menu_ranks_a_fresh_starter_above_a_lapsing_core(db):
-    """M5 Part A: with BOTH catalysts ratified the theme has two armed members, and the menu RANKS them on
-    the freshness band (liveness runway) primary, grade within — so OKLO (a starter with years of runway →
-    2029) HEADLINES over LEU (a core arm about to lapse → 2026-06-30), instead of collapsing to the strongest
-    grade. LEU's binding-contract call isn't lost — it's #2, still core, with its 06-30 cliff. SMR + NNE
-    (breakout, no conviction) sit in the confirmation-only watch tier. The headline drives the Board / Queue.
+    """M5 Part A, INTEGRATION on real 06-02 data: with both catalysts ratified the theme has two armed
+    members, ranked on the freshness band (liveness runway) primary — so OKLO (fresh → 2029) HEADLINES over
+    LEU (lapsing → 2026-06-30). NOTE: LEU's DOE contract is a CORE conviction, but its real 06-02 breakout
+    closed weak (close_strength 0.693) so grade-down makes its ENTRY a starter — the freshness ranking ORDER
+    still holds. The fresh-beats-a-higher-GRADE doctrine on clean inputs lives in
+    tests/calls/test_assembler_golden.py. SMR + NNE (breakout, no conviction) sit in the watch tier.
     """
     seed_nuclear(db)
     seed_nuclear_catalyst(db)  # OKLO flip OTA      -> 2029-07-01 (fresh runway)
@@ -82,8 +83,11 @@ def test_per_member_menu_ranks_a_fresh_starter_above_a_lapsing_core(db):
     assert [m.security_id for m in card.armed_members] == [OKLO_ID, LEU_ID]
     assert card.armed_members[0].entry_grade is Grade.FLIP  # OKLO: the fresh starter
     leu = card.armed_members[1]
-    assert leu.conviction_grade is Grade.CORE and leu.verdict is Verdict.CORE_ENTRY
-    assert leu.exit_by == date(2026, 6, 30)  # LEU still core + its 06-30 cliff — demoted, not lost
+    assert leu.conviction_grade is Grade.CORE  # LEU's DOE contract is a CORE conviction ...
+    assert (
+        leu.verdict is Verdict.STARTER_ENTRY
+    )  # ... but its real 06-02 breakout closed weak (0.693) -> grade-down -> a starter entry
+    assert leu.exit_by == date(2026, 6, 30)  # its 06-30 cliff
     assert (
         leu.lapsing is True and card.armed_members[0].lapsing is False
     )  # LEU flagged lapsing; OKLO fresh

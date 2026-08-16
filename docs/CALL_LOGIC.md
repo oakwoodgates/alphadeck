@@ -73,8 +73,10 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > **Two clocks (sticky-on-confirmation).** The arm is sticky on the **confirmation's** clock — the *entry
 > window* (`arm_until`, §6); the **conviction's** clock is the signal-validity horizon (`exit_by`, §6), which
 > remains the thesis-monitoring and scoring yardstick after a fill. It is not a sell deadline. A genuine
-> *breakdown* (close back below the breakout base) de-arms only via a `breakdown` **risk-signal** detector (M4a)
-> — price-signal logic stays in detectors, never in the pure assembler.
+> *breakdown* de-arms via the `breakdown` **risk-signal** detectors (`[built — sig]`, `breakdown_dearm_enabled`
+> default ON since 2026-08-15): a close back below the 8-day breakout base (the **flip** exit) or below the
+> 200-day base (the **core** exit). Grade-aware and **post-dating the arm** (a name never de-arms concurrent
+> with its own arm); price-signal logic stays in detectors, never in the pure assembler.
 
 > **Theme menu = a ranked per-member view `[BUILT — M5a/M5b]`.** When several basket members are
 > independently armed (a theme thesis), the call computes a call **per member** and **ranks** them —
@@ -155,6 +157,20 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   (decoupled from grade, like a catalyst). It arms a member only when the member has its **own** live
   volume-backed (`core`) confirmation and **no** own live conviction (own wins; a lapsed own conviction falls
   back — the floor). Full rule in `docs/THEME_CONVICTION.md`.
+- **`revenue_acceleration` `[built — sig]` — grade-FIXED core, structural (Key 1).** YoY revenue growth's
+  second derivative turning positive (re-accelerating for the first time in N quarters) is the structural
+  conviction behind the 5–10x — always `core` (a fundamental inflection is durable; grade fixed in the detector,
+  not a dial). Two floors keep it honest: a YoY **level** floor (`revenue_accel_min_yoy` = 10%) and — ratified
+  2026-08-15 — an absolute **acceleration** floor (`revenue_accel_min_accel` = **2pp**), so a sub-2pp wiggle
+  (UNH re-accelerated ~0.4pp — noise, not a genuine re-acceleration) never mints a CORE. Knowability from the filing's
+  `filed` date (#1); reads companyfacts via `fact_fundamentals` (migration 0036).
+- **`volume_breakout` `[built]` — the CONFIRMATION grade (Key 2).** VOLUME grades it: volume-backed
+  (vol ≥ `breakout_volume_mult` × base avg) = `core`; a momentum thrust on weak volume arms but `flip`.
+  **Grade-down** (ratified 2026-08-15, `breakout_weak_close_grade_down`): a volume-backed breakout that
+  **closes weak** (`close_strength` < `breakout_close_strength_min`, near the low of its day range) grades DOWN
+  `core → flip` — a weak-close breakout is a quick-trade, not a structural hold (a failed next-day *hold* is
+  score-only, no grade cut). This is why UNH — breakout `close_strength` 0.119 — arms a **starter** on its
+  strong insider conviction, not a core.
 
 Firing + grade are always a **deterministic parse or an operator ratification — never the LLM** (invariant #3).
 

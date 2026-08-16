@@ -28,10 +28,10 @@ from tests.calls.factories import SID
 
 _END = date(2026, 6, 2)
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
-# the de-arm is behind the v0 master switch (default OFF); the lab/backtest turns it ON — this replay is
-# the lab measuring the exit half, so it runs the pipeline with the flag ON (the detectors emit; the goldens
-# keep the default OFF and stay byte-identical).
+# the de-arm runs through the master switch; this replay is the exit-half proof, so it runs the pipeline
+# with the flag ON explicitly (the gate-OFF case is the last test). v1 now DEFAULTS the switch ON.
 _ON = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": True})
+_OFF = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": False})
 
 # The crafted arc: a long ~50 base -> a fresh 52-week high on volume (a CORE confirmation) -> a hold that
 # keeps the 200d -> a close well below the 200d SMA (the structural break). A core catalyst supplies the
@@ -167,12 +167,10 @@ def test_the_dearm_snapshot_carries_the_breakdown_risk_and_the_signal_validity_e
 
 
 def test_with_the_flag_off_the_same_arc_never_dearms():
-    """The v0 MASTER SWITCH: with the DEFAULT config (flag OFF), the identical price arc emits NO breakdown
-    at all, so the core hold stays ARMED at the break bar — byte-for-byte the pre-de-arm demo behavior. The
-    capability is fully built (the flag-ON tests above), just off by default."""
+    """The MASTER SWITCH gate: with the flag OFF (explicit — v1 now defaults it ON), the identical price arc
+    emits NO breakdown at all, so the core hold stays ARMED at the break bar. The capability is fully gated
+    (the flag-ON tests above prove it fires)."""
     t = _bar_date(_DEARM_I)
-    card = assemble_from_pit(
-        _FakePIT(t), _thesis(), t, DEFAULT_CONFIG
-    )  # flag OFF (the live default)
+    card = assemble_from_pit(_FakePIT(t), _thesis(), t, _OFF)  # flag explicitly OFF
     assert card.state is State.ARMED and card.armed_security_id == SID
     assert not [r for r in card.risk_signals if r.kind is Kind.BREAKDOWN]  # nothing emitted
