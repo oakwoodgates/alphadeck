@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -388,3 +389,109 @@ def test_freshness_is_NOT_in_the_change_compare(db, security_id, monkeypatch):
     daily.run_daily(db, asof=_ASOF, allow_live=True)
     assert len(_calls(db, tid)) == 1  # freshness flip did NOT append (COUNT the table)
     assert _health(db, tid)["ingest_fresh"] is False  # still the first run's stamp
+
+
+# --- Band-02: the shared-input refresh legs in run_daily_pass (benchmarks + fundamentals) ---
+# DB-free — mirroring the guard-test precedent above (which monkeypatches connect), every side-effecting
+# seam run_daily_pass touches is stubbed: connect (all four connections), run_daily (the per-thesis pass),
+# write_cron_run_log (the fail-open run-of-record write), the SPAC-radar leg, and the two lazily-imported
+# ingests (patched on their OWN modules, since each leg does `from pipeline.ingest_* import ...` at call
+# time — exactly like the radar leg's `from radar.spac import run_spac_radar`).
+
+
+class _Silent:
+    """A no-op notifier — run_daily is stubbed and assess_health([]) returns None, so nothing is emitted."""
+
+    def notify(self, event):  # pragma: no cover - never reached with an empty result set
+        pass
+
+    def notify_health(self, event):  # pragma: no cover
+        pass
+
+
+def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False):
+    """Stub run_daily_pass's seams so the two refresh legs run DB-free. Returns (order, calls): ``order`` is
+    the recorded call sequence (for the load-bearing before-run_daily property), ``calls`` counts each seam.
+    """
+    order: list[str] = []
+    calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0}
+
+    monkeypatch.setattr(daily, "connect", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(daily, "write_cron_run_log", lambda *a, **k: None)  # fail-open, no file I/O
+    # the SPAC-radar leg is also allow_live-gated — stub it so a live pass doesn't run real radar code
+    monkeypatch.setattr(
+        "radar.spac.run_spac_radar", lambda *a, **k: SimpleNamespace(summary="stub", errors=[])
+    )
+
+    def _run_daily(conn, **k):
+        order.append("run_daily")
+        calls["run_daily"] += 1
+        return []
+
+    monkeypatch.setattr(daily, "run_daily", _run_daily)
+
+    def _bench(conn, **k):
+        order.append("benchmarks")
+        calls["benchmarks"] += 1
+        if bench_raises:
+            raise RuntimeError("benchmarks boom")
+        return []
+
+    monkeypatch.setattr("pipeline.ingest_benchmarks.ingest_benchmarks", _bench)
+
+    def _fund(conn, **k):
+        order.append("fundamentals")
+        calls["fundamentals"] += 1
+        if fund_raises:
+            raise RuntimeError("fundamentals boom")
+        return []
+
+    monkeypatch.setattr("pipeline.ingest_fundamentals.ingest_fundamentals", _fund)
+    return order, calls
+
+
+def test_pass_SKIPS_both_refresh_legs_on_no_live(monkeypatch):
+    # --no-live: a cache-only run can't refresh/record — both legs gated off, but run_daily still runs
+    _, calls = _prime_pass(monkeypatch)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
+    assert calls["benchmarks"] == 0 and calls["fundamentals"] == 0  # neither invoked
+    assert calls["run_daily"] == 1  # run_daily still runs (it owns its own no-live withhold)
+    assert isinstance(out, daily.DailyPassOutcome)
+
+
+def test_pass_RUNS_both_refresh_legs_when_live(monkeypatch):
+    _, calls = _prime_pass(monkeypatch)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert calls["benchmarks"] == 1 and calls["fundamentals"] == 1  # both invoked exactly once
+    assert calls["run_daily"] == 1  # ...and run_daily still runs
+    assert isinstance(out, daily.DailyPassOutcome)
+
+
+def test_pass_refresh_legs_run_BEFORE_run_daily(monkeypatch):
+    # THE load-bearing property: fresh data is landed before the per-thesis calls read it. Benchmarks
+    # first, then fundamentals, then run_daily (the spec order).
+    order, _ = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert order.index("benchmarks") < order.index("run_daily")
+    assert order.index("fundamentals") < order.index("run_daily")
+    assert order.index("benchmarks") < order.index("fundamentals")
+
+
+def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):
+    # a benchmarks fault must NOT skip fundamentals (separate try per leg) and must NOT fail the cron
+    _, calls = _prime_pass(monkeypatch, bench_raises=True)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
+    assert calls["benchmarks"] == 1  # attempted (then raised inside its own try)
+    assert calls["fundamentals"] == 1  # ...the next leg STILL ran
+    assert calls["run_daily"] == 1  # ...and so did the per-thesis pass
+    assert isinstance(out, daily.DailyPassOutcome)
+
+
+def test_pass_fundamentals_failure_is_FAIL_OPEN(monkeypatch):
+    # symmetric: a fundamentals fault leaves benchmarks + run_daily intact and never fails the cron
+    _, calls = _prime_pass(monkeypatch, fund_raises=True)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
+    assert calls["benchmarks"] == 1
+    assert calls["fundamentals"] == 1  # attempted (then raised inside its own try)
+    assert calls["run_daily"] == 1
+    assert isinstance(out, daily.DailyPassOutcome)
