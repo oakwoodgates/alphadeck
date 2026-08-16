@@ -1,5 +1,11 @@
 """The daily call-of-record cron (M2b) — the platform feeding itself.
 
+Before the per-thesis loop, the pass first refreshes the two SHARED call-logic inputs so those calls read
+FRESH data (Band-02): the SPY/IWM benchmark tape (``ingest_benchmarks`` → ``benchmark_rs``) and every
+basket's quarterly revenue (``ingest_fundamentals`` → ``revenue_acceleration``). Both legs live in
+``run_daily_pass`` alongside the SPAC-radar leg and share its discipline — own connection, lazy import,
+``allow_live``-gated, fail-open (a refresh fault is a passenger, it never fails the call cron).
+
 Once a day, for every thesis (tenant intrinsic per-thesis):
   1. refresh its back-half facts — ``ingest_thesis`` (incremental + fail-visible; M2a);
   2. assemble TODAY's call WITHOUT writing — ``call_for_thesis(asof=today, known_at=now, record=False)``;
@@ -236,6 +242,50 @@ def run_daily_pass(
     asof = asof or market_today()
     notifier = notifier or get_notifier()
     started_at = datetime.now(timezone.utc)
+    # Band-02 shared-input refresh — run BEFORE run_daily so the per-thesis calls read FRESH data: the
+    # SPY/IWM benchmark tape (benchmark_rs) and each basket's quarterly revenue (revenue_acceleration).
+    # Both legs mirror the SPAC-radar leg below — OWN connection + lazy import + fail-open — and keep their
+    # OWN connections so a refresh can NEVER touch run_daily's per-thesis edgar_fetches freeze counter or
+    # the recording gate. A refresh fault is a passenger, never the driver: print loud, keep going; a
+    # benchmarks fault must not skip fundamentals (separate try per leg). Skipped on --no-live (a cache-only
+    # dev run can't refresh/record; `python -m pipeline.ingest_*` is the manual cache-only path).
+    if allow_live:
+        try:  # (a) benchmarks first
+            from pipeline.ingest_benchmarks import ingest_benchmarks
+
+            # force_refresh=True: the recurring path MUST bypass a stale cache HIT and re-pull fresh SPY/IWM
+            # bars — else the tape freezes and benchmark_rs degrades silently (the #72 lesson; the same
+            # reason run_daily force-refreshes ingest_thesis).
+            bench_conn = connect()
+            try:
+                bench_results = ingest_benchmarks(bench_conn, allow_live=True, force_refresh=True)
+            finally:
+                bench_conn.close()
+            bench_bars = sum(r.bars_appended for r in bench_results)
+            bench_errs = [r.error for r in bench_results if r.error]
+            print(f"benchmarks refresh: +{bench_bars} bars, {len(bench_results)} benchmarks")
+            for err in bench_errs:  # loud only when nonzero (loudness marks the exception)
+                print(f"  benchmarks refresh ERROR: {err}")
+        except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
+            print(f"WARNING: benchmarks refresh leg failed: {e}")
+        try:  # (b) then fundamentals — bare = every basket
+            from pipeline.ingest_fundamentals import ingest_fundamentals
+
+            # NO force_refresh/ttl flag: EDGAR cache freshness is key-classed / default-refresh
+            # (companyfacts re-fetches on a 12h TTL when allow_live), NOT a per-call boolean (the #196
+            # lesson — "the boolean wearing a timedelta" is how the ~11-day insider freeze happened).
+            fund_conn = connect()
+            try:
+                fund_results = ingest_fundamentals(fund_conn, allow_live=True)
+            finally:
+                fund_conn.close()
+            fund_quarters = sum(r.appended for r in fund_results)
+            fund_errs = [r.error for r in fund_results if r.error]
+            print(f"fundamentals refresh: +{fund_quarters} quarters, {len(fund_results)} names")
+            for err in fund_errs:  # loud only when nonzero
+                print(f"  fundamentals refresh ERROR: {err}")
+        except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
+            print(f"WARNING: fundamentals refresh leg failed: {e}")
     conn = connect()
     try:
         results = run_daily(conn, asof=asof, allow_live=allow_live, notifier=notifier)
