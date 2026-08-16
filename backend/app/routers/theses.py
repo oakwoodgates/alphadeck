@@ -26,7 +26,7 @@ from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
 from signals.base import PointInTimeData
-from signals.display import registered_display_members
+from signals.display import registered_display_members, relative_strength, theme_breadth
 
 router = APIRouter(prefix="/theses", tags=["theses"])
 
@@ -151,7 +151,22 @@ def get_display_signals(
         )
         for sid in sids
     ]
-    return DisplaySignalsResponse(thesis_id=thesis.id, asof=asof, members=members)
+    # §1.1 — the thesis-level theme-breadth thrust (DISPLAY-only, #4/#7): one aggregate over the same
+    # resolved members, re-derived from the same as-of bitemporal prices; ``None`` for an empty basket.
+    breadth = theme_breadth.breadth_for(pit, sids)
+    # §1.3 — the supersector RS rollup (DISPLAY-only, #4): "which theme is leading the market". The
+    # member -> BusinessSupersector map is IDENTITY, resolved HERE (off the display seam, which cannot
+    # read the master) and passed in as an opaque grouping label; ``None`` when no benchmark tape is
+    # ingested yet (RS is uncomputable) or the basket is empty.
+    identity = master.identity_for(conn, set(sids), tenant_id=thesis.tenant_id)
+    supersector_by_sid = {
+        sid: (str(info["business_supersector"]) if info.get("business_supersector") else None)
+        for sid, info in identity.items()
+    }
+    sector_rs = relative_strength.sector_rs_for(pit, sids, supersector_by_sid)
+    return DisplaySignalsResponse(
+        thesis_id=thesis.id, asof=asof, breadth=breadth, sector_rs=sector_rs, members=members
+    )
 
 
 @router.put("/{thesis_id}/catalysts", response_model=ThesisDetail)

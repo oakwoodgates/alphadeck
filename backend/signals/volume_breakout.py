@@ -16,17 +16,61 @@ DETECTOR_NAME = "volume_breakout"
 
 
 def _score(
-    price_ratio: float, ret: float, vol_ratio: float, volume_backed: bool, cfg: CallConfig
+    price_ratio: float,
+    ret: float,
+    vol_ratio: float,
+    volume_backed: bool,
+    follow_factor: float,
+    cfg: CallConfig,
 ) -> float:
     price_leg = min(max(price_ratio - 1.0, 0.0) * 10.0, 1.0)  # how far above the base high
     mom_leg = min(ret / (cfg.breakout_min_return * 2.0), 1.0) if cfg.breakout_min_return else 0.0
     base = 0.5 * price_leg + 0.5 * mom_leg
     if volume_backed:
         vol_leg = min(vol_ratio / cfg.breakout_volume_mult, 1.0) if vol_ratio else 0.0
-        return round(min(0.6 * base + 0.4 * vol_leg, 0.95), 4)
-    return round(
-        min(0.55 * base, 0.5), 4
-    )  # momentum-only: real but kept below a volume-backed score
+        raw = min(0.6 * base + 0.4 * vol_leg, 0.95)
+    else:
+        raw = min(0.55 * base, 0.5)  # momentum-only: real but kept below a volume-backed score
+    # §3.1 follow-through (R13): a weak close and/or a failed next-day hold multiply the score DOWN — the
+    # false-breakout tell. follow_factor == 1.0 (a clean or still-fresh breakout) leaves the score exactly
+    # as before, so a clean breakout is numerically unchanged.
+    return round(min(raw * follow_factor, 0.95), 4)
+
+
+def _close_strength(bar: dict[str, Any]) -> float | None:
+    """(close - low) / (high - low): where the bar closed within its own day range, 0 (at the low) .. 1
+    (at the high). None when high/low are absent (a missing field must never read as a weak close, #9) or
+    the bar has zero range (degenerate — treated as neutral, not weak)."""
+    hi, lo, close = bar.get("high"), bar.get("low"), bar.get("close")
+    if hi is None or lo is None or close is None:
+        return None
+    rng = float(hi) - float(lo)
+    if rng <= 0.0:
+        return None
+    return (float(close) - float(lo)) / rng
+
+
+def _next_bar_held(bars: list[dict[str, Any]], idx: int, level: float) -> bool | None:
+    """Did the bar AFTER the breakout hold above the breakout level (the base high it cleared)? True/False
+    when a next bar exists, None when the breakout is the last bar (no next bar YET — unknown, NOT a
+    failed hold, so a fresh breakout is never penalized for the missing bar)."""
+    if idx + 1 >= len(bars):
+        return None
+    nxt = bars[idx + 1].get("close")
+    if nxt is None:
+        return None
+    return float(nxt) > level
+
+
+def _follow_factor(strength: float | None, held: bool | None, cfg: CallConfig) -> float:
+    """The §3.1 score multiplier: 1.0 for a clean (or still-fresh) breakout, cut for a weak close and/or a
+    confirmed failed hold. The two cuts stack; floored at 0."""
+    factor = 1.0
+    if strength is not None and strength < cfg.breakout_close_strength_min:
+        factor -= cfg.breakout_weak_close_penalty
+    if held is False:
+        factor -= cfg.breakout_failed_hold_penalty
+    return max(factor, 0.0)
 
 
 def score(
@@ -45,7 +89,12 @@ def score(
     The freshness floor mirrors the assembler's liveness, so a reported breakout is always live and a
     long-decayed one is never resurrected. **Volume grades the confirmation:** volume-backed
     (vol >= ``breakout_volume_mult`` x base average) is CORE-quality; a momentum thrust on weak volume
-    still arms but is FLIP-grade. A clearly-minimal placeholder for richer breakout logic.
+    still arms but is FLIP-grade. **§3.1 follow-through (R13) SHARPENS the SCORE:** the breakout still
+    fires and its grade stays volume-based, but a weak close (outside the top
+    ``breakout_close_strength_min`` of the day range) and/or a failed next-day hold multiply the score
+    DOWN — that lower score IS the rejected false breakout. A still-fresh breakout with no next bar yet is
+    never penalized (unknown, not failed). Grading a weak-CLOSE breakout DOWN to flip is a gated opt-in
+    (``breakout_weak_close_grade_down``, default OFF). A clearly-minimal placeholder for richer breakout logic.
     """
     bars = [b for b in bars if b.get("close") is not None]
     need = max(cfg.breakout_base_window, cfg.breakout_return_days, cfg.breakout_min_base_bars) + 1
@@ -79,13 +128,25 @@ def score(
     vol_ratio = (float(bar_vol) / base_vol_avg) if (bar_vol and base_vol_avg) else 0.0
     volume_backed = vol_ratio >= cfg.breakout_volume_mult
     quality = "Volume-backed" if volume_backed else "Momentum-only"
+
+    # §3.1 follow-through / hold quality (R13): a weak close and/or a failed next-day hold multiply the SCORE
+    # DOWN — the "rejected" false breakout; a clean or still-fresh breakout keeps its full score. GRADE:
+    # volume-backed => CORE, momentum-only => FLIP. The GRADE-DOWN (a weak CLOSE also caps a volume-backed
+    # breakout at FLIP) is a GATED opt-in via cfg.breakout_weak_close_grade_down (default OFF => grade stays
+    # volume-only, byte-unchanged). ON: a weak-close breakout is a quick-trade, not a structural hold — it
+    # re-verdicts the UNH flagship (CORE_ENTRY -> starter) + theme-arm eligibility + member ranking.
+    strength = _close_strength(bar)
+    held = _next_bar_held(bars, idx, base_high)
+    follow_factor = _follow_factor(strength, held, cfg)
+    weak_close = strength is not None and strength < cfg.breakout_close_strength_min
+    core_grade = volume_backed and not (cfg.breakout_weak_close_grade_down and weak_close)
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.TECHNICAL_BREAKOUT,
-        grade=Grade.CORE if volume_backed else Grade.FLIP,
-        score=_score(last_close / base_high, ret, vol_ratio, volume_backed, cfg),
+        grade=Grade.CORE if core_grade else Grade.FLIP,
+        score=_score(last_close / base_high, ret, vol_ratio, volume_backed, follow_factor, cfg),
         label=(
             f"{quality} breakout: close {last_close:.2f} cleared the {cfg.breakout_base_window}-day "
             f"high {base_high:.2f}, +{ret * 100:.0f}% over {cfg.breakout_return_days}d on "
@@ -102,6 +163,8 @@ def score(
                     "ret": round(ret, 4),
                     "vol_ratio": round(vol_ratio, 2),
                     "volume_backed": volume_backed,
+                    "close_strength": round(strength, 3) if strength is not None else None,
+                    "next_bar_held": held,
                 },
             )
         ],

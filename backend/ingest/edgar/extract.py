@@ -540,6 +540,11 @@ _REVENUE = [
     ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
 ]
 
+# Public alias: the §2.2 fundamentals ingest (``ingest.fundamentals``) reads the SAME revenue concepts (first
+# present wins, ``_first`` semantics) so "which companyfacts tag IS revenue" has ONE source of truth and can
+# never drift between the Workbench AUTO tier and the quarterly-series backfill.
+REVENUE_CONCEPTS = _REVENUE
+
 # The purity passage is WIDE (vs the default ±110): the grounded purity-estimate seam (SURFACE 1b) proposes a %
 # ONLY from segment $ / total $ figures in the passage, so the located window must be big enough to carry the
 # segment revenue TABLE, not just the heading. A retrieval window (not a scoring cutoff); a too-narrow window

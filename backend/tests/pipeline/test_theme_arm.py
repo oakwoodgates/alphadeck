@@ -19,8 +19,8 @@ from pipeline.seed import (
 
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(
-    2026, 6, 5
-)  # all four nuclear names have a live breakout here (see test_nuclear_thesis)
+    2026, 6, 2
+)  # the REAL moment the breakouts are fresh AND holding; by 06-03 they give back and breakdown de-arms
 
 
 def test_theme_conviction_moves_a_confirmed_member_from_watch_to_armed(db):
@@ -55,11 +55,13 @@ def test_theme_conviction_moves_a_confirmed_member_from_watch_to_armed(db):
 
 
 def test_full_demo_theme_armed_smr_ranks_between_own_flip_and_lapsing_core(db):
-    """The served demo (main): OKLO own-flip OTA (-> 2029, fresh) + LEU own-core contract (-> 2026-06-30,
-    lapsing) + the theme conviction -> SMR a theme-armed starter. Freshness-primary ranking (Q1): OKLO
-    headlines, SMR is #2 (a FRESH theme starter, above the LAPSING own core), LEU is #3; NNE stays watch.
-    own-above-theme is only a within-band tiebreak — it does NOT lift the lapsing own core over a fresh
-    theme starter (the M5a OKLO-over-lapsing-LEU doctrine, now with a theme name in the mix).
+    """The served demo (main), INTEGRATION on real 06-02 data: OKLO own-flip OTA (-> 2029, fresh) + LEU
+    own-core contract (-> 2026-06-30, lapsing) + the theme conviction -> SMR a theme-armed starter.
+    Freshness-primary ranking (Q1): OKLO headlines, SMR is #2 (a FRESH theme starter), LEU is #3 (lapsing);
+    NNE stays watch. NOTE: LEU's own CONVICTION is core, but its real 06-02 breakout closed weak
+    (close_strength 0.693) so grade-down makes its ENTRY a starter — the ranking ORDER (freshness) still
+    holds. The fresh-beats-a-higher-GRADE doctrine on clean inputs lives in
+    tests/calls/test_assembler_golden.py.
     """
     seed_nuclear(db)
     seed_nuclear_catalyst(db)  # OKLO flip OTA -> 2029-07-01 (fresh)
@@ -79,6 +81,6 @@ def test_full_demo_theme_armed_smr_ranks_between_own_flip_and_lapsing_core(db):
     assert by_id[OKLO_ID].theme_armed is False and by_id[LEU_ID].theme_armed is False  # own-armed
     assert by_id[SMR_ID].lapsing is False and by_id[LEU_ID].lapsing is True
     assert (
-        by_id[LEU_ID].verdict is Verdict.CORE_ENTRY
-    )  # the own core is preserved at #3 (demoted, not lost)
+        by_id[LEU_ID].verdict is Verdict.STARTER_ENTRY
+    )  # LEU's conviction is core + lapsing, but its real 06-02 breakout closed weak (0.693) -> grade-down -> starter
     assert NNE_ID in {m.security_id for m in card.watch_members}

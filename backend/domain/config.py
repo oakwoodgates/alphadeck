@@ -107,6 +107,26 @@ class CallConfig(DomainModel):
     # default / re-ratification cadence). Liveness is decoupled from grade, exactly like a catalyst.
     theme_conviction_default_horizon_days: int = 365
 
+    # --- revenue_acceleration (§2.2, Key 1) — the structural conviction behind the 5–10x breakout (R6/R8) ---
+    # The detector fires when YoY revenue growth's quarter-over-quarter ACCELERATION flips strictly positive
+    # after being <= 0 (a_q = g_q − g_{q-1} crosses up), with a FLOOR on g_q so a flip off a collapse into a
+    # still-tiny base doesn't fire. 10% = a clearly-material growth rate (well above noise), the R6-ratified
+    # floor. Grade is CORE, fixed in the detector (a fundamental inflection earns core — R6, not a config dial).
+    revenue_accel_min_yoy: float = 0.10
+    # A MAGNITUDE floor on the ACCELERATION itself (a_q = g_q − g_{q-1}, in YoY-growth points): below this a
+    # positive flip is noise, not a re-acceleration. Distinct from revenue_accel_min_yoy, which floors the
+    # LEVEL (g_q) — this floors the CHANGE (a_q). UNH's real 2025/2026 prints re-accelerated by +0.4pp then
+    # +0.07pp (YoY 12.2% -> 12.3%) and fired a CORE conviction reading "+12% up from +12%" (measured 2026-08).
+    # 2pp (0.02) is the STARTING floor: it cuts the sub-2pp noise tail (5/86 live sig-lab fires — UNH, LQDT,
+    # BAH, RSI, LFST, all <= 1.5pp) while keeping every real inflection (HIMS +34pp, COIN +59pp, ...). A fixed
+    # POINTS floor, deliberately scale-blind: a relative floor mishandles the g_prev <= 0 turns, which are the
+    # strongest signals. Set 0.0 to restore the pre-floor "any positive flip fires" behavior. Calibration dial.
+    revenue_accel_min_accel: float = 0.02
+    # Liveness = how long the inflection edge stays relevant, anchored at the inflection quarter's FILED date,
+    # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
+    # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.
+    revenue_accel_alpha_liveness_days: int = 180
+
     # --- DOE/USASpending automated feed grade rule (#10 feed) — [PROPOSED], confirm at review ---
     # A binding DOE CONTRACT obligating at least this much = a `core` catalyst (contracted revenue is real
     # → build); a smaller contract, or any assistance / OTA / grant (not a contract), = `flip`
@@ -146,12 +166,119 @@ class CallConfig(DomainModel):
     breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
     breakout_volume_mult: float = 1.5  # vol >= mult x base avg => volume-backed (CORE) confirmation
     breakout_alpha_liveness_days: int = 10
+    # --- §3.1 follow-through / hold quality (R13) — SHARPENS the volume_breakout SCORE (grade unchanged) ---
+    # The breakout is real (it still FIRES) and its GRADE stays volume-based; the follow-through is a SCORE
+    # input only (R13's rail). A weak close or a failed next-day hold is the false-breakout tell: it scores
+    # LOWER (lower confidence — the rejected false breakout). A FRESH breakout with no next bar yet is NOT a
+    # failed hold (unknown, not failed) so it isn't penalized; ABSENT high/low data never penalizes (#9 — a
+    # missing field is not a weak close). The two penalties are score MULTIPLIER cuts (stack
+    # multiplicatively). GRADING a weak-CLOSE breakout DOWN to flip is a GATED opt-in — see
+    # breakout_weak_close_grade_down below (default OFF). STARTING calibration, not precision.
+    breakout_close_strength_min: float = (
+        0.70  # (close-low)/(high-low) >= this = a strong (top-of-range) close
+    )
+    breakout_weak_close_penalty: float = (
+        0.30  # score multiplier cut when the breakout bar closes weak
+    )
+    breakout_failed_hold_penalty: float = (
+        0.35  # score multiplier cut when the NEXT bar loses the breakout level
+    )
+    # §3.1 GRADE-DOWN — v1 DEFAULT ON (operator "go honest", 2026-08-15): a volume-backed breakout that
+    # CLOSES WEAK (close_strength < breakout_close_strength_min) grades DOWN core -> flip (a weak-close
+    # breakout is a quick-trade, not a structural hold). Measured on the lab: re-verdicts the UNH arm
+    # CORE_ENTRY -> starter (still armed); demotes weak-close breakouts lab-wide (member ranking / counter-
+    # case) with NO other thesis-level verdict change. Set False to disable.
+    breakout_weak_close_grade_down: bool = True
     # Confidence ceiling for a STARTER — a call whose entry grade is flip because EITHER key is weak
     # (an unconfirmed/momentum-only breakout, OR a provisional conviction). An "enter small" call must
     # never read loud: it would invert inverse-loudness and out-rank steadier calls in the Decision
     # Queue. Capped here regardless of how strong the OTHER key is (the noisy-OR of the strong key alone
     # would otherwise float it high). Calibration dial.
     starter_confidence_cap: float = 0.55
+
+    # --- breakout_52w / §2.3 (the STRUCTURAL 52-week breakout confirmation, R9) — SEPARATE detector ---
+    # A fresh 52-WEEK closing high on real volume is the structural confirmation behind the 5–10x, distinct
+    # from the 8-day momentum tool above (which stays intact). Grade is fixed CORE in the detector
+    # (structural — R9, not a config dial, like revenue_acceleration's core). Reads EOD bars ONLY (no new
+    # fact table). The RVOL denominator is the ~50-day average volume — the conventional breakout-volume
+    # reference, NOT the 8-bar base the momentum tool uses. The min-base-bars gate REFUSES to assert a
+    # "52-week high" on less than ~a year of tape (#9 — honest, never a fabricated year-high off 3 months);
+    # a name with no volume on the bar declines the volume gate rather than faking a volume-backed breakout.
+    # Liveness is 45d (vs the 8-day tool's 10d): a structural core breakout stays an entry window far
+    # longer, so arm_until is long for a core hold. STARTING calibration, not precision.
+    breakout_52w_lookback_days: int = (
+        430  # calendar pull: the 52-week base (~252 bars) + the 45d scan window
+    )
+    breakout_52w_base_bars: int = (
+        252  # trailing trading-bar window whose max close is the prior 52-week high
+    )
+    breakout_52w_min_base_bars: int = (
+        245  # below this many PRIOR bars we can't honestly assert a 52w high -> decline
+    )
+    breakout_52w_vol_base_bars: int = (
+        50  # RVOL denominator: the ~50-day average (breakout-vol reference)
+    )
+    breakout_52w_volume_mult: float = 1.5  # RVOL >= this x the base average = the volume gate (R9)
+    breakout_52w_alpha_liveness_days: int = (
+        45  # the CORE structural-breakout entry window (R9; vs the 8-day tool's 10d)
+    )
+
+    # --- laggard / §1.2 ROTATION (Key-2 sympathy confirmation) — STARTING calibration ---
+    # A basket LEADER's live volume_breakout is the cue; a co-basket name LAGGING the basket's move but
+    # still in a structural uptrend is the sympathy catch-up candidate. Because Kind.LAGGARD is a
+    # confirmation kind (above), the assembler's existing co-location ARMS a laggard that carries an own
+    # conviction but hasn't broken out itself (R3/R4) — the detector only ever supplies the confirmation
+    # key, never the arm. Dials: the trailing return window whose basket MEDIAN sets the bar, the lag gap
+    # below that median, the uptrend SMA gate, the flip sympathy arm window, and the price-pull lookback.
+    laggard_return_days: int = 30  # trailing return (TRADING bars) compared across the basket
+    laggard_lag_pts: float = (
+        0.15  # B lags the basket median return by >= this (15 pts, as a fraction)
+    )
+    laggard_trend_sma_window: int = 200  # B's close must sit >= its 200d SMA (uptrend intact)
+    laggard_alpha_liveness_days: int = (
+        15  # the flip sympathy arm window, anchored to the leader breakout
+    )
+    laggard_lookback_days: int = (
+        420  # calendar-day price pull: >= 200 trading bars for the SMA + return
+    )
+
+    # --- breakdown / §2.5 (core) + §3.3 (flip): the grade-aware structural DE-ARM (R10/R11/R12) ---
+    # The exit half CALL_LOGIC §2 spec'd but never had a detector: a genuine breakdown de-arms an armed
+    # entry — price logic in the DETECTOR, the grade-aware veto in the assembler (never price logic in the
+    # assembler). Two detectors, one per grade of arm, each a RISK signal carrying which grade it de-arms
+    # (SignalEvent.dearm_grade), so a flip-style fast breakdown can NEVER shake a core hold and a core
+    # structural break de-arms the core hold even inside its arm_until window. STARTING calibration.
+    #
+    # CORE (R10): a close below the 200-day SMA (the long base) is the STRUCTURAL break — NEVER the first
+    # pullback (a ~20% dip that HOLDS the 200d does not de-arm; the 200d level is exactly what filters a
+    # shallow pullback from a structural break). Gated to a genuine break of an established uptrend: it
+    # fires only when the most recent price-vs-200d cross was DOWNWARD (a name that ran up then broke), so
+    # a chronic downtrend never below its 200d does not fire (honest loudness / #7).
+    breakdown_core_sma_window: int = (
+        200  # the long base (200d SMA) whose close-below is the core break
+    )
+    breakdown_core_min_bars: int = (
+        200  # below this we cannot honestly compute a 200d SMA -> decline (#9)
+    )
+    breakdown_core_lookback_days: int = (
+        430  # calendar pull: >= 200 trading bars for the SMA + the regime scan
+    )
+    # FLIP (R11): a close back below the 8-day breakout base the flip entry cleared — the fast de-arm. The
+    # base + the freshness window REUSE the 8-day volume_breakout dials (breakout_base_window /
+    # breakout_return_days / breakout_alpha_liveness_days / breakout_min_return / breakout_lookback_days):
+    # the flip breakdown is that breakout's mirror, so it reads the SAME base the arm cleared.
+    #
+    # A fired breakdown's score — floored ABOVE the default risk_block_severity (0.7) so a genuine base
+    # break clears the veto gate and de-arms; raising risk_block_severity above this tunes the de-arm OFF.
+    # A close below the base de-arms (R10/R11), so the score is a fixed severity, not a depth gauge here.
+    breakdown_severity: float = 0.8
+    # v1 DEFAULT ON (operator "go honest", 2026-08-15): the structural de-arm — a close back below the base a
+    # name broke out from de-arms it (the platform's missing EXIT half). The fire-date-at-downcross detectors +
+    # the grade-aware, post-dating assembler veto POST-DATE the arm (a name never de-arms concurrent with its
+    # own arm). Measured on the lab: prunes given-back breakouts with NO thesis-level verdict change at "today";
+    # the one deeper re-verdict is a thesis armed ONLY on given-back flip breakouts (starter -> not_yet). Set
+    # False to disable; replay.run's --breakdown-dearm / ALPHADECK_BREAKDOWN_DEARM still force it on for the backtest.
+    breakdown_dearm_enabled: bool = True
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

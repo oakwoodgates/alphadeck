@@ -16,7 +16,9 @@ from pipeline.seed import LEU_ID, NUCLEAR_THESIS_ID, OKLO_ID, seed_doe_catalysts
 
 _FIXTURES = Path(__file__).resolve().parents[2] / "seed_data" / "doe"
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
-_ASOF = date(2026, 6, 5)  # all four nuclear names have a live breakout here
+_ASOF = date(
+    2026, 6, 2
+)  # the real moment the breakouts are fresh AND holding (by 06-03 they give back)
 
 # the polluted recipient the spike caught: "OKLO TECHNOLOGIES, INC." carries $48B of national-lab
 # contracts and must NOT resolve to OKLO — the real awardee is OKLO INC. (a different recipient_id)

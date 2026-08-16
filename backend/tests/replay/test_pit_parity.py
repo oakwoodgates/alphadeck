@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from db.bitemporal import _FACT_IDENTITY
+from db.bitemporal import _FACT_IDENTITY, append_fact
+from db.session import DEFAULT_TENANT_ID
 from pipeline.seed import (
     HIMS_SECURITY_ID,
     HIMS_THESIS_ID,
@@ -65,6 +66,42 @@ def _match(live_rows, replay_rows, identity):
             ), f"{identity}={k} col {col}: {lr[col]!r} != {rr[col]!r}"
 
 
+def _seed_fundamentals(db):
+    """A few §2.2 quarterly revenue facts (HIMS) so the parity gate exercises fact_fundamentals with REAL
+    rows — including an original Q1 and a later RESTATEMENT of it (a new version of the same natural key), so
+    parity covers the as-of dedup on the new family, not just an empty table."""
+
+    def _fact(period_end, value, filed, accn, *, fp="Q1"):
+        return {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": HIMS_SECURITY_ID,
+            "metric_key": "revenue",
+            "period_end": period_end,
+            "fiscal_period": fp,
+            "fiscal_year": period_end.year,
+            "value": value,
+            "unit": "USD",
+            "basis": "native",
+            "accession": accn,
+            "source": "companyfacts",
+            "valid_from": filed,
+            "recorded_at": datetime.combine(filed, time.min, tzinfo=timezone.utc),
+        }
+
+    append_fact(
+        db, "fact_fundamentals", _fact(date(2024, 3, 31), 250_000_000, date(2024, 5, 6), "hq1")
+    )
+    append_fact(
+        db,
+        "fact_fundamentals",
+        _fact(date(2024, 6, 30), 300_000_000, date(2024, 8, 5), "hq2", fp="Q2"),
+    )
+    # a RESTATEMENT of Q1 (a later filing revises the value) — a NEW VERSION of (HIMS, revenue, 2024-03-31)
+    append_fact(
+        db, "fact_fundamentals", _fact(date(2024, 3, 31), 255_000_000, date(2024, 8, 5), "hq1r")
+    )
+
+
 def _seed_all(db):
     seed_hims(db)  # insider (Wells) + prices + dilution (converts)
     seed_unh(db)  # insider cluster + prices
@@ -72,6 +109,7 @@ def _seed_all(db):
     seed_nuclear_catalyst(db)  # OKLO catalyst
     seed_leu_catalyst(db)  # LEU catalyst
     seed_nuclear_theme_conviction(db)  # the nuclear theme conviction (thesis-scoped)
+    _seed_fundamentals(db)  # §2.2 quarterly revenue facts (HIMS, incl. a restatement)
     db.commit()
 
 
@@ -114,6 +152,11 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
                     live.catalyst_facts(sid),
                     rep.catalyst_facts(sid),
                     _FACT_IDENTITY["fact_catalyst"],
+                )
+                _match(
+                    live.fundamentals_facts(sid),
+                    rep.fundamentals_facts(sid),
+                    _FACT_IDENTITY["fact_fundamentals"],
                 )
             for tid in theses:
                 _match(

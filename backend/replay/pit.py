@@ -91,6 +91,12 @@ class ReplayPointInTimeData:
     def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_catalyst", "security_id", security_id)
 
+    def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The mirror twin of ``PointInTimeData.fundamentals_facts`` (§2.2) — the same as-of quarterly
+        series over the DuckDB/Parquet mirror, so the revenue-acceleration detector runs identically in
+        replay (A.1: everything the live path reads, replay must read). Parity-gated row-for-row."""
+        return self._as_of("fact_fundamentals", "security_id", security_id)
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
 

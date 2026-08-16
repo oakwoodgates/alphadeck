@@ -35,10 +35,15 @@ def fired_signal(
     asof: date,
     provenance: Iterable[Provenance],
     grade: Grade | None = None,
+    dearm_grade: Grade | None = None,
     catalyst_type: CatalystType | None = None,
     alpha_liveness_days: int | None = None,
 ) -> SignalEvent:
-    """Construct the one output shape used by every current fired signal producer."""
+    """Construct the one output shape used by every current fired signal producer.
+
+    ``dearm_grade`` is the de-arm TARGET a ``breakdown`` risk signal carries (the grade of armed entry it
+    de-arms) — left ``None`` by every entry trigger and every other risk (see ``SignalEvent``).
+    """
     return SignalEvent(
         detector=detector,
         security_id=security_id,
@@ -46,6 +51,7 @@ def fired_signal(
         kind=kind,
         type=catalyst_type,
         grade=grade,
+        dearm_grade=dearm_grade,
         score=score,
         fired=True,
         label=label,

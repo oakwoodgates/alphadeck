@@ -29,12 +29,15 @@ def test_unh_form4_parse_oracle():
     assert max(t["txn_date"] for t in buys) == date(2025, 5, 16)  # the cluster's fire date
 
 
-def test_unh_warms_in_may_then_arms_core_entry_at_the_august_breakout(db):
+def test_unh_warms_in_may_then_arms_a_starter_at_the_weak_close_august_breakout(db):
     """The flagship 'right but early -> armed at confirmation' arc on REAL data. The CEO-led CORE
     cluster (mid-May 2025) warms; the platform withholds the go-signal through the summer slide; then
-    the August volume-backed breakout confirms what the insiders saw ~3 months early and the call ARMS
-    as a CORE entry. Only possible because the conviction liveness window is graded (core ~ multi-month);
-    the old flat 18-day clock would have forgotten the cluster long before the breakout.
+    the August volume-backed breakout confirms what the insiders saw ~3 months early and the call ARMS.
+    But that breakout CLOSED WEAK (close_strength 0.119), so v1 grade-down (go-honest, 2026-08-15) demotes
+    the confirmation to flip and UNH arms as a STARTER — the honest read: a weak-close breakout is a
+    quick-trade, not a durable core hold, however strong the conviction behind it. Only possible because
+    the conviction liveness window is graded (core ~ multi-month); the old flat 18-day clock would have
+    forgotten the cluster long before the breakout.
     """
     seed_unh(db)
     db.commit()
@@ -48,13 +51,15 @@ def test_unh_warms_in_may_then_arms_core_entry_at_the_august_breakout(db):
     )  # the multi-insider cluster path (not HIMS's single buy)
     assert may.confidence is None  # a not-yet card shows no confidence bar
 
-    # August: the volume-backed breakout co-locates with the still-live conviction -> ARMED core_entry
+    # August: the volume-backed breakout co-locates with the still-live conviction -> ARMED. But the
+    # breakout CLOSED WEAK (close_strength 0.119), so v1 grade-down demotes the confirmation core -> flip,
+    # and UNH arms as a STARTER (enter small) on its strong insider conviction — not a core hold.
     aug = call_for_thesis(db, UNH_THESIS_ID, date(2025, 8, 18), known_at=_KNOWN, record=False)
     assert aug.state is State.ARMED
-    assert (
-        aug.verdict is Verdict.CORE_ENTRY
-    )  # volume-backed breakout + core conviction = full entry
-    assert aug.conviction_grade is Grade.CORE and aug.entry_grade is Grade.CORE
+    assert aug.verdict is Verdict.STARTER_ENTRY  # weak-close breakout -> starter, not core
+    assert aug.conviction_grade is Grade.CORE  # the insider cluster is untouched ...
+    assert aug.confirmation_grade is Grade.FLIP  # ... but the weak close demoted the confirmation
+    assert aug.entry_grade is Grade.FLIP  # so the entry grade is the weaker key
     assert aug.armed_security_id == UNH_SECURITY_ID
     assert aug.confidence is not None
     refs = [p.ref for t in aug.triggers_fired for p in t.sources]

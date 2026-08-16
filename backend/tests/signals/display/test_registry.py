@@ -14,9 +14,11 @@ from signals.display import (
     insider_flow,
     range52w,
     registered_display_members,
+    relative_strength,
     rvol,
     sma,
     trailing_returns,
+    vcp,
     volume_regime,
 )
 from signals.display.base import DisplayBasis, DisplayMember, DisplaySignal
@@ -34,8 +36,10 @@ def test_registry_contains_exactly_the_members_in_display_order():
         "range_52w",
         "volume_regime",
         "rvol",
+        "relative_strength",
         "insider_flow_90d",
         "etf_flow",
+        "vcp",  # §3.2 base-tightening / VCP — appended LAST (existing members keep their render order)
     ]
     assert [m.compute for m in members] == [
         sma.display,
@@ -43,8 +47,10 @@ def test_registry_contains_exactly_the_members_in_display_order():
         range52w.display,
         volume_regime.display,
         rvol.display,
+        relative_strength.display,
         insider_flow.display,
         etf_flow.display,
+        vcp.display,
     ]
 
 
@@ -71,6 +77,10 @@ def test_detector_registry_is_untouched_by_the_display_seam():
         "catalyst_conviction",
         "volume_breakout",
         "dilution_clock",
+        "revenue_acceleration",
+        "breakout_52w",
+        "breakdown_core",
+        "breakdown_flip",
     ]
 
 

@@ -1,0 +1,70 @@
+# Signals Lab override — layered OVER the unchanged root docker-compose.yml. NEVER run alone.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.sig.yml -p alphadeck_sig --env-file .env.sig up -d --build
+#
+# The Signals Lab is a THIRD isolated tier (beside prod + dev): an off-prod historical-replay/backtest
+# stand for new signal detectors. The distinct project name (-p alphadeck_sig) is what buys the isolation:
+# Compose auto-namespaces the containers, the network, AND the named volumes (-> alphadeck_sig_pgdata /
+# alphadeck_sig_appdata), so the sig stack's Postgres data physically cannot reach prod's `pgdata`. Distinct
+# host ports (8082/8002/5546) let sig, dev, and prod run SIMULTANEOUSLY. Prod is the base file run alone
+# (`docker compose up`); this override is sig-only and never mutates the base, so prod's resolved config is
+# byte-identical with or without this file present.
+#
+# KEY DIFFERENCE FROM DEV: the Signals Lab runs FROM THE WORKTREE (maximal isolation — the main checkout is
+# never involved in running the lab, so a lab failure can't cost prod/main). So `./backend` and `./frontend`
+# here are the WORKTREE's OWN dirs, and `.env.sig` lives at the WORKTREE root. Two further sig-only changes
+# vs dev: (1) the backend image bakes the `.[replay]` extra (duckdb+pyarrow) the backtest harness needs
+# (build arg PIP_EXTRAS=replay -> backend/Dockerfile), and (2) the DB / ports / volumes carry the `sig`
+# identity. Cron is OFF (a frozen snapshot = a controlled comparison). Full model: docs/SIGNALS_LAB.md.
+
+services:
+  postgres:
+    # `!override` REPLACES the base ports (Compose otherwise CONCATENATES sequences — the merged list would
+    # carry prod's 5544 too and sig would try to bind it, colliding with a running prod). Same for backend +
+    # frontend below.
+    ports: !override
+      - "5546:5432" # sig host port (prod: 5544, dev: 5545) — all three can bind at once
+    environment:
+      POSTGRES_DB: alphadeck_sig # distinct DB name — belt-and-suspenders atop the volume isolation
+
+  backend:
+    # Bake the `.[replay]` extra (duckdb + pyarrow) into the sig image: the lean prod image omits it, but the
+    # replay/backtest harness (backend/replay/) needs it to run `python -m replay.run` IN-CONTAINER. The
+    # Dockerfile's PIP_EXTRAS build arg defaults to "" (prod/dev/cron stay lean + unchanged); here it is set
+    # to `replay`. The bind-mount below shadows the app CODE for --reload, but the image's site-packages are
+    # what carry duckdb/pyarrow — hence the image must be built with the extra even though /app is mounted.
+    # `context: ./backend` is the WORKTREE's own backend (sig runs from the worktree).
+    build:
+      context: ./backend
+      args:
+        PIP_EXTRAS: replay
+    ports: !override
+      - "8002:8000" # sig API + Swagger docs (prod: 8000, dev: 8001)
+    environment:
+      # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
+      # switches to alphadeck_sig. This is the container's DB URL — not a host dev-loop one.
+      DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck_sig
+    volumes:
+      # Dev-loop idiom: mount the WORKTREE's source over the image's /app so a branch edit is live (paired
+      # with --reload below). The editable install (PEP 660 finder in site-packages) resolves the top-level
+      # packages from /app, so this mount shadows the built copy WITHOUT breaking imports (and WITHOUT
+      # dropping the image's installed deps like duckdb/pyarrow). This ADDS to the base's mounts (appdata +
+      # the host binds); Compose concatenates volume lists, so no `!override` here.
+      - ./backend:/app
+    # Override the Dockerfile CMD for the edit loop: keep the (idempotent) migrate + seed, then serve with
+    # --reload. --reload runs a single process, so it stays compatible with the single-worker invariant. Same
+    # as dev.
+    command: ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+
+  frontend:
+    ports: !override
+      - "8082:80" # sig app (prod: 8080, dev: 8081)
+
+  cron:
+    # Cron is OFF in sig (R16). Assigning it to a profile the sig `up` never enables keeps the nightly
+    # call-of-record + live EDGAR/Yahoo pulls + DB snapshots OFF — a frozen prod snapshot is what makes the
+    # replay/backtest a CONTROLLED comparison (sig recomputes on the SAME facts as prod; the new detectors'
+    # facts are added by MANUAL backfill, not the cron). Same mechanism dev uses. `docker compose ... config`
+    # on the sig stack omits this service entirely (inactive profile).
+    profiles:
+      - donotstart

@@ -25,6 +25,58 @@ def _insider(security_id, *, accession, valid_from, usd, recorded_at):
     }
 
 
+def _fundamentals(security_id, *, period_end, valid_from, value, recorded_at, accn="f-1"):
+    return {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": security_id,
+        "metric_key": "revenue",
+        "period_end": period_end,
+        "fiscal_period": "Q4",
+        "fiscal_year": period_end.year,
+        "value": value,
+        "unit": "USD",
+        "basis": "native",
+        "accession": accn,
+        "source": "companyfacts",
+        "valid_from": valid_from,
+        "recorded_at": recorded_at,
+    }
+
+
+def test_mirror_has_no_valid_time_lookahead_fundamentals(db, security_id, tmp_path):
+    """§2.2 knowability in the replay path: a quarter FILED after the as-of is invisible to the mirror EVEN
+    THOUGH its period END precedes the as-of. Visibility keys on valid_from (= filed), not the period end —
+    the trap that makes an as-of backtest honest (#1)."""
+    t = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    # the quarter's period ends 2023-12-31 but it was FILED 2024-02-15 (a real ~46d filing lag)
+    append_fact(
+        db,
+        "fact_fundamentals",
+        _fundamentals(
+            security_id,
+            period_end=date(2023, 12, 31),
+            valid_from=date(2024, 2, 15),
+            value=500,
+            recorded_at=t,
+        ),
+    )
+    db.commit()
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    try:
+        known = datetime(2024, 6, 30, tzinfo=timezone.utc)
+        # as-of 2024-01-15: AFTER the period end, BEFORE the filing -> invisible (no valid-time lookahead)
+        blind = ReplayPointInTimeData(con, asof=date(2024, 1, 15), known_at=known)
+        assert blind.fundamentals_facts(security_id) == []
+        # as-of the filing date -> visible, and stamped at filed
+        seeing = ReplayPointInTimeData(con, asof=date(2024, 2, 15), known_at=known)
+        rows = seeing.fundamentals_facts(security_id)
+        assert len(rows) == 1 and rows[0]["period_end"] == date(2023, 12, 31)
+        assert rows[0]["valid_from"] == date(2024, 2, 15)
+    finally:
+        con.close()
+
+
 def test_mirror_has_no_valid_time_lookahead(db, security_id, tmp_path):
     """Axis 1 (event time): a fact whose ``valid_from`` is after the as-of is invisible to the mirror."""
     t = datetime(2026, 6, 3, tzinfo=timezone.utc)

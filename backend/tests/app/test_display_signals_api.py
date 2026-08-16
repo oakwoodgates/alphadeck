@@ -83,13 +83,16 @@ def test_display_signals_happy_path(client, db, security_id):
     m = body["members"][0]
     assert m["security_id"] == str(security_id)
     assert m["ticker"] == "DEVCO"  # resolved from the master, not echoed from the basket
-    # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed
+    # registry render order; insider_flow_90d is honestly ABSENT (no Form 4 ingested), not zeroed.
+    # vcp (§3.2) computes on the ascending fixture but is NOT coiling (no loud headline) — the quiet
+    # contraction metrics still ride the panel, so it appears in the emitted list.
     assert [s["kind"] for s in m["signals"]] == [
         "sma_position",
         "trailing_returns",
         "range_52w",
         "volume_regime",
         "rvol",
+        "vcp",
     ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
@@ -133,6 +136,82 @@ def test_display_signals_happy_path(client, db, security_id):
         rv["basis"]["params"]["loud_mult_20"] == 1.5
         and rv["basis"]["params"]["baseline_bars_20"] == 20
     )
+
+
+def test_theme_breadth_rides_the_response(client, db, security_id):
+    """§1.1 — the THESIS-LEVEL breadth thrust rides the SAME response as a top-level ``breadth`` field
+    (DISPLAY-only). Two ascending members (each 80 bars) sit above their 50d SMA at both points, so
+    breadth is 100% with a flat delta -> the quiet (non-thrust) state, computed over the 2 counted
+    members. Proves the field is wired end-to-end; the thrust thresholds are unit-tested in
+    tests/signals/display/test_theme_breadth.py."""
+    other = _master_row(db, "COMVR")
+    _seed_bars(db, security_id, 80)
+    _seed_bars(db, other, 80)
+    tid = _seed_thesis(db, [_member(security_id), _member(other, ticker="COMVR")])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    breadth = body["breadth"]
+    assert breadth is not None and breadth["kind"] == "theme_breadth"
+    by_key = {mt["key"]: mt for mt in breadth["metrics"]}
+    assert by_key["breadth"]["value"] == 100.0  # both members above their 50d SMA
+    assert by_key["breadth_delta"]["value"] == 0.0
+    assert by_key["members_counted"]["value"] == 2.0
+    assert breadth["headline"]["key"] == "quiet"  # majority holds but no +25pt surge -> not loud
+
+
+def test_theme_breadth_is_none_for_a_basketless_thesis(client, db):
+    """No resolved members -> no breadth reading (None), never a fabricated 0%."""
+    tid = _seed_thesis(db, [])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    assert body["breadth"] is None
+    assert body["sector_rs"] is None  # §1.3 — no members, no rollup
+
+
+def _seed_flat(db, security_id, n: int, close: float = 50.0, end: date = _ASOF) -> None:
+    """n consecutive-day bars ending at ``end`` at a CONSTANT close — a flat benchmark, so a rising
+    member's RS climbs to a fresh high (the ``_seed_bars`` member vs this benchmark = leading)."""
+    start = end - timedelta(days=n - 1)
+    for i in range(n):
+        _price(db, security_id, start + timedelta(days=i), close, volume=1000.0)
+    db.commit()
+
+
+def test_relative_strength_and_sector_rs_ride_the_response(client, db, security_id):
+    """§2.1 the per-name RS column + §1.3 the supersector rollup, end-to-end on the SAME generic wire
+    (zero call-path touch). A rising member vs a flat SPY/IWM prints a fresh 13-week RS high -> the
+    per-name column is ``leading`` and the (unclassified) supersector rollup reports one leader."""
+    from securities.benchmarks import seed_benchmarks
+
+    ids = seed_benchmarks(db)
+    _seed_bars(db, security_id, 65)  # member: rising closes
+    _seed_flat(db, ids["SPY"], 65)  # benchmarks: flat -> RS rises to a fresh high
+    _seed_flat(db, ids["IWM"], 65)
+    tid = _seed_thesis(db, [_member(security_id)])
+
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+
+    m = body["members"][0]
+    rs = next(s for s in m["signals"] if s["kind"] == "relative_strength")
+    assert rs["headline"]["key"] == "leading"
+    by = {mt["key"]: mt for mt in rs["metrics"]}
+    assert by["rs_spy"]["value"] is not None and by["rs_iwm"]["value"] is not None
+    assert {e["key"] for e in rs["events"]} == {"rs_high_spy", "rs_high_iwm"}
+    # §1.3 — the rollup rides a top-level field; DEVCO has no enriched sector -> the unclassified group
+    sr = body["sector_rs"]
+    assert sr is not None and sr["kind"] == "sector_rs"
+    sr_by = {mt["key"]: mt for mt in sr["metrics"]}
+    assert sr_by["rs_lead_unclassified"]["value"] == 1.0
+    assert sr["headline"]["key"] == "leading"
+
+
+def test_relative_strength_absent_without_a_benchmark(client, db, security_id):
+    """No benchmark tape ingested -> the RS column is honestly ABSENT (like etf_flow with no samples),
+    never a fabricated ratio, and the sector rollup is None."""
+    _seed_bars(db, security_id, 220)
+    tid = _seed_thesis(db, [_member(security_id)])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    m = body["members"][0]
+    assert all(s["kind"] != "relative_strength" for s in m["signals"])
+    assert body["sector_rs"] is None
 
 
 def test_member_with_no_bars_shows_with_empty_signals(client, db, security_id):

@@ -51,6 +51,11 @@ class Kind(StrEnum):
     ETF_LAUNCH = "etf_launch"
     ETF_FLOW = "etf_flow"
     DILUTION_RISK = "dilution_risk"
+    # A structural price BREAKDOWN (M4a, CALL_LOGIC §2): a RISK signal that DE-ARMS an armed entry — a
+    # close below the long base (200d SMA) de-arms a CORE hold; a close back below the 8-day breakout
+    # base de-arms a FLIP entry. Which grade it de-arms rides the ``SignalEvent.dearm_grade`` property
+    # (NOT the kind), so the assembler's veto is grade-aware without a per-kind branch (the through-line).
+    BREAKDOWN = "breakdown"
 
 
 class CatalystType(StrEnum):

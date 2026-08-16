@@ -33,6 +33,13 @@ def assemble_call(
     """
     fired_entry = [e for e in events if e.role == Role.ENTRY_TRIGGER and e.fired]
     active_risk = [e for e in events if e.role == Role.RISK_SIGNAL and e.fired]
+    # Two risk MECHANISMS, split on a PROPERTY (``dearm_grade``) — never a per-kind branch (the
+    # through-line): a GRADE-BLIND block (dilution etc.) withholds the NAME on timing at any grade; a
+    # GRADE-AWARE de-arm (a breakdown, R12) de-arms an armed entry ONLY when its ``dearm_grade`` matches
+    # the member's ENTRY grade. Dilution carries no ``dearm_grade``, so its withhold / confidence-haircut
+    # behavior is exactly as before — grade-awareness is specific to the breakdown de-arm.
+    block_risks = [r for r in active_risk if r.dearm_grade is None]
+    dearm_risks = [r for r in active_risk if r.dearm_grade is not None]
 
     # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha-liveness window.
     # ``e.asof`` is the trigger's FIRE date (the event date), so an Armed call stays sticky across a
@@ -48,12 +55,25 @@ def assemble_call(
     conviction_on = bool(conv_secs)
     confirmation_on = bool(conf_secs)
 
-    # Per-member risk scoping (M5 Part A): a severe risk withholds only the NAME it's on, never the theme.
-    blocked_secs = {r.security_id for r in active_risk if r.score >= cfg.risk_block_severity}
+    # Per-member risk scoping (M5 Part A): a severe (grade-blind) risk withholds only the NAME it's on,
+    # never the theme. Reads block_risks only — a breakdown never lands here (it takes the grade-aware path).
+    blocked_secs = {r.security_id for r in block_risks if r.score >= cfg.risk_block_severity}
     # The ACTIONABLE armed members = co-located AND not risk-blocked (conviction alone can arm when the
     # config doesn't require confirmation). Ranked for the menu + the headline; the headline is the top.
     arming_pool = armed_secs if cfg.arming_requires_confirmation else (armed_secs or conv_secs)
-    ranked_actionable = rank_members(arming_pool - blocked_secs, live_entry, asof, cfg)
+    # Grade-aware structural de-arm (R12), POST-DATING the arm: drop a member whose ENTRY grade a severe
+    # breakdown targets AND whose break fired strictly AFTER the arm formed (a give-back after the entry,
+    # never a break already true at the arming bar — the UNH bounce-inside-a-downtrend case). A core
+    # structural break de-arms a core hold (even inside arm_until); a flip fast breakdown de-arms a flip
+    # entry; neither crosses grades.
+    dearmed_secs = {
+        r.security_id
+        for r in dearm_risks
+        if r.security_id in arming_pool and _is_dearming(r, live_entry, cfg)
+    }
+    ranked_actionable = rank_members(
+        arming_pool - blocked_secs - dearmed_secs, live_entry, asof, cfg
+    )
     # The security we grade for the thesis-level headline — and that the Board/Decision Queue show.
     armed_sec = ranked_actionable[0] if ranked_actionable else None
 
@@ -86,14 +106,26 @@ def assemble_call(
     )
 
     # Risk-veto (§2), per-member: the thesis arms iff some member is actionable; it's WITHHELD on risk when
-    # co-located members exist but every one is risk-blocked (the veto holds timing, never the thesis).
+    # co-located members exist but every one is risk-blocked or de-armed (the veto holds timing, never the
+    # thesis). A grade-blind block counts on any arming-pool member; a grade-aware breakdown counts only
+    # where it actually de-armed (a grade match) — a flip-breakdown on a core hold is NOT a blocker. Built
+    # over active_risk (a list) so the surfaced order is deterministic.
     blocking_risks = [
         r
         for r in active_risk
-        if r.score >= cfg.risk_block_severity and r.security_id in arming_pool
+        if r.security_id in arming_pool
+        and (
+            (
+                r.dearm_grade is None and r.score >= cfg.risk_block_severity
+            )  # grade-blind block (dilution)
+            or _is_dearming(r, live_entry, cfg)  # grade-aware, post-dating breakdown (R12)
+        )
     ]
     can_arm = bool(ranked_actionable)
     risk_blocked = bool(arming_pool) and not can_arm and bool(blocking_risks)
+    # Did a structural breakdown cause the withhold? Drives the de-arm-specific expression (a
+    # signal-validity event, never a sell — #4/#5), distinct from a pre-arm risk block.
+    dearmed = risk_blocked and any(r.dearm_grade is not None for r in blocking_risks)
 
     state = _state(thesis, live_entry, asof, can_arm, risk_blocked, cfg)
 
@@ -201,6 +233,7 @@ def assemble_call(
             conviction_grade,
             entry_grade,
             risk_blocked,
+            dearmed,
             momentum_only,
             conviction_on,
             confirmation_on,
@@ -269,6 +302,38 @@ def _confirmation_grade(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfi
     return call_grade(_member_events(sec, live_entry, cfg.confirmation_kinds))
 
 
+def _entry_grade(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig) -> Grade | None:
+    """The member's ENTRY grade — the weaker of its co-located conviction / confirmation keys (§4). The
+    grade a structural breakdown must MATCH (``dearm_grade ==``) to de-arm the member (R12)."""
+    return weaker_grade(
+        call_grade(_member_events(sec, live_entry, cfg.conviction_kinds)),
+        call_grade(_member_events(sec, live_entry, cfg.confirmation_kinds)),
+    )
+
+
+def _arm_date(sec: UUID, live_entry: list[SignalEvent]) -> date | None:
+    """The member's ARM date — the latest fire date among its live entry triggers (when the entry setup
+    last formed). A structural breakdown de-arms only when it fires strictly AFTER this. None when the
+    member has no live entry trigger."""
+    dates = [e.asof for e in live_entry if e.security_id == sec]
+    return max(dates) if dates else None
+
+
+def _is_dearming(r: SignalEvent, live_entry: list[SignalEvent], cfg: CallConfig) -> bool:
+    """Does this breakdown risk actually DE-ARM its member (R12 + the post-date rule)? Three gates:
+    (1) severe (score >= the veto threshold) and carries a ``dearm_grade``; (2) that grade MATCHES the
+    member's ENTRY grade — so a flip-breakdown never de-arms a core hold and vice-versa; (3) it fired
+    strictly AFTER the member's arm formed (``r.asof > _arm_date``) — a give-back AFTER the entry, never a
+    break already true at (or before) the arming bar (the UNH bounce-inside-a-downtrend case). Price logic
+    lives in the detector (CALL_LOGIC §2); this is the grade match + the timing gate only."""
+    if r.dearm_grade is None or r.score < cfg.risk_block_severity:
+        return False
+    if r.dearm_grade != _entry_grade(r.security_id, live_entry, cfg):
+        return False
+    arm_date = _arm_date(r.security_id, live_entry)
+    return arm_date is not None and r.asof > arm_date
+
+
 def rank_members(
     secs: set[UUID], live_entry: list[SignalEvent], asof: date, cfg: CallConfig
 ) -> list[UUID]:
@@ -327,7 +392,14 @@ def _member_call(
         e.kind in cfg.own_conviction_kinds for e in conv
     )
     member_risk = [r for r in active_risk if r.security_id == sec]
-    blocked = any(r.score >= cfg.risk_block_severity for r in member_risk)
+    # Grade-aware, consistent with the thesis-level veto (same _is_dearming predicate): a grade-blind risk
+    # (dilution — no dearm_grade) blocks on severity; a grade-aware breakdown blocks only when it targets
+    # THIS member's entry grade AND post-dates the arm. Dilution's behavior is unchanged.
+    blocked = any(
+        (r.dearm_grade is None and r.score >= cfg.risk_block_severity)
+        or _is_dearming(r, live_entry, cfg)
+        for r in member_risk
+    )
     armed = bool(conv) and bool(conf) and not blocked
 
     exit_by = _clock(conv)
@@ -450,6 +522,7 @@ def _expression(
     conviction_grade: Grade | None,
     entry_grade: Grade | None,
     risk_blocked: bool,
+    dearmed: bool,
     momentum_only: bool,
     conviction_on: bool,
     confirmation_on: bool,
@@ -473,6 +546,15 @@ def _expression(
             )
         return "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
     if risk_blocked:
+        if dearmed:
+            # a structural breakdown de-armed the hold. ADVISORY, a signal-validity event — NEVER a sell
+            # instruction (#4/#5): the platform withdraws its go-signal; the trade decision stays the
+            # operator's. Does not deepen the size/instrument prose above.
+            return (
+                "De-armed on a structural break — the base broke, so the entry signal is no longer "
+                "valid (a signal-validity event, not a sell). Re-arms only on a fresh confirmation that "
+                "reclaims the base (see the counter-case)."
+            )
         # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
         return (
             "Entry withheld on risk/timing — the keys are in, but a severe risk signal must clear "
