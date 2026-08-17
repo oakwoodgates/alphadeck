@@ -34,6 +34,9 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "metric_key",
         "period_end",
     ],  # one financial fact per (security, metric, fiscal period) — a restatement is a new version (§2.2)
+    "fact_corporate_event": [
+        "accession"
+    ],  # one 8-K filing per accession (within the security scope) — items resolving is a new version
 }
 
 

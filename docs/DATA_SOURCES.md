@@ -197,6 +197,25 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
 
+## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3, INERT]`
+
+`fact_corporate_event` stores **every basket member's 8-Ks with their SEC item codes** — parsed from
+the SAME submissions JSON the Form 4 leg already fetches (the `items` array parallels
+`accessionNumber`), so the whole tape costs **zero extra EDGAR fetches** and rides the nightly cron
+as a fourth `ingest_thesis` leg. The item-code taxonomy is the SEC's own deterministic
+classification (#3 — no NLP, no LLM near the fire path); the detector cut (1.01/5.02 triggers,
+3.01/4.01/4.02/1.03 risks) lives in `CallConfig.corporate_event_items` and is applied on READ, so
+items outside the cut stay stored (#9) and a policy retune needs no re-ingest.
+
+- **Knowability:** `valid_from = filed` — the acceptance date IS when an 8-K became knowable (the
+  cleanest bitemporal source on the menu; no-lookahead is free).
+- **`items` may be NULL** — EDGAR hadn't classified the filing yet; stored as NULL (never guessed)
+  and re-versioned append-only when it resolves on a later run.
+- **Depth:** submissions `recent` (≥ 1 year / 1,000 filings), the same accepted depth as Form 4;
+  the deferred cadence-baseline slice may need the paginated older pages.
+- **Both detectors ship INERT** (master switches default OFF) pending the sig-lab pass. Full
+  family doc: `docs/CORPORATE_EVENTS.md`.
+
 ## Point-in-time discipline (applies to every source)
 
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into

@@ -4737,7 +4737,8 @@
           "etf_flow",
           "dilution_risk",
           "breakdown",
-          "insider_sell"
+          "insider_sell",
+          "corporate_risk"
         ],
         "title": "Kind",
         "description": "What produced the signal (extensible)."

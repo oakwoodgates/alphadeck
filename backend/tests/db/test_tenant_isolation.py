@@ -434,6 +434,40 @@ def test_scoring_facts_read_isolation(db):
     _assert_isolated("cash_burn_facts", "DEMO-CB", "PROD-CB")
 
 
+def test_corporate_event_read_isolation(db):
+    """The 8-K item-code tape (Band 03 S3) is a new read surface — it stays tenant-isolated like
+    every fact read: a demo event and a prod event on same-CIK securities are each visible ONLY
+    under their own tenant, and the cross-reads return []. Grows the poison-row proof
+    (discipline-not-RLS holds only if each new accessor stays on the tenant filter)."""
+    provision_tenant(db, "prod-8k", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID)
+    prod_sec = _security(db, PROD_TENANT_ID)
+
+    def _event(tenant_id, security_id, accession):
+        return {
+            "tenant_id": tenant_id,
+            "security_id": security_id,
+            "form": "8-K",
+            "items": ["4.02"],
+            "accession": accession,
+            "filed": date(2026, 5, 1),
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": date(2026, 5, 1),
+        }
+
+    append_fact(db, "fact_corporate_event", _event(DEFAULT_TENANT_ID, demo_sec, "DEMO-8K-1"))
+    append_fact(db, "fact_corporate_event", _event(PROD_TENANT_ID, prod_sec, "PROD-8K-1"))
+
+    asof = date(2026, 6, 1)
+    demo_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID)
+    prod_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID)
+    assert [r["accession"] for r in demo_pit.corporate_event_facts(demo_sec)] == ["DEMO-8K-1"]
+    assert [r["accession"] for r in prod_pit.corporate_event_facts(prod_sec)] == ["PROD-8K-1"]
+    # cross-reads: querying the OTHER tenant's security under your own tenant sees nothing.
+    assert demo_pit.corporate_event_facts(prod_sec) == []
+    assert prod_pit.corporate_event_facts(demo_sec) == []
+
+
 def test_master_population_is_tenant_isolated(db):
     """The broadener (``populate_universe``) is a new WRITE surface — it stays tenant-scoped. Populating the
     same SEC rows under two tenants writes each its OWN row (distinct ids), and a populate under one tenant

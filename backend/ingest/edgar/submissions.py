@@ -133,6 +133,46 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     return filings_of(submissions, "4")
 
 
+def parse_item_codes(raw: str | None) -> list[str] | None:
+    """Parse EDGAR's comma-joined 8-K ``items`` string ("1.01,9.01") into item codes, or ``None``.
+
+    ``None`` = UNKNOWN — the submissions JSON has not resolved the filing's items yet (or the entry
+    is blank); an empty string parses to ``None`` too, never ``[]``, so "unresolved" and "no items"
+    can't silently conflate. The ONE items parser — the SPAC radar (``radar/spac.py::_items_for``)
+    and the 8-K corporate-event ingest (``ingest/edgar/form8k.py``) both call this.
+    """
+    return [s.strip() for s in (raw or "").split(",") if s.strip()] or None
+
+
+def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
+    """List a company's 8-K filings (8-K + 8-K/A, newest first) from a submissions JSON, WITH their
+    item codes: ``{accession, form, filed, items}`` (``items``: ``list[str] | None`` — None = the
+    parallel ``items`` entry is absent/blank, i.e. not yet resolved).
+
+    The submissions ``recent`` arrays are parallel + reverse-chrono; the ``items`` array parallels
+    ``accessionNumber``, so ONE walk captures the whole tape — no per-filing document fetch. Same
+    accepted depth as ``form4_filings``: ``recent`` covers >= 1 year / 1,000 filings (the deferred
+    cadence-baseline slice may need the paginated older pages; this slice does not). Tolerates a
+    submissions doc with no ``items`` array (every row reads unresolved), so an old/sparse doc
+    degrades honestly rather than raising.
+    """
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accns = recent.get("accessionNumber", [])
+    dates = recent.get("filingDate", [])
+    items = recent.get("items", [])
+    return [
+        {
+            "accession": accns[i],
+            "form": f,
+            "filed": dates[i],
+            "items": parse_item_codes(items[i] if i < len(items) else None),
+        }
+        for i, f in enumerate(forms)
+        if f in ("8-K", "8-K/A")
+    ]
+
+
 def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:
     """The EDGAR Archives URL for a filing's RAW ownership XML.
 

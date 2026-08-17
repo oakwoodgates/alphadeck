@@ -110,6 +110,70 @@ def test_mirror_has_no_valid_time_lookahead(db, security_id, tmp_path):
         con.close()
 
 
+def _corporate_event(security_id, *, accession, filed, items, recorded_at):
+    return {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": security_id,
+        "form": "8-K",
+        "items": items,
+        "accession": accession,
+        "filed": filed,
+        "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+        "valid_from": filed,
+        "recorded_at": recorded_at,
+    }
+
+
+def test_mirror_has_no_valid_time_lookahead_corporate_events(db, security_id, tmp_path):
+    """Band 03 S3 knowability in the replay path: an 8-K is visible from its FILED date (valid_from
+    = filed, the acceptance date IS the knowability) — a filing filed after the as-of is invisible,
+    and the items list survives the text[] -> JSON-string -> list mirror round-trip intact (the
+    resolve VERSION winning the dedup, the unresolved NULL staying None)."""
+    t = datetime(2026, 6, 3, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_corporate_event",
+        _corporate_event(
+            security_id, accession="e-1", filed=date(2026, 6, 1), items=None, recorded_at=t
+        ),
+    )
+    append_fact(  # the resolve — a later version of e-1 with its items known
+        db,
+        "fact_corporate_event",
+        _corporate_event(
+            security_id,
+            accession="e-1",
+            filed=date(2026, 6, 1),
+            items=["4.02", "9.01"],
+            recorded_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+        ),
+    )
+    append_fact(
+        db,
+        "fact_corporate_event",
+        _corporate_event(
+            security_id, accession="e-2", filed=date(2026, 6, 5), items=["1.01"], recorded_at=t
+        ),
+    )
+    db.commit()
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    try:
+        known = datetime(2026, 6, 30, tzinfo=timezone.utc)
+        rows = ReplayPointInTimeData(
+            con, asof=date(2026, 6, 2), known_at=known
+        ).corporate_event_facts(security_id)
+        assert [r["accession"] for r in rows] == ["e-1"]  # e-2 (filed 06-05) is future as-of 06-02
+        assert rows[0]["items"] == ["4.02", "9.01"]  # the resolved VERSION, decoded back to a list
+        # pinned BEFORE the resolve was recorded: the same filing honestly reads unresolved (None)
+        early = ReplayPointInTimeData(con, asof=date(2026, 6, 2), known_at=t).corporate_event_facts(
+            security_id
+        )
+        assert len(early) == 1 and early[0]["items"] is None
+    finally:
+        con.close()
+
+
 def test_mirror_has_no_transaction_time_lookahead(db, security_id, tmp_path):
     """Axis 2 (transaction time): a correction recorded after ``known_at`` cannot leak into an earlier
     pinned read — the determinism PIN actually masks late knowledge in the mirror."""
