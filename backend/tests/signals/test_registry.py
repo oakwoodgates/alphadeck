@@ -11,6 +11,8 @@ from signals import (
     breakdown,
     breakout_52w,
     catalyst_conviction,
+    corporate_catalyst,
+    corporate_risk,
     dilution_clock,
     insider_conviction,
     insider_sell,
@@ -35,7 +37,9 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         "breakout_52w",  # §2.3 — appended after revenue_acceleration
         "breakdown_core",  # §2.5 — the two grade-aware structural de-arm RISK detectors
         "breakdown_flip",  # §3.3 — (existing detectors keep their order)
-        "insider_sell",  # Band 03 S1 — the sell-cluster RISK detector, appended LAST (master switch OFF)
+        "insider_sell",  # Band 03 S1 — the sell-cluster RISK detector (master switch OFF)
+        "corporate_catalyst",  # Band 03 S3 — the 8-K item-tape pair, appended LAST (switches OFF)
+        "corporate_risk",
     ]
     assert [detector.detect for detector in detectors] == [
         insider_conviction.detect,
@@ -47,6 +51,8 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         breakdown.detect_core,
         breakdown.detect_flip,
         insider_sell.detect,
+        corporate_catalyst.detect,
+        corporate_risk.detect,
     ]
 
 

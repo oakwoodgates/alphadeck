@@ -34,6 +34,15 @@
 | `insider_sell_require_senior` | True | ≥1 senior officer/director required in the cluster | reuses `insider_senior_role_keywords` (one definition of senior) |
 | `insider_sell_liveness_days` | 90 | freshness window on the cluster anchor (detector-enforced — the assembler never ages risks) | sales' horizon is weaker/shorter than buys' 180d; ~one quarter |
 | `insider_sell_max_score` | 0.60 | THE CEILING — strictly `< risk_block_severity` (0.70), so a sell cluster can never withhold an arm in v1 | operator-RATIFIED 2026-08-16; lifting it is a visible diff, made only with the lab's 0.70-crossing count measured first |
+| **8-K item-code tape (Band 03 S3 — every default a `[PROPOSED]` prior; the sig-lab pass finalizes them BEFORE either switch flips; full doc `docs/CORPORATE_EVENTS.md`):** | | | |
+| `corporate_catalyst_enabled` | False | the trigger-side master switch — detect() no-ops until ON | its OWN switch (it extends the LIVE catalyst family); replay's `--corporate-catalyst` forces it on for the lab |
+| `corporate_risk_enabled` | False | the risk-side master switch | replay's `--corporate-risk`; two switches so the lab measures the sides independently |
+| `corporate_event_items["1.01"]` | core / contract / 0.9 / 365d | material definitive agreement → Key-1 CORE catalyst | score = `_CORE_SCORE` parity; 365d = the catalyst default horizon (no agreement term on an item code) |
+| `corporate_event_items["5.02"]` | flip / personnel / 0.5 / 90d | officer-director change → FLIP catalyst | direction is ambiguous (a departure and a marquee hire file identically) — the evidence link does the work |
+| `corporate_event_items["3.01"]` | risk / 0.50 / 180d | listing-deficiency notice — moderate, sub-veto | 180d ≈ a real exchange cure period |
+| `corporate_event_items["4.01"]` | risk / 0.50 / 180d | auditor change — moderate, sub-veto | a governance flag with a long tail |
+| `corporate_event_items["4.02"]` | risk / 0.80 / 365d | non-reliance/restatement — SEVERE (≥ 0.70: withholds the NAME on timing) | = `breakdown_severity` parity; trust stays broken ~an annual cycle |
+| `corporate_event_items["1.03"]` | risk / 0.90 / 365d | bankruptcy — SEVERE | the tape's loudest deterministic red flag (below dilution's 0.95 ceiling) |
 | **Catalyst conviction (horizon-decoupled, option A):** | | | |
 | `catalyst_default_horizon_days` | 365 | liveness when no term is published | real term (period of performance) preferred |
 | `doe_core_min_obligation_usd` | 10,000,000 | the DOE **contract** core floor | below it a contract is flip; assistance is flip regardless of size |

@@ -105,25 +105,45 @@ def main() -> None:
             "flips it). Also enabled by ALPHADECK_INSIDER_SELL=1."
         ),
     )
+    p.add_argument(
+        "--corporate-catalyst",
+        action="store_true",
+        help=(
+            "enable the Band 03 S3 8-K item-code CATALYST trigger (default OFF — its master switch "
+            "corporate_catalyst_enabled is off until the sig-lab distribution is measured and the "
+            "operator flips it). Also enabled by ALPHADECK_CORPORATE_CATALYST=1."
+        ),
+    )
+    p.add_argument(
+        "--corporate-risk",
+        action="store_true",
+        help=(
+            "enable the Band 03 S3 8-K item-code corporate RISK detector (default OFF — its master "
+            "switch corporate_risk_enabled is off until the sig-lab distribution is measured and the "
+            "operator flips it). Also enabled by ALPHADECK_CORPORATE_RISK=1. Two flags (not one) so "
+            "the lab can measure the trigger and risk sides independently."
+        ),
+    )
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
         pin = pin.replace(tzinfo=timezone.utc)
-    # The de-arm — and the insider-sell master switch — are opted-in at THIS lab entry point (never on the
-    # live DEFAULT_CONFIG — call-engine dials, the settings.py boundary): the flag OR the env var flips each
-    # on, default OFF. model_copy so the change rides one explicit cfg into the whole replay, and prod/other
-    # callers are untouched.
-    dearm_on = args.breakdown_dearm or os.environ.get(
-        "ALPHADECK_BREAKDOWN_DEARM", ""
-    ).strip().lower() in ("1", "true", "yes", "on")
-    sell_on = args.insider_sell or os.environ.get("ALPHADECK_INSIDER_SELL", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+
+    def _env_on(name: str) -> bool:
+        return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+    # The de-arm — and the master switches (insider-sell + the S3 corporate pair) — are opted-in at THIS
+    # lab entry point (never on the live DEFAULT_CONFIG — call-engine dials, the settings.py boundary):
+    # the flag OR the env var flips each on, default OFF. model_copy so the change rides one explicit cfg
+    # into the whole replay, and prod/other callers are untouched.
     cfg = DEFAULT_CONFIG.model_copy(
-        update={"breakdown_dearm_enabled": dearm_on, "insider_sell_enabled": sell_on}
+        update={
+            "breakdown_dearm_enabled": args.breakdown_dearm or _env_on("ALPHADECK_BREAKDOWN_DEARM"),
+            "insider_sell_enabled": args.insider_sell or _env_on("ALPHADECK_INSIDER_SELL"),
+            "corporate_catalyst_enabled": args.corporate_catalyst
+            or _env_on("ALPHADECK_CORPORATE_CATALYST"),
+            "corporate_risk_enabled": args.corporate_risk or _env_on("ALPHADECK_CORPORATE_RISK"),
+        }
     )
     conn = connect()
     try:

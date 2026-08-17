@@ -1,7 +1,39 @@
 from __future__ import annotations
 
+from pydantic import model_validator
+
 from domain.base import DomainModel
-from domain.enums import Kind
+from domain.enums import CatalystType, Grade, Kind, Role
+
+
+class CorporateEventItemPolicy(DomainModel):
+    """One 8-K item code's CALL-POLICY row (Band 03 S3) — the evidence/policy seam's policy half.
+
+    The ``fact_corporate_event`` tape stores objective facts (form / items / filed / accession);
+    THIS map is where an item code becomes a signal: role (trigger vs risk), grade + catalyst type
+    (trigger side), score, and the per-item liveness window. Applied on READ by the two corporate
+    detectors — never baked into stored rows, so retuning a value re-derives every call with zero
+    data repair. ``kind`` is DERIVED from role (trigger ⇒ ``CATALYST``, risk ⇒ ``CORPORATE_RISK``)
+    and "severe" is DERIVED from ``score >= risk_block_severity`` — neither is a stored field, so a
+    flag can never contradict the score (one truth; the dilution/breakdown convention).
+    """
+
+    role: Role
+    grade: Grade | None = None  # trigger side only (a risk is ungraded — SignalEvent's contract)
+    catalyst_type: CatalystType | None = None  # trigger side only
+    score: float
+    liveness_days: int  # the item's edge-persistence window, anchored on the filing date
+
+    @model_validator(mode="after")
+    def _policy_contract(self) -> "CorporateEventItemPolicy":
+        # Mirror the SignalEvent taxonomy contract at CONFIG time, so a bad policy edit fails loud
+        # at import rather than at the first fire: a trigger item must carry the grade + type its
+        # fired event needs; a risk item must not carry a grade.
+        if self.role is Role.ENTRY_TRIGGER and (self.grade is None or self.catalyst_type is None):
+            raise ValueError("an entry_trigger item policy must carry grade and catalyst_type")
+        if self.role is Role.RISK_SIGNAL and self.grade is not None:
+            raise ValueError("a risk_signal item policy must not carry a grade")
+        return self
 
 
 class CallConfig(DomainModel):
@@ -328,6 +360,70 @@ class CallConfig(DomainModel):
     insider_sell_max_score: float = 0.60
     # (reused, not new dials: insider_offmarket_below_low_frac + insider_max_plausible_txn_usd are
     # data-sanity/price truths and insider_senior_role_keywords is an identity truth — one place.)
+
+    # --- corporate events (Band 03 S3): the 8-K item-code tape's POLICY MAP + two master switches ---
+    # The SEC's own item-code taxonomy IS the classification (#3 — no NLP, no LLM on the fire path);
+    # this map is where each code becomes a signal. Config-in-code, applied on READ (the
+    # evidence/policy seam): the fact_corporate_event tape stores EVERY 8-K + items (#9), the two
+    # detectors (signals/corporate_catalyst.py + signals/corporate_risk.py) filter to this cut, so
+    # adding/retuning an item is a config edit that re-derives every call — zero re-ingest, zero
+    # data repair. Every value below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a
+    # measurement: the sig-lab distribution pass finalizes them before either switch flips. See
+    # docs/CORPORATE_EVENTS.md + docs/RECALIBRATION.md for the dial rows.
+    #
+    # MASTER SWITCHES — both default OFF (the insider_sell precedent), ONE PER SIDE because the
+    # blast radii differ: the trigger side extends the LIVE catalyst family (it can warm/arm), the
+    # risk side can withhold an arm on timing. Each detector is registered but detect() no-ops until
+    # its switch is on, so nothing reaches live cards unmeasured and every existing golden is
+    # byte-for-byte unchanged; the pure score() functions stay testable ungated. replay.run's
+    # --corporate-catalyst / --corporate-risk (ALPHADECK_CORPORATE_CATALYST / _RISK) force each on
+    # for the sig-lab backtest. The operator flips these only after seeing the lab table.
+    corporate_catalyst_enabled: bool = False
+    corporate_risk_enabled: bool = False
+    # The v1 item cut (operator-confirmed 2026-08-17; the gold-doc §10-3a proposal):
+    # TRIGGERS (kind=CATALYST — Key-1 conviction, co-location arming + own-conviction ranking ride
+    # the existing conviction_kinds membership):
+    #   1.01 material definitive agreement -> type=contract, CORE [PROPOSED] (a material contract is
+    #        the narrative landing in the business — the "core = capital-committed-or-structural"
+    #        line), score 0.9 (= catalyst_conviction's _CORE_SCORE parity), liveness 365d (= the
+    #        catalyst default horizon: the item code carries no agreement term, so the family
+    #        fallback applies).
+    #   5.02 officer/director change -> type=personnel, FLIP [PROPOSED] (direction is ambiguous — a
+    #        departure and a marquee hire file identically; the evidence link does the work), score
+    #        0.5 (= _FLIP_SCORE parity), liveness 90d (personnel attention decays fast).
+    # RISKS (kind=CORPORATE_RISK — grade-blind, no dearm_grade; freshness DETECTOR-enforced since
+    # the assembler never ages risks):
+    #   3.01 listing-deficiency notice -> 0.50 moderate (counter-case + confidence haircut,
+    #        sub-veto), liveness 180d (~ a real exchange cure period).
+    #   4.01 auditor change -> 0.50 moderate, liveness 180d (a governance flag with a long tail).
+    #   4.02 non-reliance / restatement -> 0.80 SEVERE (>= risk_block_severity 0.70 — withholds the
+    #        NAME on timing; = breakdown_severity parity: a "don't trust the financials" event is at
+    #        least as severe as a structural base break), liveness 365d (trust stays broken until
+    #        restated financials land — roughly an annual cycle).
+    #   1.03 bankruptcy -> 0.90 SEVERE (the tape's loudest deterministic red flag; below dilution's
+    #        0.95 emission ceiling), liveness 365d.
+    # Items OUTSIDE this cut (2.02/7.01/8.01 cadence, 3.03/5.03 reverse-split, ...) are STORED on
+    # the tape but fire nothing — their deferred detectors are config additions here, no re-ingest.
+    corporate_event_items: dict[str, CorporateEventItemPolicy] = {
+        "1.01": CorporateEventItemPolicy(
+            role=Role.ENTRY_TRIGGER,
+            grade=Grade.CORE,
+            catalyst_type=CatalystType.CONTRACT,
+            score=0.9,
+            liveness_days=365,
+        ),
+        "5.02": CorporateEventItemPolicy(
+            role=Role.ENTRY_TRIGGER,
+            grade=Grade.FLIP,
+            catalyst_type=CatalystType.PERSONNEL,
+            score=0.5,
+            liveness_days=90,
+        ),
+        "3.01": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.50, liveness_days=180),
+        "4.01": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.50, liveness_days=180),
+        "4.02": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.80, liveness_days=365),
+        "1.03": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.90, liveness_days=365),
+    }
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

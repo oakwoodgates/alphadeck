@@ -63,6 +63,15 @@ class Kind(StrEnum):
     # per-risk-family precedent (DILUTION_RISK, BREAKDOWN; no kind is shared across roles) — so future
     # kind-filtering code can never confuse sell-risk with ``INSIDER`` (which ∈ ``conviction_kinds``).
     INSIDER_SELL = "insider_sell"
+    # An 8-K item-code corporate RISK event (Band 03 S3): delisting-deficiency (3.01), auditor change
+    # (4.01), non-reliance/restatement (4.02), bankruptcy (1.03) — the SEC's own deterministic
+    # taxonomy fires (#3), per the item→policy map in ``CallConfig.corporate_event_items``. Grade-blind
+    # like DILUTION_RISK (``grade=None``, no ``dearm_grade`` — not a de-arm): a severe item's score
+    # clears ``risk_block_severity`` and withholds the NAME on timing through the assembler's existing
+    # role+score composition (zero kind branches); a moderate one feeds counter-case + the confidence
+    # haircut. Per-risk-family kind, never shared with the trigger side (8-K catalyst items emit
+    # ``CATALYST``). Master switch ``corporate_risk_enabled``, default OFF.
+    CORPORATE_RISK = "corporate_risk"
 
 
 class CatalystType(StrEnum):
