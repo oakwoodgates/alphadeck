@@ -15,6 +15,14 @@ demo-rebuild lesson). The shared as-of read (``db.bitemporal._as_of``: latest ve
 by ``recorded_at DESC, id DESC``) therefore returns the corrected flag for any ``known_at`` >= the
 backfill, while a replay pinned EARLIER still honestly sees NULL — exactly what the system knew then.
 
+One filing's corrections can SPAN SECURITIES: the ingest skip (``existing_accessions``) is scoped per
+(tenant, security), so an issuer held as two master rows stores the same Form 4 once per scope — two
+LOGICAL facts, one per security, exactly as the as-of read keys them. A batch's appends share one
+transaction-time ``now()``, so the natural-key constraint must carry ``security_id`` (migration 0037);
+the pre-0037 key omitted it and a two-security filing aborted the prod run mid-batch on 2026-08-17
+(UniqueViolation — two same-instant corrections, one constraint tuple). ``--execute`` therefore
+FAILS LOUD up front on an unmigrated schema instead of collapsing mid-run.
+
 RULES:
 - **NULL-only.** Targets natural keys whose LATEST version has ``aff_10b5_1 IS NULL``. A captured
   (non-NULL) value is NEVER rewritten — a re-parse disagreement with a stored value is ``--verify``'s
@@ -59,7 +67,8 @@ _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "edgar_cache"
 # The latest-version view of the table — the SAME grain the shared as-of read dedups on
 # (db.bitemporal._FACT_IDENTITY['fact_insider_txn'] within its (tenant, security) scope), so "latest
 # is NULL" here == "the as-of read would return NULL" there. Ties on recorded_at break by id DESC,
-# mirroring _as_of exactly.
+# mirroring _as_of exactly. Since 0037 the fact_insider_txn_natural_key constraint carries this same
+# per-security grain, so a batch's same-instant corrections under two securities cannot collide.
 _LATEST = (
     "SELECT DISTINCT ON (tenant_id, security_id, accession, insider_name, valid_from, txn_seq) * "
     "FROM fact_insider_txn {where} "
@@ -173,6 +182,32 @@ def _latest_rows_for(conn: psycopg.Connection, accessions: list[str]) -> list[di
 _TOLERATED = (ET.ParseError, ValueError, OSError, UnicodeDecodeError)
 
 
+def _require_security_scoped_natural_key(conn: psycopg.Connection) -> None:
+    """FAIL LOUD, before the first write, unless ``fact_insider_txn_natural_key`` carries
+    ``security_id`` (migration 0037).
+
+    One logical insider fact is (tenant, SECURITY, accession, insider, valid_from, txn_seq) — the grain
+    the as-of read keys on and ``_LATEST`` targets. The pre-0037 constraint omitted ``security_id``, so
+    two same-instant corrections of one filing key held under two securities (one issuer, two master
+    rows) collided on ``recorded_at`` — ``now()`` is constant within a batch transaction — and aborted
+    the prod run mid-batch (2026-08-17). Refusing up front turns that crash into an instruction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.attname FROM pg_constraint c "
+            "CROSS JOIN LATERAL unnest(c.conkey) AS k(attnum) "
+            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum "
+            "WHERE c.conname = 'fact_insider_txn_natural_key' "
+            "AND c.conrelid = 'fact_insider_txn'::regclass"
+        )
+        cols = {r["attname"] for r in cur.fetchall()}
+    if "security_id" not in cols:
+        raise SystemExit(
+            "fact_insider_txn_natural_key lacks security_id (migration 0037 not applied) — two "
+            "same-instant corrections of one filing under two securities would collide mid-batch "
+            "(the 2026-08-17 prod abort). Run `python -m db.migrate` first; refusing."
+        )
+
+
 def run_backfill(
     conn: psycopg.Connection,
     *,
@@ -189,6 +224,8 @@ def run_backfill(
         # FAIL LOUD: without this, a mis-mounted cache would "complete" with everything counted
         # not-cached — a run that looks done and repaired nothing.
         raise SystemExit(f"no forms/ under cache dir {cache_dir} — wrong --cache-dir? refusing")
+    if execute:  # write-path precondition (0037); a dry-run reads fine on any schema
+        _require_security_scoped_natural_key(conn)
     res = BackfillResult(executed=execute)
     res.table_rows_before = _count(conn)
     accessions = _target_accessions(conn)

@@ -9,8 +9,11 @@ writes: ``<cache>/forms/<accession>/<doc>``.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
@@ -197,3 +200,99 @@ def test_verify_cross_checks_stored_values_against_the_cache(db, security_id, tm
     assert (
         len(res2.mismatches) == 2
     )  # the pre-existing stored-vs-filing disagreement still reported
+
+
+def _second_security(db) -> uuid.UUID:
+    """A SECOND master row for the SAME issuer (same CIK — another listing/share class) — the prod
+    shape behind the 2026-08-17 abort. The ingest skip (``existing_accessions``) is scoped per
+    (tenant, security), so BOTH rows legitimately carry the same Form 4, once per security scope."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "DEVCO2", "0001234567", "2026-01-01"),
+        )
+    db.commit()
+    return sid
+
+
+def test_same_filing_under_two_securities_corrects_both_without_collision(
+    db, security_id, tmp_path
+):
+    """THE 2026-08-17 PROD ABORT, reproduced. One filing key (accession, insider_name, valid_from,
+    txn_seq) sits latest-version-NULL under TWO security_ids (one issuer held as two master rows;
+    the per-security ingest stores the filing once per scope). Both scopes are corrected inside ONE
+    batch transaction, where ``recorded_at`` defaults to ``now()`` — transaction_timestamp, CONSTANT
+    across the batch — and the pre-0037 natural-key constraint omitted ``security_id``: the second
+    append carried an identical constraint tuple -> UniqueViolation, batch rolled back. With 0037
+    the constraint keys the same per-security grain the as-of read does, so the fixed tool corrects
+    BOTH scopes, idempotently, and each security's read serves its corrected flag."""
+    sec_b = _second_security(db)
+    # prod's originals landed in separate per-security ingest commits -> distinct recorded_at
+    # (explicit here; a shared instant would have been unstorable under the pre-0037 constraint)
+    ingest_form4(
+        db, security_id, _XML, "acc-dual", recorded_at=datetime(2026, 6, 5, tzinfo=timezone.utc)
+    )
+    ingest_form4(db, sec_b, _XML, "acc-dual", recorded_at=datetime(2026, 6, 6, tzinfo=timezone.utc))
+    db.commit()
+    cache = _cache(tmp_path, "acc-dual", _with_aff("1"))
+    before = _count(db)  # 4 rows: 2 txns (P + S) x 2 securities
+
+    res = run_backfill(db, cache_dir=cache, execute=True, log=lambda *_: None)  # raised pre-fix
+
+    assert res.accessions_targeted == 1 and res.accessions_corrected == 1
+    assert res.rows_to_true == 4 and res.rows_residual_null == 0
+    assert _count(db) == before + 4 == res.table_rows_after  # BOTH scopes corrected, append-only
+
+    # idempotent — count the TABLE (the dedup'd read would hide a duplicate append)
+    second = run_backfill(db, cache_dir=cache, execute=True, log=lambda *_: None)
+    assert second.accessions_targeted == 0
+    assert _count(db) == before + 4 == second.table_rows_after
+
+    # each security's as-of read serves ITS corrected rows — 2 facts per scope, no cross-scope bleed
+    for sid in (security_id, sec_b):
+        rows = as_of(
+            db,
+            "fact_insider_txn",
+            security_id=sid,
+            asof=date(2026, 8, 1),
+            known_at=datetime.now(timezone.utc),
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        assert len(rows) == 2
+        assert {r["aff_10b5_1"] for r in rows} == {True}
+        assert all(r["security_id"] == sid for r in rows)
+
+
+def test_execute_refuses_loud_on_a_pre_0037_constraint(db, security_id, tmp_path):
+    """The fix's precondition is EXPLICIT: against a DB still carrying the pre-0037 constraint (no
+    ``security_id``), ``--execute`` refuses UP FRONT — a SystemExit naming migration 0037, before any
+    write — instead of collapsing mid-batch the way prod did. The swap below stays uncommitted (DDL is
+    transactional; the guard fires before the first append), and teardown force-restores the 0037
+    shape either way so the shared session schema can never be left regressed."""
+    ingest_form4(db, security_id, _XML, "acc-null")
+    db.commit()
+    cache = _cache(tmp_path, "acc-null", _with_aff("1"))
+    with db.cursor() as cur:  # regress the constraint to its pre-0037 shape, uncommitted
+        cur.execute("ALTER TABLE fact_insider_txn DROP CONSTRAINT fact_insider_txn_natural_key")
+        cur.execute(
+            "ALTER TABLE fact_insider_txn ADD CONSTRAINT fact_insider_txn_natural_key "
+            "UNIQUE (tenant_id, accession, insider_name, valid_from, txn_seq, recorded_at)"
+        )
+    try:
+        with pytest.raises(SystemExit, match="0037"):
+            run_backfill(db, cache_dir=cache, execute=True, log=lambda *_: None)
+        assert _count(db) == 2  # refused BEFORE any write
+    finally:
+        db.rollback()  # discard the (uncommitted) regression...
+        with db.cursor() as cur:  # ...and force-restore the 0037 shape regardless (idempotent)
+            cur.execute(
+                "ALTER TABLE fact_insider_txn "
+                "DROP CONSTRAINT IF EXISTS fact_insider_txn_natural_key"
+            )
+            cur.execute(
+                "ALTER TABLE fact_insider_txn ADD CONSTRAINT fact_insider_txn_natural_key UNIQUE "
+                "(tenant_id, security_id, accession, insider_name, valid_from, txn_seq, recorded_at)"
+            )
+        db.commit()
