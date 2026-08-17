@@ -154,6 +154,26 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def corporate_event_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The as-of 8-K item-code tape (Band 03 S3) — the corporate-catalyst + corporate-risk
+        detectors' input.
+
+        Each row is one 8-K filing with its SEC ``items`` codes, knowable from its ``filed`` date
+        (``valid_from`` — the acceptance date IS the knowability, so a past-as-of read never sees a
+        filing early; #1). The as-of read dedups to the latest VERSION per accession, so a filing
+        whose items resolved after first ingest reads with its real codes. Rows carry
+        ``form`` / ``items`` / ``accession`` / ``filed`` / ``source_ref`` — the detectors apply the
+        item-code policy map (``CallConfig.corporate_event_items``) on READ, never at ingest (the
+        evidence/policy seam)."""
+        return as_of(
+            self.conn,
+            "fact_corporate_event",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
     def revenue_mix_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         """Workbench purity basis — operator-ratified revenue-mix facts (10-K segments), as-of."""
         return as_of(
@@ -256,6 +276,8 @@ class SignalPointInTimeData(Protocol):
     def catalyst_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def corporate_event_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
 

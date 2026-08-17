@@ -53,16 +53,22 @@ class _MixedClient(_FakeClient):
         return _XML
 
 
-def _subs(accessions):
-    """A submissions JSON exposing one Form 4 per accession (parallel `recent` arrays)."""
+def _subs(accessions, form8ks=()):
+    """A submissions JSON exposing one Form 4 per accession — plus, optionally, 8-K rows as
+    (accession, filed, items_raw) triples — all in the parallel `recent` arrays (the `items` entry
+    is "" on non-8-K rows, as EDGAR serves it)."""
     accns = list(accessions)
+    rows = [("4", a, f"xslF345X05/{a}.xml", "2026-05-01", "") for a in accns] + [
+        ("8-K", a, f"{a}.htm", filed, items) for a, filed, items in form8ks
+    ]
     return {
         "filings": {
             "recent": {
-                "form": ["4"] * len(accns),
-                "accessionNumber": accns,
-                "primaryDocument": [f"xslF345X05/{a}.xml" for a in accns],
-                "filingDate": ["2026-05-01"] * len(accns),
+                "form": [r[0] for r in rows],
+                "accessionNumber": [r[1] for r in rows],
+                "primaryDocument": [r[2] for r in rows],
+                "filingDate": [r[3] for r in rows],
+                "items": [r[4] for r in rows],
             }
         }
     }
@@ -85,9 +91,11 @@ class _FakePriceSource:
         return self._fn(ticker)
 
 
-def _patch(monkeypatch, *, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),), eod_fn=None):
+def _patch(
+    monkeypatch, *, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),), eod_fn=None, form8ks=()
+):
     monkeypatch.setattr(IT, "EdgarClient", _FakeClient)
-    monkeypatch.setattr(IT, "fetch_submissions", lambda client, cik: _subs(accessions))
+    monkeypatch.setattr(IT, "fetch_submissions", lambda client, cik: _subs(accessions, form8ks))
     fn = eod_fn or (lambda ticker: _bars(bar_dates))
     monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(fn))
 
@@ -417,6 +425,85 @@ def test_cache_miss_still_aborts_the_form4_leg(db, security_id, monkeypatch):
     assert r.form4_appended == 0 and r.form4_skipped == 0
     assert r.price_bars_appended == 1  # the price leg still committed
     assert _counts(db) == (0, 1)
+
+
+# --- the 8-K corporate-event leg (Band 03 S3) --------------------------------------------------------
+
+
+def _8k_count(db, *, tenant=DEFAULT_TENANT_ID) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) n FROM fact_corporate_event WHERE tenant_id = %s", (tenant,))
+        return cur.fetchone()["n"]
+
+
+def test_form8k_leg_lands_the_item_tape_from_the_same_submissions(db, security_id, monkeypatch):
+    """The fourth leg: the member's 8-Ks land on the item-code tape from the SAME submissions JSON
+    the Form 4 leg reads — items included, EVERY 8-K stored (an unresolved-items row too, #9)."""
+    _patch(
+        monkeypatch,
+        accessions=("ACC-1",),
+        form8ks=(("8K-1", "2026-05-10", "1.01,9.01"), ("8K-2", "2026-05-20", "")),
+    )
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error is None and r.form8k_appended == 2 and r.form8k_reversioned == 0
+    assert _8k_count(db) == 2
+    rows = as_of(
+        db,
+        "fact_corporate_event",
+        security_id=security_id,
+        asof=date(2026, 12, 31),
+        known_at=datetime(2100, 1, 1, tzinfo=timezone.utc),
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    by = {row["accession"]: row for row in rows}
+    assert by["8K-1"]["items"] == ["1.01", "9.01"]
+    assert by["8K-2"]["items"] is None  # blank items = unresolved, stored NULL — never guessed
+
+
+def test_form8k_leg_rerun_appends_zero_rows_count_the_table(db, security_id, monkeypatch):
+    """COUNT-the-table idempotency for the new leg: an unchanged tape re-run appends NOTHING."""
+    _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", "1.01"),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    IT.ingest_thesis(db, tid, allow_live=False)
+    before = _8k_count(db)
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]  # identical second run
+
+    assert _8k_count(db) == before  # the TABLE did not grow
+    assert r.form8k_appended == 0 and r.form8k_reversioned == 0
+
+
+def test_form8k_leg_reversions_when_items_resolve(db, security_id, monkeypatch):
+    """The resolve path through the LEG: a first run stores items=NULL (EDGAR hadn't classified the
+    filing yet); the next run — the submissions now carrying the codes — appends ONE new version,
+    counted as reversioned (loud only when nonzero on the report)."""
+    _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", ""),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    IT.ingest_thesis(db, tid, allow_live=False)
+    base = _8k_count(db)
+
+    _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", "4.02"),))
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.form8k_appended == 0 and r.form8k_reversioned == 1
+    assert _8k_count(db) == base + 1  # a new VERSION row, never an UPDATE
+
+
+def test_form8k_leg_writes_under_the_thesis_tenant(db, monkeypatch):
+    provision_tenant(db, "s3-8k-ingest", tenant_id=_ALT_TENANT)
+    db.commit()
+    sid = _add_master(db, ticker="ALT8K", cik="0009999998", tenant=_ALT_TENANT)
+    _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", "1.01"),))
+    tid = _make_thesis(db, [("ALT8K", sid)], tenant=_ALT_TENANT)
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error is None and r.form8k_appended == 1
+    assert _8k_count(db, tenant=_ALT_TENANT) == 1
+    assert _8k_count(db, tenant=DEFAULT_TENANT_ID) == 0  # nothing leaked to the default
 
 
 # --- _report: the price-bar tally must count re-versioned / hole-backfilled bars -------------------

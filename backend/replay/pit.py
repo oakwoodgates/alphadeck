@@ -13,9 +13,15 @@ from db.session import DEFAULT_TENANT_ID
 from replay.export import FACT_TABLES
 from signals.base import window_prices
 
-# jsonb columns the export wrote as JSON strings — the accessor decodes them back to dicts so the
-# detectors (e.g. dilution_clock -> ConvertTerms.model_validate) get the same shape live and in replay.
-_JSON_COLS: dict[str, tuple[str, ...]] = {"fact_dilution": ("terms",)}
+# jsonb / array columns the export wrote as JSON strings — the accessor decodes them back to
+# dicts/lists so the detectors (e.g. dilution_clock -> ConvertTerms.model_validate; the corporate
+# detectors' ``items`` membership checks) get the same shape live and in replay. fact_corporate_event
+# .items is a Postgres text[] (a Python list via psycopg) that the export json.dumps'd; decoding
+# restores the list — a NULL stays None (unresolved items read identically on both engines).
+_JSON_COLS: dict[str, tuple[str, ...]] = {
+    "fact_dilution": ("terms",),
+    "fact_corporate_event": ("items",),
+}
 
 
 def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
@@ -96,6 +102,13 @@ class ReplayPointInTimeData:
         series over the DuckDB/Parquet mirror, so the revenue-acceleration detector runs identically in
         replay (A.1: everything the live path reads, replay must read). Parity-gated row-for-row."""
         return self._as_of("fact_fundamentals", "security_id", security_id)
+
+    def corporate_event_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The mirror twin of ``PointInTimeData.corporate_event_facts`` (Band 03 S3) — the as-of 8-K
+        item-code tape over the mirror, so the corporate-catalyst/-risk detectors run identically in
+        replay. ``items`` (a Postgres text[]) round-trips through the export as a JSON string and is
+        decoded back to a list here (``_JSON_COLS``). Parity-gated row-for-row."""
+        return self._as_of("fact_corporate_event", "security_id", security_id)
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)

@@ -102,6 +102,45 @@ def _seed_fundamentals(db):
     )
 
 
+def _seed_corporate_events(db):
+    """Band 03 S3 — 8-K item-code tape rows (HIMS) so parity exercises fact_corporate_event with
+    REAL rows: a resolved-items filing (the text[] -> JSON-string -> list round-trip), an
+    UNRESOLVED (items NULL) filing, and a later RESOLVE of it (a new version of the same accession),
+    so parity covers both the array decode and the as-of dedup on the new family."""
+
+    def _event(accession, filed, items, *, recorded_at):
+        return {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": HIMS_SECURITY_ID,
+            "form": "8-K",
+            "items": items,
+            "accession": accession,
+            "filed": filed,
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": filed,
+            "recorded_at": recorded_at,
+        }
+
+    t0 = datetime(2026, 3, 2, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_corporate_event",
+        _event("h8k-1", date(2026, 3, 1), ["1.01", "9.01"], recorded_at=t0),
+    )
+    append_fact(db, "fact_corporate_event", _event("h8k-2", date(2026, 4, 1), None, recorded_at=t0))
+    # the RESOLVE: a later version of h8k-2 with its items known — the dedup must return this one
+    append_fact(
+        db,
+        "fact_corporate_event",
+        _event(
+            "h8k-2",
+            date(2026, 4, 1),
+            ["4.02"],
+            recorded_at=datetime(2026, 4, 3, tzinfo=timezone.utc),
+        ),
+    )
+
+
 def _seed_all(db):
     seed_hims(db)  # insider (Wells) + prices + dilution (converts)
     seed_unh(db)  # insider cluster + prices
@@ -110,6 +149,7 @@ def _seed_all(db):
     seed_leu_catalyst(db)  # LEU catalyst
     seed_nuclear_theme_conviction(db)  # the nuclear theme conviction (thesis-scoped)
     _seed_fundamentals(db)  # §2.2 quarterly revenue facts (HIMS, incl. a restatement)
+    _seed_corporate_events(db)  # Band 03 S3 — the 8-K item tape (incl. NULL items + a resolve)
     db.commit()
 
 
@@ -157,6 +197,11 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
                     live.fundamentals_facts(sid),
                     rep.fundamentals_facts(sid),
                     _FACT_IDENTITY["fact_fundamentals"],
+                )
+                _match(
+                    live.corporate_event_facts(sid),
+                    rep.corporate_event_facts(sid),
+                    _FACT_IDENTITY["fact_corporate_event"],
                 )
             for tid in theses:
                 _match(

@@ -1,10 +1,13 @@
-"""Per-thesis back-half ingest — insider Form 4 + price EOD (+ fund shares for ETF sleeves) for a
-thesis's RESOLVED basket (M2a; the fund-shares leg is ETF net flow F2).
+"""Per-thesis back-half ingest — insider Form 4 + the 8-K item-code tape + price EOD (+ fund shares
+for ETF sleeves) for a thesis's RESOLVED basket (M2a; the fund-shares leg is ETF net flow F2; the
+8-K leg is Band 03 S3).
 
 The create/promote path writes only the spine, so a freshly-authored thesis has no CALL-ENGINE facts and
 can never WARM/ARM. This CLI fills that gap on demand: for each resolved basket member it ingests the insider
-+ price facts the detectors read — plus, for an ``instrument_kind == 'etf'`` member, one fund
-shares-outstanding sample (DISPLAY-feeding data for the sleeve's flow read, never a call input). It is:
++ 8-K corporate-event + price facts the detectors read — plus, for an ``instrument_kind == 'etf'`` member,
+one fund shares-outstanding sample (DISPLAY-feeding data for the sleeve's flow read, never a call input).
+The 8-K leg reads the SAME submissions JSON as the Form 4 leg (items ride the parallel arrays), so the
+whole item-code tape costs zero extra fetches. It is:
 
 - **Incremental** — only NEW Form 4 accessions (``existing_accessions``) and only EOD bars newer than the
   latest stored one (``latest_bar_date``). A re-run of an already-current name appends ZERO rows; the
@@ -38,7 +41,13 @@ from db.session import connect
 from domain.security import Security
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
-from ingest.edgar.submissions import fetch_submissions, form4_doc_url, form4_filings
+from ingest.edgar.form8k import ingest_form8k
+from ingest.edgar.submissions import (
+    fetch_submissions,
+    form4_doc_url,
+    form4_filings,
+    form8k_filings,
+)
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.source import FundSharesSource
 from ingest.prices.ingest_security import ingest_bars_for_security
@@ -65,6 +74,10 @@ class NameResult:
     # same-day count is a new VERSION (reversioned) — loud only when nonzero
     fund_shares_appended: int = 0
     fund_shares_reversioned: int = 0
+    # the 8-K corporate-event leg (Band 03 S3): new filings stored on the item-code tape; a
+    # reversion = a stored filing whose items RESOLVED (or surface changed) — loud only when nonzero
+    form8k_appended: int = 0
+    form8k_reversioned: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -120,6 +133,24 @@ def _form4_leg(
     return appended, skipped
 
 
+def _form8k_leg(
+    conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
+) -> tuple[int, int]:
+    """Ingest the security's 8-K item-code tape (Band 03 S3) from its submissions JSON. Returns
+    ``(appended, reversioned)``. Needs the issuer CIK; a name without one contributes no events.
+
+    Reads the SAME submissions document the Form 4 leg fetches (the client's cache makes the second
+    read free), so the whole tape costs zero extra fetches — the ``items`` array parallels
+    ``accessionNumber``, no per-filing documents. Append-if-changed inside ``ingest_form8k``: a
+    re-run of an unchanged tape appends ZERO rows; a stored filing whose items RESOLVE (NULL -> the
+    real codes) gets a new version (never an UPDATE)."""
+    if not sec.cik:
+        return 0, 0
+    filings = form8k_filings(fetch_submissions(client, sec.cik))
+    res = ingest_form8k(conn, sec.id, sec.cik, filings, tenant_id=tenant_id)
+    return res.appended, res.reversioned
+
+
 # The price leg lives in ``ingest.prices.ingest_security.ingest_bars_for_security`` now — ONE
 # implementation shared with the Workbench's per-name / per-section pull (the finalize screen needs
 # real caps + hints BEFORE promote), so the incremental / cache-first / no-lookahead rules can't fork.
@@ -139,8 +170,9 @@ def ingest_thesis(
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
 
-    Per member: resolve the id to the master row (skip unresolved / foreign ids), then run the Form 4 leg,
-    the price leg, and the fund-shares leg — EACH in its own try, COMMITTING on success and ROLLING BACK on
+    Per member: resolve the id to the master row (skip unresolved / foreign ids), then run the Form 4
+    leg, the 8-K corporate-event leg, the price leg, and the fund-shares leg — EACH in its own try,
+    COMMITTING on success and ROLLING BACK on
     failure, so one leg's error never discards the others' work and never aborts the run (the error is
     captured into the name's ``NameResult``). The fund-shares leg is gated on the member's
     ``instrument_kind == 'etf'`` inside ``ingest_fund_shares_for_security`` (the form4 leg's no-CIK
@@ -178,6 +210,15 @@ def ingest_thesis(
         ) as e:  # noqa: BLE001 — fail-visible: capture, roll back this leg, keep going
             conn.rollback()
             errs.append(f"form4: {e}")
+        f8k_appended, f8k_reversioned = 0, 0
+        try:
+            f8k_appended, f8k_reversioned = _form8k_leg(
+                conn, client, sec, tenant_id=thesis.tenant_id
+            )
+            conn.commit()
+        except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
+            conn.rollback()
+            errs.append(f"form8k: {e}")
         px_appended, px_reversioned = 0, 0
         try:
             bars = ingest_bars_for_security(
@@ -219,6 +260,8 @@ def ingest_thesis(
                 price_bars_reversioned=px_reversioned,
                 fund_shares_appended=fs_appended,
                 fund_shares_reversioned=fs_reversioned,
+                form8k_appended=f8k_appended,
+                form8k_reversioned=f8k_reversioned,
             )
         )
     return results
@@ -233,6 +276,7 @@ def _report(results: list[NameResult]) -> int:
     total_px = sum(r.price_bars_appended + r.price_bars_reversioned for r in results)
     total_sk = sum(r.form4_skipped for r in results)
     total_fs = sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results)
+    total_8k = sum(r.form8k_appended + r.form8k_reversioned for r in results)
     errored = [r for r in results if r.error]
     for r in results:
         tail = f"   ERROR: {r.error}" if r.error else ""
@@ -250,15 +294,20 @@ def _report(results: list[NameResult]) -> int:
             if r.fund_shares_appended or r.fund_shares_reversioned
             else ""
         )
+        # the 8-K tape — rides only when something landed; a resolved-items re-version is surfaced
+        # DISTINCTLY (the exceptional path), never folded into the new-filing count
+        f8k = f", +{r.form8k_appended} 8-K" if r.form8k_appended else ""
+        f8k += f", +{r.form8k_reversioned} 8-K re-versioned" if r.form8k_reversioned else ""
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{fund}{skips}{tail}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{fund}{skips}{tail}"
         )
     sk = f", {total_sk} form4 skipped" if total_sk else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""
+    e8k = f", +{total_8k} 8-K events" if total_8k else ""
     print(
-        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{fs}{sk}, "
-        f"{len(errored)} errored"
+        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{fs}"
+        f"{sk}, {len(errored)} errored"
     )
     return len(errored)
 

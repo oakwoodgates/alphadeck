@@ -31,7 +31,7 @@ from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.dailyindex import IndexFiling, fetch_daily_index
-from ingest.edgar.submissions import fetch_submissions, parse_identity
+from ingest.edgar.submissions import fetch_submissions, parse_identity, parse_item_codes
 from radar import matcher, repo
 from repositories import thesis_repo
 from securities import master
@@ -114,7 +114,8 @@ def _items_for(
     """The 8-K's item codes from the filer's submissions JSON (the ``items`` array parallels
     ``accessionNumber``). None = unknown — the accession isn't in the (possibly TTL-stale) JSON
     yet; the state derive treats unknown as contributing nothing (the Rev 2 honesty rule), and
-    the next run's re-scan versions the row when items resolve."""
+    the next run's re-scan versions the row when items resolve. The items-string parse itself is
+    the shared ``submissions.parse_item_codes`` (one parser, also the corporate-event ingest's)."""
     if cik10 not in submissions_by_cik:
         try:
             subs = fetch_submissions(client, cik10)
@@ -129,8 +130,7 @@ def _items_for(
     items = recent.get("items", [])
     for i, a in enumerate(accns):
         if a == accession:
-            raw = items[i] if i < len(items) else ""
-            return [s.strip() for s in (raw or "").split(",") if s.strip()] or None
+            return parse_item_codes(items[i] if i < len(items) else None)
     return None
 
 
