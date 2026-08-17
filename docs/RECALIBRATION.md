@@ -26,6 +26,14 @@
 | `insider_strong_single_usd` | 500,000 | single-buy CORE path | HIMS: one director ~$1.2M |
 | `insider_core_alpha_liveness_days` | 180 | core signal-validity horizon | ~6mo, conservative low end (cluster buys persist longer) |
 | `insider_flip_alpha_liveness_days` | 18 | flip signal-validity horizon | fast / mean-reverting |
+| **Insider-SELL cluster risk (Band 03 S1 — every default a `[PROPOSED]` prior; the sig-lab pass finalizes them BEFORE the switch flips):** | | | |
+| `insider_sell_enabled` | False | the master switch — detect() no-ops until ON | flip only after the lab table (the breakdown precedent); replay's `--insider-sell` forces it on for the backtest |
+| `insider_sell_cluster_window_days` | 30 | kept sales within N days of the anchor = one episode | a SEPARATE dial from the buy side's, so risk never couples to conviction calibration |
+| `insider_sell_min_usd` | 250,000 | below this cluster total, no signal | selling is routine (comp-driven) — the buy side's $10k floor would fire everywhere (honest loudness); **the lab distribution picks the real value** |
+| `insider_sell_min_distinct` | 2 | the cluster floor — "clustered" is the load-bearing word | no single-seller path in v1 (one big sale is the many-reasons case) |
+| `insider_sell_require_senior` | True | ≥1 senior officer/director required in the cluster | reuses `insider_senior_role_keywords` (one definition of senior) |
+| `insider_sell_liveness_days` | 90 | freshness window on the cluster anchor (detector-enforced — the assembler never ages risks) | sales' horizon is weaker/shorter than buys' 180d; ~one quarter |
+| `insider_sell_max_score` | 0.60 | THE CEILING — strictly `< risk_block_severity` (0.70), so a sell cluster can never withhold an arm in v1 | operator-RATIFIED 2026-08-16; lifting it is a visible diff, made only with the lab's 0.70-crossing count measured first |
 | **Catalyst conviction (horizon-decoupled, option A):** | | | |
 | `catalyst_default_horizon_days` | 365 | liveness when no term is published | real term (period of performance) preferred |
 | `doe_core_min_obligation_usd` | 10,000,000 | the DOE **contract** core floor | below it a contract is flip; assistance is flip regardless of size |

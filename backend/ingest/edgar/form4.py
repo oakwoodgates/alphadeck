@@ -66,8 +66,11 @@ def _aff_10b5_1(root: ET.Element) -> bool | None:
     not on a transaction, so it stamps every row parsed from the filing. A filing mixing a planned and a
     discretionary trade is ambiguous — that is what the SEC gives us, and we record it, not resolve it.
 
-    CAPTURE-ONLY: nothing reads this. It is stored so the history accrues while the call-logic question
-    (should discretionary selling feed the counter-case?) stays open for the operator.
+    READ by the SELL-side risk detector (``signals/insider_sell.py``, Band 03 S1 — the migration-0022
+    question "should discretionary selling feed the counter-case?" answered): a True (planned) sale is
+    screened out of the discretionary sell cluster; None stays UNKNOWN and is KEPT (absence never asserts
+    either way). The BUY detector (``insider_conviction``) still does not read it — the buy-side 10b5-1
+    screen is a separate, later decision.
     """
     raw = root.findtext("aff10b5One")
     if raw is None:
@@ -98,8 +101,8 @@ def parse_form4(xml: str) -> list[dict]:
     purchase, 'S' = sale); the insider-conviction detector (M2b) is what isolates code 'P'.
 
     Each row carries the filing's ``aff_10b5_1`` (the Rule 10b5-1 checkbox, tri-state — see ``_aff_10b5_1``;
-    CAPTURE-ONLY, no detector reads it) and the issuer + reporting-owner IDENTITY (``issuer_cik``,
-    ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognise a
+    read by the SELL-side risk detector, not the buy side) and the issuer + reporting-owner IDENTITY
+    (``issuer_cik``, ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognise a
     self-filing (reporting owner IS the issuer — a buyback/treasury/ADR mechanic, never personal insider
     conviction) and screen it out of the open-market conviction total; see ``signals/insider_conviction.py``.
     """
@@ -166,8 +169,10 @@ def ingest_form4(
             "accession": accession,
             "valid_from": t["txn_date"],
             "txn_seq": i,  # position within the filing — distinguishes same-insider same-day txns
-            # the filing's Rule 10b5-1 checkbox — CAPTURE-ONLY (no detector reads it); NULL = unknown
-            # (pre-Dec-2022 filings have no checkbox), never coerced to False
+            # the filing's Rule 10b5-1 checkbox — read by the SELL-side risk detector
+            # (signals/insider_sell.py: True screens the sale out of the discretionary cluster); the
+            # BUY detector still does not read it. NULL = unknown (pre-Dec-2022 filings have no
+            # checkbox), never coerced to False
             "aff_10b5_1": t["aff_10b5_1"],
             # issuer + reporting-owner identity — the insider detector's issuer-self screen reads these
             # (rpt_owner_cik == issuer_cik ⇒ the company filed on itself). NULL on rows ingested before

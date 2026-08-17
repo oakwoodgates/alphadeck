@@ -56,6 +56,13 @@ class Kind(StrEnum):
     # base de-arms a FLIP entry. Which grade it de-arms rides the ``SignalEvent.dearm_grade`` property
     # (NOT the kind), so the assembler's veto is grade-aware without a per-kind branch (the through-line).
     BREAKDOWN = "breakdown"
+    # Clustered discretionary open-market insider SELLING (Band 03 S1): a RISK signal — the risk-side
+    # mirror of the code-P conviction detector. Counter-case / setup-strength input ONLY: its score is
+    # capped BELOW ``risk_block_severity`` (``CallConfig.insider_sell_max_score``) so it can never
+    # withhold an arm in v1, and it carries no ``dearm_grade`` (not a de-arm). A DISTINCT kind — the
+    # per-risk-family precedent (DILUTION_RISK, BREAKDOWN; no kind is shared across roles) — so future
+    # kind-filtering code can never confuse sell-risk with ``INSIDER`` (which ∈ ``conviction_kinds``).
+    INSIDER_SELL = "insider_sell"
 
 
 class CatalystType(StrEnum):
