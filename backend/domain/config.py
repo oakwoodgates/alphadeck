@@ -280,6 +280,55 @@ class CallConfig(DomainModel):
     # False to disable; replay.run's --breakdown-dearm / ALPHADECK_BREAKDOWN_DEARM still force it on for the backtest.
     breakdown_dearm_enabled: bool = True
 
+    # --- insider_sell (RISK — Band 03 S1): clustered discretionary open-market selling ---
+    # The risk-side mirror of insider_conviction: Form 4 code-S sales, screened (10b5-1 planned out,
+    # unknown kept; issuer-self out; below-day-low set aside; implausible out — the identity/price
+    # screens REUSE the buy side's dials below, one truth each), clustered on the buy side's
+    # anchor-and-cohesion mechanics, scored bounded-and-capped. Counter-case + setup-strength ONLY:
+    # never a veto, never a de-arm (operator decision 1, 2026-08-16). Every numeric default in this
+    # block is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the sig-lab
+    # distribution pass (Band 03 spec §6, a separate later step) finalizes the real values before the
+    # operator flips the master switch. See docs/RECALIBRATION.md for the dial rows.
+    #
+    # MASTER SWITCH — default OFF (operator decision 2, the breakdown precedent): the detector is
+    # registered but detect() no-ops until enabled, so nothing reaches live cards unmeasured; the
+    # pure score() stays testable ungated. replay.run's --insider-sell / ALPHADECK_INSIDER_SELL
+    # force it on for the sig-lab backtest. The operator flips this only after seeing the lab table.
+    insider_sell_enabled: bool = False
+    # Cohesion window: kept (discretionary open-market) sales within this many days of the most
+    # recent one count as ONE episode of selling — the buy side's cluster logic. A SEPARATE dial
+    # (not reusing insider_cluster_window_days) so risk calibration never couples to conviction
+    # calibration; the two sides' dynamics may diverge. [PROPOSED] prior, lab-finalized.
+    insider_sell_cluster_window_days: int = 30
+    # Below this cluster $ total, no signal. Selling is ROUTINE (comp-driven): the buy side's $10k
+    # floor would fire on nearly every name and violate honest loudness (a chip on every row carries
+    # no information). Set high enough that firing marks the exception; THE LAB DISTRIBUTION PICKS
+    # THE REAL VALUE — this is a prior on the shape, not a measured threshold.
+    insider_sell_min_usd: float = 250_000.0
+    # "Clustered" is the load-bearing word: the (weak) sell-side literature's signal is MULTIPLE
+    # insiders selling together, not one. A single-seller path (the mirror of
+    # insider_strong_single_usd) is deliberately OMITTED from v1 — one big sale is exactly the
+    # many-reasons case (diversification/taxes/a house). [PROPOSED] prior.
+    insider_sell_min_distinct: int = 2
+    # Require >= 1 senior officer/director in the cluster: officer/director sales are what the
+    # literature (weakly) measures. Reuses insider_senior_role_keywords — the DEFINITION of senior
+    # is one truth, not a side-specific calibration. [PROPOSED] prior.
+    insider_sell_require_senior: bool = True
+    # Freshness window on the cluster ANCHOR (the most recent kept sale): risk freshness is
+    # DETECTOR-enforced — the assembler never ages risk signals — and a sell cluster is the first
+    # event-shaped risk that needs an explicit window (dilution self-limits via maturity_date;
+    # breakdown is a recomputed price state). Sales' predictive horizon is weaker/shorter than
+    # buys' 180d core window; ~one quarter is the conservative middle. [PROPOSED] prior.
+    insider_sell_liveness_days: int = 90
+    # THE CEILING — the central policy decision (operator decision 1, RATIFIED 2026-08-16): strictly
+    # BELOW risk_block_severity (0.70), so a sell cluster can NEVER withhold an Armed call in v1 —
+    # its maximum live effect is a ~0.06 setup-strength haircut (risk_penalty_per_signal x score) +
+    # the counter-case + a card chip; a verdict cannot move. The ceiling test pins this relation so
+    # lifting it later is a VISIBLE diff, made only with the lab's crossing-count measured first.
+    insider_sell_max_score: float = 0.60
+    # (reused, not new dials: insider_offmarket_below_low_frac + insider_max_plausible_txn_usd are
+    # data-sanity/price truths and insider_senior_role_keywords is an identity truth — one place.)
+
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
     # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass

@@ -96,17 +96,35 @@ def main() -> None:
             "flagship demo, so the live app keeps it off). Also enabled by ALPHADECK_BREAKDOWN_DEARM=1."
         ),
     )
+    p.add_argument(
+        "--insider-sell",
+        action="store_true",
+        help=(
+            "enable the Band 03 S1 insider-sell cluster RISK detector (default OFF — its master switch "
+            "insider_sell_enabled is off until the sig-lab distribution is measured and the operator "
+            "flips it). Also enabled by ALPHADECK_INSIDER_SELL=1."
+        ),
+    )
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
         pin = pin.replace(tzinfo=timezone.utc)
-    # The de-arm is opted-in at THIS lab entry point (never on the live DEFAULT_CONFIG — a call-engine dial,
-    # the settings.py boundary): the flag OR the env var flips it on, default OFF. model_copy so the change
-    # rides one explicit cfg into the whole replay, and prod/other callers are untouched.
+    # The de-arm — and the insider-sell master switch — are opted-in at THIS lab entry point (never on the
+    # live DEFAULT_CONFIG — call-engine dials, the settings.py boundary): the flag OR the env var flips each
+    # on, default OFF. model_copy so the change rides one explicit cfg into the whole replay, and prod/other
+    # callers are untouched.
     dearm_on = args.breakdown_dearm or os.environ.get(
         "ALPHADECK_BREAKDOWN_DEARM", ""
     ).strip().lower() in ("1", "true", "yes", "on")
-    cfg = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": dearm_on})
+    sell_on = args.insider_sell or os.environ.get("ALPHADECK_INSIDER_SELL", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    cfg = DEFAULT_CONFIG.model_copy(
+        update={"breakdown_dearm_enabled": dearm_on, "insider_sell_enabled": sell_on}
+    )
     conn = connect()
     try:
         metrics = run(

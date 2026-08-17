@@ -95,6 +95,21 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > fired — a soft veto on **timing**. It never vetoes the **thesis** itself (that stays the operator's call).
 > Severity threshold is `TODO(operator)` / calibrated; the block-vs-penalize behavior is fixed.
 
+> **Risk roster — insider-sell cluster `[PROPOSED — Band 03 S1; master switch OFF until the lab pass]`.**
+> `insider_sell` (`role=risk_signal, kind=insider_sell`) fires on a **clustered discretionary open-market
+> sell episode**: ≥ `insider_sell_min_distinct` insiders (senior officer/director required by default)
+> selling ≥ `insider_sell_min_usd` of code-`S` stock within one cohesion window, anchored on the most
+> recent qualifying sale and fresh only inside `insider_sell_liveness_days` (risk freshness is
+> detector-enforced — the assembler never ages risks). Screens, each named on the label/provenance:
+> 10b5-1 **planned** sales (`aff_10b5_1 = True`) are screened out (near-noise; `NULL` = unknown is KEPT —
+> absence never asserts either way); issuer **self-filings** and **implausible** rows are excluded;
+> **below-day-low** sales are set aside as a different risk family (a discounted secondary, not open-market
+> supply). Per the literature's asymmetry (sales are weak predictors — people sell for many reasons), its
+> score is **capped at `insider_sell_max_score` (0.60), strictly below `risk_block_severity` (0.70)**
+> (operator-ratified, 2026-08-16): it feeds the counter-case and a setup-strength haircut and can **never
+> withhold an arm** in v1 — not a veto, not a de-arm (no `dearm_grade`). All dials are `[PROPOSED]` priors;
+> the sig-lab distribution pass finalizes them before the operator flips `insider_sell_enabled`.
+
 ## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 
 Each fired entry trigger carries a `grade ∈ {flip, core}`; the **call's** grade = the highest-grade fired

@@ -4736,7 +4736,8 @@
           "etf_launch",
           "etf_flow",
           "dilution_risk",
-          "breakdown"
+          "breakdown",
+          "insider_sell"
         ],
         "title": "Kind",
         "description": "What produced the signal (extensible)."

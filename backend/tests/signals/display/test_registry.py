@@ -71,7 +71,8 @@ def test_member_rejects_a_signal_stamped_with_another_kind():
 
 def test_detector_registry_is_untouched_by_the_display_seam():
     """The two registries never bleed: importing signals.display must leave the call path's detector
-    set exactly as PR #176 pinned it."""
+    set exactly as the call side pins it (tests/signals/test_registry.py — the one source of the
+    expected list; this copy exists to prove the DISPLAY import added nothing)."""
     assert [d.name for d in registered_detectors()] == [
         "insider_conviction",
         "catalyst_conviction",
@@ -81,6 +82,7 @@ def test_detector_registry_is_untouched_by_the_display_seam():
         "breakout_52w",
         "breakdown_core",
         "breakdown_flip",
+        "insider_sell",  # Band 03 S1 — a CALL-path risk detector (appended there, not by display)
     ]
 
 

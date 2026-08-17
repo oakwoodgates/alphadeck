@@ -184,6 +184,26 @@ def dilution_event(score: float = 0.80, fired: bool = True) -> SignalEvent:
     )
 
 
+def insider_sell_event(score: float = 0.45, fired: bool = True) -> SignalEvent:
+    """A sub-veto insider-sell cluster RISK signal (Band 03 S1) — counter-case + setup-strength
+    haircut ONLY: its score is CAPPED at ``insider_sell_max_score`` (0.60), strictly below
+    ``risk_block_severity`` (0.70), so it rides an Armed call rather than withholding it. Grade-blind
+    like dilution (``grade=None``) and NOT a de-arm (no ``dearm_grade``)."""
+    return SignalEvent(
+        detector="insider_sell",
+        security_id=SID,
+        role=Role.RISK_SIGNAL,
+        kind=Kind.INSIDER_SELL,
+        grade=None,
+        score=score,
+        fired=fired,
+        label="2 insiders incl. senior officer sold $1,850,000 open-market (code S) across 3 txns",
+        alpha_liveness_days=None,
+        provenance=[Provenance(source="form4", ref="0001234567-26-000321")],
+        asof=ASOF,
+    )
+
+
 def breakdown_event(
     dearm_grade: Grade = Grade.CORE,
     score: float = 0.80,
