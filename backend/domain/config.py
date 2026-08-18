@@ -371,15 +371,18 @@ class CallConfig(DomainModel):
     # measurement: the sig-lab distribution pass finalizes them before either switch flips. See
     # docs/CORPORATE_EVENTS.md + docs/RECALIBRATION.md for the dial rows.
     #
-    # MASTER SWITCHES — both default OFF (the insider_sell precedent), ONE PER SIDE because the
-    # blast radii differ: the trigger side extends the LIVE catalyst family (it can warm/arm), the
-    # risk side can withhold an arm on timing. Each detector is registered but detect() no-ops until
-    # its switch is on, so nothing reaches live cards unmeasured and every existing golden is
-    # byte-for-byte unchanged; the pure score() functions stay testable ungated. replay.run's
-    # --corporate-catalyst / --corporate-risk (ALPHADECK_CORPORATE_CATALYST / _RISK) force each on
-    # for the sig-lab backtest. The operator flips these only after seeing the lab table.
+    # MASTER SWITCHES — ONE PER SIDE because the blast radii differ: the trigger side extends the
+    # LIVE catalyst family (it can warm/arm), the risk side can withhold an arm on timing. Each
+    # detector is registered but detect() no-ops until its switch is on; the pure score() functions
+    # stay testable ungated. replay.run's --corporate-catalyst / --corporate-risk
+    # (ALPHADECK_CORPORATE_CATALYST / _RISK) set each explicitly for the sig-lab backtest.
+    # CATALYST — default OFF (the insider_sell precedent): parked until its own measured operator
+    # decision; nothing reaches live cards unmeasured.
+    # RISK — DEFAULT ON (operator flip, 2026-08-17; the breakdown_dearm precedent): validated safe
+    # on real prod data BEFORE the flip — zero spurious arm-withholdings, zero recorded calls
+    # change, so every existing golden stays byte-for-byte unchanged. Set False to disable.
     corporate_catalyst_enabled: bool = False
-    corporate_risk_enabled: bool = False
+    corporate_risk_enabled: bool = True
     # The v1 item cut (operator-confirmed 2026-08-17; the gold-doc §10-3a proposal):
     # TRIGGERS (kind=CATALYST — Key-1 conviction, co-location arming + own-conviction ranking ride
     # the existing conviction_kinds membership):

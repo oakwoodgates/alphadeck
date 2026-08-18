@@ -92,6 +92,11 @@ class _FakePIT:
     def fundamentals_facts(self, security_id: UUID) -> list[dict]:
         return []
 
+    def corporate_event_facts(self, security_id: UUID) -> list[dict]:
+        # Band 03 S3 protocol accessor — completes this fake to SignalPointInTimeData now that
+        # corporate_risk is live-default (it reads this); these de-arm scenarios carry no 8-K events.
+        return []
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
         return []
 

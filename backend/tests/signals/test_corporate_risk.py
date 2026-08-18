@@ -88,13 +88,15 @@ def test_trigger_cut_and_unmapped_items_fire_no_risk():
 
 def test_master_switch_off_detect_emits_nothing_score_stays_ungated():
     """INERT-FIRST (the insider_sell precedent): switch OFF -> detect no-ops without reading the
-    pit; switch ON (the replay force-on path) -> fires."""
+    pit; switch ON (the live default since the 2026-08-17 flip) -> fires. Both sides pin an
+    EXPLICIT switch state so the test outlives the default in either direction."""
+    off = DEFAULT_CONFIG.model_copy(update={"corporate_risk_enabled": False})
     pit = SimpleNamespace(
         corporate_event_facts=lambda sid: (_ for _ in ()).throw(
             AssertionError("pit read while OFF")
         )
     )
-    assert corporate_risk.detect(pit, SID, ASOF, DEFAULT_CONFIG) is None
+    assert corporate_risk.detect(pit, SID, ASOF, off) is None
 
     on = DEFAULT_CONFIG.model_copy(update={"corporate_risk_enabled": True})
     pit_on = SimpleNamespace(corporate_event_facts=lambda sid: [_fact(items=("1.03",))])
