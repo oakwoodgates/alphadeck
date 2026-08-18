@@ -18,7 +18,9 @@ from signals.registry import registered_detectors
 # detector (kind=INSIDER_SELL, capped sub-veto, master switch OFF). corporate_catalyst (ENTRY,
 # kind=CATALYST off the 8-K item tape) + corporate_risk (RISK, kind=CORPORATE_RISK) are the Band 03 S3
 # pair — EACH behind its own master switch, default OFF, so with the live DEFAULT_CONFIG they emit
-# nothing and registering them changes no card.
+# nothing and registering them changes no card. share_creep (Band 03 S4) is a RISK detector off the
+# quarterly XBRL shares series (kind=DILUTION_RISK — REUSED: realized issuance beside dilution_clock's
+# potential convert overhang), appended LAST behind its own master switch, default OFF.
 # isort: off
 from signals import insider_conviction as insider_conviction
 from signals import catalyst_conviction as catalyst_conviction
@@ -30,6 +32,7 @@ from signals import breakdown as breakdown
 from signals import insider_sell as insider_sell
 from signals import corporate_catalyst as corporate_catalyst
 from signals import corporate_risk as corporate_risk
+from signals import share_creep as share_creep
 
 # isort: on
 
@@ -44,5 +47,6 @@ __all__ = [
     "insider_sell",
     "registered_detectors",
     "revenue_acceleration",
+    "share_creep",
     "volume_breakout",
 ]

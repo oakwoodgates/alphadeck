@@ -43,6 +43,13 @@
 | `corporate_event_items["4.01"]` | risk / 0.50 / 180d | auditor change — moderate, sub-veto | a governance flag with a long tail |
 | `corporate_event_items["4.02"]` | risk / 0.80 / 365d | non-reliance/restatement — SEVERE (≥ 0.70: withholds the NAME on timing) | = `breakdown_severity` parity; trust stays broken ~an annual cycle |
 | `corporate_event_items["1.03"]` | risk / 0.90 / 365d | bankruptcy — SEVERE | the tape's loudest deterministic red flag (below dilution's 0.95 ceiling) |
+| **Share-count creep / ATM detection (Band 03 S4 — every default a `[PROPOSED]` prior; the sig-lab pass finalizes them BEFORE the switch flips):** | | | |
+| `share_creep_enabled` | False | the master switch — detect() no-ops until ON | flip only after the lab table; replay's `--share-creep` forces it on for the backtest |
+| `share_creep_window_quarters` | 4 | the trailing consecutive-QoQ-pair window (the SUSTAINED-drip prior) | a persistent drip is the ATM tell; a one-off jump is usually an explained discrete raise (fork 1, operator-confirmed). Open lab question: a concentrated-but-nonzero window (one +29% pair among tiny ones) currently fires — measure whether a concentration guard is needed |
+| `share_creep_cum_min_pct` | 10.0 | the cumulative % rise over the window that fires | routine SBC dilution ~2–5%/yr vs an active ATM ~10–30%/yr; measured: UEC +13.4% trailing-4 fires, MRAM's ~5%/yr SBC-scale drip does not (honest loudness) |
+| `share_creep_pair_ceiling_pct` | 100.0 | a single QoQ step at/above this is NOT creep — the window declines | forward splits / recaps / XBRL scale artifacts (measured rampant: a literal 1-share row; thousands-vs-units errors reading +100,000%) |
+| `share_creep_liveness_days` | 150 | freshness window on the newest print's `filed` (detector-enforced — the assembler never ages risks) | ~one filing cycle + the 10-K lag; a gone-dark series asserts nothing about today |
+| `share_creep_score` | 0.50 | flat moderate — strictly `< risk_block_severity` (0.70), so creep can never withhold an arm in v1 | = the S3 moderate items' parity; the ceiling test pins the relation — lifting it is a visible diff, made only with the lab's crossing-count measured first |
 | **Catalyst conviction (horizon-decoupled, option A):** | | | |
 | `catalyst_default_horizon_days` | 365 | liveness when no term is published | real term (period of performance) preferred |
 | `doe_core_min_obligation_usd` | 10,000,000 | the DOE **contract** core floor | below it a contract is flip; assistance is flip regardless of size |

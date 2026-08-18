@@ -425,6 +425,52 @@ class CallConfig(DomainModel):
         "1.03": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.90, liveness_days=365),
     }
 
+    # --- share_creep (RISK — Band 03 S4): quarterly share-count creep / ATM detection ---
+    # The slow-motion dilution signal: an at-the-market program quietly draining into the tape shows up
+    # as shares outstanding rising quarter-over-quarter with no loud raise event — the realized-dilution
+    # counterpart to dilution_clock's POTENTIAL convert overhang (both emit kind=DILUTION_RISK — two
+    # lenses on one phenomenon; operator-confirmed reuse, 2026-08-17). Reads the fact_fundamentals S4
+    # shares series (three XBRL concepts stored; the detector walks a fixed availability ladder and
+    # never mixes concepts inside one computation). Grade-blind like dilution (grade=None, no
+    # dearm_grade — not a de-arm); freshness DETECTOR-enforced (the assembler never ages risks). Every
+    # numeric default below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the
+    # sig-lab distribution pass finalizes the real values before the operator flips the master switch.
+    # See docs/RECALIBRATION.md for the dial rows.
+    #
+    # MASTER SWITCH — default OFF (the insider_sell / corporate-pair precedent): the detector is
+    # registered but detect() no-ops until enabled, so nothing reaches live cards / counter-case /
+    # setup strength unmeasured and every existing golden is byte-for-byte unchanged; the pure score()
+    # stays testable ungated. replay.run's --share-creep / ALPHADECK_SHARE_CREEP force it on for the
+    # sig-lab backtest. The operator flips this only after seeing the lab table.
+    share_creep_enabled: bool = False
+    # The trailing window, in consecutive QoQ pairs (window+1 quarterly points, each adjacent gap a real
+    # quarter): the SUSTAINED-drip prior — a persistent drip is the ATM tell; a one-off jump is usually
+    # an explained discrete raise (spec fork 1, operator-confirmed). 4 pairs ≈ a trailing year of
+    # quarterly prints. [PROPOSED] prior, lab-finalized.
+    share_creep_window_quarters: int = 4
+    # The cumulative % rise over the window that fires. Anchored on what the phenomena MEAN in absolute
+    # terms (the recalibration discipline, never fit to a name): routine SBC dilution runs ~2-5%/yr; an
+    # ACTIVE ATM materially drains ~10-30%/yr. 10% over the trailing window = clearly above routine comp
+    # creep. (UEC, the measured real instance, sits at +13.4% trailing-4; MRAM's ~5%/yr SBC-scale drip
+    # correctly does NOT fire — honest loudness.) [PROPOSED] prior, lab-finalized.
+    share_creep_cum_min_pct: float = 10.0
+    # The single-pair absurdity ceiling: a quarter-over-quarter rise at/above this is NOT creep — it is
+    # a forward split, a recap/merger, or an XBRL scale artifact (measured rampant on the real basket:
+    # a literal 1-share row, thousands-vs-units errors reading +100,000%). The detector DECLINES the
+    # window rather than mislabeling a structural event as ATM drainage. [PROPOSED] prior.
+    share_creep_pair_ceiling_pct: float = 100.0
+    # Freshness window on the series ANCHOR (the newest point's ``filed`` date) — detector-enforced,
+    # the insider_sell precedent. ~One filing cycle + the 10-K lag tolerance: a quarterly series whose
+    # newest print is older than this has gone dark (delinquent/stopped filer) and asserts nothing
+    # about TODAY's issuance. [PROPOSED] prior.
+    share_creep_liveness_days: int = 150
+    # Flat moderate score (= the S3 moderate items' 0.50), strictly BELOW risk_block_severity (0.70):
+    # slow dilution is a persistent drag on the thesis — counter-case + a setup-strength haircut,
+    # sub-veto, NEVER a hard timing veto like a bankruptcy. The ceiling test pins this relation so
+    # lifting it later is a VISIBLE diff, made only with the lab's crossing-count measured first.
+    # [PROPOSED] prior, lab-finalized.
+    share_creep_score: float = 0.50
+
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
     # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass
