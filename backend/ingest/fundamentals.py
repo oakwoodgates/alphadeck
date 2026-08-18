@@ -24,6 +24,15 @@ Missing / degenerate periods are simply ABSENT — the detector DECLINES, never 
 §2.4 DEFERRED (margin / FCF): a later gross-margin or FCF inflection is a VARIANT over this same
 ``fact_fundamentals`` family — it adds ROWS under a new ``metric_key`` (needing COGS / OCF / capex concepts),
 never a column. The (metric_key, value, unit) shape here is built for exactly that; only revenue ships now.
+
+Band 03 S4 (share-count creep) adds the first sibling family: the quarterly SHARES-OUTSTANDING series —
+three XBRL instant concepts stored as three metric_keys (``_xbrl``-suffixed to keep them verbally distinct
+from the operator-ratified ``fact_shares_outstanding`` Workbench table). ALL THREE are stored (evidence is
+complete, #9 — measured on the real 475-name basket no single concept covers everyone: dei 419 present /
+us-gaap outstanding 361 / issued 372); the ``share_creep`` detector walks a fixed ladder on READ and never
+mixes concepts inside one computation (issued vs outstanding differ by treasury stock). Instants carry no
+``start``, so there is no span/derived-Q4 machinery — every point is 'native', stamped at its OWN ``filed``
+(the same XBRL knowability trap + fix as revenue: knowable at 10-Q/K acceptance, never the instant date).
 """
 
 from __future__ import annotations
@@ -45,6 +54,24 @@ from ingest.edgar.extract import REVENUE_CONCEPTS, companyfacts_url
 # ``signals.revenue_acceleration._REVENUE_METRIC``; kept a plain string so the pure detector needs no ingest
 # import). §2.4 adds sibling keys (e.g. 'gross_margin', 'fcf') under this same family — rows, not columns.
 REVENUE_METRIC = "revenue"
+
+# Band 03 S4 — the shares-outstanding metric_keys (the ``share_creep`` detector mirrors these literals as
+# its concept ladder; kept plain strings for the same no-ingest-import reason). ``_xbrl``-suffixed so the
+# keys can never be confused with the operator-ratified ``fact_shares_outstanding`` table (a different
+# store: ratified Workbench facts vs this deterministic companyfacts parse).
+SHARES_OUT_METRIC = (
+    "shares_out_xbrl"  # us-gaap:CommonStockSharesOutstanding (balance-sheet instant)
+)
+SHARES_OUT_COVER_METRIC = "shares_out_cover_xbrl"  # dei:EntityCommonStockSharesOutstanding (cover)
+SHARES_ISSUED_METRIC = "shares_issued_xbrl"  # us-gaap:CommonStockSharesIssued
+
+# (metric_key, taxonomy, concept) — all three stored; the detector's read-side ladder decides which
+# expresses a name (the evidence/policy seam: re-ordering the ladder is a code edit, zero re-ingest).
+SHARE_CONCEPTS: tuple[tuple[str, str, str], ...] = (
+    (SHARES_OUT_METRIC, "us-gaap", "CommonStockSharesOutstanding"),
+    (SHARES_OUT_COVER_METRIC, "dei", "EntityCommonStockSharesOutstanding"),
+    (SHARES_ISSUED_METRIC, "us-gaap", "CommonStockSharesIssued"),
+)
 
 # companyfacts revenue DURATION rows classified by span (end − start). A clean fiscal quarter is ~85-98d; a
 # 6/9/12-month YTD/annual is longer. These windows separate a standalone quarter from a cumulative period —
@@ -72,6 +99,9 @@ class QuarterPoint:
     basis: str
     fiscal_period: str | None
     fiscal_year: int | None
+    unit: str = (
+        "USD"  # 'USD' (revenue) | 'shares' (the S4 share-count series) — the stored unit column
+    )
 
 
 @dataclass(frozen=True)
@@ -184,6 +214,43 @@ def extract_revenue_quarters(companyfacts: dict[str, Any]) -> list[QuarterPoint]
     return sorted(points.values(), key=lambda p: (p.period_end, p.filed))
 
 
+def extract_share_points(companyfacts: dict[str, Any]) -> list[QuarterPoint]:
+    """Pure, deterministic (Band 03 S4): a companyfacts dict -> the shares-outstanding instant points for
+    ALL THREE share concepts (``SHARE_CONCEPTS``), each stamped at its OWN filing. Instants carry no
+    ``start`` so there is no span classification and no derived Q4 — every point is 'native':
+    ``period_end`` = the instant's ``end`` (balance-sheet date / cover "as of" date), knowability =
+    ``filed``. Only rows carrying every field the knowability stamp needs (end/val/filed/accn) are kept
+    (the same honesty rule as revenue: an unstampable row is not fabricated into one). Degenerate values
+    (a literal 0-share XBRL row) are STORED as-is — the evidence tape is honest and complete (#9); the
+    ``share_creep`` detector is where garbage is screened, never the ingest (the threshold/guard is the
+    detector's cut, never an ingest filter). Dedup per (metric, end, filed) — a restatement (same end,
+    later filed) is a DISTINCT version the store keeps."""
+    facts = companyfacts.get("facts", {})
+    points: dict[tuple[str, date, date], QuarterPoint] = {}
+    for metric_key, tax, concept in SHARE_CONCEPTS:
+        node = facts.get(tax, {}).get(concept)
+        rows = node.get("units", {}).get("shares", []) if node else []
+        for r in rows:
+            if not (r.get("end") and r.get("val") is not None and r.get("filed") and r.get("accn")):
+                continue
+            e, f = date.fromisoformat(r["end"]), date.fromisoformat(r["filed"])
+            points.setdefault(
+                (metric_key, e, f),
+                QuarterPoint(
+                    metric_key=metric_key,
+                    period_end=e,
+                    value=float(r["val"]),
+                    filed=f,
+                    accession=r["accn"],
+                    basis="native",
+                    fiscal_period=r.get("fp"),
+                    fiscal_year=r.get("fy"),
+                    unit="shares",
+                ),
+            )
+    return sorted(points.values(), key=lambda p: (p.metric_key, p.period_end, p.filed))
+
+
 def _existing_versions(
     conn: psycopg.Connection, security_id: UUID, tenant_id: UUID
 ) -> set[tuple[str, date, date]]:
@@ -230,7 +297,7 @@ def store_quarters(
                 "fiscal_period": q.fiscal_period,
                 "fiscal_year": q.fiscal_year,
                 "value": q.value,
-                "unit": "USD",
+                "unit": q.unit,
                 "basis": q.basis,
                 "accession": q.accession,
                 "source": "companyfacts",
@@ -251,7 +318,8 @@ def ingest_fundamentals_for_security(
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> FundamentalsResult:
     """Fetch this security's companyfacts (cache-first via the injected client), extract the quarterly
-    revenue series, and store it. A CIK-less security contributes nothing (like the Form-4 leg's no-CIK
+    revenue series AND the S4 shares-outstanding series (both ride the SAME single pull — zero extra SEC
+    traffic), and store them. A CIK-less security contributes nothing (like the Form-4 leg's no-CIK
     mirror). The multi-year backfill is intrinsic: companyfacts returns the full history in one pull, so a
     single call reconstructs every historical quarter at its own ``filed`` date."""
     if not sec.cik:
@@ -260,14 +328,20 @@ def ingest_fundamentals_for_security(
         companyfacts_url(sec.cik),
         f"companyfacts/CIK{int(sec.cik):010d}.json",
     )
-    return store_quarters(conn, sec.id, extract_revenue_quarters(cf), tenant_id=tenant_id)
+    quarters = extract_revenue_quarters(cf) + extract_share_points(cf)
+    return store_quarters(conn, sec.id, quarters, tenant_id=tenant_id)
 
 
 __all__ = [
     "REVENUE_METRIC",
+    "SHARES_OUT_METRIC",
+    "SHARES_OUT_COVER_METRIC",
+    "SHARES_ISSUED_METRIC",
+    "SHARE_CONCEPTS",
     "QuarterPoint",
     "FundamentalsResult",
     "extract_revenue_quarters",
+    "extract_share_points",
     "store_quarters",
     "ingest_fundamentals_for_security",
 ]
