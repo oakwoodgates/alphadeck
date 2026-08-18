@@ -8,6 +8,7 @@ import pytest
 from domain.config import DEFAULT_CONFIG
 from pipeline.core import assemble_from_pit
 from signals import (
+    activist_stake,
     breakdown,
     breakout_52w,
     catalyst_conviction,
@@ -41,7 +42,8 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         "insider_sell",  # Band 03 S1 — the sell-cluster RISK detector (master switch OFF)
         "corporate_catalyst",  # Band 03 S3 — the 8-K item-tape pair (switches OFF)
         "corporate_risk",
-        "share_creep",  # Band 03 S4 — the share-count-creep RISK detector, appended LAST (switch OFF)
+        "share_creep",  # Band 03 S4 — the share-count-creep RISK detector (switch OFF)
+        "activist_stake",  # Band 03 S5 — the SC 13D conviction trigger, appended LAST (switch OFF)
     ]
     assert [detector.detect for detector in detectors] == [
         insider_conviction.detect,
@@ -56,6 +58,7 @@ def test_registry_contains_exactly_the_builtins_in_pipeline_order():
         corporate_catalyst.detect,
         corporate_risk.detect,
         share_creep.detect,
+        activist_stake.detect,
     ]
 
 

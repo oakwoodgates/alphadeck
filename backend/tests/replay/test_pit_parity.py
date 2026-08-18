@@ -141,6 +141,71 @@ def _seed_corporate_events(db):
     )
 
 
+def _seed_activist_stakes(db):
+    """Band 03 S5 — SC 13D/G ownership-tape rows (HIMS) so parity exercises fact_activist_stake
+    with REAL-shaped rows: a classic-era original with identity, an unresolved-identity
+    structured-era amendment (filer NULL), and a later RESOLVE of it (a new version of the same
+    accession, with the numeric pct_owned), so parity covers the numeric column and the as-of
+    dedup on the new family."""
+
+    def _stake(accession, form, filed, *, filer_cik, filer_name, pct, recorded_at):
+        return {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": HIMS_SECURITY_ID,
+            "form": form,
+            "filer_cik": filer_cik,
+            "filer_name": filer_name,
+            "pct_owned": pct,
+            "accession": accession,
+            "filed": filed,
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": filed,
+            "recorded_at": recorded_at,
+        }
+
+    t0 = datetime(2026, 2, 20, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_activist_stake",
+        _stake(
+            "h13d-1",
+            "SC 13D",
+            date(2025, 6, 2),
+            filer_cik="0001840904",
+            filer_name="Activist Fund LP",
+            pct=None,
+            recorded_at=t0,
+        ),
+    )
+    append_fact(
+        db,
+        "fact_activist_stake",
+        _stake(
+            "h13d-2",
+            "SCHEDULE 13D/A",
+            date(2026, 2, 17),
+            filer_cik=None,
+            filer_name=None,
+            pct=None,
+            recorded_at=t0,
+        ),
+    )
+    # the RESOLVE: a later version of h13d-2 with its identity + pct known — the dedup must return it
+    append_fact(
+        db,
+        "fact_activist_stake",
+        _stake(
+            "h13d-2",
+            "SCHEDULE 13D/A",
+            date(2026, 2, 17),
+            filer_cik="0002081043",
+            filer_name="Activist Fund LP",
+            pct=4.96,
+            recorded_at=datetime(2026, 2, 21, tzinfo=timezone.utc),
+        ),
+    )
+
+
 def _seed_all(db):
     seed_hims(db)  # insider (Wells) + prices + dilution (converts)
     seed_unh(db)  # insider cluster + prices
@@ -150,6 +215,7 @@ def _seed_all(db):
     seed_nuclear_theme_conviction(db)  # the nuclear theme conviction (thesis-scoped)
     _seed_fundamentals(db)  # §2.2 quarterly revenue facts (HIMS, incl. a restatement)
     _seed_corporate_events(db)  # Band 03 S3 — the 8-K item tape (incl. NULL items + a resolve)
+    _seed_activist_stakes(db)  # Band 03 S5 — the 13D/G tape (incl. NULL identity + a resolve)
     db.commit()
 
 
@@ -202,6 +268,11 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
                     live.corporate_event_facts(sid),
                     rep.corporate_event_facts(sid),
                     _FACT_IDENTITY["fact_corporate_event"],
+                )
+                _match(
+                    live.activist_stake_facts(sid),
+                    rep.activist_stake_facts(sid),
+                    _FACT_IDENTITY["fact_activist_stake"],
                 )
             for tid in theses:
                 _match(

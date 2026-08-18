@@ -4738,7 +4738,8 @@
           "dilution_risk",
           "breakdown",
           "insider_sell",
-          "corporate_risk"
+          "corporate_risk",
+          "activist_stake"
         ],
         "title": "Kind",
         "description": "What produced the signal (extensible)."

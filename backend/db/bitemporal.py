@@ -37,6 +37,9 @@ _FACT_IDENTITY: dict[str, list[str]] = {
     "fact_corporate_event": [
         "accession"
     ],  # one 8-K filing per accession (within the security scope) — items resolving is a new version
+    "fact_activist_stake": [
+        "accession"
+    ],  # one 13D/G filing per accession (within the SUBJECT security scope) — filer/pct resolving is a new version (S5)
 }
 
 

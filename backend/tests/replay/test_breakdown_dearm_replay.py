@@ -97,6 +97,11 @@ class _FakePIT:
         # corporate_risk is live-default (it reads this); these de-arm scenarios carry no 8-K events.
         return []
 
+    def activist_stake_facts(self, security_id: UUID) -> list[dict]:
+        # Band 03 S5 protocol accessor — completed AT BIRTH (the corporate_risk-flip lesson: a test
+        # double missing a new protocol method fails only once a reader goes live). No stakes here.
+        return []
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
         return []
 

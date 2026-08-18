@@ -173,11 +173,53 @@ def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:
-    """The EDGAR Archives URL for a filing's RAW ownership XML.
+# The 13D/G form-type universe, BOTH naming eras (the S5 rename trap): EDGAR renamed the form type
+# from the classic "SC 13D" strings to "SCHEDULE 13D" when the structured-XML requirement landed
+# (cutover ~2024-12-18 — measured on real subjects: the same issuer's tape flips SC 13G ->
+# SCHEDULE 13G between 2024-11-14 and 2025-02-05). An SC-only match silently drops every 2025+
+# filing (#9); the D/G split is the detector's fire boundary (13D = intent, 13G = passive).
+SCHEDULE13_D_FORMS = frozenset({"SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"})
+SCHEDULE13_G_FORMS = frozenset({"SC 13G", "SC 13G/A", "SCHEDULE 13G", "SCHEDULE 13G/A"})
+SCHEDULE13_FORMS = SCHEDULE13_D_FORMS | SCHEDULE13_G_FORMS
 
-    ``primary_doc`` from submissions is the XSL-rendered path (e.g. ``xslF345X06/wk-form4_*.xml``);
-    the parseable raw XML is the same filename in the accession root, so we drop the ``xsl.../`` dir.
+
+def schedule13_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
+    """List the 13D/G-family filings a company is the SUBJECT of (newest first) from ITS OWN
+    submissions JSON: ``{accession, form, filed, primary_doc}``.
+
+    The S5-verified enumeration path (a): EDGAR indexes an ownership schedule under BOTH the filer
+    and the subject, so the SUBJECT's submissions JSON lists every 13D/G filed about it — the same
+    document the Form 4 / 8-K legs already fetch, zero extra enumeration fetches. Matches ALL EIGHT
+    form strings across both naming eras (``SCHEDULE13_FORMS`` above). ``primary_doc`` rides along
+    because the structured era's raw XML (filer identity + %-owned evidence) is addressed from it.
+    Same accepted depth as ``form4_filings``: ``recent`` covers >= 1 year / 1,000 filings — full
+    history for the measured microcap subjects, and the detector's months-scale liveness never
+    needs deeper.
+    """
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accns = recent.get("accessionNumber", [])
+    dates = recent.get("filingDate", [])
+    docs = recent.get("primaryDocument", [])
+    return [
+        {
+            "accession": accns[i],
+            "form": f,
+            "filed": dates[i],
+            "primary_doc": docs[i] if i < len(docs) else "",
+        }
+        for i, f in enumerate(forms)
+        if f in SCHEDULE13_FORMS
+    ]
+
+
+def form4_doc_url(cik: str | int, accession: str, primary_doc: str) -> str:
+    """The EDGAR Archives URL for a filing's RAW primary document.
+
+    ``primary_doc`` from submissions is the XSL-rendered path (e.g. ``xslF345X06/wk-form4_*.xml``,
+    ``xslSCHEDULE_13D_X01/primary_doc.xml``); the parseable raw document is the same filename in the
+    accession root, so we drop the ``xsl.../`` dir. The logic is form-agnostic — the Form 4 leg and
+    the S5 13D/G identity fetch (``ingest/edgar/schedule13.py``) share this one implementation.
     """
     doc = primary_doc.rsplit("/", 1)[-1]
     return f"{get_settings().sec_archives_base}/{int(cik)}/{accession.replace('-', '')}/{doc}"

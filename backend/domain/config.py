@@ -50,8 +50,12 @@ class CallConfig(DomainModel):
     # THEME_CONVICTION (M5b) is a Key-1 conviction so the existing co-location arming "just works"; it is
     # an operator-ratified, thesis-level FALLBACK (the weaker key, capped at flip). Distinguish it from
     # name-sourced convictions via `own_conviction_kinds` (below) — never a hardcoded {INSIDER, CATALYST}.
+    # ACTIVIST_STAKE (Band 03 S5) joins as a name-sourced conviction: membership here is what wires
+    # co-location arming + the own_conviction ranking with zero assembler edits — INERT until its
+    # master switch (activist_stake_enabled below) flips, since no event of the kind enters the
+    # stream while the detector no-ops.
     conviction_kinds: frozenset[Kind] = frozenset(
-        {Kind.INSIDER, Kind.CATALYST, Kind.THEME_CONVICTION}
+        {Kind.INSIDER, Kind.CATALYST, Kind.THEME_CONVICTION, Kind.ACTIVIST_STAKE}
     )
     confirmation_kinds: frozenset[Kind] = frozenset({Kind.TECHNICAL_BREAKOUT, Kind.LAGGARD})
 
@@ -473,6 +477,41 @@ class CallConfig(DomainModel):
     # lifting it later is a VISIBLE diff, made only with the lab's crossing-count measured first.
     # [PROPOSED] prior, lab-finalized.
     share_creep_score: float = 0.50
+
+    # --- activist_stake (Key 1 — Band 03 S5): the SC 13D activist-stake conviction ---
+    # A new SC 13D filed ABOUT a basket member = an outside party crossed 5% WITH INTENT to
+    # influence — a rare, deliberate, capital-committed act by an informed party (the Brav/Jiang
+    # activist event-study literature measures persistent post-FILING abnormal returns). The FORM
+    # TYPE is the entire fire decision (#3 — no NLP, no cover parse to fire): 13D-family ORIGINALS
+    # fire a CORE Key-1 conviction (grade fixed in the detector, the R6/R9 structural-grade
+    # precedent — "core = a rare, deliberate capital commitment", the line 1.01 failed); 13G
+    # (passive — mostly index funds crossing 5%, measured ~2 originals/yr/name on real subjects) is
+    # STORED on the fact_activist_stake tape but fires NOTHING in v1 (the S3 1.01-flood lesson);
+    # amendments (/A) ride the tape + provenance but NEVER re-anchor a fire (direction-blind:
+    # increase, sell-down, and exit all file as /A — the measured CMPS 13D/A reporting 4.96%, a
+    # sell-down BELOW 5%, must not fire a fresh CORE). Like every conviction it WARMS; arming still
+    # needs a co-located confirmation (the two-key gate), and 13D originals are rare per name
+    # (measured: 1 per 6 years on the richest real subject), so it cannot flood. Every numeric
+    # default below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the
+    # sig-lab distribution pass finalizes the real values before the operator flips the master
+    # switch. See docs/ACTIVIST_STAKE.md + docs/RECALIBRATION.md for the dial rows.
+    #
+    # MASTER SWITCH — default OFF (the insider_sell / corporate-pair / share_creep precedent): the
+    # detector is registered but detect() no-ops until enabled, so nothing reaches live cards
+    # unmeasured and every existing golden is byte-for-byte unchanged; the pure score() stays
+    # testable ungated. replay.run's --activist-stake / ALPHADECK_ACTIVIST_STAKE force it on for
+    # the sig-lab backtest. The operator flips this only after seeing the lab table.
+    activist_stake_enabled: bool = False
+    # Score parity with catalyst_conviction's _CORE_SCORE (0.9): a filed >5%-with-intent stake is a
+    # binding, verifiable commitment — the theme analog the catalyst family already prices at 0.9.
+    # [PROPOSED] prior, lab-finalized.
+    activist_13d_score: float = 0.9
+    # Liveness anchored on the ORIGINAL 13D's filed date. The activist literature measures the
+    # abnormal-return window in months from the filing; 180d = the conservative low end, and parity
+    # with the insider CORE window (insider_core_alpha_liveness_days) — the same "informed party
+    # committed capital" economics. >= conviction_hold_threshold_days (90), so an armed 13D entry
+    # correctly reads hold-and-build, not flip-only. [PROPOSED] prior, lab-finalized.
+    activist_13d_liveness_days: int = 180
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

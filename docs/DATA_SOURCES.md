@@ -216,6 +216,33 @@ items outside the cut stay stored (#9) and a policy retune needs no re-ingest.
 - **Both detectors ship INERT** (master switches default OFF) pending the sig-lab pass. Full
   family doc: `docs/CORPORATE_EVENTS.md`.
 
+## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
+
+`fact_activist_stake` stores **every 13D/G-family schedule filed ABOUT a basket member** (the
+subject), enumerated from the member's OWN submissions JSON — verified live 2026-08-18: EDGAR
+indexes an ownership schedule under both the filer and the subject, so the same document the
+Form 4 / 8-K legs fetch lists the whole tape at **zero extra enumeration fetches** (a fifth
+`ingest_thesis` leg on the nightly cron). The FORM TYPE is the classification (#3): 13D = ">5%
+with intent", 13G = passive; the fire policy (13D-family ORIGINALS only) is applied on READ.
+
+- **The rename trap (#9):** EDGAR renamed the form type at the ~2024-12 structured-XML cutover —
+  `SC 13D` → `SCHEDULE 13D` (measured: the same issuer's tape flips between 2024-11-14 and
+  2025-02-05). The ingest matches ALL EIGHT strings across both eras; an SC-only match silently
+  drops every 2025+ filing. (EFTS's `forms=SC 13D` filter has exactly that gap — one reason the
+  submissions path won.)
+- **Knowability (gold-doc trap #4):** `valid_from = filed` — the stake CROSSING inside the filing
+  predates dissemination by up to 10 days, and the structured cover's `dateOfEvent` is deliberately
+  never read for time.
+- **Filer identity (the 0024 capture pattern):** the subject's submissions rows carry no filer, so
+  identity costs one small immutable-cached fetch per filing — structured era: the raw
+  `primary_doc.xml` (`reportingPersonName`/`CIK`, `percentOfClass`); classic-era 13D-family: the
+  SGML `FILED BY` header; classic-era 13G: no fetch (NULL filer by design — those rows never
+  fire). An identity failure stores the row with NULL filer + a loud counter, never a drop (#9).
+- **Depth:** submissions `recent` (≥ 1 year / 1,000 filings) — full history for the measured
+  microcap subjects; the detector's months-scale liveness never needs deeper.
+- **Ships INERT** (`activist_stake_enabled` default OFF) pending the sig-lab pass. Full family
+  doc: `docs/ACTIVIST_STAKE.md`.
+
 ## Point-in-time discipline (applies to every source)
 
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
