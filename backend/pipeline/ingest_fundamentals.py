@@ -1,5 +1,6 @@
-"""§2.2 fundamentals backfill CLI — pull each basket member's quarterly REVENUE series (SEC companyfacts)
-into ``fact_fundamentals`` with honest historical knowability.
+"""§2.2 fundamentals backfill CLI — pull each basket member's quarterly REVENUE series + the Band 03 S4
+SHARES-OUTSTANDING series (SEC companyfacts — both ride the same single pull per name) into
+``fact_fundamentals`` with honest historical knowability.
 
 companyfacts returns the FULL multi-year history in one pull, each period carrying its own ``filed``/``accn``,
 so a single run reconstructs every historical quarter stamped at its TRUE filing date (R17 — never today).

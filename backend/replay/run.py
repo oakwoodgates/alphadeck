@@ -124,6 +124,15 @@ def main() -> None:
             "the lab can measure the trigger and risk sides independently."
         ),
     )
+    p.add_argument(
+        "--share-creep",
+        action="store_true",
+        help=(
+            "enable the Band 03 S4 share-count-creep (ATM detection) RISK detector (default OFF — its "
+            "master switch share_creep_enabled is off until the sig-lab distribution is measured and "
+            "the operator flips it). Also enabled by ALPHADECK_SHARE_CREEP=1."
+        ),
+    )
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
@@ -143,6 +152,7 @@ def main() -> None:
             "corporate_catalyst_enabled": args.corporate_catalyst
             or _env_on("ALPHADECK_CORPORATE_CATALYST"),
             "corporate_risk_enabled": args.corporate_risk or _env_on("ALPHADECK_CORPORATE_RISK"),
+            "share_creep_enabled": args.share_creep or _env_on("ALPHADECK_SHARE_CREEP"),
         }
     )
     conn = connect()

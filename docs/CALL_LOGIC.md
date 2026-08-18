@@ -110,6 +110,26 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > withhold an arm** in v1 — not a veto, not a de-arm (no `dearm_grade`). All dials are `[PROPOSED]` priors;
 > the sig-lab distribution pass finalizes them before the operator flips `insider_sell_enabled`.
 
+> **Risk roster — share-count creep / ATM detection `[PROPOSED — Band 03 S4; master switch OFF until the
+> lab pass]`.** `share_creep` (`role=risk_signal, kind=dilution_risk` — the kind is **REUSED**: realized
+> issuance beside `dilution_clock`'s potential convert overhang, two lenses on one phenomenon) fires on a
+> **sustained quarterly share-count drip**: the trailing `share_creep_window_quarters` consecutive QoQ
+> steps all strictly positive, cumulative rise ≥ `share_creep_cum_min_pct` — the signature of an
+> at-the-market program quietly draining into the tape (ATM sales are registered off a shelf and file no
+> per-sale 8-K; that is what makes the drip quiet). Reads the quarterly XBRL shares series
+> (`fact_fundamentals`, three concepts stored `_xbrl`-keyed) through a fixed **availability ladder** —
+> balance-sheet → dei cover → issued, first with a fresh consecutive chain; the verdict comes from that
+> series alone (never concept-shopping past an honest "no creep", never mixing concepts). A single step ≥
+> `share_creep_pair_ceiling_pct` is a split/recap/XBRL-scale artifact — a structural event, declined, not
+> creep; a one-off jump with flat neighbors (a discrete explained raise) is declined by strict positivity.
+> Freshness is detector-enforced on the newest print's `filed` (`share_creep_liveness_days`). Grade-blind
+> like dilution (no grade, no `dearm_grade`); the flat `share_creep_score` (0.50) sits **strictly below
+> `risk_block_severity` (0.70)** — counter-case + a setup-strength haircut, sub-veto, pinned by test.
+> **Named recall holes (#9):** FPIs/ADRs (annual 20-F cadence), fresh IPOs, and dual-class filers whose
+> per-class dei dimensions companyfacts drops (HIMS — whose convertibles remain `dilution_clock`'s
+> territory) have no quarterly series; the detector declines on them, never fabricates. All dials are
+> `[PROPOSED]` priors; the sig-lab pass finalizes them before the operator flips `share_creep_enabled`.
+
 ## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 
 Each fired entry trigger carries a `grade ∈ {flip, core}`; the **call's** grade = the highest-grade fired

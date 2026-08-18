@@ -50,6 +50,11 @@ class Kind(StrEnum):
     SQUEEZE = "squeeze"
     ETF_LAUNCH = "etf_launch"
     ETF_FLOW = "etf_flow"
+    # ONE dilution family, two lenses (operator-confirmed 2026-08-17): ``dilution_clock`` emits this
+    # for POTENTIAL dilution (convertible-note overhang, fact_dilution) and ``share_creep`` (Band 03
+    # S4, master switch OFF) for REALIZED dilution (quarterly share-count creep — the ATM drip, off
+    # the fact_fundamentals shares series). Both grade-blind risks; no kind split — the per-family
+    # kinds below (INSIDER_SELL, CORPORATE_RISK) separated genuinely DIFFERENT phenomena.
     DILUTION_RISK = "dilution_risk"
     # A structural price BREAKDOWN (M4a, CALL_LOGIC §2): a RISK signal that DE-ARMS an armed entry — a
     # close below the long base (200d SMA) de-arms a CORE hold; a close back below the 8-day breakout

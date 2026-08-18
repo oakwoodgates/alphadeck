@@ -85,6 +85,7 @@ def test_detector_registry_is_untouched_by_the_display_seam():
         "insider_sell",  # Band 03 S1 — a CALL-path risk detector (appended there, not by display)
         "corporate_catalyst",  # Band 03 S3 — the 8-K item-tape pair (call path, switches OFF)
         "corporate_risk",
+        "share_creep",  # Band 03 S4 — the share-count-creep risk detector (call path, switch OFF)
     ]
 
 
