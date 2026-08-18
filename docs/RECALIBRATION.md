@@ -50,6 +50,10 @@
 | `share_creep_pair_ceiling_pct` | 100.0 | a single QoQ step at/above this is NOT creep — the window declines | forward splits / recaps / XBRL scale artifacts (measured rampant: a literal 1-share row; thousands-vs-units errors reading +100,000%) |
 | `share_creep_liveness_days` | 150 | freshness window on the newest print's `filed` (detector-enforced — the assembler never ages risks) | ~one filing cycle + the 10-K lag; a gone-dark series asserts nothing about today |
 | `share_creep_score` | 0.50 | flat moderate — strictly `< risk_block_severity` (0.70), so creep can never withhold an arm in v1 | = the S3 moderate items' parity; the ceiling test pins the relation — lifting it is a visible diff, made only with the lab's crossing-count measured first |
+| **SC 13D activist stake (Band 03 S5 — every default a `[PROPOSED]` prior; the sig-lab pass finalizes them BEFORE the switch flips; full doc `docs/ACTIVIST_STAKE.md`):** | | | |
+| `activist_stake_enabled` | False | the master switch — detect() no-ops until ON | flip only after the lab table; replay's `--activist-stake` forces it on for the backtest |
+| `activist_13d_score` | 0.9 | a 13D original's Key-1 CORE conviction score | = `catalyst_conviction._CORE_SCORE` parity: a filed >5%-with-intent stake is a binding, verifiable commitment. Grade itself is CORE **fixed in the detector** (structural — the R6/R9 precedent), not a dial |
+| `activist_13d_liveness_days` | 180 | the edge window, anchored on the ORIGINAL 13D's filed date | the Brav/Jiang literature measures months post-filing; = insider-CORE parity, ≥ the 90d hold threshold (hold-and-build). 13G never fires (fork 3) and amendments never re-anchor (fork 4) — policy, not dials |
 | **Catalyst conviction (horizon-decoupled, option A):** | | | |
 | `catalyst_default_horizon_days` | 365 | liveness when no term is published | real term (period of performance) preferred |
 | `doe_core_min_obligation_usd` | 10,000,000 | the DOE **contract** core floor | below it a contract is flip; assistance is flip regardless of size |

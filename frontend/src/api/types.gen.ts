@@ -2352,7 +2352,7 @@ export interface components {
          * @description What produced the signal (extensible).
          * @enum {string}
          */
-        Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk" | "breakdown" | "insider_sell" | "corporate_risk";
+        Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk" | "breakdown" | "insider_sell" | "corporate_risk" | "activist_stake";
         /**
          * LocatedPassage
          * @description A deterministically-retrieved passage that backs a fact — the evidence put in front of the operator

@@ -1,0 +1,102 @@
+# The SC 13D activist-stake tape (Band 03 · S5)
+
+**Status: BUILT, INERT (master switch `activist_stake_enabled` default OFF).** The evidence layer
+(`fact_activist_stake` + the `schedule13` ingest leg) fills nightly; the detector
+(`signals/activist_stake.py`) is registered but no-ops until the switch flips — which happens only
+after the sig-lab distribution pass finalizes the `[PROPOSED]` dials and the operator ratifies.
+Related: `docs/CORPORATE_EVENTS.md` (the S3 sibling), `docs/RECALIBRATION.md` (the dial rows),
+`docs/DATA_SOURCES.md` §SC 13D/G.
+
+## What it is
+
+A new **SC 13D** filed *about* a basket member means an outside party crossed **5% with intent to
+influence** — a rare, deliberate, capital-committed act by an informed party. The activist
+event-study literature (Brav/Jiang et al.) measures persistent post-**filing** abnormal returns;
+practitioners treat a credible 13D the way this platform treats an insider cluster. It fires a
+**Key-1 CORE conviction** (`Kind.ACTIVIST_STAKE`, a `conviction_kinds` member): it **WARMS**, and
+arming still needs a co-located confirmation (the two-key gate) — 13D originals are rare per name
+(measured: ONE per six years on the richest real subject), so it cannot flood.
+
+**The clean-#3 core: the FORM TYPE is the entire fire decision.** 13D vs 13G is the SEC's own
+deterministic intent classification — no NLP, no cover parse, no LLM anywhere near the fire path.
+The filer identity and %-owned the tape carries are **evidence** shown beside the call (#6), never
+fire inputs.
+
+## The enumeration (verified live, 2026-08-18)
+
+A 13D/G is filed **by** the activist **about** the member — but EDGAR indexes an ownership schedule
+under **both** entities, so the member's own `data.sec.gov/submissions/{CIK}.json` lists every
+13D/G filed about it. Verified on three real subjects (CMPS: 35 rows across both form eras; NRXP:
+32 incl. three SC 13Ds; MindMed: 18, all 13G — correctly no 13D, cross-checked against EFTS and
+the FCM MM Holdings episode, which was DFAN14A proxy material and never a 13D). The leg therefore
+reads the **same submissions JSON the Form 4 / 8-K legs already fetch** — zero extra enumeration
+fetches; identity costs one bounded, immutable-cached document fetch per filing.
+
+**The rename trap (#9):** EDGAR renamed the form type at the ~2024-12 structured-XML cutover:
+`SC 13D` / `SC 13D/A` / `SC 13G` / `SC 13G/A` (classic) → `SCHEDULE 13D` / `SCHEDULE 13D/A` /
+`SCHEDULE 13G` / `SCHEDULE 13G/A` (structured). The ingest matches **all eight strings**
+(`submissions.SCHEDULE13_FORMS`); an SC-only match silently drops every 2025+ filing.
+
+## The tape (evidence layer)
+
+`fact_activist_stake` (migration 0039) — one row per (SUBJECT security, filing), append-only,
+natural key `UNIQUE (tenant_id, security_id, accession, recorded_at)` (security_id from birth — the
+0037 lesson): `form` · `filer_cik`/`filer_name` (the activist — the 0024 capture pattern; parsed
+from the structured `primary_doc.xml` post-2024-12, from the SGML `FILED BY` header for classic-era
+13D-family, NULL-by-design for classic-era 13G, which can never fire) · `pct_owned` (structured
+cover `percentOfClass`; nullable, evidence-only) · `accession` · `filed` · `source_ref` (the
+filing-index URL, #6). **Every 13D/G-family filing is stored** — 13Gs and amendments included
+(#9): the deferred refinements ride this same tape with no re-ingest. Identity failures store the
+row with NULL filer + a loud counter — never a drop. Append-if-changed: identity resolving on a
+retry appends a new VERSION (never an UPDATE).
+
+**Knowability (gold-doc trap #4):** `valid_from = filed`. The stake crossing inside the filing
+predates dissemination by up to 10 days, and the structured cover's `dateOfEvent` /
+`date5PercentOwnership` are deliberately never read for time. A fixed-timestamp fixture pins it.
+
+## The fire policy (config-on-read; forks operator-confirmed 2026-08-18)
+
+- **13D-family ORIGINALS fire** — the most recent live original anchors, CORE fixed in the detector
+  (the R6/R9 structural-grade precedent: "core = a rare, deliberate capital commitment" — the
+  grade-philosophy line item 1.01 failed). Score `activist_13d_score` (0.9 — `_CORE_SCORE`
+  parity), liveness `activist_13d_liveness_days` (180d — the literature's months; insider-CORE
+  parity; ≥ the 90d hold threshold → hold-and-build). Both `[PROPOSED]`, lab-finalized.
+- **Fork 3 — 13G fires NOTHING.** Passive crossings are mostly index-fund plumbing: measured ~2
+  13G originals/yr/name vs one 13D per six years. Firing 13G would re-land the S3 `1.01` flood
+  (routine paperwork warming names). The rows stay on the tape for the deferred 13G→13D switch —
+  the loudest version of this signal — which needs per-(filer, subject) history.
+- **Fork 4 — amendments NEVER re-anchor a fire.** A 13D/A is direction-blind: an increase, a
+  sell-down, and an exit all file identically. The live proof: CMPS's latest 13D/A (2026-02-17,
+  AtaiBeckley Inc.) reports **4.96% — a sell-down below 5%**; latest-wins-including-/A would fire
+  a fresh CORE on an exit filing today. Amendments inside the fired window ride the PROVENANCE so
+  the operator sees the whole episode. Honest cost, documented both ways: v1 neither re-fires on
+  an increase-/A nor kills on an exit-/A — the %-owned refinement (deferred, same tape) recovers
+  both.
+
+## The golden (real, cited)
+
+atai × COMPASS Pathways (CMPS, an answer-key basket member): the ORIGINAL **SC 13D accession
+`0001193125-21-171001`** (filed 2021-05-24, FILED BY ATAI Life Sciences B.V., CIK 0001840904 —
+SGML header committed as a fixture) fires CORE inside its window; the real structured-era
+**SCHEDULE 13D/A `0001140361-26-005810`** (filed 2026-02-17, AtaiBeckley Inc., CIK 0002081043,
+4.96% — raw XML committed as a fixture) is the fork-4 must-not-fire instance. MindMed's all-13G
+tape is the fires-nothing negative. NRXP × Javitt (SC 13D `0000950142-21-001848`) is the second
+real subject on the discovery path.
+
+## Deferred (named; all ride the existing tape, no re-ingest)
+
+- **The 13G→13D switch** — a passive holder going active (the loudest version; needs
+  per-(filer, subject) history over the stored 13G rows).
+- **%-owned refinements** — percent rising across amendments as re-affirmation; percent < 5 on an
+  /A as stake-death; the Item-4 purpose text as a located passage (#6, the S3 descope pattern).
+- **Group-filing capture** — v1 stores the LEAD reporting person only; the provenance URL shows
+  the rest.
+- **Identity backfill** for old-era 13G rows (NULL filer by design today).
+
+## Shipping posture
+
+Inert-first (the S1/S3/S4 precedent): merge + deploy with the switch OFF → run the sig lab
+(`python -m replay.run … --activist-stake`, or `ALPHADECK_ACTIVIST_STAKE=1`) → the operator
+ratifies the dials → a one-line config flip PR. The pure `score()` is fully tested ungated; the
+standing-guard test runs the whole pipeline with the switch forced on, so the eventual flip cannot
+surface a protocol-incomplete test double (the corporate_risk-flip lesson, made structural).

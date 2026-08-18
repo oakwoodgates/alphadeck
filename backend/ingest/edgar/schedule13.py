@@ -150,7 +150,9 @@ def _fetch_identity(client, cik: str | int, filing: dict[str, Any]) -> dict[str,
     accession = filing["accession"]
     if primary_doc.lower().endswith(".xml"):
         doc = primary_doc.rsplit("/", 1)[-1]
-        xml = client.get_text(form4_doc_url(cik, accession, primary_doc), f"forms/{accession}/{doc}")
+        xml = client.get_text(
+            form4_doc_url(cik, accession, primary_doc), f"forms/{accession}/{doc}"
+        )
         return parse_structured_cover(xml)
     if is_13d_family(filing["form"]):
         nodash = accession.replace("-", "")
