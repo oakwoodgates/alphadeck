@@ -77,6 +77,18 @@ class Kind(StrEnum):
     # haircut. Per-risk-family kind, never shared with the trigger side (8-K catalyst items emit
     # ``CATALYST``). Master switch ``corporate_risk_enabled``, default OFF.
     CORPORATE_RISK = "corporate_risk"
+    # An outside holder's SC 13D activist stake (Band 03 S5): a Key-1 CONVICTION — someone crossed
+    # 5% WITH INTENT to influence (the form type IS the classification, #3; 13G = passive is stored
+    # on the ``fact_activist_stake`` tape but fires NOTHING in v1 — the S3 1.01-flood lesson:
+    # index-fund crossings are plumbing, not conviction). A DISTINCT kind from ``INSIDER`` — a
+    # 5%-with-intent outside stake is not an officer's open-market buy: the economics and grade
+    # rules differ, and the per-family kind keeps kind-filtering honest. A member of
+    # ``conviction_kinds``, so co-location arming + the ``own_conviction_kinds`` ranking ride the
+    # existing composition (zero assembler edits). CORE fixed in the detector (a rare, deliberate
+    # capital commitment — the grade-philosophy line 1.01 failed); amendments never re-anchor the
+    # fire (a 13D/A is direction-blind — increase, sell-down, and exit file identically). Master
+    # switch ``activist_stake_enabled``, default OFF.
+    ACTIVIST_STAKE = "activist_stake"
 
 
 class CatalystType(StrEnum):

@@ -133,6 +133,15 @@ def main() -> None:
             "the operator flips it). Also enabled by ALPHADECK_SHARE_CREEP=1."
         ),
     )
+    p.add_argument(
+        "--activist-stake",
+        action="store_true",
+        help=(
+            "enable the Band 03 S5 SC 13D activist-stake CONVICTION trigger (default OFF — its master "
+            "switch activist_stake_enabled is off until the sig-lab distribution is measured and the "
+            "operator flips it). Also enabled by ALPHADECK_ACTIVIST_STAKE=1."
+        ),
+    )
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
@@ -153,6 +162,7 @@ def main() -> None:
             or _env_on("ALPHADECK_CORPORATE_CATALYST"),
             "corporate_risk_enabled": args.corporate_risk or _env_on("ALPHADECK_CORPORATE_RISK"),
             "share_creep_enabled": args.share_creep or _env_on("ALPHADECK_SHARE_CREEP"),
+            "activist_stake_enabled": args.activist_stake or _env_on("ALPHADECK_ACTIVIST_STAKE"),
         }
     )
     conn = connect()

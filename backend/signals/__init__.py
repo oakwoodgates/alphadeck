@@ -20,7 +20,10 @@ from signals.registry import registered_detectors
 # pair — EACH behind its own master switch, default OFF, so with the live DEFAULT_CONFIG they emit
 # nothing and registering them changes no card. share_creep (Band 03 S4) is a RISK detector off the
 # quarterly XBRL shares series (kind=DILUTION_RISK — REUSED: realized issuance beside dilution_clock's
-# potential convert overhang), appended LAST behind its own master switch, default OFF.
+# potential convert overhang), behind its own master switch, default OFF. activist_stake (Band 03 S5)
+# is an ENTRY trigger (kind=ACTIVIST_STAKE — a new conviction kind: SC 13D originals fire CORE off
+# the fact_activist_stake ownership tape; 13G/amendments never fire), appended LAST behind its own
+# master switch, default OFF.
 # isort: off
 from signals import insider_conviction as insider_conviction
 from signals import catalyst_conviction as catalyst_conviction
@@ -33,10 +36,12 @@ from signals import insider_sell as insider_sell
 from signals import corporate_catalyst as corporate_catalyst
 from signals import corporate_risk as corporate_risk
 from signals import share_creep as share_creep
+from signals import activist_stake as activist_stake
 
 # isort: on
 
 __all__ = [
+    "activist_stake",
     "breakdown",
     "breakout_52w",
     "catalyst_conviction",

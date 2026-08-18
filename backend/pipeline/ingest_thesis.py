@@ -1,13 +1,15 @@
-"""Per-thesis back-half ingest — insider Form 4 + the 8-K item-code tape + price EOD (+ fund shares
-for ETF sleeves) for a thesis's RESOLVED basket (M2a; the fund-shares leg is ETF net flow F2; the
-8-K leg is Band 03 S3).
+"""Per-thesis back-half ingest — insider Form 4 + the 8-K item-code tape + the 13D/G ownership tape
++ price EOD (+ fund shares for ETF sleeves) for a thesis's RESOLVED basket (M2a; the fund-shares leg
+is ETF net flow F2; the 8-K leg is Band 03 S3; the 13D/G leg is Band 03 S5).
 
 The create/promote path writes only the spine, so a freshly-authored thesis has no CALL-ENGINE facts and
 can never WARM/ARM. This CLI fills that gap on demand: for each resolved basket member it ingests the insider
-+ 8-K corporate-event + price facts the detectors read — plus, for an ``instrument_kind == 'etf'`` member,
-one fund shares-outstanding sample (DISPLAY-feeding data for the sleeve's flow read, never a call input).
-The 8-K leg reads the SAME submissions JSON as the Form 4 leg (items ride the parallel arrays), so the
-whole item-code tape costs zero extra fetches. It is:
++ 8-K corporate-event + 13D/G activist-stake + price facts the detectors read — plus, for an
+``instrument_kind == 'etf'`` member, one fund shares-outstanding sample (DISPLAY-feeding data for the
+sleeve's flow read, never a call input). The 8-K and 13D/G legs read the SAME submissions JSON as the
+Form 4 leg (parallel arrays / subject-indexed rows), so both tapes cost zero extra enumeration fetches
+(the 13D/G leg's bounded per-filing identity fetches are immutable-cached — paid once per accession,
+ever). It is:
 
 - **Incremental** — only NEW Form 4 accessions (``existing_accessions``) and only EOD bars newer than the
   latest stored one (``latest_bar_date``). A re-run of an already-current name appends ZERO rows; the
@@ -42,11 +44,13 @@ from domain.security import Security
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.form8k import ingest_form8k
+from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
     fetch_submissions,
     form4_doc_url,
     form4_filings,
     form8k_filings,
+    schedule13_filings,
 )
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.source import FundSharesSource
@@ -78,6 +82,13 @@ class NameResult:
     # reversion = a stored filing whose items RESOLVED (or surface changed) — loud only when nonzero
     form8k_appended: int = 0
     form8k_reversioned: int = 0
+    # the 13D/G activist-stake leg (Band 03 S5): new ownership schedules stored on the tape; a
+    # reversion = a stored filing whose filer identity RESOLVED (or surface changed); an
+    # identity_skipped = a row stored THIS run with NULL filer (fetch/parse failed — never a
+    # dropped row, #9). All loud only when nonzero
+    sched13_appended: int = 0
+    sched13_reversioned: int = 0
+    sched13_identity_skipped: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -151,6 +162,25 @@ def _form8k_leg(
     return res.appended, res.reversioned
 
 
+def _schedule13_leg(
+    conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
+) -> tuple[int, int, int]:
+    """Ingest the security's 13D/G activist-stake tape (Band 03 S5) from its OWN submissions JSON —
+    the S5-verified subject-indexing path. Returns ``(appended, reversioned, identity_skipped)``.
+    Needs the issuer CIK; a name without one contributes no stakes.
+
+    Enumeration reads the SAME submissions document the Form 4 / 8-K legs fetch (cache-free second
+    read); the activist's identity costs one bounded, immutable-cached document fetch per filing
+    (``ingest_schedule13``'s depth strategy). Append-if-changed: an unchanged tape re-run appends
+    ZERO rows; a stored filing whose identity RESOLVES gets a new version (never an UPDATE); an
+    identity failure stores the row with NULL filer and counts loud (#9)."""
+    if not sec.cik:
+        return 0, 0, 0
+    filings = schedule13_filings(fetch_submissions(client, sec.cik))
+    res = ingest_schedule13(conn, sec.id, sec.cik, filings, client, tenant_id=tenant_id)
+    return res.appended, res.reversioned, res.identity_skipped
+
+
 # The price leg lives in ``ingest.prices.ingest_security.ingest_bars_for_security`` now — ONE
 # implementation shared with the Workbench's per-name / per-section pull (the finalize screen needs
 # real caps + hints BEFORE promote), so the incremental / cache-first / no-lookahead rules can't fork.
@@ -219,6 +249,15 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
             conn.rollback()
             errs.append(f"form8k: {e}")
+        s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
+        try:
+            s13_appended, s13_reversioned, s13_skipped = _schedule13_leg(
+                conn, client, sec, tenant_id=thesis.tenant_id
+            )
+            conn.commit()
+        except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
+            conn.rollback()
+            errs.append(f"schedule13: {e}")
         px_appended, px_reversioned = 0, 0
         try:
             bars = ingest_bars_for_security(
@@ -262,6 +301,9 @@ def ingest_thesis(
                 fund_shares_reversioned=fs_reversioned,
                 form8k_appended=f8k_appended,
                 form8k_reversioned=f8k_reversioned,
+                sched13_appended=s13_appended,
+                sched13_reversioned=s13_reversioned,
+                sched13_identity_skipped=s13_skipped,
             )
         )
     return results
@@ -277,6 +319,8 @@ def _report(results: list[NameResult]) -> int:
     total_sk = sum(r.form4_skipped for r in results)
     total_fs = sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results)
     total_8k = sum(r.form8k_appended + r.form8k_reversioned for r in results)
+    total_s13 = sum(r.sched13_appended + r.sched13_reversioned for r in results)
+    total_s13_sk = sum(r.sched13_identity_skipped for r in results)
     errored = [r for r in results if r.error]
     for r in results:
         tail = f"   ERROR: {r.error}" if r.error else ""
@@ -298,16 +342,27 @@ def _report(results: list[NameResult]) -> int:
         # DISTINCTLY (the exceptional path), never folded into the new-filing count
         f8k = f", +{r.form8k_appended} 8-K" if r.form8k_appended else ""
         f8k += f", +{r.form8k_reversioned} 8-K re-versioned" if r.form8k_reversioned else ""
+        # the 13D/G tape (S5) — same exception-loud shape; an unresolved-identity row is surfaced
+        # DISTINCTLY (stored, not dropped — #9), never folded into the appended count
+        s13 = f", +{r.sched13_appended} 13D/G" if r.sched13_appended else ""
+        s13 += f", +{r.sched13_reversioned} 13D/G re-versioned" if r.sched13_reversioned else ""
+        s13 += (
+            f", {r.sched13_identity_skipped} 13D/G identity unresolved"
+            if r.sched13_identity_skipped
+            else ""
+        )
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{f8k}{fund}{skips}{tail}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{tail}"
         )
     sk = f", {total_sk} form4 skipped" if total_sk else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""
     e8k = f", +{total_8k} 8-K events" if total_8k else ""
+    s13 = f", +{total_s13} 13D/G" if total_s13 else ""
+    s13 += f" ({total_s13_sk} identity unresolved)" if total_s13_sk else ""
     print(
-        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{fs}"
-        f"{sk}, {len(errored)} errored"
+        f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{s13}"
+        f"{fs}{sk}, {len(errored)} errored"
     )
     return len(errored)
 

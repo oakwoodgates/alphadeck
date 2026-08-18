@@ -110,6 +110,12 @@ class ReplayPointInTimeData:
         decoded back to a list here (``_JSON_COLS``). Parity-gated row-for-row."""
         return self._as_of("fact_corporate_event", "security_id", security_id)
 
+    def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The mirror twin of ``PointInTimeData.activist_stake_facts`` (Band 03 S5) — the as-of
+        SC 13D/G ownership tape over the mirror, so the activist-stake detector runs identically in
+        replay (scalar columns only — no ``_JSON_COLS`` decode needed). Parity-gated row-for-row."""
+        return self._as_of("fact_activist_stake", "security_id", security_id)
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
 

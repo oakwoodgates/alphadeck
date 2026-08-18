@@ -174,6 +174,26 @@ class PointInTimeData:
             tenant_id=self.tenant_id,
         )
 
+    def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The as-of SC 13D/G ownership tape (Band 03 S5) — the activist-stake detector's input.
+
+        Each row is one 13D/G-family filing ABOUT this security (the SUBJECT), knowable from its
+        ``filed`` date (``valid_from`` — the acceptance date IS the knowability; the stake crossing
+        inside the filing predates it, gold-doc trap #4, so a past-as-of read never sees a stake
+        early; #1). The as-of read dedups to the latest VERSION per accession, so a filing whose
+        filer identity resolved after first ingest reads with the activist named. Rows carry
+        ``form`` / ``filer_cik`` / ``filer_name`` / ``pct_owned`` / ``accession`` / ``filed`` /
+        ``source_ref`` — the detector applies the fire policy (13D-family originals only) on READ,
+        never at ingest (the evidence/policy seam)."""
+        return as_of(
+            self.conn,
+            "fact_activist_stake",
+            security_id=security_id,
+            asof=self.asof,
+            known_at=self.known_at,
+            tenant_id=self.tenant_id,
+        )
+
     def revenue_mix_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         """Workbench purity basis — operator-ratified revenue-mix facts (10-K segments), as-of."""
         return as_of(
@@ -278,6 +298,8 @@ class SignalPointInTimeData(Protocol):
     def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def corporate_event_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
+    def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
 
