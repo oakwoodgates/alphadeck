@@ -3,8 +3,8 @@
 > One EDGAR ingest, many signals. 8-K **item codes** are structured, enumerable, and deterministic —
 > the SEC's own taxonomy IS the classification (invariant #3: no NLP, no LLM anywhere on the fire
 > path). This doc is the family's one page: the evidence layer, the policy map, the two detectors,
-> and the inert-first posture. Shipped **inert** (both switches OFF); the sig-lab pass finalizes the
-> `[PROPOSED]` dials before the operator flips anything.
+> and the shipping posture. **`corporate_risk` is live** (#280, 2026-08-18 — the 8-K counter-case
+> teeth); **`corporate_catalyst` stays inert**, parked on the `1.01`-flood decision below.
 
 ## The organizing seam — evidence vs policy
 
@@ -45,7 +45,7 @@
   never guessed) gets a **new version** when its items resolve. The shared items parser is
   `submissions.parse_item_codes` — one parser, also the SPAC radar's (`spac._items_for`).
 
-## The two detectors (both read the same tape; both `[PROPOSED]`-dialed)
+## The two detectors (both read the same tape; `corporate_catalyst` still `[PROPOSED]`-dialed)
 
 ### `corporate_catalyst` — the trigger side (extends the catalyst family)
 
@@ -107,15 +107,19 @@ at detect time (detectors are pure — no network) and storing one at ingest mea
 
 ## Shipping posture — inert-first, two switches
 
-`corporate_catalyst_enabled` / `corporate_risk_enabled`, **both default OFF** (the `insider_sell`
-precedent; one per side because the blast radii differ — the trigger side can warm/arm, the risk
-side can withhold). Registered but `detect()` no-ops until enabled → with the live `DEFAULT_CONFIG`
-nothing reaches a card and every golden is byte-for-byte unchanged; the pure `score()` functions
-stay testable ungated. `replay.run --corporate-catalyst` / `--corporate-risk`
-(`ALPHADECK_CORPORATE_CATALYST` / `ALPHADECK_CORPORATE_RISK`) force them on for the sig-lab pass —
-fire distribution, per-item frequency, verdict-diff off-vs-on, EDGAR ground-truth spot-checks —
-which finalizes the `[PROPOSED]` dials before the operator flips either default. Nothing
-re-verdicts prod unmeasured.
+`corporate_catalyst_enabled` / `corporate_risk_enabled` — one switch per side because the blast
+radii differ (the trigger side can warm/arm, the risk side can withhold). Both **shipped**
+default-OFF (the `insider_sell` precedent): registered but `detect()` no-ops until enabled → nothing
+reaches a card, every golden is byte-for-byte unchanged, the pure `score()` functions stay testable
+ungated. `replay.run --corporate-catalyst` / `--corporate-risk` (`ALPHADECK_CORPORATE_CATALYST` /
+`ALPHADECK_CORPORATE_RISK`) force one on for the sig-lab pass — fire distribution, per-item
+frequency, verdict-diff off-vs-on, EDGAR ground-truth spot-checks — which finalizes its `[PROPOSED]`
+dials before the operator flips that default. Nothing re-verdicts prod unmeasured.
+
+**Live state (2026-08-18): `corporate_risk` is flipped ON** (`corporate_risk_enabled=True`, #280) —
+pre-verified safe (0 withheld / 0 verdict changes on real prod data), now surfacing moderate 8-K
+counter-case (e.g. 29 fires on the psychedelic thesis's card). **`corporate_catalyst` stays OFF**,
+parked on the `1.01`-flood role decision (above).
 
 ## Deferred — same ingest, no re-ingest (the recall-safe payoff)
 
