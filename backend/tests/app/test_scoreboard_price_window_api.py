@@ -38,6 +38,7 @@ def insider_buy(
     accession,
     valid_from,
     recorded_at,
+    accepted=None,
     insider_name="A Buyer",
     role="CEO",
     txn_code="P",
@@ -69,6 +70,7 @@ def insider_buy(
             "accession": accession,
             "valid_from": valid_from,
             "recorded_at": recorded_at,
+            "accepted": accepted,
             "aff_10b5_1": aff_10b5_1,
             "txn_seq": txn_seq,
             "rpt_owner_cik": rpt_owner_cik,
@@ -296,18 +298,25 @@ def test_price_window_universe_floor_excludes_a_pre_thesis_buy(client, db, secur
 
 def test_price_window_insider_no_lookahead_on_transaction_and_disclosure(client, db, security_id):
     """The event twin of the price no-lookahead test — BOTH axes:
-    - transaction axis: a buy transacted 06-05 but DISCLOSED 06-20 is ABSENT at as-of 06-10 (we hadn't
-      learned it yet) and PRESENT at 06-25 (we had) — the disclosure-lag honesty (the IBM 166-day case).
+    - transaction axis: a buy transacted 06-05, ACCEPTED (disclosed) 06-20 but INGESTED 07-01 is ABSENT
+      at as-of 06-10 (not yet disclosed) and PRESENT at 06-25 — visible from its DISCLOSURE date even
+      though we ingested it later: the no-lookahead gate keys on ``accepted`` (COALESCE(accepted,
+      recorded_at)), not our fetch time (the MRVL two-clock honesty fix). If the gate wrongly used
+      recorded_at (07-01) the buy would be ABSENT at 06-25, so this pins the accepted-gate.
     - valid axis: a buy transacted 08-15 (future vs both as-ofs) NEVER appears — no `valid_from > asof`.
     """
     thesis = persist_thesis(db, security_id)
-    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # the Form 4 hits EDGAR 06-20
+    disc = datetime(
+        2026, 6, 20, 12, 0, tzinfo=timezone.utc
+    )  # the Form 4 is ACCEPTED (public) 06-20
+    ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # we INGESTED it 11 days later
     insider_buy(
         db,
         security_id,
         accession="0000000001-26-000001",
         valid_from=date(2026, 6, 5),
-        recorded_at=disc,
+        accepted=disc,  # the disclosure clock: the real "disclosed" date AND the no-lookahead gate
+        recorded_at=ingest,  # the ingest clock — LATER; the gate must key on accepted, not this
     )
     # a FUTURE-transaction buy (disclosed early) — the valid axis must hide it at both as-ofs
     insider_buy(
@@ -327,7 +336,10 @@ def test_price_window_insider_no_lookahead_on_transaction_and_disclosure(client,
     )  # disclosed 06-20 is after known_at(06-10); the 08-15 buy is past the valid cap
     assert len(late) == 1  # the 06-05 buy is now known; the 08-15 buy still hasn't transacted
     (buy,) = late
-    assert buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"
+    assert buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"  # disclosed = accepted
+    assert (
+        buy["ingested"] == "2026-07-01"
+    )  # the second clock — shown because it differs from disclosed
     assert buy["insider_name"] == "A Buyer" and buy["usd"] == 50000.0
     # the load-bearing assertion: no returned buy is ever transacted after the as-of
     for asof, buys in (("2026-06-10", early), ("2026-06-25", late)):

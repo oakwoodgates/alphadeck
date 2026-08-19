@@ -183,9 +183,21 @@ function insiderTooltip(e: InsiderChipEvent): TooltipContent {
   // an unsized set-aside/self-filing must not claim "open-market" — the neutral fallback is honest
   else bought = b.character === "open_market" ? "open-market buy" : "insider buy";
   const lines = [bought, `transacted ${b.d}`];
-  const lag = daysBetween(b.d, b.disclosed);
-  // the disclosure lag is the honest bit (#6): the IBM episode's own "ingested 166d after its event date"
-  if (lag >= 1) lines.push(`disclosed ${lag}d later (${b.disclosed})`);
+  // Two honest clocks (#6, the MRVL two-clock fix): `disclosed` = the real SEC acceptance date; `ingested`
+  // = when our pipeline wrote the row, rendered as a SECOND line ONLY when it differs. When the acceptance
+  // date is unknown (pre-backfill / unresolvable) the disclosed line is absent and only "ingested" rides
+  // (#9 fallback) — honest at every rollout stage. Each line suppresses a 0-day lag (no "0d later").
+  if (b.disclosed != null) {
+    const lag = daysBetween(b.d, b.disclosed);
+    if (lag >= 1) lines.push(`disclosed ${lag}d later (${b.disclosed})`);
+    if (b.ingested !== b.disclosed) {
+      const ilag = daysBetween(b.d, b.ingested);
+      if (ilag >= 1) lines.push(`ingested ${ilag}d later (${b.ingested})`); // the re-ingest lag, honest
+    }
+  } else {
+    const ilag = daysBetween(b.d, b.ingested); // no acceptance date -> the ingest line only (#9)
+    if (ilag >= 1) lines.push(`ingested ${ilag}d later (${b.ingested})`);
+  }
   // S2c: the character line — why this buy did/didn't count (#6); open_market stays unbadged (#7)
   const character = CHARACTER_LINE[b.character];
   if (character) lines.push(character);

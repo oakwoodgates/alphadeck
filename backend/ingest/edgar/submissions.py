@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from domain.security import SecurityIdentity
@@ -101,12 +102,15 @@ def fetch_submissions(client: EdgarClient, cik: str | int) -> dict[str, Any]:
 
 def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
     """List a company's filings of one ``form`` type (newest first) from a submissions JSON:
-    ``{accession, primary_doc, filed, report_date}``. ``filed`` is the FILING date; ``report_date`` is
-    the PERIOD OF REPORT (the quarter/year end the filing covers) — two different dates ~a month apart
-    on a 10-Q, and the distinction is load-bearing: the shares extractor's staleness gate compares a
-    cover "as of" date (which falls BETWEEN period end and filing date) against the period end, so
-    threading ``filed`` where the period belongs made that gate unreachable live (every single-class
-    name mis-flagged "dual-class"). The submissions ``recent`` arrays are parallel + reverse-chrono,
+    ``{accession, primary_doc, filed, report_date, accepted}``. ``filed`` is the FILING date;
+    ``report_date`` is the PERIOD OF REPORT (the quarter/year end the filing covers) — two different
+    dates ~a month apart on a 10-Q, and the distinction is load-bearing: the shares extractor's
+    staleness gate compares a cover "as of" date (which falls BETWEEN period end and filing date)
+    against the period end, so threading ``filed`` where the period belongs made that gate unreachable
+    live (every single-class name mis-flagged "dual-class"). ``accepted`` is the raw SEC
+    ``acceptanceDateTime`` string (the moment the filing became public — the real "disclosed" clock;
+    ``""`` when the row lacks one) — free here (a parallel array we already have; the insider leg finally
+    reads it instead of discarding it). The submissions ``recent`` arrays are parallel + reverse-chrono,
     so the first match is the latest (e.g. ``filings_of(subs, "10-Q")[0]`` = the most recent 10-Q).
     ``report_date`` is "" when the row lacks one (defensive — some form types omit it).
     """
@@ -116,12 +120,14 @@ def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
     docs = recent.get("primaryDocument", [])
     dates = recent.get("filingDate", [])
     reports = recent.get("reportDate", [])
+    accepts = recent.get("acceptanceDateTime", [])
     return [
         {
             "accession": accns[i],
             "primary_doc": docs[i],
             "filed": dates[i],
             "report_date": reports[i] if i < len(reports) else "",
+            "accepted": accepts[i] if i < len(accepts) else "",
         }
         for i, f in enumerate(forms)
         if f == form
@@ -129,8 +135,51 @@ def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
 
 
 def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
-    """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed}``."""
+    """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed, accepted}``
+    (``accepted`` = the raw SEC ``acceptanceDateTime`` — the Form 4 leg threads it into the fact's
+    ``accepted`` column, the honest disclosure clock)."""
     return filings_of(submissions, "4")
+
+
+def acceptance_times(submissions: dict[str, Any]) -> dict[str, str]:
+    """Map every accession in a submissions JSON to its raw SEC ``acceptanceDateTime`` string.
+
+    The ``backfill_accepted`` source: ``filings.recent`` carries ``acceptanceDateTime`` as a parallel
+    array beside ``accessionNumber``, so ONE walk maps accession -> acceptance for the whole tape (the
+    ownership *document* the forms cache holds does NOT carry it — the enumeration is the only source).
+    A row whose acceptance entry is absent/blank simply doesn't appear (the caller leaves it NULL, #9).
+    Same accepted depth as ``form4_filings``: ``recent`` covers >= 1 year / 1,000 filings; older
+    accessions roll into paginated ``filings.files[]`` (a deferred ``--deep`` walk), unresolved -> NULL.
+    """
+    recent = submissions.get("filings", {}).get("recent", {})
+    accns = recent.get("accessionNumber", [])
+    accepts = recent.get("acceptanceDateTime", [])
+    return {
+        accns[i]: accepts[i]
+        for i in range(min(len(accns), len(accepts)))
+        if accns[i] and accepts[i]
+    }
+
+
+def parse_acceptance(raw: str | None) -> datetime | None:
+    """Parse an EDGAR ``acceptanceDateTime`` ("2025-09-27T18:30:41.000Z") into a tz-aware UTC datetime.
+
+    ``None``/empty -> ``None`` (recall-safe: an unresolved acceptance stays NULL, never a guess — #9).
+    Tolerates a trailing ``Z`` and fractional seconds; a value with no offset is assumed UTC. A genuinely
+    unparseable value -> ``None`` (never raises inside the ingest / backfill loop — the row simply stays
+    NULL and is counted). Stored into the timestamptz ``accepted`` column, so the type matches ``recorded_at``
+    and the ``COALESCE(accepted, recorded_at)`` read gate needs no coercion (the Postgres<->DuckDB parity).
+    """
+    if not raw:
+        return None
+    s = raw.strip()
+    if s.endswith("Z"):  # EDGAR's UTC suffix — datetime.fromisoformat wants +00:00 (pre-3.11)
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def parse_item_codes(raw: str | None) -> list[str] | None:

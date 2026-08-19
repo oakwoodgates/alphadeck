@@ -26,6 +26,33 @@ def test_pit_insider_txns_have_no_lookahead(db, security_id):
     assert len(later) == 2
 
 
+def test_pit_insider_visibility_keys_on_accepted_not_ingest(db, security_id):
+    """The MRVL two-clock fix via the LIVE PIT (#1): a filing ACCEPTED 06-03 but RE-INGESTED 09-01
+    (recorded_at) is knowable from its acceptance — a PIT pinned 06-10 (after acceptance, long before our
+    ingest) SEES its txns (public then — the honesty fix, a demo row with recorded_at >> accepted visible
+    just after accepted), while one pinned 06-02 (pre-acceptance) sees nothing (no lookahead)."""
+    xml = (_F / "edgar" / "form4_sample.xml").read_text(encoding="utf-8")
+    ingest_form4(
+        db,
+        security_id,
+        xml,
+        "acc-accepted",
+        recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),  # demo re-ingest, far after the txns
+        accepted=datetime(2026, 6, 3, 12, tzinfo=timezone.utc),  # public ~2d after the txn
+    )
+    db.commit()
+    seen = PointInTimeData(
+        db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 10, tzinfo=timezone.utc)
+    ).insider_txns(security_id)
+    assert len(seen) == 2 and all(
+        t["accession"] == "acc-accepted" for t in seen
+    )  # visible from acceptance
+    blind = PointInTimeData(
+        db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 2, tzinfo=timezone.utc)
+    ).insider_txns(security_id)
+    assert blind == []  # pinned before acceptance -> invisible (no lookahead on the accepted axis)
+
+
 def test_ingest_form4_allows_multiple_same_day_txns(db, security_id):
     # one filing, same insider + same date (an exercise + a sale): both stored (txn_seq distinguishes)
     xml = (_F / "edgar" / "form4_multi_sameday.xml").read_text(encoding="utf-8")

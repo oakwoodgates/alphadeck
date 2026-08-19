@@ -50,6 +50,7 @@ from ingest.edgar.submissions import (
     form4_doc_url,
     form4_filings,
     form8k_filings,
+    parse_acceptance,
     schedule13_filings,
 )
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
@@ -130,7 +131,16 @@ def _form4_leg(
         doc = f["primary_doc"].rsplit("/", 1)[-1]
         try:
             xml = client.get_text(url, f"forms/{f['accession']}/{doc}")
-            appended += ingest_form4(conn, sec.id, xml, f["accession"], tenant_id=tenant_id)
+            # thread the SEC acceptance datetime (the honest "disclosed" clock) from the enumeration —
+            # the ownership XML has none; parse_acceptance -> None leaves accepted NULL (#9)
+            appended += ingest_form4(
+                conn,
+                sec.id,
+                xml,
+                f["accession"],
+                tenant_id=tenant_id,
+                accepted=parse_acceptance(f.get("accepted")),
+            )
         except Exception as e:
             # A tolerated error can only fire BEFORE this filing's first row: parse_form4 fully parses
             # the doc before ingest_form4 appends anything (append failures are DB errors → re-raised),

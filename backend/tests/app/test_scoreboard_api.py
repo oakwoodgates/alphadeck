@@ -198,12 +198,13 @@ def test_freeze_window_arm_is_flagged_on_the_wire(client, db, security_id):
 
 
 def test_thawed_late_arm_is_flagged_with_the_lag(client, db, security_id):
-    """B2: a June (pre-freeze) arm citing a form4 fact the platform first learned 10 days after
-    its event date reads thaw_lag_days=10 and flags, with the note."""
+    """B2: a June (pre-freeze) arm citing a form4 fact DISCLOSED 10 days after its event date reads
+    thaw_lag_days=10 and flags, with the note. (accepted NULL here -> COALESCE falls back to recorded_at,
+    the #9 progressive-rollout behavior.)"""
     thesis = persist_thesis(db, security_id)
     conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
     record_day(db, thesis, [conv, conf], date(2026, 6, 1))
-    # the arm's cited accession (the factory fixture), ingested 10d after its event date
+    # the arm's cited accession (the factory fixture), disclosed 10d after its event date
     append_fact(
         db,
         "fact_insider_txn",
@@ -221,8 +222,42 @@ def test_thawed_late_arm_is_flagged_with_the_lag(client, db, security_id):
 
     ep = _one_episode(client)
     assert ep["thaw_lag_days"] == 10 and ep["ingest_flagged"] is True
-    assert "insider source ingested 10d after its event date" in ep["ingest_note"]
+    assert "insider source disclosed 10d after its event date" in ep["ingest_note"]
     assert ep["freeze_era"] is False
+
+
+def test_promptly_disclosed_arm_not_flagged_despite_late_ingest(client, db, security_id):
+    """The MRVL flip end-to-end (LOCKED DECISION 3): a June arm citing a form4 fact ACCEPTED just 2 days
+    after its txn but RE-INGESTED months later (2026-08-17) reads thaw_lag_days=2 and is NOT flagged — the
+    metrics gate keys on public disclosure (COALESCE(accepted, recorded_at)), not our fetch timing, so the
+    demo's false "ingested late -> excluded from metrics" exclusion clears. The row's recorded_at is even
+    AFTER the request asof, yet it counts, because its acceptance was knowable well before."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1))
+    append_fact(
+        db,
+        "fact_insider_txn",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "accession": "0001234567-26-000123",  # the arm's cited accession (the factory fixture)
+            "insider_name": "A Buyer",
+            "txn_code": "P",
+            "valid_from": date(2026, 5, 25),
+            "recorded_at": datetime(
+                2026, 8, 17, 12, 0, tzinfo=timezone.utc
+            ),  # the demo re-ingest, late
+            "accepted": datetime(
+                2026, 5, 27, 18, 0, tzinfo=timezone.utc
+            ),  # public 2d after the txn
+        },
+    )
+    db.commit()
+
+    ep = _one_episode(client)
+    assert ep["thaw_lag_days"] == 2 and ep["ingest_flagged"] is False
+    assert ep["ingest_note"] is None and ep["freeze_era"] is False
 
 
 def test_clean_stamped_arm_is_not_flagged(client, db, security_id):

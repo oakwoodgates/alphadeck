@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ingest.edgar.submissions import filings_of, form4_doc_url, form4_filings, parse_identity
+from ingest.edgar.submissions import (
+    acceptance_times,
+    filings_of,
+    form4_doc_url,
+    form4_filings,
+    parse_acceptance,
+    parse_identity,
+)
 
 _SUBS = json.loads(
     (
@@ -45,6 +52,80 @@ def test_filings_of_defends_a_missing_report_date_array():
     subs = _subs_with_dates()
     del subs["filings"]["recent"]["reportDate"]
     assert filings_of(subs, "10-Q")[0]["report_date"] == ""  # defensive "", never a crash
+
+
+# --- the SEC acceptance datetime (the honest "disclosed" clock — the MRVL two-clock fix) ---
+
+
+def _subs_form4(rows: list[tuple[str, str]]) -> dict:
+    """A filings.recent block of Form 4s with parallel (accession, acceptanceDateTime) arrays."""
+    return {
+        "filings": {
+            "recent": {
+                "form": ["4"] * len(rows),
+                "accessionNumber": [a for a, _ in rows],
+                "acceptanceDateTime": [t for _, t in rows],
+                "primaryDocument": ["doc.xml"] * len(rows),
+                "filingDate": ["2026-01-01"] * len(rows),
+            }
+        }
+    }
+
+
+def test_filings_of_carries_the_acceptance_datetime():
+    """``filings_of`` now surfaces ``acceptanceDateTime`` (a parallel array we already fetch) as
+    ``accepted`` — the raw string the Form 4 leg threads into the fact's honest disclosure clock."""
+    f = form4_filings(_subs_form4([("0001628280-25-042718", "2025-09-27T18:30:41.000Z")]))[0]
+    assert f["accepted"] == "2025-09-27T18:30:41.000Z"
+
+
+def test_filings_of_defends_a_missing_acceptance_array():
+    subs = _subs_form4([("acc-1", "2026-01-01T12:00:00.000Z")])
+    del subs["filings"]["recent"]["acceptanceDateTime"]
+    assert filings_of(subs, "4")[0]["accepted"] == ""  # defensive "", never a crash
+
+
+def test_acceptance_times_maps_accession_to_acceptance():
+    """The backfill source: accession -> raw acceptanceDateTime across the whole recent tape. A blank
+    acceptance entry simply doesn't appear (the caller leaves that accession NULL, #9)."""
+    subs = _subs_form4([("acc-a", "2025-09-27T18:30:41.000Z"), ("acc-b", "")])
+    assert acceptance_times(subs) == {"acc-a": "2025-09-27T18:30:41.000Z"}
+    assert acceptance_times({}) == {}  # sparse doc -> empty, never raises
+
+
+def test_parse_acceptance_handles_edgar_formats():
+    from datetime import datetime, timezone
+
+    # the EDGAR Z-suffixed format -> tz-aware UTC
+    assert parse_acceptance("2025-09-27T18:30:41.000Z") == datetime(
+        2025, 9, 27, 18, 30, 41, tzinfo=timezone.utc
+    )
+    # no offset -> assumed UTC (the read gate compares against a UTC known_at)
+    assert parse_acceptance("2026-01-02T09:00:00") == datetime(
+        2026, 1, 2, 9, 0, 0, tzinfo=timezone.utc
+    )
+    # unresolved / malformed -> None (never a guess; the row stays NULL, #9)
+    assert parse_acceptance(None) is None
+    assert parse_acceptance("") is None
+    assert parse_acceptance("not-a-datetime") is None
+
+
+def test_mrvl_real_accession_two_clock_lags():
+    """Real cited example (test-honesty): MRVL Form 4, accession 0001628280-25-042718, transaction
+    2025-09-25, RE-INGESTED 2026-08-17 (the demo-rebuild recorded_at). The exact acceptanceDateTime
+    was NOT re-fetchable offline (EDGAR 403s a generic User-Agent); this fixture uses the plan's cited
+    acceptance illustration (~2 business days after the txn, per the SEC's Form 4 rule + the accession's
+    2025 year-stamp). It proves the MECHANISM + the two REAL lags: disclosed ~2d vs ingested 326d.
+    """
+    from datetime import date
+
+    subs = _subs_form4([("0001628280-25-042718", "2025-09-27T18:30:41.000Z")])
+    accepted = parse_acceptance(acceptance_times(subs)["0001628280-25-042718"])
+    assert accepted is not None
+    txn = date(2025, 9, 25)
+    ingested = date(2026, 8, 17)  # the real committed re-ingest stamp (spec's data table)
+    assert (accepted.date() - txn).days == 2  # disclosed ~2d later — honest, not 326
+    assert (ingested - txn).days == 326  # the ingest lag, real arithmetic — the second clock
 
 
 def test_latest_filing_threads_the_period_of_report_not_the_filing_date():

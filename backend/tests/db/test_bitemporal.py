@@ -10,8 +10,8 @@ from db.bitemporal import append_fact, as_of, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
 
 
-def _insider(security_id, *, accession, insider_name, valid_from, usd, recorded_at):
-    return {
+def _insider(security_id, *, accession, insider_name, valid_from, usd, recorded_at, accepted=None):
+    values = {
         "tenant_id": DEFAULT_TENANT_ID,
         "security_id": security_id,
         "insider_name": insider_name,
@@ -21,6 +21,71 @@ def _insider(security_id, *, accession, insider_name, valid_from, usd, recorded_
         "valid_from": valid_from,
         "recorded_at": recorded_at,
     }
+    if accepted is not None:
+        values["accepted"] = accepted
+    return values
+
+
+def test_transaction_time_gate_keys_on_accepted_not_ingest(db, security_id):
+    """The MRVL two-clock fix (#1/#6): the no-lookahead gate keys on ``COALESCE(accepted, recorded_at)``.
+    A Form 4 transacted 06-01, ACCEPTED 06-03 (public), but re-ingested 09-01 is knowable from its
+    ACCEPTANCE — a read pinned 06-10 (after acceptance, long before our ingest) SEES it (the buy WAS public
+    then — the honesty fix, not lookahead), while a read pinned 06-02 (before acceptance) does NOT.
+    """
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            security_id,
+            accession="acc-late-ingest",
+            insider_name="CEO",
+            valid_from=date(2026, 6, 1),
+            usd=1_000_000,
+            recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),  # the demo's late re-ingest
+            accepted=datetime(2026, 6, 3, 12, tzinfo=timezone.utc),
+        ),
+    )
+    db.commit()
+    read = dict(security_id=security_id, asof=date(2026, 12, 1), tenant_id=DEFAULT_TENANT_ID)
+    after_accept = as_of(
+        db, "fact_insider_txn", known_at=datetime(2026, 6, 10, tzinfo=timezone.utc), **read
+    )
+    assert len(after_accept) == 1  # visible from acceptance, though ingested months later
+    before_accept = as_of(
+        db, "fact_insider_txn", known_at=datetime(2026, 6, 2, tzinfo=timezone.utc), **read
+    )
+    assert before_accept == []  # no lookahead on the accepted axis
+
+
+def test_null_accepted_gate_falls_back_to_recorded_at(db, security_id):
+    """Progressive rollout (#9): with ``accepted`` NULL the gate is byte-identical to ``recorded_at`` — a
+    read pinned before the ingest sees nothing; after it, the row."""
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            security_id,
+            accession="acc-nullacc",
+            insider_name="CEO",
+            valid_from=date(2026, 6, 1),
+            usd=500_000,
+            recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),  # accepted omitted -> NULL
+        ),
+    )
+    db.commit()
+    read = dict(security_id=security_id, asof=date(2026, 12, 1), tenant_id=DEFAULT_TENANT_ID)
+    assert (
+        as_of(db, "fact_insider_txn", known_at=datetime(2026, 8, 1, tzinfo=timezone.utc), **read)
+        == []
+    )
+    assert (
+        len(
+            as_of(
+                db, "fact_insider_txn", known_at=datetime(2026, 9, 2, tzinfo=timezone.utc), **read
+            )
+        )
+        == 1
+    )
 
 
 def test_valid_time_read_has_no_lookahead(db, security_id):

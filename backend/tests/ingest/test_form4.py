@@ -80,6 +80,30 @@ def test_ingest_form4_stores_the_flag(db, security_id):
     assert ("acc-unknown", None) in got  # unknown stays NULL, never False
 
 
+# --- the SEC acceptance datetime (the honest "disclosed" clock — the MRVL two-clock fix) ---
+
+
+def test_ingest_form4_stores_the_accepted_datetime(db, security_id):
+    """The acceptance datetime threaded from the enumeration reaches the ``accepted`` column (filing-level,
+    stamped on every row); absent -> NULL, so the read gate/display fall back to recorded_at/"ingested" (#9).
+    parse_form4 is UNCHANGED — the ownership XML has no acceptance datetime, so this rides as a kwarg.
+    """
+    from datetime import datetime, timezone
+
+    accepted = datetime(2025, 9, 27, 18, 30, 41, tzinfo=timezone.utc)
+    ingest_form4(db, security_id, _XML, "acc-accepted", accepted=accepted)
+    ingest_form4(db, security_id, _XML, "acc-noaccept")  # no accepted kwarg -> NULL
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT accession, accepted FROM fact_insider_txn WHERE security_id=%s AND txn_code='P'",
+            (security_id,),
+        )
+        got = {(r["accession"], r["accepted"]) for r in cur.fetchall()}
+    assert ("acc-accepted", accepted) in got  # reaches the column, tz-aware
+    assert ("acc-noaccept", None) in got  # unresolved stays NULL (#9)
+
+
 def test_the_flag_changes_NO_signal_logic(security_id):
     """CAPTURE-ONLY, proved: insider_conviction reads code 'P' and nothing else, so a buy fires IDENTICALLY
     whether it was planned, discretionary, or unknown. This slice stores data; it does not touch the call.

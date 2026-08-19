@@ -1,0 +1,34 @@
+-- Alpha Deck — capture the Form 4 SEC ACCEPTANCE datetime (the real "disclosed" clock).
+--
+-- WHY (the MRVL finding): the Scoreboard ledger labels each insider buy "disclosed Nd later (DATE)",
+-- but that DATE was `recorded_at::date` — when WE ingested the row, not when the filing became public.
+-- `recorded_at DEFAULT now()` MOVES on every re-ingest (the demo was rebuilt in 2026), so a Form 4
+-- accepted ~2 days after its transaction read "disclosed 326d later". Two invariants hit: #6 (the card
+-- misrepresents how knowable the signal was) and #1 (the metrics gate excluded promptly-DISCLOSED buys
+-- as "ingested late", resting on a false premise — the error is in the SAFE direction, never a lookahead,
+-- but still wrong). The fix adds the ONE column that was missing: the real EDGAR acceptance datetime.
+--
+-- TWO CLOCKS, both honest and both kept:
+--   accepted     — the SEC acceptance datetime (submissions JSON `acceptanceDateTime`). = "disclosed".
+--   recorded_at  — our ingest time (unchanged). = "ingested", shown as a SECOND line only when it differs.
+-- `recorded_at` KEEPS its meaning (the bitemporal transaction-time axis + the displayed ingest clock) —
+-- re-stamping it is OUT (we'd lose the "ingested" clock). `accepted` becomes the KNOWABILITY axis: the
+-- as-of no-lookahead read and the metrics-exclusion gate switch to COALESCE(accepted, recorded_at) —
+-- progressive, byte-identical to today while `accepted` is NULL, honest as `backfill_accepted` populates.
+--
+-- TYPE = timestamptz (NOT date): the read gate becomes `COALESCE(accepted, recorded_at) <= known_at`, and
+-- `recorded_at` is timestamptz — matching types make the Postgres <-> DuckDB replay-parity check provably
+-- identical (no coercion). Display takes `.date()`.
+--
+-- NULLABLE, populated progressively. Existing rows stay NULL: the incremental ingest (`existing_accessions`
+-- skips stored filings) captures `accepted` on NEWLY-ingested filings only; the stored history is repaired
+-- by `pipeline.backfill_accepted` (per-CIK submissions JSON, NULL-only, append-only re-version). An
+-- unresolvable acceptance date STAYS NULL and the read gate/display fall back to `recorded_at`/"ingested"
+-- (recall-safe #9) — honest at every rollout stage.
+--
+-- NATURAL KEY UNTOUCHED: `accepted` is FILING-LEVEL (the acceptance datetime is a property of the accession,
+-- identical across every version of a key), so it is not part of identity — the 0037 security-scoped natural
+-- key still keys exactly what it did. Additive + idempotent; append-compatible with the `no_update` trigger
+-- (it guards UPDATEs, not schema).
+
+ALTER TABLE fact_insider_txn ADD COLUMN IF NOT EXISTS accepted timestamptz;  -- SEC acceptanceDateTime; NULL = unresolved

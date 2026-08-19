@@ -1115,12 +1115,16 @@ class InsiderBuyOut(BaseModel):
     """One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) — an
     overlay chip / event-ledger row.
 
-    ``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested
-    it (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM
-    "ingested 166d after its event date" case — invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a
-    Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE, never a different number).
-    Every field traces to a real ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead,
-    #1).
+    ``d`` = the transaction date (``valid_from``, the chip's x-position). TWO honest clocks (the MRVL
+    two-clock fix — invariant #6): ``disclosed`` = the real SEC acceptance date (``accepted::date``, when the
+    filing became public), ``None`` when unresolved (pre-backfill / unresolvable — the FE renders the
+    "ingested" line only, recall-safe #9); ``ingested`` = ``recorded_at::date`` (when OUR pipeline wrote the
+    row), rendered as a SECOND line only when it differs from ``disclosed``. On the rebuilt demo a Form 4
+    accepted ~2d after its txn but re-ingested in 2026 reads "disclosed 2d later · ingested 326d later" —
+    honest, where the old single ``disclosed=recorded_at`` field lied "disclosed 326d". ``aff_10b5_1``
+    (TRUE/FALSE/NULL) flags a Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE,
+    never a different number). Every field traces to a real ``fact_insider_txn`` row; both time axes are
+    asof-capped (no-lookahead, #1 — the transaction-time gate keys on ``COALESCE(accepted, recorded_at)``).
 
     ``character`` is the buy's server-side classification (deterministic field predicates — #3, the same
     predicates the NamePanel's open-market screen composes): ``open_market`` means "passed the available
@@ -1138,7 +1142,12 @@ class InsiderBuyOut(BaseModel):
     shares: float | None = None
     usd: float | None = None
     aff_10b5_1: bool | None = None
-    disclosed: date
+    disclosed: date | None = (
+        None  # SEC acceptance date; None = unresolved -> FE falls back to "ingested" (#9)
+    )
+    ingested: (
+        date  # recorded_at::date — our ingest time; the second "ingested" line when it differs
+    )
     character: Literal["open_market", "self_filing", "primary_market", "implausible"]
 
 

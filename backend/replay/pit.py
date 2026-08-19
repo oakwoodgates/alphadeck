@@ -8,7 +8,7 @@ from uuid import UUID
 
 import duckdb
 
-from db.bitemporal import _FACT_IDENTITY
+from db.bitemporal import _FACT_IDENTITY, knowability_expr
 from db.session import DEFAULT_TENANT_ID
 from replay.export import FACT_TABLES
 from signals.base import window_prices
@@ -64,10 +64,14 @@ class ReplayPointInTimeData:
         if table not in _FACT_IDENTITY:
             raise ValueError(f"unknown fact table: {table!r}")
         ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
+        # the knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (COALESCE(accepted, recorded_at)
+        # for fact_insider_txn, else recorded_at); the mirror is always re-exported from the live SoR, so
+        # the accepted column is present whenever this expression references it (parity-gated)
+        knowability = knowability_expr(table)
         query = (
             f"SELECT * FROM {table} "
             f"WHERE tenant_id = ? AND {scope_col} = ? "
-            f"AND valid_from <= ? AND recorded_at <= ? "
+            f"AND valid_from <= ? AND {knowability} <= ? "
             f"QUALIFY ROW_NUMBER() OVER "
             f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1"
         )

@@ -17,11 +17,16 @@ from domain.call import TriggerRef
 #   B1 — the freeze-era window. Arms made inside the 2026-07 EDGAR cache freeze
 #        (``docs/POSTMORTEM_CRON_FREEZE_2026-07.md``): the harm B2 cannot see — an arm resting on
 #        promptly-ingested OLDER facts while the frozen ``submissions`` index hid the newer filings.
-#   B2 — the derived thaw marker. The lateness of the facts the arm actually CITED: max calendar-day
-#        ingest lag (first ``recorded_at`` vs latest ``valid_from``) across the arm triggers' form4
-#        accessions, derived from ``fact_insider_txn``'s bitemporal axes (migration 0023's comment:
-#        stamped health is a property of the RUN; thaw lateness is DERIVABLE, so the Scoreboard
-#        derives it). Distinguishes genuine in-window signal from thawed backlog.
+#   B2 — the derived DISCLOSURE-lateness marker. How late the facts the arm CITED became public: max
+#        calendar-day disclosure lag (first ``COALESCE(accepted, recorded_at)`` vs latest ``valid_from``)
+#        across the arm triggers' form4 accessions, derived from ``fact_insider_txn``'s bitemporal axes.
+#        LOCKED DECISION 3 (the MRVL two-clock fix): metrics eligibility keys on PUBLIC KNOWABILITY
+#        (SEC acceptance = ``accepted``), NOT our fetch timing — a Form 4 accepted ~2d after the txn is
+#        promptly knowable, so it no longer false-flags as "ingested late" just because the demo was
+#        re-ingested in 2026. While ``accepted`` is NULL (pre-backfill) COALESCE falls back to
+#        ``recorded_at`` — byte-identical to the old ingest-lag behavior, so the rollout is progressive.
+#        The pure INGEST-lag freeze signal is carried by B1's window + A's run stamp (and the
+#        cron-health / dead-man's-switch layer), not this metrics gate.
 #
 # CRITICAL — the SCOREBOARD's honesty layer, NEVER a call/scoring input (the 0023 rule, extended):
 # these flags are composed AFTER ``score_episode``, from reads the scoring path never sees. This
@@ -29,12 +34,14 @@ from domain.call import TriggerRef
 # it. A clean, a flagged, and a legacy-NULL episode all SCORE identically — the flags only
 # segment/annotate (ledger-visible always; excluded from the aggregate metrics only).
 
-# Max acceptable calendar days between an insider fact's event date and the platform FIRST learning
-# it. A compliant Form 4 files <= 2 business days after the transaction (<= 4 calendar across a
-# weekend) + <= 1 cron day + slack: beyond 7 is unambiguously not prompt filing-and-ingest, while
-# the freeze cohort's thaw lags ran ~7-14d+ (the postmortem's thaw table). Deliberate consequence:
-# an arm resting on facts backfilled at basket-add time also flags — same semantics (the arm's
-# timing reflects when the platform LEARNED, not when the signal happened).
+# Max acceptable calendar days between an insider fact's event date and its PUBLIC DISCLOSURE (the SEC
+# acceptance date, ``accepted``). A compliant Form 4 is accepted <= 2 business days after the transaction
+# (<= 4 calendar across a weekend): beyond 7 is unambiguously not a promptly-disclosed filing. LOCKED
+# DECISION 3 (MRVL two-clock fix): this keys on disclosure via ``COALESCE(accepted, recorded_at)``, NOT our
+# ingest timing — so a Form 4 accepted ~2d after the txn but re-ingested months later no longer false-flags
+# (the demo-rebuild "ingested 326d" case). While ``accepted`` is NULL (pre-backfill) COALESCE falls back to
+# ``recorded_at`` (the prior ingest-lag semantics), so the rollout is progressive. The freeze cohort stays
+# covered by B1's hardcoded window + A's run stamp; a pure ingest-lag freeze belongs to the cron-health layer.
 THAW_LAG_DAYS = 7
 
 # The 2026-07 EDGAR cache-freeze window, INCLUSIVE both ends (docs/POSTMORTEM_CRON_FREEZE_2026-07.md:
@@ -69,24 +76,27 @@ def thaw_lags(
     tenant_id: UUID,
     known_at: datetime | None = None,
 ) -> dict[str, int]:
-    """Per-accession ingest lag, calendar days: ``MIN(recorded_at)::date - MAX(valid_from)``.
+    """Per-accession DISCLOSURE lag, calendar days: ``MIN(COALESCE(accepted, recorded_at))::date -
+    MAX(valid_from)`` (LOCKED DECISION 3 — keys on public knowability, not our fetch timing).
 
-    ``MIN(recorded_at)`` = when the platform FIRST learned the filing — a correction appended later
-    must never shrink the lag. ``MAX(valid_from)`` = the filing's latest event date (a filing cannot
-    predate its last txn — the conservative lag base). ``known_at`` threads the caller's
-    read-consistency pin: a row recorded after it is not yet known, so it cannot contribute (an
-    accession first learned after the pin is simply absent). Accessions with no fact rows are absent
-    from the result — unknown, which degrades to un-flagged (B1 still covers the freeze cohort)."""
+    ``MIN(COALESCE(accepted, recorded_at))`` = when the filing became publicly knowable (its SEC
+    acceptance date, falling back to our ingest time while ``accepted`` is NULL — the progressive
+    rollout, recall-safe #9); a correction appended later must never shrink it. ``MAX(valid_from)`` =
+    the filing's latest event date (a filing cannot predate its last txn — the conservative lag base).
+    ``known_at`` threads the caller's read-consistency pin on the SAME knowability expression as the
+    as-of read: a row not yet knowable at the pin cannot contribute. Accessions with no fact rows are
+    absent from the result — unknown, which degrades to un-flagged (B1 still covers the freeze cohort).
+    """
     if not accessions:
         return {}
     query = (
-        "SELECT accession, (MIN(recorded_at)::date - MAX(valid_from)) AS lag_days "
+        "SELECT accession, (MIN(COALESCE(accepted, recorded_at))::date - MAX(valid_from)) AS lag_days "
         "FROM fact_insider_txn "
         "WHERE tenant_id = %(tenant_id)s AND accession = ANY(%(accessions)s)"
     )
     params: dict[str, object] = {"tenant_id": tenant_id, "accessions": accessions}
     if known_at is not None:
-        query += " AND recorded_at <= %(known_at)s"
+        query += " AND COALESCE(accepted, recorded_at) <= %(known_at)s"
         params["known_at"] = known_at
     query += " GROUP BY accession"
     with conn.cursor() as cur:
@@ -117,7 +127,7 @@ def derive_episode_provenance(
     if freeze_era:
         notes.append("armed inside the 2026-07 EDGAR freeze window")
     if thawed_late:
-        notes.append(f"insider source ingested {thaw}d after its event date")
+        notes.append(f"insider source disclosed {thaw}d after its event date")
 
     return EpisodeProvenance(
         arm_ingest_fresh=fresh,
