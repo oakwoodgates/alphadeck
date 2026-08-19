@@ -109,6 +109,23 @@ constants**, deliberately **not `CallConfig`** — the display seam cannot impor
 by hand if it recalibrates. **Only buys are screened**: the offer-price conflation is a buy-side
 phenomenon; sells are the raw code-S tape.
 
+**The buy-character taxonomy (Band 03 S2c — the Scoreboard's per-buy labels).** The module also owns
+`_screen(txn, day_lows, issuer_name)` — the CHARACTER attribution behind the Scoreboard drawer's
+per-buy chips / event-ledger rows (`scoreboard/overlays.episode_insider_buys` →
+`InsiderBuyOut.character`). Each code-P row lands in exactly ONE character, ordered most-structural
+first (mirroring `insider_sell._screen`): **`implausible`** (the $ ceiling) → **`self_filing`** (the
+issuer filing on itself — `_is_issuer_self`/`_norm_entity`, DUPLICATED from
+`signals/insider_conviction.py` with a pointer, the seam's pattern: CIK equality canonical, name
+fallback for pre-capture rows, missing identity never "self") → **`primary_market`** (below the
+day's low) → **`open_market`**. `open_market` means "passed the AVAILABLE screens", never "proven
+discretionary" — a no-day-low buy stays `open_market`; the tri-state `aff_10b5_1` flag is **not**
+read by `_screen` (a planned buy is still open-market; the flag rides beside the character and
+renders only on an explicit `true`). Set-aside characters (`primary_market`/`implausible`) surface
+**greyed + labeled, never hidden** (WB #2 / #9). The panel's net-flow screen
+(`_is_open_market_buy`) composes the SAME predicates but is **deliberately identity-blind**: a
+`self_filing` is labeled yet still counts in the 90d net-flow — that re-base is DEFERRED (operator
+decision 3, 2026-08-18), the one place the tape and the call knowingly disagree.
+
 `volume_regime` excludes bars without a volume and says how many. `range_52w` stamps tied
 highs/lows on the most recent print and notes a sub-year window.
 

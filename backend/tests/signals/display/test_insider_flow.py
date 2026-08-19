@@ -221,3 +221,121 @@ def test_absolute_ceiling_excludes_a_physically_impossible_row_without_price_con
     assert m["buy_count"].value == 1.0  # only the real buy survives
     assert m["buy_usd"].value == 250_000.0
     assert "screened 1 off-market code-P buy" in sig.basis.note
+
+
+# --- S2c: the buy-CHARACTER screen (`_screen`) — the display-side attribution behind the Scoreboard's
+# per-buy chips / event-ledger labels. Pure field predicates only (#3); ordered most-structural first
+# (implausible → self → below-low, mirroring `insider_sell._screen`) so a multi-screen row has ONE
+# deterministic attribution. Real cited shapes where they exist: KYOCERA/Roivant (self-filing CIK
+# equality — the call-path suite's own fixtures), PBLS accessions 0001231919-26-000638 /
+# 0001213900-26-072928 / 0001193125-26-271324 (the $20-offer below-low subscriptions), CNBX (the $2T
+# implausible row). ---
+
+
+def test_screen_open_market_is_the_default_character():
+    t = _priced("Ray Real", 10_000, 25.0, _ASOF)
+    assert insider_flow._screen(t, {_ASOF: 24.0}, None) == insider_flow.OPEN_MARKET
+
+
+def test_screen_primary_market_on_a_below_low_offer_price_buy():
+    # the PBLS shape: RA Capital's $20 IPO subscription vs the day's 29.65 low → primary-market
+    t = _priced("RA CAPITAL MANAGEMENT, L.P.", 19_728_353, 20.0, date(2026, 6, 11))
+    assert insider_flow._screen(t, _PBLS_DAY_LOWS, None) == insider_flow.PRIMARY_MARKET
+
+
+def test_screen_implausible_needs_no_price_context():
+    # the CNBX shape: a $2T "purchase" is bad source data even with NO day low (#3)
+    t = _priced("MILLS THOMAS E", 20_000_000, 100_000.0, _ASOF)
+    assert insider_flow._screen(t, {}, None) == insider_flow.IMPLAUSIBLE
+
+
+def test_screen_self_filing_by_cik_equality_and_zero_padding():
+    # KYOCERA-on-KYOCERA / Roivant-on-Roivant: rpt_owner_cik == issuer_cik is the canonical match,
+    # zero-padding normalized — priced AT the market, so only identity (never price) catches it
+    t = _priced("Roivant Sciences Ltd.", 16_666_666, 21.0, _ASOF)
+    t["rpt_owner_cik"], t["issuer_cik"] = "1479290", "0001479290"
+    assert insider_flow._screen(t, {}, None) == insider_flow.SELF_FILING
+
+
+def test_screen_self_filing_by_name_fallback_row_and_param():
+    # the pre-CIK-capture rows: the row's own issuer_name, else the passed security-master name
+    via_row = _priced("Roivant Sciences Ltd.", 100_000, 21.0, _ASOF)
+    via_row["issuer_name"] = "Roivant Sciences Ltd."
+    assert insider_flow._screen(via_row, {}, None) == insider_flow.SELF_FILING
+    via_param = _priced("KYOCERA CORP", 100_000, 21.75, _ASOF)  # casefolded match
+    assert insider_flow._screen(via_param, {}, "Kyocera Corp") == insider_flow.SELF_FILING
+
+
+def test_screen_missing_identity_is_never_self():
+    # recall-safe (#9): no CIKs, no issuer_name anywhere → the identity screen KEEPS the row
+    t = _priced("Paulson John", 12_500_000, 25.0, _ASOF)
+    assert insider_flow._screen(t, {}, None) == insider_flow.OPEN_MARKET
+    # ...and a filer that merely differs from the issuer name stays open-market (BHC/Paulson shape)
+    assert insider_flow._screen(t, {}, "Bausch Health Companies Inc.") == insider_flow.OPEN_MARKET
+
+
+def test_screen_no_day_low_stays_open_market_never_proven_discretionary():
+    # `open_market` means "passed the AVAILABLE screens": a suspiciously-cheap buy with no price bar
+    # cannot be attributed primary-market (#9 — absent context only disables that one screen)
+    t = _priced("Jane Doe", 100_000, 1.0, _ASOF)
+    assert insider_flow._screen(t, {}, None) == insider_flow.OPEN_MARKET
+    assert insider_flow._screen(t, {_ASOF: 40.0}, None) == insider_flow.PRIMARY_MARKET
+
+
+def test_screen_never_reads_the_plan_flag_tri_state():
+    # the 10b5-1 flag rides BESIDE the character (rendered only on explicit True by the FE); the
+    # character itself is identical across the tri-state — a planned buy is still an open-market buy
+    for flag in (True, False, None):
+        t = _priced("Jane Doe", 10_000, 25.0, _ASOF)
+        t["aff_10b5_1"] = flag
+        assert insider_flow._screen(t, {}, None) == insider_flow.OPEN_MARKET
+
+
+def test_screen_precedence_is_deterministic_most_structural_first():
+    # self + planned → SELF_FILING, and the plan flag is NOT consumed (still on the row for the wire)
+    both = _priced("Devco Inc", 10_000, 25.0, _ASOF)
+    both["rpt_owner_cik"] = both["issuer_cik"] = "111"
+    both["aff_10b5_1"] = True
+    assert insider_flow._screen(both, {}, None) == insider_flow.SELF_FILING
+    assert both["aff_10b5_1"] is True
+    # implausible + self → IMPLAUSIBLE (bad data outranks identity)
+    garbage = _priced("Devco Inc", 30_000_000, 100_000.0, _ASOF)
+    garbage["rpt_owner_cik"] = garbage["issuer_cik"] = "111"
+    assert insider_flow._screen(garbage, {}, None) == insider_flow.IMPLAUSIBLE
+    # self + below-low → SELF_FILING (identity is the more explanatory label; the plan's order)
+    cheap_self = _priced("Devco Inc", 10_000, 1.0, _ASOF)
+    cheap_self["rpt_owner_cik"] = cheap_self["issuer_cik"] = "111"
+    assert insider_flow._screen(cheap_self, {_ASOF: 40.0}, None) == insider_flow.SELF_FILING
+
+
+def test_screen_never_mutates_the_input_row():
+    # #9: classification is a READ — the fact row (and its dict image) is never altered
+    t = _priced("Jane Doe", 10_000, 25.0, _ASOF)
+    t["rpt_owner_cik"], t["issuer_cik"], t["aff_10b5_1"] = "1", "2", True
+    snapshot = dict(t)
+    insider_flow._screen(t, {_ASOF: 24.0}, "Some Issuer")
+    assert t == snapshot
+
+
+def test_is_open_market_buy_is_the_same_predicates_minus_identity():
+    # the panel's net-flow screen composes the SAME price/data predicates `_screen` orders, but is
+    # DELIBERATELY identity-blind (operator decision 3: the net-flow re-base is deferred — a
+    # self-filing still counts in the 90d figure). Matrix:
+    lows = {_ASOF: 40.0}
+    plain = _priced("Ray Real", 1_000, 41.0, _ASOF)
+    below = _priced("Jane Doe", 1_000, 20.0, _ASOF)
+    garbage = _priced("MILLS THOMAS E", 30_000_000, 100_000.0, _ASOF)
+    self_at_market = _priced("Devco Inc", 1_000, 41.0, _ASOF)
+    self_at_market["rpt_owner_cik"] = self_at_market["issuer_cik"] = "111"
+    self_below = _priced("Devco Inc", 1_000, 20.0, _ASOF)
+    self_below["rpt_owner_cik"] = self_below["issuer_cik"] = "111"
+
+    assert insider_flow._is_open_market_buy(plain, lows) is True
+    assert insider_flow._is_open_market_buy(below, lows) is False
+    assert insider_flow._is_open_market_buy(garbage, lows) is False
+    # identity-blind: the self-filing COUNTS in the panel figure (labeled, not re-based — deferred)
+    assert insider_flow._is_open_market_buy(self_at_market, lows) is True
+    # the one corner where character and net-flow differ: self + below-low reads SELF_FILING as its
+    # character but stays OUT of the net-flow (below-low) — the same deferred tape-vs-call seam
+    assert insider_flow._is_open_market_buy(self_below, lows) is False
+    assert insider_flow._screen(self_below, lows, None) == insider_flow.SELF_FILING

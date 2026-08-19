@@ -154,6 +154,23 @@ function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
 }
 
+// S2c: the buy's server-classified CHARACTER, one terse line each (honest loudness: the exception is
+// labeled; an open-market buy — the norm — stays unbadged). Wording is the operator-approved copy.
+const CHARACTER_LINE: Partial<Record<InsiderBuyOut["character"], string>> = {
+  self_filing: "issuer self-filing (not a personal buy)",
+  primary_market: "primary-market (offer-price, set aside)",
+  implausible: "implausible $ (bad source data, set aside)",
+  // open_market: no line — "passed the available screens", the unbadged default
+};
+
+/** Is this buy SET ASIDE (excluded from the panel's open-market flow)? Only `primary_market` /
+ *  `implausible` — a `self_filing` is labeled but still counted today (the net-flow re-base is
+ *  deferred). Set-aside buys render greyed + labeled, never hidden (WB #2: pruning hides, it never
+ *  vanishes) — the chip and its ledger row both read this one helper. */
+export function insiderSetAside(b: InsiderBuyOut): boolean {
+  return b.character === "primary_market" || b.character === "implausible";
+}
+
 function insiderTooltip(e: InsiderChipEvent): TooltipContent {
   const b = e.buy;
   const who = b.insider_role
@@ -163,12 +180,16 @@ function insiderTooltip(e: InsiderChipEvent): TooltipContent {
   if (b.shares != null && b.usd != null) bought = `bought ${fmtShares(b.shares)} @ ${fmtUsd(b.usd)}`;
   else if (b.usd != null) bought = `bought ${fmtUsd(b.usd)}`;
   else if (b.shares != null) bought = `bought ${fmtShares(b.shares)}`;
-  else bought = "open-market buy";
+  // an unsized set-aside/self-filing must not claim "open-market" — the neutral fallback is honest
+  else bought = b.character === "open_market" ? "open-market buy" : "insider buy";
   const lines = [bought, `transacted ${b.d}`];
   const lag = daysBetween(b.d, b.disclosed);
   // the disclosure lag is the honest bit (#6): the IBM episode's own "ingested 166d after its event date"
   if (lag >= 1) lines.push(`disclosed ${lag}d later (${b.disclosed})`);
-  if (b.aff_10b5_1) lines.push("10b5-1 plan (pre-scheduled)"); // not the same conviction signal
+  // S2c: the character line — why this buy did/didn't count (#6); open_market stays unbadged (#7)
+  const character = CHARACTER_LINE[b.character];
+  if (character) lines.push(character);
+  if (b.aff_10b5_1) lines.push("10b5-1 plan (pre-scheduled)"); // tri-state: renders ONLY on explicit true
   // R3: the DISTINCT market fact — the stock's close that day + the move since (the fill $ ≠ the price).
   if (e.closeThatDay != null) {
     const vsNow = e.pctVsNow != null ? ` · ${fmtPct(e.pctVsNow)} vs now` : "";

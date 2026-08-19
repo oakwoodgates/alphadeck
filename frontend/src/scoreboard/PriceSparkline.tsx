@@ -5,6 +5,7 @@ import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import {
   defaultVisibleRange,
   familyCls,
+  insiderSetAside,
   legendEntries,
   type OverlayEvent,
   overlayTooltip,
@@ -290,7 +291,10 @@ export function PriceSparkline({
             <button
               key={c.event.n}
               type="button"
-              className={`ov-chip ${familyCls(c.event.family)}${c.event.n === activeN ? " active" : ""}`}
+              // S2c: a set-aside buy (primary-market / implausible) renders GREYED, never hidden (WB #2)
+              className={`ov-chip ${familyCls(c.event.family)}${
+                c.event.family === "insider" && insiderSetAside(c.event.buy) ? " ov-setaside" : ""
+              }${c.event.n === activeN ? " active" : ""}`}
               style={{ left: c.x, top: c.y }}
               onMouseEnter={() => onEnter(c)}
               onMouseLeave={onLeave}

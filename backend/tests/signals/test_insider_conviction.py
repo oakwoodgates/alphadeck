@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 
-from domain.config import DEFAULT_CONFIG
+import pytest
+from pydantic import ValidationError
+
+from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from signals import insider_conviction
 
@@ -301,3 +304,107 @@ def test_self_filing_does_not_drop_the_real_buys_beside_it():
     assert ev is not None and ev.grade is Grade.CORE
     # the $500M self-block is NOT in the total (2 real insiders, $270k), and not in provenance
     assert "270,000" in ev.label and len(ev.provenance) == 2
+
+
+# --- S2c: the DORMANT 10b5-1 planned-buy weight (`insider_10b5_1_buy_weight`, default 1.0 = today) ---
+# The load-bearing guarantee is BEHAVIOR PRESERVATION: at the default every golden above passes
+# byte-unchanged, and the flag-vs-no-flag golden below pins the full SignalEvent identical. The
+# non-default tests prove the seam works so a future flip is a config decision, not a code change.
+# NB every `aff_10b5_1=True` BUY here is a CONSTRUCTED row, clearly so: the population query for a
+# real planned buy on dev data is owed on the dev stack (see the S2c PR) — never fabricated as "real".
+
+
+def _planned(name, role, usd, d=date(2026, 5, 20)):
+    t = _buy(name, role, usd, d=d)
+    t["aff_10b5_1"] = True
+    return t
+
+
+def test_planned_flag_changes_nothing_at_the_default_weight():
+    # the byte-stability golden: the SAME cluster with and without the plan flag produces an
+    # IDENTICAL full SignalEvent under DEFAULT_CONFIG (weight 1.0) — label, grade, score, asof,
+    # liveness, provenance, everything (model_dump covers every field).
+    plain = [
+        _buy("Jane Doe", "Chief Executive Officer", 150_000),
+        _buy("John Roe", "Chief Financial Officer", 120_000),
+    ]
+    flagged = [
+        _planned("Jane Doe", "Chief Executive Officer", 150_000),
+        _planned("John Roe", "Chief Financial Officer", 120_000),
+    ]
+    a = insider_conviction.score(plain, SID, ASOF, DEFAULT_CONFIG)
+    b = insider_conviction.score(flagged, SID, ASOF, DEFAULT_CONFIG)
+    assert a is not None and b is not None
+    assert a.model_dump() == b.model_dump()
+
+
+def test_weight_zero_fully_screens_planned_buys_and_moves_the_anchor():
+    # w == 0.0 is a FULL screen: the planned buy leaves the survivor set before the anchor is chosen,
+    # so the cluster re-anchors on the unplanned buy (the event's asof/fire date moves) and the
+    # planned accession leaves the provenance entirely. ($600k CEO buy = strong-single CORE, so the
+    # re-anchored cluster is still live at ASOF under the 180d core window.)
+    cfg = DEFAULT_CONFIG.model_copy(update={"insider_10b5_1_buy_weight": 0.0})
+    txns = [
+        _buy("Jane Doe", "Chief Executive Officer", 600_000, d=date(2026, 5, 10)),
+        _planned("Plan Buyer", "Director", 300_000, d=date(2026, 5, 20)),  # the latest buy
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF, cfg)
+    assert ev is not None
+    assert ev.asof == date(2026, 5, 10)  # the anchor MOVED off the screened planned buy
+    assert "1 insider" in ev.label and "$600,000" in ev.label
+    assert [p.ref for p in ev.provenance] == ["acc-Jane Doe"]
+    # ...and at the 1.0 default the same stream anchors on the planned buy (today's behavior)
+    ev_default = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
+    assert ev_default is not None and ev_default.asof == date(2026, 5, 20)
+    assert "$900,000" in ev_default.label
+
+
+def test_weight_half_scales_planned_dollars_but_keeps_presence():
+    # 0 < w < 1: the planned buy's $ HALVES but the buy stays PRESENT — it still counts as a distinct
+    # insider, still carries seniority, and its accession stays in the provenance.
+    cfg = DEFAULT_CONFIG.model_copy(update={"insider_10b5_1_buy_weight": 0.5})
+    txns = [
+        _buy("Jane Doe", "Chief Executive Officer", 100_000),
+        _planned("Plan Buyer", "Director", 100_000),
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF, cfg)
+    assert ev is not None
+    assert "2 insiders" in ev.label  # presence retained (distinct count)
+    assert "$150,000" in ev.label  # 100k + 0.5 × 100k
+    assert ev.grade is Grade.CORE  # 2 distinct seniors, weighted total still ≥ the 100k core floor
+    assert len(ev.provenance) == 2  # the planned accession still shows its work (#6)
+
+
+def test_weight_below_one_demotes_a_core_that_stood_on_planned_dollars():
+    # a cluster CORE only because of the planned buy's $ demotes to FLIP when the weighted total
+    # crosses under `insider_core_min_usd` (60k + 0.5 × 70k = 95k < 100k) — the seam reaches grade.
+    txns = [
+        _buy("Jane Doe", "Chief Executive Officer", 60_000),
+        _planned("Plan Buyer", "Director", 70_000),
+    ]
+    at_default = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
+    assert at_default is not None and at_default.grade is Grade.CORE  # 130k ≥ 100k
+    cfg = DEFAULT_CONFIG.model_copy(update={"insider_10b5_1_buy_weight": 0.5})
+    halved = insider_conviction.score(txns, SID, ASOF, cfg)
+    assert halved is not None and halved.grade is Grade.FLIP  # 95k < 100k, still ≥ the 10k floor
+    assert "$95,000" in halved.label
+
+
+def test_weight_tri_state_none_and_false_are_never_weighted():
+    # #9: only an explicit True weighs — a pre-Dec-2022 `None` (unknown) or an explicit False buy
+    # keeps its full $ even at weight 0 (unknown is never asserted "planned").
+    cfg = DEFAULT_CONFIG.model_copy(update={"insider_10b5_1_buy_weight": 0.0})
+    unknown = _buy("Jane Doe", "Chief Executive Officer", 200_000)  # aff_10b5_1 absent (None)
+    explicit_false = _buy("John Roe", "Chief Financial Officer", 150_000)
+    explicit_false["aff_10b5_1"] = False
+    ev = insider_conviction.score([unknown, explicit_false], SID, ASOF, cfg)
+    assert ev is not None
+    assert "$350,000" in ev.label  # both fully counted
+
+
+def test_weight_dial_is_bounded_zero_to_one():
+    # the dial's contract: a weight outside [0, 1] fails loud at construction, never silently clamps
+    with pytest.raises(ValidationError):
+        CallConfig(insider_10b5_1_buy_weight=1.5)
+    with pytest.raises(ValidationError):
+        CallConfig(insider_10b5_1_buy_weight=-0.1)

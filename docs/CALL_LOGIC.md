@@ -177,6 +177,16 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   Baker Bros' $190M — vs a genuine large activist/director buy — Paulson's $312M — are a **separate, deferred**
   call: no clean structured discriminator separates a noise block from smart-money, so they are left in for now
   pending a labeled sample; the captured CIKs set that pass up recall-safe.)*
+  **The 10b5-1 planned-buy weight (Band 03 S2c — a DORMANT dial, `insider_10b5_1_buy_weight = 1.0`):**
+  there is **no** buy-side 10b5-1 screen today — a planned buy counts fully — but the seam is piped so
+  weighting one later is a **config flip, not a code change**. Semantics, stated once: the weight scales a
+  KEPT planned buy's (`aff_10b5_1 IS TRUE`) **$ contribution** to the cluster total; the buy is **present**
+  for the distinct-insider / senior / anchor logic **iff the weight > 0** (`0.0` = a full screen — the buy
+  leaves the survivor set and the anchor moves). Tri-state honored: only an explicit `True` weighs; `None`
+  (the pre-Dec-2022 norm) / `False` weigh 1.0 — unknown is never asserted "planned" (#9). At the 1.0
+  default every decision golden is **byte-for-byte** today's (`x × 1.0` is IEEE-exact); flipping it is a
+  later measured, operator-signed decision (the sell side's `insider_sell` precedent). The primary-market /
+  self-filing excludes above stay **hard set-aside** (labeled on the Scoreboard ledger, not dial-able).
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan

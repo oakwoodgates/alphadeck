@@ -46,9 +46,13 @@ def insider_buy(
     usd=50_000.0,
     aff_10b5_1=None,
     txn_seq=0,
+    rpt_owner_cik=None,
+    issuer_cik=None,
+    issuer_name=None,
 ):
     """Seed one ``fact_insider_txn`` row with an EXPLICIT recorded_at (the disclosure axis is the
     whole point of the no-lookahead-on-insider test — the shared ``bar`` helper is close-only prices).
+    The identity columns (migration 0024) feed the S2c self-filing character.
     """
     append_fact(
         db,
@@ -67,6 +71,9 @@ def insider_buy(
             "recorded_at": recorded_at,
             "aff_10b5_1": aff_10b5_1,
             "txn_seq": txn_seq,
+            "rpt_owner_cik": rpt_owner_cik,
+            "issuer_cik": issuer_cik,
+            "issuer_name": issuer_name,
         },
     )
     db.commit()
@@ -356,15 +363,18 @@ def test_price_window_insider_superseded_row_no_double_count(client, db, securit
 
 
 def test_price_window_insider_open_market_screen_reconciles_with_the_panel(client, db, security_id):
-    """The chip screen mirrors the NamePanel's open-market definition: a below-the-day's-low code-P
-    subscription is SET ASIDE, an open-market code-P buy is KEPT, and a code-S sell never appears — so a
-    dot on the chart is a dot in the panel's net-flow (recall-safe: code-P alone is the floor)."""
+    """S2c option (a): a below-the-day's-low code-P subscription is now PRESENT-and-labeled
+    (``character="primary_market"``) instead of hidden — greyed on the FE, never dropped (WB #2 / #9).
+    The COUNTED set (the non-set-aside subset) still matches the NamePanel's open-market definition, so
+    a counted dot on the chart is a dot in the panel's net-flow. A code-S sell never appears, and a
+    set-aside row transacted after the as-of never leaks (the axis caps bind every character)."""
     thesis = persist_thesis(db, security_id)
     ohlcv_bar(
         db, security_id, date(2026, 6, 5), 42.0, 46.0, 40.0, 45.0, 1_000.0
     )  # the day's low = 40
+    ohlcv_bar(db, security_id, date(2026, 8, 1), 42.0, 46.0, 40.0, 45.0, 1_000.0)
     disc = datetime(2026, 6, 10, tzinfo=timezone.utc)
-    # open-market: price 45 >= low*0.9 (36) → kept
+    # open-market: price 45 >= low*0.9 (36) → counted
     insider_buy(
         db,
         security_id,
@@ -374,7 +384,7 @@ def test_price_window_insider_open_market_screen_reconciles_with_the_panel(clien
         price=45.0,
         usd=45_000.0,
     )
-    # offer-price subscription: price 30 < low*0.9 (36) → set aside (files as code P below the public tape)
+    # offer-price subscription: price 30 < low*0.9 (36) → SET ASIDE, but on the wire (labeled)
     insider_buy(
         db,
         security_id,
@@ -395,15 +405,105 @@ def test_price_window_insider_open_market_screen_reconciles_with_the_panel(clien
         price=44.0,
         usd=44_000.0,
     )
+    # a FUTURE-transacted set-aside (below the 8/1 low) — the valid-axis cap hides it at asof 7/15
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000010-26-000010",
+        valid_from=date(2026, 8, 1),
+        recorded_at=disc,
+        price=30.0,
+        usd=30_000.0,
+    )
 
     buys = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
-    assert len(buys) == 1  # only the open-market code-P buy
-    assert buys[0]["usd"] == 45_000.0 and buys[0]["d"] == "2026-06-05"
+    assert len(buys) == 2  # the counted buy AND the labeled set-aside — nothing vanishes (WB #2)
+    by_usd = {b["usd"]: b for b in buys}
+    assert by_usd[45_000.0]["character"] == "open_market"
+    assert by_usd[30_000.0]["character"] == "primary_market"
+    # the COUNTED set (non-set-aside) is exactly what the panel's open-market figure counts
+    counted = [b for b in buys if b["character"] not in ("primary_market", "implausible")]
+    assert [b["usd"] for b in counted] == [45_000.0]
+    assert all(b["d"] <= "2026-07-15" for b in buys)  # the future set-aside never leaked
 
 
-def test_price_window_insider_carries_the_10b5_1_and_role(client, db, security_id):
-    """Provenance rides every chip (invariant #6): the 10b5-1 plan flag and the role reach the wire so the
-    tooltip can state them — an automatic-plan buy is not the same conviction signal."""
+def test_price_window_insider_self_filing_labeled_by_cik_and_by_name(client, db, security_id):
+    """S2c: a self-filing is labeled ``self_filing`` via BOTH recognizers — CIK equality (canonical;
+    the KYOCERA/Roivant shape) and the name fallback against the security-master name (pre-capture
+    rows). It is labeled, NOT set aside (the panel's net-flow still counts it — the re-base is
+    deferred, decision 3), and a real buy beside it is never over-excluded (#9)."""
+    thesis = persist_thesis(db, security_id)
+    with db.cursor() as cur:  # the fixture master row has no name — set one for the name fallback
+        cur.execute(
+            "UPDATE security_master SET name = %s WHERE id = %s", ("Devco Inc", security_id)
+        )
+    db.commit()
+    disc = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    # (a) CIK equality — zero-padding normalized; the fixture master CIK is irrelevant (row-level match)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000011-26-000011",
+        valid_from=date(2026, 6, 3),
+        recorded_at=disc,
+        insider_name="Devco Holdings KK",
+        rpt_owner_cik="1234567",
+        issuer_cik="0001234567",
+        usd=690_000.0,
+    )
+    # (b) the name fallback: no CIKs on the row; filer name == the master name (casefold + trailing '.')
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000012-26-000012",
+        valid_from=date(2026, 6, 4),
+        recorded_at=disc,
+        insider_name="DEVCO INC.",
+        usd=350_000.0,
+    )
+    # a genuine personal buy beside them stays open_market (the screen never over-excludes, #9)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000013-26-000013",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+        insider_name="Jane Doe",
+        usd=50_000.0,
+    )
+
+    buys = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+    assert [b["character"] for b in buys] == ["self_filing", "self_filing", "open_market"]
+    assert len(buys) == 3  # the self-filings are labeled, still visible, never dropped
+
+
+def test_price_window_insider_implausible_row_surfaces_greyed_not_hidden(client, db, security_id):
+    """S2c option (a): the physically-impossible row (the CNBX $2T shape) used to vanish from the
+    overlay; now it rides labeled ``implausible`` (set aside on the FE) — more visible, never dropped.
+    """
+    thesis = persist_thesis(db, security_id)
+    disc = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000014-26-000014",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+        insider_name="MILLS THOMAS E",
+        shares=20_000_000.0,
+        price=100_000.0,
+        usd=2_000_000_000_000.0,
+    )
+    (buy,) = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+    assert buy["character"] == "implausible"
+
+
+def test_price_window_insider_carries_the_10b5_1_role_and_character(client, db, security_id):
+    """Provenance rides every chip (invariant #6): the 10b5-1 plan flag, the role, and the S2c
+    ``character`` reach the wire so the tooltip can state them — an automatic-plan buy is not the same
+    conviction signal, and a planned buy's character stays ``open_market`` (the flag rides BESIDE the
+    character, tri-state). NB this planned buy is a CONSTRUCTED row — the ``aff_10b5_1=True`` BUY
+    population query on real dev data is owed on the dev stack (see the S2c PR)."""
     thesis = persist_thesis(db, security_id)
     insider_buy(
         db,
@@ -416,3 +516,6 @@ def test_price_window_insider_carries_the_10b5_1_and_role(client, db, security_i
     )
     (buy,) = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
     assert buy["insider_role"] == "CFO" and buy["aff_10b5_1"] is True
+    assert (
+        buy["character"] == "open_market"
+    )  # planned ≠ set aside; no day low → never "primary_market"

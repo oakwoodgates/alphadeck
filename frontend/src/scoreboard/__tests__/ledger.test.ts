@@ -23,6 +23,7 @@ function buy(over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
     usd: 2_100_000,
     aff_10b5_1: false,
     disclosed: "2026-07-01",
+    character: "open_market",
     ...over,
   };
 }
@@ -47,6 +48,25 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(r.detail).toContain("disclosed 167d later (2026-07-01)"); // the honest lag (#6)
     expect(r.detail).toContain("stock $217 that day · −12% vs now");
     expect(r.detail).not.toContain("transacted"); // the date is its own column — the echo is dropped
+    expect(r.detail).not.toContain("set aside"); // open_market — the norm — is unbadged (#7)
+  });
+
+  it("insider: a set-aside/self-filing character's label INHERITS into the detail cell (S2c — no ledger change)", () => {
+    const row = (character: InsiderBuyOut["character"]) =>
+      ledgerRow({
+        n: 2,
+        family: "insider",
+        date: "2026-01-15",
+        closeThatDay: null,
+        pctVsNow: null,
+        buy: buy({ character }),
+      });
+    // the detail derives from the tooltip, so the character lines ride in with zero ledger.ts logic
+    expect(row("primary_market").detail).toContain("primary-market (offer-price, set aside)");
+    expect(row("implausible").detail).toContain("implausible $ (bad source data, set aside)");
+    expect(row("self_filing").detail).toContain("issuer self-filing (not a personal buy)");
+    // the type cell stays "insider buy" — the grey + the detail label carry the exception
+    expect(row("primary_market").type).toBe("insider buy");
   });
 
   it("trigger: the label leads, then kind · ticker", () => {

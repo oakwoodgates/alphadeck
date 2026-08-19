@@ -211,9 +211,14 @@ asof-capped `PgRealizedPrices`, served on request so the ledger payload stays le
 lazy-loaded). It draws the **close line + faint SMA 50/200 context**, and overlays the episode's **recorded
 events** as **colored numbered chips**:
 
-- **What rides on it** — insider **open-market buys** (`fact_insider_txn`, code-P, reusing the NamePanel's
-  `_is_open_market_buy` screen so the dots reconcile with its net-flow figure), the **arm's triggers**, and
-  the **lifecycle** moments (warm/arm/dearm/exit).
+- **What rides on it** — insider **code-P buys** (`fact_insider_txn`), the **arm's triggers**, and the
+  **lifecycle** moments (warm/arm/dearm/exit). Each buy carries a server-classified **`character`**
+  (Band 03 S2c — the display rail's `_screen`, the same predicates the NamePanel's `_is_open_market_buy`
+  composes): `open_market` (the unbadged norm — "passed the available screens", never "proven
+  discretionary") · `self_filing` (labeled — still counted in the panel's net-flow; that re-base is
+  deferred) · `primary_market` / `implausible` (**set aside** — greyed chips + muted ledger rows, present
+  and labeled instead of hidden, WB #2/#9). The **counted** (non-set-aside) dots reconcile with the
+  NamePanel's net-flow figure.
 - **The relevance floor** — the loaded universe is `[max(thesis.created_at − 365d, first_bar), now]`: a thesis
   born in 2026 does not plot a 2020 buy. A *relevance* bound on off-story events, never a recall cut (#9); the
   server owns it and echoes the effective floor.
@@ -226,9 +231,11 @@ events** as **colored numbered chips**:
   later bars AND later-*disclosed* buys — the honesty a filing's days-to-months lag demands (the price bar's
   `valid_from == d` needs only the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
   history is short (`scoreboard/overlays.py`).
-- **Explainability (#6)** — hover any chip for the buyer/$/date, the **disclosure lag**, and the market-price
-  context (the close that day, % vs now), with a guide-line to the price point; every chip traces to a
-  recorded row. A legend names only the present families (#7).
+- **Explainability (#6)** — hover any chip for the buyer/$/date, the **disclosure lag**, the buy's
+  **character line** (why it did or didn't count; open-market stays unbadged, the 10b5-1 plan note renders
+  only on an explicit `true` — tri-state), and the market-price context (the close that day, % vs now),
+  with a guide-line to the price point; every chip traces to a recorded row. A legend names only the
+  present families (#7).
 
 ### The event ledger + Cockpit strip (Slice B)
 

@@ -248,6 +248,7 @@ const LBUY: InsiderBuyOut = {
   usd: 500_000,
   aff_10b5_1: false,
   disclosed: "2026-08-05",
+  character: "open_market",
 };
 const SCORED = {
   security_id: "s1",

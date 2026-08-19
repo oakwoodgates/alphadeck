@@ -8,11 +8,14 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
   window's LEFT edge is honest (the value at ``start`` sees the ~200 prior closes) and ``None`` where too
   little history exists (never back-padded). It reads no clock and no DB — the router hands it the
   asof-capped bars ``PgRealizedPrices.bars_between`` already returns (never a forked as-of path).
-- ``episode_insider_buys`` — the window's individual open-market purchases, read via the shared
-  bitemporal ``as_of`` (latest version per natural key, so a corrected row never double-counts) and
-  screened by the EXACT open-market definition the NamePanel's insider-flow display signal uses
-  (``_is_open_market_buy``), so the chart's dots reconcile with the panel's net-flow figure. Code-P is
-  the floor; the screen only sets aside offer-price subscriptions / implausible rows (recall-safe, #9).
+- ``episode_insider_buys`` — the window's individual code-P purchases, read via the shared
+  bitemporal ``as_of`` (latest version per natural key, so a corrected row never double-counts), each
+  CLASSIFIED by the display rail's buy-character screen (``_screen`` — the same predicates the
+  NamePanel's open-market definition composes), so the chart's dots reconcile with the panel's
+  net-flow figure. Band 03 S2c (operator option (a)): the set-aside rows (primary-market /
+  implausible) now RIDE the wire too, tagged by ``character``, instead of being ``continue``-d past —
+  the FE greys + labels them (WB #2: pruning hides, it never vanishes; #9: more visible, never
+  dropped). Only the non-set-aside subset is what the panel's open-market figure counts.
 
 The transaction axis is the load-bearing bit: a buy is positioned by ``valid_from`` (the transaction
 date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have KNOWN by ``known_at``.
@@ -30,7 +33,7 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import as_of
-from signals.display.insider_flow import BUY, _is_open_market_buy
+from signals.display.insider_flow import BUY, _screen
 
 # Warm-up buffer read BEHIND the window start so the leftmost returned bar carries an honest SMA200
 # (needs ~200 prior TRADING days; 300 calendar days ≈ 205-215 trading days clears it). A young security
@@ -59,6 +62,23 @@ def thesis_created_at(conn: psycopg.Connection, thesis_id: UUID) -> date:
         cur.execute("SELECT created_at FROM thesis WHERE id = %s", [thesis_id])
         row = cur.fetchone()
     return row["created_at"].date()
+
+
+def security_issuer_name(
+    conn: psycopg.Connection, tenant_id: UUID, security_id: UUID
+) -> str | None:
+    """The security's registered ``security_master`` name — the self-filing identity screen's
+    name-fallback input (Band 03 S2c). Read directly here, the ``thesis_created_at`` precedent: one
+    column this module needs, no domain-model widening. A missing row / NULL name returns ``None``,
+    which simply DISABLES the name fallback (CIK equality on the row still matches; missing identity
+    is never "self" — the recall-safe one-directional failure mode, #9)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name FROM security_master WHERE tenant_id = %s AND id = %s",
+            [tenant_id, security_id],
+        )
+        row = cur.fetchone()
+    return row["name"] if row else None
 
 
 def universe_floor(created_at: date, first_bar: date | None) -> date:
@@ -115,20 +135,29 @@ def episode_insider_buys(
     known_at: datetime,
     day_lows: dict[date, float],
 ) -> list[dict[str, Any]]:
-    """The window's code-P open-market insider buys, as-of-capped on both axes.
+    """The window's code-P insider buys, as-of-capped on both axes, each carrying its ``character``.
 
     Read via the shared bitemporal ``as_of`` (``valid_from <= asof`` on the valid axis, ``recorded_at <=
     known_at`` on the transaction axis, and the LATEST version per natural key — so a corrected/superseded
     row never double-counts). Then: keep code-P only, keep transactions inside the drawn window
     ``[start, min(end, asof)]`` (``asof`` already caps the read; ``end`` bounds a matured episode whose
-    exit_by is in the past), and apply the NamePanel's open-market screen (``_is_open_market_buy``) so a
-    dot on the chart is a dot in the panel's net-flow. ``day_lows`` (trade-date → EOD low, from the SAME
-    asof-capped price view) drives the offer-price screen; an absent low keeps the buy (recall-safe, #9).
+    exit_by is in the past), and CLASSIFY each buy via the display rail's ``_screen`` (Band 03 S2c) —
+    the issuer name (``security_issuer_name``) feeds its self-filing identity check. Set-aside rows
+    (``primary_market`` / ``implausible``) are KEPT on the wire, tagged, instead of dropped — the FE
+    greys + labels them (option (a); WB #2 / #9) — so the panel's open-market figure equals the
+    NON-set-aside subset, and the ledger now shows WHY a buy did or didn't count (#6). The input rows
+    are never mutated (new dicts out, #9).
+
+    DEFERRED (operator decision 3): a ``self_filing`` buy is labeled but NOT set aside — the panel's
+    90d net-flow still counts it (``insider_flow._is_open_market_buy`` is identity-blind); re-basing
+    that figure is a separate, operator-signed decision. See ``signals/display/insider_flow.py``.
 
     Each row: ``d`` = ``valid_from`` (the chip's x, the transaction date), ``disclosed`` =
     ``recorded_at::date`` (the tooltip's honest disclosure lag), plus who / role / shares / $ / the
-    10b5-1 plan flag. Sorted by transaction date (then disclosure) — the frontend numbers chronologically.
+    10b5-1 plan flag / ``character``. Sorted by transaction date (then disclosure) — the frontend
+    numbers chronologically.
     """
+    issuer_name = security_issuer_name(conn, tenant_id, security_id)
     rows = as_of(
         conn,
         "fact_insider_txn",
@@ -144,10 +173,6 @@ def episode_insider_buys(
         vf: date = r["valid_from"]
         if vf < start or vf > end:  # position window (end bounds a matured, past-exit episode)
             continue
-        if not _is_open_market_buy(
-            r, day_lows
-        ):  # sets aside offer-price / implausible rows (#9-named)
-            continue
         buys.append(
             {
                 "d": vf,
@@ -157,6 +182,9 @@ def episode_insider_buys(
                 "usd": _f(r.get("usd")),
                 "aff_10b5_1": r.get("aff_10b5_1"),
                 "disclosed": r["recorded_at"].date(),
+                # the buy's server-classified character (deterministic field predicates, #3);
+                # set-asides ride greyed-and-labeled instead of hidden (option (a) — WB #2)
+                "character": _screen(r, day_lows, issuer_name),
             }
         )
     buys.sort(key=lambda b: (b["d"], b["disclosed"]))

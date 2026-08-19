@@ -5,6 +5,7 @@ import {
   buildOverlayEvents,
   closeOnDate,
   defaultVisibleRange,
+  insiderSetAside,
   legendEntries,
   overlayTooltip,
   stackChips,
@@ -23,6 +24,7 @@ function buy(over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
     usd: 50000,
     aff_10b5_1: false,
     disclosed: "2026-06-01",
+    character: "open_market",
     ...over,
   };
 }
@@ -177,15 +179,51 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
     expect(t.lines.some((l) => l.startsWith("disclosed"))).toBe(false); // same-day disclosure
   });
 
-  it("insider: a 10b5-1 plan is noted", () => {
+  it("insider: a 10b5-1 plan is noted — ONLY on an explicit true (tri-state)", () => {
+    const tip = (aff: boolean | null) =>
+      overlayTooltip({
+        n: 1,
+        family: "insider",
+        date: "2026-01-15",
+        closeThatDay: null,
+        pctVsNow: null,
+        buy: buy({ aff_10b5_1: aff }),
+      });
+    expect(tip(true).lines).toContain("10b5-1 plan (pre-scheduled)");
+    // null (the pre-Dec-2022 unknown) and an explicit false are NEVER asserted "planned" (#9)
+    expect(tip(null).lines.some((l) => l.includes("10b5-1"))).toBe(false);
+    expect(tip(false).lines.some((l) => l.includes("10b5-1"))).toBe(false);
+  });
+
+  // S2c: the character line — why the buy did/didn't count (#6). Open-market is the unbadged norm;
+  // the exceptions carry the operator-approved terse copy (honest loudness).
+  it("insider: each non-open-market character gets its one terse line; open_market stays unbadged", () => {
+    const tip = (character: InsiderBuyOut["character"]) =>
+      overlayTooltip({
+        n: 1,
+        family: "insider",
+        date: "2026-01-15",
+        closeThatDay: null,
+        pctVsNow: null,
+        buy: buy({ character }),
+      });
+    expect(tip("self_filing").lines).toContain("issuer self-filing (not a personal buy)");
+    expect(tip("primary_market").lines).toContain("primary-market (offer-price, set aside)");
+    expect(tip("implausible").lines).toContain("implausible $ (bad source data, set aside)");
+    const norm = tip("open_market").lines;
+    expect(norm.some((l) => l.includes("set aside") || l.includes("self-filing"))).toBe(false);
+  });
+
+  it("insider: the character line coexists with the 10b5-1 note (a planned self-filing shows both)", () => {
     const t = overlayTooltip({
       n: 1,
       family: "insider",
       date: "2026-01-15",
       closeThatDay: null,
       pctVsNow: null,
-      buy: buy({ aff_10b5_1: true }),
+      buy: buy({ character: "self_filing", aff_10b5_1: true }),
     });
+    expect(t.lines).toContain("issuer self-filing (not a personal buy)");
     expect(t.lines).toContain("10b5-1 plan (pre-scheduled)");
   });
 
@@ -207,6 +245,31 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
     expect(lc("armed").title).toBe("armed");
     expect(lc("dearmed", "aged out").title).toBe("de-armed (aged out)");
     expect(lc("exit_by").title).toBe("exit-by (horizon)");
+  });
+});
+
+describe("insiderSetAside — the greyed-class helper (S2c option (a))", () => {
+  it("is true ONLY for the set-aside characters; a self-filing is labeled but NOT set aside", () => {
+    expect(insiderSetAside(buy({ character: "primary_market" }))).toBe(true);
+    expect(insiderSetAside(buy({ character: "implausible" }))).toBe(true);
+    // self-filing still counts in the panel's 90d net-flow (the re-base is deferred) — not greyed
+    expect(insiderSetAside(buy({ character: "self_filing" }))).toBe(false);
+    expect(insiderSetAside(buy({ character: "open_market" }))).toBe(false);
+  });
+
+  it("set-aside buys keep their place in the stable 1..N numbering (visible, never dropped — WB #2)", () => {
+    const bars = [bar("2026-05-15", 100), bar("2026-06-01", 104), bar("2026-06-30", 112)];
+    const withSetAside = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [buy({ d: "2026-05-25", character: "primary_market" }), buy({ d: "2026-06-10" })],
+      bars,
+    );
+    // the set-aside buy numbers like any event (#1 here), and the rows after it keep their numbers
+    expect(withSetAside.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "insider", "2026-05-25"], // the set-aside — numbered, not skipped
+      [2, "lifecycle", "2026-06-01"],
+      [3, "insider", "2026-06-10"],
+    ]);
   });
 });
 

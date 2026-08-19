@@ -42,6 +42,7 @@ function buy(over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
     usd: 50000,
     aff_10b5_1: false,
     disclosed: "2026-06-10",
+    character: "open_market",
     ...over,
   };
 }
@@ -115,6 +116,24 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     const { container } = renderLedger({ events: [] });
     expect(container.querySelector("table")).toBeNull();
     expect(container.querySelector(".sb-evledger")).toBeNull();
+  });
+
+  it("a SET-ASIDE buy's row renders muted-but-present with its label; type stays 'insider buy' (S2c)", () => {
+    // same shape as EVENTS but the insider buy is a primary-market set-aside — it must NOT vanish
+    const events = buildOverlayEvents(
+      ep({ warm_date: "2026-05-20", arm_date: "2026-06-01", triggers_at_arm: [TRIG] }),
+      [buy({ d: "2026-06-10", character: "primary_market" })],
+      BARS as PriceBar[],
+    );
+    const { container } = renderLedger({ events });
+    expect(rows(container)).toHaveLength(events.length); // the set-aside row is present (WB #2)
+    const setAsideRow = rowFor(container, 4);
+    expect(setAsideRow).toHaveClass("evled-setaside"); // muted, never removed
+    expect(within(setAsideRow).getByText("insider buy")).toBeInTheDocument(); // type unchanged
+    expect(setAsideRow.textContent).toContain("primary-market (offer-price, set aside)");
+    // the counted open-market row (the norm) carries NO muted class — loudness marks the exception
+    const { container: normal } = renderLedger();
+    expect(rowFor(normal, 4)).not.toHaveClass("evled-setaside");
   });
 });
 

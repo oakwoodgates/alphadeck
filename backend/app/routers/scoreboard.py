@@ -239,10 +239,15 @@ def get_price_window(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardPriceWindowOut:
     """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and the
-    window's open-market insider buys — for the Scoreboard drawer's chart (Slice 3, extended in Slice A).
+    window's code-P insider buys — for the Scoreboard drawer's chart (Slice 3, extended in Slice A).
     The SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between`` shares
     ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload (which
     stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
+
+    Each insider buy carries its server-classified ``character`` (Band 03 S2c — deterministic field
+    predicates, #3): ``open_market`` / ``self_filing`` / ``primary_market`` / ``implausible``. Set-aside
+    rows (the last two) ride the wire greyed-and-labeled on the FE instead of being dropped (WB #2 / #9),
+    so the event ledger shows why a buy did or didn't count toward the panel's open-market flow (#6).
 
     No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client, on BOTH axes:
     - the price reader caps the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a
