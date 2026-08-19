@@ -42,27 +42,35 @@ _FACT_IDENTITY: dict[str, list[str]] = {
     ],  # one 13D/G filing per accession (within the SUBJECT security scope) — filer/pct resolving is a new version (S5)
 }
 
-# The KNOWABILITY axis per table — the SQL expression for "when could we first have known this fact?",
-# used ONLY as the transaction-time no-lookahead gate (``<= known_at``). Default = ``recorded_at`` (our
-# ingest time). ``fact_insider_txn`` overrides to ``COALESCE(accepted, recorded_at)``: a Form 4's fields are
-# immutable + public at SEC acceptance, so the honest clock is the acceptance datetime, falling back to
-# ``recorded_at`` while ``accepted`` is NULL (pre-backfill / unresolvable — recall-safe #9). This is a
-# PROGRESSIVE rollout: with ``accepted`` all-NULL the gate is byte-identical to ``recorded_at`` today.
-# It moves ONLY the WHERE gate — the version-pick ``ORDER BY recorded_at DESC`` is UNCHANGED (a correction is
-# still the latest-RECORDED row). The expression is a trusted literal (hardcoded here, never caller input),
-# and Postgres (``_as_of``) + DuckDB (``ReplayPointInTimeData._as_of``) render it BYTE-IDENTICALLY so the
-# replay-parity gate stays provable. No genuine lookahead: new insider info arrives as a NEW accession
-# (amendment) with its own later ``accepted``, never as a change to an already-accepted filing.
-_KNOWABILITY_EXPR: dict[str, str] = {
-    "fact_insider_txn": "COALESCE(accepted, recorded_at)",
-}
+# The KNOWABILITY axis per table — the SQL expression for the transaction-time no-lookahead gate
+# (``{expr} <= known_at``): "which rows had THIS SYSTEM actually recorded as of the pinned read time?".
+# EVERY fact table gates on ``recorded_at`` (our ingest instant) — the strict "what we held" axis, and the
+# SINGLE no-lookahead definition across all tables (a mirror test,
+# ``test_mirror_has_no_valid_time_lookahead_corporate_events``, pins that strictness).
+#
+# ``fact_insider_txn`` deliberately does NOT special-case this onto ``COALESCE(accepted, recorded_at)``
+# (PR #283 tried that; reverted for one strict definition everywhere). ``accepted`` (the SEC acceptance
+# datetime) stays a DISPLAY + metrics column ONLY: the Scoreboard's honest ``disclosed`` line
+# (``scoreboard/overlays.py``) and the B2 disclosure-lag metric (``scoreboard/provenance.py``) read it
+# DIRECTLY, never through this gate. It must never gate the as-of read — insider rows are re-versioned in
+# place by backfills (0037/0040), so a v2 carrying the SAME ``accepted`` but a LATER ``recorded_at`` would
+# clear a ``COALESCE(accepted, …)`` gate BEFORE it was recorded, and the ``ORDER BY recorded_at DESC``
+# version-pick would then surface it — the same latent lookahead the 8-K resolve carries. Gating on
+# ``recorded_at`` closes that. (Live reads pin ``known_at = now`` where ``accepted <= recorded_at <= now``,
+# so the choice is inert on every live path; it matters only for an honest past-as-of replay.)
+#
+# The map is intentionally EMPTY — every table falls through to ``_DEFAULT_KNOWABILITY_EXPR``. It stays as
+# the injection-safe seam for any future per-table override (a trusted literal, never caller input); both
+# engines (Postgres ``_as_of`` + DuckDB ``ReplayPointInTimeData._as_of``) render whatever it returns
+# BYTE-IDENTICALLY, so the replay-parity gate stays provable.
+_KNOWABILITY_EXPR: dict[str, str] = {}
 _DEFAULT_KNOWABILITY_EXPR = "recorded_at"
 
 
 def knowability_expr(table: str) -> str:
     """The transaction-time no-lookahead gate column/expression for ``table`` (``_KNOWABILITY_EXPR`` above,
-    else ``recorded_at``). ONE source of truth, imported by both the Postgres and DuckDB as-of reads so
-    their WHERE gate is identical (replay parity)."""
+    else ``recorded_at`` — currently every table). ONE source of truth, imported by both the Postgres and
+    DuckDB as-of reads so their WHERE gate is identical (replay parity)."""
     return _KNOWABILITY_EXPR.get(table, _DEFAULT_KNOWABILITY_EXPR)
 
 
@@ -92,8 +100,8 @@ def _as_of(
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in _FACT_IDENTITY[table])
-    # the knowability gate — recorded_at for most tables, COALESCE(accepted, recorded_at) for
-    # fact_insider_txn (a trusted literal, injection-safe); the version-pick ORDER BY is unchanged
+    # the knowability gate — recorded_at for every table (the strict "what we held" no-lookahead axis;
+    # accepted is a display/metrics column, never a gate); the version-pick ORDER BY is unchanged
     knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     query = sql.SQL(
         "SELECT DISTINCT ON ({ident}) * FROM {table} "

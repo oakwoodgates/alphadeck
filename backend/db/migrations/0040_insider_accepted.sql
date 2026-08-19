@@ -12,18 +12,21 @@
 --   accepted     — the SEC acceptance datetime (submissions JSON `acceptanceDateTime`). = "disclosed".
 --   recorded_at  — our ingest time (unchanged). = "ingested", shown as a SECOND line only when it differs.
 -- `recorded_at` KEEPS its meaning (the bitemporal transaction-time axis + the displayed ingest clock) —
--- re-stamping it is OUT (we'd lose the "ingested" clock). `accepted` becomes the KNOWABILITY axis: the
--- as-of no-lookahead read and the metrics-exclusion gate switch to COALESCE(accepted, recorded_at) —
--- progressive, byte-identical to today while `accepted` is NULL, honest as `backfill_accepted` populates.
+-- re-stamping it is OUT (we'd lose the "ingested" clock). `accepted` is a DISPLAY + METRICS column: the
+-- Scoreboard's honest `disclosed` line and the B2 disclosure-lag metric (`scoreboard/provenance.py`,
+-- COALESCE(accepted, recorded_at)) read it DIRECTLY. It is NOT the as-of read gate — that transaction-time
+-- no-lookahead gate keys on `recorded_at` for EVERY fact table (one strict "what we held" definition).
+-- [PR #283 briefly moved the as-of gate onto COALESCE(accepted, recorded_at); reverted for one strict
+-- definition everywhere — see db/bitemporal.py. `accepted` as display/metrics stays.]
 --
--- TYPE = timestamptz (NOT date): the read gate becomes `COALESCE(accepted, recorded_at) <= known_at`, and
--- `recorded_at` is timestamptz — matching types make the Postgres <-> DuckDB replay-parity check provably
--- identical (no coercion). Display takes `.date()`.
+-- TYPE = timestamptz (NOT date): `recorded_at` is timestamptz, so matching types keep the disclosure-lag
+-- metric's `COALESCE(accepted, recorded_at)` coercion-free and the Postgres <-> DuckDB parity provable.
+-- Display takes `.date()`.
 --
 -- NULLABLE, populated progressively. Existing rows stay NULL: the incremental ingest (`existing_accessions`
 -- skips stored filings) captures `accepted` on NEWLY-ingested filings only; the stored history is repaired
 -- by `pipeline.backfill_accepted` (per-CIK submissions JSON, NULL-only, append-only re-version). An
--- unresolvable acceptance date STAYS NULL and the read gate/display fall back to `recorded_at`/"ingested"
+-- unresolvable acceptance date STAYS NULL and the display/metrics fall back to `recorded_at`/"ingested"
 -- (recall-safe #9) — honest at every rollout stage.
 --
 -- NATURAL KEY UNTOUCHED: `accepted` is FILING-LEVEL (the acceptance datetime is a property of the accession,

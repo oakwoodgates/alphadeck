@@ -85,7 +85,7 @@ def test_ingest_form4_stores_the_flag(db, security_id):
 
 def test_ingest_form4_stores_the_accepted_datetime(db, security_id):
     """The acceptance datetime threaded from the enumeration reaches the ``accepted`` column (filing-level,
-    stamped on every row); absent -> NULL, so the read gate/display fall back to recorded_at/"ingested" (#9).
+    stamped on every row); absent -> NULL, so the display/metrics fall back to recorded_at/"ingested" (#9).
     parse_form4 is UNCHANGED — the ownership XML has no acceptance datetime, so this rides as a kwarg.
     """
     from datetime import datetime, timezone

@@ -207,10 +207,10 @@ def _seed_activist_stakes(db):
 
 
 def _seed_insider_accepted(db):
-    """A HIMS insider row carrying a non-NULL ``accepted`` (the MRVL two-clock fix), plus one left NULL,
-    so parity exercises the ``COALESCE(accepted, recorded_at)`` knowability gate on BOTH: the acceptance
-    timestamp must round-trip through the Parquet mirror (timestamptz) and gate identically live and in
-    replay (the accepted-bearing row is knowable from acceptance though re-ingested a year later).
+    """A HIMS insider row carrying a non-NULL ``accepted`` (the display/metrics "disclosed" clock), plus
+    one left NULL, so parity exercises the ``accepted`` column round-tripping through the Parquet mirror
+    (timestamptz) and the ``recorded_at`` knowability gate agreeing row-for-row live and in replay (the
+    as-of gate keys on ``recorded_at`` for every table; ``accepted`` is display-only, never the gate).
     """
 
     def _row(accession, *, accepted, recorded_at):
@@ -246,7 +246,9 @@ def _seed_insider_accepted(db):
 
 def _seed_all(db):
     seed_hims(db)  # insider (Wells) + prices + dilution (converts)
-    _seed_insider_accepted(db)  # a non-NULL accepted + a NULL one — the COALESCE gate, both engines
+    _seed_insider_accepted(
+        db
+    )  # a non-NULL accepted + a NULL one — the accepted column round-trip, both engines
     seed_unh(db)  # insider cluster + prices
     seed_nuclear(db)  # prices for the basket
     seed_nuclear_catalyst(db)  # OKLO catalyst
