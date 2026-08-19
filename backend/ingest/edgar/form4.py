@@ -159,7 +159,8 @@ def ingest_form4(
     enumeration (``submissions.acceptanceDateTime``, parsed via ``parse_acceptance``) — the ownership XML
     itself carries no acceptance datetime, so ``parse_form4`` is UNCHANGED and this rides as a per-filing
     kwarg like ``recorded_at``. ``None`` leaves the column NULL (the read gate/display fall back to
-    ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row."""
+    ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
+    """
     count = 0
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:

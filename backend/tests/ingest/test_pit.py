@@ -44,7 +44,9 @@ def test_pit_insider_visibility_keys_on_accepted_not_ingest(db, security_id):
     seen = PointInTimeData(
         db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 10, tzinfo=timezone.utc)
     ).insider_txns(security_id)
-    assert len(seen) == 2 and all(t["accession"] == "acc-accepted" for t in seen)  # visible from acceptance
+    assert len(seen) == 2 and all(
+        t["accession"] == "acc-accepted" for t in seen
+    )  # visible from acceptance
     blind = PointInTimeData(
         db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 2, tzinfo=timezone.utc)
     ).insider_txns(security_id)

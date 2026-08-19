@@ -91,10 +91,16 @@ class BackfillResult:
     scopes_targeted: int = 0  # distinct (tenant, security) with >= 1 latest-version-NULL row
     scopes_no_cik: int = 0  # security has no CIK -> its rows stay NULL
     scopes_no_submissions: int = 0  # uncached (--no-live) or fetch failed -> rows stay NULL
-    accessions_resolved: int = 0  # distinct accessions found in submissions with a parseable acceptance
-    accessions_unresolved: int = 0  # distinct accessions NOT in the recent window (deferred --deep) -> NULL
+    accessions_resolved: int = (
+        0  # distinct accessions found in submissions with a parseable acceptance
+    )
+    accessions_unresolved: int = (
+        0  # distinct accessions NOT in the recent window (deferred --deep) -> NULL
+    )
     rows_corrected: int = 0  # rows NULL -> accepted set
-    rows_residual_null: int = 0  # rows left NULL (no CIK / no submissions / accession out of window)
+    rows_residual_null: int = (
+        0  # rows left NULL (no CIK / no submissions / accession out of window)
+    )
 
 
 @dataclass
@@ -106,8 +112,12 @@ class VerifyResult:
     keys_stored_nonnull: int = 0  # of those, carrying a stored acceptance
     keys_compared: int = 0  # stored non-NULL AND resolvable in submissions -> actually compared
     keys_no_submissions: int = 0  # security's submissions uncached / unfetchable
-    keys_null_consistent: int = 0  # stored NULL, accession not in the recent window (consistent unknown)
-    keys_null_but_resolvable: int = 0  # stored NULL, submissions HAS it (0 after a clean --execute run)
+    keys_null_consistent: int = (
+        0  # stored NULL, accession not in the recent window (consistent unknown)
+    )
+    keys_null_but_resolvable: int = (
+        0  # stored NULL, submissions HAS it (0 after a clean --execute run)
+    )
     mismatches: list[tuple[str, str, str, str]] = field(default_factory=list)
     # (accession, insider_name, stored, resolved) — capped at print time, full count always reported
 
@@ -191,7 +201,9 @@ def _resolved_acceptances(client: EdgarClient, cik: str) -> dict[str, datetime] 
         subs = fetch_submissions(client, cik)
     except CacheMiss:
         return None
-    except Exception as e:  # noqa: BLE001 — a live fetch failure (httpx / transient) leaves the scope NULL
+    except (
+        Exception
+    ) as e:  # noqa: BLE001 — a live fetch failure (httpx / transient) leaves the scope NULL
         if _is_http_error(e):
             return None
         raise
@@ -282,9 +294,7 @@ def run_verify(
     non-NULL value that disagrees with the enumeration is a MISMATCH."""
     res = VerifyResult()
     # every distinct scope (not just NULL ones) — verify covers already-captured rows too
-    q = (
-        "SELECT DISTINCT tenant_id, security_id FROM fact_insider_txn ORDER BY tenant_id, security_id"
-    )
+    q = "SELECT DISTINCT tenant_id, security_id FROM fact_insider_txn ORDER BY tenant_id, security_id"
     with conn.cursor() as cur:
         cur.execute(q)
         scopes = [(r["tenant_id"], r["security_id"]) for r in cur.fetchall()]
@@ -307,7 +317,9 @@ def run_verify(
                     res.keys_null_but_resolvable += 1
                 continue
             res.keys_stored_nonnull += 1
-            if resolved is None:  # stored a value the current enumeration no longer resolves — report it
+            if (
+                resolved is None
+            ):  # stored a value the current enumeration no longer resolves — report it
                 res.mismatches.append(
                     (r["accession"], r["insider_name"] or "?", str(stored), "<unresolved>")
                 )
@@ -330,9 +342,13 @@ def _print_backfill(res: BackfillResult) -> None:
     print(f"  rows appended     : {res.table_rows_after - res.table_rows_before}")
     print(f"  securities targeted        : {res.scopes_targeted}")
     print(f"  securities without a CIK   : {res.scopes_no_cik} (rows stay NULL)")
-    print(f"  securities no submissions  : {res.scopes_no_submissions} (uncached/unfetchable, stay NULL)")
+    print(
+        f"  securities no submissions  : {res.scopes_no_submissions} (uncached/unfetchable, stay NULL)"
+    )
     print(f"  accessions resolved        : {res.accessions_resolved}")
-    print(f"  accessions unresolved      : {res.accessions_unresolved} (out of recent window — deferred --deep)")
+    print(
+        f"  accessions unresolved      : {res.accessions_unresolved} (out of recent window — deferred --deep)"
+    )
     print(f"  rows NULL -> accepted      : {res.rows_corrected}")
     print(f"  rows residual NULL         : {res.rows_residual_null}")
 
@@ -375,7 +391,9 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="explicit target DSN (default: $DATABASE_URL, else the dev default)",
     )
-    p.add_argument("--limit", type=int, default=None, help="cap the securities processed (spot runs)")
+    p.add_argument(
+        "--limit", type=int, default=None, help="cap the securities processed (spot runs)"
+    )
     args = p.parse_args(argv)
 
     url = args.database_url or database_url()
@@ -391,7 +409,9 @@ def main(argv: list[str] | None = None) -> None:
             vres = run_verify(conn, client=client)
             _print_verify(vres)
             if vres.mismatches:
-                raise SystemExit(1)  # the STOP signal — a stored value the enumeration disagrees with
+                raise SystemExit(
+                    1
+                )  # the STOP signal — a stored value the enumeration disagrees with
         else:
             bres = run_backfill(conn, client=client, execute=args.execute, limit=args.limit)
             _print_backfill(bres)

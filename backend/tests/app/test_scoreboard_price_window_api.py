@@ -306,7 +306,9 @@ def test_price_window_insider_no_lookahead_on_transaction_and_disclosure(client,
     - valid axis: a buy transacted 08-15 (future vs both as-ofs) NEVER appears — no `valid_from > asof`.
     """
     thesis = persist_thesis(db, security_id)
-    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # the Form 4 is ACCEPTED (public) 06-20
+    disc = datetime(
+        2026, 6, 20, 12, 0, tzinfo=timezone.utc
+    )  # the Form 4 is ACCEPTED (public) 06-20
     ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # we INGESTED it 11 days later
     insider_buy(
         db,
@@ -335,7 +337,9 @@ def test_price_window_insider_no_lookahead_on_transaction_and_disclosure(client,
     assert len(late) == 1  # the 06-05 buy is now known; the 08-15 buy still hasn't transacted
     (buy,) = late
     assert buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"  # disclosed = accepted
-    assert buy["ingested"] == "2026-07-01"  # the second clock — shown because it differs from disclosed
+    assert (
+        buy["ingested"] == "2026-07-01"
+    )  # the second clock — shown because it differs from disclosed
     assert buy["insider_name"] == "A Buyer" and buy["usd"] == 50000.0
     # the load-bearing assertion: no returned buy is ever transacted after the as-of
     for asof, buys in (("2026-06-10", early), ("2026-06-25", late)):

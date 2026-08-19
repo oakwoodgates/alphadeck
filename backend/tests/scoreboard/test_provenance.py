@@ -85,13 +85,22 @@ def test_thaw_lags_key_on_accepted_disclosure_not_ingest(db, security_id):
     recorded_at)), not our fetch timing. A Form 4 transacted 06-01, ACCEPTED 06-03 (2d), but RE-INGESTED
     09-01 reads a 2-day DISCLOSURE lag — NOT the ~92-day ingest lag the old recorded_at query returned. The
     demo's false "ingested late -> excluded from metrics" exclusion clears; a NULL-accepted row still reads
-    the recorded_at lag (#9 fallback, so a genuinely late-disclosed older filing is not silently cleared)."""
+    the recorded_at lag (#9 fallback, so a genuinely late-disclosed older filing is not silently cleared).
+    """
     _fact(
-        db, security_id, "acc-disclosed", date(2026, 6, 1), _utc(2026, 9, 1), accepted=_utc(2026, 6, 3)
+        db,
+        security_id,
+        "acc-disclosed",
+        date(2026, 6, 1),
+        _utc(2026, 9, 1),
+        accepted=_utc(2026, 6, 3),
     )
     _fact(db, security_id, "acc-nullacc", date(2026, 6, 1), _utc(2026, 6, 11))  # accepted NULL
     lags = thaw_lags(db, ["acc-disclosed", "acc-nullacc"], tenant_id=DEFAULT_TENANT_ID)
-    assert lags == {"acc-disclosed": 2, "acc-nullacc": 10}  # disclosure lag, then recorded_at fallback
+    assert lags == {
+        "acc-disclosed": 2,
+        "acc-nullacc": 10,
+    }  # disclosure lag, then recorded_at fallback
 
 
 def test_thaw_lag_first_learn_wins_and_a_correction_never_shrinks_it(db, security_id):

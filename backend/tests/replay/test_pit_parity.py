@@ -210,7 +210,8 @@ def _seed_insider_accepted(db):
     """A HIMS insider row carrying a non-NULL ``accepted`` (the MRVL two-clock fix), plus one left NULL,
     so parity exercises the ``COALESCE(accepted, recorded_at)`` knowability gate on BOTH: the acceptance
     timestamp must round-trip through the Parquet mirror (timestamptz) and gate identically live and in
-    replay (the accepted-bearing row is knowable from acceptance though re-ingested a year later)."""
+    replay (the accepted-bearing row is knowable from acceptance though re-ingested a year later).
+    """
 
     def _row(accession, *, accepted, recorded_at):
         v = {

@@ -245,8 +245,12 @@ def test_promptly_disclosed_arm_not_flagged_despite_late_ingest(client, db, secu
             "insider_name": "A Buyer",
             "txn_code": "P",
             "valid_from": date(2026, 5, 25),
-            "recorded_at": datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc),  # the demo re-ingest, late
-            "accepted": datetime(2026, 5, 27, 18, 0, tzinfo=timezone.utc),  # public 2d after the txn
+            "recorded_at": datetime(
+                2026, 8, 17, 12, 0, tzinfo=timezone.utc
+            ),  # the demo re-ingest, late
+            "accepted": datetime(
+                2026, 5, 27, 18, 0, tzinfo=timezone.utc
+            ),  # public 2d after the txn
         },
     )
     db.commit()

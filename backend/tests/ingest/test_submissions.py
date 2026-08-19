@@ -115,7 +115,8 @@ def test_mrvl_real_accession_two_clock_lags():
     2025-09-25, RE-INGESTED 2026-08-17 (the demo-rebuild recorded_at). The exact acceptanceDateTime
     was NOT re-fetchable offline (EDGAR 403s a generic User-Agent); this fixture uses the plan's cited
     acceptance illustration (~2 business days after the txn, per the SEC's Form 4 rule + the accession's
-    2025 year-stamp). It proves the MECHANISM + the two REAL lags: disclosed ~2d vs ingested 326d."""
+    2025 year-stamp). It proves the MECHANISM + the two REAL lags: disclosed ~2d vs ingested 326d.
+    """
     from datetime import date
 
     subs = _subs_form4([("0001628280-25-042718", "2025-09-27T18:30:41.000Z")])

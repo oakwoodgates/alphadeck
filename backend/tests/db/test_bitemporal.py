@@ -30,7 +30,8 @@ def test_transaction_time_gate_keys_on_accepted_not_ingest(db, security_id):
     """The MRVL two-clock fix (#1/#6): the no-lookahead gate keys on ``COALESCE(accepted, recorded_at)``.
     A Form 4 transacted 06-01, ACCEPTED 06-03 (public), but re-ingested 09-01 is knowable from its
     ACCEPTANCE — a read pinned 06-10 (after acceptance, long before our ingest) SEES it (the buy WAS public
-    then — the honesty fix, not lookahead), while a read pinned 06-02 (before acceptance) does NOT."""
+    then — the honesty fix, not lookahead), while a read pinned 06-02 (before acceptance) does NOT.
+    """
     append_fact(
         db,
         "fact_insider_txn",
@@ -78,7 +79,11 @@ def test_null_accepted_gate_falls_back_to_recorded_at(db, security_id):
         == []
     )
     assert (
-        len(as_of(db, "fact_insider_txn", known_at=datetime(2026, 9, 2, tzinfo=timezone.utc), **read))
+        len(
+            as_of(
+                db, "fact_insider_txn", known_at=datetime(2026, 9, 2, tzinfo=timezone.utc), **read
+            )
+        )
         == 1
     )
 

@@ -1142,8 +1142,12 @@ class InsiderBuyOut(BaseModel):
     shares: float | None = None
     usd: float | None = None
     aff_10b5_1: bool | None = None
-    disclosed: date | None = None  # SEC acceptance date; None = unresolved -> FE falls back to "ingested" (#9)
-    ingested: date  # recorded_at::date — our ingest time; the second "ingested" line when it differs
+    disclosed: date | None = (
+        None  # SEC acceptance date; None = unresolved -> FE falls back to "ingested" (#9)
+    )
+    ingested: (
+        date  # recorded_at::date — our ingest time; the second "ingested" line when it differs
+    )
     character: Literal["open_market", "self_filing", "primary_market", "implausible"]
 
 

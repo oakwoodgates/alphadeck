@@ -85,7 +85,8 @@ def thaw_lags(
     the filing's latest event date (a filing cannot predate its last txn — the conservative lag base).
     ``known_at`` threads the caller's read-consistency pin on the SAME knowability expression as the
     as-of read: a row not yet knowable at the pin cannot contribute. Accessions with no fact rows are
-    absent from the result — unknown, which degrades to un-flagged (B1 still covers the freeze cohort)."""
+    absent from the result — unknown, which degrades to un-flagged (B1 still covers the freeze cohort).
+    """
     if not accessions:
         return {}
     query = (

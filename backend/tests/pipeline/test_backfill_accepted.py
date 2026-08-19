@@ -25,7 +25,9 @@ from pipeline.backfill_accepted import run_backfill, run_verify
 
 _XML = (
     Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_sample.xml"
-).read_text(encoding="utf-8")  # two non-derivative txns (P + S) -> two rows per accession
+).read_text(
+    encoding="utf-8"
+)  # two non-derivative txns (P + S) -> two rows per accession
 
 _UTC = timezone.utc
 
@@ -48,7 +50,8 @@ def _subs(rows: list[tuple[str, str]]) -> dict:
 
 class _FakeClient:
     """Duck-types EdgarClient for ``fetch_submissions`` (``get_json``): maps a CIK -> submissions, and
-    raises ``CacheMiss`` for an unknown CIK (the uncached / --no-live path -> the scope stays NULL, #9)."""
+    raises ``CacheMiss`` for an unknown CIK (the uncached / --no-live path -> the scope stays NULL, #9).
+    """
 
     def __init__(self, by_cik: dict[str, dict]) -> None:
         self.by_cik = by_cik
@@ -107,7 +110,10 @@ def test_backfill_corrects_null_only_and_never_rewrites_a_captured_value(db, sec
             "1234567": _subs(
                 [
                     ("acc-null", "2025-09-27T18:30:41.000Z"),
-                    ("acc-captured", "2099-12-31T00:00:00.000Z"),  # a DIFFERENT value; must be ignored
+                    (
+                        "acc-captured",
+                        "2099-12-31T00:00:00.000Z",
+                    ),  # a DIFFERENT value; must be ignored
                 ]
             )
         }
@@ -118,7 +124,9 @@ def test_backfill_corrects_null_only_and_never_rewrites_a_captured_value(db, sec
 
     assert res.scopes_targeted == 1 and res.accessions_resolved == 1
     assert res.rows_corrected == 2 and res.rows_residual_null == 0
-    assert _count(db) == before + 2 == res.table_rows_after  # append-only: grew by the corrected rows
+    assert (
+        _count(db) == before + 2 == res.table_rows_after
+    )  # append-only: grew by the corrected rows
     assert _latest_accepted(db, "acc-null") == {datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)}
     assert _latest_accepted(db, "acc-captured") == {captured}  # untouched, no new versions
     with db.cursor() as cur:
@@ -158,11 +166,15 @@ def test_unresolved_stays_null_recall_safe(db, security_id):
     CIK stays NULL; a security whose submissions is uncached stays NULL — and the run still corrects the
     correctable one."""
     ingest_form4(db, security_id, _XML, "acc-in-window")  # resolvable
-    ingest_form4(db, security_id, _XML, "acc-out-of-window")  # NOT in the recent submissions -> NULL
+    ingest_form4(
+        db, security_id, _XML, "acc-out-of-window"
+    )  # NOT in the recent submissions -> NULL
     no_cik = _security(db, ticker="NOCIK", cik=None)
     ingest_form4(db, no_cik, _XML, "acc-nocik")  # security has no CIK -> NULL
     uncached = _security(db, ticker="UNCACHED", cik="0009999999")
-    ingest_form4(db, uncached, _XML, "acc-uncached")  # CIK present but no cached submissions -> NULL
+    ingest_form4(
+        db, uncached, _XML, "acc-uncached"
+    )  # CIK present but no cached submissions -> NULL
     db.commit()
     client = _FakeClient({"1234567": _subs([("acc-in-window", "2025-09-27T18:30:41.000Z")])})
 
@@ -171,10 +183,10 @@ def test_unresolved_stays_null_recall_safe(db, security_id):
     assert res.scopes_targeted == 3  # DEVCO, NOCIK, UNCACHED
     assert res.scopes_no_cik == 1 and res.scopes_no_submissions == 1
     assert res.accessions_resolved == 1 and res.accessions_unresolved == 1
-    assert res.rows_corrected == 2 and res.rows_residual_null == 6  # 3 accessions x 2 rows left NULL
-    assert _latest_accepted(db, "acc-in-window") == {
-        datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)
-    }
+    assert (
+        res.rows_corrected == 2 and res.rows_residual_null == 6
+    )  # 3 accessions x 2 rows left NULL
+    assert _latest_accepted(db, "acc-in-window") == {datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)}
     assert _latest_accepted(db, "acc-out-of-window") == {None}  # never dropped, never guessed
     assert _latest_accepted(db, "acc-nocik") == {None}
     assert _latest_accepted(db, "acc-uncached") == {None}
@@ -213,10 +225,10 @@ def test_asof_read_serves_the_correction_and_the_knowability_flips_honest(db, se
     run_backfill(db, client=client, execute=True, log=lambda *_: None)
 
     after_rows = as_of(db, "fact_insider_txn", known_at=pinned, **read)
-    assert len(after_rows) == 2  # the buy WAS public 2025-09-27 -> honestly visible at the 2025-10 pin
-    assert {r["accepted"] for r in after_rows} == {
-        datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)
-    }
+    assert (
+        len(after_rows) == 2
+    )  # the buy WAS public 2025-09-27 -> honestly visible at the 2025-10 pin
+    assert {r["accepted"] for r in after_rows} == {datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)}
     # and no double-count: a full-knowledge read still sees exactly the two logical facts
     now_rows = as_of(db, "fact_insider_txn", known_at=datetime.now(_UTC), **read)
     assert len(now_rows) == 2
@@ -224,7 +236,8 @@ def test_asof_read_serves_the_correction_and_the_knowability_flips_honest(db, se
 
 def test_verify_cross_checks_stored_values_against_submissions(db, security_id):
     """--verify is the independent gate: 0 mismatches on an honest table; a stored value the enumeration
-    disagrees with IS a mismatch; a remaining resolvable NULL is counted (0 for it post-backfill)."""
+    disagrees with IS a mismatch; a remaining resolvable NULL is counted (0 for it post-backfill).
+    """
     good = datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)
     ingest_form4(db, security_id, _XML, "acc-good", accepted=good)  # stored == submissions
     ingest_form4(
@@ -260,15 +273,15 @@ def test_same_filing_under_two_securities_corrects_both_without_collision(db, se
     issuer held as two master rows — same CIK). Both corrected inside ONE batch (shared now()); the 0037
     security-scoped natural key keeps the two same-instant corrections from colliding."""
     sec_b = _security(db, ticker="DEVCO2", cik="0001234567")  # same CIK as security_id
-    ingest_form4(
-        db, security_id, _XML, "acc-dual", recorded_at=datetime(2026, 6, 5, tzinfo=_UTC)
-    )
+    ingest_form4(db, security_id, _XML, "acc-dual", recorded_at=datetime(2026, 6, 5, tzinfo=_UTC))
     ingest_form4(db, sec_b, _XML, "acc-dual", recorded_at=datetime(2026, 6, 6, tzinfo=_UTC))
     db.commit()
     client = _FakeClient({"1234567": _subs([("acc-dual", "2025-09-27T18:30:41.000Z")])})
     before = _count(db)  # 4 rows: 2 txns x 2 securities
 
-    res = run_backfill(db, client=client, execute=True, log=lambda *_: None)  # would collide pre-0037
+    res = run_backfill(
+        db, client=client, execute=True, log=lambda *_: None
+    )  # would collide pre-0037
     assert res.rows_corrected == 4 and res.rows_residual_null == 0
     assert _count(db) == before + 4 == res.table_rows_after
 
@@ -290,7 +303,8 @@ def test_same_filing_under_two_securities_corrects_both_without_collision(db, se
 
 def test_execute_refuses_loud_on_a_pre_0037_constraint(db, security_id):
     """--execute refuses UP FRONT against the pre-0037 constraint (no security_id) — a SystemExit naming
-    0037, before any write — instead of collapsing mid-batch. Teardown force-restores the 0037 shape."""
+    0037, before any write — instead of collapsing mid-batch. Teardown force-restores the 0037 shape.
+    """
     ingest_form4(db, security_id, _XML, "acc-null")
     db.commit()
     client = _FakeClient({"1234567": _subs([("acc-null", "2025-09-27T18:30:41.000Z")])})
