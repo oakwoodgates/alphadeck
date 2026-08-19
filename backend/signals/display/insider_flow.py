@@ -53,6 +53,16 @@ OFFMARKET_BELOW_LOW_FRAC = 0.10
 # a "purchase" above this $ is bad source data (a $100k/share price → a $2T row), never an open-market buy
 MAX_PLAUSIBLE_TXN_USD = 2_000_000_000.0
 
+# --- buy CHARACTER attribution (Band 03 S2c) — the display-side labels behind the Scoreboard's per-buy
+# chips / event ledger. Each code-P row lands in exactly ONE character (``_screen`` below, deterministic
+# field predicates only, #3). These are the wire values (``schemas_api.InsiderBuyOut.character``).
+OPEN_MARKET = "open_market"  # passed the available screens — NEVER "proven discretionary"
+SELF_FILING = (
+    "self_filing"  # the issuer filing a Form 4 on ITSELF — a buyback/treasury/ADR mechanic
+)
+PRIMARY_MARKET = "primary_market"  # an offer-price subscription (IPO/PIPE/placement) — set aside
+IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data — set aside
+
 
 def _usd_sum(rows: list[dict[str, Any]]) -> tuple[float, int]:
     """Sum the priced rows; the count of rows WITHOUT a $ value rides back for the honest note."""
@@ -71,35 +81,91 @@ def _usd_compact(v: float) -> str:
     return f"${v:.0f}"
 
 
+def _is_implausible(txn: dict[str, Any]) -> bool:
+    """Physically-impossible $ (bad source data — a $100k/share price → a $2T row), never a real buy (#3)."""
+    return float(txn.get("usd") or 0.0) > MAX_PLAUSIBLE_TXN_USD
+
+
+def _is_below_day_low(txn: dict[str, Any], day_lows: dict[date, float]) -> bool:
+    """Priced materially below the security's own EOD low that day → an offer-price primary-market
+    subscription (an IPO allocation / PIPE / placement files as code P at the OFFER price — PBLS: RA
+    Capital's $394M subscription at $20 vs a $29.65-$34.47 tape). Recall-safe (#9): no day low / no
+    price → False (KEEP — we cannot prove it was off-market); a genuine open-market print is within the
+    day's [low, high], so this cannot exclude one (save a name that REVERSE-split between the buy and
+    asof, a documented limitation shared with the call)."""
+    price = txn.get("price")
+    low = day_lows.get(txn.get("valid_from"))
+    return (
+        price is not None
+        and low is not None
+        and float(price) < low * (1.0 - OFFMARKET_BELOW_LOW_FRAC)
+    )
+
+
+def _norm_entity(name: str | None) -> str:
+    # duplicated from insider_conviction._norm_entity (the display seam cannot import the call path —
+    # ``base.py`` + the ``test_registry.py`` import pin; re-sync by hand if the call side changes):
+    # casefold + collapse whitespace + drop a trailing period; deliberately NO corporate-suffix
+    # stripping (a self-filing has the SAME name on both sides; stripping would widen the match and
+    # risk excluding a real, non-self buy — recall-safe, #9).
+    if not name:
+        return ""
+    return " ".join(name.strip().casefold().rstrip(".").split())
+
+
+def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
+    # duplicated from insider_conviction._is_issuer_self (see _norm_entity above — the seam's
+    # duplicate-with-pointer pattern): the ISSUER filing a Form 4 on ITSELF (KYOCERA-on-KYOCERA $690M,
+    # Roivant-on-Roivant $350M — a buyback/treasury/ADR mechanic priced AT the market, so the price
+    # screen keeps it). CIK equality is canonical (migration 0024); the name fallback covers rows
+    # ingested before the capture. A missing CIK / name mismatch KEEPS the row (the one-directional
+    # failure mode — missing identity is never "self", #9).
+    oc, ic = txn.get("rpt_owner_cik"), txn.get("issuer_cik")
+    if oc and ic and str(oc).strip().lstrip("0") == str(ic).strip().lstrip("0"):
+        return True
+    filer = _norm_entity(txn.get("insider_name"))
+    issuer = _norm_entity(txn.get("issuer_name") or issuer_name)
+    return bool(filer) and filer == issuer
+
+
+def _screen(txn: dict[str, Any], day_lows: dict[date, float], issuer_name: str | None) -> str:
+    """Which CHARACTER does this code-P buy carry? Ordered most-structural first (implausible data,
+    then identity, then price — mirroring ``insider_sell._screen``) so a row tripping several screens
+    has ONE deterministic attribution. Pure field predicates only (#3); the row is never mutated.
+
+    ``aff_10b5_1`` is deliberately NOT read here: a 10b5-1 planned buy is still an open-market buy —
+    the tri-state plan flag rides BESIDE the character on the wire (and renders only on an explicit
+    ``True``; ``None``/``False`` are never asserted "planned" or "discretionary", #9). ``OPEN_MARKET``
+    means "passed the available screens", never "proven discretionary" — a buy with no day-low context
+    stays ``OPEN_MARKET`` (recall-safe: absent context only disables that one screen).
+    """
+    if _is_implausible(txn):
+        return IMPLAUSIBLE
+    if _is_issuer_self(txn, issuer_name):
+        return SELF_FILING
+    if _is_below_day_low(txn, day_lows):
+        return PRIMARY_MARKET
+    return OPEN_MARKET
+
+
 def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float]) -> bool:
     """Does this code-P buy belong in the OPEN-MARKET total? (mirrors the call's screen, re-implemented
     locally — the display seam can't import ``signals.insider_conviction`` / ``CallConfig``; see ``base.py``).
 
-    SEC code 'P' is "open market OR PRIVATE purchase". A primary-market subscription (an IPO allocation, a
-    PIPE, a placement) files as code P at the OFFER price, which sits below the security's public tape that
-    day (PBLS: RA Capital's $394M IPO subscription at $20 vs a $29.65-$34.47 tape). Two exclusions, matching
-    ``backend/signals/insider_conviction.py`` / ``docs/CALL_LOGIC.md`` §3:
+    A thin composition of the SAME predicates ``_screen`` orders (one source of truth each), matching
+    ``backend/signals/insider_conviction.py`` / ``docs/CALL_LOGIC.md`` §3: below the day's low
+    (``_is_below_day_low``) → an offer-price subscription; above the $ ceiling (``_is_implausible``) →
+    bad source data. **Deliberately identity-blind** — the panel's 90d net-flow counts a self-filing as
+    a buy today (the tape and the call disagree on that class; the re-base is DEFERRED — operator
+    decision 3, Band 03 S2c), so this predicate must NOT consult ``_is_issuer_self``. The one corner
+    where the two therefore differ: a self-filing priced below the day's low reads character
+    ``SELF_FILING`` (identity is the more explanatory label) but stays OUT of this net-flow total
+    (below-low) — the same deferred tape-vs-call disagreement, in the other direction.
 
-    - **below the day's low** (``OFFMARKET_BELOW_LOW_FRAC``) → an offer-price subscription, not open-market.
-    - **above the absolute $ ceiling** (``MAX_PLAUSIBLE_TXN_USD``) → a physically-impossible row (bad source
-      data, e.g. a $100k/share price → a $2T buy) the price check misses.
-
-    Recall-safe (#9): no day low → KEEP (never silently drop) — a genuine open-market print is within the
-    day's [low, high], so below-low cannot exclude one (save a name that REVERSE-split between the buy and
-    asof, a documented limitation shared with the call). Set-aside rows stay in ``fact_insider_txn``; only
-    this open-market READING skips them (and the basis note says how much).
+    Recall-safe (#9): no day low → KEEP (never silently drop). Set-aside rows stay in
+    ``fact_insider_txn``; only this open-market READING skips them (and the basis note says how much).
     """
-    if float(txn.get("usd") or 0.0) > MAX_PLAUSIBLE_TXN_USD:
-        return False
-    price = txn.get("price")
-    low = day_lows.get(txn.get("valid_from"))
-    if (
-        price is not None
-        and low is not None
-        and float(price) < low * (1.0 - OFFMARKET_BELOW_LOW_FRAC)
-    ):
-        return False
-    return True
+    return not _is_implausible(txn) and not _is_below_day_low(txn, day_lows)
 
 
 def _basis_note(offmarket: list[dict[str, Any]]) -> str:
@@ -173,6 +239,10 @@ def compute(
     windowed = [r for r in rows if start < r["valid_from"] <= asof]
     buys: list[dict[str, Any]] = []
     # set-aside off-market / implausible code-P rows — named in the basis, never silently dropped (#9)
+    # DEFERRED (Band 03 S2c, operator decision 3): this 90d net-flow still counts an issuer SELF-FILING
+    # as a buy (identity-blind ``_is_open_market_buy``) while the call screens it — the tape and the
+    # call knowingly disagree on that class. The Scoreboard ledger now LABELS self-filings
+    # (``_screen`` → ``character``); re-basing this figure is a separate, operator-signed decision.
     offmarket: list[dict[str, Any]] = []
     for r in windowed:
         if r.get("txn_code") != BUY:

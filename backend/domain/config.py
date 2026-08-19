@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from domain.base import DomainModel
 from domain.enums import CatalystType, Grade, Kind, Role
@@ -123,6 +123,16 @@ class CallConfig(DomainModel):
     # stays short. STARTING calibration — set on the alpha horizon, not to fit any one name.
     insider_core_alpha_liveness_days: int = 180
     insider_flip_alpha_liveness_days: int = 18
+    # --- 10b5-1 planned-BUY weight (Band 03 S2c) — a DORMANT dial; 1.0 IS today ---
+    # Scales a KEPT planned buy's (``aff_10b5_1 IS TRUE``) $ contribution to the cluster total; the buy
+    # stays PRESENT for the distinct-insider / senior / anchor logic iff the weight is > 0 (0.0 = a
+    # full screen — the buy drops from the survivor set entirely, so the anchor moves). There is NO
+    # buy-side 10b5-1 screen today, so the 1.0 default reproduces today byte-for-byte (the golden
+    # suite pins it — `x * 1.0` is IEEE-exact and the fold order is unchanged). Tri-state honored:
+    # only an explicit True weighs; ``None`` (the pre-Dec-2022 norm) / ``False`` weigh 1.0 — unknown
+    # is never asserted "planned" (#9). Flipping this is a later MEASURED, operator-signed config
+    # decision (the insider_sell precedent), never a code change. Bounded [0, 1].
+    insider_10b5_1_buy_weight: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # --- catalyst_conviction (Key 1 for theme/catalyst theses, #10) — STARTING calibration ---
     # Catalyst liveness is the catalyst's relevance HORIZON, NOT grade-coupled (unlike insider, where a

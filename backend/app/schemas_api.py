@@ -1112,14 +1112,24 @@ class PriceBar(BaseModel):
 
 
 class InsiderBuyOut(BaseModel):
-    """One code-P open-market insider purchase inside an episode's window (Slice A) — an overlay chip.
+    """One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) — an
+    overlay chip / event-ledger row.
 
     ``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested
     it (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM
     "ingested 166d after its event date" case — invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a
-    Rule 10b5-1 pre-scheduled plan (a note, never a different number). Every field traces to a real
-    ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead, #1). Screened to open-market by
-    the SAME definition the NamePanel uses, so the chart's dots reconcile with the panel's net-flow.
+    Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE, never a different number).
+    Every field traces to a real ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead,
+    #1).
+
+    ``character`` is the buy's server-side classification (deterministic field predicates — #3, the same
+    predicates the NamePanel's open-market screen composes): ``open_market`` means "passed the available
+    screens", NEVER "proven discretionary" — a buy with no day-low price context stays ``open_market``;
+    ``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's
+    90d net-flow — that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement
+    subscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure
+    excludes — surfaced greyed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or
+    didn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow.
     """
 
     d: date
@@ -1129,6 +1139,7 @@ class InsiderBuyOut(BaseModel):
     usd: float | None = None
     aff_10b5_1: bool | None = None
     disclosed: date
+    character: Literal["open_market", "self_filing", "primary_market", "implausible"]
 
 
 class ScoreboardPriceWindowOut(BaseModel):
@@ -1136,8 +1147,9 @@ class ScoreboardPriceWindowOut(BaseModel):
     the drawer sparkline's on-demand read (Slice 3, extended in Slice A). It is the SAME asof-capped window
     the scorer runs (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at),
     exposed on request rather than embedded in the ledger payload. Each bar also carries ``sma50``/``sma200``
-    context, and ``insider_buys`` lists the window's open-market purchases as overlay chips — both under the
-    identical no-lookahead discipline as the bars. Invariant #1: no bar with ``d > asof`` and no buy
+    context, and ``insider_buys`` lists the window's code-P purchases as overlay chips — each carrying its
+    server-classified ``character``, set-aside rows riding greyed-and-labeled rather than hidden (Band 03
+    S2c) — both under the identical no-lookahead discipline as the bars. Invariant #1: no bar with ``d > asof`` and no buy
     disclosed after the as-of is ever returned, whatever ``end`` the client passes. ``source`` names the
     fact table the bars came from (invariant #6). ``start`` is the EFFECTIVE relevance floor the server
     computed (``max(thesis.created_at − 365d, first_bar)``), NOT the requested start — the loaded extent the

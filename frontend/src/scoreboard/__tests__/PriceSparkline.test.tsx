@@ -60,7 +60,7 @@ function bar(d: string, close: number, sma50: number | null = null, sma200: numb
 }
 
 function buy(d: string, over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
-  return { d, insider_name: "A Buyer", insider_role: "CEO", shares: 1000, usd: 50000, aff_10b5_1: false, disclosed: d, ...over };
+  return { d, insider_name: "A Buyer", insider_role: "CEO", shares: 1000, usd: 50000, aff_10b5_1: false, disclosed: d, character: "open_market", ...over };
 }
 
 const TRIG = { label: "3 insiders bought", kind: "insider", ticker: "IBM" } as TriggerRefOut;
@@ -203,6 +203,20 @@ describe("PriceSparkline — the numbered-chip overlay", () => {
     expect(screen.getByText("lifecycle")).toBeInTheDocument();
     expect(screen.queryByText("insider buy")).not.toBeInTheDocument();
     expect(screen.queryByText("arm trigger")).not.toBeInTheDocument();
+  });
+
+  it("a SET-ASIDE buy renders its chip greyed (ov-setaside), present, never dropped (S2c — WB #2)", () => {
+    // NB the CSS class is the jsdom-provable half; the actual grey needs the live-eye on dev
+    renderSpark({
+      insiderBuys: [
+        buy("2026-06-03", { character: "primary_market" }),
+        buy("2026-06-08", { insider_name: "B Buyer" }),
+      ],
+    });
+    const setAside = screen.getByRole("button", { name: /A Buyer/ });
+    expect(setAside).toHaveClass("ov-setaside"); // greyed…
+    expect(setAside).toHaveClass("ov-insider"); // …but still the insider family (hue + legend)
+    expect(screen.getByRole("button", { name: /B Buyer/ })).not.toHaveClass("ov-setaside");
   });
 
   it("hides a chip whose bar is off the visible range (R5)", () => {

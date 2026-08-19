@@ -26,6 +26,7 @@
 | `insider_strong_single_usd` | 500,000 | single-buy CORE path | HIMS: one director ~$1.2M |
 | `insider_core_alpha_liveness_days` | 180 | core signal-validity horizon | ~6mo, conservative low end (cluster buys persist longer) |
 | `insider_flip_alpha_liveness_days` | 18 | flip signal-validity horizon | fast / mean-reverting |
+| `insider_10b5_1_buy_weight` | 1.0 | **DORMANT (Band 03 S2c)**: scales a kept planned buy's (`aff_10b5_1=True`) $ contribution; present for distinct/senior/anchor iff > 0 (0.0 = full screen, anchor moves) | 1.0 IS today (byte-identical goldens — there is no buy-side 10b5-1 screen); flip only after a measured pass + operator sign-off (the `insider_sell` precedent); bounded [0,1]; tri-state — `None`/`False` always weigh 1.0 |
 | **Insider-SELL cluster risk (Band 03 S1 — every default a `[PROPOSED]` prior; the sig-lab pass finalizes them BEFORE the switch flips):** | | | |
 | `insider_sell_enabled` | False | the master switch — detect() no-ops until ON | flip only after the lab table (the breakdown precedent); replay's `--insider-sell` forces it on for the backtest |
 | `insider_sell_cluster_window_days` | 30 | kept sales within N days of the anchor = one episode | a SEPARATE dial from the buy side's, so risk never couples to conviction calibration |

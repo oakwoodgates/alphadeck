@@ -572,3 +572,20 @@ def test_chain_resolution_is_tenant_isolated(db):
     prod = resolve_placements(db, seg, tenant_id=PROD_TENANT_ID)
     assert demo.placements[0].status is PlacementStatus.PLACED  # demo owns OKLO
     assert prod.placements[0].status is PlacementStatus.ABSENT  # prod has no OKLO -> not leaked
+
+
+def test_scoreboard_issuer_name_read_is_tenant_isolated(db):
+    """The Scoreboard overlay's direct master name read (S2c — ``scoreboard.overlays.security_issuer_name``,
+    the self-filing character's name-fallback input) is tenant-scoped: asked under the WRONG tenant it
+    returns None (which merely disables the name fallback — recall-safe, never "self") rather than another
+    tenant's name. Grows the poison-row proof to the new read surface (discipline-not-RLS holds only if
+    each new read path stays on the tenant filter)."""
+    from scoreboard.overlays import security_issuer_name
+
+    provision_tenant(db, "prod-overlay", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID, ticker="DEVCO", cik="0000000042")
+    with db.cursor() as cur:
+        cur.execute("UPDATE security_master SET name = %s WHERE id = %s", ("Devco Inc", demo_sec))
+
+    assert security_issuer_name(db, DEFAULT_TENANT_ID, demo_sec) == "Devco Inc"
+    assert security_issuer_name(db, PROD_TENANT_ID, demo_sec) is None  # never the demo row's name

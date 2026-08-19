@@ -126,6 +126,13 @@ def score(
     conviction. Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
     """
     lows = day_lows or {}
+    # DORMANT 10b5-1 planned-buy weight (Band 03 S2c, `insider_10b5_1_buy_weight`): scales a KEPT
+    # planned buy's $ contribution; a planned buy is PRESENT (distinct / senior / anchor) iff w > 0
+    # (w == 0.0 is a FULL screen — the buy leaves the survivor set here, so the anchor moves). At the
+    # 1.0 default this hook is byte-identity (`x * 1.0` is IEEE-exact; the fold order is unchanged) —
+    # flipping the dial is a measured config decision, never a code change. Tri-state: only an
+    # explicit `aff_10b5_1 is True` weighs; None/False weigh 1.0 (#9). See docs/CALL_LOGIC.md §3.
+    w = cfg.insider_10b5_1_buy_weight
     p_buys = [
         t
         for t in txns
@@ -134,6 +141,7 @@ def score(
         and t["valid_from"] <= asof
         and _is_open_market_buy(t, lows, cfg)
         and not _is_issuer_self(t, issuer_name)
+        and not (w == 0.0 and t.get("aff_10b5_1") is True)
     ]
     if not p_buys:
         return None
@@ -146,7 +154,9 @@ def score(
     anchor = max(t["valid_from"] for t in p_buys)
     floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
     buys = [t for t in p_buys if t["valid_from"] >= floor]
-    total_usd = float(sum(float(t.get("usd") or 0) for t in buys))
+    total_usd = float(
+        sum(float(t.get("usd") or 0) * (w if t.get("aff_10b5_1") is True else 1.0) for t in buys)
+    )
     if total_usd < cfg.insider_min_usd:
         return None
 
