@@ -26,31 +26,31 @@ def test_pit_insider_txns_have_no_lookahead(db, security_id):
     assert len(later) == 2
 
 
-def test_pit_insider_visibility_keys_on_accepted_not_ingest(db, security_id):
-    """The MRVL two-clock fix via the LIVE PIT (#1): a filing ACCEPTED 06-03 but RE-INGESTED 09-01
-    (recorded_at) is knowable from its acceptance — a PIT pinned 06-10 (after acceptance, long before our
-    ingest) SEES its txns (public then — the honesty fix, a demo row with recorded_at >> accepted visible
-    just after accepted), while one pinned 06-02 (pre-acceptance) sees nothing (no lookahead)."""
+def test_pit_insider_transaction_time_gate_keys_on_recorded_at(db, security_id):
+    """The live PIT's transaction-time no-lookahead gate keys on ``recorded_at`` (#1), like every fact
+    table — an early ``accepted`` (SEC acceptance datetime) is display/metrics only and does NOT open the
+    gate. A filing ACCEPTED 06-03 but RE-INGESTED (``recorded_at``) 09-01 is INVISIBLE to a PIT pinned 06-10
+    (accepted already, but the system had not recorded it) and VISIBLE only from 09-01."""
     xml = (_F / "edgar" / "form4_sample.xml").read_text(encoding="utf-8")
     ingest_form4(
         db,
         security_id,
         xml,
         "acc-accepted",
-        recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),  # demo re-ingest, far after the txns
-        accepted=datetime(2026, 6, 3, 12, tzinfo=timezone.utc),  # public ~2d after the txn
+        recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),  # demo re-ingest = the gate axis
+        accepted=datetime(2026, 6, 3, 12, tzinfo=timezone.utc),  # public early, but display-only
     )
     db.commit()
-    seen = PointInTimeData(
+    blind = PointInTimeData(
         db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 10, tzinfo=timezone.utc)
+    ).insider_txns(security_id)
+    assert blind == []  # accepted 06-03 does NOT open the gate — recorded_at 09-01 is the axis
+    seen = PointInTimeData(
+        db, asof=date(2026, 6, 15), known_at=datetime(2026, 9, 2, tzinfo=timezone.utc)
     ).insider_txns(security_id)
     assert len(seen) == 2 and all(
         t["accession"] == "acc-accepted" for t in seen
-    )  # visible from acceptance
-    blind = PointInTimeData(
-        db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 2, tzinfo=timezone.utc)
-    ).insider_txns(security_id)
-    assert blind == []  # pinned before acceptance -> invisible (no lookahead on the accepted axis)
+    )  # visible only once we had recorded it
 
 
 def test_ingest_form4_allows_multiple_same_day_txns(db, security_id):

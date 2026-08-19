@@ -12,8 +12,8 @@ from replay.pit import ReplayPointInTimeData, connect_mirror
 # heart: a replay pit at T can see nothing the system didn't know at (T, known_at).
 
 
-def _insider(security_id, *, accession, valid_from, usd, recorded_at, accepted=None):
-    values = {
+def _insider(security_id, *, accession, valid_from, usd, recorded_at):
+    return {
         "tenant_id": DEFAULT_TENANT_ID,
         "security_id": security_id,
         "insider_name": "CEO",
@@ -23,43 +23,6 @@ def _insider(security_id, *, accession, valid_from, usd, recorded_at, accepted=N
         "valid_from": valid_from,
         "recorded_at": recorded_at,
     }
-    if accepted is not None:
-        values["accepted"] = accepted
-    return values
-
-
-def test_mirror_transaction_time_gate_keys_on_accepted(db, security_id, tmp_path):
-    """The MRVL two-clock fix in the REPLAY path (#1): the DuckDB mirror's knowability gate is
-    ``COALESCE(accepted, recorded_at)`` — BYTE-IDENTICAL to Postgres. A filing accepted 06-03 but
-    re-ingested 09-01 is visible to a mirror read pinned 06-10 (after acceptance, before our ingest) and
-    invisible pinned 06-02 (pre-acceptance) — the same honesty the live PIT gives."""
-    append_fact(
-        db,
-        "fact_insider_txn",
-        _insider(
-            security_id,
-            accession="acc-late",
-            valid_from=date(2026, 6, 1),
-            usd=1_000_000,
-            recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
-            accepted=datetime(2026, 6, 3, 12, tzinfo=timezone.utc),
-        ),
-    )
-    db.commit()
-    export_snapshot(db, tmp_path)
-    con = connect_mirror(tmp_path)
-    try:
-        asof = date(2026, 6, 15)
-        seen = ReplayPointInTimeData(
-            con, asof=asof, known_at=datetime(2026, 6, 10, tzinfo=timezone.utc)
-        ).insider_txns(security_id)
-        assert [r["accession"] for r in seen] == ["acc-late"]  # visible from acceptance
-        blind = ReplayPointInTimeData(
-            con, asof=asof, known_at=datetime(2026, 6, 2, tzinfo=timezone.utc)
-        ).insider_txns(security_id)
-        assert blind == []  # pinned before acceptance -> invisible (no lookahead)
-    finally:
-        con.close()
 
 
 def _fundamentals(security_id, *, period_end, valid_from, value, recorded_at, accn="f-1"):

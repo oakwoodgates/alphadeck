@@ -168,7 +168,9 @@ def parse_acceptance(raw: str | None) -> datetime | None:
     Tolerates a trailing ``Z`` and fractional seconds; a value with no offset is assumed UTC. A genuinely
     unparseable value -> ``None`` (never raises inside the ingest / backfill loop — the row simply stays
     NULL and is counted). Stored into the timestamptz ``accepted`` column, so the type matches ``recorded_at``
-    and the ``COALESCE(accepted, recorded_at)`` read gate needs no coercion (the Postgres<->DuckDB parity).
+    and the disclosure-lag metric's ``COALESCE(accepted, recorded_at)`` (``scoreboard/provenance.py``) needs
+    no coercion — ``accepted`` is a display/metrics column, never the as-of read gate (that keys on
+    ``recorded_at``).
     """
     if not raw:
         return None

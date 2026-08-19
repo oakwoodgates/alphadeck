@@ -10,7 +10,7 @@ SOURCE = the per-CIK submissions JSON, NOT the forms cache (the ownership *docum
 datetime — the enumeration is the only source). Cost = O(distinct CIKs with a NULL-accepted row): one
 submissions read per security, cache-first (``--live`` refills a stale/absent cache under the 12h TTL). An
 accession NOT in the ``recent`` window (>= 1yr / 1,000 filings) stays NULL — older accessions roll into
-paginated ``filings.files[]``, a deferred ``--deep`` walk (out of scope here); the read gate/display fall
+paginated ``filings.files[]``, a deferred ``--deep`` walk (out of scope here); the display/metrics fall
 back to ``recorded_at``/"ingested" for them (recall-safe #9).
 
 MECHANISM — append-only re-version, the table's own correction discipline (the ``backfill_aff10b5_1``
@@ -19,10 +19,10 @@ each corrected row: every column copied VERBATIM from the row it supersedes, ONL
 enumeration, ``supersedes`` linking the old row's id, and ``recorded_at`` left to the DB's ``now()`` — NEVER
 backdated (transaction-time honesty; the constraint FORCES a new recorded_at, so the corrected row's
 "ingested" line reflects the backfill time — consistent with the pre-existing "the ingested line shows the
-latest re-ingest" behavior). The shared as-of read keys the transaction-time gate on
-``COALESCE(accepted, recorded_at)``, so once ``accepted`` is set a replay pinned at/after the acceptance date
-SEES the buy — the honesty fix (the buy WAS public then; a Form 4's fields are immutable + public at
-acceptance, so this is not lookahead).
+latest re-ingest" behavior). ``accepted`` is a DISPLAY + metrics column only: once it is set, the Scoreboard
+ledger shows the honest ``disclosed`` (public acceptance) date and the B2 disclosure-lag metric
+(``scoreboard/provenance.py``) measures against it. It does NOT change the as-of read's visibility — that
+transaction-time gate keys on ``recorded_at`` for every fact table (accepted is never the gate).
 
 The 0037 lesson holds: a batch's appends share one transaction-time ``now()``, so the natural-key constraint
 must carry ``security_id`` — ``--execute`` FAILS LOUD up front on an unmigrated schema.

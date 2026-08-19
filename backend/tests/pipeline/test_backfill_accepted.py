@@ -1,6 +1,6 @@
 """The `accepted` backfill — NULL-only targeting, append-only re-versioning, idempotency
-(count-the-table), the recall-safe residuals (#9), the honest bitemporal read after the correction (the
-KNOWABILITY fix), and the 0037 dual-security guard.
+(count-the-table), the recall-safe residuals (#9), the display/metrics `accepted` clock set WITHOUT moving
+the as-of gate (that keys on `recorded_at`, #1), and the 0037 dual-security guard.
 
 The scenario mirrors prod's gap: rows ingested from a filing WITHOUT reading the acceptance datetime are
 frozen NULL (``existing_accessions`` never re-parses a stored accession); the backfill re-resolves the
@@ -205,13 +205,14 @@ def test_dry_run_reports_but_writes_nothing(db, security_id):
     assert _latest_accepted(db, "acc-null") == {None}
 
 
-def test_asof_read_serves_the_correction_and_the_knowability_flips_honest(db, security_id):
-    """THE POINT of the two-clock fix (#1/#6): a Form 4 transacted 2025-09-25, accepted 2025-09-27, but
-    RE-INGESTED 2026-08-17. Before the backfill a replay pinned 2025-10-01 sees NOTHING (recorded_at is
-    2026 -> the false "unknowable until 2026" the demo rebuild caused). After the backfill sets accepted,
-    the SAME pinned replay SEES the buy — the knowability gate keys on COALESCE(accepted, recorded_at) =
-    the acceptance date, so a buy that WAS public on 2025-09-27 is honestly visible then. The count never
-    changes (a correction is a new VERSION, not a new fact)."""
+def test_backfill_sets_the_display_clock_without_moving_the_asof_gate(db, security_id):
+    """The backfill populates ``accepted`` (the DISPLAY + metrics "disclosed" clock) but does NOT change
+    the as-of read's visibility: that transaction-time no-lookahead gate keys on ``recorded_at`` for every
+    fact table (#1, one strict definition). A Form 4 transacted 2025-09-25, accepted 2025-09-27, but
+    RE-INGESTED 2026-08-17 is INVISIBLE to a read pinned 2025-10-01 BOTH before and after the backfill
+    (recorded_at is 2026 — the row genuinely was not in our store until then). The backfill only fills the
+    honest ``disclosed`` date for display/metrics; the count never changes (a correction is a new VERSION,
+    not a new fact)."""
     ingested_at = datetime(2026, 8, 17, tzinfo=_UTC)  # the demo's late re-ingest stamp
     ingest_form4(db, security_id, _XML, "acc-mrvl", recorded_at=ingested_at)
     db.commit()
@@ -224,14 +225,15 @@ def test_asof_read_serves_the_correction_and_the_knowability_flips_honest(db, se
     client = _FakeClient({"1234567": _subs([("acc-mrvl", "2025-09-27T18:30:41.000Z")])})
     run_backfill(db, client=client, execute=True, log=lambda *_: None)
 
-    after_rows = as_of(db, "fact_insider_txn", known_at=pinned, **read)
-    assert (
-        len(after_rows) == 2
-    )  # the buy WAS public 2025-09-27 -> honestly visible at the 2025-10 pin
-    assert {r["accepted"] for r in after_rows} == {datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)}
-    # and no double-count: a full-knowledge read still sees exactly the two logical facts
+    # the as-of gate keys on recorded_at, NOT accepted: setting accepted does NOT make the buy visible
+    # earlier — a display/metrics correction, never a change to what the system had recorded.
+    still_blind = as_of(db, "fact_insider_txn", known_at=pinned, **read)
+    assert still_blind == []  # recorded_at (2026-08-17) is still > the 2025-10 pin
+
+    # a full-knowledge read sees the two logical facts, now carrying the honest disclosed date (display)
     now_rows = as_of(db, "fact_insider_txn", known_at=datetime.now(_UTC), **read)
-    assert len(now_rows) == 2
+    assert len(now_rows) == 2  # no double-count: the correction is a new VERSION
+    assert {r["accepted"] for r in now_rows} == {datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)}
 
 
 def test_verify_cross_checks_stored_values_against_submissions(db, security_id):

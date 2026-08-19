@@ -64,9 +64,9 @@ class ReplayPointInTimeData:
         if table not in _FACT_IDENTITY:
             raise ValueError(f"unknown fact table: {table!r}")
         ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
-        # the knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (COALESCE(accepted, recorded_at)
-        # for fact_insider_txn, else recorded_at); the mirror is always re-exported from the live SoR, so
-        # the accepted column is present whenever this expression references it (parity-gated)
+        # the knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (currently recorded_at for every
+        # table: the strict "what we held" no-lookahead axis; accepted is display/metrics only, never a
+        # gate). ONE source of truth (knowability_expr), so both engines revert in lockstep.
         knowability = knowability_expr(table)
         query = (
             f"SELECT * FROM {table} "
