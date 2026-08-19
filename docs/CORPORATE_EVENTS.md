@@ -62,6 +62,22 @@ evidence AND feed the live `catalyst_conviction` the moment facts land — no in
 (gating the ingest would starve the lab). Known v1 gap: 8-K catalysts do not feed the Workbench
 catalyst-density meter (it reads `fact_catalyst`); revisit at flip time.
 
+**Force-on finding (2026-08-17) — the `1.01` flood; the catalyst side is PARKED.** A prod force-on
+measurement (`call_for_thesis(record=False)`, off-vs-on) found that enabling the catalyst newly **arms
+~80 names** (~⅓ of the psychedelic basket), because **Item `1.01` is mostly financing, not deals.** Of
+894 live basket `1.01`s: ~30% carry `+3.02` (unregistered equity → **dilution**; verified on PSQH's real
+securities-purchase agreement, which fired as a *core bullish* catalyst), ~31% `+2.03` (debt), ~7%
+`+2.01` (M&A), ~44% "bare" — **~6 in 10 are financing** (a lower bound; registered offerings carry no
+`3.02` tell and hide in the bare bucket). **Grade does not gate the flood:** the assembler arms on a
+conviction-KIND ∩ confirmation (co-located), and grade is computed *after* — it only labels the verdict,
+breaks the freshness tiebreak, and matches de-arms. So regrading `1.01` core→flip would keep all ~80 arms
+with a quieter label; **the lever is the conviction _role_, not the grade.** The open question is
+therefore not "core or flip" but **"should `1.01` be conviction at all"** — the options: **(A)** demote
+`1.01` out of conviction (context / confirmation-timing / display marker — the standing lean; conviction
+is what _ratified_ catalysts carry); **(B)** the co-item split (Deferred, below) keeping bare `1.01` as
+conviction (partial — still arms ~197); **(C)** ratified-subset (an LLM located-passage _recommends_, the
+operator ratifies — #3/#10). Parked; `corporate_catalyst` stays inert until it's decided.
+
 ### `corporate_risk` — the risk side (`Kind.CORPORATE_RISK`)
 
 Grade-blind like dilution (`grade=None`, no `dearm_grade` — not a de-arm); the assembler composes
@@ -103,6 +119,12 @@ re-verdicts prod unmeasured.
 
 ## Deferred — same ingest, no re-ingest (the recall-safe payoff)
 
+- **The `1.01` co-item split** (the routing half of the parked catalyst decision above; deterministic,
+  same tape, no re-ingest — the #9 payoff): route `1.01+3.02` → **risk** (dilution; ~270 cases flip from
+  false-bullish to correctly-bearish), `1.01+2.03` → quiet **debt context**, and treat **bare `1.01`** as
+  the only candidate catalyst. Sizing reality check: bare-only trims firing securities 284→197 (−87,
+  ~31%) — a trim, not a drain, and the 197 still hide registered offerings, so it improves routing but
+  does not make `1.01` strong conviction.
 - **§3b cadence** (`2.02`/`7.01`/`8.01` trailing counts → `promoter_attention`): a COUNTING
   detector — must dedupe 8-K/A amendments, and its baseline may want the paginated older
   submissions pages (`filings.files`) beyond `recent`.
