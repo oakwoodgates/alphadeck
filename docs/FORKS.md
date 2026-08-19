@@ -84,6 +84,50 @@ The refresh is **one-way by construction**: prod is only ever read via `pg_dump`
 anti-truncation guarantee as `refresh-dev` / `refresh-sig`); the dump is read from the **main
 checkout's** `data/backups/` (resolved via git), and the restore targets only the fork's own Postgres.
 
+## The deferred data-mode design (for when it's built)
+
+Data mode is the **second, app-preserving** refresh semantics: additively merge prod's newer *data
+plane* into the fork while never touching its *app plane*. It is ~100 lines of SQL generation in
+`refresh-fork.sh` (still just a script — no services, no schema, no backend code), **deferred, not
+built**. The design is recorded here so it isn't re-derived (and re-validated at build time — the guard
+below is what catches schema drift):
+
+- **Two planes, by explicit allowlist (never a `fact_*` pattern):**
+  - *Data plane (merged):* `security_master` plus the global market-fact tables — `fact_price_eod`,
+    `fact_insider_txn`, `fact_dilution`, `fact_catalyst`, `fact_revenue_mix`, `fact_shares_outstanding`,
+    `fact_cash_burn`, `fact_fund_shares`, `fact_spac_event`.
+  - *App plane (never written):* `tenant`, `thesis`, `basket_member`, `evidence`, `catalyst`,
+    `kill_criterion`, `calls`, `operator_decision`, `thesis_exclusion` — **plus two thesis-FK'd fact
+    tables**, `fact_theme_conviction` (operator-ratified, `thesis_id` FK `ON DELETE CASCADE`) and
+    `fact_spac_match` (`thesis_id` FK). Both are thesis-scoped, not global market facts, so merging
+    prod's rows would FK-violate the instant prod holds a thesis the fork doesn't. State the consequence
+    so it never reads as a bug: a fork's theme convictions are its own and its SPAC-match tape freezes at
+    seed, exactly like `calls`; `--reset` re-clones all three.
+  - *Ignored:* `schema_migrations`.
+- **Fail-closed classification guard (recall-is-sacred, applied to refresh):** after staging prod's
+  dump, list its public tables and **fail loudly** on any table not in (data ∪ app ∪ ignored) — so a
+  future migration that adds a table is forced into an explicit classification instead of producing a
+  silently never-refreshed fork (a forgotten fact table would be a silent name-drop).
+- **Merge mechanism:** restore prod's dump into a scratch `alphadeck_<name>_staging` on the *fork's*
+  Postgres → run `db.migrate` on staging up to the fork branch's schema (so column lists align) → per
+  data-plane table in FK order (`security_master` first), stream `\copy … TO STDOUT` into a fork-DB
+  transaction that loads a `TEMP TABLE (LIKE T)` and runs
+  `INSERT INTO T SELECT * FROM tmp ON CONFLICT (id) DO NOTHING` → drop staging. Stock `postgres:16`, no
+  extensions (`postgres_fdw` is the fallback if the pipe proves ugly).
+- **Why the union is safe:** all PKs are UUIDs (no sequence/`setval` collisions); fact tables are
+  append-only bitemporal, so insert-missing-by-id receives *all* of prod's new versions and the as-of
+  read dedups by natural key + `recorded_at DESC` — a fact ratified differently in prod vs the fork
+  resolves by the later `recorded_at` (standard bitemporal correction, visible in provenance).
+  `security_master` is the one UPDATE-in-place table, so insert-missing gives it **new names only**:
+  fork-side business-type re-tags survive, at the cost of not receiving prod-side identity
+  re-enrichment for names the fork already holds (`--reset` is the fix when that matters).
+- **Self-assertion + idempotency:** snapshot app-plane `count(*)` before, assert identical after (fail
+  if any app table changed); a second back-to-back run adds `+0` rows (count the table, not the read).
+- **The two load-bearing traps:** an app-plane write destroys a fork's authored reality (the wipe-trap
+  analog — the allowlists, the guard, and the self-assertion defend it); a **schema-divergent** fork
+  that reshapes a data-plane table can't union prod's rows and must use `--reset` only (a reshaped table
+  surfaces as a loud column-mismatch failure in the merge transaction).
+
 ## What a fork does NOT do (by design — zero code enforces it)
 
 - **No live SEC fetching.** `.env.fork` scaffolds `ALPHADECK_USER_AGENT=` **empty on purpose**: config
