@@ -39,20 +39,26 @@ def _form4(ref: str) -> Provenance:
     return Provenance(source="form4", ref=ref)
 
 
-def _fact(db, security_id: UUID, accession: str, valid_from: date, recorded_at: datetime) -> None:
-    append_fact(
-        db,
-        "fact_insider_txn",
-        {
-            "tenant_id": DEFAULT_TENANT_ID,
-            "security_id": security_id,
-            "accession": accession,
-            "insider_name": "A Buyer",
-            "txn_code": "P",
-            "valid_from": valid_from,
-            "recorded_at": recorded_at,
-        },
-    )
+def _fact(
+    db,
+    security_id: UUID,
+    accession: str,
+    valid_from: date,
+    recorded_at: datetime,
+    accepted: datetime | None = None,
+) -> None:
+    values = {
+        "tenant_id": DEFAULT_TENANT_ID,
+        "security_id": security_id,
+        "accession": accession,
+        "insider_name": "A Buyer",
+        "txn_code": "P",
+        "valid_from": valid_from,
+        "recorded_at": recorded_at,
+    }
+    if accepted is not None:
+        values["accepted"] = accepted
+    append_fact(db, "fact_insider_txn", values)
     db.commit()
 
 
@@ -64,13 +70,28 @@ def _utc(y: int, m: int, d: int) -> datetime:
 
 
 def test_thaw_lags_prompt_vs_thawed(db, security_id):
-    """Calendar-day lag = first recorded_at vs the event date: a promptly-ingested filing reads a
-    small lag; a thawed one (recorded 10d after its event) reads 10."""
+    """Calendar-day lag = first COALESCE(accepted, recorded_at) vs the event date. With accepted NULL it
+    falls back to recorded_at (byte-identical to before): a promptly-ingested filing reads a small lag; a
+    thawed one (recorded 10d after its event) reads 10."""
     _fact(db, security_id, "acc-prompt", date(2026, 6, 1), _utc(2026, 6, 2))
     _fact(db, security_id, "acc-thawed", date(2026, 6, 1), _utc(2026, 6, 11))
 
     lags = thaw_lags(db, ["acc-prompt", "acc-thawed"], tenant_id=DEFAULT_TENANT_ID)
     assert lags == {"acc-prompt": 1, "acc-thawed": 10}
+
+
+def test_thaw_lags_key_on_accepted_disclosure_not_ingest(db, security_id):
+    """LOCKED DECISION 3 (the MRVL flip): the lag keys on PUBLIC KNOWABILITY (COALESCE(accepted,
+    recorded_at)), not our fetch timing. A Form 4 transacted 06-01, ACCEPTED 06-03 (2d), but RE-INGESTED
+    09-01 reads a 2-day DISCLOSURE lag — NOT the ~92-day ingest lag the old recorded_at query returned. The
+    demo's false "ingested late -> excluded from metrics" exclusion clears; a NULL-accepted row still reads
+    the recorded_at lag (#9 fallback, so a genuinely late-disclosed older filing is not silently cleared)."""
+    _fact(
+        db, security_id, "acc-disclosed", date(2026, 6, 1), _utc(2026, 9, 1), accepted=_utc(2026, 6, 3)
+    )
+    _fact(db, security_id, "acc-nullacc", date(2026, 6, 1), _utc(2026, 6, 11))  # accepted NULL
+    lags = thaw_lags(db, ["acc-disclosed", "acc-nullacc"], tenant_id=DEFAULT_TENANT_ID)
+    assert lags == {"acc-disclosed": 2, "acc-nullacc": 10}  # disclosure lag, then recorded_at fallback
 
 
 def test_thaw_lag_first_learn_wins_and_a_correction_never_shrinks_it(db, security_id):
@@ -175,7 +196,7 @@ def test_thaw_boundary_at_the_documented_constant():
     assert ok.thaw_lag_days == 7 and ok.ingest_flagged is False and ok.ingest_note is None
     late = derive_episode_provenance(JUNE, [trig], health={}, lags={"acc-1": 8})
     assert late.thaw_lag_days == 8 and late.ingest_flagged is True
-    assert late.ingest_note == "insider source ingested 8d after its event date"
+    assert late.ingest_note == "insider source disclosed 8d after its event date"
 
 
 def test_thaw_lag_is_the_max_across_cited_accessions():
@@ -192,7 +213,7 @@ def test_all_three_mechanisms_compose_one_note():
     assert p.ingest_note == (
         "partial ingest on the arm-date run (1 name errored)"
         " · armed inside the 2026-07 EDGAR freeze window"
-        " · insider source ingested 9d after its event date"
+        " · insider source disclosed 9d after its event date"
     )
 
 

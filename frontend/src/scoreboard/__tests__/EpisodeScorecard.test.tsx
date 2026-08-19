@@ -248,6 +248,7 @@ const LBUY: InsiderBuyOut = {
   usd: 500_000,
   aff_10b5_1: false,
   disclosed: "2026-08-05",
+  ingested: "2026-08-05", // == disclosed -> single "disclosed" line (the two-clock default)
   character: "open_market",
 };
 const SCORED = {

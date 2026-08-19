@@ -4637,9 +4637,21 @@
             "title": "Aff 10B5 1"
           },
           "disclosed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosed"
+          },
+          "ingested": {
             "type": "string",
             "format": "date",
-            "title": "Disclosed"
+            "title": "Ingested"
           },
           "character": {
             "type": "string",
@@ -4655,11 +4667,11 @@
         "type": "object",
         "required": [
           "d",
-          "disclosed",
+          "ingested",
           "character"
         ],
         "title": "InsiderBuyOut",
-        "description": "One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) \u2014 an\noverlay chip / event-ledger row.\n\n``d`` = the transaction date (``valid_from``, the chip's x-position); ``disclosed`` = when we ingested\nit (``recorded_at::date``), carried so the tooltip states the disclosure LAG honestly (the IBM\n\"ingested 166d after its event date\" case \u2014 invariant #6). ``aff_10b5_1`` (TRUE/FALSE/NULL) flags a\nRule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE, never a different number).\nEvery field traces to a real ``fact_insider_txn`` row; both time axes are asof-capped (no-lookahead,\n#1).\n\n``character`` is the buy's server-side classification (deterministic field predicates \u2014 #3, the same\npredicates the NamePanel's open-market screen composes): ``open_market`` means \"passed the available\nscreens\", NEVER \"proven discretionary\" \u2014 a buy with no day-low price context stays ``open_market``;\n``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's\n90d net-flow \u2014 that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement\nsubscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure\nexcludes \u2014 surfaced greyed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or\ndidn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow."
+        "description": "One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) \u2014 an\noverlay chip / event-ledger row.\n\n``d`` = the transaction date (``valid_from``, the chip's x-position). TWO honest clocks (the MRVL\ntwo-clock fix \u2014 invariant #6): ``disclosed`` = the real SEC acceptance date (``accepted::date``, when the\nfiling became public), ``None`` when unresolved (pre-backfill / unresolvable \u2014 the FE renders the\n\"ingested\" line only, recall-safe #9); ``ingested`` = ``recorded_at::date`` (when OUR pipeline wrote the\nrow), rendered as a SECOND line only when it differs from ``disclosed``. On the rebuilt demo a Form 4\naccepted ~2d after its txn but re-ingested in 2026 reads \"disclosed 2d later \u00b7 ingested 326d later\" \u2014\nhonest, where the old single ``disclosed=recorded_at`` field lied \"disclosed 326d\". ``aff_10b5_1``\n(TRUE/FALSE/NULL) flags a Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE,\nnever a different number). Every field traces to a real ``fact_insider_txn`` row; both time axes are\nasof-capped (no-lookahead, #1 \u2014 the transaction-time gate keys on ``COALESCE(accepted, recorded_at)``).\n\n``character`` is the buy's server-side classification (deterministic field predicates \u2014 #3, the same\npredicates the NamePanel's open-market screen composes): ``open_market`` means \"passed the available\nscreens\", NEVER \"proven discretionary\" \u2014 a buy with no day-low price context stays ``open_market``;\n``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's\n90d net-flow \u2014 that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement\nsubscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure\nexcludes \u2014 surfaced greyed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or\ndidn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow."
       },
       "InstrumentKind": {
         "type": "string",

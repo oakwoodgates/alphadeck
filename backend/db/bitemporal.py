@@ -42,6 +42,29 @@ _FACT_IDENTITY: dict[str, list[str]] = {
     ],  # one 13D/G filing per accession (within the SUBJECT security scope) — filer/pct resolving is a new version (S5)
 }
 
+# The KNOWABILITY axis per table — the SQL expression for "when could we first have known this fact?",
+# used ONLY as the transaction-time no-lookahead gate (``<= known_at``). Default = ``recorded_at`` (our
+# ingest time). ``fact_insider_txn`` overrides to ``COALESCE(accepted, recorded_at)``: a Form 4's fields are
+# immutable + public at SEC acceptance, so the honest clock is the acceptance datetime, falling back to
+# ``recorded_at`` while ``accepted`` is NULL (pre-backfill / unresolvable — recall-safe #9). This is a
+# PROGRESSIVE rollout: with ``accepted`` all-NULL the gate is byte-identical to ``recorded_at`` today.
+# It moves ONLY the WHERE gate — the version-pick ``ORDER BY recorded_at DESC`` is UNCHANGED (a correction is
+# still the latest-RECORDED row). The expression is a trusted literal (hardcoded here, never caller input),
+# and Postgres (``_as_of``) + DuckDB (``ReplayPointInTimeData._as_of``) render it BYTE-IDENTICALLY so the
+# replay-parity gate stays provable. No genuine lookahead: new insider info arrives as a NEW accession
+# (amendment) with its own later ``accepted``, never as a change to an already-accepted filing.
+_KNOWABILITY_EXPR: dict[str, str] = {
+    "fact_insider_txn": "COALESCE(accepted, recorded_at)",
+}
+_DEFAULT_KNOWABILITY_EXPR = "recorded_at"
+
+
+def knowability_expr(table: str) -> str:
+    """The transaction-time no-lookahead gate column/expression for ``table`` (``_KNOWABILITY_EXPR`` above,
+    else ``recorded_at``). ONE source of truth, imported by both the Postgres and DuckDB as-of reads so
+    their WHERE gate is identical (replay parity)."""
+    return _KNOWABILITY_EXPR.get(table, _DEFAULT_KNOWABILITY_EXPR)
+
 
 def _as_of(
     conn: psycopg.Connection,
@@ -69,12 +92,20 @@ def _as_of(
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in _FACT_IDENTITY[table])
+    # the knowability gate — recorded_at for most tables, COALESCE(accepted, recorded_at) for
+    # fact_insider_txn (a trusted literal, injection-safe); the version-pick ORDER BY is unchanged
+    knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     query = sql.SQL(
         "SELECT DISTINCT ON ({ident}) * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
-        "AND valid_from <= %(asof)s AND recorded_at <= %(known_at)s "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
-    ).format(ident=ident, table=sql.Identifier(table), scope=sql.Identifier(scope_col))
+    ).format(
+        ident=ident,
+        table=sql.Identifier(table),
+        scope=sql.Identifier(scope_col),
+        knowability=knowability,
+    )
     with conn.cursor() as cur:
         cur.execute(
             query,

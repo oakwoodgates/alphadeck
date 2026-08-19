@@ -23,6 +23,7 @@ function buy(over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
     usd: 2_100_000,
     aff_10b5_1: false,
     disclosed: "2026-07-01",
+    ingested: "2026-07-01", // == disclosed -> single "disclosed" line (the two-clock default)
     character: "open_market",
     ...over,
   };

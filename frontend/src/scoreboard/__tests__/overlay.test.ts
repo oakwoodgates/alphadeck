@@ -24,6 +24,7 @@ function buy(over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
     usd: 50000,
     aff_10b5_1: false,
     disclosed: "2026-06-01",
+    ingested: "2026-06-01", // == disclosed by default -> a single "disclosed" line (the two-clock default)
     character: "open_market",
     ...over,
   };
@@ -157,6 +158,7 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
         shares: 10000,
         usd: 2_100_000,
         disclosed: "2026-07-01",
+        ingested: "2026-07-01", // == disclosed here -> just the one disclosed line (two-clock cases tested below)
       }),
     });
     expect(t.title).toBe("Jane Doe (CEO)");
@@ -173,10 +175,43 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
       date: "2026-01-15",
       closeThatDay: null,
       pctVsNow: null,
-      buy: buy({ d: "2026-01-15", disclosed: "2026-01-15" }),
+      buy: buy({ d: "2026-01-15", disclosed: "2026-01-15", ingested: "2026-01-15" }),
     });
     expect(t.lines.some((l) => l.startsWith("stock"))).toBe(false);
     expect(t.lines.some((l) => l.startsWith("disclosed"))).toBe(false); // same-day disclosure
+    expect(t.lines.some((l) => l.startsWith("ingested"))).toBe(false); // and same-day ingest
+  });
+
+  // The two-clock disclosure model (the MRVL fix — #6/#9): `disclosed` = the real SEC acceptance date;
+  // `ingested` = our recorded_at, a SECOND line only when it differs; a null `disclosed` falls back to the
+  // "ingested" line only. Every render case, including the real cited MRVL example.
+  const tip = (over: Partial<InsiderBuyOut>) =>
+    overlayTooltip({
+      n: 1,
+      family: "insider",
+      date: "2025-09-25",
+      closeThatDay: null,
+      pctVsNow: null,
+      buy: buy({ d: "2025-09-25", ...over }),
+    });
+
+  it("(a) ingested == disclosed → the 'disclosed' line only", () => {
+    const lines = tip({ disclosed: "2025-09-27", ingested: "2025-09-27" }).lines;
+    expect(lines).toContain("disclosed 2d later (2025-09-27)");
+    expect(lines.some((l) => l.startsWith("ingested"))).toBe(false);
+  });
+
+  it("(b) ingested != disclosed → BOTH lines (the real MRVL case, accession 0001628280-25-042718)", () => {
+    // txn 2025-09-25 · disclosed ~2d (the plan's cited acceptance illustration) · re-ingested 2026-08-17
+    const lines = tip({ disclosed: "2025-09-27", ingested: "2026-08-17" }).lines;
+    expect(lines).toContain("disclosed 2d later (2025-09-27)"); // the honest ~2d disclosure
+    expect(lines).toContain("ingested 326d later (2026-08-17)"); // the re-ingest lag, beside it, not instead
+  });
+
+  it("(c) disclosed == null → the 'ingested' line only (#9 fallback — honest at every rollout stage)", () => {
+    const lines = tip({ disclosed: null, ingested: "2026-08-17" }).lines;
+    expect(lines.some((l) => l.startsWith("disclosed"))).toBe(false);
+    expect(lines).toContain("ingested 326d later (2026-08-17)");
   });
 
   it("insider: a 10b5-1 plan is noted — ONLY on an explicit true (tri-state)", () => {

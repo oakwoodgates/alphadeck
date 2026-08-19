@@ -60,7 +60,7 @@ function bar(d: string, close: number, sma50: number | null = null, sma200: numb
 }
 
 function buy(d: string, over: Partial<InsiderBuyOut> = {}): InsiderBuyOut {
-  return { d, insider_name: "A Buyer", insider_role: "CEO", shares: 1000, usd: 50000, aff_10b5_1: false, disclosed: d, character: "open_market", ...over };
+  return { d, insider_name: "A Buyer", insider_role: "CEO", shares: 1000, usd: 50000, aff_10b5_1: false, disclosed: d, ingested: d, character: "open_market", ...over };
 }
 
 const TRIG = { label: "3 insiders bought", kind: "insider", ticker: "IBM" } as TriggerRefOut;

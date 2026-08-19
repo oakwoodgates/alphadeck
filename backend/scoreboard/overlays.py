@@ -152,10 +152,13 @@ def episode_insider_buys(
     90d net-flow still counts it (``insider_flow._is_open_market_buy`` is identity-blind); re-basing
     that figure is a separate, operator-signed decision. See ``signals/display/insider_flow.py``.
 
-    Each row: ``d`` = ``valid_from`` (the chip's x, the transaction date), ``disclosed`` =
-    ``recorded_at::date`` (the tooltip's honest disclosure lag), plus who / role / shares / $ / the
-    10b5-1 plan flag / ``character``. Sorted by transaction date (then disclosure) — the frontend
-    numbers chronologically.
+    Each row carries TWO honest clocks (the MRVL two-clock fix): ``d`` = ``valid_from`` (the chip's x,
+    the transaction date); ``disclosed`` = ``accepted::date`` — the real SEC acceptance date (the tooltip's
+    honest disclosure lag), ``None`` when unresolved (pre-backfill / unresolvable — the FE falls back to the
+    "ingested" line, #9); ``ingested`` = ``recorded_at::date`` — our ingest time, rendered as a SECOND line
+    only when it differs from ``disclosed`` (on the rebuilt demo that surfaces the 326d ingest lag beside the
+    ~2d disclosure). Plus who / role / shares / $ / the 10b5-1 plan flag / ``character``. Sorted by
+    transaction date (then ``ingested`` — always present) — the frontend numbers chronologically.
     """
     issuer_name = security_issuer_name(conn, tenant_id, security_id)
     rows = as_of(
@@ -181,11 +184,15 @@ def episode_insider_buys(
                 "shares": _f(r.get("shares")),
                 "usd": _f(r.get("usd")),
                 "aff_10b5_1": r.get("aff_10b5_1"),
-                "disclosed": r["recorded_at"].date(),
+                # two honest clocks: disclosed = the real SEC acceptance date (accepted), None when
+                # unresolved (#9 fallback -> the FE's "ingested" line); ingested = our recorded_at
+                "disclosed": r["accepted"].date() if r.get("accepted") else None,
+                "ingested": r["recorded_at"].date(),
                 # the buy's server-classified character (deterministic field predicates, #3);
                 # set-asides ride greyed-and-labeled instead of hidden (option (a) — WB #2)
                 "character": _screen(r, day_lows, issuer_name),
             }
         )
-    buys.sort(key=lambda b: (b["d"], b["disclosed"]))
+    # sort by transaction date, tiebreak on ingested (always present; disclosed can be NULL)
+    buys.sort(key=lambda b: (b["d"], b["ingested"]))
     return buys

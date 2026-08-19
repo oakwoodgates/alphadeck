@@ -150,9 +150,16 @@ def ingest_form4(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
+    accepted=None,
 ) -> int:
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
-    owns the transaction (no commit here). Returns the count appended."""
+    owns the transaction (no commit here). Returns the count appended.
+
+    ``accepted`` is the SEC acceptance datetime (the real "disclosed" clock) threaded from the
+    enumeration (``submissions.acceptanceDateTime``, parsed via ``parse_acceptance``) — the ownership XML
+    itself carries no acceptance datetime, so ``parse_form4`` is UNCHANGED and this rides as a per-filing
+    kwarg like ``recorded_at``. ``None`` leaves the column NULL (the read gate/display fall back to
+    ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row."""
     count = 0
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
@@ -183,6 +190,8 @@ def ingest_form4(
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at
+        if accepted is not None:  # filing-level SEC acceptance datetime; NULL when unresolved (#9)
+            values["accepted"] = accepted
         append_fact(conn, "fact_insider_txn", values)
         count += 1
     return count
