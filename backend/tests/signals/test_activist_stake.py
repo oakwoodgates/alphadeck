@@ -286,20 +286,31 @@ def test_detect_resolves_subject_cik_from_the_master_and_screens_self_filed():
     assert activist_stake.detect(pit_other, SID, ASOF, _ON) is not None
 
 
-def test_master_switch_off_detect_emits_nothing_score_stays_ungated():
-    """INERT-FIRST: with the live DEFAULT_CONFIG (switch OFF) ``detect`` no-ops — it never even
-    reads the pit — so no activist-stake event can reach a live card; the pure ``score`` above
-    stays fully testable. Flipping the switch (model_copy — the replay force-on path) fires."""
-    pit = SimpleNamespace(
+def test_master_switch_now_defaults_on_but_still_gates_detect():
+    """The switch is now LIVE by default (activist_stake_enabled=True, ratified on the 2026-08-20
+    clean re-measure: 29 clean warm fires -> 10 arms, <=4/thesis, every survivor a real 13D) —
+    ``detect`` FIRES under DEFAULT_CONFIG. Explicitly OFF it still no-ops WITHOUT reading the pit
+    (the throwing accessor proves it never runs); the pure ``score`` above ignores the switch
+    entirely — it takes no cfg (the insider_sell / share_creep precedent)."""
+    assert (
+        DEFAULT_CONFIG.activist_stake_enabled is True
+    )  # the ratified LIVE default (re-measure 2026-08-20)
+
+    off = DEFAULT_CONFIG.model_copy(update={"activist_stake_enabled": False})
+    pit_off = SimpleNamespace(
         activist_stake_facts=lambda sid: (_ for _ in ()).throw(AssertionError("pit read while OFF"))
     )
-    assert activist_stake.detect(pit, SID, ASOF, DEFAULT_CONFIG) is None
+    assert (
+        activist_stake.detect(pit_off, SID, ASOF, off) is None
+    )  # OFF -> no-op, never reads the pit
+
+    assert activist_stake.score([_fact()], SID, ASOF) is not None  # score is ungated (takes no cfg)
 
     pit_on = SimpleNamespace(
         activist_stake_facts=lambda sid: [_fact()],
         security_cik=lambda sid: None,  # detect now also resolves the subject cik for the screen
     )
-    e = activist_stake.detect(pit_on, SID, ASOF, _ON)
+    e = activist_stake.detect(pit_on, SID, ASOF, DEFAULT_CONFIG)  # LIVE default -> fires
     assert e is not None and e.kind is Kind.ACTIVIST_STAKE
 
 
@@ -384,9 +395,11 @@ class _PIT:
 
 def test_two_key_gate_a_13d_alone_warms_and_arms_only_with_a_colocated_breakout():
     """The two-key gate through the REAL pipeline: a live 13D conviction alone WARMS (never arms);
-    with a co-located volume-backed breakout it ARMS. And the INERT proof: the same stake tape
-    under the live DEFAULT_CONFIG (switch OFF) contributes nothing — flat tape reads INCUBATING,
-    breakout tape reads exactly what a no-stake basket reads."""
+    with a co-located volume-backed breakout it ARMS (``_ON`` now equals the live DEFAULT_CONFIG —
+    the switch defaults ON since the 2026-08-20 flip). And the INERT proof, re-pointed at an
+    EXPLICITLY-OFF config now that OFF is no longer the default: the same stake tape contributes
+    nothing — flat tape reads INCUBATING, breakout tape reads exactly what a no-stake basket reads.
+    """
     thesis = make_thesis()
     stakes = [_fact(filed=ASOF - timedelta(days=10))]
 
@@ -400,19 +413,19 @@ def test_two_key_gate_a_13d_alone_warms_and_arms_only_with_a_colocated_breakout(
     assert armed.state is State.ARMED
     assert Kind.ACTIVIST_STAKE in {t.kind for t in armed.triggers_fired}
 
-    # INERT under the live DEFAULT_CONFIG: the stake tape changes NOTHING while the switch is off —
-    # the flat card reads INCUBATING (no trigger at all), and the breakout card equals the card a
-    # stake-free basket produces (state AND fired-trigger kinds identical; goldens byte-safe).
+    # INERT when EXPLICITLY OFF: with the detector disabled the stake tape changes NOTHING (the
+    # switch now defaults ON, so the disabled proof runs against an explicit-off config) — the flat
+    # card reads INCUBATING (no trigger at all), and the breakout card equals the card a stake-free
+    # basket produces (state AND fired-trigger kinds identical; the detector is genuinely gated).
+    off = DEFAULT_CONFIG.model_copy(update={"activist_stake_enabled": False})
     off_flat = assemble_from_pit(
-        _PIT(ASOF, stakes=stakes, bars=_bars(spike=False)), thesis, ASOF, DEFAULT_CONFIG
+        _PIT(ASOF, stakes=stakes, bars=_bars(spike=False)), thesis, ASOF, off
     )
     assert off_flat.state is State.INCUBATING
     off_spike = assemble_from_pit(
-        _PIT(ASOF, stakes=stakes, bars=_bars(spike=True)), thesis, ASOF, DEFAULT_CONFIG
+        _PIT(ASOF, stakes=stakes, bars=_bars(spike=True)), thesis, ASOF, off
     )
-    no_stakes = assemble_from_pit(
-        _PIT(ASOF, stakes=(), bars=_bars(spike=True)), thesis, ASOF, DEFAULT_CONFIG
-    )
+    no_stakes = assemble_from_pit(_PIT(ASOF, stakes=(), bars=_bars(spike=True)), thesis, ASOF, off)
     assert off_spike.state is no_stakes.state
     assert {t.kind for t in off_spike.triggers_fired} == {t.kind for t in no_stakes.triggers_fired}
     assert Kind.ACTIVIST_STAKE not in {t.kind for t in off_spike.triggers_fired}

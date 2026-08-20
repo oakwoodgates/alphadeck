@@ -514,12 +514,19 @@ class CallConfig(DomainModel):
     # sig-lab distribution pass finalizes the real values before the operator flips the master
     # switch. See docs/ACTIVIST_STAKE.md + docs/RECALIBRATION.md for the dial rows.
     #
-    # MASTER SWITCH — default OFF (the insider_sell / corporate-pair / share_creep precedent): the
-    # detector is registered but detect() no-ops until enabled, so nothing reaches live cards
-    # unmeasured and every existing golden is byte-for-byte unchanged; the pure score() stays
-    # testable ungated. replay.run's --activist-stake / ALPHADECK_ACTIVIST_STAKE force it on for
-    # the sig-lab backtest. The operator flips this only after seeing the lab table.
-    activist_stake_enabled: bool = False
+    # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-20, the clean re-measure; the corporate_risk /
+    # insider_sell / share_creep precedent): MEASURED safe on real prod data before the flip. The
+    # off-vs-on re-measure (asof 2026-08-20, prod, via the production read path
+    # call_for_thesis(record=False)) counted 29 clean warm fires -> 10 arms, <=4 per thesis (NO flood),
+    # and EVERY surviving fire is a real 13D (filer != subject, pct >= 5): RLBY, FRMI, NUCL, BBUC, JAGU,
+    # PBM, SPTX, PBLS, STIM, INM, USAQ, XOMA. The _is_misattributed screen (self-filed + sub-5%, shipped
+    # the prior commit) is what makes the flip safe — it removed the 5 mis-attributed pre-screen fires
+    # (UEC self-filed 7.7%, ISOU self-filed 16.1%, CBRS 0.4%, GME/EBAY 0.01%) while KEEPING the one valid
+    # cross-subject (JAGU, IsoEnergy->Jaguar from ISOU's own accession) — per-subject screening, not
+    # per-accession. Unlike the risk detectors this is a CONVICTION (Key-1): it WARMS, and arming still
+    # needs a co-located confirmation (the two-key gate), so a fire can never arm a name alone. Set False
+    # to disable; replay.run's --activist-stake / ALPHADECK_ACTIVIST_STAKE still force it on for the backtest.
+    activist_stake_enabled: bool = True
     # Score parity with catalyst_conviction's _CORE_SCORE (0.9): a filed >5%-with-intent stake is a
     # binding, verifiable commitment — the theme analog the catalyst family already prices at 0.9.
     # [PROPOSED] prior, lab-finalized.

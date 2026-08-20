@@ -1,12 +1,17 @@
 # The SC 13D activist-stake tape (Band 03 · S5)
 
-**Status: BUILT, INERT (master switch `activist_stake_enabled` default OFF).** The evidence layer
-(`fact_activist_stake` + the `schedule13` ingest leg) fills nightly; the detector
-(`signals/activist_stake.py`) is registered but no-ops until the switch flips — which happens only
-after the sig-lab distribution pass finalizes the `[PROPOSED]` dials and the operator ratifies. The
-2026-08-19 sig-lab pass RAN (no flood — 36 warm fires → only 8 arms, ≤3/thesis, 0 state/verdict
-flips) and added a **data-quality screen** for mis-attributed rows (below); the switch **stays OFF**
-pending the operator's dial ratification.
+**Status: LIVE (master switch `activist_stake_enabled` default ON — flipped 2026-08-20).** The
+evidence layer (`fact_activist_stake` + the `schedule13` ingest leg) fills nightly; the detector
+(`signals/activist_stake.py`) fires a **Key-1 CORE conviction** on a live 13D-family original. The
+switch flipped after the **data-quality screen** for mis-attributed rows (below) shipped and a
+**clean off-vs-on re-measure** validated it (asof 2026-08-20, prod, via `call_for_thesis(record=False)`):
+**29 clean warm fires → 10 arms, ≤4/thesis (NO flood)**, and every surviving fire is a real 13D
+(filer ≠ subject, pct ≥ 5) — RLBY, FRMI, NUCL, BBUC, JAGU, PBM, SPTX, PBLS, STIM, INM, USAQ, XOMA.
+The screen **removed the mis-attributed tail** (the 5 self-filed / sub-5% pre-screen fires: UEC
+self-filed 7.7%, ISOU self-filed 16.1%, CBRS 0.4%, GME/EBAY 0.01%) while **keeping the one valid
+cross-subject** (JAGU, IsoEnergy→Jaguar from ISOU's own accession — per-subject screening, not
+per-accession). The earlier 2026-08-19 sig-lab pass (pre-screen: 36 warm fires → 8 arms) is what
+surfaced the defect.
 Related: `docs/CORPORATE_EVENTS.md` (the S3 sibling), `docs/RECALIBRATION.md` (the dial rows),
 `docs/DATA_SOURCES.md` §SC 13D/G.
 
@@ -76,7 +81,7 @@ predates dissemination by up to 10 days, and the structured cover's `dateOfEvent
   an increase-/A nor kills on an exit-/A — the %-owned refinement (deferred, same tape) recovers
   both.
 
-## The data-quality screen (measured 2026-08-19 — the sig-lab pass; the switch STAYS OFF)
+## The data-quality screen (measured 2026-08-19 — the sig-lab pass; it made the 2026-08-20 flip safe)
 
 The sig-lab off-vs-on pass (asof 2026-08-19, prod, via the production read path
 `call_for_thesis(record=False)`) confirmed the detector does **not** flood — 36 warm fires → only 8
@@ -102,8 +107,8 @@ threshold is strictly `< 5.0`, so a 13D reporting EXACTLY 5% (the real LRHC 2026
 **The ingest root-cause is a deeper follow-up, NOT fixed here.** WHY a filer's own/other filing is
 fanned onto wrong subjects — the subject-submissions-JSON enumeration attributing a schedule to CIKs
 it should not — is a separately-tracked ingest fix; the detector screen is the safe, recall-preserving
-guard in the meantime, and it is what makes a later `activist_stake_enabled` flip safe from false CORE
-arms.
+guard in the meantime, and it is what made the 2026-08-20 `activist_stake_enabled` flip safe from false
+CORE arms (the clean re-measure had zero mis-attributed survivors).
 
 ## The golden (real, cited)
 
@@ -127,8 +132,9 @@ real subject on the discovery path.
 
 ## Shipping posture
 
-Inert-first (the S1/S3/S4 precedent): merge + deploy with the switch OFF → run the sig lab
-(`python -m replay.run … --activist-stake`, or `ALPHADECK_ACTIVIST_STAKE=1`) → the operator
-ratifies the dials → a one-line config flip PR. The pure `score()` is fully tested ungated; the
-standing-guard test runs the whole pipeline with the switch forced on, so the eventual flip cannot
+Inert-first, now COMPLETE (the S1/S3/S4 precedent): merged + deployed with the switch OFF → ran the
+sig lab (`python -m replay.run … --activist-stake`, or `ALPHADECK_ACTIVIST_STAKE=1`) → shipped the
+data-quality screen → the operator ratified on the 2026-08-20 clean re-measure → the one-line config
+flip (`activist_stake_enabled` False → True). The pure `score()` is fully tested ungated; the
+standing-guard test runs the whole pipeline with the switch forced on, so the flip could not
 surface a protocol-incomplete test double (the corporate_risk-flip lesson, made structural).
