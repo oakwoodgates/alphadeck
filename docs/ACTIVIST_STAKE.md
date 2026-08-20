@@ -104,11 +104,21 @@ contradiction screens. The form-type fire policy (#3) is unchanged. This is a **
 so a later switch-flip is safe; it does **not** touch the tape (every row stays stored, #9). The
 threshold is strictly `< 5.0`, so a 13D reporting EXACTLY 5% (the real LRHC 2026-06-23) still fires.
 
-**The ingest root-cause is a deeper follow-up, NOT fixed here.** WHY a filer's own/other filing is
-fanned onto wrong subjects — the subject-submissions-JSON enumeration attributing a schedule to CIKs
-it should not — is a separately-tracked ingest fix; the detector screen is the safe, recall-preserving
-guard in the meantime, and it is what made the 2026-08-20 `activist_stake_enabled` flip safe from false
-CORE arms (the clean re-measure had zero mis-attributed survivors).
+**The ingest root-cause — now fixed at the source.** WHY a filing was fanned onto a wrong subject:
+EDGAR indexes an ownership schedule under BOTH the filer's and the subject's submissions feed, so the
+per-SUBJECT enumeration (`schedule13_filings` over a member's own feed) also picks up the schedules the
+member FILED **about other companies** — its OUTBOUND stakes. The fix reads each 13D-family filing's
+TRUE subject — the structured cover's `<issuerCIK>` (free; the cover is already fetched for identity)
+or the classic SGML `SUBJECT COMPANY` block — and **skips** the filing when that subject is not the
+feed's owner (the owner is the filer, not the subject; the row lands under the true subject's own feed).
+VERIFIED on the two cited instances: UEC's `0001437749-26-024641` (subject Uranium Royalty `0002143673`)
+and GameStop's `0001193125-26-202465` (subject eBay `0001065088`) are both dropped under the filer's
+feed and kept under the subject's. Scope is **13D-family only** (the fire case; 13G fires nothing and
+its classic era fetches no header — verifying it would cost ~14k header pulls for no fire impact; the
+switch's own `filer≠subject` guard tolerates any residual 13G mis-fan). An UNRESOLVED subject keeps the
+row (recall-safe #9). The firing-side `_is_misattributed` screen stays as belt-and-suspenders for any
+pre-fix rows still on the tape; a one-time repair (`pipeline/repair_activist_misattribution.py`) deletes
+the already-stored self-filed rows.
 
 ## The golden (real, cited)
 

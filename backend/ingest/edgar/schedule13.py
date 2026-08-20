@@ -54,11 +54,16 @@ class Schedule13Result:
     """One security's 13D/G ingest outcome: ``appended`` = brand-new filings stored;
     ``reversioned`` = new VERSIONS of already-stored filings whose fact surface changed (identity
     resolving on a retry / a corrected filed date); ``identity_skipped`` = rows stored THIS run with
-    NULL filer because the identity fetch/parse failed — loud, never a dropped row (#9)."""
+    NULL filer because the identity fetch/parse failed — loud, never a dropped row (#9);
+    ``subject_skipped`` = 13D-family filings NOT stored because the cover/header names a DIFFERENT
+    subject than this feed's owner (the owner is the FILER of an OUTBOUND stake about someone else —
+    the ingest root-cause fix; a precision drop of visible junk, logged, never a real subject's row).
+    """
 
     appended: int = 0
     reversioned: int = 0
     identity_skipped: int = 0
+    subject_skipped: int = 0
 
 
 def is_13d_family(form: str) -> bool:
@@ -77,19 +82,28 @@ def _norm_cik(raw: str | None) -> str | None:
 
 
 def parse_structured_cover(xml_text: str) -> dict[str, Any]:
-    """The structured-era (post-2024-12) 13D/G cover: ``{filer_cik, filer_name, pct_owned}`` from
-    the raw ``primary_doc.xml``.
+    """The structured-era (post-2024-12) 13D/G cover: ``{filer_cik, filer_name, pct_owned,
+    subject_cik}`` from the raw ``primary_doc.xml``.
 
     Namespace-tolerant localname matching (the schema declares a default xmlns). The FIRST reporting
     person is the lead filer (a group filing lists several; the provenance URL shows the rest — a
     documented v1 bound). ``percentOfClass`` is parsed as a float where numeric, else None — shown
     as evidence, never fired on (#3). The cover's ``dateOfEvent`` is deliberately NOT read (trap #4:
-    knowability is the filing date, never the in-document event date)."""
+    knowability is the filing date, never the in-document event date).
+
+    ``subject_cik`` is the schedule's TRUE subject — the ``<issuerInfo><issuerCIK>`` the SEC's own
+    schema carries verbatim on every structured cover (VERIFIED on the real UEC ``0001437749-26-024641``
+    → Uranium Royalty ``0002143673`` and GameStop ``0001193125-26-202465`` → eBay ``0001065088``). It
+    is the FREE half of the ingest subject-attribution fix: the cover is already fetched for identity,
+    so no extra pull. The ingest compares it to the feed-owner CIK to drop a filing the feed lists only
+    because the owner FILED it (its OUTBOUND stake about someone else), never because it is the subject.
+    """
     root = ET.fromstring(xml_text)
     filer_cik: str | None = None
     filer_name: str | None = None
     pct: float | None = None
     fallback_cik: str | None = None
+    subject_cik: str | None = None
     for elem in root.iter():
         local = elem.tag.rsplit("}", 1)[-1]
         text = (elem.text or "").strip()
@@ -99,6 +113,10 @@ def parse_structured_cover(xml_text: str) -> dict[str, Any]:
             filer_name = text
         elif local == "reportingPersonCIK" and filer_cik is None:
             filer_cik = _norm_cik(text)
+        elif local == "issuerCIK" and subject_cik is None:
+            subject_cik = _norm_cik(
+                text
+            )  # the schedule's TRUE subject (never confused with the filer)
         elif local == "cik" and fallback_cik is None:
             fallback_cik = _norm_cik(text)  # headerData filer credentials — the fallback id
         elif local == "percentOfClass" and pct is None:
@@ -106,7 +124,12 @@ def parse_structured_cover(xml_text: str) -> dict[str, Any]:
                 pct = float(text.rstrip("%").strip())
             except ValueError:
                 pct = None  # a non-numeric percent field stays evidence-absent, never guessed
-    return {"filer_cik": filer_cik or fallback_cik, "filer_name": filer_name, "pct_owned": pct}
+    return {
+        "filer_cik": filer_cik or fallback_cik,
+        "filer_name": filer_name,
+        "pct_owned": pct,
+        "subject_cik": subject_cik,
+    }
 
 
 def parse_sgml_filed_by(txt: str) -> dict[str, Any]:
@@ -138,6 +161,30 @@ def parse_sgml_filed_by(txt: str) -> dict[str, Any]:
     return {"filer_cik": cik, "filer_name": name}
 
 
+def parse_sgml_subject_cik(txt: str) -> str | None:
+    """The classic-era 13D subject CIK from the filing's SGML header ``SUBJECT COMPANY:`` block — the
+    company the schedule is filed ABOUT (the mirror of ``parse_sgml_filed_by``, which reads the filer).
+
+    Reads the FIRST ``SUBJECT COMPANY`` block, truncated at a following ``FILED BY`` / ``FILER`` /
+    ``REPORTING`` section so a filer's ``CENTRAL INDEX KEY`` can never be mistaken for the subject's
+    (block order varies filing to filing — VERIFIED on the real 2021 atai×CMPS header, SUBJECT COMPANY
+    = COMPASS Pathways ``0001816590`` filed BY ATAI ``0001840904``). No block / no CIK -> ``None`` (the
+    caller then cannot verify the subject and KEEPS the row — recall-safe, #9; unresolved ≠ mis-attributed).
+    """
+    idx = txt.find("SUBJECT COMPANY")
+    if idx < 0:
+        return None
+    segment = txt[idx + len("SUBJECT COMPANY") :]
+    bounds = [segment.find(b) for b in ("FILED BY", "FILER:", "REPORTING") if segment.find(b) >= 0]
+    if bounds:
+        segment = segment[: min(bounds)]
+    for line in segment.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "CENTRAL INDEX KEY":
+            return _norm_cik(value)
+    return None
+
+
 def _fetch_identity(client, cik: str | int, filing: dict[str, Any]) -> dict[str, Any] | None:
     """Fetch + parse the activist's identity for ONE filing per the S5 depth strategy, or ``None``
     for a filing outside the bounded depth (classic-era 13G — no fetch by design).
@@ -145,7 +192,13 @@ def _fetch_identity(client, cik: str | int, filing: dict[str, Any]) -> dict[str,
     Structured era -> the raw primary_doc.xml (small; ``forms/`` immutable prefix — cached forever);
     classic-era 13D-family -> the ``{accession}.txt`` SGML header (one-time per accession, same
     immutable cache). Raises on a fetch/parse failure — the CALLER stores the row with NULL identity
-    and counts it loud (a failure is one filing's, never the leg's)."""
+    and counts it loud (a failure is one filing's, never the leg's).
+
+    The returned dict also carries ``subject_cik`` (the schedule's TRUE subject) wherever a document is
+    fetched — the ``<issuerCIK>`` on the structured cover, the ``SUBJECT COMPANY`` block on the classic
+    header — so the caller can drop a filing the feed lists only because its owner FILED it. No extra
+    fetch (the document is already pulled for identity); ``None`` when unresolved (the caller keeps the
+    row, #9)."""
     primary_doc = filing.get("primary_doc") or ""
     accession = filing["accession"]
     if primary_doc.lower().endswith(".xml"):
@@ -158,7 +211,11 @@ def _fetch_identity(client, cik: str | int, filing: dict[str, Any]) -> dict[str,
         nodash = accession.replace("-", "")
         url = f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{accession}.txt"
         txt = client.get_text(url, f"forms/{accession}/{accession}.txt")
-        return {**parse_sgml_filed_by(txt), "pct_owned": None}
+        return {
+            **parse_sgml_filed_by(txt),
+            "pct_owned": None,
+            "subject_cik": parse_sgml_subject_cik(txt),
+        }
     return None  # classic-era 13G: out of the bounded identity depth — NULL filer by design
 
 
@@ -204,11 +261,19 @@ def ingest_schedule13(
     (count-the-table idempotent); a changed surface — the load-bearing case being identity resolving
     on a retry — appends a new VERSION. An identity failure stores the row with NULL filer +
     ``identity_skipped`` (loud, never dropped — #9). ``recorded_at`` is a TEST seam only —
-    production leaves it to the DB's ``now()`` (never backdated, #4)."""
+    production leaves it to the DB's ``now()`` (never backdated, #4).
+
+    SUBJECT ATTRIBUTION (the root-cause fix): a 13D-family filing whose cover/header names a subject
+    OTHER than ``cik`` (this feed's owner) is DROPPED and counted ``subject_skipped`` (a loud precision
+    cut) — the owner FILED it about someone else, so the row is the TRUE subject's, ingested under
+    that subject's own feed. An unresolved subject keeps the row (recall-safe #9); 13G-family is out
+    of scope (fires nothing; no header fetched in its classic era)."""
     existing = existing_schedule13(conn, security_id, tenant_id=tenant_id)
     result_appended = 0
     result_reversioned = 0
     identity_skipped = 0
+    subject_skipped = 0
+    owner_cik = _norm_cik(str(cik))  # this feed's owner (the security we are ingesting FOR)
     for f in filings:
         filed = date.fromisoformat(f["filed"])
         prior = existing.get(f["accession"])
@@ -229,6 +294,26 @@ def ingest_schedule13(
         filer_cik = identity["filer_cik"] if identity else None
         filer_name = identity["filer_name"] if identity else None
         pct_owned = identity.get("pct_owned") if identity else None
+        # SUBJECT-ATTRIBUTION SKIP (the ingest root-cause fix; 13D-family only). EDGAR indexes a
+        # schedule in BOTH the filer's and the subject's submissions feed, so this SUBJECT-feed
+        # enumeration also picks up schedules the owner FILED about OTHER companies (its OUTBOUND
+        # stakes). When the cover/header names a subject that is NOT this feed's owner, the owner is
+        # the FILER, not the subject — the row belongs to the TRUE subject's tape (ingested there
+        # under its own feed), never here. DROP it (never store the wrong-subject row). A RESOLVED
+        # subject that MATCHES the owner keeps the row (the normal inbound case); an UNRESOLVED
+        # subject (parse failure, or a reused prior identity that carries none) keeps it too
+        # (recall-safe #9 — unresolved ≠ mis-attributed; the fire-side ``_is_misattributed`` screen
+        # still guards a residual). 13G-family is deliberately OUT of scope: it fires nothing, and its
+        # classic era carries no fetched header, so verifying it would cost ~14k header fetches for no
+        # fire impact — the 13G→13D switch's own ``filer≠subject`` guard tolerates a residual 13G mis-fan.
+        subj = identity.get("subject_cik") if identity else None
+        if is_13d_family(f["form"]) and subj and _norm_cik(subj) != owner_cik:
+            subject_skipped += 1
+            print(
+                f"  skip: schedule13 {f['accession']} subject {subj} != feed-owner {owner_cik} "
+                "— outbound filing (owner is the filer, not the subject)"
+            )
+            continue
         if prior is not None and (
             prior["form"] == f["form"]
             and prior["filed"] == filed
@@ -260,4 +345,5 @@ def ingest_schedule13(
         appended=result_appended,
         reversioned=result_reversioned,
         identity_skipped=identity_skipped,
+        subject_skipped=subject_skipped,
     )
