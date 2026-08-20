@@ -22,9 +22,10 @@ from signals.common import entry_signal_is_live
 # never policy: firing/grading/scoring read only the policy map. Codes outside this dict label as
 # the bare code (honest, never a guess).
 ITEM_LABELS: dict[str, str] = {
-    "1.01": "material definitive agreement",
+    "1.01": "material definitive agreement",  # still a valid tape item (display name kept); no longer fires
     "5.02": "officer/director departure or appointment",
     "3.01": "listing-deficiency notice",
+    "3.02": "unregistered equity sales (dilution)",
     "4.01": "auditor change",
     "4.02": "non-reliance on prior financials (restatement)",
     "1.03": "bankruptcy or receivership",
