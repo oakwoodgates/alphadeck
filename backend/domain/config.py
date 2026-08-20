@@ -402,21 +402,32 @@ class CallConfig(DomainModel):
     # change, so every existing golden stays byte-for-byte unchanged. Set False to disable.
     corporate_catalyst_enabled: bool = False
     corporate_risk_enabled: bool = True
-    # The v1 item cut (operator-confirmed 2026-08-17; the gold-doc §10-3a proposal):
+    # The v1 item cut (operator decisions 2026-08-17 + the "1.01 decision" 2026-08-20; full record in
+    # docs/CORPORATE_EVENTS.md).
     # TRIGGERS (kind=CATALYST — Key-1 conviction, co-location arming + own-conviction ranking ride
-    # the existing conviction_kinds membership):
-    #   1.01 material definitive agreement -> type=contract, CORE [PROPOSED] (a material contract is
-    #        the narrative landing in the business — the "core = capital-committed-or-structural"
-    #        line), score 0.9 (= catalyst_conviction's _CORE_SCORE parity), liveness 365d (= the
-    #        catalyst default horizon: the item code carries no agreement term, so the family
-    #        fallback applies).
+    # the existing conviction_kinds membership) — corporate_catalyst is now 5.02-ONLY and stays
+    # PARKED (its switch below is OFF):
     #   5.02 officer/director change -> type=personnel, FLIP [PROPOSED] (direction is ambiguous — a
     #        departure and a marquee hire file identically; the evidence link does the work), score
     #        0.5 (= _FLIP_SCORE parity), liveness 90d (personnel attention decays fast).
-    # RISKS (kind=CORPORATE_RISK — grade-blind, no dearm_grade; freshness DETECTOR-enforced since
-    # the assembler never ages risks):
+    #   1.01 material definitive agreement — DEMOTED out of the catalyst (operator decision 2026-08-20,
+    #        option A). MEASURED: Item 1.01 is ~60% FINANCING, not deals (of 894 live basket 1.01s, ~30%
+    #        carry +3.02 dilution, ~31% +2.03 debt), so firing a bullish conviction on it floods ~80
+    #        false-bullish arms. Grade does NOT gate arming (the assembler arms on a conviction KIND that
+    #        co-locates with a confirmation; grade only labels the verdict), so the lever is the conviction
+    #        ROLE, not the grade — 1.01 stops being a conviction entirely (REMOVED from the map; it stays
+    #        STORED on the tape #9 and fires nothing). A ratified-subset / located-passage 1.01 path
+    #        (#3/#10) is a later build, not this cut.
+    # RISKS (kind=CORPORATE_RISK — grade-blind, no dearm_grade; freshness DETECTOR-enforced since the
+    # assembler never ages risks; these ride the already-LIVE corporate_risk switch below):
     #   3.01 listing-deficiency notice -> 0.50 moderate (counter-case + confidence haircut,
     #        sub-veto), liveness 180d (~ a real exchange cure period).
+    #   3.02 unregistered equity sales -> 0.50 moderate, liveness 180d — the DILUTION-risk half of the
+    #        2026-08-20 decision. SINGLE-ITEM by design (the point of A): a 3.02 = unregistered equity
+    #        SOLD = dilution regardless of a co-located 1.01, so it routes to risk on its OWN (MEASURED:
+    #        99 live basket names in the trailing 180d, incl. 32 with NO 1.01 — a co-item-only split
+    #        would miss those). score 0.50 < risk_block_severity 0.70 so it can NEVER withhold an arm
+    #        (sub-veto counter-case + a small setup-strength haircut), same shape as 3.01/4.01.
     #   4.01 auditor change -> 0.50 moderate, liveness 180d (a governance flag with a long tail).
     #   4.02 non-reliance / restatement -> 0.80 SEVERE (>= risk_block_severity 0.70 — withholds the
     #        NAME on timing; = breakdown_severity parity: a "don't trust the financials" event is at
@@ -427,13 +438,6 @@ class CallConfig(DomainModel):
     # Items OUTSIDE this cut (2.02/7.01/8.01 cadence, 3.03/5.03 reverse-split, ...) are STORED on
     # the tape but fire nothing — their deferred detectors are config additions here, no re-ingest.
     corporate_event_items: dict[str, CorporateEventItemPolicy] = {
-        "1.01": CorporateEventItemPolicy(
-            role=Role.ENTRY_TRIGGER,
-            grade=Grade.CORE,
-            catalyst_type=CatalystType.CONTRACT,
-            score=0.9,
-            liveness_days=365,
-        ),
         "5.02": CorporateEventItemPolicy(
             role=Role.ENTRY_TRIGGER,
             grade=Grade.FLIP,
@@ -442,6 +446,7 @@ class CallConfig(DomainModel):
             liveness_days=90,
         ),
         "3.01": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.50, liveness_days=180),
+        "3.02": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.50, liveness_days=180),
         "4.01": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.50, liveness_days=180),
         "4.02": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.80, liveness_days=365),
         "1.03": CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.90, liveness_days=365),

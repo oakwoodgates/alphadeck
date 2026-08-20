@@ -45,6 +45,33 @@ def test_301_fires_moderate_sub_veto():
     assert "counter-case input, below the timing-veto threshold" in e.label
 
 
+def test_302_fires_moderate_sub_veto_dilution():
+    """The dilution-risk half of the "1.01 decision" (option A, 2026-08-20): a 3.02 (unregistered
+    equity sales = dilution) fires a MODERATE, grade-blind CORPORATE_RISK — score 0.50 <
+    risk_block_severity, so it can NEVER withhold an arm (sub-veto counter-case + a haircut), the same
+    shape as 3.01. The dilution meaning rides the label (#6), and the fire is single-item (a 3.02
+    routes to risk regardless of any co-located 1.01)."""
+    e = corporate_risk.score([_fact(items=("3.02",))], SID, ASOF)
+    assert e is not None and e.fired
+    assert e.role is Role.RISK_SIGNAL and e.kind is Kind.CORPORATE_RISK
+    assert e.grade is None and e.dearm_grade is None  # grade-blind like dilution; NOT a de-arm
+    p = DEFAULT_CONFIG.corporate_event_items["3.02"]
+    assert e.score == p.score == 0.50 and e.score < DEFAULT_CONFIG.risk_block_severity  # sub-veto
+    assert "Item 3.02" in e.label and "unregistered equity" in e.label
+    assert "counter-case input, below the timing-veto threshold" in e.label
+    assert e.provenance[0].ref == "ACC-R1" and e.provenance[0].detail["item"] == "3.02"
+
+
+def test_302_co_located_with_101_still_routes_to_risk_single_item():
+    """The single-item point of the decision: a 3.02 filed ALONGSIDE a 1.01 (the ~30% financing case)
+    still fires the dilution risk — 1.01 is demoted (fires no catalyst) and 3.02 routes to risk on its
+    own, so a financing 8-K reads correctly bearish, never falsely bullish."""
+    e = corporate_risk.score([_fact(items=("1.01", "3.02", "9.01"))], SID, ASOF)
+    assert e is not None and e.kind is Kind.CORPORATE_RISK
+    assert e.score == DEFAULT_CONFIG.corporate_event_items["3.02"].score  # the 3.02 dilution risk
+    assert {p.detail["item"] for p in e.provenance} == {"3.02"}  # only 3.02 is a risk-cut item
+
+
 def test_two_live_items_merge_into_one_event_at_max_severity():
     """The one-event-per-detector contract: a live 4.01 AND a live 3.01 emit ONE event scored at
     the max (never summed), with the other item ENUMERATED in the label and BOTH in provenance —

@@ -4,7 +4,9 @@
 > the SEC's own taxonomy IS the classification (invariant #3: no NLP, no LLM anywhere on the fire
 > path). This doc is the family's one page: the evidence layer, the policy map, the two detectors,
 > and the shipping posture. **`corporate_risk` is live** (#280, 2026-08-18 — the 8-K counter-case
-> teeth); **`corporate_catalyst` stays inert**, parked on the `1.01`-flood decision below.
+> teeth) and now carries the **`3.02` dilution risk** (the "1.01 decision", 2026-08-20);
+> **`corporate_catalyst` stays inert** and is now **`5.02`-only** — `1.01` was demoted out of the
+> catalyst (the decision below).
 
 ## The organizing seam — evidence vs policy
 
@@ -51,40 +53,50 @@
 
 `kind=CATALYST`, so it inherits the existing `conviction_kinds` membership (Key-1 co-location
 arming) and `own_conviction_kinds` ranking with zero config-set changes, and `call_grade=max`
-composes it beside ratified catalysts. v1 cut: **1.01** material definitive agreement →
-`contract`/CORE (a material contract is the narrative landing in the business); **5.02**
-officer-director change → `personnel`/FLIP (direction ambiguous — the evidence link does the work).
-Strongest-live-item wins (prefer core, then most recent — `catalyst_conviction`'s selection); every
-other live trigger item rides the provenance.
+composes it beside ratified catalysts. v1 cut (after the 2026-08-20 decision): **5.02**
+officer-director change → `personnel`/FLIP (direction ambiguous — the evidence link does the work) is
+now the **only** trigger item. **`1.01` was DEMOTED** out of the catalyst (the resolved finding below);
+it stays on the tape but fires no catalyst. Strongest-live-item wins (prefer core, then most recent —
+`catalyst_conviction`'s selection; the prefer-core branch is unexercised by the 5.02-only cut but kept
+for the next core-eligible item); every other live trigger item rides the provenance.
 
 **Deliberately NOT a `fact_catalyst` feed:** writing pre-graded rows would bake policy into
 evidence AND feed the live `catalyst_conviction` the moment facts land — no inert-first possible
 (gating the ingest would starve the lab). Known v1 gap: 8-K catalysts do not feed the Workbench
 catalyst-density meter (it reads `fact_catalyst`); revisit at flip time.
 
-**Force-on finding (2026-08-17) — the `1.01` flood; the catalyst side is PARKED.** A prod force-on
-measurement (`call_for_thesis(record=False)`, off-vs-on) found that enabling the catalyst newly **arms
-~80 names** (~⅓ of the psychedelic basket), because **Item `1.01` is mostly financing, not deals.** Of
-894 live basket `1.01`s: ~30% carry `+3.02` (unregistered equity → **dilution**; verified on PSQH's real
-securities-purchase agreement, which fired as a *core bullish* catalyst), ~31% `+2.03` (debt), ~7%
-`+2.01` (M&A), ~44% "bare" — **~6 in 10 are financing** (a lower bound; registered offerings carry no
-`3.02` tell and hide in the bare bucket). **Grade does not gate the flood:** the assembler arms on a
-conviction-KIND ∩ confirmation (co-located), and grade is computed *after* — it only labels the verdict,
-breaks the freshness tiebreak, and matches de-arms. So regrading `1.01` core→flip would keep all ~80 arms
-with a quieter label; **the lever is the conviction _role_, not the grade.** The open question is
-therefore not "core or flip" but **"should `1.01` be conviction at all"** — the options: **(A)** demote
-`1.01` out of conviction (context / confirmation-timing / display marker — the standing lean; conviction
-is what _ratified_ catalysts carry); **(B)** the co-item split (Deferred, below) keeping bare `1.01` as
-conviction (partial — still arms ~197); **(C)** ratified-subset (an LLM located-passage _recommends_, the
-operator ratifies — #3/#10). Parked; `corporate_catalyst` stays inert until it's decided.
+**Resolved (2026-08-20) — the `1.01` flood; option A + `3.02` risk-routing.** The prod force-on
+measurement (`call_for_thesis(record=False)`, off-vs-on) had found that enabling the catalyst newly
+**arms ~80 names** (~⅓ of the psychedelic basket), because **Item `1.01` is mostly financing, not
+deals.** Of 894 live basket `1.01`s: ~30% carry `+3.02` (unregistered equity → **dilution**; verified on
+PSQH's real securities-purchase agreement, which had fired as a *core bullish* catalyst), ~31% `+2.03`
+(debt), ~7% `+2.01` (M&A), ~44% "bare" — **~6 in 10 are financing** (a lower bound; registered offerings
+carry no `3.02` tell and hide in the bare bucket). **Grade does not gate the flood:** the assembler arms
+on a conviction-KIND that co-locates with a confirmation, and grade is computed *after* — it only labels
+the verdict, breaks the freshness tiebreak, and matches de-arms. So regrading `1.01` core→flip would
+have kept all ~80 arms with a quieter label; **the lever is the conviction _role_, not the grade.**
+
+**The operator chose option A:** `1.01` is removed from `corporate_event_items` entirely — it is no
+longer a conviction (conviction is what _ratified_ catalysts carry), stays on the tape (#9), and fires
+nothing. The dilution it hides is routed to the **risk** side as **`3.02`** (`risk` / 0.50 / 180d),
+**single-item by design:** a `3.02` = unregistered equity SOLD = dilution regardless of a co-located
+`1.01`, so it routes to risk on its own — MEASURED **99** live basket names carry a `3.02` in the
+trailing 180d, incl. **32 with no `1.01`** at all, which a co-item-only split would miss. So a financing
+8-K now reads correctly *bearish* (a sub-veto dilution counter-case) instead of falsely *bullish*.
+`corporate_catalyst` becomes **5.02-only** and **stays parked** (its switch is still OFF); the `3.02`
+risk rides the already-LIVE `corporate_risk`. The deferred `1.01`-co-item split (below) is
+**superseded** by A. A ratified-subset / located-passage `1.01` path (**C** — an LLM _recommends_, the
+operator ratifies, #3/#10) remains a possible later build.
 
 ### `corporate_risk` — the risk side (`Kind.CORPORATE_RISK`)
 
 Grade-blind like dilution (`grade=None`, no `dearm_grade` — not a de-arm); the assembler composes
 it through the **existing role+score path with zero kind branches**: a SEVERE item
 (score ≥ `risk_block_severity`) withholds the NAME on timing; a moderate one feeds the counter-case
-+ the per-risk confidence haircut. v1 cut: **3.01** listing-deficiency + **4.01** auditor change =
-moderate (0.50); **4.02** non-reliance/restatement (0.80) + **1.03** bankruptcy (0.90) = SEVERE.
++ the per-risk confidence haircut. v1 cut: **3.01** listing-deficiency + **3.02** unregistered equity
+(dilution) + **4.01** auditor change = moderate (0.50); **4.02** non-reliance/restatement (0.80) +
+**1.03** bankruptcy (0.90) = SEVERE. (`3.02` was added 2026-08-20 as the dilution-risk half of the
+`1.01` decision — see the resolved catalyst finding above.)
 
 One event per name per read (the detector contract): the max-severity live item headlines; every
 other live risk item is enumerated in the label and carried in provenance. Accepted consequence:
@@ -116,19 +128,23 @@ ungated. `replay.run --corporate-catalyst` / `--corporate-risk` (`ALPHADECK_CORP
 frequency, verdict-diff off-vs-on, EDGAR ground-truth spot-checks — which finalizes its `[PROPOSED]`
 dials before the operator flips that default. Nothing re-verdicts prod unmeasured.
 
-**Live state (2026-08-18): `corporate_risk` is flipped ON** (`corporate_risk_enabled=True`, #280) —
-pre-verified safe (0 withheld / 0 verdict changes on real prod data), now surfacing moderate 8-K
-counter-case (e.g. 29 fires on the psychedelic thesis's card). **`corporate_catalyst` stays OFF**,
-parked on the `1.01`-flood role decision (above).
+**Live state (2026-08-18 → 2026-08-20): `corporate_risk` is ON** (`corporate_risk_enabled=True`,
+#280) — pre-verified safe (0 withheld / 0 verdict changes on real prod data), surfacing moderate 8-K
+counter-case (e.g. 29 fires on the psychedelic thesis's card). The **2026-08-20 `1.01` decision** then
+**added `3.02`** (unregistered-equity dilution, 0.50 moderate) to its live cut — a real new dilution
+counter-case on financing 8-Ks (sub-veto: 0.50 < `risk_block_severity` 0.70, can never withhold an
+arm). **`corporate_catalyst` stays OFF** and is now **5.02-only** — `1.01` was demoted out of the
+catalyst (above).
 
 ## Deferred — same ingest, no re-ingest (the recall-safe payoff)
 
-- **The `1.01` co-item split** (the routing half of the parked catalyst decision above; deterministic,
-  same tape, no re-ingest — the #9 payoff): route `1.01+3.02` → **risk** (dilution; ~270 cases flip from
-  false-bullish to correctly-bearish), `1.01+2.03` → quiet **debt context**, and treat **bare `1.01`** as
-  the only candidate catalyst. Sizing reality check: bare-only trims firing securities 284→197 (−87,
-  ~31%) — a trim, not a drain, and the 197 still hide registered offerings, so it improves routing but
-  does not make `1.01` strong conviction.
+- **The `1.01` co-item split — SUPERSEDED by option A (2026-08-20).** This was the alternative routing
+  (`1.01+3.02` → **risk** [dilution; ~270 cases flip from false-bullish to correctly-bearish],
+  `1.01+2.03` → quiet **debt context**, and **bare `1.01`** as the only candidate catalyst; bare-only
+  trimmed firing securities 284→197, still hiding registered offerings). The operator instead demoted
+  `1.01` **entirely** and routed `3.02` as a **single-item** risk (above) — simpler, and it catches the
+  32 `3.02`-without-`1.01` dilution names a co-item rule would have missed. Kept here as the record of
+  the path not taken.
 - **§3b cadence** (`2.02`/`7.01`/`8.01` trailing counts → `promoter_attention`): a COUNTING
   detector — must dedupe 8-K/A amendments, and its baseline may want the paginated older
   submissions pages (`filings.files`) beyond `recent`.
