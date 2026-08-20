@@ -272,6 +272,21 @@ class PointInTimeData:
             row = cur.fetchone()
         return row["name"] if row else None
 
+    def security_cik(self, security_id: UUID) -> str | None:
+        """The security's SEC CIK from ``security_master`` — an IDENTITY read, NOT a bitemporal fact (the
+        ``security_name`` precedent: the master is identity, read directly, never as-of — a CIK is stable,
+        so a direct read leaks no future EVENT). The activist-stake detector uses this to recognise a
+        MIS-ATTRIBUTED 13D — the filer IS the subject company (``filer_cik`` == the subject's CIK, a
+        self-filed schedule the ingest fanned onto the wrong subject). ``None`` if unknown → the screen
+        simply keeps the row (recall-safe, #9)."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT cik FROM security_master WHERE id = %s AND tenant_id = %s",
+                (security_id, self.tenant_id),
+            )
+            row = cur.fetchone()
+        return row["cik"] if row else None
+
 
 class SignalPointInTimeData(Protocol):
     """The structural fact-view contract consumed by the current signal pipeline.
@@ -304,6 +319,8 @@ class SignalPointInTimeData(Protocol):
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
 
     def security_name(self, security_id: UUID) -> str | None: ...
+
+    def security_cik(self, security_id: UUID) -> str | None: ...
 
 
 DetectorFn = Callable[

@@ -131,3 +131,13 @@ class ReplayPointInTimeData:
         (A pre-capture row with no CIKs is not excluded in replay until the mirror is re-exported — a
         documented, rebuildable-mirror limitation, never a silent live-path drop.)"""
         return None
+
+    def security_cik(self, security_id: UUID) -> str | None:
+        """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``
+        (identity), so there is no subject CIK to resolve. Returns ``None`` — the activist-stake
+        detector's self-filed screen (``filer_cik`` == the subject's CIK) simply keeps the row in replay
+        (recall-safe, #9), exactly the ``security_name`` fallback shape. The sub-5% pct screen is pure
+        (reads the fact row) so it still applies in replay; and the detector is OFF by default, forced on
+        only by ``--activist-stake``. A documented, rebuildable-mirror limitation, never a live-path drop.
+        """
+        return None

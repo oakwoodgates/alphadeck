@@ -188,6 +188,104 @@ def test_most_recent_live_original_wins_and_the_episode_rides_provenance():
     assert [p.ref for p in e.provenance] == ["ACC-NEW", "ACC-NEW-A"]  # sorted, episode-scoped
 
 
+# --- the data-quality screen (measured 2026-08-19: ~9% of live originals are mis-attributed) ---------
+# Real, cited instances (test-honesty — no fabricated shapes to force an outcome):
+#  - UEC: a SCHEDULE 13D (acc 0001437749-26-024641, filed 2026-07-28) whose filer_cik == URANIUM ENERGY
+#    CORP's OWN cik 0001334933 (7.7%) — the ingest fanned a filing onto the wrong subject (self-filed).
+#  - GameStop's SCHEDULE 13D (acc 0001193125-26-202465, filer 0001326380, filed 2026-05-04) fanned onto
+#    both GME (self) and EBAY at 0.01% of class — statutorily impossible for a 13D (requires >5%).
+
+
+def test_self_filed_13d_is_screened_from_the_fire():
+    """RULE (a) self-filed: the real UEC SCHEDULE 13D whose filer_cik equals the SUBJECT's own cik
+    (0001334933) does NOT anchor a fire — a company is never its own 13D subject. pct 7.7 (≥5) is fine,
+    so this isolates the self-filed half; and it FIRES when the subject is a different company, proving
+    the screen is targeted, not a blanket veto."""
+    uec_self = _fact(
+        accession="0001437749-26-024641",
+        form="SCHEDULE 13D",
+        filed=date(2026, 7, 28),
+        filer_cik="0001334933",
+        filer_name="URANIUM ENERGY CORP",
+        pct=7.7,
+    )
+    asof = date(2026, 8, 18)
+    assert activist_stake.score([uec_self], SID, asof, subject_cik="0001334933") is None
+    assert activist_stake.score([uec_self], SID, asof, subject_cik="0009999999") is not None
+
+
+def test_self_filed_screen_is_leading_zero_insensitive():
+    """EDGAR pads CIKs to 10 digits inconsistently: a filer '1334933' and a subject '0001334933' are the
+    SAME company. The screen normalizes both (the insider issuer-self precedent) so the pad can't smuggle
+    a self-filing through."""
+    row = _fact(filer_cik="1334933", pct=8.0)
+    assert activist_stake.score([row], SID, ASOF, subject_cik="0001334933") is None
+
+
+def test_sub_five_pct_13d_is_screened_from_the_fire():
+    """RULE (b) statutorily-impossible ownership: GameStop's real 13D fanned onto EBAY at 0.01% of class
+    — a 13D requires >5%, so a 0.01% cover is a mis-fan, never a real crossing. Screened whether or not a
+    (different) subject cik resolves, since rule (b) reads only the fact row."""
+    ebay_misfan = _fact(
+        accession="0001193125-26-202465",
+        form="SCHEDULE 13D",
+        filed=date(2026, 5, 4),
+        filer_cik="0001326380",
+        filer_name="GameStop Corp.",
+        pct=0.01,
+    )
+    asof = date(2026, 6, 1)
+    # eBay's cik (≠ the GameStop filer) → rule (a) can't apply; rule (b) screens it.
+    assert activist_stake.score([ebay_misfan], SID, asof, subject_cik="0001065088") is None
+    # and with NO subject cik resolved (the replay-mirror path), the pure sub-5% half still screens it.
+    assert activist_stake.score([ebay_misfan], SID, asof, subject_cik=None) is None
+
+
+def test_exactly_five_pct_is_kept_the_threshold_is_below_not_at():
+    """The screen is ``< 5.0``, not ``<= 5.0``: a 13D reporting EXACTLY 5% (the real LRHC 2026-06-23 at
+    5%) is a legitimate crossing and FIRES. Off-by-one honesty on the statutory threshold."""
+    e = activist_stake.score([_fact(pct=5.0)], SID, ASOF, subject_cik="0009999999")
+    assert e is not None and e.grade is Grade.CORE
+
+
+def test_null_pct_valid_shape_original_still_fires_recall():
+    """RECALL-SACRED (#9): a valid-shape 13D with an UNPARSED pct (NULL), filer ≠ subject, STILL fires a
+    CORE. An unparsed value is not an invalid one — the screen never drops a real crossing on absence.
+    """
+    e = activist_stake.score(
+        [_fact(filer_cik="0001111111", pct=None)], SID, ASOF, subject_cik="0009999999"
+    )
+    assert e is not None and e.grade is Grade.CORE
+
+
+def test_normal_13d_filer_differs_from_subject_fires_core():
+    """The happy path with a subject resolved: filer ≠ subject, pct ≥ 5 → the screen passes it and it
+    fires a CORE (the real RLBY shape: 7.01%). Proves the screen doesn't over-reach a clean original.
+    """
+    e = activist_stake.score(
+        [_fact(filer_cik="0001111111", pct=7.01)], SID, ASOF, subject_cik="0009999999"
+    )
+    assert e is not None and e.grade is Grade.CORE and "7.01% of class" in e.label
+
+
+def test_detect_resolves_subject_cik_from_the_master_and_screens_self_filed():
+    """THE WIRING: detect() resolves the subject's own cik via pit.security_cik (the master read) and
+    passes it to the screen. A self-filed tape (filer == the resolved subject cik) fires NOTHING through
+    the full detect path with the switch ON; the SAME tape under a different subject cik fires."""
+    self_filed = [_fact(filer_cik="0001334933", pct=7.7)]
+    pit_self = SimpleNamespace(
+        activist_stake_facts=lambda sid: [dict(f) for f in self_filed],
+        security_cik=lambda sid: "0001334933",
+    )
+    assert activist_stake.detect(pit_self, SID, ASOF, _ON) is None
+
+    pit_other = SimpleNamespace(
+        activist_stake_facts=lambda sid: [dict(f) for f in self_filed],
+        security_cik=lambda sid: "0009999999",
+    )
+    assert activist_stake.detect(pit_other, SID, ASOF, _ON) is not None
+
+
 def test_master_switch_off_detect_emits_nothing_score_stays_ungated():
     """INERT-FIRST: with the live DEFAULT_CONFIG (switch OFF) ``detect`` no-ops — it never even
     reads the pit — so no activist-stake event can reach a live card; the pure ``score`` above
@@ -197,7 +295,10 @@ def test_master_switch_off_detect_emits_nothing_score_stays_ungated():
     )
     assert activist_stake.detect(pit, SID, ASOF, DEFAULT_CONFIG) is None
 
-    pit_on = SimpleNamespace(activist_stake_facts=lambda sid: [_fact()])
+    pit_on = SimpleNamespace(
+        activist_stake_facts=lambda sid: [_fact()],
+        security_cik=lambda sid: None,  # detect now also resolves the subject cik for the screen
+    )
     e = activist_stake.detect(pit_on, SID, ASOF, _ON)
     assert e is not None and e.kind is Kind.ACTIVIST_STAKE
 
@@ -241,12 +342,13 @@ class _PIT:
     EVERY registered detector against this fake, so a protocol accessor missing from a test double
     AttributeErrors HERE in CI today, not at the future flip."""
 
-    def __init__(self, asof: date, *, stakes=(), bars=()) -> None:
+    def __init__(self, asof: date, *, stakes=(), bars=(), subject_cik=None) -> None:
         self.asof = asof
         self.known_at = _KNOWN
         self.tenant_id = DEFAULT_TENANT_ID
         self._stakes = list(stakes)
         self._bars = list(bars)
+        self._subject_cik = subject_cik
 
     def insider_txns(self, security_id: UUID) -> list[dict]:
         return []
@@ -275,6 +377,9 @@ class _PIT:
 
     def security_name(self, security_id: UUID) -> str | None:
         return None
+
+    def security_cik(self, security_id: UUID) -> str | None:
+        return self._subject_cik
 
 
 def test_two_key_gate_a_13d_alone_warms_and_arms_only_with_a_colocated_breakout():
