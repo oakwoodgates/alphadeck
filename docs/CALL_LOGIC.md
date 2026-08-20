@@ -95,7 +95,7 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > fired — a soft veto on **timing**. It never vetoes the **thesis** itself (that stays the operator's call).
 > Severity threshold is `TODO(operator)` / calibrated; the block-vs-penalize behavior is fixed.
 
-> **Risk roster — insider-sell cluster `[PROPOSED — Band 03 S1; master switch OFF until the lab pass]`.**
+> **Risk roster — insider-sell cluster `[LIVE — Band 03 S1; master switch ON by default since the 2026-08-19 sig-lab pass]`.**
 > `insider_sell` (`role=risk_signal, kind=insider_sell`) fires on a **clustered discretionary open-market
 > sell episode**: ≥ `insider_sell_min_distinct` insiders (senior officer/director required by default)
 > selling ≥ `insider_sell_min_usd` of code-`S` stock within one cohesion window, anchored on the most
@@ -107,11 +107,12 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > supply). Per the literature's asymmetry (sales are weak predictors — people sell for many reasons), its
 > score is **capped at `insider_sell_max_score` (0.60), strictly below `risk_block_severity` (0.70)**
 > (operator-ratified, 2026-08-16): it feeds the counter-case and a setup-strength haircut and can **never
-> withhold an arm** in v1 — not a veto, not a de-arm (no `dearm_grade`). All dials are `[PROPOSED]` priors;
-> the sig-lab distribution pass finalizes them before the operator flips `insider_sell_enabled`.
+> withhold an arm** in v1 — not a veto, not a de-arm (no `dearm_grade`). **Now LIVE (`insider_sell_enabled=True`,
+> flipped 2026-08-19):** the sig-lab off-vs-on pass MEASURED it safe on real prod data (58 fires / 5 theses / 0
+> arm-withholdings / 0 de-arms), so the `[PROPOSED]` dials held through the pass and the operator flipped the switch.
 
-> **Risk roster — share-count creep / ATM detection `[PROPOSED — Band 03 S4; master switch OFF until the
-> lab pass]`.** `share_creep` (`role=risk_signal, kind=dilution_risk` — the kind is **REUSED**: realized
+> **Risk roster — share-count creep / ATM detection `[LIVE — Band 03 S4; master switch ON by default since
+> the 2026-08-19 sig-lab pass]`.** `share_creep` (`role=risk_signal, kind=dilution_risk` — the kind is **REUSED**: realized
 > issuance beside `dilution_clock`'s potential convert overhang, two lenses on one phenomenon) fires on a
 > **sustained quarterly share-count drip**: the trailing `share_creep_window_quarters` consecutive QoQ
 > steps all strictly positive, cumulative rise ≥ `share_creep_cum_min_pct` — the signature of an
@@ -127,8 +128,10 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > `risk_block_severity` (0.70)** — counter-case + a setup-strength haircut, sub-veto, pinned by test.
 > **Named recall holes (#9):** FPIs/ADRs (annual 20-F cadence), fresh IPOs, and dual-class filers whose
 > per-class dei dimensions companyfacts drops (HIMS — whose convertibles remain `dilution_clock`'s
-> territory) have no quarterly series; the detector declines on them, never fabricates. All dials are
-> `[PROPOSED]` priors; the sig-lab pass finalizes them before the operator flips `share_creep_enabled`.
+> territory) have no quarterly series; the detector declines on them, never fabricates. **Now LIVE
+> (`share_creep_enabled=True`, flipped 2026-08-19):** the sig-lab off-vs-on pass MEASURED it safe (61 fires /
+> 5 theses / 0 arm-withholdings — real dilution, e.g. UEC +13.4% QoQ), so the `[PROPOSED]` dials held and the
+> operator flipped the switch.
 
 ## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 

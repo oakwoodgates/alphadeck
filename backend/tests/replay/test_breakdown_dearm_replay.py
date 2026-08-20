@@ -108,6 +108,13 @@ class _FakePIT:
     def security_name(self, security_id: UUID) -> str | None:
         return None
 
+    def security_cik(self, security_id: UUID) -> str | None:
+        # Band 03 S5 identity accessor — completed AT BIRTH (same lesson as activist_stake_facts: the
+        # activist_stake mis-attribution screen reads it, and the flip made it live). Mirrors
+        # ReplayPointInTimeData.security_cik: this in-memory view holds no security_master, so None is
+        # correct and recall-safe (#9) — the security_name sibling shape. No stakes here to screen.
+        return None
+
 
 def _thesis() -> Thesis:
     return Thesis(

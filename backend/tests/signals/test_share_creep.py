@@ -166,20 +166,25 @@ def test_no_concept_shopping_past_an_honest_no_creep():
     assert share_creep.score(quiet_gaap + loud_dei, SID, ASOF) is None
 
 
-def test_master_switch_off_detect_emits_nothing_score_stays_ungated():
-    """INERT-FIRST (the insider_sell / corporate-pair precedent): switch OFF -> detect no-ops without
-    reading the pit; switch ON (the replay force-on path) -> fires. The pure score ignores the switch
-    entirely."""
-    pit = SimpleNamespace(
+def test_master_switch_now_defaults_on_but_still_gates_detect():
+    """The switch is now LIVE by default (share_creep_enabled=True, ratified on the 2026-08-19 sig-lab
+    pass: 61 fires / 5 theses / 0 withholds) — detect() FIRES under DEFAULT_CONFIG. Explicitly OFF,
+    detect no-ops WITHOUT reading the pit (the throwing accessor proves it never runs). The pure score
+    ignores the switch entirely (the insider_sell / corporate-pair precedent)."""
+    assert (
+        DEFAULT_CONFIG.share_creep_enabled is True
+    )  # the ratified LIVE default (sig-lab 2026-08-19)
+
+    off = DEFAULT_CONFIG.model_copy(update={"share_creep_enabled": False})
+    pit_off = SimpleNamespace(
         fundamentals_facts=lambda sid: (_ for _ in ()).throw(AssertionError("pit read while OFF"))
     )
-    assert share_creep.detect(pit, SID, ASOF, DEFAULT_CONFIG) is None
+    assert share_creep.detect(pit_off, SID, ASOF, off) is None  # OFF -> no-op, never reads the pit
 
     assert share_creep.score(_drip_rows(), SID, ASOF, DEFAULT_CONFIG) is not None  # ungated
 
-    on = DEFAULT_CONFIG.model_copy(update={"share_creep_enabled": True})
     pit_on = SimpleNamespace(fundamentals_facts=lambda sid: _drip_rows())
-    e = share_creep.detect(pit_on, SID, ASOF, on)
+    e = share_creep.detect(pit_on, SID, ASOF, DEFAULT_CONFIG)  # LIVE default -> fires
     assert e is not None and e.kind is Kind.DILUTION_RISK
 
 
