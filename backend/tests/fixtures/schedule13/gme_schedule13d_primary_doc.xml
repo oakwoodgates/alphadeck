@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/schedule13D" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <schemaVersion>X0202</schemaVersion>
+<headerData>
+    <submissionType>SCHEDULE 13D</submissionType>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <cik>0001326380</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPageHeader>
+      <securitiesClassTitle>Common Stock, $0.001 par value per share</securitiesClassTitle>
+      <dateOfEvent>05/01/2026</dateOfEvent>
+      <previouslyFiledFlag>false</previouslyFiledFlag>
+      <issuerInfo>
+        <issuerCIK>0001065088</issuerCIK>
+        <issuerCusips>
+          <issuerCusipNumber>278642103</issuerCusipNumber>
+        </issuerCusips>
+        <issuerName>eBay Inc.</issuerName>
+        <address>
+          <street1 xmlns="http://www.sec.gov/edgar/common">2025 Hamilton Avenue</street1>
+          <city xmlns="http://www.sec.gov/edgar/common">San Jose</city>
+          <stateOrCountry xmlns="http://www.sec.gov/edgar/common">CA</stateOrCountry>
+          <zipCode xmlns="http://www.sec.gov/edgar/common">95125</zipCode>
+        </address>
+      </issuerInfo>
+      <authorizedPersons>
+        <notificationInfo>
+          <personName>Mark H. Robinson</personName>
+          <personPhoneNum>(817) 424-2000</personPhoneNum>
+          <personAddress>
+            <street1 xmlns="http://www.sec.gov/edgar/common">GameStop Corp.</street1>
+            <street2 xmlns="http://www.sec.gov/edgar/common">625 Westport Parkway</street2>
+            <city xmlns="http://www.sec.gov/edgar/common">Grapevine</city>
+            <stateOrCountry xmlns="http://www.sec.gov/edgar/common">TX</stateOrCountry>
+            <zipCode xmlns="http://www.sec.gov/edgar/common">76051</zipCode>
+          </personAddress>
+        </notificationInfo>
+        <notificationInfo>
+          <personName>Richard M. Brand</personName>
+          <personPhoneNum>(212) 819-8200</personPhoneNum>
+          <personAddress>
+            <street1 xmlns="http://www.sec.gov/edgar/common">White &amp; Case LLP</street1>
+            <street2 xmlns="http://www.sec.gov/edgar/common">1221 Avenue of the Americas</street2>
+            <city xmlns="http://www.sec.gov/edgar/common">New York</city>
+            <stateOrCountry xmlns="http://www.sec.gov/edgar/common">NY</stateOrCountry>
+            <zipCode xmlns="http://www.sec.gov/edgar/common">10020</zipCode>
+          </personAddress>
+        </notificationInfo>
+      </authorizedPersons>
+    </coverPageHeader>
+    <reportingPersons>
+      <reportingPersonInfo>
+        <reportingPersonCIK>0001326380</reportingPersonCIK>
+        <reportingPersonNoCIK>N</reportingPersonNoCIK>
+        <reportingPersonName>GameStop Corp.</reportingPersonName>
+        <fundType>WC</fundType>
+        <legalProceedings>N</legalProceedings>
+        <citizenshipOrOrganization>DE</citizenshipOrOrganization>
+        <soleVotingPower>25000</soleVotingPower>
+        <sharedVotingPower>0</sharedVotingPower>
+        <soleDispositivePower>25000</soleDispositivePower>
+        <sharedDispositivePower>0</sharedDispositivePower>
+        <aggregateAmountOwned>25000</aggregateAmountOwned>
+        <isAggregateExcludeShares>N</isAggregateExcludeShares>
+        <percentOfClass>0.01</percentOfClass>
+        <typeOfReportingPerson>CO</typeOfReportingPerson>
+        <commentContent>Rounded up to the nearest hundredth of a percent and based on the 444 million shares of Common Stock stated by the Issuer as being outstanding as of April 24, 2026 in its Form 10-Q, filed with the United States Securities and Exchange Commission on April 29, 2026 (the "2026 Q1 10-Q").</commentContent>
+      </reportingPersonInfo>
+    </reportingPersons>
+    <items1To7>
+      <item1>
+        <securityTitle>Common Stock, $0.001 par value per share</securityTitle>
+        <issuerName>eBay Inc.</issuerName>
+        <issuerPrincipalAddress>
+          <street1 xmlns="http://www.sec.gov/edgar/common">2025 Hamilton Avenue</street1>
+          <city xmlns="http://www.sec.gov/edgar/common">San Jose</city>
+          <stateOrCountry xmlns="http://www.sec.gov/edgar/common">CA</stateOrCountry>
+          <zipCode xmlns="http://www.sec.gov/edgar/common">95125</zipCode>
+        </issuerPrincipalAddress>
+        <commentText>Explanatory Note:
+
+As more fully described herein, in addition to the 25,000 shares of Common Stock beneficially owned directly by the Reporting Person, it also has acquired economic exposure to 22,176,000 shares of Common Stock underlying Put/Call Pairs (as defined herein). Together, the 25,000 shares of Common Stock beneficially owned directly and the shares underlying Put/Call Pairs constitute approximately 5.0% of the outstanding shares of Common Stock, based on the 444 million shares of Common Stock stated by the Issuer as being outstanding as of April 24, 2026 in the Issuer's 2026 Q1 10-Q. In the event of physical settlement of the Put/Call Pairs, GameStop would have the sole power to vote or direct the vote of the shares of Common Stock underlying such Put/Call Pairs.
+
+The Reporting Person disclaims beneficial ownership of the shares of Common Stock underlying the Put/Call Pairs, including without limitation because the Put/Call Pairs are not physically settleable for Common Stock unless and until satisfaction of the HSR Act Condition (as defined herein).</commentText>
+      </item1>
+      <item2>
+        <filingPersonName>This statement on Schedule 13D (this "Schedule 13D") is being filed by GameStop Corp., a Delaware corporation ("GameStop" or the "Reporting Person"). The names of the executive officers and directors of the Reporting Person as of the date of this Schedule 13D are listed on Exhibit 99.3 hereto.</filingPersonName>
+        <principalBusinessAddress>The address of the principal office and principal place of business of the Reporting Person is 625 Westport Parkway, Grapevine, Texas 76051. The business address of each of the executive officers and directors of the Reporting Person as of the date of this Schedule 13D is 625 Westport Parkway, Grapevine, Texas 76051.</principalBusinessAddress>
+        <principalJob>The principal business of the Reporting Person is (a) to offer games, collectibles, and entertainment products through its stores and ecommerce platforms, and (b) value creation through disciplined capital allocation.  The Reporting Person's business activities may include, among other things, leveraging its cash, flexible capital structure, and common stock as strategic assets to be deployed in acquisitions and control transactions that offer long-term value. The present principal occupation or employment and the name, principal business and address of any corporation or other organization in which such employment is conducted, of each of the executive officers and directors of the Reporting Person as of the date of this Schedule 13D is listed on Exhibit 99.3 hereto.</principalJob>
+        <hasBeenConvicted>During the last five years, neither the Reporting Person, nor, to its knowledge, any of its directors or executive officers, has been convicted in a criminal proceeding (excluding traffic violations or similar misdemeanors).</hasBeenConvicted>
+        <convictionDescription>Neither the Reporting Person, nor, to its knowledge, any of its directors and executive officers, is or during the last five years has been, a party to a civil proceeding of a judicial or administrative body of competent jurisdiction and as a result of such proceeding was or is subject to a judgment, decree or final order enjoining future violations of, or prohibiting or mandating activities subject to, federal or state securities laws or finding any violation with respect to such laws.</convictionDescription>
+        <citizenship>The Reporting Person is a Delaware corporation.  The citizenship of each of the executive officers and directors of the Reporting Person as of the date of this Schedule 13D is listed on Exhibit 99.3 hereto.</citizenship>
+      </item2>
+      <item3>
+        <fundsSource>GameStop purchased the 25,000 shares of Common Stock reported herein as beneficially owned by it for a total purchase price of $2,945,000 excluding fees and expenses.  The source of funds used by GameStop to purchase such shares of Common Stock was cash from its working capital.
+
+As more fully described in Item 6, GameStop has entered into a series of options transactions (the "Put/Call Pairs"). Each Put/Call Pair is structured as an American-style option, which permits GameStop to exercise the Put/Call Pairs at any time prior to the expiration date of February 23, 2028 (the "Expiration Date").  Upon exercise, GameStop will be entitled to settle the Put/Call Pairs solely for an amount of cash representing an in-the-money amount of the options until the counterparty has been provided with reasonable evidence that the HSR Act Condition has been satisfied.  After providing evidence of satisfaction of the HSR Act Condition, GameStop shall be entitled to, at its election, physically settle the Put/Call Pairs for a total of 22,176,000 shares of Common Stock or choose cash settlement.  The settlement will be based on the strike price upon exercise, and the source of funds to be used by GameStop to settle such shares of Common Stock, to the extent GameStop elects physical settlement, is anticipated to be cash from its working capital.
+
+Unless noted above, no portion of the purchase price for either of the shares of Common Stock beneficially owned directly by the Reporting Person or the shares of Common Stock underlying the Put/Call Pairs was or is currently expected to be borrowed by the Reporting Person for the purpose of acquiring, holding, trading or voting any securities discussed in this Item 3.</fundsSource>
+      </item3>
+      <item4>
+        <transactionPurpose>The Reporting Person believes that the Issuer's Common Stock is undervalued and represents an attractive investment opportunity.
+
+On May 3, 2026, GameStop delivered to the Issuer a non-binding proposal (the "Offer Letter") to acquire all of the issued and outstanding shares of Common Stock of the Issuer at a price of $125.00 per share, in cash and stock.  A copy of the Offer Letter is filed herewith as Exhibit 99.1 and is incorporated herein by reference.
+
+The Reporting Person from time to time expects to enter into discussions with directors and officers of the Issuer, other stockholders of the Issuer or third parties in connection with the above-described matters and, more generally, in connection with the Reporting Person's investment in the Issuer.  Such discussions may include, without limitation, one or more of members of management, members of the board (individually or acting as a whole), other stockholders of the Issuer and other persons to discuss the governance, board composition, management, operations, business, assets, capitalization, financial condition, strategic plans and future of the Issuer (including without limitation, the potential acquisition by the Reporting Person of control of the Issuer and or any and all of the issued and outstanding Common Stock (and the terms of any such potential acquisition)), as well as other matters related to the Issuer.  The Reporting Person may also seek to explore other methods for increasing its ownership position in, or economic exposure to, the Issuer, including, without limitation, through open market purchases or an acquisition of shares of Common Stock from other stockholders or through the entry into additional derivatives arrangements.
+
+The Reporting Person intends to review its investments in the Issuer on a continuing basis and may from time to time and at any time in the future depending on various factors, including, without limitation, the outcome of any discussions referenced above, the Issuer's financial position and strategic direction, actions taken by the board, price levels of the shares of Common Stock, other investment opportunities available to the Reporting Person, conditions in the securities and other markets, and general economic and industry conditions, take such actions with respect to the investment in the Issuer as it deems appropriate, including, without limitation: (i) acquiring additional shares of Common Stock and/or other equity, debt, notes, other securities, or derivatives or other instruments that are based upon or relate to the value of the Common Stock or otherwise relate to the Issuer (collectively, "Securities") in the open market or otherwise; (ii) disposing of any or all of its Securities in the open market or otherwise and/or cash-settling any derivatives (including without limitation Put/Call Pairs) or other instruments that are based upon or relate to the value of the Common Stock or otherwise relate to the Issuer; (iii) engaging in any hedging or similar transactions with respect to the Securities; (iv) change the terms on which it would propose to acquire control of the Issuer and or any and all of the issued and outstanding Common Stock and/or at any time abandon its current intention to seek to acquire control of the Issuer and or any and all of the issued and outstanding Common Stock or (v) otherwise proposing or considering, or changing its intention with respect to, one or more of the actions described in subsections (a) through (j) of Item 4 of Schedule 13D (whether or not otherwise described above).</transactionPurpose>
+      </item4>
+      <item5>
+        <percentageOfClassSecurities>The Reporting Person may be deemed to beneficially own all of the 25,000 shares of Common Stock  reported herein as beneficially owned directly by the Reporting Person, which represent approximately 0.006% of Issuer's outstanding shares of Common Stock, based on the 444 million share of Common Stock stated by the Issuer as being outstanding as of April 24, 2026 in the Issuer's 2026 Q1 10-Q.  GameStop has the sole power to vote or direct the vote of all of the 25,000 shares of Common Stock it beneficially owns directly.
+
+As more fully described in Item 6, pursuant to the Put/Call Pairs, in addition to the shares of Common Stock reported in the preceding paragraph, the Reporting Person has acquired economic exposure to a 22,176,000 shares of Common Stock underlying the Put/Call Pairs, constituting approximately 4.994% of the outstanding shares of Common Stock, based on the 444 million share of Common Stock stated by the Issuer as being outstanding as of April 24, 2026 in the Issuer's 2026 Q1 10-Q.  In the event of physical settlement of the Put/Call Pairs, GameStop would have the sole power to vote or direct the vote of the shares of Common Stock underlying such Put/Call Pairs.
+
+The Reporting Person disclaims beneficial ownership of the shares of Common Stock underlying the Put/Call Pairs, including, without limitation, because the Put/Call Pairs are not physically settleable for Common Stock unless and until all applicable filings have been made and any applicable waiting periods have expired or approvals have been received, as applicable, under the Hart-Scott-Rodino Antitrust Improvements Act of 1976, as amended (the "HSR Act") that are necessary for the Reporting Person to acquire the underlying shares of Common Stock, and as of the date hereof, such condition to physical settlement of the Put/Call Pairs has not been satisfied (and therefore, the Reporting Person does not currently have the "right to acquire beneficial ownership" of such shares of Common Stock for purposes of Rule 13d-3(d)(1)(i)).</percentageOfClassSecurities>
+        <numberOfShares>The response to Item 5(a) is incorporated herein by reference.</numberOfShares>
+        <transactionDesc>Other than as described herein or on Exhibit 99.2 filed herewith, which is incorporated herein by reference, no transactions in the Common Stock were effected by the Reporting Person during the past 60 days.</transactionDesc>
+        <listOfShareholders>Except as set forth in this Schedule 13D, no other person is known to have the right to receive or the power to direct the receipt of dividends from, or the proceeds from the sale of, any Common Stock beneficially owned by the Reporting Person.</listOfShareholders>
+        <date5PercentOwnership>Not applicable.</date5PercentOwnership>
+      </item5>
+      <item6>
+        <contractDescription>In addition to the 25,000 shares of Common Stock beneficially owned directly, the Reporting Person has economic exposure to 22,176,000 shares of Common Stock underlying the Put/Call Pairs entered into between the Reporting Person and a financial institution counterparty.  The Put/Call Pairs are settleable solely for cash unless and until such time as the Reporting Person has provided the financial institution counterparty with reasonable evidence that all applicable filings have been made and any applicable waiting periods have expired or approvals have been received, as applicable, under the HSR Act that are necessary for the Reporting Person to acquire the underlying shares of Common Stock (such condition, the "HSR Act Condition").  Upon providing evidence of satisfaction of the HSR Act Condition, the Reporting Person (in the case of the call portion of the Put/Call Pairs) and the financial institution counterparty (in the case of the put portion of the Put/Call Pairs) electing to settle the Put/Call Pairs shall have the option, but not the obligation, to elect for physical settlement of the shares of Common Stock referenced in such Put/Call Pairs.  The Reporting Person does not have voting power or dispositive power with respect to the shares of Common Stock underlying such Put/Call Pairs unless and until such Put/Call Pairs are physically settled for Common Stock and, as a result, disclaims beneficial ownership of the shares of Common Stock underlying such Put/Call Pairs.
+
+Except as disclosed in this Schedule 13D, there are no contracts, arrangements, understandings or relationships (legal or otherwise) among the Reporting Person and any other person with respect to any securities of the Issuer, including but not limited to, transfer or voting of any of the securities, finder's fees, joint ventures, loan or option arrangements, puts or calls, guarantees of profits, division of profits or loss, or the giving or withholding of proxies.
+</contractDescription>
+      </item6>
+      <item7>
+        <filedExhibits>Exhibit 99.1   Offer Letter, dated as of May 3, 2026.
+Exhibit 99.2   Trading Data.
+Exhibit 99.3   Names of the Executive Officers and Directors of the Reporting Person.</filedExhibits>
+      </item7>
+    </items1To7>
+    <signatureInfo>
+      <signaturePerson>
+        <signatureReportingPerson>GameStop Corp.</signatureReportingPerson>
+        <signatureDetails>
+          <signature>/s/ Mark H. Robinson</signature>
+          <title>Mark H. Robinson/General Counsel</title>
+          <date>05/03/2026</date>
+        </signatureDetails>
+      </signaturePerson>
+    </signatureInfo>
+  </formData>
+
+</edgarSubmission>
