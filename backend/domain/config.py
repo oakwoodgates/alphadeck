@@ -336,11 +336,16 @@ class CallConfig(DomainModel):
     # distribution pass (Band 03 spec §6, a separate later step) finalizes the real values before the
     # operator flips the master switch. See docs/RECALIBRATION.md for the dial rows.
     #
-    # MASTER SWITCH — default OFF (operator decision 2, the breakdown precedent): the detector is
-    # registered but detect() no-ops until enabled, so nothing reaches live cards unmeasured; the
-    # pure score() stays testable ungated. replay.run's --insider-sell / ALPHADECK_INSIDER_SELL
-    # force it on for the sig-lab backtest. The operator flips this only after seeing the lab table.
-    insider_sell_enabled: bool = False
+    # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-19, the sig-lab pass; the corporate_risk
+    # precedent): MEASURED safe on real prod data before the flip. The sig-lab off-vs-on pass (asof
+    # 2026-08-19, prod, via the production read path call_for_thesis(record=False)) counted 58 fires
+    # across 5 theses with ZERO arm-withholdings and ZERO de-arms — a pure counter-case + (situational)
+    # setup-strength haircut, never a timing veto (density ~37% on the semi-heavy AI-Memory basket,
+    # 5-13% elsewhere). That "cannot withhold" is guaranteed BY CONSTRUCTION, not just measured: the
+    # score is capped at insider_sell_max_score (0.60) strictly BELOW risk_block_severity (0.70), so a
+    # sell cluster can never cross the veto gate (the ceiling test pins the relation). Set False to
+    # disable; replay.run's --insider-sell / ALPHADECK_INSIDER_SELL still force it on for the backtest.
+    insider_sell_enabled: bool = True
     # Cohesion window: kept (discretionary open-market) sales within this many days of the most
     # recent one count as ONE episode of selling — the buy side's cluster logic. A SEPARATE dial
     # (not reusing insider_cluster_window_days) so risk calibration never couples to conviction
@@ -454,12 +459,15 @@ class CallConfig(DomainModel):
     # sig-lab distribution pass finalizes the real values before the operator flips the master switch.
     # See docs/RECALIBRATION.md for the dial rows.
     #
-    # MASTER SWITCH — default OFF (the insider_sell / corporate-pair precedent): the detector is
-    # registered but detect() no-ops until enabled, so nothing reaches live cards / counter-case /
-    # setup strength unmeasured and every existing golden is byte-for-byte unchanged; the pure score()
-    # stays testable ungated. replay.run's --share-creep / ALPHADECK_SHARE_CREEP force it on for the
-    # sig-lab backtest. The operator flips this only after seeing the lab table.
-    share_creep_enabled: bool = False
+    # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-19, the sig-lab pass; the corporate_risk /
+    # insider_sell precedent): MEASURED safe on real prod data. The sig-lab off-vs-on pass (asof
+    # 2026-08-19, prod, via the production read path call_for_thesis(record=False)) counted 61 fires
+    # across 5 theses with ZERO arm-withholdings — real dilution (e.g. UEC +13.4% QoQ shares), a
+    # counter-case + at most a small (~0.05) setup-strength haircut, never a timing veto. Guaranteed
+    # BY CONSTRUCTION: share_creep_score (0.50) sits strictly BELOW risk_block_severity (0.70), so
+    # creep can never withhold an arm (the ceiling test pins the relation). Set False to disable;
+    # replay.run's --share-creep / ALPHADECK_SHARE_CREEP still force it on for the sig-lab backtest.
+    share_creep_enabled: bool = True
     # The trailing window, in consecutive QoQ pairs (window+1 quarterly points, each adjacent gap a real
     # quarter): the SUSTAINED-drip prior — a persistent drip is the ATM tell; a one-off jump is usually
     # an explained discrete raise (spec fork 1, operator-confirmed). 4 pairs ≈ a trailing year of

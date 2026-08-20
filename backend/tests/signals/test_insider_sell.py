@@ -399,18 +399,22 @@ class _FakePit:
         return self._name
 
 
-def test_the_master_switch_gates_detect_but_not_score():
-    """detect() emits NOTHING under the live DEFAULT_CONFIG (insider_sell_enabled=False) even on a
-    genuine cluster — so registering the detector changes no existing card — and fires with the
-    switch ON. The pure score() stays UNGATED on the same rows (the testable math, the breakdown
-    precedent)."""
+def test_the_master_switch_now_defaults_on_but_still_gates_detect():
+    """The switch is now LIVE by default (insider_sell_enabled=True, ratified on the 2026-08-19
+    sig-lab pass: 58 fires / 5 theses / 0 withholds / 0 de-arms) — detect() FIRES on a genuine
+    cluster under DEFAULT_CONFIG. Explicitly OFF it still no-ops (the switch continues to gate), and
+    the pure score() stays UNGATED either way (the testable math, the breakdown precedent)."""
     txns = [
         _sell("Jane Doe", "Chief Executive Officer", 400_000),
         _sell("John Roe", "Chief Financial Officer", 350_000),
     ]
     pit = _FakePit(txns)
-    assert DEFAULT_CONFIG.insider_sell_enabled is False  # the ratified default (decision 2)
-    assert insider_sell.detect(pit, SID, ASOF, DEFAULT_CONFIG) is None  # switch OFF -> no-op
+    assert (
+        DEFAULT_CONFIG.insider_sell_enabled is True
+    )  # the ratified LIVE default (sig-lab 2026-08-19)
+    off = DEFAULT_CONFIG.model_copy(update={"insider_sell_enabled": False})
+    assert insider_sell.detect(pit, SID, ASOF, off) is None  # explicitly OFF -> no-op
+    assert insider_sell.detect(pit, SID, ASOF, DEFAULT_CONFIG) is not None  # LIVE default -> fires
     assert insider_sell.detect(pit, SID, ASOF, _ON) is not None  # switch ON -> fires
     assert insider_sell.score(txns, SID, ASOF, DEFAULT_CONFIG) is not None  # score is ungated
 
