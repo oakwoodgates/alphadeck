@@ -130,10 +130,26 @@ SGML header committed as a fixture) fires CORE inside its window; the real struc
 tape is the fires-nothing negative. NRXP × Javitt (SC 13D `0000950142-21-001848`) is the second
 real subject on the discovery path.
 
+## The 13G→13D switch (BUILT — the loudest version)
+
+A fired 13D whose filer held a PRIOR same-filer **13G** on this subject's tape is a passive holder
+going activist — a stronger tell. `signals/activist_stake._switch_from_13g` finds the EARLIEST prior
+same-filer 13G-family filing (when they first disclosed a passive stake) and ENRICHES the fired CORE:
+the label gains `— ESCALATED from a prior 13G passive stake filed <date>` and the 13G rides ahead of
+the episode in the provenance (#6). **Enrichment only** — the fire, grade (CORE), and score are
+untouched, so it can never flood or re-grade. Guards: same filer (both CIKs resolved — an unresolved
+filer never asserts a match, #9), the `_is_misattributed` screen (a mis-fanned 13G can't fabricate a
+false switch), and a **minimum-gap dial** (`CallConfig.activist_switch_min_gap_days`, [PROPOSED] 30d):
+a 13G and 13D filed ~a day apart is a RE-CLASSIFICATION, not an escalation. Measured, cited real
+instances: **Gemini** — Winklevoss Capital Fund's `SCHEDULE 13G` `0001104659-25-112696` (2025-11-14)
+→ `SCHEDULE 13D` `0001193125-26-229103` (2026-05-18, 65.1%), ~185 days = a switch; **QNTM** — Malone
+Wealth Ventures' 13G `0002072045-25-000001` (2025-06-11) → 13D `0002072045-25-000002` (2025-06-12),
+one day = NOT a switch. Known v1 bound — the **affiliate edge**: a control-person vehicle (Winklevoss
+→ the Gemini exchange) passes `filer≠subject` and reads as a switch though it is a governance
+reshuffle; v1 does not distinguish a same-party 13G→13D from an outside activist's escalation.
+
 ## Deferred (named; all ride the existing tape, no re-ingest)
 
-- **The 13G→13D switch** — a passive holder going active (the loudest version; needs
-  per-(filer, subject) history over the stored 13G rows).
 - **%-owned refinements** — percent rising across amendments as re-affirmation; percent < 5 on an
   /A as stake-death; the Item-4 purpose text as a located passage (#6, the S3 descope pattern).
 - **Group-filing capture** — v1 stores the LEAD reporting person only; the provenance URL shows

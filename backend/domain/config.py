@@ -542,6 +542,15 @@ class CallConfig(DomainModel):
     # committed capital" economics. >= conviction_hold_threshold_days (90), so an armed 13D entry
     # correctly reads hold-and-build, not flip-only. [PROPOSED] prior, lab-finalized.
     activist_13d_liveness_days: int = 180
+    # The 13G→13D SWITCH enrichment's minimum gap (days between the EARLIEST prior 13G by the same
+    # filer and the firing 13D). A passive holder going activist is the loudest version of the signal,
+    # but a 13G and a 13D filed a day or two apart is a RE-CLASSIFICATION / correction, not a genuine
+    # passive→active escalation over time (measured: QNTM — Malone Wealth Ventures filed a SCHEDULE 13G
+    # 2025-06-11 then a SCHEDULE 13D 2025-06-12, one day later). Requiring at least this gap keeps the
+    # enrichment to real escalations (measured: Gemini — Winklevoss Capital Fund's 13G 2025-11-14 → 13D
+    # 2026-05-18, ~185 days). The switch only ENRICHES an already-firing CORE 13D's label + provenance;
+    # it never changes the fire, grade, or score, so this dial cannot flood. [PROPOSED] prior, lab-finalized.
+    activist_switch_min_gap_days: int = 30
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

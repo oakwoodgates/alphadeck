@@ -21,7 +21,7 @@ from uuid import UUID
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, Role, State
-from ingest.edgar.submissions import SCHEDULE13_D_FORMS
+from ingest.edgar.submissions import SCHEDULE13_D_FORMS, SCHEDULE13_G_FORMS
 from pipeline.core import assemble_from_pit
 from signals import activist_stake
 from signals.base import window_prices
@@ -326,6 +326,136 @@ def test_detector_13d_forms_match_the_ingest_constant():
     """The drift pin: the detector keeps the 13D-family strings as a LOCAL literal (the share_creep
     no-ingest-import convention) — this asserts it can never drift from the ingest's set."""
     assert activist_stake._13D_FORMS == SCHEDULE13_D_FORMS
+
+
+def test_detector_13g_forms_match_the_ingest_constant():
+    """The 13G drift pin (the switch reads the passive side off the same tape): the detector's local
+    ``_13G_FORMS`` literal can never drift from the ingest's ``SCHEDULE13_G_FORMS``."""
+    assert activist_stake._13G_FORMS == SCHEDULE13_G_FORMS
+
+
+# --- the 13G→13D switch enrichment (real, cited: Gemini escalation + QNTM re-classification) ---------
+# Gemini (subject CIK 0002055592): Winklevoss Capital Fund LLC (0002085726) filed a passive SCHEDULE
+# 13G (0001104659-25-112696, 2025-11-14) then a SCHEDULE 13D (0001193125-26-229103, 2026-05-18, 65.1%)
+# — ~185 days later (verified live 2026-08-20). QNTM (subject 0001771885): Malone Wealth Ventures LLC
+# (0002072045) filed a SCHEDULE 13G (0002072045-25-000001, 2025-06-11) then a SCHEDULE 13D
+# (0002072045-25-000002, 2025-06-12, 14.6%) ONE DAY later — a re-classification, not an escalation.
+_GEMI_SUBJECT, _GEMI_FILER = "0002055592", "0002085726"
+_QNTM_SUBJECT, _QNTM_FILER = "0001771885", "0002072045"
+
+
+def _gemi_13g():
+    return _fact(
+        accession="0001104659-25-112696",
+        form="SCHEDULE 13G",
+        filed=date(2025, 11, 14),
+        filer_cik=_GEMI_FILER,
+        filer_name="Winklevoss Capital Fund, LLC",
+        pct=None,
+    )
+
+
+def _gemi_13d():
+    return _fact(
+        accession="0001193125-26-229103",
+        form="SCHEDULE 13D",
+        filed=date(2026, 5, 18),
+        filer_cik=_GEMI_FILER,
+        filer_name="Winklevoss Capital Fund, LLC",
+        pct=65.1,
+    )
+
+
+def test_13g_to_13d_switch_enriches_the_fire_real_gemi():
+    """THE SWITCH on real data: the Winklevoss 13G → 13D escalation enriches the fired CORE — the label
+    names the prior 13G's date and the 13G rides AHEAD of the 13D in the provenance (#6). Also the
+    AFFILIATE EDGE (a Winklevoss vehicle → the Winklevoss exchange): it reads as a switch though it is a
+    governance reshuffle — a known v1 bound (a same-party 13G→13D is indistinguishable from an outside
+    activist's escalation in v1)."""
+    e = activist_stake.score(
+        [_gemi_13g(), _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+    )
+    assert e is not None and e.grade is Grade.CORE
+    assert e.asof == date(2026, 5, 18)  # the 13D anchors the fire
+    assert "65.1% of class" in e.label  # the base fire label is intact
+    assert "ESCALATED from a prior 13G passive stake filed 2025-11-14" in e.label
+    assert [p.ref for p in e.provenance] == [
+        "0001104659-25-112696",  # the prior 13G, first
+        "0001193125-26-229103",  # then the firing 13D
+    ]
+
+
+def test_one_day_reclassification_is_not_a_switch_real_qntm():
+    """THE MIN-GAP GUARD on real data: Malone's 13G → 13D ONE DAY apart is a re-classification, not an
+    escalation. The 13D still fires CORE (a real >5% stake) but is NOT enriched (gap 1d < min-gap 30),
+    and only the 13D rides the provenance."""
+    g13 = _fact(
+        accession="0002072045-25-000001",
+        form="SCHEDULE 13G",
+        filed=date(2025, 6, 11),
+        filer_cik=_QNTM_FILER,
+        filer_name="Malone Wealth Ventures LLC",
+        pct=None,
+    )
+    d13 = _fact(
+        accession="0002072045-25-000002",
+        form="SCHEDULE 13D",
+        filed=date(2025, 6, 12),
+        filer_cik=_QNTM_FILER,
+        filer_name="Malone Wealth Ventures LLC",
+        pct=14.6,
+    )
+    e = activist_stake.score([g13, d13], SID, date(2025, 7, 1), subject_cik=_QNTM_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE  # the 13D still fires normally
+    assert "ESCALATED" not in e.label
+    assert [p.ref for p in e.provenance] == ["0002072045-25-000002"]  # only the 13D episode
+
+
+def test_switch_needs_the_same_filer_a_different_filers_13g_does_not_escalate():
+    """The escalation must be the SAME party: a prior 13G by a DIFFERENT filer (Gemini's tape also
+    carries a Morgan Creek 13G near the Winklevoss 13D) never creates a switch."""
+    other_g = _fact(
+        accession="0001213900-25-090099",
+        form="SCHEDULE 13G",
+        filed=date(2025, 9, 22),
+        filer_cik="0001878908",
+        filer_name="Morgan Creek",
+        pct=None,
+    )
+    e = activist_stake.score(
+        [other_g, _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+    )
+    assert e is not None and "ESCALATED" not in e.label
+    assert [p.ref for p in e.provenance] == ["0001193125-26-229103"]
+
+
+def test_switch_min_gap_is_a_dial_not_a_magic_number():
+    """The min-gap is a ``CallConfig`` dial, never hardcoded: raise it above the real Gemini gap and the
+    SAME escalation stops counting as a switch (config-driven, the no-magic-number discipline)."""
+    wide = DEFAULT_CONFIG.model_copy(update={"activist_switch_min_gap_days": 400})
+    e = activist_stake.score(
+        [_gemi_13g(), _gemi_13d()], SID, date(2026, 6, 1), wide, subject_cik=_GEMI_SUBJECT
+    )
+    assert e is not None and e.grade is Grade.CORE and "ESCALATED" not in e.label
+
+
+def test_switch_ignores_a_mis_attributed_prior_13g():
+    """The switch reuses ``_is_misattributed`` so a mis-fanned prior 13G can't fabricate a false
+    escalation. A SAME-filer 13G/A reporting a sub-5% stake (a sell-down BELOW the >5% threshold — a
+    stake-death shape, like the real CMPS 13D/A at 4.96%) is screened, so the clean outside 13D fires
+    WITHOUT the switch enrichment even though the filer CIKs match and the gap is wide."""
+    sub5_g = _fact(
+        accession="ACC-SUB5-G",
+        form="SCHEDULE 13G/A",
+        filed=date(2025, 11, 14),
+        filer_cik=_GEMI_FILER,
+        filer_name="Winklevoss Capital Fund, LLC",
+        pct=4.0,
+    )
+    e = activist_stake.score(
+        [sub5_g, _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+    )
+    assert e is not None and e.grade is Grade.CORE and "ESCALATED" not in e.label
 
 
 # --- the two-key gate + the standing guard (the REAL pipeline over a COMPLETE fake) -----------------

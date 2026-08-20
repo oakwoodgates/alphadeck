@@ -18,14 +18,17 @@ The v1 fire policy (operator-confirmed 2026-08-18, the S3 1.01-flood lessons app
   the operator sees the full episode (#6).
 - **13G-family rows fire NOTHING** — passive crossings are mostly index-fund plumbing (measured ~2
   originals/yr/name vs 1 13D per 6 years on the richest real subject); firing them would re-land
-  the 1.01 flood. They stay on the tape (#9) for the deferred 13G→13D-switch refinement.
+  the 1.01 flood. They stay on the tape (#9) and now power the **13G→13D SWITCH** enrichment
+  (``_switch_from_13g``): a fired 13D whose filer held a PRIOR same-filer 13G (a passive holder going
+  activist) has its label + provenance enriched — never a new fire, grade, or score.
 - **Mis-attributed rows are screened from the FIRE** (data-quality, measured 2026-08-19; ``_is_misattributed``):
   a 13D-family original whose ``filer_cik`` equals the SUBJECT's own CIK (self-filed — the ingest fanned a
   filing onto the wrong subject) or whose ``pct_owned`` is PRESENT but ``< 5.0`` (statutorily impossible for
   a 13D) does NOT anchor a fire — ~9% of live originals (UEC self-filed 7.7%; GameStop's 0001193125-26-202465
-  fanned onto GME/EBAY at 0.01%). NULL-safe (#9): a missing CIK / pct is KEPT and still fires. This cleans the
-  FIRING SET so a later switch-flip is safe; the deeper INGEST root-cause (why the subject-submissions-JSON
-  enumeration fans a filing onto wrong subjects) is a separately-tracked follow-up, not fixed here.
+  fanned onto GME/EBAY at 0.01%). NULL-safe (#9): a missing CIK / pct is KEPT and still fires. The screen is
+  now belt-and-suspenders: the INGEST root-cause is fixed at source (``ingest/edgar/schedule13.py`` skips an
+  outbound schedule whose true subject ≠ the feed owner), and ``pipeline/repair_activist_misattribution.py``
+  deletes the pre-fix self-filed rows already on the tape.
 
 Emitting a member of ``conviction_kinds`` inherits the existing composition: co-location arming
 (a 13D WARMS; arming still needs a fresh breakout), the ``own_conviction_kinds`` ranking, and
@@ -59,6 +62,10 @@ DETECTOR_NAME = "activist_stake"
 # needs no ingest import (the share_creep metric-key convention); a test pins equality with the
 # ingest's ``submissions.SCHEDULE13_D_FORMS`` so the two can never drift.
 _13D_FORMS: frozenset[str] = frozenset({"SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"})
+# The 13G-family strings (both eras) — the PASSIVE side. Fires nothing on its own (Fork 3), but the
+# 13G→13D SWITCH reads them off the SAME subject tape to detect a passive holder going activist. Same
+# no-ingest-import literal convention + drift-pin test as ``_13D_FORMS``.
+_13G_FORMS: frozenset[str] = frozenset({"SC 13G", "SC 13G/A", "SCHEDULE 13G", "SCHEDULE 13G/A"})
 
 
 def _provenance_detail(fact: dict[str, Any]) -> dict[str, Any]:
@@ -107,6 +114,56 @@ def _is_misattributed(fact: dict[str, Any], subject_cik: str | None) -> bool:
     return False
 
 
+def _switch_from_13g(
+    facts: list[dict[str, Any]],
+    anchor: dict[str, Any],
+    asof: date,
+    cfg: CallConfig,
+    subject_cik: str | None,
+) -> dict[str, Any] | None:
+    """The 13G→13D SWITCH tell — a passive holder going activist (the loudest version of the signal;
+    docs/ACTIVIST_STAKE.md). Given the firing 13D ``anchor``, find the EARLIEST prior 13G-family filing
+    by the SAME filer (normalized CIK) on this subject's tape — the moment they first disclosed a
+    PASSIVE stake — provided it predates the 13D by at least ``cfg.activist_switch_min_gap_days``.
+    Returns that earliest 13G (the escalation evidence) or ``None`` (no switch).
+
+    Guards:
+    - **same filer, both resolved** — an UNRESOLVED filer on either side never asserts a match (a
+      switch is never fabricated from an absent CIK; recall-safe #9).
+    - **mis-attribution screen** — reuses ``_is_misattributed`` so a self-filed / sub-5% mis-fanned 13G
+      can never fabricate a false switch.
+    - **minimum gap** — a 13G and 13D filed ~a day apart is a RE-CLASSIFICATION / correction, not a
+      passive→active escalation (measured: QNTM, Malone Wealth 13G 2025-06-11 → 13D 2025-06-12); the
+      dial screens it out while keeping real escalations (measured: Gemini, Winklevoss ~185 days).
+
+    KNOWN v1 BOUND — the affiliate edge: a control person / insider vehicle (e.g. Winklevoss Capital
+    Fund → the Gemini exchange) passes ``filer≠subject`` and reads as a switch though it is a
+    governance reshuffle, not an outside activist's escalation. v1 does not distinguish the two (both
+    are a same-party 13G→13D). It only ever ENRICHES an already-firing CORE — never a new fire."""
+    anchor_filer = _norm_cik(anchor.get("filer_cik"))
+    if not anchor_filer:
+        return (
+            None  # an unresolved 13D filer can't be matched to a prior 13G (no fabricated switch)
+        )
+    priors = [
+        g
+        for g in facts
+        if g["form"] in _13G_FORMS
+        and g["valid_from"] <= asof
+        and g["valid_from"] < anchor["valid_from"]
+        and _norm_cik(g.get("filer_cik")) == anchor_filer
+        and not _is_misattributed(g, subject_cik)
+    ]
+    if not priors:
+        return None
+    # the EARLIEST prior 13G = when they first went passive (the accession tail makes a same-day tie
+    # deterministic, live/replay byte-parity).
+    earliest = min(priors, key=lambda g: (g["valid_from"], g["accession"]))
+    if (anchor["valid_from"] - earliest["valid_from"]).days < cfg.activist_switch_min_gap_days:
+        return None  # too close to the 13D — a re-classification, not an escalation
+    return earliest
+
+
 def score(
     facts: list[dict[str, Any]],
     security_id: UUID,
@@ -120,8 +177,10 @@ def score(
     DATA-QUALITY screen (``_is_misattributed``) additionally drops a self-filed (``filer_cik`` ==
     ``subject_cik``) or statutorily-impossible sub-5% original before it can anchor — ``subject_cik``
     is the SUBJECT security's own CIK, resolved by ``detect`` from the master (``None`` when it can't
-    resolve → only the pure sub-5% half applies, recall-safe). UNGATED by the master switch
-    (``detect`` holds the gate)."""
+    resolve → only the pure sub-5% half applies, recall-safe). A fired 13D is additionally ENRICHED
+    when it is a 13G→13D SWITCH — a prior same-filer 13G on the tape (``_switch_from_13g``: a passive
+    holder going activist) — label + provenance only, never the fire/grade/score. UNGATED by the
+    master switch (``detect`` holds the gate)."""
     d_family = [f for f in facts if f["form"] in _13D_FORMS and f["valid_from"] <= asof]
     live_originals = [
         f
@@ -148,6 +207,23 @@ def score(
         f"{anchor['form']} — {filer} disclosed a >5% activist stake"
         f"{pct_note} (filed {anchor['valid_from'].isoformat()})"
     )
+    provenance = [
+        source_provenance("schedule13", f["accession"], detail=_provenance_detail(f))
+        for f in episode
+    ]
+    # The 13G→13D SWITCH enrichment: a passive holder (a prior same-filer 13G) going activist is a
+    # stronger tell. ENRICH only — the label + provenance; the fire, grade (CORE), and score are
+    # untouched, so a switch can never flood or re-grade. The prior 13G rides AHEAD of the episode so
+    # the chronology reads 13G → 13D → amendments (#6).
+    switch = _switch_from_13g(facts, anchor, asof, cfg, subject_cik)
+    if switch is not None:
+        label += (
+            " — ESCALATED from a prior 13G passive stake filed "
+            f"{switch['valid_from'].isoformat()}"
+        )
+        provenance = [
+            source_provenance("schedule13", switch["accession"], detail=_provenance_detail(switch))
+        ] + provenance
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,
@@ -157,10 +233,7 @@ def score(
         score=cfg.activist_13d_score,
         label=label,
         alpha_liveness_days=cfg.activist_13d_liveness_days,
-        provenance=[
-            source_provenance("schedule13", f["accession"], detail=_provenance_detail(f))
-            for f in episode
-        ],
+        provenance=provenance,
         asof=anchor["valid_from"],
     )
 
