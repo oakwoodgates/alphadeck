@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
 from datetime import date, datetime, timezone
+
+import pytest
 
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
@@ -16,7 +19,7 @@ from pipeline.seed import (
 from replay.export import export_snapshot
 from replay.harness import replay_thesis
 from replay.pit import connect_mirror
-from replay.run import run
+from replay.run import add_switch_args, lab_config, run
 from repositories import thesis_repo
 
 _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
@@ -42,6 +45,88 @@ def _seed_all(db):
     seed_leu_catalyst(db)
     seed_nuclear_theme_conviction(db)
     db.commit()
+
+
+# --- the lab's switch posture: option A, the lab INHERITS production (operator, 2026-08-20) --------
+# Before this, main() built its cfg with an unconditional override per switch
+# (`args.x or _env_on(...)`), so a MISSING flag forced False. Once five of the six switches flipped ON
+# in DEFAULT_CONFIG (2026-08-15 -> -08-20) a bare `python -m replay.run` was silently backtesting a
+# stack with five live detectors disabled — the lab no longer measured production. These tests pin the
+# three-way precedence (force-OFF > force-ON > inherit) per switch, enumerated EXPLICITLY rather than
+# read off run._LAB_SWITCHES, so deleting or mis-wiring a table row fails here instead of passing
+# vacuously. Pure — no DB, no replay; `env={...}` is always passed so the developer's real environment
+# can never leak in.
+
+_LAB_SWITCH_FLAGS = {
+    "breakdown_dearm_enabled": ("--breakdown-dearm", "ALPHADECK_BREAKDOWN_DEARM"),
+    "insider_sell_enabled": ("--insider-sell", "ALPHADECK_INSIDER_SELL"),
+    "corporate_catalyst_enabled": ("--corporate-catalyst", "ALPHADECK_CORPORATE_CATALYST"),
+    "corporate_risk_enabled": ("--corporate-risk", "ALPHADECK_CORPORATE_RISK"),
+    "share_creep_enabled": ("--share-creep", "ALPHADECK_SHARE_CREEP"),
+    "activist_stake_enabled": ("--activist-stake", "ALPHADECK_ACTIVIST_STAKE"),
+}
+_LAB_SWITCH_FIELDS = tuple(_LAB_SWITCH_FLAGS)
+_ALL_OFF = DEFAULT_CONFIG.model_copy(update=dict.fromkeys(_LAB_SWITCH_FIELDS, False))
+
+
+def _lab_cfg(argv=(), *, base=DEFAULT_CONFIG, env=None):
+    p = argparse.ArgumentParser()
+    add_switch_args(p)
+    return lab_config(p.parse_args(list(argv)), base=base, env={} if env is None else env)
+
+
+def _off_flag(field: str) -> str:
+    return _LAB_SWITCH_FLAGS[field][0].replace("--", "--no-", 1)
+
+
+def test_lab_config_bare_run_inherits_the_production_defaults():
+    """Option A: no flags -> every switch equals the LIVE default, so the lab measures what prod runs."""
+    cfg = _lab_cfg()
+    for field in _LAB_SWITCH_FIELDS:
+        assert getattr(cfg, field) == getattr(DEFAULT_CONFIG, field), field
+    # Vacuity guard: at least one switch is ON live, so "inherit" is observably DIFFERENT from the old
+    # unconditional override (which forced every switch False on a bare run). Without this, the loop
+    # above would still pass on an all-False config and prove nothing.
+    assert any(getattr(DEFAULT_CONFIG, f) for f in _LAB_SWITCH_FIELDS)
+
+
+@pytest.mark.parametrize("field", _LAB_SWITCH_FIELDS)
+def test_lab_config_force_off_beats_the_default_and_both_force_on_legs(field):
+    """`--no-<stem>` is the off-leg of an off-vs-on measure: False even when the live default is True,
+    and it outranks BOTH force-on legs (the flag and the env var)."""
+    flag, env_var = _LAB_SWITCH_FLAGS[field]
+    assert getattr(_lab_cfg([_off_flag(field)]), field) is False
+    assert getattr(_lab_cfg([_off_flag(field), flag], env={env_var: "1"}), field) is False
+
+
+@pytest.mark.parametrize("field", _LAB_SWITCH_FIELDS)
+def test_lab_config_force_on_flag_and_env_var_beat_a_false_default(field):
+    """Against an all-off base (so the assertion cannot be satisfied by inheritance): the flag turns it
+    on, the env var turns it on, and with neither, inherit correctly leaves it OFF."""
+    flag, env_var = _LAB_SWITCH_FLAGS[field]
+    assert getattr(_lab_cfg([flag], base=_ALL_OFF), field) is True
+    assert getattr(_lab_cfg(base=_ALL_OFF, env={env_var: "1"}), field) is True
+    assert getattr(_lab_cfg(base=_ALL_OFF), field) is False  # inherit, both directions
+
+
+@pytest.mark.parametrize("field", _LAB_SWITCH_FIELDS)
+def test_lab_config_each_flag_touches_only_its_own_switch(field):
+    """Catches a mis-wired table row (a duplicated env var / config field): forcing ONE switch off
+    leaves the other five at their inherited live defaults."""
+    cfg = _lab_cfg([_off_flag(field)])
+    for other in _LAB_SWITCH_FIELDS:
+        if other != field:
+            assert getattr(cfg, other) == getattr(DEFAULT_CONFIG, other), other
+
+
+def test_lab_config_leaves_non_switch_dials_untouched():
+    """The lab cfg differs from DEFAULT_CONFIG in the switch fields ONLY — it is not a place where
+    calibration dials quietly diverge from production."""
+    cfg = _lab_cfg([_off_flag("insider_sell_enabled")])
+    changed = {
+        f for f in DEFAULT_CONFIG.model_dump() if getattr(cfg, f) != getattr(DEFAULT_CONFIG, f)
+    }
+    assert changed == {"insider_sell_enabled"}
 
 
 def test_run_is_reproducible(db, tmp_path):
