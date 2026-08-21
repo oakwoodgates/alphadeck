@@ -151,13 +151,24 @@ def score(
 
     Reads only sales (code 'S'); never fires on buys. The screens (see ``_screen``) are supplied by
     ``detect`` from the same point-in-time view the buy side uses; absent ``day_lows``/``issuer_name``
-    only disables that one screen (nothing over-excluded). Cluster mechanics mirror the buy side:
-    anchor on the most recent QUALIFYING (kept) sale — the event's ``asof``, so the card's event_date
-    and the freshness clock agree — gather kept sales within the cohesion window before it, apply the
-    floors (total $, distinct sellers, senior-required), and emit only while the anchor is inside the
-    freshness window (a stale cluster drops out of the re-derived stream; the assembler never ages
-    risks). The screened counts named in the label/provenance are framed on the SAME episode window
-    (planned/self/below-low/implausible rows falling inside [anchor - window, anchor]) — the work
+    only disables that one screen (nothing over-excluded).
+
+    **Anchor selection (the walk — the buy side's mechanics, mirrored).** An episode is an anchor date
+    plus the kept sales inside ``[anchor - insider_sell_cluster_window_days, anchor]``. Every distinct
+    KEPT-sale date is a CANDIDATE anchor, walked newest → oldest; a candidate QUALIFIES iff its anchor
+    is inside the freshness window AND the episode clears every floor (total $, distinct sellers,
+    senior-required). The MOST RECENT qualifying episode fires — there is no grade axis on a risk, so
+    unlike the buy side there is nothing to prefer over recency. Freshness here is grade-INDEPENDENT,
+    so once a candidate anchor fails it every older one is staler and the walk stops.
+
+    Anchoring unconditionally on the single most-recent kept sale (the shape before this) let one lone
+    late sale RE-ANCHOR the episode onto itself, fail ``insider_sell_min_distinct``, and silence a
+    still-live multi-seller cluster — i.e. MORE insider selling read MORE bullish, the risk-side
+    mirror of the buy side's shadowed-CORE bug.
+
+    The event's ``asof`` is the chosen anchor (so the card's event_date and the freshness clock agree),
+    and the screened counts named in the label/provenance are framed on the CHOSEN episode's window
+    (planned/self/below-low/implausible rows falling inside ``[anchor - window, anchor]``) — the work
     behind THIS cluster, not all history. UNGATED by the master switch (``detect`` holds the gate).
     """
     lows = day_lows or {}
@@ -181,30 +192,48 @@ def score(
     if not kept:
         return None
 
-    # FIRE date = the most recent kept sale (the anchor); the cluster = the kept sales within the
-    # cohesion window before it — one episode of selling (the buy side's convention, so the card's
-    # event_date reads the cluster's latest sale). Freshness floor on the anchor: past the liveness
-    # window the cluster drops out entirely (detector-enforced; the assembler never ages risks).
-    anchor = max(t["valid_from"] for t in kept)
-    if not entry_signal_is_live(anchor, cfg.insider_sell_liveness_days, asof):
+    # THE ANCHOR WALK (see the docstring): each distinct kept-sale date is a candidate FIRE date,
+    # newest -> oldest; the first one whose episode clears freshness AND every floor fires. Walking
+    # (rather than pinning the single most-recent sale) is what stops a lone late sale from
+    # re-anchoring onto itself and silencing a still-live multi-seller cluster.
+    anchor: date | None = None
+    cluster: list[dict[str, Any]] = []
+    total_usd = 0.0
+    distinct: set[str | None] = set()
+    senior = False
+    for candidate_anchor in sorted({t["valid_from"] for t in kept}, reverse=True):
+        # Freshness floor on the anchor, detector-enforced (the assembler never ages risks). It is
+        # grade-INDEPENDENT here, so once a candidate is stale every OLDER one is too — stop.
+        if not entry_signal_is_live(candidate_anchor, cfg.insider_sell_liveness_days, asof):
+            break
+        lo = candidate_anchor - timedelta(days=cfg.insider_sell_cluster_window_days)
+        c = [t for t in kept if lo <= t["valid_from"] <= candidate_anchor]
+        c_usd = float(sum(float(t.get("usd") or 0) for t in c))
+        if c_usd < cfg.insider_sell_min_usd:
+            continue
+        c_distinct = {t.get("insider_name") for t in c if t.get("insider_name")}
+        # "clustered" is the load-bearing word — one big sale is the many-reasons case
+        if len(c_distinct) < cfg.insider_sell_min_distinct:
+            continue
+        c_senior = any(
+            _is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in c
+        )
+        if cfg.insider_sell_require_senior and not c_senior:
+            continue
+        anchor, cluster, total_usd, distinct, senior = (
+            candidate_anchor,
+            c,
+            c_usd,
+            c_distinct,
+            c_senior,
+        )
+        break  # the most recent qualifying episode — no grade axis on a risk to prefer over recency
+    if anchor is None:
         return None
     floor = anchor - timedelta(days=cfg.insider_sell_cluster_window_days)
 
     def _in_window(t: dict[str, Any]) -> bool:
         return floor <= t["valid_from"] <= anchor
-
-    cluster = [t for t in kept if _in_window(t)]
-    total_usd = float(sum(float(t.get("usd") or 0) for t in cluster))
-    if total_usd < cfg.insider_sell_min_usd:
-        return None
-    distinct = {t.get("insider_name") for t in cluster if t.get("insider_name")}
-    if len(distinct) < cfg.insider_sell_min_distinct:
-        return None  # "clustered" is the load-bearing word — one big sale is the many-reasons case
-    senior = any(
-        _is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in cluster
-    )
-    if cfg.insider_sell_require_senior and not senior:
-        return None
 
     # the named screens, framed on the SAME episode window — the work shown beside the number (#6)
     planned_w = [t for t in buckets[_PLANNED] if _in_window(t)]
