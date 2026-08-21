@@ -1,0 +1,37 @@
+-- Alpha Deck — capture the Form 4 per-transaction securityTitle + the filing's issuerForeignTradingSymbol
+-- (the ADR / dual-listed insider mis-attribution fix, internal ref S2c).
+--
+-- WHY (the TSM finding): a foreign/dual-listed issuer files ONE Form 4 stream under ONE CIK covering TWO
+-- instruments — its US ADR (e.g. TSM) and its home-market ordinary shares (2330.TW, ESPP/LTI buys). Ingest
+-- resolves that one CIK to the SINGLE security_master row (the ADR) and stamps EVERY parsed transaction with
+-- that one security_id, because `parse_form4` never read the per-transaction `<securityTitle>`. So the
+-- home-market ordinary-share buys landed on the ADR's tape as if they were personal conviction in the ADR we
+-- hold — inventing a signal about a DIFFERENT instrument (a 5:1 ratio, a different currency + price; #3).
+-- Measured on the full TSM Form 4 tape: 186 ordinary-share rows ("Common Shares (2330.TW)") vs 9 genuine ADR
+-- rows ("American Depositary Shares (TSM)").
+--
+-- THE FIX rests on TWO fields the SEC already gives us, both captured here so the screen (KEEP-AND-SCREEN —
+-- signals/insider_conviction.py + signals/insider_sell.py) can positively identify the foreign line:
+--   security_title        — the PER-TRANSACTION `<securityTitle><value>` ("Common Shares (2330.TW)" vs
+--                           "American Depositary Shares (TSM)"). The discriminator is per-transaction, NOT
+--                           filing-level: one filing carries BOTH an ADR txn and ordinary txns.
+--   issuer_foreign_symbol — the FILING-level `<issuer><issuerForeignTradingSymbol>` ("2330.TW"), the issuer's
+--                           OWN structured tell that it is dual-listed. The screen fires ONLY when the issuer
+--                           declares this AND the transaction title positively NAMES it (recall-safe,
+--                           keep-when-ambiguous #9: a US issuer has no foreign symbol; a NULL title is KEPT).
+--
+-- BOTH NULLABLE, populated progressively — the aff_10b5_1 / accepted rollout shape exactly. The incremental
+-- ingest (`existing_accessions` skips stored filings) captures both on NEWLY-ingested filings only; the stored
+-- history is repaired by `pipeline.repair_adr_insider_misattribution` (re-parse the cached forms/<accession>
+-- XML, NULL-only, append-only re-version — KEEP-NOT-DELETE: the ordinary shares have no other feed, so a
+-- deleted row is the only copy lost). A row left NULL simply KEEPS firing (recall-safe #9) — honest at every
+-- rollout stage.
+--
+-- NATURAL KEY UNTOUCHED: both columns are DESCRIPTIVE, not identity (security_title varies per txn_seq, which
+-- IS already in the key; issuer_foreign_symbol is filing-level, identical across a key's versions). Like
+-- aff_10b5_1 / issuer_cik / accepted, they are not part of `fact_insider_txn_natural_key` (the 0037
+-- security-scoped key still keys exactly what it did). Additive + idempotent; append-compatible with the
+-- `no_update` row trigger (it guards UPDATEs, not schema). Both flow into replay via the export's `SELECT *`.
+
+ALTER TABLE fact_insider_txn ADD COLUMN IF NOT EXISTS security_title text;         -- per-txn <securityTitle>; NULL = pre-capture / unread
+ALTER TABLE fact_insider_txn ADD COLUMN IF NOT EXISTS issuer_foreign_symbol text;  -- filing-level <issuerForeignTradingSymbol>; NULL = not dual-listed / pre-capture

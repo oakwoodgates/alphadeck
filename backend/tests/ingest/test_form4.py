@@ -7,9 +7,19 @@ import pytest
 
 from ingest.edgar.form4 import _norm_cik, _txn_date, existing_accessions, ingest_form4, parse_form4
 
-_XML = (
-    Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_sample.xml"
-).read_text(encoding="utf-8")
+_FIX = Path(__file__).resolve().parent.parent / "fixtures" / "edgar"
+_XML = (_FIX / "form4_sample.xml").read_text(encoding="utf-8")
+# REAL dual-listed Form 4 fixtures (Part 0 of the S2c ADR mis-attribution fix — committed verbatim):
+#   form4_tsm_mixed.xml   — TSM 0001046179-26-000461: ONE filing carrying BOTH 2 ADR txns ("American
+#                           Depositary Shares (TSM)") and 1 ordinary txn ("Common Shares (2330.TW)"),
+#                           foreign symbol 2330.TW — the per-transaction discrimination, on real data.
+#   form4_tsm_ordinary.xml— TSM 0001046179-26-000445: a pure home-market ESPP filing (Common Shares
+#                           (2330.TW), code P) — the mis-attributed shape.
+#   form4_pbr_ordinary.xml— PBR 0001292814-26-002254: Petrobras titles the row with the BARE foreign
+#                           symbol "PETR4" (no parenthetical) — a different real title shape.
+_TSM_MIXED = (_FIX / "form4_tsm_mixed.xml").read_text(encoding="utf-8")
+_TSM_ORDINARY = (_FIX / "form4_tsm_ordinary.xml").read_text(encoding="utf-8")
+_PBR_ORDINARY = (_FIX / "form4_pbr_ordinary.xml").read_text(encoding="utf-8")
 
 
 def test_parse_form4_extracts_transactions():
@@ -252,3 +262,61 @@ def test_existing_accessions_is_distinct_set(db, security_id):
         "0000000000-26-000001",
         "0000000000-26-000002",
     }
+
+
+# --- security_title + issuer_foreign_symbol capture (migration 0041) — the ADR mis-attribution screen inputs ---
+
+
+def test_parse_captures_per_txn_security_title_and_filing_foreign_symbol():
+    """REAL TSM filing: the per-transaction ``<securityTitle>`` separates the ADR rows from the ordinary
+    row (both in ONE filing), and the filing-level ``<issuerForeignTradingSymbol>`` (2330.TW) rides on
+    every row. ``parse_form4`` reads only nonDerivativeTRANSACTIONs (holdings are ignored)."""
+    txns = parse_form4(_TSM_MIXED)
+    assert [t["security_title"] for t in txns] == [
+        "American Depositary Shares (TSM)",
+        "American Depositary Shares (TSM)",
+        "Common Shares (2330.TW)",
+    ]
+    assert all(t["issuer_foreign_symbol"] == "2330.TW" for t in txns)  # filing-level, on every row
+
+
+def test_parse_us_filing_has_title_but_no_foreign_symbol():
+    """A US issuer declares no foreign symbol — the title is captured, the foreign symbol is None (so the
+    screen never fires on a US name; keep-when-ambiguous #9)."""
+    for t in parse_form4(_XML):
+        assert t["security_title"] == "Common Stock"
+        assert t["issuer_foreign_symbol"] is None
+
+
+def test_parse_pbr_bare_foreign_symbol_title():
+    """Petrobras titles the row with the BARE foreign symbol (no parenthetical) — a different real shape
+    the containment predicate still catches (the title IS the foreign symbol)."""
+    txns = parse_form4(_PBR_ORDINARY)
+    assert {t["security_title"] for t in txns} == {"PETR4"}
+    assert all(t["issuer_foreign_symbol"] == "PETR4" for t in txns)
+
+
+def test_absent_security_title_is_none_never_empty_string():
+    """A transaction with no ``<securityTitle>`` parses to None (kept — a NULL title is never screened)."""
+    stripped = _XML.replace("<securityTitle><value>Common Stock</value></securityTitle>", "")
+    assert all(t["security_title"] is None for t in parse_form4(stripped))
+
+
+def test_ingest_stores_security_title_and_foreign_symbol(db, security_id):
+    """Both columns reach ``fact_insider_txn`` — per-txn title distinct per row, foreign symbol on every
+    row of the filing."""
+    ingest_form4(db, security_id, _TSM_MIXED, "acc-tsm")
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT security_title, issuer_foreign_symbol FROM fact_insider_txn "
+            "WHERE accession=%s ORDER BY txn_seq",
+            ("acc-tsm",),
+        )
+        rows = cur.fetchall()
+    assert [r["security_title"] for r in rows] == [
+        "American Depositary Shares (TSM)",
+        "American Depositary Shares (TSM)",
+        "Common Shares (2330.TW)",
+    ]
+    assert {r["issuer_foreign_symbol"] for r in rows} == {"2330.TW"}
