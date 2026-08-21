@@ -21,14 +21,21 @@ class CorporateEventItemPolicy(DomainModel):
     role: Role
     grade: Grade | None = None  # trigger side only (a risk is ungraded — SignalEvent's contract)
     catalyst_type: CatalystType | None = None  # trigger side only
-    score: float
-    liveness_days: int  # the item's edge-persistence window, anchored on the filing date
+    # BOUNDS mirror SignalEvent's own field contract, at CONFIG time (the whole point of this class's
+    # fail-loud promise): score is the wire field's [0, 1] and liveness is a real window (>= 1 day).
+    # Without them an out-of-range edit sailed past import and only blew up as a Pydantic
+    # ValidationError inside the DETECTOR's SignalEvent construction — i.e. at read/cron time, inside
+    # call_for_thesis, crashing that thesis's call instead of the edit.
+    score: float = Field(ge=0.0, le=1.0)
+    # the item's edge-persistence window, anchored on the filing date (a 0-day window is never a policy)
+    liveness_days: int = Field(ge=1)
 
     @model_validator(mode="after")
     def _policy_contract(self) -> "CorporateEventItemPolicy":
         # Mirror the SignalEvent taxonomy contract at CONFIG time, so a bad policy edit fails loud
         # at import rather than at the first fire: a trigger item must carry the grade + type its
-        # fired event needs; a risk item must not carry a grade.
+        # fired event needs; a risk item must not carry a grade. (The numeric halves of that same
+        # contract are the Field bounds above.)
         if self.role is Role.ENTRY_TRIGGER and (self.grade is None or self.catalyst_type is None):
             raise ValueError("an entry_trigger item policy must carry grade and catalyst_type")
         if self.role is Role.RISK_SIGNAL and self.grade is not None:

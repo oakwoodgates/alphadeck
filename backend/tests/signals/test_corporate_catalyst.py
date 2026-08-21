@@ -7,6 +7,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from domain.config import DEFAULT_CONFIG, CorporateEventItemPolicy
 from domain.enums import CatalystType, Grade, Kind, Role
@@ -164,3 +165,19 @@ def test_item_policy_contract_fails_loud_on_a_bad_config_edit():
         CorporateEventItemPolicy(
             role=Role.RISK_SIGNAL, grade=Grade.CORE, score=0.5, liveness_days=30
         )
+
+
+def test_item_policy_numeric_bounds_fail_loud_at_construction():
+    """The NUMERIC half of the same fail-loud promise. Before the bounds, ``score=1.5`` /
+    ``liveness_days=0`` were ACCEPTED at config time and only blew up later — as a SignalEvent
+    ValidationError raised inside the detector, i.e. at read/cron time inside ``call_for_thesis``,
+    crashing that thesis's call instead of the bad edit. The bounds mirror SignalEvent's own
+    ``score`` field ([0, 1]); a 0-day liveness window is never a policy."""
+    with pytest.raises(ValidationError):
+        CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=1.5, liveness_days=180)
+    with pytest.raises(ValidationError):
+        CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=-0.1, liveness_days=180)
+    with pytest.raises(ValidationError):
+        CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=0.5, liveness_days=0)
+    # ...and the in-range edges still construct (the bounds are inclusive, nothing over-rejected)
+    assert CorporateEventItemPolicy(role=Role.RISK_SIGNAL, score=1.0, liveness_days=1).score == 1.0
