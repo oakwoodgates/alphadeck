@@ -27,13 +27,14 @@ liveness filter), and a sell cluster is the first event-shaped risk needing an e
 cluster whose anchor is older than ``insider_sell_liveness_days`` drops out of the re-derived stream
 (``entry_signal_is_live``, the shared inclusive helper), so replay stays honest.
 
-MASTER SWITCH (``insider_sell_enabled``, default OFF — operator decision 2): registered but
-``detect`` no-ops until enabled, so with the live DEFAULT_CONFIG no sell event enters the stream /
-counter-case / setup strength and every existing golden is byte-for-byte unchanged (the seed Form 4s
-carry no code-S rows — doubly guaranteed). The pure ``score`` is UNGATED (the math stays testable);
-``replay.run``'s ``--insider-sell`` / ``ALPHADECK_INSIDER_SELL`` force it on for the sig-lab pass
-(the breakdown precedent), which finalizes the ``[PROPOSED]`` dials before the operator flips the
-default.
+MASTER SWITCH (``insider_sell_enabled``) — **DEFAULT ON since the operator flip of 2026-08-19**, on
+the sig-lab pass (shipped OFF as operator decision 2). Measured safe on real prod data before the
+flip: 58 fires across 5 theses, ZERO arm-withholdings, ZERO de-arms — and "cannot withhold" is
+guaranteed BY CONSTRUCTION anyway (the score ceiling above sits strictly below
+``risk_block_severity``). The existing seeded goldens are additionally safe structurally: the
+committed seed Form 4s carry no code-S rows at all. ``detect`` remains GATED — set the dial False
+and it no-ops (registered either way); the pure ``score`` is UNGATED (the math stays testable), and
+``replay.run``'s ``--insider-sell`` / ``ALPHADECK_INSIDER_SELL`` set it explicitly for the backtest.
 
 The ``_is_senior`` / ``_norm_entity`` / ``_is_issuer_self`` helpers DUPLICATE the buy side
 (``signals/insider_conviction.py``) with this pointer rather than extracting a shared module: this
@@ -269,11 +270,10 @@ def detect(
     point-in-time view; from the SAME as-of view (no lookahead) it builds the below-low price screen
     and the issuer-self identity screen, exactly like the buy side's ``detect``.
 
-    MASTER SWITCH (default OFF — operator decision 2): no-ops when ``cfg.insider_sell_enabled`` is
-    off, so with the live DEFAULT_CONFIG NO sell event enters the stream / counter-case / setup
-    strength and every existing golden is byte-for-byte unchanged. Stays REGISTERED (the
-    registry-list test expects it) — it just emits nothing until the sig-lab pass measures the
-    ``[PROPOSED]`` dials and the operator flips the default. The pure ``score`` is UNGATED."""
+    MASTER SWITCH — **DEFAULT ON since the operator flip of 2026-08-19** (shipped OFF as operator
+    decision 2): no-ops when ``cfg.insider_sell_enabled`` is off, so an explicit False still keeps
+    every sell event out of the stream / counter-case / setup strength. Stays REGISTERED either way
+    (the registry-list test expects it). The pure ``score`` is UNGATED."""
     if not cfg.insider_sell_enabled:
         return None
     day_lows = {

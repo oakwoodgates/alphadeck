@@ -34,12 +34,14 @@ Emitting a member of ``conviction_kinds`` inherits the existing composition: co-
 (a 13D WARMS; arming still needs a fresh breakout), the ``own_conviction_kinds`` ranking, and
 ``call_grade=max`` beside the other convictions — zero assembler edits (the through-line).
 
-MASTER SWITCH (``activist_stake_enabled``, default OFF — the S1/S3/S4 precedent): registered but
-``detect`` no-ops until enabled, so with the live DEFAULT_CONFIG no activist-stake event enters the
-stream and every existing golden is byte-for-byte unchanged. The pure ``score`` is UNGATED (the
-math stays testable); ``replay.run``'s ``--activist-stake`` / ``ALPHADECK_ACTIVIST_STAKE`` force it
-on for the sig-lab pass, which finalizes the ``[PROPOSED]`` dials before the operator flips the
-default. See docs/ACTIVIST_STAKE.md.
+MASTER SWITCH (``activist_stake_enabled``) — **DEFAULT ON since the operator flip of 2026-08-20**,
+on the clean re-measure (shipped OFF behind the S1/S3/S4 precedent). Measured on real prod data
+before the flip: 29 clean warm fires -> 10 arms, <=4 per thesis (no flood), every surviving fire a
+real 13D — the ``_is_misattributed`` self-filed screen is what made the flip safe. Unlike the risk
+detectors this is a CONVICTION: it WARMS, and the two-key gate means a fire can never arm a name
+alone. ``detect`` remains GATED: set the dial False and it no-ops (registered either way). The pure
+``score`` is UNGATED (the math stays testable); ``replay.run``'s ``--activist-stake`` /
+``ALPHADECK_ACTIVIST_STAKE`` set it explicitly for the backtest. See docs/ACTIVIST_STAKE.md.
 """
 
 from __future__ import annotations
@@ -247,8 +249,9 @@ def detect(
     """Key 1 — SC 13D activist-stake conviction (warms). Reads ``fact_activist_stake`` via the
     point-in-time view; arming still needs a co-located confirmation (the breakout). Resolves the
     SUBJECT security's own CIK from the master (``security_name``'s identity-read sibling) to power the
-    self-filed data-quality screen (``_is_misattributed``). MASTER SWITCH (default OFF): no-ops until
-    ``cfg.activist_stake_enabled`` — nothing reaches live cards unmeasured."""
+    self-filed data-quality screen (``_is_misattributed``). MASTER SWITCH — **DEFAULT ON since
+    2026-08-20**: gated on ``cfg.activist_stake_enabled``, so setting it False still no-ops the
+    detector."""
     if not cfg.activist_stake_enabled:
         return None
     return score(

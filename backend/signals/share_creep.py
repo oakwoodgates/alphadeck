@@ -44,11 +44,12 @@ out of the re-derived stream and replay stays honest. Fire-date-anchored at the 
 ``filed`` (the honest knowability, #1); provenance carries every window point's accession + count and
 the computation summary (#6).
 
-MASTER SWITCH (``share_creep_enabled``, default OFF — the insider_sell / corporate-pair precedent):
-registered but ``detect`` no-ops until enabled, so with the live DEFAULT_CONFIG no creep event enters
-the stream / counter-case / setup strength and every existing golden is byte-for-byte unchanged. The
-pure ``score`` is UNGATED; ``replay.run``'s ``--share-creep`` / ``ALPHADECK_SHARE_CREEP`` force it on
-for the sig-lab pass, which finalizes the ``[PROPOSED]`` dials before the operator flips the default.
+MASTER SWITCH (``share_creep_enabled``) — **DEFAULT ON since the operator flip of 2026-08-19**, on the
+sig-lab pass (shipped OFF behind the insider_sell / corporate-pair precedent). Measured safe on real
+prod data before the flip: 61 fires across 5 theses with ZERO arm-withholdings — and sub-veto BY
+CONSTRUCTION (``share_creep_score`` 0.50 sits strictly below ``risk_block_severity`` 0.70). ``detect``
+remains GATED: set the dial False and it no-ops (registered either way). The pure ``score`` is UNGATED;
+``replay.run``'s ``--share-creep`` / ``ALPHADECK_SHARE_CREEP`` set it explicitly for the backtest.
 """
 
 from __future__ import annotations
@@ -235,8 +236,8 @@ def detect(
 ) -> SignalEvent | None:
     """Risk signal — quarterly share-count creep (ATM detection). Reads ``fact_fundamentals`` via the
     point-in-time view (the SAME accessor the revenue detector uses — zero protocol changes). MASTER
-    SWITCH (default OFF): no-ops until ``cfg.share_creep_enabled`` — nothing reaches live cards /
-    counter-case / setup strength unmeasured."""
+    SWITCH — **DEFAULT ON since 2026-08-19**: gated on ``cfg.share_creep_enabled``, so setting it
+    False still no-ops the detector."""
     if not cfg.share_creep_enabled:
         return None
     return score(pit.fundamentals_facts(security_id), security_id, asof, cfg)

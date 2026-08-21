@@ -14,16 +14,17 @@ from signals.registry import registered_detectors
 # existing card. breakout_52w emits kind=TECHNICAL_BREAKOUT (a variant), so a name can fire it ALONGSIDE
 # volume_breakout; the assembler takes the STRONGEST co-firing confirmation grade (call_grade=max).
 # breakdown registers TWO RISK detectors (core + flip) — the grade-aware structural de-arm; both emit
-# kind=BREAKDOWN carrying which grade they de-arm on SignalEvent.dearm_grade. insider_sell is a RISK
-# detector (kind=INSIDER_SELL, capped sub-veto, master switch OFF). corporate_catalyst (ENTRY,
-# kind=CATALYST off the 8-K item tape) + corporate_risk (RISK, kind=CORPORATE_RISK) are the Band 03 S3
-# pair — EACH behind its own master switch, default OFF, so with the live DEFAULT_CONFIG they emit
-# nothing and registering them changes no card. share_creep (Band 03 S4) is a RISK detector off the
-# quarterly XBRL shares series (kind=DILUTION_RISK — REUSED: realized issuance beside dilution_clock's
-# potential convert overhang), behind its own master switch, default OFF. activist_stake (Band 03 S5)
-# is an ENTRY trigger (kind=ACTIVIST_STAKE — a new conviction kind: SC 13D originals fire CORE off
-# the fact_activist_stake ownership tape; 13G/amendments never fire), appended LAST behind its own
-# master switch, default OFF.
+# kind=BREAKDOWN carrying which grade they de-arm on SignalEvent.dearm_grade (breakdown_dearm_enabled:
+# default ON since 2026-08-15). insider_sell is a RISK detector (kind=INSIDER_SELL, capped sub-veto;
+# master switch default ON since 2026-08-19). corporate_catalyst (ENTRY, kind=CATALYST off the 8-K item
+# tape) + corporate_risk (RISK, kind=CORPORATE_RISK) are the Band 03 S3 pair — EACH behind its OWN master
+# switch, and the two now differ: corporate_risk is ON (2026-08-17) while corporate_catalyst stays OFF
+# (parked — 5.02-only since the 1.01 demotion, so it emits nothing and registering it changes no card).
+# share_creep (Band 03 S4) is a RISK detector off the quarterly XBRL shares series (kind=DILUTION_RISK —
+# REUSED: realized issuance beside dilution_clock's potential convert overhang), switch default ON since
+# 2026-08-19. activist_stake (Band 03 S5) is an ENTRY trigger (kind=ACTIVIST_STAKE — a new conviction
+# kind: SC 13D originals fire CORE off the fact_activist_stake ownership tape; 13G/amendments never
+# fire), appended LAST, switch default ON since 2026-08-20.
 # isort: off
 from signals import insider_conviction as insider_conviction
 from signals import catalyst_conviction as catalyst_conviction
