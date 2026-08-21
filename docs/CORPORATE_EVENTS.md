@@ -128,6 +128,12 @@ ungated. `replay.run --corporate-catalyst` / `--corporate-risk` (`ALPHADECK_CORP
 frequency, verdict-diff off-vs-on, EDGAR ground-truth spot-checks — which finalizes its `[PROPOSED]`
 dials before the operator flips that default. Nothing re-verdicts prod unmeasured.
 
+Since **option A (operator, 2026-08-20)** the lab **inherits** the live defaults rather than forcing
+every switch off: a bare `replay.run` now backtests production, so `--corporate-risk` is redundant
+(it is already ON) while `--corporate-catalyst` still forces the parked trigger side on. The
+off-vs-on legs are the new `--no-corporate-risk` / `--no-corporate-catalyst` (CLI-only — there is
+deliberately no `ALPHADECK_NO_*`, so disabling a live detector must be typed into that one run).
+
 **Live state (2026-08-18 → 2026-08-20): `corporate_risk` is ON** (`corporate_risk_enabled=True`,
 #280) — pre-verified safe (0 withheld / 0 verdict changes on real prod data), surfacing moderate 8-K
 counter-case (e.g. 29 fires on the psychedelic thesis's card). The **2026-08-20 `1.01` decision** then

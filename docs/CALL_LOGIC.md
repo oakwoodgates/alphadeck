@@ -99,8 +99,12 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > `insider_sell` (`role=risk_signal, kind=insider_sell`) fires on a **clustered discretionary open-market
 > sell episode**: ≥ `insider_sell_min_distinct` insiders (senior officer/director required by default)
 > selling ≥ `insider_sell_min_usd` of code-`S` stock within one cohesion window, anchored on the most
-> recent qualifying sale and fresh only inside `insider_sell_liveness_days` (risk freshness is
-> detector-enforced — the assembler never ages risks). Screens, each named on the label/provenance:
+> recent qualifying **episode** and fresh only inside `insider_sell_liveness_days` (risk freshness is
+> detector-enforced — the assembler never ages risks). *Anchor selection:* every distinct kept-sale date
+> is a candidate anchor, walked newest → oldest, and the first episode clearing freshness **and** every
+> floor fires (there is no grade axis on a risk, so recency is the only preference). This is what stops
+> one lone later sale from re-anchoring the episode onto itself, failing `insider_sell_min_distinct`, and
+> silencing a still-live cluster — i.e. *more* insider selling reading *more* bullish. Screens, each named on the label/provenance:
 > 10b5-1 **planned** sales (`aff_10b5_1 = True`) are screened out (near-noise; `NULL` = unknown is KEPT —
 > absence never asserts either way); issuer **self-filings** and **implausible** rows are excluded;
 > **below-day-low** sales are set aside as a different risk family (a discounted secondary, not open-market
@@ -307,13 +311,22 @@ that inclusion is not an instruction to close the trade at the event or window e
 event.asof` (its fire date), rendered as a muted right-aligned date on the row and used to order the list
 **newest-first** (display only — the assembled `triggers_fired` order is unchanged, so the Scoreboard's
 arm-time snapshot stays stable). For a technical breakout that's the breakout bar date; for an **insider
-cluster** it is the **most-recent** open-market buy in the cluster (`max(valid_from)`, the anchor in §3/the
-detector), **not** the earliest or the largest — so a cluster spanning e.g. Jan 30 → Feb 25 reads **Feb 25**.
-That is the freshness anchor (when the conviction last strengthened) and is the same date the
-liveness/`exit_by` clocks key on, so the row date and the clocks never disagree. **This anchor is a
-deliberate choice**: to instead show the *earliest* buy (when the cluster began) or the *largest* buy's date,
-change the single `anchor =` line in `backend/signals/insider_conviction.py` — `event_date`, `exit_by`, and
-the liveness window all follow it.
+cluster** it is the **most-recent buy in the CHOSEN cluster** (the anchor in §3/the detector), **not** the
+earliest or the largest — so a cluster spanning e.g. Jan 30 → Feb 25 reads **Feb 25**. That is the freshness
+anchor (when the conviction last strengthened) and is the same date the liveness/`exit_by` clocks key on, so
+the row date and the clocks never disagree.
+
+**Which cluster is chosen (the anchor walk).** The detector does **not** pin the anchor to the single
+most-recent kept buy. Every distinct kept-buy date is a *candidate* anchor; each gathers the buys inside
+`[anchor − insider_cluster_window_days, anchor]` (bounded on both sides, so a later buy never leaks into an
+older cluster's total) and qualifies only if that cluster clears `insider_min_usd` **and** is still live for
+**its own grade**. Among the qualifiers the strongest fires: **prefer `core`, then the most recent anchor** —
+the same selection key `catalyst_conviction` uses. Pinning the newest buy unconditionally (the shape before
+this) let one small, late, non-senior buy *shadow* an older still-live CORE: the new anchor's window excluded
+the big buy, the grade fell to `flip`, and the flip's short liveness then expired the conviction outright —
+so *more* insider buying read *less* bullish. To display the *earliest* buy (when the cluster began) or the
+*largest* buy's date instead, change the chosen candidate's `asof` in
+`backend/signals/insider_conviction.py` — `event_date`, `exit_by`, and the liveness window all follow it.
 
 ## 7. Setup strength  `[built]` (wire field: `confidence`; values experimental)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
@@ -98,6 +98,57 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
     return bool(filer) and filer == issuer
 
 
+class _Candidate(NamedTuple):
+    """One CANDIDATE anchor's fully-evaluated cluster (see ``score``'s anchor walk).
+
+    Only QUALIFYING candidates are built (total >= ``insider_min_usd`` and live for their own
+    grade), so the selection below is a pure ranking — ``is_core`` first, then ``anchor`` — never a
+    second round of floors.
+    """
+
+    is_core: bool
+    anchor: date
+    buys: list[dict[str, Any]]
+    total_usd: float
+    n_distinct: int
+    senior: bool
+    liveness: int
+
+
+def _cluster_at(
+    p_buys: list[dict[str, Any]], anchor: date, asof: date, w: float, cfg: CallConfig
+) -> _Candidate | None:
+    """Evaluate the cohesion cluster anchored on ``anchor`` — or None if it does not qualify.
+
+    The window is bounded on BOTH sides, ``[anchor - insider_cluster_window_days, anchor]``: the
+    upper bound is what keeps a LATER buy out of an older anchor's total (an unbounded gather would
+    let the walk double-count the very buy that shadowed this anchor). Floors + grade + graded
+    liveness are exactly the single-anchor rules, unchanged — only WHICH anchors get asked is new.
+    """
+    floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
+    buys = [t for t in p_buys if floor <= t["valid_from"] <= anchor]
+    total_usd = float(
+        sum(float(t.get("usd") or 0) * (w if t.get("aff_10b5_1") is True else 1.0) for t in buys)
+    )
+    if total_usd < cfg.insider_min_usd:
+        return None
+    distinct = {t.get("insider_name") for t in buys if t.get("insider_name")}
+    senior = any(_is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in buys)
+    # core via a multi-insider cluster, OR a single strong senior buy above the high floor (calibration)
+    is_core = senior and (
+        (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
+        or total_usd >= cfg.insider_strong_single_usd
+    )
+    liveness = (
+        cfg.insider_core_alpha_liveness_days if is_core else cfg.insider_flip_alpha_liveness_days
+    )
+    # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
+    # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
+    if not entry_signal_is_live(anchor, liveness, asof):
+        return None
+    return _Candidate(is_core, anchor, buys, total_usd, len(distinct), senior, liveness)
+
+
 def score(
     txns: list[dict[str, Any]],
     security_id: UUID,
@@ -119,11 +170,25 @@ def score(
       own stock — a buyback/treasury/ADR mechanic, priced AT market so the price screen keeps it), see
       ``_is_issuer_self``.
 
-    Absent/``None`` ``day_lows``/``issuer_name`` only disables that one screen (nothing over-excluded). The
-    cluster is anchored on the most-recent buy (its FIRE date) and gathers the buys within the cohesion
-    window before it — one episode of buying. It stays in the re-derived stream until its GRADED alpha
-    horizon decays (a flip in weeks, a CORE cluster over months), so the lookback never drops a still-live
-    conviction. Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
+    Absent/``None`` ``day_lows``/``issuer_name`` only disables that one screen (nothing over-excluded).
+
+    **Anchor selection (the walk).** A cluster is one EPISODE of buying: an anchor date plus the kept
+    buys inside ``[anchor - insider_cluster_window_days, anchor]``. Every distinct kept-buy date is a
+    CANDIDATE anchor; each is evaluated independently (total, distinct, seniority, grade, and the
+    GRADED liveness — a flip decays in weeks, a CORE cluster over months) and QUALIFIES iff its total
+    clears ``insider_min_usd`` and it is still live for its own grade. Among the qualifying candidates
+    the strongest fires: **prefer CORE, then the most recent anchor** — ``catalyst_conviction``'s
+    selection precedent. None qualify → None.
+
+    Anchoring UNCONDITIONALLY on the single most-recent buy (the shape before this) let one small,
+    late, non-senior buy SHADOW an older still-live CORE: the new anchor's 30-day window excluded the
+    big buy, the grade fell to flip, and the flip's 18-day liveness then expired the whole conviction —
+    so *more* insider buying read *less* bullish, contradicting this docstring's own "the lookback
+    never drops a still-live conviction". The walk is what makes that sentence true.
+
+    Fire-date semantics are unchanged: the event's ``asof`` is the CHOSEN cluster's anchor and the
+    provenance is that cluster's accessions (a cluster spanning Jan 30 → Feb 25 reads Feb 25).
+    Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
     """
     lows = day_lows or {}
     # DORMANT 10b5-1 planned-buy weight (Band 03 S2c, `insider_10b5_1_buy_weight`): scales a KEPT
@@ -145,51 +210,45 @@ def score(
     ]
     if not p_buys:
         return None
-    # FIRE date = the most-recent open-market buy; the cluster = the buys within the cohesion window
-    # before it (so unrelated buys months apart aren't fused into one cluster). Stamping the event at
-    # the anchor (not the query asof) anchors exit_by/liveness to when conviction actually formed. This
-    # anchor is ALSO the date shown on the call-card trigger row (event_date) — a cluster spanning
-    # Jan 30 -> Feb 25 reads Feb 25. To display the earliest (cluster start) or the largest buy's date
-    # instead, change this one line; exit_by/liveness follow it. See docs/CALL_LOGIC.md §6.
-    anchor = max(t["valid_from"] for t in p_buys)
-    floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
-    buys = [t for t in p_buys if t["valid_from"] >= floor]
-    total_usd = float(
-        sum(float(t.get("usd") or 0) * (w if t.get("aff_10b5_1") is True else 1.0) for t in buys)
+    # THE ANCHOR WALK (see the docstring): every distinct kept-buy date is a candidate FIRE date, newest
+    # -> oldest, each evaluated on its own window so unrelated buys months apart aren't fused into one
+    # cluster. Stopping short of the newest anchor is the whole point — a small late buy must not shadow
+    # an older, still-live CORE. Stamping the event at the CHOSEN anchor (not the query asof) anchors
+    # exit_by/liveness to when that conviction actually formed; that anchor is ALSO the date shown on the
+    # call-card trigger row (event_date). See docs/CALL_LOGIC.md §6.
+    # The walk stops once an anchor is older than the LONGEST configured horizon: no older candidate can
+    # be live under any grade's window, so nothing is missed (and history stays cheap to walk).
+    earliest_live_anchor = asof - timedelta(
+        days=max(cfg.insider_core_alpha_liveness_days, cfg.insider_flip_alpha_liveness_days)
     )
-    if total_usd < cfg.insider_min_usd:
+    candidates: list[_Candidate] = []
+    for candidate_anchor in sorted({t["valid_from"] for t in p_buys}, reverse=True):
+        if candidate_anchor < earliest_live_anchor:
+            break
+        found = _cluster_at(p_buys, candidate_anchor, asof, w, cfg)
+        if found is not None:
+            candidates.append(found)
+    if not candidates:
         return None
-
-    distinct = {t.get("insider_name") for t in buys if t.get("insider_name")}
-    senior = any(_is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in buys)
-    # core via a multi-insider cluster, OR a single strong senior buy above the high floor (calibration)
-    is_core = senior and (
-        (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
-        or total_usd >= cfg.insider_strong_single_usd
-    )
-    liveness = (
-        cfg.insider_core_alpha_liveness_days if is_core else cfg.insider_flip_alpha_liveness_days
-    )
-    # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
-    # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
-    if not entry_signal_is_live(anchor, liveness, asof):
-        return None
-    by_accession = {t["accession"]: t for t in buys if t.get("accession")}
+    # the strongest LIVE conviction: prefer a CORE cluster, then the most recent anchor — the same
+    # selection key catalyst_conviction uses to pick among live catalysts.
+    best = max(candidates, key=lambda c: (c.is_core, c.anchor))
+    by_accession = {t["accession"]: t for t in best.buys if t.get("accession")}
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,
         role=Role.ENTRY_TRIGGER,
         kind=Kind.INSIDER,
-        grade=Grade.CORE if is_core else Grade.FLIP,
-        score=_score(len(distinct), total_usd, senior, cfg),
+        grade=Grade.CORE if best.is_core else Grade.FLIP,
+        score=_score(best.n_distinct, best.total_usd, best.senior, cfg),
         label=(
-            f"{len(distinct)} insider{'s' if len(distinct) != 1 else ''}"
-            f"{' incl. senior officer' if senior else ''} bought "
-            f"${total_usd:,.0f} open-market (code P) across {len(buys)} txns"
+            f"{best.n_distinct} insider{'s' if best.n_distinct != 1 else ''}"
+            f"{' incl. senior officer' if best.senior else ''} bought "
+            f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns"
         ),
-        alpha_liveness_days=liveness,
+        alpha_liveness_days=best.liveness,
         provenance=[source_provenance("form4", acc) for acc in sorted(by_accession)],
-        asof=anchor,
+        asof=best.anchor,
     )
 
 

@@ -20,12 +20,12 @@ stream — replay stays honest. An 8-K/A is its own tape row; these existence/la
 can't double-count an amendment (the deferred cadence slice, which COUNTS, must dedupe — noted in
 docs/CORPORATE_EVENTS.md).
 
-MASTER SWITCH (``corporate_risk_enabled``, default OFF — the insider_sell precedent): registered
-but ``detect`` no-ops until enabled, so with the live DEFAULT_CONFIG no corporate-risk event enters
-the stream / counter-case / setup strength and every existing golden is byte-for-byte unchanged.
-The pure ``score`` is UNGATED; ``replay.run``'s ``--corporate-risk`` / ``ALPHADECK_CORPORATE_RISK``
-force it on for the sig-lab pass, which finalizes the ``[PROPOSED]`` dials before the operator
-flips the default.
+MASTER SWITCH (``corporate_risk_enabled``) — **DEFAULT ON since the operator flip of 2026-08-17**
+(shipped OFF behind the insider_sell precedent; validated on real prod data BEFORE the flip — zero
+spurious arm-withholdings, zero recorded calls changed, so every existing golden stayed
+byte-for-byte unchanged). ``detect`` is still GATED: set the dial False and it no-ops, and the
+detector stays registered either way. The pure ``score`` is UNGATED; ``replay.run``'s
+``--corporate-risk`` / ``ALPHADECK_CORPORATE_RISK`` set it explicitly for the sig-lab pass.
 """
 
 from __future__ import annotations
@@ -118,8 +118,8 @@ def detect(
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> SignalEvent | None:
     """Risk signal — 8-K item-code corporate events. Reads ``fact_corporate_event`` via the
-    point-in-time view. MASTER SWITCH (default OFF): no-ops until ``cfg.corporate_risk_enabled`` —
-    nothing reaches live cards / counter-case / setup strength unmeasured."""
+    point-in-time view. MASTER SWITCH — **DEFAULT ON since 2026-08-17**: gated on
+    ``cfg.corporate_risk_enabled``, so setting it False still no-ops the detector."""
     if not cfg.corporate_risk_enabled:
         return None
     return score(pit.corporate_event_facts(security_id), security_id, asof, cfg)

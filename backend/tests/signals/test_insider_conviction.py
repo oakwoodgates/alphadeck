@@ -402,6 +402,74 @@ def test_weight_tri_state_none_and_false_are_never_weighted():
     assert "$350,000" in ev.label  # both fully counted
 
 
+# --- the ANCHOR WALK regression: a late small buy must not SHADOW an older still-live CORE ---------
+# Measured before the fix (score() anchored unconditionally on the most-recent kept buy, with no
+# fallback to an earlier anchor): a $600k senior Director buy alone fires CORE 0.9 at asof 2026-06-01
+# (the 180d core window runs to ~Jul 9). Add ONE $15k non-senior employee buy on 2026-04-01 and the
+# $600k falls outside the new anchor's 30d window, so 2026-04-10 read "FLIP 0.5075 on $15,000" and
+# 2026-06-01 read None — the flip's 18d liveness expired and the still-live CORE was simply gone.
+# More insider buying read LESS bullish, contradicting score()'s own "the lookback never drops a
+# still-live conviction". The walk evaluates EVERY distinct buy date as a candidate anchor and picks
+# prefer-CORE-then-most-recent (catalyst_conviction's selection precedent).
+
+_CORE_BUY = _buy("David Wells", "Director", 600_000, d=date(2026, 1, 10))
+_LATE_SMALL_BUY = _buy("Temp Staffer", "Employee", 15_000, d=date(2026, 4, 1))
+
+
+def test_late_small_buy_does_not_shadow_a_still_live_core():
+    """The measured scenario. With the late $15k non-senior buy present, the January CORE still
+    fires — same grade, same anchor, same total as when it stands alone."""
+    alone = insider_conviction.score([_CORE_BUY], SID, date(2026, 6, 1), DEFAULT_CONFIG)
+    assert alone is not None and alone.grade is Grade.CORE and alone.asof == date(2026, 1, 10)
+
+    ev = insider_conviction.score(
+        [_CORE_BUY, _LATE_SMALL_BUY], SID, date(2026, 6, 1), DEFAULT_CONFIG
+    )
+    assert ev is not None  # was None before the walk — the whole conviction vanished
+    assert ev.grade is Grade.CORE
+    assert ev.asof == date(2026, 1, 10)  # the CHOSEN cluster's anchor, not the late buy's date
+    assert "$600,000" in ev.label  # the $15k is outside this cluster's window, not fused in
+    assert [p.ref for p in ev.provenance] == [_CORE_BUY["accession"]]
+    assert ev.model_dump() == alone.model_dump()  # the extra buy changes nothing about the call
+
+
+def test_core_outranks_a_fresher_flip_while_both_are_live():
+    """Same stream, read while the late flip cluster is ALSO live (asof 2026-04-10, 9d after it):
+    the selection prefers CORE over recency, so the January conviction still headlines. Before the
+    walk this read 'FLIP 0.5075 on $15,000'."""
+    ev = insider_conviction.score(
+        [_CORE_BUY, _LATE_SMALL_BUY], SID, date(2026, 4, 10), DEFAULT_CONFIG
+    )
+    assert ev is not None and ev.grade is Grade.CORE
+    assert ev.asof == date(2026, 1, 10) and "$600,000" in ev.label
+    # ...and the late cluster genuinely WOULD have qualified on its own (so this is a preference,
+    # not the candidate silently failing a floor)
+    solo = insider_conviction.score([_LATE_SMALL_BUY], SID, date(2026, 4, 10), DEFAULT_CONFIG)
+    assert solo is not None and solo.grade is Grade.FLIP and "$15,000" in solo.label
+
+
+def test_fresh_flip_still_fires_when_no_live_core_exists():
+    """The walk must not OVER-reach: a stale (365d-old) core in the history is not resurrected, and
+    the genuinely fresh flip cluster fires exactly as it did before."""
+    stale_core = _buy("Old Director", "Director", 600_000, d=date(2025, 6, 1))
+    fresh = _buy("Jane Doe", "Chief Executive Officer", 50_000, d=date(2026, 5, 25))
+    ev = insider_conviction.score([stale_core, fresh], SID, date(2026, 6, 1), DEFAULT_CONFIG)
+    assert ev is not None and ev.grade is Grade.FLIP
+    assert ev.asof == date(2026, 5, 25) and "$50,000" in ev.label
+    assert [p.ref for p in ev.provenance] == [fresh["accession"]]  # the stale core is not fused in
+
+
+def test_nothing_is_resurrected_when_every_candidate_is_stale():
+    """A core past its 180d window plus a flip past its 18d window -> None. The walk adds candidate
+    anchors, never a longer memory: each candidate still faces its OWN graded liveness."""
+    stale_core = _buy("Old Director", "Director", 600_000, d=date(2025, 11, 1))  # 215d before asof
+    stale_flip = _buy("Jane Doe", "Chief Executive Officer", 50_000, d=date(2026, 5, 1))  # 34d
+    assert (
+        insider_conviction.score([stale_core, stale_flip], SID, date(2026, 6, 4), DEFAULT_CONFIG)
+        is None
+    )
+
+
 def test_weight_dial_is_bounded_zero_to_one():
     # the dial's contract: a weight outside [0, 1] fails loud at construction, never silently clamps
     with pytest.raises(ValidationError):

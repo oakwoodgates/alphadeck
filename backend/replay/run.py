@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -19,6 +20,119 @@ from replay.metrics import ReplayMetrics, compute_metrics
 from replay.pit import connect_mirror
 from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
+
+# --- the lab's detector master switches (one row per switch: everything about it in ONE place) ------
+# (config field, CLI flag stem, force-ON env var, --flag help). The `--<stem>` / `--no-<stem>` argparse
+# pair and the precedence in `lab_config` are BOTH derived from this table, so a flag name and the
+# config field it drives can never drift apart.
+_LAB_SWITCHES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "breakdown_dearm_enabled",
+        "breakdown-dearm",
+        "ALPHADECK_BREAKDOWN_DEARM",
+        "force the §2.5/§3.3 structural DE-ARM ON (live default: ON since 2026-08-15).",
+    ),
+    (
+        "insider_sell_enabled",
+        "insider-sell",
+        "ALPHADECK_INSIDER_SELL",
+        "force the Band 03 S1 insider-sell cluster RISK detector ON "
+        "(live default: ON since 2026-08-19).",
+    ),
+    (
+        "corporate_catalyst_enabled",
+        "corporate-catalyst",
+        "ALPHADECK_CORPORATE_CATALYST",
+        "force the Band 03 S3 8-K item-code CATALYST trigger ON (live default: OFF — still PARKED, "
+        "5.02-only since the 1.01 demotion, so a bare run correctly gets it off).",
+    ),
+    (
+        "corporate_risk_enabled",
+        "corporate-risk",
+        "ALPHADECK_CORPORATE_RISK",
+        "force the Band 03 S3 8-K item-code corporate RISK detector ON (live default: ON since "
+        "2026-08-17). Two flags (not one) so the lab can measure the trigger and risk sides "
+        "independently.",
+    ),
+    (
+        "share_creep_enabled",
+        "share-creep",
+        "ALPHADECK_SHARE_CREEP",
+        "force the Band 03 S4 share-count-creep (ATM detection) RISK detector ON "
+        "(live default: ON since 2026-08-19).",
+    ),
+    (
+        "activist_stake_enabled",
+        "activist-stake",
+        "ALPHADECK_ACTIVIST_STAKE",
+        "force the Band 03 S5 SC 13D activist-stake CONVICTION trigger ON "
+        "(live default: ON since 2026-08-20).",
+    ),
+)
+
+
+def _env_on(name: str, env: Mapping[str, str]) -> bool:
+    return env.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def add_switch_args(p: argparse.ArgumentParser) -> None:
+    """Declare the `--<stem>` / `--no-<stem>` pair for every lab switch, from the table above."""
+    for _field, stem, env_var, help_on in _LAB_SWITCHES:
+        p.add_argument(
+            f"--{stem}",
+            action="store_true",
+            help=(
+                f"{help_on} Bare runs INHERIT the production default (see --no-{stem} to force it "
+                f"off for an off-leg measure). Also forced on by {env_var}=1."
+            ),
+        )
+        p.add_argument(
+            f"--no-{stem}",
+            action="store_true",
+            help=(
+                f"force this switch OFF regardless of the live default — the off-leg of an "
+                f"off-vs-on measure. Beats --{stem} and {env_var}."
+            ),
+        )
+
+
+def lab_config(
+    args: argparse.Namespace,
+    *,
+    base: CallConfig = DEFAULT_CONFIG,
+    env: Mapping[str, str] | None = None,
+) -> CallConfig:
+    """Build the lab's ``CallConfig`` from the parsed switch flags — pure, so it is testable without
+    running a replay (``main`` stays thin).
+
+    **The lab INHERITS production** (operator decision "option A", 2026-08-20). Precedence per switch,
+    force-OFF > force-ON > inherit:
+
+    1. ``--no-<stem>`` → ``False`` (the explicit off-leg of an off-vs-on measure);
+    2. ``--<stem>`` or its env var → ``True``;
+    3. otherwise the LIVE default from ``base`` (``DEFAULT_CONFIG``).
+
+    Before this, each switch was an unconditional override (``args.x or _env_on(...)``), so a missing
+    flag forced ``False``. Once five of the six switches flipped ON in ``DEFAULT_CONFIG`` (2026-08-15 →
+    -08-20) that quietly meant a bare ``python -m replay.run`` backtested a configuration that was NOT
+    production — the lab measured a stack with five live detectors disabled. Inheriting is what keeps
+    "what the lab measures" and "what prod runs" the same thing by default.
+
+    The force-OFF leg is CLI-ONLY on purpose (no ``ALPHADECK_NO_*``): an env var that silently disables
+    a live detector is exactly the footgun this change removes, so turning a detector off for a
+    measurement has to be typed on the command line, visibly, in that one run's invocation.
+    """
+    environ = os.environ if env is None else env
+    update: dict[str, bool] = {}
+    for field, stem, env_var, _help in _LAB_SWITCHES:
+        dest = stem.replace("-", "_")
+        if getattr(args, f"no_{dest}", False):
+            update[field] = False
+        else:
+            update[field] = bool(
+                getattr(args, dest, False) or _env_on(env_var, environ) or getattr(base, field)
+            )
+    return base.model_copy(update=update)
 
 
 def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUID, UUID]:
@@ -88,83 +202,15 @@ def main() -> None:
     p.add_argument(
         "--out", required=True, help="output dir for the Parquet mirror + outcomes + metrics"
     )
-    p.add_argument(
-        "--breakdown-dearm",
-        action="store_true",
-        help=(
-            "enable the §2.5/§3.3 structural DE-ARM (default OFF; lab/backtest ONLY — it re-verdicts the "
-            "flagship demo, so the live app keeps it off). Also enabled by ALPHADECK_BREAKDOWN_DEARM=1."
-        ),
-    )
-    p.add_argument(
-        "--insider-sell",
-        action="store_true",
-        help=(
-            "enable the Band 03 S1 insider-sell cluster RISK detector (default OFF — its master switch "
-            "insider_sell_enabled is off until the sig-lab distribution is measured and the operator "
-            "flips it). Also enabled by ALPHADECK_INSIDER_SELL=1."
-        ),
-    )
-    p.add_argument(
-        "--corporate-catalyst",
-        action="store_true",
-        help=(
-            "enable the Band 03 S3 8-K item-code CATALYST trigger (default OFF — its master switch "
-            "corporate_catalyst_enabled is off until the sig-lab distribution is measured and the "
-            "operator flips it). Also enabled by ALPHADECK_CORPORATE_CATALYST=1."
-        ),
-    )
-    p.add_argument(
-        "--corporate-risk",
-        action="store_true",
-        help=(
-            "enable the Band 03 S3 8-K item-code corporate RISK detector (default OFF — its master "
-            "switch corporate_risk_enabled is off until the sig-lab distribution is measured and the "
-            "operator flips it). Also enabled by ALPHADECK_CORPORATE_RISK=1. Two flags (not one) so "
-            "the lab can measure the trigger and risk sides independently."
-        ),
-    )
-    p.add_argument(
-        "--share-creep",
-        action="store_true",
-        help=(
-            "enable the Band 03 S4 share-count-creep (ATM detection) RISK detector (default OFF — its "
-            "master switch share_creep_enabled is off until the sig-lab distribution is measured and "
-            "the operator flips it). Also enabled by ALPHADECK_SHARE_CREEP=1."
-        ),
-    )
-    p.add_argument(
-        "--activist-stake",
-        action="store_true",
-        help=(
-            "enable the Band 03 S5 SC 13D activist-stake CONVICTION trigger (default OFF — its master "
-            "switch activist_stake_enabled is off until the sig-lab distribution is measured and the "
-            "operator flips it). Also enabled by ALPHADECK_ACTIVIST_STAKE=1."
-        ),
-    )
+    add_switch_args(p)
     args = p.parse_args()
     pin = datetime.fromisoformat(args.pin)
     if pin.tzinfo is None:  # the recorded_at axis is tz-aware; assume UTC for a bare timestamp
         pin = pin.replace(tzinfo=timezone.utc)
 
-    def _env_on(name: str) -> bool:
-        return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-    # The de-arm — and the master switches (insider-sell + the S3 corporate pair) — are opted-in at THIS
-    # lab entry point (never on the live DEFAULT_CONFIG — call-engine dials, the settings.py boundary):
-    # the flag OR the env var flips each on, default OFF. model_copy so the change rides one explicit cfg
-    # into the whole replay, and prod/other callers are untouched.
-    cfg = DEFAULT_CONFIG.model_copy(
-        update={
-            "breakdown_dearm_enabled": args.breakdown_dearm or _env_on("ALPHADECK_BREAKDOWN_DEARM"),
-            "insider_sell_enabled": args.insider_sell or _env_on("ALPHADECK_INSIDER_SELL"),
-            "corporate_catalyst_enabled": args.corporate_catalyst
-            or _env_on("ALPHADECK_CORPORATE_CATALYST"),
-            "corporate_risk_enabled": args.corporate_risk or _env_on("ALPHADECK_CORPORATE_RISK"),
-            "share_creep_enabled": args.share_creep or _env_on("ALPHADECK_SHARE_CREEP"),
-            "activist_stake_enabled": args.activist_stake or _env_on("ALPHADECK_ACTIVIST_STAKE"),
-        }
-    )
+    # One explicit cfg rides into the whole replay (prod/other callers untouched). A bare run now
+    # INHERITS the production defaults — see lab_config for the precedence and why.
+    cfg = lab_config(args)
     conn = connect()
     try:
         metrics = run(

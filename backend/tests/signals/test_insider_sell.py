@@ -194,6 +194,63 @@ def test_cohesion_window_scopes_the_cluster_to_one_episode():
     assert insider_sell.score(thin, SID, ASOF, DEFAULT_CONFIG) is None
 
 
+# --- the ANCHOR WALK regression: a lone late sale must not SILENCE a live episode -------------------
+# Measured before the fix (score() anchored unconditionally on the most-recent kept sale, with no
+# fallback to an earlier anchor): a 2-seller senior episode ($300k Director 2026-05-01 + $200k CFO
+# 2026-05-02) inside its 90d liveness fires 0.4875 at asof 2026-07-25. Add ONE lone $30k employee
+# sale on 2026-07-20 and the whole risk returned None — the lone sale re-anchored the episode onto
+# itself and failed insider_sell_min_distinct=2. More insider selling read MORE bullish. The walk is
+# the buy side's, mirrored: each distinct kept-sale date is a candidate anchor, newest -> oldest, and
+# the most recent QUALIFYING episode fires (no grade axis on a risk to prefer over recency).
+
+_EPISODE = [
+    _sell("Dir Seller", "Director", 300_000, d=date(2026, 5, 1)),
+    _sell("CFO Seller", "Chief Financial Officer", 200_000, d=date(2026, 5, 2)),
+]
+_LONE_LATE_SALE = _sell("Lone Staffer", "Employee", 30_000, d=date(2026, 7, 20))
+_WALK_ASOF = date(2026, 7, 25)
+
+
+def test_lone_late_sale_does_not_silence_a_live_episode():
+    """The measured scenario. The lone $30k sale cannot qualify on its own (one seller), so the walk
+    falls back to the still-live 2-seller episode — identical event to the episode standing alone.
+    """
+    alone = insider_sell.score(_EPISODE, SID, _WALK_ASOF, DEFAULT_CONFIG)
+    assert alone is not None and alone.asof == date(2026, 5, 2)
+
+    ev = insider_sell.score([*_EPISODE, _LONE_LATE_SALE], SID, _WALK_ASOF, DEFAULT_CONFIG)
+    assert ev is not None  # was None before the walk — the risk disappeared entirely
+    assert ev.asof == date(2026, 5, 2)  # the CHOSEN episode's anchor, not the lone sale's date
+    assert "$500,000" in ev.label and "2 insiders" in ev.label
+    assert [p.ref for p in ev.provenance] == ["acc-CFO Seller", "acc-Dir Seller"]
+    assert ev.model_dump() == alone.model_dump()  # the extra sale changes nothing about the risk
+
+
+def test_walk_still_enforces_anchor_freshness():
+    """The walk adds candidate anchors, never a longer memory: past the 90d liveness the episode is
+    out of the re-derived stream, and no OLDER candidate can rescue it (freshness is
+    grade-independent on this side, so the walk stops at the first stale anchor)."""
+    past = date(2026, 5, 2) + timedelta(days=DEFAULT_CONFIG.insider_sell_liveness_days + 1)
+    assert insider_sell.score(_EPISODE, SID, past, DEFAULT_CONFIG) is None
+    assert insider_sell.score([*_EPISODE, _LONE_LATE_SALE], SID, past, DEFAULT_CONFIG) is None
+
+
+def test_walk_prefers_the_most_recent_qualifying_episode():
+    """Two qualifying episodes in the window -> the MOST RECENT fires (recency is the only axis on a
+    risk); the older one is not fused in, its dollars stay out of the total."""
+    older = [
+        _sell("A Seller", "Director", 4_000_000, d=date(2026, 5, 1)),
+        _sell("B Seller", "Chief Financial Officer", 4_000_000, d=date(2026, 5, 1)),
+    ]
+    newer = [
+        _sell("C Seller", "Director", 300_000, d=date(2026, 7, 20)),
+        _sell("D Seller", "Chief Executive Officer", 200_000, d=date(2026, 7, 21)),
+    ]
+    ev = insider_sell.score([*older, *newer], SID, _WALK_ASOF, DEFAULT_CONFIG)
+    assert ev is not None
+    assert ev.asof == date(2026, 7, 21) and "$500,000" in ev.label
+
+
 # --- the screens, each direction --------------------------------------------------------------------
 
 

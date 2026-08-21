@@ -220,11 +220,11 @@ def detect_core(
     """Core structural de-arm (200d SMA break). Reads EOD bars via the point-in-time view; the assembler's
     grade-aware veto applies it only to a CORE hold (R12).
 
-    v0 MASTER SWITCH (default OFF): no-ops when ``cfg.breakdown_dearm_enabled`` is off, so with the live
-    DEFAULT_CONFIG NO breakdown event enters the stream / counter-case / de-arm path and every existing
-    golden is byte-for-byte unchanged. Stays REGISTERED (the registry-list tests expect it) — it just emits
-    nothing until the lab/backtest turns the flag on. The pure ``core_score`` is UNGATED (the math is
-    testable independent of the switch)."""
+    MASTER SWITCH (``breakdown_dearm_enabled``) — **DEFAULT ON since the operator's "go honest" flip,
+    2026-08-15** (shipped OFF; measured on the lab first — see the dial's comment in ``domain/config.py``).
+    Explicitly OFF it still no-ops (nothing enters the stream / counter-case / de-arm path), which is what
+    the goldens recorded pre-flip. Stays REGISTERED either way (the registry-list tests expect it). The
+    pure ``core_score`` is UNGATED (the math is testable independent of the switch)."""
     if not cfg.breakdown_dearm_enabled:
         return None
     bars = pit.price_history(security_id, lookback_days=cfg.breakdown_core_lookback_days)
@@ -240,8 +240,8 @@ def detect_flip(
     """Fast flip de-arm (8-day breakout-base break). Reads EOD bars via the point-in-time view; the
     assembler's grade-aware veto applies it only to a FLIP entry (R12).
 
-    v0 MASTER SWITCH (default OFF): no-ops when ``cfg.breakdown_dearm_enabled`` is off (the same gate as
-    ``detect_core`` — see it), so the live app emits no flip-breakdown and the goldens are unchanged. The
+    MASTER SWITCH (``breakdown_dearm_enabled``) — **DEFAULT ON since 2026-08-15** (the same gate as
+    ``detect_core`` — see it); explicitly OFF it no-ops and the live app emits no flip-breakdown. The
     pure ``flip_score`` is UNGATED."""
     if not cfg.breakdown_dearm_enabled:
         return None

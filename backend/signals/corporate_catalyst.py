@@ -1,10 +1,16 @@
 """8-K item-code catalyst trigger (Band 03 S3) — the deterministic corporate-event conviction.
 
 An ENTRY trigger extending the catalyst family (``kind=CATALYST``): a basket member filing an 8-K
-whose item code is on the trigger side of the policy map (v1 cut: 1.01 material definitive
-agreement -> ``contract``/CORE; 5.02 officer-director change -> ``personnel``/FLIP) fires a Key-1
-conviction — the SEC's own item taxonomy IS the classification (#3: no NLP, no LLM, no located-
-passage judgment on the fire path; the provenance links the filing for the operator to read).
+whose item code is on the trigger side of the policy map fires a Key-1 conviction — the SEC's own
+item taxonomy IS the classification (#3: no NLP, no LLM, no located-passage judgment on the fire
+path; the provenance links the filing for the operator to read). The live trigger map is now
+**5.02-ONLY** (5.02 officer/director change -> ``personnel``/FLIP): the original cut's 1.01 material
+definitive agreement -> ``contract``/CORE was DEMOTED out of the catalyst on 2026-08-20 (the "1.01
+decision", option A) — measured ~60% of Item 1.01s are FINANCING, not deals, so firing a bullish
+conviction on them flooded ~80 false-bullish arms; 1.01 stays STORED on the tape (#9) and fires
+nothing, while a 3.02 co-item now routes to the RISK side as dilution. The prefer-CORE half of the
+selection below therefore has no live item to exercise (it is pinned against the function's
+contract in the tests, with a purpose-built policy map).
 
 A SECOND catalyst detector, deliberately NOT a ``fact_catalyst`` feed: the item→(grade/type/score/
 liveness) POLICY lives in ``CallConfig.corporate_event_items`` and is applied on READ, so retuning
@@ -20,12 +26,12 @@ trigger item rides the provenance so nothing surfaced is hidden. Liveness is the
 window anchored on the filing date (an 8-K item code carries no agreement term, so no per-fact
 ``horizon_end``).
 
-MASTER SWITCH (``corporate_catalyst_enabled``, default OFF — this side touches the LIVE catalyst
-family, so it ships inert like the risk side): registered but ``detect`` no-ops until enabled, so
-with the live DEFAULT_CONFIG no corporate-catalyst event enters the stream and every existing
-golden is byte-for-byte unchanged. The pure ``score`` is UNGATED (the math stays testable);
-``replay.run``'s ``--corporate-catalyst`` / ``ALPHADECK_CORPORATE_CATALYST`` force it on for the
-sig-lab pass, which finalizes the ``[PROPOSED]`` dials before the operator flips the default.
+MASTER SWITCH (``corporate_catalyst_enabled``) — **STILL DEFAULT OFF, and the detector stays PARKED**
+(its S3 sibling ``corporate_risk`` flipped ON 2026-08-17; this side touches the LIVE catalyst family
+and was the flood source the 1.01 decision addressed). Registered but ``detect`` no-ops, so with the
+live DEFAULT_CONFIG no corporate-catalyst event enters the stream and every existing golden is
+byte-for-byte unchanged. The pure ``score`` is UNGATED (the math stays testable); ``replay.run``'s
+``--corporate-catalyst`` / ``ALPHADECK_CORPORATE_CATALYST`` force it on for the sig-lab pass.
 """
 
 from __future__ import annotations

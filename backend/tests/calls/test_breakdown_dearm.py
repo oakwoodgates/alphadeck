@@ -6,9 +6,9 @@ The crux of the highest-risk chunk — the call assembler's risk-veto becomes GR
 stays grade-blind. These are hand-built assembler goldens; the detector math is proven separately
 (``tests/signals/test_breakdown.py``) and the de-arm-in-replay in ``tests/replay/test_breakdown_dearm_replay.py``.
 
-The de-arm is behind the v0 MASTER SWITCH ``breakdown_dearm_enabled`` (default OFF, so the flagship demo is
-byte-for-byte unchanged). These tests run the ENABLED behavior (``_CFG`` = flag ON) — the goldens elsewhere
-use the default (flag OFF).
+The de-arm is behind the MASTER SWITCH ``breakdown_dearm_enabled`` — shipped OFF, **default ON since the
+operator's "go honest" flip of 2026-08-15**. These tests pass it ON EXPLICITLY (``_CFG``) rather than
+leaning on the default, so they keep proving the enabled behavior no matter which way the dial moves.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from tests.calls.factories import (
 )
 
 _SID2 = uuid.UUID(int=0x3333)
-# the de-arm capability turned ON (the flag is OFF by default — see the module docstring)
+# the de-arm capability pinned ON explicitly, independent of the live default (see the docstring)
 _CFG = DEFAULT_CONFIG.model_copy(update={"breakdown_dearm_enabled": True})
 
 
