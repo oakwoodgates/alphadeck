@@ -105,12 +105,21 @@ def parse_form4(xml: str) -> list[dict]:
     (``issuer_cik``, ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognise a
     self-filing (reporting owner IS the issuer — a buyback/treasury/ADR mechanic, never personal insider
     conviction) and screen it out of the open-market conviction total; see ``signals/insider_conviction.py``.
+
+    It also carries the per-transaction ``security_title`` (``<securityTitle>``) and the filing-level
+    ``issuer_foreign_symbol`` (``<issuerForeignTradingSymbol>``) — the two fields the ADR/dual-listed screen
+    reads to drop a home-market ordinary-share row mis-filed on a US ADR's tape (S2c; see
+    ``_is_foreign_ordinary`` in the insider detectors). Both empty/absent -> None (recall-safe #9).
     """
     root = ET.fromstring(xml)
     owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
     owner_cik = _norm_cik(root.findtext("reportingOwner/reportingOwnerId/rptOwnerCik"))
     issuer_name = root.findtext("issuer/issuerName")
     issuer_cik = _norm_cik(root.findtext("issuer/issuerCik"))
+    # filing-level foreign trading symbol (the issuer's OWN dual-listed tell — "2330.TW" for TSM), stamped
+    # onto every row for the ADR/dual-listed mis-attribution screen (see ``_is_foreign_ordinary`` in the
+    # insider detectors). Empty/absent -> None (a US issuer declares none; recall-safe #9).
+    issuer_fsym = (root.findtext("issuer/issuerForeignTradingSymbol") or "").strip() or None
     role = _role(root.find("reportingOwner/reportingOwnerRelationship"))
     aff = _aff_10b5_1(root)  # filing-level -> stamped onto every row below
 
@@ -119,6 +128,10 @@ def parse_form4(xml: str) -> list[dict]:
         shares = to_float(t.findtext("transactionAmounts/transactionShares/value"))
         price = to_float(t.findtext("transactionAmounts/transactionPricePerShare/value"))
         d = t.findtext("transactionDate/value")
+        # PER-TRANSACTION security title — "Common Shares (2330.TW)" (home-market ordinary) vs "American
+        # Depositary Shares (TSM)" (the ADR). The discriminator that separates the mis-filed foreign line
+        # from the ADR we hold; captured per-row because ONE filing carries both. Empty/absent -> None.
+        title = (t.findtext("securityTitle/value") or "").strip() or None
         txns.append(
             {
                 "insider_name": owner,
@@ -137,6 +150,9 @@ def parse_form4(xml: str) -> list[dict]:
                 "issuer_cik": issuer_cik,
                 "issuer_name": issuer_name,
                 "rpt_owner_cik": owner_cik,
+                # the S2c ADR/dual-listed screen inputs — per-txn title + filing-level foreign symbol
+                "security_title": title,
+                "issuer_foreign_symbol": issuer_fsym,
             }
         )
     return txns
@@ -188,6 +204,12 @@ def ingest_form4(
             "issuer_cik": t["issuer_cik"],
             "issuer_name": t["issuer_name"],
             "rpt_owner_cik": t["rpt_owner_cik"],
+            # the S2c ADR/dual-listed screen inputs (migration 0041) — the per-txn security title + the
+            # filing's foreign trading symbol. NULL on rows ingested before these columns existed; the
+            # screen keeps a NULL-title row (recall-safe #9). Repaired on history by
+            # pipeline.repair_adr_insider_misattribution (re-parse the cached XML, append-only re-version).
+            "security_title": t["security_title"],
+            "issuer_foreign_symbol": t["issuer_foreign_symbol"],
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at
