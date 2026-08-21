@@ -1152,17 +1152,95 @@ class InsiderBuyOut(BaseModel):
     character: Literal["open_market", "self_filing", "primary_market", "implausible"]
 
 
+class InsiderSellOut(BaseModel):
+    """One code-S insider sale inside an episode's window (Slice B — the sell mirror of
+    ``InsiderBuyOut``): an overlay chip / event-ledger row.
+
+    Same shape and the same two honest clocks as the buy (``d`` = transaction date; ``disclosed`` =
+    ``accepted::date``, ``None`` when unresolved → the FE falls back to the "ingested" line, #9;
+    ``ingested`` = ``recorded_at::date``), both time axes asof-capped (no-lookahead #1, the
+    ``recorded_at`` gate like every fact table).
+
+    ``character`` is the sale's server-side classification via the CALL side's sell screen
+    (``signals.insider_sell._screen`` — deterministic field predicates, #3), wire-mapped
+    (``self`` → ``self_filing``, ``foreign`` → ``foreign_ordinary``): ``kept`` = what the risk
+    detector's cluster counts; ``planned`` (an explicit 10b5-1 True — near-noise), ``self_filing``
+    (the issuer transacting its own stock), ``below_low`` (a discounted secondary — a different risk
+    family), ``implausible`` (bad source data), and ``foreign_ordinary`` (a home-market ordinary line
+    mis-filed on the ADR's tape) are SCREENED rows — surfaced greyed + labeled instead of hidden
+    (WB #2), so the ledger shows why a sale did or didn't count (#6).
+
+    DIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned — a deployment
+    running non-default insider dials could show characters that drift from the call's actual cluster
+    screens. The display rail's accepted posture; labels only, never the detector's math.
+    """
+
+    d: date
+    insider_name: str | None = None
+    insider_role: str | None = None
+    shares: float | None = None
+    usd: float | None = None
+    aff_10b5_1: bool | None = None
+    disclosed: date | None = None  # SEC acceptance date; None -> FE falls back to "ingested" (#9)
+    ingested: date  # recorded_at::date — our ingest time
+    character: Literal[
+        "kept", "planned", "self_filing", "below_low", "implausible", "foreign_ordinary"
+    ]
+
+
+class CorporateEventOut(BaseModel):
+    """One stored 8-K filing inside an episode's window (Slice B) — an overlay chip / ledger row.
+
+    ``d`` = ``valid_from`` = ``filed`` (an 8-K is knowable exactly when EDGAR disseminates it, so the
+    one event clock plus ``ingested`` suffices — no separate ``disclosed``). ``items`` is the SEC's
+    own item-code list; ``None`` = not-yet-resolved, rendered honestly as "items unresolved", never
+    dropped (#9). ``url`` is the EDGAR filing-index URL (#6). EVERY stored 8-K in the window rides —
+    there is NO server-side item cut (loudness is a display concern; a cut would be a silent filter).
+    Both time axes are asof-capped (no-lookahead #1)."""
+
+    d: date
+    form: str
+    items: list[str] | None = None  # None = not-yet-resolved (honest), never invented
+    url: str
+    ingested: date
+
+
+class ActivistStakeOut(BaseModel):
+    """One stored 13D/G-family filing about the episode's security (Slice B) — an overlay chip /
+    ledger row.
+
+    ``d`` = ``valid_from`` = ``filed`` (knowability — never the in-document event date). ``form`` is
+    verbatim, BOTH naming eras (``SC 13D`` / ``SCHEDULE 13D`` / amendments / the 13G family).
+    Unresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``
+    = identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too —
+    the fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display
+    weight (13G-family greyed-passive), never as an omission. ``url`` is the EDGAR filing-index URL
+    (#6). Both time axes are asof-capped (no-lookahead #1)."""
+
+    d: date
+    form: str
+    filer_name: str | None = None  # None = identity unresolved — kept, never dropped (#9)
+    filer_cik: str | None = None
+    pct_owned: float | None = None  # structured cover percentOfClass; None = unparsed
+    url: str
+    ingested: date
+
+
 class ScoreboardPriceWindowOut(BaseModel):
     """One episode's realized daily OHLCV series over ``[start, end]``, CAPPED at ``asof`` server-side —
-    the drawer sparkline's on-demand read (Slice 3, extended in Slice A). It is the SAME asof-capped window
-    the scorer runs (``PgRealizedPrices`` — ``bars_between`` shares ``closes_between``'s cap/known_at),
-    exposed on request rather than embedded in the ledger payload. Each bar also carries ``sma50``/``sma200``
-    context, and ``insider_buys`` lists the window's code-P purchases as overlay chips — each carrying its
-    server-classified ``character``, set-aside rows riding greyed-and-labeled rather than hidden (Band 03
-    S2c) — both under the identical no-lookahead discipline as the bars. Invariant #1: no bar with ``d > asof`` and no buy
-    disclosed after the as-of is ever returned, whatever ``end`` the client passes. ``source`` names the
-    fact table the bars came from (invariant #6). ``start`` is the EFFECTIVE relevance floor the server
-    computed (``max(thesis.created_at − 365d, first_bar)``), NOT the requested start — the loaded extent the
+    the drawer sparkline's on-demand read (Slice 3, extended in Slice A, widened in Slice B). It is the
+    SAME asof-capped window the scorer runs (``PgRealizedPrices`` — ``bars_between`` shares
+    ``closes_between``'s cap/known_at), exposed on request rather than embedded in the ledger payload.
+    Each bar also carries ``sma50``/``sma200`` context, and four dated event families ride beside the
+    bars, ALL under the identical two-axis no-lookahead discipline (valid_from window + the
+    ``recorded_at`` knowability gate): ``insider_buys`` (code-P purchases, each carrying its
+    server-classified ``character``, set-aside rows riding greyed-and-labeled rather than hidden — Band
+    03 S2c), ``insider_sells`` (the code-S mirror, Slice B), ``corporate_events`` (every stored 8-K —
+    no server-side item cut), and ``activist_stakes`` (the 13D/G tape, unresolved identity shipped as
+    null, never dropped). Invariant #1: no bar with ``d > asof`` and no event recorded after the as-of
+    is ever returned, whatever ``end`` the client passes. ``source`` names the fact table the bars came
+    from (invariant #6). ``start`` is the EFFECTIVE relevance floor the server computed
+    (``max(thesis.created_at − 365d, first_bar)``), NOT the requested start — the loaded extent the
     FE numbers the overlay universe over (Slice A R1).
     """
 
@@ -1174,6 +1252,9 @@ class ScoreboardPriceWindowOut(BaseModel):
     source: str
     bars: list[PriceBar] = []
     insider_buys: list[InsiderBuyOut] = []
+    insider_sells: list[InsiderSellOut] = []  # Slice B — additive, defaulted
+    corporate_events: list[CorporateEventOut] = []  # Slice B — additive, defaulted
+    activist_stakes: list[ActivistStakeOut] = []  # Slice B — additive, defaulted
 
 
 class EpisodeOperatorOut(BaseModel):

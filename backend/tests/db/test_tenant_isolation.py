@@ -468,6 +468,44 @@ def test_corporate_event_read_isolation(db):
     assert prod_pit.corporate_event_facts(demo_sec) == []
 
 
+def test_activist_stake_read_isolation(db):
+    """The SC 13D/G ownership tape (Band 03 S5) is a read surface the poison-row proof had NOT yet
+    grown to (closed in Scoreboard Slice B, which added the second read path over it — the
+    price-window overlay shares the same ``as_of`` accessor this exercises): a demo stake and a prod
+    stake on same-CIK securities are each visible ONLY under their own tenant, and the cross-reads
+    return []. Grows the poison-row proof (discipline-not-RLS holds only if each new accessor stays
+    on the tenant filter)."""
+    provision_tenant(db, "prod-13d", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID)
+    prod_sec = _security(db, PROD_TENANT_ID)
+
+    def _stake(tenant_id, security_id, accession):
+        return {
+            "tenant_id": tenant_id,
+            "security_id": security_id,
+            "form": "SC 13D",
+            "filer_cik": "0001234567",
+            "filer_name": "Big Activist LP",
+            "pct_owned": 7.5,
+            "accession": accession,
+            "filed": date(2026, 5, 1),
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": date(2026, 5, 1),
+        }
+
+    append_fact(db, "fact_activist_stake", _stake(DEFAULT_TENANT_ID, demo_sec, "DEMO-13D-1"))
+    append_fact(db, "fact_activist_stake", _stake(PROD_TENANT_ID, prod_sec, "PROD-13D-1"))
+
+    asof = date(2026, 6, 1)
+    demo_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID)
+    prod_pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID)
+    assert [r["accession"] for r in demo_pit.activist_stake_facts(demo_sec)] == ["DEMO-13D-1"]
+    assert [r["accession"] for r in prod_pit.activist_stake_facts(prod_sec)] == ["PROD-13D-1"]
+    # cross-reads: querying the OTHER tenant's security under your own tenant sees nothing.
+    assert demo_pit.activist_stake_facts(prod_sec) == []
+    assert prod_pit.activist_stake_facts(demo_sec) == []
+
+
 def test_master_population_is_tenant_isolated(db):
     """The broadener (``populate_universe``) is a new WRITE surface — it stays tenant-scoped. Populating the
     same SEC rows under two tenants writes each its OWN row (distinct ids), and a populate under one tenant

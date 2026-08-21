@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn, get_current_tenant, get_thesis_or_404
 from app.schemas_api import (
+    ActivistStakeOut,
+    CorporateEventOut,
     InsiderBuyOut,
+    InsiderSellOut,
     PriceBar,
     ScoreboardMetricOut,
     ScoreboardPriceWindowOut,
@@ -32,7 +35,10 @@ from scoreboard.overlays import (
     SMA_WARMUP_DAYS,
     UNIVERSE_LOOKBACK_DAYS,
     annotate_sma,
+    episode_activist_stakes,
+    episode_corporate_events,
     episode_insider_buys,
+    episode_insider_sells,
     known_at_for_asof,
     thesis_created_at,
     universe_floor,
@@ -238,9 +244,9 @@ def get_price_window(
     current_tenant: UUID = Depends(get_current_tenant),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardPriceWindowOut:
-    """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and the
-    window's code-P insider buys — for the Scoreboard drawer's chart (Slice 3, extended in Slice A).
-    The SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between`` shares
+    """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and four
+    dated event families — for the Scoreboard drawer's chart (Slice 3, extended in Slice A, widened in
+    Slice B). The SAME asof-capped read the scorer runs (``PgRealizedPrices``; ``bars_between`` shares
     ``closes_between``'s cap/known_at), served on demand instead of embedded in the ledger payload (which
     stays lean). The line draws ``close``; open/high/low/volume ride the wire for a later candlestick.
 
@@ -248,6 +254,17 @@ def get_price_window(
     predicates, #3): ``open_market`` / ``self_filing`` / ``primary_market`` / ``implausible``. Set-aside
     rows (the last two) ride the wire greyed-and-labeled on the FE instead of being dropped (WB #2 / #9),
     so the event ledger shows why a buy did or didn't count toward the panel's open-market flow (#6).
+
+    Slice B widens the overlay with three more families through the SAME window + knowability gate:
+    - ``insider_sells`` — every code-S sale, labeled with the CALL side's screen bucket (wire-mapped:
+      ``kept`` / ``planned`` / ``self_filing`` / ``below_low`` / ``implausible`` / ``foreign_ordinary``).
+      DIAL-MIRROR CAVEAT: characters are classified with ``DEFAULT_CONFIG`` pinned, so a deployment on
+      non-default insider dials could show labels that drift from the call's actual cluster screens —
+      the display rail's accepted posture (labels only, never the detector's math).
+    - ``corporate_events`` — EVERY stored 8-K in-window, ``items`` ``null`` when unresolved (honest,
+      never dropped). NO server-side item cut — loudness is a display concern (#9).
+    - ``activist_stakes`` — the 13D/G tape, both naming eras; unresolved filer identity / ``pct_owned``
+      ship as ``null``, the row kept (#9). 13G rows ride — the fire policy stays in the detector.
 
     No-lookahead (invariant #1) is enforced SERVER-SIDE and never trusted to the client, on BOTH axes:
     - the price reader caps the valid-time axis at ``cap = asof`` (``d <= asof``), so a client passing a
@@ -293,6 +310,9 @@ def get_price_window(
     # The offer-price insider screen needs the EOD low on each trade date — built from the SAME asof-capped
     # price view (no lookahead); an absent low keeps the buy (recall-safe, #9).
     day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
+    # ONE knowability cap for every event family (Slice B): min(now, asof-EOD) — the two-axis
+    # no-lookahead every dated overlay read shares (invariant #1).
+    known_at = known_at_for_asof(asof)
     buys = episode_insider_buys(
         conn,
         tenant_id=tenant,
@@ -300,8 +320,36 @@ def get_price_window(
         start=floor,  # events bounded to the relevance window, regardless of the requested start
         end=end,
         asof=asof,
-        known_at=known_at_for_asof(asof),
+        known_at=known_at,
         day_lows=day_lows,
+    )
+    sells = episode_insider_sells(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=end,
+        asof=asof,
+        known_at=known_at,
+        day_lows=day_lows,  # the below-day-low secondary screen reads the SAME asof-capped lows
+    )
+    corp_events = episode_corporate_events(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=end,
+        asof=asof,
+        known_at=known_at,
+    )
+    stakes = episode_activist_stakes(
+        conn,
+        tenant_id=tenant,
+        security_id=security_id,
+        start=floor,
+        end=end,
+        asof=asof,
+        known_at=known_at,
     )
     return ScoreboardPriceWindowOut(
         thesis_id=thesis.id,
@@ -312,4 +360,7 @@ def get_price_window(
         source="fact_price_eod",
         bars=[PriceBar(**b) for b in window_bars],
         insider_buys=[InsiderBuyOut(**b) for b in buys],
+        insider_sells=[InsiderSellOut(**s) for s in sells],
+        corporate_events=[CorporateEventOut(**e) for e in corp_events],
+        activist_stakes=[ActivistStakeOut(**s) for s in stakes],
     )
