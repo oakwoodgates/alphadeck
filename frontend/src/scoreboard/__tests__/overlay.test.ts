@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  DisplaySignal,
   EpisodeOperatorOut,
   InsiderBuyOut,
+  MemberDisplaySignalsOut,
   PriceBar,
   ScoreboardEpisodeOut,
   TriggerRefOut,
@@ -16,6 +18,7 @@ import {
   legendEntries,
   overlayTooltip,
   stackChips,
+  tapeSignals,
   triggerLinks,
   volumeData,
 } from "../overlay";
@@ -74,6 +77,27 @@ function opDecision(over: Partial<EpisodeOperatorOut> = {}): EpisodeOperatorOut 
     ...over,
   };
 }
+
+// A3: a display signal + the canonical dated cross its backend member emits (the LATEST flip per key).
+function dsig(
+  kind: string,
+  events: { key: string; label: string; date: string; direction?: "up" | "down" }[] = [],
+): DisplaySignal {
+  return {
+    kind,
+    label: kind,
+    headline: null,
+    metrics: [],
+    events,
+    basis: { source: "fact_price_eod", params: {} },
+  } as unknown as DisplaySignal;
+}
+const GOLDEN = {
+  key: "golden_cross",
+  label: "golden cross: 50d crossed above 200d",
+  date: "2026-06-10",
+  direction: "up" as const,
+};
 
 describe("defaultVisibleRange — the episode by default (R2)", () => {
   it("is [arm − 130 trading days, last bar]; clamps to the first bar when history is short", () => {
@@ -503,6 +527,24 @@ describe("legendEntries — present families only (honest loudness / #7)", () =>
     const without = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [], bars);
     expect(legendEntries(without).some((l) => l.family === "operator")).toBe(false);
   });
+
+  it("names 'tape signal' LAST of all — and only when a tape chip actually drew (A3)", () => {
+    const bars = [bar("2026-05-15", 100), bar("2026-06-01", 104), bar("2026-06-30", 112)];
+    const e = ep({ arm_date: "2026-06-01", operator: opDecision({ decision_date: "2026-06-01" }) });
+    const withTape = buildOverlayEvents(e, [], bars, {
+      signals: [dsig("sma_position", [GOLDEN])],
+      asof: "2026-07-15",
+    });
+    expect(legendEntries(withTape).map((l) => l.family)).toEqual(["lifecycle", "operator", "signal"]);
+    expect(legendEntries(withTape).at(-1)).toMatchObject({ label: "tape signal", cls: "ov-signal" });
+    // a signal whose only event was DROPPED (pre-window) names nothing — a legend entry for a family
+    // with zero drawn chips is exactly the noise #7 forbids
+    const dropped = buildOverlayEvents(e, [], bars, {
+      signals: [dsig("sma_position", [{ ...GOLDEN, date: "2026-01-02" }])],
+      asof: "2026-07-15",
+    });
+    expect(legendEntries(dropped).some((l) => l.family === "signal")).toBe(false);
+  });
 });
 
 // -------- Slice A2: the operator chip family — a recorded decision joins the numbered universe --------
@@ -664,6 +706,156 @@ describe("volumeData — null-volume bars are skipped, never zero-invented (#6)"
 
   it("is empty when no bar carries a volume", () => {
     expect(volumeData([{ d: "2026-06-01", volume: null }])).toEqual([]);
+  });
+});
+
+// -------- Slice A3: the display-signal ("tape signal") family — computed context, not recorded history --
+describe("tapeSignals — only the two dated-event kinds become chips (the allow-list)", () => {
+  it("keeps sma_position + relative_strength and drops every other kind", () => {
+    const member = {
+      security_id: "s1",
+      signals: [
+        dsig("sma_position"),
+        dsig("trailing_returns"),
+        dsig("relative_strength"),
+        dsig("range_52w"),
+        dsig("rvol"),
+      ],
+    } as unknown as MemberDisplaySignalsOut;
+    expect(tapeSignals(member).map((s) => s.kind)).toEqual(["sma_position", "relative_strength"]);
+  });
+
+  it("EXCLUDES insider_flow_90d — its buys/sells already ARE the insider family (no double-chipping)", () => {
+    const member = {
+      signals: [
+        dsig("insider_flow_90d", [{ key: "last_buy", label: "last insider buy", date: "2026-06-10" }]),
+        dsig("sma_position", [GOLDEN]),
+      ],
+    } as unknown as MemberDisplaySignalsOut;
+    expect(tapeSignals(member).map((s) => s.kind)).toEqual(["sma_position"]);
+  });
+
+  it("an UNREGISTERED new display kind stays off the chart until someone opts it in (#7)", () => {
+    // the mirror of signalHeadlines' zero-FE-change framework: a headline renders by default, a CHIP
+    // does not — a chip is a claim on the price path, so silence is the safe default for a new member
+    const member = { signals: [dsig("brand_new", [GOLDEN])] } as unknown as MemberDisplaySignalsOut;
+    expect(tapeSignals(member)).toEqual([]);
+  });
+
+  it("a null member / a member with no signals → nothing", () => {
+    expect(tapeSignals(null)).toEqual([]);
+    expect(tapeSignals({ signals: [] } as unknown as MemberDisplaySignalsOut)).toEqual([]);
+  });
+});
+
+describe("buildOverlayEvents — the tape family joins the numbering (A3)", () => {
+  const BARS = [
+    bar("2026-05-15", 100),
+    bar("2026-06-01", 104),
+    bar("2026-06-10", 107),
+    bar("2026-06-30", 112),
+  ];
+  const ASOF = "2026-07-15";
+  const build = (signals: DisplaySignal[], over: Partial<ScoreboardEpisodeOut> = {}, buys = [] as InsiderBuyOut[]) =>
+    buildOverlayEvents(ep({ arm_date: "2026-06-01", ...over }), buys, BARS, { signals, asof: ASOF });
+
+  it("numbers a tape event chronologically among the recorded families", () => {
+    const events = build([dsig("sma_position", [GOLDEN])], {}, [buy({ d: "2026-05-15" })]);
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "insider", "2026-05-15"],
+      [2, "lifecycle", "2026-06-01"], // armed
+      [3, "signal", "2026-06-10"], // the golden cross, in its true place on the tape
+    ]);
+    const s = events[2];
+    expect(s.family === "signal" && s.signalKind).toBe("sma_position");
+    expect(s.family === "signal" && s.event.label).toBe("golden cross: 50d crossed above 200d");
+    expect(s.family === "signal" && s.asof).toBe(ASOF); // the read's as-of rides with the chip
+    expect(s.closeThatDay).toBe(107); // the guide-line anchor, like any family
+  });
+
+  it("a same-day tape read sorts BEHIND the recorded fact it shares a date with (#7)", () => {
+    const onArm = { ...GOLDEN, date: "2026-06-01" };
+    const events = build([dsig("sma_position", [onArm])]);
+    expect(events.map((e) => e.family)).toEqual(["lifecycle", "signal"]); // armed first, always
+  });
+
+  it("DROPS a cross that predates the first loaded bar — never clamped onto a bar that never saw it", () => {
+    // the asymmetry vs a trigger (which falls BACK to the arm): a trigger is call EVIDENCE with a real
+    // anchor; a tape read has none, and a "latest flip" drawn at the left edge would read as a fresh flip
+    const events = build([dsig("sma_position", [{ ...GOLDEN, date: "2026-01-02" }])]);
+    expect(events.some((e) => e.family === "signal")).toBe(false);
+    expect(events.map((e) => e.date)).toEqual(["2026-06-01"]); // nothing landed on the first bar either
+  });
+
+  it("keeps a cross ON the first loaded bar (the boundary is `< first`, not `<=`)", () => {
+    const events = build([dsig("sma_position", [{ ...GOLDEN, date: "2026-05-15" }])]);
+    expect(events.map((e) => [e.family, e.date])).toEqual([
+      ["signal", "2026-05-15"],
+      ["lifecycle", "2026-06-01"],
+    ]);
+  });
+
+  it("drops a tape event past the last drawn bar too (the shared right-edge rule)", () => {
+    const events = build([dsig("relative_strength", [{ ...GOLDEN, date: "2026-08-01" }])]);
+    expect(events.some((e) => e.family === "signal")).toBe(false);
+  });
+
+  it("flattens EVERY qualifying signal's events, in one interleaved numbering", () => {
+    const events = build([
+      dsig("sma_position", [GOLDEN, { key: "cross_sma50", label: "price crossed above 50d SMA", date: "2026-05-20" }]),
+      dsig("relative_strength", [
+        { key: "rs_high_spy", label: "RS vs SPY at a 52-week high", date: "2026-06-30", direction: "up" },
+      ]),
+    ]);
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "signal", "2026-05-20"],
+      [2, "lifecycle", "2026-06-01"],
+      [3, "signal", "2026-06-10"],
+      [4, "signal", "2026-06-30"],
+    ]);
+  });
+
+  it("no tape argument at all → the recorded numbering is byte-identical to before A3", () => {
+    const args = [ep({ arm_date: "2026-06-01" }), [buy({ d: "2026-05-15" })], BARS] as const;
+    expect(buildOverlayEvents(...args).map((e) => [e.n, e.family])).toEqual([
+      [1, "insider"],
+      [2, "lifecycle"],
+    ]);
+    // and an EMPTY signal list is the same thing — never an invented chip
+    expect(buildOverlayEvents(...args, { signals: [], asof: ASOF })).toEqual(buildOverlayEvents(...args));
+  });
+});
+
+describe("overlayTooltip — the tape chip's epistemics (A3)", () => {
+  const tip = (signalKind: string, label = "golden cross: 50d crossed above 200d") =>
+    overlayTooltip({
+      n: 3,
+      family: "signal",
+      date: "2026-06-10",
+      closeThatDay: 107,
+      signalKind,
+      asof: "2026-07-15",
+      event: { key: "golden_cross", label, date: "2026-06-10", direction: "up" },
+    });
+
+  it("titles with the event's own label and always dates the READ, not the record (#6)", () => {
+    const t = tip("sma_position");
+    expect(t.title).toBe("golden cross: 50d crossed above 200d");
+    // these are re-derived at the drawer's asof on every open — never recorded call history
+    expect(t.lines[0]).toBe("display-only tape read · derived as-of 2026-07-15");
+  });
+
+  it("names the latest-flip-only limit on sma_position — the missing older cross is CONTRACT, not a bug", () => {
+    expect(tip("sma_position").lines).toEqual([
+      "display-only tape read · derived as-of 2026-07-15",
+      "most recent flip only — earlier crosses not shown",
+    ]);
+  });
+
+  it("stays silent about flips on relative_strength — an RS-high print is not a flip (it would be a lie)", () => {
+    const t = tip("relative_strength", "RS vs SPY at a 52-week high");
+    expect(t.title).toBe("RS vs SPY at a 52-week high");
+    expect(t.lines).toEqual(["display-only tape read · derived as-of 2026-07-15"]);
   });
 });
 

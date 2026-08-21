@@ -1263,6 +1263,15 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 /* S2c: a SET-ASIDE insider buy (primary-market / implausible) stays visible but GREYED — WB #2 (pruning
    hides, it never vanishes): the grey says "didn't count toward the panel's open-market flow". */
 .ov-chip.ov-insider.ov-setaside { background: var(--panel-2); border-color: var(--line-2); color: var(--txt-3); }
+/* A3: the display-signal (tape) chip — the QUIETEST family on the board, below even the operator's muted
+   --incub: a compute-on-read tape context that can't arm, veto, or grade anything must never out-shout a
+   recorded call fact (#7, inverse loudness). A flat --line-2 ground (the deck's hairline grey — no hue at
+   all, where every other family carries one) reads as a footnote at a glance. The numerals are --txt-2,
+   NOT the quieter --txt-3: on this ground --txt-3 lands near 2.2:1, unreadable at 9.5px — quietness is
+   the chip's job, illegibility isn't (a number nobody can read is a dead cross-reference to its ledger
+   row). Deliberately NOT the set-aside grey below either: that grey means "excluded", this means
+   "context", and the two must not blur mid-scan. */
+.ov-chip.ov-signal { background: var(--line-2); color: var(--txt-2); }
 .ov-more {
   position: absolute; transform: translate(-50%, 0); pointer-events: auto;
   font: 700 9px var(--mono); line-height: 1; height: 15px; padding: 0 4px; border-radius: 8px;
@@ -1292,6 +1301,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-dot.ov-trigger { background: var(--warm); }
 .ov-dot.ov-lifecycle { background: var(--txt-2); }
 .ov-dot.ov-operator { background: var(--incub); }
+.ov-dot.ov-signal { background: var(--line-2); }
 .sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
 .sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -1318,6 +1328,9 @@ td.evled-n.ov-insider { color: var(--pos); }
 td.evled-n.ov-trigger { color: var(--warm); }
 td.evled-n.ov-lifecycle { color: var(--txt-2); }
 td.evled-n.ov-operator { color: var(--incub); }
+/* A3: the tape row's number, quieter than every recorded family's (#7) — --txt-3, one step under the
+   lifecycle's --txt-2 and deliberately NOT the set-aside --txt-4 below (that grey means "excluded"). */
+td.evled-n.ov-signal { color: var(--txt-3); }
 /* S2c: a set-aside buy's ledger row is muted end-to-end (the number included) — visible, never removed */
 .evled-tbl tbody tr.evled-setaside td { color: var(--txt-4); }
 .evled-tbl tbody tr.evled-setaside td.evled-n { color: var(--txt-4); }

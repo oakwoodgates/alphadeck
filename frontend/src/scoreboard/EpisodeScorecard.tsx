@@ -5,7 +5,7 @@ import { useDisplaySignals, useEpisodePriceWindow, useWorkbenchScored } from "..
 import { fmtDate, gradeClass } from "../util/format";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines } from "./ledger";
-import { buildOverlayEvents } from "./overlay";
+import { buildOverlayEvents, tapeSignals } from "./overlay";
 import {
   closeReasonLabel,
   episodeBadges,
@@ -82,16 +82,11 @@ export function EpisodeScorecard({
     Boolean(asof),
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
-  const events = useMemo(
-    () => buildOverlayEvents(ep, windowQ.data?.insider_buys ?? [], windowQ.data?.bars ?? []),
-    [ep, windowQ.data],
-  );
-  // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
-  // the other child rings/tints the match. Held here so both children read one source of truth.
-  const [activeN, setActiveN] = useState<number | null>(null);
 
   // The Cockpit strip's two reads (identity + signal headlines) — same asof, drawer-open gated (the hooks
   // disable themselves without an asof), joined to THIS episode by security_id. A missing field → "—".
+  // Read BEFORE the event universe: A3 threads the display signals' dated events into it as the quiet
+  // "tape signal" chip family, so this join feeds the chart + ledger as well as the strip.
   const scoredMember =
     useWorkbenchScored(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
@@ -100,6 +95,25 @@ export function EpisodeScorecard({
     useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
     ) ?? null;
+  // A3: the display-signal events join the numbered universe as the greyest family. Only the allow-listed
+  // kinds contribute (`tapeSignals` — sma_position + relative_strength; `insider_flow_90d` is excluded by
+  // construction, its buys/sells already ARE the insider family). The `asof` rides in because these are
+  // compute-on-read, not recorded history: the tooltip/ledger date the read rather than implying the call
+  // knew it. No asof → no tape argument at all (never a fabricated as-of on a chip that claims one, #6).
+  const events = useMemo(
+    () =>
+      buildOverlayEvents(
+        ep,
+        windowQ.data?.insider_buys ?? [],
+        windowQ.data?.bars ?? [],
+        asof ? { signals: tapeSignals(memberSignals), asof } : undefined,
+      ),
+    [ep, windowQ.data, memberSignals, asof],
+  );
+  // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
+  // the other child rings/tints the match. Held here so both children read one source of truth.
+  const [activeN, setActiveN] = useState<number | null>(null);
+
   const identity = identityCells(scoredMember);
   const signals = signalHeadlines(memberSignals);
   // A closed/matured episode's display signals are trailing windows re-derived at the drawer's asof, NOT the

@@ -1,6 +1,9 @@
 import type {
+  DisplayEvent,
+  DisplaySignal,
   EpisodeOperatorOut,
   InsiderBuyOut,
+  MemberDisplaySignalsOut,
   PriceBar,
   ProvenanceOut,
   ScoreboardEpisodeOut,
@@ -13,11 +16,13 @@ import { fmtPrice, noForwardBar } from "./scorecard";
 
 // Pure overlay logic for the drawer chart (Slice A, Revision 1): the default visible range, the STABLE
 // chronological 1..N numbering across the recorded event families (insider buy / arm trigger / lifecycle /
-// operator — A2) over the WHOLE loaded universe (the backend floors it to max(created_at−365d, first_bar)),
+// operator — A2) plus the one COMPUTED family (tape signal — A3: display-only, re-derived per read, and
+// labeled as such) over the WHOLE loaded universe (the backend floors it to max(created_at−365d, first_bar)),
 // the hover tooltip content (with the honest disclosure lag + the market-price context), and the
 // collision-stacking. All unit-tested here; the component (PriceSparkline) owns only the imperative chart,
 // coordinate positioning, and pan/zoom, which a canvas can't run in jsdom → the reviewer live-verifies THAT
-// by eye. Every chip traces to a real recorded row — nothing here invents an event (invariant #6); the
+// by eye. Every chip traces to a real recorded row — or, for the A3 tape family, to a deterministic
+// computation over the SAME price facts, labeled as computed — nothing here invents an event (#6); the
 // number is a STABLE per-event identity (same event → same number in the compact view, the expanded view,
 // and the future ledger — NEVER renumbered per visible window).
 
@@ -119,8 +124,26 @@ export function volumeData(bars: Pick<PriceBar, "d" | "volume">[]): { time: stri
   return bars.filter((b) => b.volume != null).map((b) => ({ time: b.d, value: b.volume as number }));
 }
 
-export type OverlayFamily = "insider" | "trigger" | "lifecycle" | "operator";
+export type OverlayFamily = "insider" | "trigger" | "lifecycle" | "operator" | "signal";
 export type LifecycleKind = "warmed" | "armed" | "dearmed" | "exit_by";
+
+// -------- Slice A3: the DISPLAY-SIGNAL kinds whose events earn a chip -------------------------------
+// A display signal is a READ-ONLY tape read (docs/DISPLAY_SIGNALS.md) — structurally not a SignalEvent,
+// never an input to the call. Only the two kinds whose `events[]` are DATED tape facts qualify as chips:
+// `sma_position` (the 50/200 crosses) and `relative_strength` (the RS-high print). Everything else is
+// EXCLUDED — `insider_flow_90d` explicitly so: its last_buy/last_sell events would duplicate the insider
+// chip family off a second source, and two chips for one Form 4 is a lie about how much the tape said.
+// An allow-list, not a deny-list: a NEW display member's events stay off the chart until someone decides
+// they belong (a chip is a claim; silence is the safe default, #7).
+const TAPE_EVENT_KINDS = ["sma_position", "relative_strength"] as const;
+
+/** The member's display signals that may contribute chips — the allow-list above, applied to the joined
+ *  `useDisplaySignals` member. Pure + exported so the filter itself is testable (the drawer composes it
+ *  and hands the result to `buildOverlayEvents`). A null member (no display read yet) → no chips. */
+export function tapeSignals(member: MemberDisplaySignalsOut | null | undefined): DisplaySignal[] {
+  const allowed: readonly string[] = TAPE_EVENT_KINDS;
+  return (member?.signals ?? []).filter((s) => allowed.includes(s.kind));
+}
 
 interface ChipBase {
   n: number; // chronological 1..N across ALL families — a STABLE per-event identity (never per-window)
@@ -152,24 +175,47 @@ export interface OperatorChipEvent extends ChipBase {
   family: "operator";
   op: EpisodeOperatorOut;
 }
-export type OverlayEvent = InsiderChipEvent | TriggerChipEvent | LifecycleChipEvent | OperatorChipEvent;
+/** A3: a DISPLAY-signal event — the quietest family. Unlike every sibling it is NOT a recorded row: it is
+ *  re-derived on the CURRENT read (compute-on-read, never persisted), so the `asof` it was derived under
+ *  rides along and the tooltip says so. `signalKind` is its parent display member's registered kind — it
+ *  drives the per-kind epistemics line, not any behavior. Display-only by construction (#3/#4): it cannot
+ *  arm, veto, or grade anything; it only annotates the path the call already drew. */
+export interface SignalChipEvent extends ChipBase {
+  family: "signal";
+  event: DisplayEvent;
+  signalKind: string;
+  asof: string;
+}
+export type OverlayEvent =
+  | InsiderChipEvent
+  | TriggerChipEvent
+  | LifecycleChipEvent
+  | OperatorChipEvent
+  | SignalChipEvent;
 
 type RawEvent =
   | Omit<InsiderChipEvent, "n">
   | Omit<TriggerChipEvent, "n">
   | Omit<LifecycleChipEvent, "n">
-  | Omit<OperatorChipEvent, "n">;
+  | Omit<OperatorChipEvent, "n">
+  | Omit<SignalChipEvent, "n">;
 
 /** The overlay universe, numbered chronologically 1..N across every family (sorted by date; ties keep a
  *  stable insertion order → armed before its triggers before same-day buys). Built ONCE over the whole
  *  loaded window (`bars` = the backend's [floor, end], already relevance-floored + open-market-screened),
  *  so the numbers are stable regardless of the visible range (the R1 bug was per-window renumbering). The
  *  component renders whichever fall in the visible range; the numbers never change. An event past the last
- *  drawn bar (a still-future exit-by horizon) is dropped — it hasn't printed on the tape. */
+ *  drawn bar (a still-future exit-by horizon) is dropped — it hasn't printed on the tape.
+ *
+ *  `tape` (A3, optional) adds the display-signal family: the already-kind-filtered signals (`tapeSignals`)
+ *  plus the as-of they were derived under. OPTIONAL because it is pure garnish — a caller without the
+ *  display read (the pure-render tests, a drawer whose signals query hasn't landed) still numbers the
+ *  recorded families exactly as before; the tape chips only ever append to that universe. */
 export function buildOverlayEvents(
   ep: ScoreboardEpisodeOut,
   insiderBuys: InsiderBuyOut[],
   bars: Bar[],
+  tape?: { signals: DisplaySignal[]; asof: string },
 ): OverlayEvent[] {
   if (bars.length === 0) return [];
   const last = bars[bars.length - 1].d;
@@ -220,6 +266,29 @@ export function buildOverlayEvents(
     });
   if (ep.exit_by)
     raw.push({ family: "lifecycle", date: ep.exit_by, kind: "exit_by", closeThatDay: closeAt(ep.exit_by) });
+  // A3: the display-signal (tape) events, pushed LAST so a same-day tie sorts them behind every recorded
+  // fact (#7 — a re-derived tape read never leads an arm or a filing it shares a date with).
+  //
+  // The left-edge rule INVERTS the trigger fallback above, deliberately. A trigger falls BACK to the arm
+  // because it is call EVIDENCE — the arm is a real anchor that keeps the recorded fact on screen. A tape
+  // read has no such anchor: it is a cross the price printed on ONE day and nothing else, so a cross that
+  // predates the first loaded bar is DROPPED, never clamped onto a bar that never saw it (a "latest flip"
+  // rendered at the window's left edge would read as a flip that just happened — the misleading case #6
+  // forbids). It is not lost information: the same signal's HEADLINE still states the current position in
+  // the Cockpit strip below (WB #2 — the fact stays visible, only the chip is withheld).
+  for (const s of tape?.signals ?? []) {
+    for (const ev of s.events ?? []) {
+      if (ev.date < bars[0].d) continue; // pre-window: no honest x → drop, never clamp
+      raw.push({
+        family: "signal",
+        date: ev.date,
+        event: ev,
+        signalKind: s.kind,
+        asof: tape!.asof,
+        closeThatDay: closeAt(ev.date),
+      });
+    }
+  }
 
   const visible = raw.filter((e) => e.date <= last); // nothing sits past the last drawn bar
   visible.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); // stable → insertion breaks ties
@@ -410,12 +479,29 @@ function lifecycleTooltip(e: LifecycleChipEvent): TooltipContent {
   return { title, lines: [e.date] };
 }
 
+// A3: the tape chip's EPISTEMICS — the two lines that keep a computed indicator from being read as
+// recorded call history. Line 1 always: these are re-derived at the drawer's as-of on every open (a
+// different as-of can yield a different cross), so the read is dated by construction (#6, show the work).
+// Line 2 on `sma_position` only: the backend emits the LATEST flip per key and nothing earlier
+// (backend/signals/display/sma.py — `_last_flip`), so a chart showing one 50d cross across two years is
+// the contract, not a dropped event; without the line a missing older cross reads as a bug (#9's spirit:
+// an omission is stated, never silent). Relative-strength events aren't flips (an RS-high print dated at
+// the last bar), so the line would be a lie there — hence per-kind, not blanket.
+const TAPE_ONLY_LATEST_FLIP = "most recent flip only — earlier crosses not shown";
+
+function signalTooltip(e: SignalChipEvent): TooltipContent {
+  const lines = [`display-only tape read · derived as-of ${e.asof}`];
+  if (e.signalKind === "sma_position") lines.push(TAPE_ONLY_LATEST_FLIP);
+  return { title: e.event.label, lines };
+}
+
 /** The hover card for a chip — a pure builder (jsdom can't test coordinates, so test THIS). Always
  *  available: the number is never a dead reference (#6). */
 export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "insider") return insiderTooltip(e);
   if (e.family === "trigger") return triggerTooltip(e);
   if (e.family === "operator") return operatorTooltip(e);
+  if (e.family === "signal") return signalTooltip(e);
   return lifecycleTooltip(e);
 }
 
@@ -424,8 +510,11 @@ const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   trigger: { label: "arm trigger", cls: "ov-trigger" },
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
   operator: { label: "operator", cls: "ov-operator" }, // A2 — muted --incub, the quiet family (#7)
+  // A3 — the GREYEST family on the board, quieter even than the operator's muted --incub: a computed
+  // tape read is context beside the call, never the call (#7's inverse loudness, read as hue).
+  signal: { label: "tape signal", cls: "ov-signal" },
 };
-const FAMILY_ORDER: OverlayFamily[] = ["insider", "trigger", "lifecycle", "operator"];
+const FAMILY_ORDER: OverlayFamily[] = ["insider", "trigger", "lifecycle", "operator", "signal"];
 
 /** The CSS class carrying a family's color (the DOM chip reads CSS vars → theme-consistent, unlike the
  *  canvas lines which must hard-code hex). */

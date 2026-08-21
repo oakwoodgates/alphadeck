@@ -408,6 +408,49 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
     expect(container.querySelector(".sc-tape")).toBeNull();
   });
 
+  // A3: the display read feeds the chart/ledger as well as the strip — the drawer filters the member's
+  // signals to the chip-eligible kinds and threads them (with the page asof) into the ONE event array.
+  it("threads the member's display-signal events into the ledger as 'tape signal' rows (A3)", async () => {
+    renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, (qc) => {
+      seedLedger(qc);
+      qc.setQueryData(["display-signals", "t1", ASOF], {
+        members: [
+          {
+            ...DISPLAY,
+            signals: [
+              {
+                ...DISPLAY.signals[0],
+                events: [
+                  {
+                    key: "golden_cross",
+                    label: "golden cross: 50d crossed above 200d",
+                    date: "2026-07-01",
+                    direction: "up",
+                  },
+                ],
+              },
+              // the excluded kind, seeded on purpose: its events must NOT double-chip the insider family
+              {
+                kind: "insider_flow_90d",
+                label: "insider flow",
+                headline: null,
+                metrics: [],
+                events: [{ key: "last_buy", label: "last insider buy", date: "2026-08-01" }],
+                basis: { source: "fact_insider_txn", params: {} },
+              },
+            ],
+          },
+        ],
+      });
+    });
+    const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
+    const types = Array.from(section.querySelectorAll("tbody .evled-t")).map((c) => c.textContent);
+    expect(types.filter((t) => t === "tape signal")).toHaveLength(1); // the cross, once — not twice
+    expect(section).toHaveTextContent("golden cross: 50d crossed above 200d");
+    expect(section).toHaveTextContent("display-only tape read · derived as-of 2026-07-15");
+    expect(section).not.toHaveTextContent("last insider buy"); // insider_flow_90d never chips (A3 filter)
+  });
+
   it("a no-forward-bar episode WITH pre-arm price data renders the ledger + chart (not gated on the forward bar)", async () => {
     const noBarEp = ep({ insufficient_prices: true });
     renderCard(<EpisodeScorecard ep={noBarEp} asof={ASOF} />, (qc) => {

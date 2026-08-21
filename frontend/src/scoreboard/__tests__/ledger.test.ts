@@ -153,6 +153,39 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(opRow({ action: "passed", reason: "too extended" }).detail).toBe("passed · too extended");
   });
 
+  // A3: the tape row — the ONE family that isn't a recorded row, so its detail carries the epistemics
+  const tapeRow = (signalKind: string, label: string) =>
+    ledgerRow({
+      n: 6,
+      family: "signal",
+      date: "2026-06-10",
+      closeThatDay: 107,
+      signalKind,
+      asof: "2026-07-15",
+      event: { key: "k", label, date: "2026-06-10", direction: "up" },
+    });
+
+  it("signal: the label leads, then the as-of the read was derived under + the flip caveat (A3)", () => {
+    const r = tapeRow("sma_position", "golden cross: 50d crossed above 200d");
+    expect(r.n).toBe(6);
+    expect(r.cls).toBe("ov-signal");
+    expect(r.type).toBe("tape signal");
+    expect(r.date).toBe("2026-06-10");
+    expect(r.detail).toBe(
+      "golden cross: 50d crossed above 200d · display-only tape read · derived as-of 2026-07-15 · " +
+        "most recent flip only — earlier crosses not shown",
+    );
+    expect(r.links).toBeUndefined(); // a computation has no filing to jump to (never an empty affordance)
+  });
+
+  it("signal: a relative-strength row carries the as-of but NOT the flip caveat (it isn't a flip)", () => {
+    const r = tapeRow("relative_strength", "RS vs SPY at a 52-week high");
+    expect(r.detail).toBe(
+      "RS vs SPY at a 52-week high · display-only tape read · derived as-of 2026-07-15",
+    );
+    expect(r.detail).not.toContain("most recent flip");
+  });
+
   it("lifecycle: the type names the specific kind; de-armed carries its reason, exit-by its gloss", () => {
     const lc = (kind: "warmed" | "armed" | "dearmed" | "exit_by", closeReason?: string): OverlayEvent => ({
       n: 1,

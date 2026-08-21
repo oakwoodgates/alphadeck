@@ -20,7 +20,7 @@ import { closeReasonLabel } from "./rows";
 
 export interface LedgerRow {
   n: number; // the STABLE chronological id — identical to the chip's number (built in overlay.ts)
-  cls: string; // the family hue class, same as the chip: ov-insider / ov-trigger / ov-lifecycle
+  cls: string; // the family hue class, same as the chip: ov-insider / ov-trigger / ov-lifecycle / …
   date: string; // raw ISO — the component formats via fmtDate
   type: string; // the human family/kind label
   detail: string; // the family specifics (reuses overlayTooltip's per-family lines where they read well)
@@ -67,6 +67,15 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     // the type cell already says "operator" (= the tooltip's title), so only the LINES join: the
     // action word leads them by construction — "took @ $X (logged fill) · running +8.0% · <reason>"
     return { ...base, type: "operator", detail: overlayTooltip(e).lines.join(" · ") };
+  }
+  if (e.family === "signal") {
+    // A3: the tape read. The type cell names the family ("tape signal"), so the detail leads with the
+    // event's own LABEL ("golden cross: 50d crossed above 200d") and carries the epistemics lines
+    // verbatim — the as-of it was derived under, plus the latest-flip-only caveat where it applies.
+    // The caveat must ride HERE too, not only on the hover: the ledger is the scannable surface, and a
+    // reader who never hovers would otherwise read one cross as the name's whole cross history (#6).
+    const tip = overlayTooltip(e);
+    return { ...base, type: "tape signal", detail: [tip.title, ...tip.lines].join(" · ") };
   }
   const detail =
     e.kind === "dearmed"
