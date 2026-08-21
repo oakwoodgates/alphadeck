@@ -82,3 +82,37 @@ def test_single_detector_cap_keys_on_distinct_kinds_not_trigger_count():
     b1 = _entry(Kind.TECHNICAL_BREAKOUT, 0.9, detector="volume_breakout")
     b2 = _entry(Kind.TECHNICAL_BREAKOUT, 0.95, detector="breakout_52w")
     assert confidence([b1, b2], [], DEFAULT_CONFIG) == round(DEFAULT_CONFIG.single_detector_cap, 4)
+
+
+# --- Item 3: the risk-haircut per-kind collapse -----------------------------------------------------
+
+# Two INDEPENDENT entry kinds so the base confidence is uncapped (0.94) — isolates the haircut delta.
+_CONV = _entry(Kind.INSIDER, 0.8)
+_CONF = _entry(Kind.TECHNICAL_BREAKOUT, 0.7)
+
+
+def test_two_dilution_lenses_cost_one_haircut():
+    """Item 3: two Kind.DILUTION_RISK events (dilution_clock's POTENTIAL overhang + share_creep's
+    REALIZED issuance — two lenses on ONE phenomenon) cost ONE haircut, at the STRONGER score, matching
+    corporate_risk's within-detector collapse. The weaker same-kind lens adds no extra haircut."""
+    potential = _risk(Kind.DILUTION_RISK, 0.5, detector="dilution_clock")
+    realized = _risk(Kind.DILUTION_RISK, 0.3, detector="share_creep")
+    both = confidence([_CONV, _CONF], [potential, realized], DEFAULT_CONFIG)
+    one = confidence([_CONV, _CONF], [potential], DEFAULT_CONFIG)  # just the stronger lens
+    assert both == one  # the weaker same-kind lens adds NO extra haircut
+    # the single haircut is the STRONGER lens's score (0.5), never the sum (0.5 + 0.3)
+    clean = confidence([_CONV, _CONF], [], DEFAULT_CONFIG)
+    assert round(clean - both, 4) == round(DEFAULT_CONFIG.risk_penalty_per_signal * 0.5, 4)
+
+
+def test_distinct_risk_kinds_each_cost_a_haircut():
+    """Item 3: only a CORRELATED family collapses — a dilution risk + a corporate risk are different
+    kinds (genuinely different phenomena) and still each cost their own haircut."""
+    dilution = _risk(Kind.DILUTION_RISK, 0.5, detector="dilution_clock")
+    corporate = _risk(Kind.CORPORATE_RISK, 0.5, detector="corporate_risk")
+    clean = confidence([_CONV, _CONF], [], DEFAULT_CONFIG)
+    two_kinds = confidence([_CONV, _CONF], [dilution, corporate], DEFAULT_CONFIG)
+    expected_cut = round(
+        DEFAULT_CONFIG.risk_penalty_per_signal * 0.5 * 2, 4
+    )  # two haircuts, 0.5 each
+    assert round(clean - two_kinds, 4) == expected_cut
