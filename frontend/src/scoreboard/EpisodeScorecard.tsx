@@ -19,6 +19,7 @@ import {
   horizonLens,
   moveNote,
   noForwardBar,
+  operatorLensLine,
   setupStrengthPct,
 } from "./scorecard";
 
@@ -64,7 +65,10 @@ export function EpisodeScorecard({
   // and setup strength are arm-date facts, so they stay.
   const showArmUntil = !noBar && (ep.arm_until != null || ep.arm_until_return != null);
   const showGrades = ep.entry_grade != null || ep.conviction_grade != null || strength != null;
-  const hasSetup = showArmUntil || showGrades;
+  // A2: the quiet operator line rides the Lens-4 section — which must render for it even when the
+  // grades/arm_until are absent (a logged decision on a grade-less episode still shows).
+  const opLine = operatorLensLine(ep);
+  const hasSetup = showArmUntil || showGrades || opLine != null;
 
   // --- Slice B: lift the price window + the unified numbered events HERE so the chart and the ledger share
   // the ONE array (row #N ↔ chip #N, built once). Fetched whenever the drawer is open (asof present): the
@@ -263,6 +267,8 @@ export function EpisodeScorecard({
               )}
             </div>
           )}
+          {/* A2: the operator's decision, one quiet line — the chip/ledger row carry the full detail */}
+          {opLine && <div className="sc-muted">{opLine}</div>}
         </section>
       )}
 

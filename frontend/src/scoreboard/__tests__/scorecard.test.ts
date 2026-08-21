@@ -8,6 +8,7 @@ import {
   horizonLens,
   moveNote,
   noForwardBar,
+  operatorLensLine,
   peakTimingPhrase,
   setupStrengthPct,
 } from "../scorecard";
@@ -207,5 +208,49 @@ describe("setupStrengthPct (Lens 4)", () => {
     expect(setupStrengthPct(ep({ confidence: 0.9 }))).toBe(90);
     expect(setupStrengthPct(ep({ confidence: 0.544 }))).toBe(54);
     expect(setupStrengthPct(ep({ confidence: null }))).toBeNull();
+  });
+});
+
+// A2: the ONE quiet operator line under Lens 4 — phrased by rows.operatorLine (one source), null when
+// no decision is logged (nothing renders; the capture gap is the episode row's story).
+describe("operatorLensLine (Lens 4, A2)", () => {
+  const op = (over: Record<string, unknown> = {}) =>
+    ({
+      action: "took",
+      decision_id: "d1",
+      decision_date: "2026-06-10",
+      reason: null,
+      thesis_level: false,
+      entry_price: 12.34,
+      entry_inferred: false,
+      exit_price: null,
+      exit_inferred: false,
+      exit_date: null,
+      running: false,
+      operator_return: null,
+      ...over,
+    }) as ScoreboardEpisodeOut["operator"];
+
+  it("null when no decision is logged — no line at all, never a 'none' stub", () => {
+    expect(operatorLensLine(ep({ operator: null }))).toBeNull();
+  });
+
+  it("took: the decision date, fill, and running return; an inferred close is labeled", () => {
+    expect(
+      operatorLensLine(ep({ operator: op({ operator_return: 0.08, running: true }) })),
+    ).toBe("operator: took 2026-06-10 @ 12.34 · running +8.0%");
+    expect(
+      operatorLensLine(ep({ operator: op({ entry_inferred: true, operator_return: 0.08, running: true }) })),
+    ).toBe("operator: took 2026-06-10 @ 12.34 · running +8.0% (close, inferred)");
+  });
+
+  it("took with no return yet: the decision alone, no dangling '—'", () => {
+    expect(operatorLensLine(ep({ operator: op() }))).toBe("operator: took 2026-06-10 @ 12.34");
+  });
+
+  it("passed reads date-only — no prices ride a pass", () => {
+    expect(operatorLensLine(ep({ operator: op({ action: "passed" }) }))).toBe(
+      "operator: passed 2026-06-10",
+    );
   });
 });

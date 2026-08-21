@@ -14,7 +14,9 @@ import { buildOverlayEvents } from "../overlay";
 // live-verified by eye; here we assert the lib contract + DOM.
 
 const lw = vi.hoisted(() => {
-  const series = { setData: vi.fn(), priceToCoordinate: vi.fn(() => 80) };
+  const series = { setData: vi.fn(), setMarkers: vi.fn(), priceToCoordinate: vi.fn(() => 80) };
+  const histSeries = { setData: vi.fn(), applyOptions: vi.fn() }; // A2: the volume histogram
+  const priceScale = { applyOptions: vi.fn() }; // A2: the "vol" overlay scale
   const timeScale = {
     setVisibleRange: vi.fn(),
     fitContent: vi.fn(),
@@ -24,11 +26,13 @@ const lw = vi.hoisted(() => {
   };
   const chart = {
     addLineSeries: vi.fn(() => series),
+    addHistogramSeries: vi.fn(() => histSeries),
+    priceScale: vi.fn(() => priceScale),
     timeScale: vi.fn(() => timeScale),
     applyOptions: vi.fn(),
     remove: vi.fn(),
   };
-  return { series, timeScale, chart, createChart: vi.fn(() => chart) };
+  return { series, histSeries, priceScale, timeScale, chart, createChart: vi.fn(() => chart) };
 });
 vi.mock("lightweight-charts", () => ({
   createChart: lw.createChart,
@@ -112,9 +116,15 @@ function renderSpark(
 beforeEach(() => {
   lw.createChart.mockClear();
   lw.chart.addLineSeries.mockClear();
+  lw.chart.addHistogramSeries.mockClear();
+  lw.chart.priceScale.mockClear();
   lw.chart.remove.mockClear();
   lw.series.setData.mockClear();
+  lw.series.setMarkers.mockClear();
   lw.series.priceToCoordinate.mockClear();
+  lw.histSeries.setData.mockClear();
+  lw.histSeries.applyOptions.mockClear();
+  lw.priceScale.applyOptions.mockClear();
   lw.timeScale.setVisibleRange.mockClear();
   lw.timeScale.subscribeVisibleTimeRangeChange.mockClear();
   lw.timeScale.unsubscribeVisibleTimeRangeChange.mockClear();
@@ -273,5 +283,66 @@ describe("PriceSparkline — the Slice B cross-highlight", () => {
     rerender(<PriceSparkline {...props} activeN={2} />); // a ledger-row hover flips activeN
     expect(screen.getByRole("button", { name: /A Buyer/ })).toHaveClass("active");
     expect(lw.createChart).toHaveBeenCalledTimes(1); // NOT 2 — activeN is not an effect dep
+  });
+});
+
+// -------- Slice A2: outcome markers + the expanded-mode volume histogram --------------------------------
+// The selection (episodeMarkers) and the null-volume skip (volumeData) are overlay.test.ts's; here we
+// assert the LIB CONTRACT — what reaches setMarkers / addHistogramSeries. The expanded-mode visibility
+// FLIP rides the ResizeObserver (absent in jsdom, guarded) → live-verified by eye, per the module rule.
+describe("PriceSparkline — Slice A2: outcome markers + volume", () => {
+  it("sets the un-numbered outcome markers on the close series — labels, glyphs, muted colors", () => {
+    renderSpark({
+      ep: ep({ entry_close: 104, exit_close: 110, exit_date: "2026-06-15", peak_date: "2026-06-08" }),
+    });
+    expect(lw.series.setMarkers).toHaveBeenCalledWith([
+      { time: "2026-06-05", position: "belowBar", shape: "arrowUp", text: "entry", color: "#5a6470", size: 1 },
+      { time: "2026-06-08", position: "aboveBar", shape: "circle", text: "peak", color: "#586374", size: 1 },
+      { time: "2026-06-15", position: "aboveBar", shape: "arrowDown", text: "exit", color: "#5a6470", size: 1 },
+    ]);
+  });
+
+  it("markers are NOT chips: they add no numbered buttons to the overlay (derived, un-numbered)", () => {
+    renderSpark({
+      ep: ep({ entry_close: 104, exit_close: 110, exit_date: "2026-06-15", peak_date: "2026-06-08" }),
+    });
+    // the numbered universe is untouched: warmed + armed only (exit-by 06-20 sits past the last bar)
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /entry|exit|peak/ })).toBeNull();
+  });
+
+  it("an episode with no priced outcome sets NO markers — nothing invented (#6)", () => {
+    renderSpark(); // the default ep carries no entry_close/exit_close/peak_date
+    expect(lw.series.setMarkers).toHaveBeenCalledWith([]);
+  });
+
+  it("creates the volume histogram on its OWN 'vol' overlay scale (the close pin never sees it)", () => {
+    const vbars = BARS.map((b, i) => ({ ...b, volume: i === 1 ? null : (i + 1) * 1000 }));
+    renderSpark({ bars: vbars });
+    expect(lw.chart.addHistogramSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ priceScaleId: "vol", visible: false }), // jsdom width 320 → inline → hidden
+    );
+    expect(lw.chart.priceScale).toHaveBeenCalledWith("vol");
+    expect(lw.priceScale.applyOptions).toHaveBeenCalledWith({
+      scaleMargins: { top: 0.78, bottom: 0 }, // confined to the bottom register
+    });
+    // the null-volume bar (index 1) is a GAP, not a zero
+    expect(lw.histSeries.setData).toHaveBeenCalledWith([
+      { time: "2026-06-01", value: 1000 },
+      { time: "2026-06-03", value: 3000 },
+      { time: "2026-06-05", value: 4000 },
+      { time: "2026-06-08", value: 5000 },
+      { time: "2026-06-15", value: 6000 },
+    ]);
+  });
+
+  it("the close-line autoscale pin is untouched by A2 — the close series still provides its fixed range", () => {
+    renderSpark({ ep: ep({ entry_close: 104, exit_close: 110, exit_date: "2026-06-15" }) });
+    // the LAST addLineSeries is the close: its provider returns the pinned range (the #229 fix) even
+    // with markers set — in v4 the provider REPLACES the default computation where marker margins live
+    const closeOpts = lw.chart.addLineSeries.mock.calls[2][0];
+    const info = closeOpts.autoscaleInfoProvider();
+    expect(info.priceRange.minValue).toBeLessThan(100); // lo − pad
+    expect(info.priceRange.maxValue).toBeGreaterThan(110); // hi + pad
   });
 });

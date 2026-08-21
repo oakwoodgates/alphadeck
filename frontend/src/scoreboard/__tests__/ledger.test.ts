@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   DisplaySignal,
+  EpisodeOperatorOut,
   InsiderBuyOut,
   MemberDisplaySignalsOut,
   ScoredMemberOut,
@@ -113,6 +114,43 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(r.links).toEqual([{ label: "form4", url: "https://sec.gov/a-index.htm" }]);
     expect(r.detail).toContain("form4: 0001-a");
     expect(r.detail).toContain("fact_price_eod: close"); // the link-less source is visible, not dropped
+  });
+
+  // A2: the operator decision row — the type cell says "operator", so the detail leads with the action
+  const opRow = (over: Partial<EpisodeOperatorOut>) =>
+    ledgerRow({
+      n: 5,
+      family: "operator",
+      date: "2026-06-10",
+      closeThatDay: 107,
+      op: {
+        action: "took",
+        decision_id: "d1",
+        decision_date: "2026-06-10",
+        reason: null,
+        thesis_level: false,
+        entry_price: 12.34,
+        entry_inferred: false,
+        exit_price: null,
+        exit_inferred: false,
+        exit_date: null,
+        running: false,
+        operator_return: null,
+        ...over,
+      },
+    });
+
+  it("operator: took @ the fill, labeled logged vs inferred, with the running return (A2)", () => {
+    const r = opRow({ operator_return: 0.08, running: true });
+    expect(r.cls).toBe("ov-operator");
+    expect(r.type).toBe("operator");
+    expect(r.detail).toBe("took @ $12.34 (logged fill) · running +8.0%");
+    expect(opRow({ entry_inferred: true }).detail).toBe("took @ $12.34 (close, inferred)");
+  });
+
+  it("operator: passed carries its reason verbatim when present (A2)", () => {
+    expect(opRow({ action: "passed" }).detail).toBe("passed");
+    expect(opRow({ action: "passed", reason: "too extended" }).detail).toBe("passed · too extended");
   });
 
   it("lifecycle: the type names the specific kind; de-armed carries its reason, exit-by its gloss", () => {

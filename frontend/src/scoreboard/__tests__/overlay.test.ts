@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import type { InsiderBuyOut, PriceBar, ScoreboardEpisodeOut, TriggerRefOut } from "../../api/hooks";
+import type {
+  EpisodeOperatorOut,
+  InsiderBuyOut,
+  PriceBar,
+  ScoreboardEpisodeOut,
+  TriggerRefOut,
+} from "../../api/hooks";
 import {
   buildOverlayEvents,
   closeOnDate,
   defaultVisibleRange,
+  episodeMarkers,
   insiderSetAside,
   legendEntries,
   overlayTooltip,
   stackChips,
   triggerLinks,
+  volumeData,
 } from "../overlay";
 
 // Pure overlay logic — the parts a canvas can't render in jsdom (numbering, tooltip content, legend, the
@@ -47,6 +55,24 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
 
 function bar(d: string, close: number): Pick<PriceBar, "d" | "close"> {
   return { d, close };
+}
+
+function opDecision(over: Partial<EpisodeOperatorOut> = {}): EpisodeOperatorOut {
+  return {
+    action: "took",
+    decision_id: "d1",
+    decision_date: "2026-06-10",
+    reason: null,
+    thesis_level: false,
+    entry_price: 12.34,
+    entry_inferred: false,
+    exit_price: null,
+    exit_inferred: false,
+    exit_date: null,
+    running: false,
+    operator_return: null,
+    ...over,
+  };
 }
 
 describe("defaultVisibleRange — the episode by default (R2)", () => {
@@ -467,6 +493,177 @@ describe("legendEntries — present families only (honest loudness / #7)", () =>
 
   it("is empty when there are no events", () => {
     expect(legendEntries([])).toEqual([]);
+  });
+
+  it("names the operator family — last in the order, only when a decision chip exists (A2)", () => {
+    const bars = [bar("2026-05-15", 100), bar("2026-06-01", 104), bar("2026-06-30", 112)];
+    const withOp = buildOverlayEvents(ep({ arm_date: "2026-06-01", operator: opDecision() }), [], bars);
+    expect(legendEntries(withOp).map((l) => l.family)).toEqual(["lifecycle", "operator"]);
+    expect(legendEntries(withOp).at(-1)?.label).toBe("operator");
+    const without = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [], bars);
+    expect(legendEntries(without).some((l) => l.family === "operator")).toBe(false);
+  });
+});
+
+// -------- Slice A2: the operator chip family — a recorded decision joins the numbered universe --------
+describe("buildOverlayEvents + overlayTooltip — the operator family (A2)", () => {
+  const BARS = [
+    bar("2026-05-15", 100),
+    bar("2026-06-01", 104),
+    bar("2026-06-10", 107),
+    bar("2026-06-20", 110),
+    bar("2026-06-30", 112),
+  ];
+
+  it("numbers the decision chronologically among the families, at its decision_date", () => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01", dearm_date: "2026-06-20", operator: opDecision() }),
+      [buy({ d: "2026-05-15" })],
+      BARS,
+    );
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "insider", "2026-05-15"],
+      [2, "lifecycle", "2026-06-01"], // armed
+      [3, "operator", "2026-06-10"], // the decision, between the arm and the de-arm
+      [4, "lifecycle", "2026-06-20"], // dearmed
+    ]);
+    const op = events[2];
+    expect(op.family === "operator" && op.closeThatDay).toBe(107); // the guide-line anchor
+  });
+
+  it("a same-day decision sits after the buys and before the de-arm (insertion tiebreak)", () => {
+    const events = buildOverlayEvents(
+      ep({
+        arm_date: "2026-06-01",
+        dearm_date: "2026-06-20",
+        operator: opDecision({ decision_date: "2026-06-20" }),
+      }),
+      [],
+      BARS,
+    );
+    expect(events.map((e) => e.family)).toEqual(["lifecycle", "operator", "lifecycle"]);
+  });
+
+  it("a decision past the last drawn bar loses its chip (the tape rule — it rides Lens 4 + the row)", () => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01", operator: opDecision({ decision_date: "2026-08-01" }) }),
+      [],
+      BARS,
+    );
+    expect(events.some((e) => e.family === "operator")).toBe(false);
+  });
+
+  const tip = (over: Partial<EpisodeOperatorOut>) =>
+    overlayTooltip({
+      n: 3,
+      family: "operator",
+      date: "2026-06-10",
+      closeThatDay: 107,
+      op: opDecision(over),
+    });
+
+  it("took: the fill price, labeled for what it IS — a logged fill vs an inferred close", () => {
+    expect(tip({}).title).toBe("operator");
+    expect(tip({}).lines).toEqual(["took @ $12.34 (logged fill)"]);
+    expect(tip({ entry_inferred: true }).lines[0]).toBe("took @ $12.34 (close, inferred)");
+    expect(tip({ entry_price: null }).lines).toEqual(["took"]); // no price logged → no invented one (#6)
+  });
+
+  it("took: the operator's own exit and the running/realized return ride as lines", () => {
+    const lines = tip({
+      exit_price: 14,
+      exit_date: "2026-07-01",
+      exit_inferred: true,
+      operator_return: 0.08,
+      running: true,
+    }).lines;
+    expect(lines).toContain("exited 2026-07-01 @ $14.00 (close, inferred)");
+    expect(lines).toContain("running +8.0%");
+    // a realized (non-running) return drops the label
+    expect(tip({ operator_return: 0.123 }).lines).toContain("+12.3%");
+  });
+
+  it("passed: the reason rides verbatim; a thesis-level decision says so", () => {
+    expect(tip({ action: "passed" }).lines).toEqual(["passed"]);
+    expect(tip({ action: "passed", reason: "too extended" }).lines).toEqual(["passed", "too extended"]);
+    expect(tip({ thesis_level: true }).lines).toContain("thesis-level decision");
+    expect(tip({}).lines).not.toContain("thesis-level decision"); // only on explicit true
+  });
+});
+
+// -------- Slice A2: the un-numbered outcome markers (derived points, never chips) ---------------------
+describe("episodeMarkers — entry/exit/peak trace to wire fields, gated on the forward bar", () => {
+  const BARS = [
+    bar("2026-05-15", 100),
+    bar("2026-06-01", 104),
+    bar("2026-06-10", 107),
+    bar("2026-06-20", 110),
+  ];
+  const MATURED = {
+    arm_date: "2026-06-01",
+    entry_close: 104,
+    exit_close: 110,
+    exit_date: "2026-06-20",
+    peak_date: "2026-06-10",
+    truncated: false,
+    insufficient_prices: false,
+  };
+
+  it("a matured episode yields entry/peak/exit, ascending, with the right glyph vocabulary", () => {
+    expect(episodeMarkers(ep(MATURED), BARS)).toEqual([
+      { kind: "entry", time: "2026-06-01", position: "belowBar", shape: "arrowUp", text: "entry" },
+      { kind: "peak", time: "2026-06-10", position: "aboveBar", shape: "circle", text: "peak" },
+      { kind: "exit", time: "2026-06-20", position: "aboveBar", shape: "arrowDown", text: "exit" },
+    ]);
+  });
+
+  it("snaps a non-bar date to the latest bar ≤ it (the closeOnDate convention)", () => {
+    const m = episodeMarkers(ep({ ...MATURED, arm_date: "2026-06-02", peak_date: "2026-06-14" }), BARS);
+    expect(m.find((x) => x.kind === "entry")?.time).toBe("2026-06-01");
+    expect(m.find((x) => x.kind === "peak")?.time).toBe("2026-06-10");
+  });
+
+  it("gates exit + peak on the degenerate-forward-bar guard — a just-armed episode marks entry only", () => {
+    // exit_date === arm_date: the single-bar case (a false round-trip); insufficient_prices: no bar at all
+    const single = ep({ ...MATURED, exit_date: "2026-06-01", peak_date: "2026-06-01" });
+    expect(episodeMarkers(single, BARS).map((m) => m.kind)).toEqual(["entry"]);
+    const noBar = ep({ ...MATURED, insufficient_prices: true });
+    expect(episodeMarkers(noBar, BARS).map((m) => m.kind)).toEqual(["entry"]);
+  });
+
+  it("an exit on a TRUNCATED episode reads 'last bar' — the measurement edge, not an exit", () => {
+    const m = episodeMarkers(ep({ ...MATURED, truncated: true }), BARS);
+    expect(m.find((x) => x.kind === "exit")?.text).toBe("last bar");
+  });
+
+  it("never invents a point: a missing wire field or a date before the first bar drops that marker (#6)", () => {
+    expect(episodeMarkers(ep({ ...MATURED, entry_close: null }), BARS).map((m) => m.kind)).toEqual([
+      "peak",
+      "exit",
+    ]);
+    expect(episodeMarkers(ep({ ...MATURED, peak_date: "2026-05-01" }), BARS).map((m) => m.kind)).toEqual(
+      ["entry", "exit"], // the peak predates the first loaded bar → no honest x, dropped not clamped
+    );
+    expect(episodeMarkers(ep(MATURED), [])).toEqual([]); // no bars → nothing to anchor on
+  });
+});
+
+describe("volumeData — null-volume bars are skipped, never zero-invented (#6)", () => {
+  it("maps only the bars that carry a volume", () => {
+    expect(
+      volumeData([
+        { d: "2026-06-01", volume: 1000 },
+        { d: "2026-06-02", volume: null }, // a close-only free-EOD bar → a gap, not a 0
+        { d: "2026-06-03", volume: 2500 },
+      ]),
+    ).toEqual([
+      { time: "2026-06-01", value: 1000 },
+      { time: "2026-06-03", value: 2500 },
+    ]);
+  });
+
+  it("is empty when no bar carries a volume", () => {
+    expect(volumeData([{ d: "2026-06-01", volume: null }])).toEqual([]);
   });
 });
 

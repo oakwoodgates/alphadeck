@@ -63,6 +63,11 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
       ...(links.length > 0 ? { links } : {}),
     };
   }
+  if (e.family === "operator") {
+    // the type cell already says "operator" (= the tooltip's title), so only the LINES join: the
+    // action word leads them by construction — "took @ $X (logged fill) · running +8.0% · <reason>"
+    return { ...base, type: "operator", detail: overlayTooltip(e).lines.join(" · ") };
+  }
   const detail =
     e.kind === "dearmed"
       ? e.closeReason

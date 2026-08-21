@@ -209,6 +209,52 @@ describe("EpisodeScorecard — honest loudness on thin data", () => {
   });
 });
 
+// A2: the ONE quiet operator line under Lens 4 — present only when a decision is logged.
+describe("EpisodeScorecard — the operator line (A2)", () => {
+  const TOOK = {
+    action: "took" as const,
+    decision_id: "d1",
+    decision_date: "2026-07-12",
+    reason: null,
+    thesis_level: false,
+    entry_price: 12.34,
+    entry_inferred: false,
+    exit_price: null,
+    exit_inferred: false,
+    exit_date: null,
+    running: true,
+    operator_return: 0.08,
+  };
+
+  it("renders the quiet took line under Entry window + setup", () => {
+    renderCard(<EpisodeScorecard ep={ep({ operator: TOOK })} />);
+    expect(lens("Entry window + setup").textContent).toContain(
+      "operator: took 2026-07-12 @ 12.34 · running +8.0%",
+    );
+  });
+
+  it("the section renders for the operator line even when grades + arm_until are absent", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          operator: TOOK,
+          entry_grade: null,
+          conviction_grade: null,
+          confidence: null,
+          arm_until: null,
+          arm_until_return: null,
+        })}
+      />,
+    );
+    expect(lens("Entry window + setup").textContent).toContain("operator: took 2026-07-12");
+  });
+
+  it("no decision logged → no operator line anywhere (the row owns the capture-gap story)", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={ep()} />);
+    expect(container.textContent).not.toContain("operator:");
+  });
+});
+
 // The just-armed case (PBLS: armed with only the arm-day bar) — every forward return is a
 // degenerate 0.0% over a single bar; the scorecard must mirror the ledger row's "—", not fake flats.
 const JUST_ARMED = ep({

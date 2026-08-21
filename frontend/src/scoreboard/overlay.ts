@@ -1,15 +1,19 @@
 import type {
+  EpisodeOperatorOut,
   InsiderBuyOut,
   PriceBar,
   ProvenanceOut,
   ScoreboardEpisodeOut,
   TriggerRefOut,
 } from "../api/hooks";
-import { closeReasonLabel } from "./rows";
+import { closeReasonLabel, fmtReturn } from "./rows";
+// overlay → scorecard → rows is acyclic (scorecard imports only ../api/hooks + ./rows — checked); if
+// scorecard ever came to need overlay, move these two guards into rows.ts instead of closing the loop.
+import { fmtPrice, noForwardBar } from "./scorecard";
 
 // Pure overlay logic for the drawer chart (Slice A, Revision 1): the default visible range, the STABLE
-// chronological 1..N numbering across the three recorded event families (insider buy / arm trigger /
-// lifecycle) over the WHOLE loaded universe (the backend floors it to max(created_at−365d, first_bar)),
+// chronological 1..N numbering across the recorded event families (insider buy / arm trigger / lifecycle /
+// operator — A2) over the WHOLE loaded universe (the backend floors it to max(created_at−365d, first_bar)),
 // the hover tooltip content (with the honest disclosure lag + the market-price context), and the
 // collision-stacking. All unit-tested here; the component (PriceSparkline) owns only the imperative chart,
 // coordinate positioning, and pan/zoom, which a canvas can't run in jsdom → the reviewer live-verifies THAT
@@ -50,7 +54,72 @@ export function closeOnDate(bars: Bar[], iso: string): number | null {
   return c;
 }
 
-export type OverlayFamily = "insider" | "trigger" | "lifecycle";
+/** The latest bar's DATE with `d <= iso` — the honest x for a bar-anchored marker (a weekend/holiday
+ *  date maps to the prior trading day, exactly `closeOnDate`'s convention). Null when the date precedes
+ *  the first loaded bar: no honest x → the marker is dropped, never clamped (the A1 trigger-chip rule). */
+function barDateOnOrBefore(bars: Bar[], iso: string): string | null {
+  let d: string | null = null;
+  for (const b of bars) {
+    if (b.d <= iso) d = b.d;
+    else break;
+  }
+  return d;
+}
+
+// -------- Slice A2: un-numbered OUTCOME markers (entry / exit / peak) ------------------------------
+// DERIVED outcome points, not recorded events — so they ride lightweight-charts' setMarkers on the
+// close series (bar-anchored: the y IS the close that day), never the numbered chip universe. Each
+// traces to a wire field (#6): entry_close@arm_date, exit_close@exit_date, peak_date. Exit + peak are
+// gated on the same degenerate-forward-bar guard the lenses use (`noForwardBar`): before a forward bar
+// lands, exit_date === arm_date (a false round-trip) and the peak is a degenerate single-bar 0.0%.
+
+export type PriceMarkerKind = "entry" | "exit" | "peak";
+export interface PriceMarker {
+  kind: PriceMarkerKind;
+  time: string; // snapped to the latest bar ≤ the wire date; no bar → the marker is dropped
+  position: "aboveBar" | "belowBar";
+  shape: "arrowUp" | "arrowDown" | "circle";
+  text: string; // the tiny label; exit reads "last bar" on a truncated episode (the honest anchor)
+}
+
+/** The outcome markers for an episode, sorted ascending by time (a setMarkers requirement). Pure —
+ *  the canvas application (color, size, the setMarkers call) lives in PriceSparkline. On a truncated
+ *  episode exit_date is the measurement edge, not an exit — the label says "last bar", mirroring
+ *  `peakTimingPhrase`'s anchor idiom (scorecard.ts). peak_date === exit_date keeps both (v4 stacks). */
+export function episodeMarkers(ep: ScoreboardEpisodeOut, bars: Bar[]): PriceMarker[] {
+  const out: PriceMarker[] = [];
+  if (ep.entry_close != null) {
+    const t = barDateOnOrBefore(bars, ep.arm_date);
+    if (t != null) out.push({ kind: "entry", time: t, position: "belowBar", shape: "arrowUp", text: "entry" });
+  }
+  if (!noForwardBar(ep)) {
+    if (ep.exit_close != null && ep.exit_date != null) {
+      const t = barDateOnOrBefore(bars, ep.exit_date);
+      if (t != null)
+        out.push({
+          kind: "exit",
+          time: t,
+          position: "aboveBar",
+          shape: "arrowDown",
+          text: ep.truncated ? "last bar" : "exit",
+        });
+    }
+    if (ep.peak_date != null) {
+      const t = barDateOnOrBefore(bars, ep.peak_date);
+      if (t != null) out.push({ kind: "peak", time: t, position: "aboveBar", shape: "circle", text: "peak" });
+    }
+  }
+  out.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  return out;
+}
+
+/** The volume histogram's data (Slice A2): null-volume bars are SKIPPED, never zero-invented (#6) — a
+ *  close-only free-EOD bar simply leaves a gap. Pure; the series creation/visibility is the component's. */
+export function volumeData(bars: Pick<PriceBar, "d" | "volume">[]): { time: string; value: number }[] {
+  return bars.filter((b) => b.volume != null).map((b) => ({ time: b.d, value: b.volume as number }));
+}
+
+export type OverlayFamily = "insider" | "trigger" | "lifecycle" | "operator";
 export type LifecycleKind = "warmed" | "armed" | "dearmed" | "exit_by";
 
 interface ChipBase {
@@ -76,12 +145,20 @@ export interface LifecycleChipEvent extends ChipBase {
   kind: LifecycleKind;
   closeReason?: string | null;
 }
-export type OverlayEvent = InsiderChipEvent | TriggerChipEvent | LifecycleChipEvent;
+/** The operator's recorded decision (A2) — a numbered chip like any recorded row: one chip at
+ *  `decision_date`, the took/passed detail (fill, inferred-close, running return, reason, the
+ *  operator's own exit) riding its tooltip/ledger lines. */
+export interface OperatorChipEvent extends ChipBase {
+  family: "operator";
+  op: EpisodeOperatorOut;
+}
+export type OverlayEvent = InsiderChipEvent | TriggerChipEvent | LifecycleChipEvent | OperatorChipEvent;
 
 type RawEvent =
   | Omit<InsiderChipEvent, "n">
   | Omit<TriggerChipEvent, "n">
-  | Omit<LifecycleChipEvent, "n">;
+  | Omit<LifecycleChipEvent, "n">
+  | Omit<OperatorChipEvent, "n">;
 
 /** The overlay universe, numbered chronologically 1..N across every family (sorted by date; ties keep a
  *  stable insertion order → armed before its triggers before same-day buys). Built ONCE over the whole
@@ -122,6 +199,17 @@ export function buildOverlayEvents(
       pctVsNow: c != null && c !== 0 ? (lastClose - c) / c : null,
     });
   }
+  // A2: the operator's decision, at its decision_date. Same-day tie order (insertion): armed →
+  // triggers → buys → operator → dearmed. A decision dated past the last bar loses its chip to the
+  // `date <= last` tape rule below — DELIBERATE (nothing sits past the tape): it still rides the
+  // Lens-4 operator line + the episode row's operator cell, so the fact never vanishes (WB #2).
+  if (ep.operator)
+    raw.push({
+      family: "operator",
+      date: ep.operator.decision_date,
+      op: ep.operator,
+      closeThatDay: closeAt(ep.operator.decision_date),
+    });
   if (ep.dearm_date)
     raw.push({
       family: "lifecycle",
@@ -277,6 +365,34 @@ function triggerTooltip(e: TriggerChipEvent): TooltipContent {
   return { title: t.label, lines };
 }
 
+// A2: the operator decision's lines — the action word LEADS line 1 (not the title), so the ledger can
+// join the lines verbatim under its "operator" type cell without restating the family. Every line is a
+// wire field (#6): the fill vs inferred-close distinction is `entry_inferred`/`exit_inferred` (an
+// inferred close is LABELED, never passed off as a logged fill), the return is `operator_return` with
+// its `running` flag, the reason rides verbatim, and a thesis-level decision says so.
+function operatorTooltip(e: OperatorChipEvent): TooltipContent {
+  const op = e.op;
+  const lines: string[] = [];
+  if (op.action === "took") {
+    const price =
+      op.entry_price != null
+        ? ` @ ${fmtPrice(op.entry_price)} (${op.entry_inferred ? "close, inferred" : "logged fill"})`
+        : "";
+    lines.push(`took${price}`);
+    if (op.exit_price != null) {
+      const when = op.exit_date != null ? `${op.exit_date} ` : "";
+      lines.push(`exited ${when}@ ${fmtPrice(op.exit_price)}${op.exit_inferred ? " (close, inferred)" : ""}`);
+    }
+    if (op.operator_return != null)
+      lines.push(`${op.running ? "running " : ""}${fmtReturn(op.operator_return).text}`);
+  } else {
+    lines.push("passed");
+  }
+  if (op.reason) lines.push(op.reason);
+  if (op.thesis_level) lines.push("thesis-level decision"); // logged once for the thesis, not this name alone
+  return { title: "operator", lines };
+}
+
 const LIFECYCLE_TITLE: Record<LifecycleKind, string> = {
   warmed: "warmed",
   armed: "armed",
@@ -299,6 +415,7 @@ function lifecycleTooltip(e: LifecycleChipEvent): TooltipContent {
 export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "insider") return insiderTooltip(e);
   if (e.family === "trigger") return triggerTooltip(e);
+  if (e.family === "operator") return operatorTooltip(e);
   return lifecycleTooltip(e);
 }
 
@@ -306,8 +423,9 @@ const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   insider: { label: "insider buy", cls: "ov-insider" },
   trigger: { label: "arm trigger", cls: "ov-trigger" },
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
+  operator: { label: "operator", cls: "ov-operator" }, // A2 — muted --incub, the quiet family (#7)
 };
-const FAMILY_ORDER: OverlayFamily[] = ["insider", "trigger", "lifecycle"];
+const FAMILY_ORDER: OverlayFamily[] = ["insider", "trigger", "lifecycle", "operator"];
 
 /** The CSS class carrying a family's color (the DOM chip reads CSS vars → theme-consistent, unlike the
  *  canvas lines which must hard-code hex). */

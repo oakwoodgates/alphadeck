@@ -1257,6 +1257,9 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-chip.ov-insider { background: var(--pos); }
 .ov-chip.ov-trigger { background: var(--warm); }
 .ov-chip.ov-lifecycle { background: var(--txt-2); }
+/* A2: the operator decision chip — a recorded row like any other family, in the MUTED --incub hue (#7:
+   the operator's own action needs no loudness); light text — the near-black default is unreadable on it. */
+.ov-chip.ov-operator { background: var(--incub); color: #e8ebf0; }
 /* S2c: a SET-ASIDE insider buy (primary-market / implausible) stays visible but GREYED — WB #2 (pruning
    hides, it never vanishes): the grey says "didn't count toward the panel's open-market flow". */
 .ov-chip.ov-insider.ov-setaside { background: var(--panel-2); border-color: var(--line-2); color: var(--txt-3); }
@@ -1288,6 +1291,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-dot.ov-insider { background: var(--pos); }
 .ov-dot.ov-trigger { background: var(--warm); }
 .ov-dot.ov-lifecycle { background: var(--txt-2); }
+.ov-dot.ov-operator { background: var(--incub); }
 .sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
 .sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -1313,6 +1317,7 @@ td.evled-n, th.evled-n { width: 26px; text-align: right; font-family: var(--mono
 td.evled-n.ov-insider { color: var(--pos); }
 td.evled-n.ov-trigger { color: var(--warm); }
 td.evled-n.ov-lifecycle { color: var(--txt-2); }
+td.evled-n.ov-operator { color: var(--incub); }
 /* S2c: a set-aside buy's ledger row is muted end-to-end (the number included) — visible, never removed */
 .evled-tbl tbody tr.evled-setaside td { color: var(--txt-4); }
 .evled-tbl tbody tr.evled-setaside td.evled-n { color: var(--txt-4); }
