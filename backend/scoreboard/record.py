@@ -7,10 +7,10 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, TriggerRef
-from domain.enums import State
+from domain.enums import Kind, State
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
-from replay.schema import CallSnapshot
+from replay.schema import CallSnapshot, Episode
 from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, thesis_repo
 from scoreboard import provenance
@@ -45,6 +45,59 @@ def _triggers_at_arm(card: CallCard | None, security_id: UUID) -> list[TriggerRe
         if m.security_id == security_id:
             return m.triggers
     return [t for t in card.triggers_fired if t.security_id == security_id]
+
+
+def _dearm_detail(card: CallCard | None, security_id: UUID) -> str | None:
+    """The composed WHY behind a ``dearmed_other`` close (Slice C1) — from the de-arm-day card, in
+    priority order: the member's own fired risk labels (the risks that ended the run), then the
+    card's first ``missing[]`` entry (the key that un-turned — deliberately BEFORE the state phrase:
+    ``missing`` is non-empty exactly when a key is un-turned, so state-first would make it dead
+    code), then the state fallback, then the member-only case (the thesis stayed Armed on another
+    name — an armed card's ``missing`` is empty by construction), then None (no card recorded on
+    the de-arm day — a record gap, said as silence, never guessed). Backend-authored copy — ONE
+    authority for the "why" (the ``ingest_note`` precedent). The caller gates on
+    ``close_reason == "dearmed_other"``; the other four tokens self-explain (#7)."""
+    if card is None:
+        return None
+    risks = [r.label for r in card.risk_signals if r.security_id == security_id]
+    if risks:
+        return " · ".join(risks[:2])
+    if card.missing:
+        return f"now missing: {card.missing[0]}"
+    if card.state in (State.WARMING, State.INCUBATING):
+        return f"thesis fell back to {card.state.value.capitalize()}"
+    if card.state is State.ARMED:
+        return "left the armed set (thesis still Armed)"
+    return None
+
+
+def _risk_events(cards_by_asof: dict[date, CallCard], ep: Episode) -> list[TriggerRef]:
+    """The member's risk-signal tape over the run (Slice C2): walk the recorded cards over the
+    CLOSED interval ``[arm_date, dearm_date or last_armed_date]`` (arm day included — a risk live
+    AT arm haircut the arm's own setup strength, and omitting it would show a clean tape for an arm
+    the record itself discounted; de-arm day included — its risk is what ended the run, exactly what
+    ``_dearm_detail`` reads; an open episode's ``last_armed_date`` IS the record edge), collect the
+    risks attributed to the member, and DEDUPE by the raw ``(kind, event_date)`` — a live risk
+    re-fires on every daily card under a stable fact-anchored event date. Different kinds on the
+    same day are distinct (#9). A ``None`` event_date keys as ``(kind, None)`` — its re-fires are
+    the same live risk — and is stamped with the FIRST card-asof it appeared on (a recorded fact:
+    when the record first said it). Known, accepted limit: two DISTINCT same-kind risks sharing an
+    event date on one member would collapse to one row — in practice the assembler emits one risk
+    event per (kind, member) per card. Order: chronological by first appearance, wire order within
+    a card."""
+    walk_end = ep.dearm_date or ep.last_armed_date
+    seen: set[tuple[Kind, date | None]] = set()
+    out: list[TriggerRef] = []
+    for asof in sorted(d for d in cards_by_asof if ep.arm_date <= d <= walk_end):
+        for r in cards_by_asof[asof].risk_signals:
+            if r.security_id != ep.security_id:
+                continue
+            key = (r.kind, r.event_date)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(r if r.event_date is not None else r.model_copy(update={"event_date": asof}))
+    return out
 
 
 def _warming_since(snaps: list[CallSnapshot]) -> date | None:
@@ -127,6 +180,14 @@ def derive_thesis_record(
                     ingest_flagged=prov.ingest_flagged,
                     ingest_note=prov.ingest_note,
                     triggers_at_arm=trigs,
+                    # Slice C — composed ONLY for the one opaque token (the others self-explain, #7);
+                    # dict lookups over the cards already in hand, no new queries.
+                    dearm_detail=(
+                        _dearm_detail(cards_by_asof.get(ep.dearm_date), ep.security_id)
+                        if ep.close_reason == "dearmed_other"
+                        else None
+                    ),
+                    risk_events=_risk_events(cards_by_asof, ep),
                 )
             )
 

@@ -113,6 +113,33 @@ describe("EpisodeScorecard — a populated matured episode", () => {
     expect(reason).toHaveAttribute("title", "window_end");
   });
 
+  it("renders the composed dearm_detail on the close-reason line, raw token still behind it (Slice C)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          status: "closed",
+          dearm_date: "2026-08-01",
+          close_reason: "dearmed_other",
+          dearm_detail: "now missing: Volume-confirmed breakout (the confirmation key)",
+        })}
+      />,
+    );
+    const reason = screen.getByText(/closed ·/);
+    expect(reason).toHaveTextContent(
+      "closed · de-armed — now missing: Volume-confirmed breakout (the confirmation key)",
+    );
+    expect(reason).toHaveAttribute("title", "dearmed_other"); // translated, never hidden
+  });
+
+  it("keeps the deferral label when the backend composed nothing (dearm_detail null)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({ status: "closed", dearm_date: "2026-08-01", close_reason: "dearmed_other" })}
+      />,
+    );
+    expect(screen.getByText(/closed ·/)).toHaveTextContent("closed · de-armed (see de-arm day)");
+  });
+
   it("Lens 1 — the move: prices, the realized return, its label", () => {
     renderCard(<EpisodeScorecard ep={MATURED} />);
     const t = lens("The move").textContent ?? "";

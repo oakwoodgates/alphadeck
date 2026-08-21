@@ -154,6 +154,7 @@ export type OverlayFamily =
   | "insider"
   | "sell"
   | "trigger"
+  | "risk"
   | "activist"
   | "filing"
   | "lifecycle"
@@ -218,10 +219,22 @@ export interface TriggerChipEvent extends ChipBase {
    *  sits away from it (`date !== armDate`). The chip's x is VALID time; this is the call's time. */
   armDate: string;
 }
+/** Slice C: a fired RISK signal off the recorded daily cards (`ep.risk_events` — member-filtered,
+ *  deduped server-side). The call's own risk tape, DISTINCT from the sell/filing FACT families: a
+ *  fact is what the tape did; this is what the record made of it (a sell cluster appearing as both
+ *  per-txn `sell` chips and one `risk` chip is by design — two different claims). Rides the same
+ *  `TriggerRefOut` shape as the arm triggers, so grade/provenance/ticker come along for free. */
+export interface RiskChipEvent extends ChipBase {
+  family: "risk";
+  trigger: TriggerRefOut;
+}
 export interface LifecycleChipEvent extends ChipBase {
   family: "lifecycle";
   kind: LifecycleKind;
   closeReason?: string | null;
+  /** Slice C: the backend-composed WHY behind a `dearmed_other` close — rides the de-armed chip so
+   *  its tooltip/ledger row can answer what "(see de-arm day)" used to defer. */
+  dearmDetail?: string | null;
 }
 /** The operator's recorded decision (A2) — a numbered chip like any recorded row: one chip at
  *  `decision_date`, the took/passed detail (fill, inferred-close, running return, reason, the
@@ -245,6 +258,7 @@ export type OverlayEvent =
   | InsiderChipEvent
   | SellChipEvent
   | TriggerChipEvent
+  | RiskChipEvent
   | ActivistChipEvent
   | FilingChipEvent
   | LifecycleChipEvent
@@ -255,6 +269,7 @@ type RawEvent =
   | Omit<InsiderChipEvent, "n">
   | Omit<SellChipEvent, "n">
   | Omit<TriggerChipEvent, "n">
+  | Omit<RiskChipEvent, "n">
   | Omit<ActivistChipEvent, "n">
   | Omit<FilingChipEvent, "n">
   | Omit<LifecycleChipEvent, "n">
@@ -303,6 +318,17 @@ export function buildOverlayEvents(
     const d = t.event_date != null && t.event_date >= bars[0].d ? t.event_date : ep.arm_date;
     raw.push({ family: "trigger", date: d, trigger: t, armDate: ep.arm_date, closeThatDay: closeAt(d) });
   }
+  // Slice C: the run's fired RISK signals (member-filtered + deduped server-side), right after the
+  // triggers so the call-record families tie together on a shared day. The anchor rule is the
+  // trigger's exactly: the fact-anchored `event_date` where the loaded window can show it, else the
+  // ARM as the honest fallback anchor (a risk that pre-dates the window — an old note issuance, say
+  // — rode this run all the same); the tooltip names the true fire date in the fallback case (#6).
+  // The backend stamps every event_date (a legacy None gets the first card-asof), so the null guard
+  // is belt-and-suspenders, not a path.
+  for (const t of ep.risk_events ?? []) {
+    const d = t.event_date != null && t.event_date >= bars[0].d ? t.event_date : ep.arm_date;
+    raw.push({ family: "risk", date: d, trigger: t, closeThatDay: closeAt(d) });
+  }
   for (const b of insiderBuys) {
     const c = closeAt(b.d);
     raw.push({
@@ -332,7 +358,7 @@ export function buildOverlayEvents(
   for (const st of wire?.stakes ?? [])
     raw.push({ family: "activist", date: st.d, stake: st, closeThatDay: closeAt(st.d) });
   // A2: the operator's decision, at its decision_date. Same-day tie order (insertion): armed →
-  // triggers → buys → sells → filings → stakes → operator → dearmed. A decision dated past the last
+  // triggers → risks → buys → sells → filings → stakes → operator → dearmed. A decision dated past the last
   // bar loses its chip to the `date <= last` tape rule below — DELIBERATE (nothing sits past the
   // tape): it still rides the Lens-4 operator line + the episode row's operator cell, so the fact
   // never vanishes (WB #2).
@@ -349,6 +375,7 @@ export function buildOverlayEvents(
       date: ep.dearm_date,
       kind: "dearmed",
       closeReason: ep.close_reason,
+      dearmDetail: ep.dearm_detail, // Slice C: the composed WHY rides the de-armed chip
       closeThatDay: closeAt(ep.dearm_date),
     });
   if (ep.exit_by)
@@ -612,6 +639,24 @@ function triggerTooltip(e: TriggerChipEvent): TooltipContent {
   return { title: t.label, lines };
 }
 
+// Slice C: the risk chip's lines — the trigger tooltip's shape minus what a risk never has (a grade:
+// risks are ungraded by construction — `grade=None` on every risk TriggerRef; an arm linkage: a risk
+// rode the run, it didn't feed the arm). The true fire date is named ONLY in the fallback-anchor case
+// (the same rule as the trigger chip — at its own date the line would restate the chip's x).
+function riskTooltip(e: RiskChipEvent): TooltipContent {
+  const t = e.trigger;
+  const lines: string[] = [];
+  const source = [t.kind, t.ticker].filter(Boolean).join(" · ");
+  if (source) lines.push(source);
+  if (t.event_date != null && t.event_date !== e.date)
+    lines.push(`fired ${t.event_date} (before the loaded window)`);
+  const sources = t.sources ?? [];
+  for (const p of sources.slice(0, PROVENANCE_LINES)) lines.push(`${p.source}: ${p.ref}`);
+  const hidden = sources.length - PROVENANCE_LINES;
+  if (hidden > 0) lines.push(`+${hidden} more source${hidden === 1 ? "" : "s"}`); // visible, not dropped
+  return { title: t.label, lines };
+}
+
 // A2: the operator decision's lines — the action word LEADS line 1 (not the title), so the ledger can
 // join the lines verbatim under its "operator" type cell without restating the family. Every line is a
 // wire field (#6): the fill vs inferred-close distinction is `entry_inferred`/`exit_inferred` (an
@@ -649,12 +694,17 @@ const LIFECYCLE_TITLE: Record<LifecycleKind, string> = {
 
 function lifecycleTooltip(e: LifecycleChipEvent): TooltipContent {
   // the de-arm reason reads as ENGLISH here (`closeReasonLabel`), not as the wire token — the raw token
-  // stays reachable on the components that render it (a `title=`), so nothing is hidden, only translated
+  // stays reachable on the components that render it (a `title=`), so nothing is hidden, only translated.
+  // Slice C: a composed dearm_detail ANSWERS the why on its own line, so the title drops the
+  // "(see de-arm day)" deferral it would otherwise parenthesize — plain "de-armed", answer below.
+  const hasDetail = e.kind === "dearmed" && Boolean(e.dearmDetail);
   const title =
-    e.kind === "dearmed" && e.closeReason
+    e.kind === "dearmed" && e.closeReason && !hasDetail
       ? `de-armed (${closeReasonLabel(e.closeReason)})`
       : LIFECYCLE_TITLE[e.kind];
-  return { title, lines: [e.date] };
+  const lines = [e.date];
+  if (hasDetail) lines.push(e.dearmDetail!);
+  return { title, lines };
 }
 
 // A3: the tape chip's EPISTEMICS — the two lines that keep a computed indicator from being read as
@@ -681,6 +731,7 @@ export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "filing") return filingTooltip(e);
   if (e.family === "activist") return activistTooltip(e);
   if (e.family === "trigger") return triggerTooltip(e);
+  if (e.family === "risk") return riskTooltip(e);
   if (e.family === "operator") return operatorTooltip(e);
   if (e.family === "signal") return signalTooltip(e);
   return lifecycleTooltip(e);
@@ -690,6 +741,9 @@ const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   insider: { label: "insider buy", cls: "ov-insider" },
   sell: { label: "insider sell", cls: "ov-sell" }, // Slice B — muted negative hue
   trigger: { label: "arm trigger", cls: "ov-trigger" },
+  // Slice C — the call's own risk tape: muted negative like the sell family but HOLLOW (outline vs
+  // fill), so "the record flagged risk" never blurs with "an insider sold" mid-scan (#7 quiet).
+  risk: { label: "risk signal", cls: "ov-risk" },
   activist: { label: "activist stake", cls: "ov-activist" }, // Slice B — 13D at weight; 13G greys
   filing: { label: "8-K filing", cls: "ov-filing" }, // Slice B — grey, the common-tape family (#7)
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
@@ -702,6 +756,7 @@ const FAMILY_ORDER: OverlayFamily[] = [
   "insider",
   "sell",
   "trigger",
+  "risk",
   "activist",
   "filing",
   "lifecycle",

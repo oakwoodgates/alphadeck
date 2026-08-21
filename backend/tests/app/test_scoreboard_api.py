@@ -8,8 +8,9 @@ import pytest
 from app.routers import scoreboard
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.enums import Grade
 from repositories import thesis_repo
-from tests.calls.factories import insider_event
+from tests.calls.factories import breakdown_event, insider_event, insider_sell_event
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
 # GET /scoreboard — the record served: shape, asof scrubbing, the metrics gate (matured +
@@ -162,6 +163,36 @@ def test_include_archived_param(client, db, security_id):
 
     body = client.get("/scoreboard", params={"asof": ASOF, "include_archived": "false"}).json()
     assert body["theses"] == [] and body["summary"]["n_episodes"] == 0
+
+
+def test_slice_c_fields_ride_the_wire(client, db, security_id):
+    """dearm_detail + risk_events serialize: the composed WHY on a dearmed_other close, and the
+    deduped member risk tape with resolved ticker + clickable provenance (#6 — the same
+    ``_trigger_out`` path the arm triggers ride)."""
+    thesis = persist_thesis(db, security_id)
+    warm = [
+        insider_event(security_id=security_id, liveness=60).model_copy(
+            update={"asof": date(2026, 5, 29)}
+        )
+    ]
+    record_day(db, thesis, warm, date(2026, 5, 29))  # warming first: the arm is not censored
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=30)
+    sell = insider_sell_event().model_copy(
+        update={"security_id": security_id, "asof": date(2026, 6, 1)}
+    )
+    record_day(db, thesis, [conv, conf, sell], date(2026, 6, 1))  # armed, sell risk riding
+    down = breakdown_event(dearm_grade=Grade.CORE, asof=date(2026, 6, 5), security_id=security_id)
+    record_day(db, thesis, [conv, conf, sell, down], date(2026, 6, 5))  # the break de-arms
+
+    ep = _one_episode(client)
+    assert ep["close_reason"] == "dearmed_other"
+    # the de-arm-day card carries BOTH member risks -> the detail joins the first two labels
+    assert "sold" in ep["dearm_detail"] and "Structural break" in ep["dearm_detail"]
+    assert [r["kind"] for r in ep["risk_events"]] == ["insider_sell", "breakdown"]
+    assert all(r["ticker"] == "DEVCO" for r in ep["risk_events"])
+    assert ep["risk_events"][0]["event_date"] == "2026-06-01"  # the fact-anchored fire date
+    form4 = ep["risk_events"][0]["sources"][0]
+    assert form4["source"] == "form4" and form4["url"]  # resolved via the issuer CIK (#6)
 
 
 # --- 2d: record provenance — flagged episodes stay in the ledger, out of the aggregates ---

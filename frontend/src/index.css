@@ -1260,6 +1260,16 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    pulled well toward the panel ground, with light numerals for legibility on the darkened red. */
 .ov-chip.ov-sell { background: color-mix(in srgb, var(--neg) 45%, var(--bg-2)); color: #e8ebf0; }
 .ov-chip.ov-trigger { background: var(--warm); }
+/* Slice C: the fired RISK-signal chip — the call's own risk tape (deduped, off the recorded daily
+   cards), in a muted negative DISTINCT from the sell fact family: HOLLOW (outline on the panel
+   ground) where the sell is filled, so "the record flagged risk" never blurs with "an insider
+   sold" mid-scan. Quiet by construction (#7): a risk that rode the run is context on the path,
+   not an alarm. */
+.ov-chip.ov-risk {
+  background: var(--bg-2);
+  border-color: color-mix(in srgb, var(--neg) 55%, var(--bg-2));
+  color: var(--neg);
+}
 /* Slice B: the 13D/G stake — its own accent at family weight (a 13D is a capital-committed act);
    the 13G/passive family greys via .ov-setaside below, mirroring "13G fires nothing". */
 .ov-chip.ov-activist { background: var(--activist); }
@@ -1312,6 +1322,8 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-dot.ov-insider { background: var(--pos); }
 .ov-dot.ov-sell { background: color-mix(in srgb, var(--neg) 45%, var(--bg-2)); }
 .ov-dot.ov-trigger { background: var(--warm); }
+/* Slice C: hollow, matching its chip (outline = risk, fill = sell — the scan-level distinction) */
+.ov-dot.ov-risk { background: var(--bg-2); border: 1px solid color-mix(in srgb, var(--neg) 55%, var(--bg-2)); }
 .ov-dot.ov-activist { background: var(--activist); }
 .ov-dot.ov-filing { background: var(--txt-3); }
 .ov-dot.ov-lifecycle { background: var(--txt-2); }
@@ -1342,6 +1354,8 @@ td.evled-n, th.evled-n { width: 26px; text-align: right; font-family: var(--mono
 td.evled-n.ov-insider { color: var(--pos); }
 td.evled-n.ov-sell { color: var(--neg); } /* Slice B: as text the plain hue already reads muted */
 td.evled-n.ov-trigger { color: var(--warm); }
+/* Slice C: dimmer than the sell row's plain --neg — the risk row is quieter than the fact row */
+td.evled-n.ov-risk { color: color-mix(in srgb, var(--neg) 65%, var(--txt-3)); }
 td.evled-n.ov-activist { color: var(--activist); }
 td.evled-n.ov-filing { color: var(--txt-3); } /* the quiet common-tape family (#7) */
 td.evled-n.ov-lifecycle { color: var(--txt-2); }

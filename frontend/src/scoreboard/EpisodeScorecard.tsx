@@ -7,7 +7,7 @@ import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines } from "./ledger";
 import { buildOverlayEvents, tapeSignals } from "./overlay";
 import {
-  closeReasonLabel,
+  closeReasonLine,
   episodeBadges,
   fmtReturn,
   ingestProvenanceLine,
@@ -147,9 +147,11 @@ export function EpisodeScorecard({
         </div>
       )}
       {ep.status === "closed" && ep.close_reason && (
-        // the reason in English; `title` keeps the raw wire token one hover away (translated, not hidden)
+        // the reason in English; `title` keeps the raw wire token one hover away (translated, not
+        // hidden). Slice C: a composed dearm_detail turns the "(see de-arm day)" deferral into the
+        // actual answer — backend-authored copy, this line only renders it.
         <div className="sc-reason" title={ep.close_reason}>
-          closed · {closeReasonLabel(ep.close_reason)}
+          closed · {closeReasonLine(ep.close_reason, ep.dearm_detail)}
         </div>
       )}
       {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a

@@ -6453,6 +6453,25 @@
             "title": "Triggers At Arm",
             "default": []
           },
+          "dearm_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dearm Detail"
+          },
+          "risk_events": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Risk Events",
+            "default": []
+          },
           "entry_close": {
             "anyOf": [
               {

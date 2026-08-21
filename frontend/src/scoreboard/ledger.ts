@@ -9,7 +9,7 @@ import {
   type ProvenanceLink,
   triggerLinks,
 } from "./overlay";
-import { closeReasonLabel } from "./rows";
+import { closeReasonLine } from "./rows";
 
 // Pure formatters for the drawer's per-episode event LEDGER (Slice B) — the tabular companion to the chart.
 // The ledger lists the SAME numbered events the chart draws (row #N ↔ chip #N); it shares the ONE `events`
@@ -95,6 +95,19 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
       ...(links.length > 0 ? { links } : {}),
     };
   }
+  if (e.family === "risk") {
+    // Slice C: a fired risk off the recorded daily cards (deduped server-side) — the call's own
+    // risk tape, distinct from the sell/filing FACT rows (a fact is what the tape did; this is what
+    // the record made of it). Detail leads with the risk's label; the filing rides as the jump (#6).
+    const tip = overlayTooltip(e);
+    const links = triggerLinks(e.trigger);
+    return {
+      ...base,
+      type: "risk signal",
+      detail: [tip.title, ...tip.lines].join(" · "),
+      ...(links.length > 0 ? { links } : {}),
+    };
+  }
   if (e.family === "operator") {
     // the type cell already says "operator" (= the tooltip's title), so only the LINES join: the
     // action word leads them by construction — "took @ $X (logged fill) · running +8.0% · <reason>"
@@ -113,8 +126,10 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     e.kind === "dearmed"
       ? e.closeReason
         // English, not the wire token — the raw token stays reachable on the same drawer, in the
-        // scorecard header's `title=` (the drawer never shows the label without the token behind it)
-        ? closeReasonLabel(e.closeReason)
+        // scorecard header's `title=` (the drawer never shows the label without the token behind
+        // it). Slice C: a composed dearm_detail replaces the "(see de-arm day)" deferral with the
+        // actual answer (`closeReasonLine`); every other token reads exactly as before.
+        ? closeReasonLine(e.closeReason, e.dearmDetail)
         : "—"
       : e.kind === "exit_by"
         ? "signal-validity horizon"

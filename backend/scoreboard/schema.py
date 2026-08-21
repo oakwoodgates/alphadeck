@@ -87,6 +87,19 @@ class ScoredEpisode(BaseModel):
     ingest_flagged: bool = False  # the rollup: badge + excluded from aggregate metrics
     ingest_note: str | None = None  # the composed human "why" — None when clean
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
+    # Slice C — the run's own record detail, each field composed from the recorded cards (#6) and
+    # DEFAULTED on the replay path (CallSnapshot deliberately drops risk_signals/missing — do not
+    # widen it; an old artifact parses to these defaults):
+    # - ``dearm_detail``: the composed WHY behind a ``dearmed_other`` close — the ONE opaque token
+    #   (the other four self-explain, #7). Backend-authored copy, one authority (the ``ingest_note``
+    #   precedent). None when another token closed the run, or the de-arm-day card says nothing.
+    dearm_detail: str | None = None
+    # - ``risk_events``: the member's fired risk signals over ``[arm_date, dearm_date or the record
+    #   edge]`` (both ends inclusive — a risk live AT arm haircut the arm's own setup strength, and
+    #   the de-arm-day risk is what ended the run), deduped by ``(kind, event_date)`` since a live
+    #   risk re-fires on every daily card. A ``None`` event_date is stamped with the FIRST card-asof
+    #   it appeared on — a recorded fact (when the record first said it), NOT the market event date.
+    risk_events: list[TriggerRef] = []
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
 
 

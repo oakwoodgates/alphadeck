@@ -9,6 +9,7 @@ import type {
 import {
   awaitingForwardBar,
   closeReasonLabel,
+  closeReasonLine,
   episodeBadges,
   fmtPastPeak,
   fmtReturn,
@@ -182,6 +183,25 @@ describe("closeReasonLabel — every de-arm token in English, unknown tokens raw
   it("an unknown token returns ITSELF — a new backend reason surfaces, never blanks out (#9)", () => {
     expect(closeReasonLabel("some_future_reason")).toBe("some_future_reason");
     expect(closeReasonLabel("")).toBe("");
+  });
+});
+
+// Slice C: the composed dearm_detail turns the "(see de-arm day)" deferral into the actual answer.
+describe("closeReasonLine — a composed detail answers dearmed_other; everything else is unchanged", () => {
+  it("dearmed_other WITH a backend-composed detail reads the answer", () => {
+    expect(
+      closeReasonLine(
+        "dearmed_other",
+        "now missing: Volume-confirmed breakout (the confirmation key)",
+      ),
+    ).toBe("de-armed — now missing: Volume-confirmed breakout (the confirmation key)");
+  });
+  it("falls through to closeReasonLabel without a detail, and on every other token", () => {
+    expect(closeReasonLine("dearmed_other", null)).toBe("de-armed (see de-arm day)");
+    expect(closeReasonLine("dearmed_other", undefined)).toBe("de-armed (see de-arm day)");
+    // the detail composes ONLY for the one opaque token — a self-explaining close never grows one
+    expect(closeReasonLine("arm_until_lapsed", "spurious")).toBe("entry window lapsed");
+    expect(closeReasonLine("some_future_reason", null)).toBe("some_future_reason");
   });
 });
 

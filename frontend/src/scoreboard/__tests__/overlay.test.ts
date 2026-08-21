@@ -296,6 +296,86 @@ describe("buildOverlayEvents — stable, unified chronological 1..N (R1)", () =>
     // pctVsNow = (last 112 − 107) / 107
     expect(ins?.family === "insider" ? ins.pctVsNow : null).toBeCloseTo((112 - 107) / 107, 5);
   });
+
+  // Slice C: the risk family — the call's own risk tape (ep.risk_events, deduped server-side),
+  // numbered like every recorded family at its fact-anchored event_date.
+  it("numbers risk chips at their event_date; a same-day tie reads trigger before risk", () => {
+    const trig = { label: "insider cluster", kind: "insider", event_date: "2026-06-01" } as TriggerRefOut;
+    const later = { label: "sell cluster", kind: "insider_sell", event_date: "2026-06-10" } as TriggerRefOut;
+    const sameDay = { label: "dilution", kind: "dilution_risk", event_date: "2026-06-01" } as TriggerRefOut;
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01", triggers_at_arm: [trig], risk_events: [later, sameDay] }),
+      [],
+      BARS,
+    );
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "lifecycle", "2026-06-01"], // armed
+      [2, "trigger", "2026-06-01"],
+      [3, "risk", "2026-06-01"], // the same-day risk ties AFTER the trigger (insertion order)
+      [4, "risk", "2026-06-10"],
+    ]);
+  });
+
+  it("anchors a pre-window risk at the arm (the trigger's fallback rule) and names the true fire date", () => {
+    // e.g. dilution_clock anchors on a years-old note issuance — the risk rode THIS run all the same
+    const risk = { label: "old notes", kind: "dilution_risk", event_date: "2021-03-01" } as TriggerRefOut;
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01", risk_events: [risk] }), [], BARS);
+    const r = events.find((e) => e.family === "risk");
+    expect(r?.date).toBe("2026-06-01"); // never clamped onto a bar that never saw it, never dropped
+    expect(r && overlayTooltip(r).lines).toContain("fired 2021-03-01 (before the loaded window)");
+  });
+
+  it("risk tooltip: the label titles it; kind · ticker + capped provenance; no grade, no arm linkage", () => {
+    const risk = {
+      label: "2 insiders sold $1.9M open-market",
+      kind: "insider_sell",
+      grade: null,
+      event_date: "2026-06-10",
+      ticker: "DEVCO",
+      sources: [
+        { source: "form4", ref: "0001-26-000321", url: null, detail: {} },
+        { source: "form4", ref: "0001-26-000322", url: null, detail: {} },
+        { source: "form4", ref: "0001-26-000323", url: null, detail: {} },
+      ],
+    } as TriggerRefOut;
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01", risk_events: [risk] }), [], BARS);
+    const tip = overlayTooltip(events.find((e) => e.family === "risk")!);
+    expect(tip.title).toBe("2 insiders sold $1.9M open-market");
+    expect(tip.lines).toEqual([
+      "insider_sell · DEVCO",
+      "form4: 0001-26-000321",
+      "form4: 0001-26-000322",
+      "+1 more source", // the cap keeps the omission visible (#9)
+    ]);
+  });
+
+  it("legend names the risk family only when present (#7)", () => {
+    const risk = { label: "r", kind: "insider_sell", event_date: "2026-06-10" } as TriggerRefOut;
+    const withRisk = buildOverlayEvents(ep({ risk_events: [risk] }), [], BARS);
+    expect(legendEntries(withRisk).map((l) => l.family)).toContain("risk");
+    expect(legendEntries(buildOverlayEvents(ep(), [], BARS)).map((l) => l.family)).not.toContain("risk");
+  });
+
+  it("de-armed tooltip carries the composed dearm_detail as a line (Slice C)", () => {
+    const events = buildOverlayEvents(
+      ep({
+        arm_date: "2026-06-01",
+        dearm_date: "2026-06-10",
+        close_reason: "dearmed_other",
+        dearm_detail: "now missing: Volume-confirmed breakout (the confirmation key)",
+      }),
+      [],
+      BARS,
+    );
+    const de = events.find((e) => e.family === "lifecycle" && e.kind === "dearmed");
+    const tip = overlayTooltip(de!);
+    // the title drops the "(see de-arm day)" deferral when the answer rides below it
+    expect(tip.title).toBe("de-armed");
+    expect(tip.lines).toEqual([
+      "2026-06-10",
+      "now missing: Volume-confirmed breakout (the confirmation key)",
+    ]);
+  });
 });
 
 describe("overlayTooltip — provenance-first, honest disclosure lag + price context", () => {

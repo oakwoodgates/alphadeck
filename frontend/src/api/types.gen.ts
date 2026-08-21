@@ -3150,6 +3150,13 @@ export interface components {
              * @default []
              */
             triggers_at_arm: components["schemas"]["TriggerRefOut"][];
+            /** Dearm Detail */
+            dearm_detail?: string | null;
+            /**
+             * Risk Events
+             * @default []
+             */
+            risk_events: components["schemas"]["TriggerRefOut"][];
             /** Entry Close */
             entry_close?: number | null;
             /** Exit Close */

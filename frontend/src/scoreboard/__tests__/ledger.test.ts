@@ -206,6 +206,53 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(ledgerRow(lc("dearmed"))).toMatchObject({ type: "de-armed", detail: "—" }); // no reason → "—"
     expect(ledgerRow(lc("exit_by"))).toMatchObject({ type: "exit-by", detail: "signal-validity horizon" });
   });
+
+  // Slice C: the composed dearm_detail answers the "(see de-arm day)" deferral in the row itself.
+  it("de-armed: a composed dearm_detail replaces the deferral with the actual answer (Slice C)", () => {
+    const r = ledgerRow({
+      n: 7,
+      family: "lifecycle",
+      date: "2026-06-05",
+      closeThatDay: 100,
+      kind: "dearmed",
+      closeReason: "dearmed_other",
+      dearmDetail: "Structural break: closed below the 200-day base (a de-arm, not a sell)",
+    });
+    expect(r.detail).toBe(
+      "de-armed — Structural break: closed below the 200-day base (a de-arm, not a sell)",
+    );
+  });
+
+  // Slice C: the risk row — the call's own risk tape, distinct from the sell/filing FACT rows.
+  it("risk: label + kind · ticker + provenance in the detail, the filing as the row's jump (#6)", () => {
+    const trigger = {
+      label: "2 insiders incl. senior officer sold $1,850,000 open-market (code S) across 3 txns",
+      kind: "insider_sell",
+      grade: null,
+      event_date: "2026-06-01",
+      ticker: "DEVCO",
+      sources: [
+        {
+          source: "form4",
+          ref: "0001234567-26-000321",
+          url: "https://www.sec.gov/Archives/edgar/data/123/000123456726000321-index.htm",
+          detail: {},
+        },
+      ],
+    } as TriggerRefOut;
+    const r = ledgerRow({ n: 4, family: "risk", date: "2026-06-01", closeThatDay: null, trigger });
+    expect(r.type).toBe("risk signal");
+    expect(r.cls).toBe("ov-risk");
+    expect(r.detail).toContain("sold $1,850,000 open-market");
+    expect(r.detail).toContain("insider_sell · DEVCO");
+    expect(r.detail).toContain("form4: 0001234567-26-000321"); // the ref rides as TEXT too
+    expect(r.links).toEqual([
+      {
+        label: "form4",
+        url: "https://www.sec.gov/Archives/edgar/data/123/000123456726000321-index.htm",
+      },
+    ]);
+  });
 });
 
 describe("identityCells — the Cockpit identity line, honest '—' for a missing field (#6)", () => {
