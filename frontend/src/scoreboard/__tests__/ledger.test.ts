@@ -326,3 +326,117 @@ describe("signalHeadlines — present-only, in the display registry order (#7)",
     expect(signalHeadlines(null)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Slice B: the three widened families' rows — sell / 8-K filing / 13D-G stake.
+
+describe("ledgerRow — the Slice B families", () => {
+  it("sell: the buy row mirrored — who + fill + character line; the date echo drops", () => {
+    const r = ledgerRow({
+      n: 3,
+      family: "sell",
+      date: "2026-06-02",
+      closeThatDay: 102,
+      pctVsNow: 0.08,
+      sell: {
+        d: "2026-06-02",
+        insider_name: "A Seller",
+        insider_role: "CFO",
+        shares: 2000,
+        usd: 90000,
+        aff_10b5_1: true,
+        disclosed: "2026-06-04",
+        ingested: "2026-06-04",
+        character: "planned",
+      },
+    });
+    expect(r.cls).toBe("ov-sell");
+    expect(r.type).toBe("insider sell");
+    expect(r.detail).toContain("A Seller (CFO)");
+    expect(r.detail).toContain("sold 2,000 sh @ $90K");
+    expect(r.detail).toContain("disclosed 2d later (2026-06-04)");
+    expect(r.detail).toContain("10b5-1 planned sale (near-noise, screened)"); // why it didn't count (#6)
+    expect(r.detail).toContain("stock $102 that day · +8% vs now");
+    expect(r.detail).not.toContain("transacted"); // the date is its own column
+    expect(r.links).toBeUndefined(); // no per-row filing URL on the insider wire — no empty affordance
+  });
+
+  it("filing: type = the verbatim form; detail = items + ingest lag (no 'filed' echo); links the EDGAR index (#6)", () => {
+    const r = ledgerRow({
+      n: 4,
+      family: "filing",
+      date: "2026-06-03",
+      closeThatDay: 104,
+      event: {
+        d: "2026-06-03",
+        form: "8-K",
+        items: ["2.02", "9.01"],
+        url: "https://www.sec.gov/Archives/edgar/data/1/acc-index.htm",
+        ingested: "2026-06-08",
+      },
+    });
+    expect(r.cls).toBe("ov-filing");
+    expect(r.type).toBe("8-K");
+    expect(r.detail).toContain("items 2.02, 9.01");
+    expect(r.detail).toContain("ingested 5d later (2026-06-08)");
+    expect(r.detail).not.toContain("filed "); // the date is its own column
+    expect(r.links).toEqual([
+      { label: "filing index", url: "https://www.sec.gov/Archives/edgar/data/1/acc-index.htm" },
+    ]);
+  });
+
+  it("filing: null items reads 'items unresolved' — honest, never dropped (#9)", () => {
+    const r = ledgerRow({
+      n: 4,
+      family: "filing",
+      date: "2026-06-03",
+      closeThatDay: null,
+      event: { d: "2026-06-03", form: "8-K/A", items: null, url: "https://x.test/i.htm", ingested: "2026-06-03" },
+    });
+    expect(r.type).toBe("8-K/A");
+    expect(r.detail).toContain("items unresolved");
+  });
+
+  it("stake: type = the verbatim form; detail = filer + pct; links the index; unresolved reads so", () => {
+    const base = {
+      n: 5,
+      family: "activist" as const,
+      date: "2026-06-04",
+      closeThatDay: 106,
+    };
+    const resolved = ledgerRow({
+      ...base,
+      stake: {
+        d: "2026-06-04",
+        form: "SCHEDULE 13D",
+        filer_name: "Engaged Capital",
+        filer_cik: "0009876543",
+        pct_owned: 6.2,
+        url: "https://www.sec.gov/Archives/edgar/data/1/acc13d-index.htm",
+        ingested: "2026-06-04",
+      },
+    });
+    expect(resolved.cls).toBe("ov-activist");
+    expect(resolved.type).toBe("SCHEDULE 13D");
+    expect(resolved.detail).toContain("Engaged Capital");
+    expect(resolved.detail).toContain("6.2% of class");
+    expect(resolved.links).toEqual([
+      { label: "filing index", url: "https://www.sec.gov/Archives/edgar/data/1/acc13d-index.htm" },
+    ]);
+    const unresolved = ledgerRow({
+      ...base,
+      stake: {
+        d: "2026-06-04",
+        form: "SC 13G",
+        filer_name: null,
+        filer_cik: null,
+        pct_owned: null,
+        url: "https://x.test/g.htm",
+        ingested: "2026-06-04",
+      },
+    });
+    expect(unresolved.type).toBe("SC 13G");
+    expect(unresolved.detail).toContain("filer unresolved"); // #9 — said, never guessed or dropped
+    expect(unresolved.detail).not.toContain("% of class");
+  });
+});

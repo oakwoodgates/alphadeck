@@ -1,8 +1,11 @@
 import type {
+  ActivistStakeOut,
+  CorporateEventOut,
   DisplayEvent,
   DisplaySignal,
   EpisodeOperatorOut,
   InsiderBuyOut,
+  InsiderSellOut,
   MemberDisplaySignalsOut,
   PriceBar,
   ProvenanceOut,
@@ -147,7 +150,15 @@ export function volumeData(bars: Pick<PriceBar, "d" | "volume">[]): { time: stri
   return bars.filter((b) => b.volume != null).map((b) => ({ time: b.d, value: b.volume as number }));
 }
 
-export type OverlayFamily = "insider" | "trigger" | "lifecycle" | "operator" | "signal";
+export type OverlayFamily =
+  | "insider"
+  | "sell"
+  | "trigger"
+  | "activist"
+  | "filing"
+  | "lifecycle"
+  | "operator"
+  | "signal";
 export type LifecycleKind = "warmed" | "armed" | "dearmed" | "exit_by";
 
 // -------- Slice A3: the DISPLAY-SIGNAL kinds whose events earn a chip -------------------------------
@@ -178,6 +189,27 @@ export interface InsiderChipEvent extends ChipBase {
   family: "insider";
   buy: InsiderBuyOut;
   pctVsNow: number | null; // return from closeThatDay to the last drawn bar (the "−12% vs now" context)
+}
+/** Slice B: a code-S insider sale — the recorded mirror of the buy chip. `character` (server-side,
+ *  the CALL screen's bucket wire-mapped) drives the set-aside grey: everything except `kept` is
+ *  screened out of the detector's cluster and renders greyed + labeled, never hidden (WB #2). */
+export interface SellChipEvent extends ChipBase {
+  family: "sell";
+  sell: InsiderSellOut;
+  pctVsNow: number | null; // same market-context read as the buy chip
+}
+/** Slice B: one stored 8-K (every one in-window rides — the server never item-cuts; loudness is
+ *  this layer's concern, expressed as the family's quiet grey, never as an omission). */
+export interface FilingChipEvent extends ChipBase {
+  family: "filing";
+  event: CorporateEventOut;
+}
+/** Slice B: one stored 13D/G-family filing. The 13D family carries the family weight; the 13G
+ *  family renders greyed-passive — mirroring the fire policy (13G fires nothing) as display weight,
+ *  never as an omission. Unresolved filer identity reads "filer unresolved", never dropped (#9). */
+export interface ActivistChipEvent extends ChipBase {
+  family: "activist";
+  stake: ActivistStakeOut;
 }
 export interface TriggerChipEvent extends ChipBase {
   family: "trigger";
@@ -211,14 +243,20 @@ export interface SignalChipEvent extends ChipBase {
 }
 export type OverlayEvent =
   | InsiderChipEvent
+  | SellChipEvent
   | TriggerChipEvent
+  | ActivistChipEvent
+  | FilingChipEvent
   | LifecycleChipEvent
   | OperatorChipEvent
   | SignalChipEvent;
 
 type RawEvent =
   | Omit<InsiderChipEvent, "n">
+  | Omit<SellChipEvent, "n">
   | Omit<TriggerChipEvent, "n">
+  | Omit<ActivistChipEvent, "n">
+  | Omit<FilingChipEvent, "n">
   | Omit<LifecycleChipEvent, "n">
   | Omit<OperatorChipEvent, "n">
   | Omit<SignalChipEvent, "n">;
@@ -233,12 +271,19 @@ type RawEvent =
  *  `tape` (A3, optional) adds the display-signal family: the already-kind-filtered signals (`tapeSignals`)
  *  plus the as-of they were derived under. OPTIONAL because it is pure garnish — a caller without the
  *  display read (the pure-render tests, a drawer whose signals query hasn't landed) still numbers the
- *  recorded families exactly as before; the tape chips only ever append to that universe. */
+ *  recorded families exactly as before; the tape chips only ever append to that universe.
+ *
+ *  `wire` (Slice B, optional) adds the three widened recorded families off the same price-window
+ *  response — insider sells, 8-K filings, 13D/G stakes. Optional for the same reason as `tape`
+ *  (existing callers/tests keep their exact universe); each list defaults empty. NB adding families
+ *  interleaves new chips into the chronological numbering, shifting existing chip numbers — fine by
+ *  design: the number is a per-render identity (chart ⇄ ledger, built once here), never persisted. */
 export function buildOverlayEvents(
   ep: ScoreboardEpisodeOut,
   insiderBuys: InsiderBuyOut[],
   bars: Bar[],
   tape?: { signals: DisplaySignal[]; asof: string },
+  wire?: { sells?: InsiderSellOut[]; filings?: CorporateEventOut[]; stakes?: ActivistStakeOut[] },
 ): OverlayEvent[] {
   if (bars.length === 0) return [];
   const last = bars[bars.length - 1].d;
@@ -268,10 +313,29 @@ export function buildOverlayEvents(
       pctVsNow: c != null && c !== 0 ? (lastClose - c) / c : null,
     });
   }
+  // Slice B: the three widened recorded families, in insertion order sells → filings → stakes so a
+  // same-day tie reads buys before sells before the corporate/ownership tape (all recorded SEC facts,
+  // all ahead of the operator's decision). Every row the server sent gets a chip — screened sells and
+  // the passive 13G family render greyed via `eventSetAside`, never hidden (WB #2).
+  for (const s of wire?.sells ?? []) {
+    const c = closeAt(s.d);
+    raw.push({
+      family: "sell",
+      date: s.d,
+      sell: s,
+      closeThatDay: c,
+      pctVsNow: c != null && c !== 0 ? (lastClose - c) / c : null,
+    });
+  }
+  for (const f of wire?.filings ?? [])
+    raw.push({ family: "filing", date: f.d, event: f, closeThatDay: closeAt(f.d) });
+  for (const st of wire?.stakes ?? [])
+    raw.push({ family: "activist", date: st.d, stake: st, closeThatDay: closeAt(st.d) });
   // A2: the operator's decision, at its decision_date. Same-day tie order (insertion): armed →
-  // triggers → buys → operator → dearmed. A decision dated past the last bar loses its chip to the
-  // `date <= last` tape rule below — DELIBERATE (nothing sits past the tape): it still rides the
-  // Lens-4 operator line + the episode row's operator cell, so the fact never vanishes (WB #2).
+  // triggers → buys → sells → filings → stakes → operator → dearmed. A decision dated past the last
+  // bar loses its chip to the `date <= last` tape rule below — DELIBERATE (nothing sits past the
+  // tape): it still rides the Lens-4 operator line + the episode row's operator cell, so the fact
+  // never vanishes (WB #2).
   if (ep.operator)
     raw.push({
       family: "operator",
@@ -403,6 +467,97 @@ function insiderTooltip(e: InsiderChipEvent): TooltipContent {
   return { title: who, lines };
 }
 
+// Slice B: the sell's server-classified character, one terse line each. `kept` — the cluster-counted
+// norm — stays unbadged (#7); every screened bucket names WHY it didn't count (#6). The 10b5-1 flag
+// needs no separate line here: an explicit-True plan IS the `planned` character (the screen's rule),
+// so the character line already carries it.
+const SELL_CHARACTER_LINE: Partial<Record<InsiderSellOut["character"], string>> = {
+  planned: "10b5-1 planned sale (near-noise, screened)",
+  self_filing: "issuer self-filing (not personal insider supply, screened)",
+  below_low: "below the day's low (discounted secondary, set aside)",
+  implausible: "implausible $ (bad source data, set aside)",
+  foreign_ordinary: "foreign ordinary line on the ADR tape (wrong instrument, screened)",
+  // kept: no line — what the risk detector's cluster counts, the unbadged default
+};
+
+/** Loose display-grouping mirror of the backend's exact `_13D_FORMS` frozenset
+ *  (backend/signals/activist_stake.py — both naming eras + amendments; re-sync by eye if the fire
+ *  policy's set ever changes). Substring ON PURPOSE: this drives only the passive-grey display
+ *  weight, so an unknown future form string fails toward QUIET (greyed), never toward loud — while
+ *  the fire policy itself stays backend-exact. */
+export function is13DFamily(form: string): boolean {
+  return form.toUpperCase().includes("13D");
+}
+
+/** Is this chip SET ASIDE (greyed, never hidden — WB #2)? The ONE helper the chart chip and its
+ *  ledger row both read, across every family that has a grey state: an insider buy via
+ *  `insiderSetAside` (primary-market / implausible); a sell whose character is anything but `kept`
+ *  (screened out of the detector's cluster); an activist filing outside the 13D family (passive —
+ *  mirrors "13G fires nothing" as display weight). Everything else carries its family weight. */
+export function eventSetAside(e: OverlayEvent): boolean {
+  if (e.family === "insider") return insiderSetAside(e.buy);
+  if (e.family === "sell") return e.sell.character !== "kept";
+  if (e.family === "activist") return !is13DFamily(e.stake.form);
+  return false;
+}
+
+function sellTooltip(e: SellChipEvent): TooltipContent {
+  const s = e.sell;
+  const who = s.insider_role
+    ? `${s.insider_name ?? "insider"} (${s.insider_role})`
+    : (s.insider_name ?? "insider");
+  let sold: string;
+  if (s.shares != null && s.usd != null) sold = `sold ${fmtShares(s.shares)} @ ${fmtUsd(s.usd)}`;
+  else if (s.usd != null) sold = `sold ${fmtUsd(s.usd)}`;
+  else if (s.shares != null) sold = `sold ${fmtShares(s.shares)}`;
+  else sold = "insider sale";
+  const lines = [sold, `transacted ${s.d}`];
+  // the SAME two honest clocks as the buy tooltip (#6): disclosed = the SEC acceptance date;
+  // ingested = our pipeline's write, a second line only when it differs; no acceptance date → the
+  // ingest line alone (#9). Each suppresses a 0-day lag.
+  if (s.disclosed != null) {
+    const lag = daysBetween(s.d, s.disclosed);
+    if (lag >= 1) lines.push(`disclosed ${lag}d later (${s.disclosed})`);
+    if (s.ingested !== s.disclosed) {
+      const ilag = daysBetween(s.d, s.ingested);
+      if (ilag >= 1) lines.push(`ingested ${ilag}d later (${s.ingested})`);
+    }
+  } else {
+    const ilag = daysBetween(s.d, s.ingested);
+    if (ilag >= 1) lines.push(`ingested ${ilag}d later (${s.ingested})`);
+  }
+  const character = SELL_CHARACTER_LINE[s.character];
+  if (character) lines.push(character); // why this sale did/didn't count (#6); kept stays unbadged
+  if (e.closeThatDay != null) {
+    const vsNow = e.pctVsNow != null ? ` · ${fmtPct(e.pctVsNow)} vs now` : "";
+    lines.push(`stock ${fmtUsd(e.closeThatDay)} that day${vsNow}`);
+  }
+  return { title: who, lines };
+}
+
+function filingTooltip(e: FilingChipEvent): TooltipContent {
+  const f = e.event;
+  const lines = [
+    // null = the submissions JSON has not resolved the codes yet — said plainly, never invented (#6)
+    f.items != null ? `items ${f.items.join(", ")}` : "items unresolved",
+    `filed ${f.d}`,
+  ];
+  const ilag = daysBetween(f.d, f.ingested);
+  if (ilag >= 1) lines.push(`ingested ${ilag}d later (${f.ingested})`); // the honest ingest lag
+  return { title: f.form, lines };
+}
+
+function activistTooltip(e: ActivistChipEvent): TooltipContent {
+  const st = e.stake;
+  // unresolved identity is SAID, never guessed and never a dropped row (#9/#6)
+  const lines = [st.filer_name ?? "filer unresolved"];
+  if (st.pct_owned != null) lines.push(`${st.pct_owned}% of class`);
+  lines.push(`filed ${st.d}`);
+  const ilag = daysBetween(st.d, st.ingested);
+  if (ilag >= 1) lines.push(`ingested ${ilag}d later (${st.ingested})`);
+  return { title: st.form, lines };
+}
+
 // How many per-source provenance lines a trigger surfaces before it collapses the rest into a visible
 // "+N more sources". A hover card is transient real estate; the cap keeps it readable — and the "+N"
 // keeps the omission VISIBLE rather than a silent drop (#9, the same discipline as the chip overflow).
@@ -522,6 +677,9 @@ function signalTooltip(e: SignalChipEvent): TooltipContent {
  *  available: the number is never a dead reference (#6). */
 export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "insider") return insiderTooltip(e);
+  if (e.family === "sell") return sellTooltip(e);
+  if (e.family === "filing") return filingTooltip(e);
+  if (e.family === "activist") return activistTooltip(e);
   if (e.family === "trigger") return triggerTooltip(e);
   if (e.family === "operator") return operatorTooltip(e);
   if (e.family === "signal") return signalTooltip(e);
@@ -530,14 +688,26 @@ export function overlayTooltip(e: OverlayEvent): TooltipContent {
 
 const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   insider: { label: "insider buy", cls: "ov-insider" },
+  sell: { label: "insider sell", cls: "ov-sell" }, // Slice B — muted negative hue
   trigger: { label: "arm trigger", cls: "ov-trigger" },
+  activist: { label: "activist stake", cls: "ov-activist" }, // Slice B — 13D at weight; 13G greys
+  filing: { label: "8-K filing", cls: "ov-filing" }, // Slice B — grey, the common-tape family (#7)
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
   operator: { label: "operator", cls: "ov-operator" }, // A2 — muted --incub, the quiet family (#7)
   // A3 — the GREYEST family on the board, quieter even than the operator's muted --incub: a computed
   // tape read is context beside the call, never the call (#7's inverse loudness, read as hue).
   signal: { label: "tape signal", cls: "ov-signal" },
 };
-const FAMILY_ORDER: OverlayFamily[] = ["insider", "trigger", "lifecycle", "operator", "signal"];
+const FAMILY_ORDER: OverlayFamily[] = [
+  "insider",
+  "sell",
+  "trigger",
+  "activist",
+  "filing",
+  "lifecycle",
+  "operator",
+  "signal",
+];
 
 /** The CSS class carrying a family's color (the DOM chip reads CSS vars → theme-consistent, unlike the
  *  canvas lines which must hard-code hex). */

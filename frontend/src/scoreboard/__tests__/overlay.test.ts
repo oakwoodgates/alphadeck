@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  ActivistStakeOut,
+  CorporateEventOut,
   DisplaySignal,
   EpisodeOperatorOut,
   InsiderBuyOut,
+  InsiderSellOut,
   MemberDisplaySignalsOut,
   PriceBar,
   ScoreboardEpisodeOut,
@@ -14,7 +17,9 @@ import {
   closeOnDate,
   defaultVisibleRange,
   episodeMarkers,
+  eventSetAside,
   insiderSetAside,
+  is13DFamily,
   legendEntries,
   nearestBarDate,
   overlayTooltip,
@@ -956,5 +961,269 @@ describe("stackChips — never overlaps, never drops (#9)", () => {
     expect(placed.length).toBe(3);
     expect(overflow.length).toBe(2);
     expect(placed.length + overflow.length).toBe(items.length);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Slice B: the three widened recorded families — sells, 8-K filings, 13D/G stakes.
+
+function sell(over: Partial<InsiderSellOut> = {}): InsiderSellOut {
+  return {
+    d: "2026-06-02",
+    insider_name: "A Seller",
+    insider_role: "CFO",
+    shares: 2000,
+    usd: 90000,
+    aff_10b5_1: null,
+    disclosed: "2026-06-02",
+    ingested: "2026-06-02", // == disclosed by default → the single-clock default, like the buy fixture
+    character: "kept",
+    ...over,
+  };
+}
+
+function filing(over: Partial<CorporateEventOut> = {}): CorporateEventOut {
+  return {
+    d: "2026-06-03",
+    form: "8-K",
+    items: ["2.02", "9.01"],
+    url: "https://www.sec.gov/Archives/edgar/data/1/acc-index.htm",
+    ingested: "2026-06-03",
+    ...over,
+  };
+}
+
+function stake(over: Partial<ActivistStakeOut> = {}): ActivistStakeOut {
+  return {
+    d: "2026-06-04",
+    form: "SCHEDULE 13D",
+    filer_name: "Engaged Capital",
+    filer_cik: "0009876543",
+    pct_owned: 6.2,
+    url: "https://www.sec.gov/Archives/edgar/data/1/acc13d-index.htm",
+    ingested: "2026-06-04",
+    ...over,
+  };
+}
+
+describe("buildOverlayEvents — the Slice B families join the one numbering", () => {
+  const bars = [
+    bar("2026-06-01", 100),
+    bar("2026-06-02", 102),
+    bar("2026-06-03", 104),
+    bar("2026-06-04", 106),
+    bar("2026-06-10", 110),
+  ];
+
+  it("numbers sells, filings, and stakes chronologically among the existing families", () => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [buy({ d: "2026-06-01" })],
+      bars,
+      undefined,
+      {
+        sells: [sell({ d: "2026-06-02" })],
+        filings: [filing({ d: "2026-06-03" })],
+        stakes: [stake({ d: "2026-06-04" })],
+      },
+    );
+    expect(events.map((e) => [e.n, e.family])).toEqual([
+      [1, "lifecycle"], // armed 06-01 (insertion order leads the same-day buy)
+      [2, "insider"],
+      [3, "sell"],
+      [4, "filing"],
+      [5, "activist"],
+    ]);
+  });
+
+  it("same-day ties keep insertion order: buys → sells → filings → stakes", () => {
+    const d = "2026-06-02";
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [buy({ d })], bars, undefined, {
+      sells: [sell({ d })],
+      filings: [filing({ d })],
+      stakes: [stake({ d })],
+    });
+    expect(events.map((e) => e.family)).toEqual(["lifecycle", "insider", "sell", "filing", "activist"]);
+  });
+
+  it("omitting `wire` keeps the exact pre-Slice-B universe (existing callers unchanged)", () => {
+    const withOut = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [buy({ d: "2026-06-01" })], bars);
+    expect(withOut.map((e) => e.family)).toEqual(["lifecycle", "insider"]);
+  });
+
+  it("an event past the last drawn bar is dropped — nothing sits past the tape", () => {
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [], bars, undefined, {
+      filings: [filing({ d: "2026-07-01" })], // past the 06-10 last bar
+      stakes: [stake({ d: "2026-06-04" })],
+    });
+    expect(events.map((e) => e.family)).toEqual(["lifecycle", "activist"]);
+  });
+});
+
+describe("overlayTooltip — the sell chip (the buy tooltip, mirrored)", () => {
+  const mk = (over: Partial<InsiderSellOut> = {}) => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [],
+      [bar("2026-06-01", 100), bar("2026-06-02", 102), bar("2026-06-10", 110)],
+      undefined,
+      { sells: [sell(over)] },
+    );
+    const e = events.find((x) => x.family === "sell")!;
+    return overlayTooltip(e);
+  };
+
+  it("titles who, leads with the fill, and carries the market context", () => {
+    const tip = mk();
+    expect(tip.title).toBe("A Seller (CFO)");
+    expect(tip.lines[0]).toBe("sold 2,000 sh @ $90K");
+    expect(tip.lines).toContain("transacted 2026-06-02");
+    expect(tip.lines.some((l) => l.startsWith("stock $102 that day"))).toBe(true);
+  });
+
+  it("a kept sale carries NO character line (the unbadged norm, #7)", () => {
+    const tip = mk({ character: "kept" });
+    expect(tip.lines.some((l) => l.includes("screened") || l.includes("set aside"))).toBe(false);
+  });
+
+  it("each screened character carries its one terse line (#6)", () => {
+    expect(mk({ character: "planned" }).lines).toContain("10b5-1 planned sale (near-noise, screened)");
+    expect(mk({ character: "self_filing" }).lines).toContain(
+      "issuer self-filing (not personal insider supply, screened)",
+    );
+    expect(mk({ character: "below_low" }).lines).toContain(
+      "below the day's low (discounted secondary, set aside)",
+    );
+    expect(mk({ character: "implausible" }).lines).toContain(
+      "implausible $ (bad source data, set aside)",
+    );
+    expect(mk({ character: "foreign_ordinary" }).lines).toContain(
+      "foreign ordinary line on the ADR tape (wrong instrument, screened)",
+    );
+  });
+
+  it("carries the two honest clocks — disclosed, and ingested only when it differs", () => {
+    const tip = mk({ disclosed: "2026-06-04", ingested: "2026-06-09" });
+    expect(tip.lines).toContain("disclosed 2d later (2026-06-04)");
+    expect(tip.lines).toContain("ingested 7d later (2026-06-09)");
+    const same = mk({ disclosed: "2026-06-04", ingested: "2026-06-04" });
+    expect(same.lines.filter((l) => l.startsWith("ingested"))).toEqual([]);
+  });
+
+  it("no acceptance date → the ingested line alone (#9 fallback)", () => {
+    const tip = mk({ disclosed: null, ingested: "2026-06-09" });
+    expect(tip.lines.some((l) => l.startsWith("disclosed"))).toBe(false);
+    expect(tip.lines).toContain("ingested 7d later (2026-06-09)");
+  });
+});
+
+describe("overlayTooltip — the 8-K filing chip", () => {
+  const mk = (over: Partial<CorporateEventOut> = {}) => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [],
+      [bar("2026-06-01", 100), bar("2026-06-10", 110)],
+      undefined,
+      { filings: [filing(over)] },
+    );
+    return overlayTooltip(events.find((x) => x.family === "filing")!);
+  };
+
+  it("titles the form and lists items + filed", () => {
+    const tip = mk();
+    expect(tip.title).toBe("8-K");
+    expect(tip.lines).toContain("items 2.02, 9.01");
+    expect(tip.lines).toContain("filed 2026-06-03");
+  });
+
+  it("null items reads 'items unresolved' — honest, never invented (#6)", () => {
+    expect(mk({ items: null }).lines).toContain("items unresolved");
+  });
+
+  it("names the ingest lag only when it lags the filing date", () => {
+    expect(mk({ ingested: "2026-06-08" }).lines).toContain("ingested 5d later (2026-06-08)");
+    expect(mk().lines.some((l) => l.startsWith("ingested"))).toBe(false); // same-day: quiet
+  });
+});
+
+describe("overlayTooltip — the 13D/G stake chip", () => {
+  const mk = (over: Partial<ActivistStakeOut> = {}) => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [],
+      [bar("2026-06-01", 100), bar("2026-06-10", 110)],
+      undefined,
+      { stakes: [stake(over)] },
+    );
+    return overlayTooltip(events.find((x) => x.family === "activist")!);
+  };
+
+  it("titles the verbatim form; lines carry the filer and the pct", () => {
+    const tip = mk();
+    expect(tip.title).toBe("SCHEDULE 13D");
+    expect(tip.lines[0]).toBe("Engaged Capital");
+    expect(tip.lines).toContain("6.2% of class");
+  });
+
+  it("unresolved identity reads 'filer unresolved'; a null pct adds no line (#9 — shown, not guessed)", () => {
+    const tip = mk({ filer_name: null, filer_cik: null, pct_owned: null, form: "SC 13G" });
+    expect(tip.title).toBe("SC 13G");
+    expect(tip.lines[0]).toBe("filer unresolved");
+    expect(tip.lines.some((l) => l.includes("% of class"))).toBe(false);
+  });
+});
+
+describe("is13DFamily + eventSetAside — the one grey-state helper (WB #2)", () => {
+  it("groups both naming eras and amendments as the 13D family; 13G/unknown fail toward quiet", () => {
+    for (const f of ["SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"]) {
+      expect(is13DFamily(f)).toBe(true);
+    }
+    for (const f of ["SC 13G", "SC 13G/A", "SCHEDULE 13G", "SCHEDULE 13G/A", "SOMETHING NEW"]) {
+      expect(is13DFamily(f)).toBe(false);
+    }
+  });
+
+  it("greys a screened sell (anything but kept), a passive 13G, and the insider set-asides — nothing else", () => {
+    const bars2 = [bar("2026-06-01", 100), bar("2026-06-10", 110)];
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [buy({ d: "2026-06-01", character: "primary_market" }), buy({ d: "2026-06-01" })],
+      bars2,
+      undefined,
+      {
+        sells: [sell({ d: "2026-06-02", character: "kept" }), sell({ d: "2026-06-02", character: "planned" })],
+        filings: [filing({ d: "2026-06-03" })],
+        stakes: [stake({ d: "2026-06-04" }), stake({ d: "2026-06-04", form: "SC 13G", filer_name: null })],
+      },
+    );
+    const flags = events.map((e) => [e.family, eventSetAside(e)]);
+    expect(flags).toEqual([
+      ["lifecycle", false], // armed
+      ["insider", true], // primary_market → set aside
+      ["insider", false], // open_market
+      ["sell", false], // kept
+      ["sell", true], // planned → screened
+      ["filing", false], // filings never grey (the family hue is already quiet)
+      ["activist", false], // 13D — family weight
+      ["activist", true], // 13G — passive grey
+    ]);
+  });
+});
+
+describe("legendEntries — the Slice B families appear only when present", () => {
+  it("names sell/filing/activist when their events exist, in the fixed family order", () => {
+    const bars2 = [bar("2026-06-01", 100), bar("2026-06-10", 110)];
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01" }), [], bars2, undefined, {
+      sells: [sell({ d: "2026-06-02" })],
+      filings: [filing({ d: "2026-06-03" })],
+      stakes: [stake({ d: "2026-06-04" })],
+    });
+    expect(legendEntries(events).map((l) => l.family)).toEqual(["sell", "activist", "filing", "lifecycle"]);
+    expect(legendEntries(events).map((l) => l.label)).toEqual([
+      "insider sell",
+      "activist stake",
+      "8-K filing",
+      "lifecycle",
+    ]);
   });
 });

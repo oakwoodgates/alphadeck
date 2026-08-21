@@ -25,6 +25,7 @@
   --pos: #46d07f;
   --neg: #ff5a6a;
   --leader: #8ab4ff;
+  --activist: #9d7bd8; /* Slice B: the 13D/G overlay family — a hue no lifecycle state owns */
 
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --sans: "Archivo", system-ui, sans-serif;
@@ -1255,14 +1256,25 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    in the JSX render only — NEVER the chart-building effect (the anti-storm invariant). */
 .ov-chip.active { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--txt-2); transform: translate(-50%, 0) scale(1.18); z-index: 1; }
 .ov-chip.ov-insider { background: var(--pos); }
+/* Slice B: the code-S mirror — a MUTED negative hue (a sale is context, not an alarm; #7): --neg
+   pulled well toward the panel ground, with light numerals for legibility on the darkened red. */
+.ov-chip.ov-sell { background: color-mix(in srgb, var(--neg) 45%, var(--bg-2)); color: #e8ebf0; }
 .ov-chip.ov-trigger { background: var(--warm); }
+/* Slice B: the 13D/G stake — its own accent at family weight (a 13D is a capital-committed act);
+   the 13G/passive family greys via .ov-setaside below, mirroring "13G fires nothing". */
+.ov-chip.ov-activist { background: var(--activist); }
+/* Slice B: the 8-K filing — quiet neutral grey (the COMMON tape family; loudness marks the
+   exception, and most 8-Ks are routine): the operator chip's treatment in a plain grey. */
+.ov-chip.ov-filing { background: var(--txt-3); color: #e8ebf0; }
 .ov-chip.ov-lifecycle { background: var(--txt-2); }
 /* A2: the operator decision chip — a recorded row like any other family, in the MUTED --incub hue (#7:
    the operator's own action needs no loudness); light text — the near-black default is unreadable on it. */
 .ov-chip.ov-operator { background: var(--incub); color: #e8ebf0; }
-/* S2c: a SET-ASIDE insider buy (primary-market / implausible) stays visible but GREYED — WB #2 (pruning
-   hides, it never vanishes): the grey says "didn't count toward the panel's open-market flow". */
-.ov-chip.ov-insider.ov-setaside { background: var(--panel-2); border-color: var(--line-2); color: var(--txt-3); }
+/* A SET-ASIDE chip stays visible but GREYED — WB #2 (pruning hides, it never vanishes): a screened
+   insider buy (primary-market / implausible), a screened sell (anything but `kept`), or a passive
+   13G-family stake. The grey says "didn't count toward the flow / the cluster / the fire" —
+   `eventSetAside` (overlay.ts) is the one helper that decides it, chip and ledger row alike. */
+.ov-chip.ov-setaside { background: var(--panel-2); border-color: var(--line-2); color: var(--txt-3); }
 /* A3: the display-signal (tape) chip — the QUIETEST family on the board, below even the operator's muted
    --incub: a compute-on-read tape context that can't arm, veto, or grade anything must never out-shout a
    recorded call fact (#7, inverse loudness). A flat --line-2 ground (the deck's hairline grey — no hue at
@@ -1298,7 +1310,10 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .ov-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
 .ov-dot.ov-insider { background: var(--pos); }
+.ov-dot.ov-sell { background: color-mix(in srgb, var(--neg) 45%, var(--bg-2)); }
 .ov-dot.ov-trigger { background: var(--warm); }
+.ov-dot.ov-activist { background: var(--activist); }
+.ov-dot.ov-filing { background: var(--txt-3); }
 .ov-dot.ov-lifecycle { background: var(--txt-2); }
 .ov-dot.ov-operator { background: var(--incub); }
 .ov-dot.ov-signal { background: var(--line-2); }
@@ -1325,13 +1340,17 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 /* the number, tinted by family — the SAME hue as its chip */
 td.evled-n, th.evled-n { width: 26px; text-align: right; font-family: var(--mono); font-weight: 700; white-space: nowrap; }
 td.evled-n.ov-insider { color: var(--pos); }
+td.evled-n.ov-sell { color: var(--neg); } /* Slice B: as text the plain hue already reads muted */
 td.evled-n.ov-trigger { color: var(--warm); }
+td.evled-n.ov-activist { color: var(--activist); }
+td.evled-n.ov-filing { color: var(--txt-3); } /* the quiet common-tape family (#7) */
 td.evled-n.ov-lifecycle { color: var(--txt-2); }
 td.evled-n.ov-operator { color: var(--incub); }
 /* A3: the tape row's number, quieter than every recorded family's (#7) — --txt-3, one step under the
    lifecycle's --txt-2 and deliberately NOT the set-aside --txt-4 below (that grey means "excluded"). */
 td.evled-n.ov-signal { color: var(--txt-3); }
-/* S2c: a set-aside buy's ledger row is muted end-to-end (the number included) — visible, never removed */
+/* A set-aside row (screened buy/sell, passive 13G) is muted end-to-end (the number included) —
+   visible, never removed (WB #2; `eventSetAside` decides, same as the chip) */
 .evled-tbl tbody tr.evled-setaside td { color: var(--txt-4); }
 .evled-tbl tbody tr.evled-setaside td.evled-n { color: var(--txt-4); }
 .evled-d { font-family: var(--mono); white-space: nowrap; color: var(--txt-3); }

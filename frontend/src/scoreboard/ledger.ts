@@ -51,6 +51,38 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     const lines = tip.lines.filter((l) => !l.startsWith("transacted "));
     return { ...base, type: "insider buy", detail: [tip.title, ...lines].join(" · ") };
   }
+  if (e.family === "sell") {
+    // Slice B: the sell mirror of the insider-buy row — who + fill + the two clocks + the character
+    // line (why it did/didn't count toward the cluster); the date echo drops (its own column).
+    const tip = overlayTooltip(e);
+    const lines = tip.lines.filter((l) => !l.startsWith("transacted "));
+    return { ...base, type: "insider sell", detail: [tip.title, ...lines].join(" · ") };
+  }
+  if (e.family === "filing") {
+    // Slice B: the type cell carries the verbatim form ("8-K" / "8-K/A" — the tooltip title), so the
+    // detail is the lines alone: items (or "items unresolved") + the ingest lag; the "filed <date>"
+    // echo drops (the date is its own column). The EDGAR index URL rides as the row's jump (#6).
+    const tip = overlayTooltip(e);
+    const lines = tip.lines.filter((l) => !l.startsWith("filed "));
+    return {
+      ...base,
+      type: e.event.form,
+      detail: lines.join(" · "),
+      links: [{ label: "filing index", url: e.event.url }],
+    };
+  }
+  if (e.family === "activist") {
+    // Slice B: type = the verbatim form, both naming eras (a 13G names itself — the grey row + the
+    // form say "passive family" together); detail = filer (or "filer unresolved") + pct + ingest lag.
+    const tip = overlayTooltip(e);
+    const lines = tip.lines.filter((l) => !l.startsWith("filed "));
+    return {
+      ...base,
+      type: e.stake.form,
+      detail: lines.join(" · "),
+      links: [{ label: "filing index", url: e.stake.url }],
+    };
+  }
   if (e.family === "trigger") {
     // title = the trigger label; lines = kind · ticker, grade, the arm linkage (only when the chip's
     // date differs from the arm), then the capped per-source provenance refs
