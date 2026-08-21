@@ -76,9 +76,18 @@ class CallConfig(DomainModel):
     risk_penalty_per_signal: float = 0.10  # confidence cut per active risk signal (scaled by score)
 
     # --- dilution severity (used by the dilution detector in M4a) ---
-    # gross overhang (% of shares outstanding) that scales to the block severity; a convert's potential
-    # dilution is scored against this (STARTING calibration). HIMS's ~6% lands well below the block.
+    # gross overhang (% of shares outstanding) at/above which a convert overhang scores as SEVERE — the
+    # "what overhang counts as severe" knob (STARTING calibration). HIMS's ~6% lands well below it.
     dilution_overhang_severe_pct: float = 25.0
+    # The SEVERITY SCALE a severe (>= dilution_overhang_severe_pct) overhang scores to — the "how loud is
+    # a severe dilution" knob. DECOUPLED from two neighbours it must not be confused with: risk_block_severity
+    # (the UNIVERSAL veto threshold — a score >= it withholds the Armed call) and dilution_overhang_severe_pct
+    # (the "what overhang counts as severe" knob). Before this dial the severity math multiplied by
+    # risk_block_severity, so retuning the veto dial silently rescaled EVERY dilution score AND a >= severe
+    # overhang landed EXACTLY on the >= gate with zero margin. Set ABOVE risk_block_severity (0.70) so a
+    # severe overhang clears the veto gate WITH MARGIN. [PROPOSED] 0.80 — the operator confirms the exact
+    # value. (The detector additionally caps the emitted score at 0.95, dilution's ceiling.)
+    dilution_severe_score: float = 0.80
 
     # --- insider_conviction (Key 1) — grade rule (§3); STARTING calibration, not precision ---
     # cohesion window: open-market buys within this many days of the most-recent buy count as ONE
@@ -558,6 +567,24 @@ class CallConfig(DomainModel):
     # 2026-05-18, ~185 days). The switch only ENRICHES an already-firing CORE 13D's label + provenance;
     # it never changes the fire, grade, or score, so this dial cannot flood. [PROPOSED] prior, lab-finalized.
     activist_switch_min_gap_days: int = 30
+    # --- activist EXIT termination (Band 03 S5 follow-on) ----------------------------------------------
+    # LIVE — DEFAULT ON since the operator flip of 2026-08-21 (the Band 03 detector precedent: measured
+    # safe on real prod data BEFORE the flip). Two measures backed it: (1) parse-reliability 98.1% on
+    # structured-era /A covers (the ``pct_owned`` source — schedule13.py's ``percentOfClass``), and (2) a
+    # read-only prod off-vs-on measure (the production read path ``call_for_thesis(record=False)``) that
+    # terminated exactly 2 GENUINE same-filer sub-5% exits on 1 thesis with ZERO verdict changes. When ON,
+    # a fired 13D whose stake has since EXITED terminates: a later 13D-family /A — filed AFTER the fire
+    # anchor, ``valid_from <= asof``, BY THE SAME FILER as the anchor — whose ``pct_owned`` is PRESENT and
+    # ``< 5.0`` is a real sell-BELOW-5% exit (the reporting holder dropping under the 5% threshold files a
+    # direction-blind /A), so the fire returns None instead of staying live the full
+    # ``activist_13d_liveness_days`` (180d). ``score`` still GUARDS on this flag — set it False and the
+    # detector is byte-identical to pre-flip. SAME-FILER + NULL-SAFE / recall-sacred (#9): ONLY a PRESENT
+    # sub-5% pct BY THE ANCHOR's OWN filer terminates — a different activist's /A, a self-filed /A, an
+    # unparsed/NULL pct, and an increase / above-5% /A NEVER terminate (direction-blindness preserved on
+    # the fire side; only the same-filer sub-5% path is added). ``pct_owned`` is a genuine FIRE INPUT on
+    # the exit side (elsewhere the module treats pct as display evidence) — which is why the flip was
+    # MEASURED (the insider_sell / share_creep precedent). Set False to disable.
+    activist_exit_terminates: bool = True
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

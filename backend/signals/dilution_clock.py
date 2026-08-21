@@ -91,7 +91,12 @@ def score(
     if pct is None:
         return None
 
-    severity = min(pct / cfg.dilution_overhang_severe_pct, 1.0) * cfg.risk_block_severity
+    # Scale the overhang against the DEDICATED dilution severity dial, not the veto threshold: a
+    # >= severe overhang scores to cfg.dilution_severe_score (above risk_block_severity, so it clears
+    # the gate WITH MARGIN), and retuning the veto dial no longer rescales this score. The gate
+    # comparison itself (score >= risk_block_severity, in the assembler) is unchanged — only the
+    # score's own scale is decoupled.
+    severity = min(pct / cfg.dilution_overhang_severe_pct, 1.0) * cfg.dilution_severe_score
     signal_score = round(min(severity, 0.95), 4)
     risk_read = (
         "severe overhang — withholds the Armed call on timing"

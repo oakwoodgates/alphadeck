@@ -121,3 +121,33 @@ def test_severe_dilution_label_matches_veto_and_flows_to_call_surfaces():
     assert card.risk_signals[0].label == risk.label
     assert risk.label in card.counter_case
     assert any(risk.label in item for item in card.missing)
+
+
+def test_severe_overhang_scores_the_dedicated_dial_and_clears_the_gate_with_margin():
+    """Item 1: a >= severe overhang scores to ``dilution_severe_score`` (the dedicated severity dial),
+    clearing the veto gate (``risk_block_severity``) WITH MARGIN — no longer landing exactly on the >=
+    boundary the way the old ``* risk_block_severity`` math did (a severe overhang == 0.70 == the gate).
+    """
+    risk = dilution_clock.score([_fact(shares_outstanding=40_000_000)], SID, ASOF, DEFAULT_CONFIG)
+    assert risk is not None
+    # a >= severe overhang saturates the overhang ratio to 1.0, so the score IS the dedicated dial
+    assert risk.score == DEFAULT_CONFIG.dilution_severe_score  # 0.80, not 0.70
+    assert risk.score > DEFAULT_CONFIG.risk_block_severity  # clears the gate WITH MARGIN (not ==)
+    assert risk.score - DEFAULT_CONFIG.risk_block_severity >= 0.09  # a real margin, not zero
+
+
+def test_dilution_score_is_decoupled_from_the_veto_dial():
+    """Item 1: retuning ``risk_block_severity`` (the UNIVERSAL veto threshold) no longer rescales the
+    dilution score — the score reads the dedicated ``dilution_severe_score`` dial, so the two knobs move
+    independently. Before the decoupling, ``* risk_block_severity`` meant every veto-dial change silently
+    re-scored every dilution overhang."""
+    fact = _fact(shares_outstanding=40_000_000)  # a severe overhang (>= severe_pct)
+    base = dilution_clock.score([fact], SID, ASOF, DEFAULT_CONFIG)
+    assert base is not None
+    # move ONLY the veto dial, down AND up — the dilution score must not budge
+    for veto in (0.50, 0.95):
+        moved = DEFAULT_CONFIG.model_copy(update={"risk_block_severity": veto})
+        assert dilution_clock.score([fact], SID, ASOF, moved).score == base.score
+    # and moving the DEDICATED dial DOES move the score (it now owns "how loud is a severe dilution")
+    louder = DEFAULT_CONFIG.model_copy(update={"dilution_severe_score": 0.90})
+    assert dilution_clock.score([fact], SID, ASOF, louder).score == 0.90
