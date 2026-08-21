@@ -98,6 +98,54 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
     return bool(filer) and filer == issuer
 
 
+# The US "American Depositary" line NEVER carries the home-market foreign symbol in its title ("American
+# Depositary Shares (TSM)"), so the containment test in ``_is_foreign_ordinary`` already keeps it; this token
+# guard is belt-and-suspenders — a title positively naming a depositary instrument is the US ADR we hold and
+# is KEPT even if it also cited the ordinary symbol (recall-safe #9). Both SEC spellings covered.
+_ADR_TITLE_TOKENS = ("depositary", "depository")
+
+
+def _norm_title(s: str | None) -> str:
+    """casefold + collapse whitespace (the ``_norm_entity`` idiom) — so a foreign-symbol containment test is
+    case/spacing-insensitive ("2330.TW" matches "Common Shares (2330.tw)")."""
+    if not s:
+        return ""
+    return " ".join(str(s).casefold().split())
+
+
+def _is_foreign_ordinary(txn: dict[str, Any]) -> bool:
+    """Is this transaction in the issuer's FOREIGN/ORDINARY line, mis-filed on its US ADR's tape? (S2c)
+
+    A dual-listed foreign issuer files ONE Form 4 stream under ONE CIK covering BOTH its US ADR and its
+    home-market ordinary shares; ingest resolves that CIK to the single (ADR) ``security_master`` row and
+    stamps EVERY transaction with the ADR's ``security_id`` — so the home-market ordinary buys (ESPP/LTI)
+    land on the ADR's tape (TSM: 2330.TW ESPP buys under the TSM ADR; #3). The ADR and the ordinary line are
+    DIFFERENT instruments (a 5:1 ratio, a different currency + price), so an ordinary row is not personal
+    conviction in the ADR we hold.
+
+    POSITIVE, keep-when-ambiguous (#9). Screen ONLY when the issuer DECLARES a foreign trading symbol
+    (``issuer_foreign_symbol`` — its OWN structured tell that it is dual-listed) AND the transaction's
+    ``security_title`` positively NAMES that foreign symbol ("Common Shares (2330.TW)" contains 2330.TW;
+    Petrobras titles the row bare "PETR4"). The genuine ADR row ("American Depositary Shares (TSM)") does NOT
+    contain the foreign symbol -> KEPT + fires; a title positively naming a depositary instrument is likewise
+    KEPT (the token guard). A row with NO declared foreign symbol (a US issuer) or a NULL/absent title (rows
+    ingested before this capture) is KEPT — a one-directional failure mode, exactly like the issuer-self
+    screen. Excluded rows STAY in ``fact_insider_txn`` + the display tape; only the CALL skips them.
+
+    Verified on the full TSM Form 4 tape (174 filings): 186 home-market rows screened (178 of them
+    code-P buys), all 9 genuine ADR rows kept, 0 misclassified. The effect on the call: the pre-fix
+    conviction read "31 insiders bought $1.0M across 48 txns" (riding the mis-attributed ESPP/LTI rows);
+    with the screen it reads the genuine "2 insiders bought $329,810 across 4 txns" (ADR only).
+    """
+    fsym = txn.get("issuer_foreign_symbol")
+    title = _norm_title(txn.get("security_title"))
+    if not fsym or not title:
+        return False  # not dual-listed / no title -> KEPT (keep-when-ambiguous, #9)
+    if any(tok in title for tok in _ADR_TITLE_TOKENS):
+        return False  # the title names the US depositary line we hold -> KEPT
+    return _norm_title(fsym) in title
+
+
 class _Candidate(NamedTuple):
     """One CANDIDATE anchor's fully-evaluated cluster (see ``score``'s anchor walk).
 
@@ -169,6 +217,9 @@ def score(
     - ``issuer_name`` is the security's name → screens out a SELF-FILING (the issuer filing a Form 4 on its
       own stock — a buyback/treasury/ADR mechanic, priced AT market so the price screen keeps it), see
       ``_is_issuer_self``.
+    - the row's own ``security_title`` + ``issuer_foreign_symbol`` (captured at ingest) → screens out a
+      home-market ORDINARY-share row mis-filed on a US ADR's tape (a dual-listed issuer's 2330.TW ESPP buys
+      under the TSM ADR), see ``_is_foreign_ordinary``. Pure per-row predicate — no external screen input.
 
     Absent/``None`` ``day_lows``/``issuer_name`` only disables that one screen (nothing over-excluded).
 
@@ -206,6 +257,9 @@ def score(
         and t["valid_from"] <= asof
         and _is_open_market_buy(t, lows, cfg)
         and not _is_issuer_self(t, issuer_name)
+        and not _is_foreign_ordinary(
+            t
+        )  # S2c: a home-market ordinary row mis-filed on the ADR's tape
         and not (w == 0.0 and t.get("aff_10b5_1") is True)
     ]
     if not p_buys:

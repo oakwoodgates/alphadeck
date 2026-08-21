@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -8,10 +9,16 @@ from pydantic import ValidationError
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
+from ingest.edgar.form4 import parse_form4
 from signals import insider_conviction
+from signals.insider_conviction import _is_foreign_ordinary
 
 ASOF = date(2026, 6, 4)
 SID = uuid4()
+
+_TSM_MIXED = (
+    Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_tsm_mixed.xml"
+).read_text(encoding="utf-8")
 
 
 def _buy(name, role, usd, d=date(2026, 5, 20), code="P"):
@@ -476,3 +483,99 @@ def test_weight_dial_is_bounded_zero_to_one():
         CallConfig(insider_10b5_1_buy_weight=1.5)
     with pytest.raises(ValidationError):
         CallConfig(insider_10b5_1_buy_weight=-0.1)
+
+
+# --- the ADR / dual-listed foreign-ordinary screen (S2c) — a home-market row mis-filed on the ADR tape ---
+
+
+def _adr_row(
+    title, fsym, *, usd=600_000, code="P", name="Tien Bor-Zen", role="VP", d=date(2026, 5, 20)
+):
+    """A txn row carrying the S2c screen inputs (real TSM title strings by default)."""
+    return {
+        "txn_code": code,
+        "usd": usd,
+        "insider_name": name,
+        "insider_role": role,
+        "valid_from": d,
+        "accession": "acc-x",
+        "security_title": title,
+        "issuer_foreign_symbol": fsym,
+    }
+
+
+def test_foreign_ordinary_buy_screened_out_of_conviction():
+    """A big "Common Shares (2330.TW)" buy would fire (FLIP) without the screen; the screen drops it —
+    it is the WRONG instrument (the home-market ordinary line), not conviction in the ADR we hold.
+    """
+    ord_row = _adr_row("Common Shares (2330.TW)", "2330.TW", usd=600_000)
+    assert insider_conviction.score([ord_row], SID, ASOF) is None
+
+
+def test_genuine_adr_buy_still_fires():
+    """The ADR row ("American Depositary Shares (TSM)") does NOT name the foreign symbol -> KEPT + fires."""
+    ev = insider_conviction.score(
+        [_adr_row("American Depositary Shares (TSM)", "2330.TW")], SID, ASOF
+    )
+    assert ev is not None and ev.fired
+
+
+def test_null_title_is_kept_keep_when_ambiguous():
+    """A row ingested before the capture has a NULL title — KEPT (never silently dropped, #9)."""
+    ev = insider_conviction.score([_adr_row(None, "2330.TW")], SID, ASOF)
+    assert ev is not None and ev.fired
+
+
+def test_us_name_without_foreign_symbol_never_screened():
+    """A US issuer declares no foreign symbol, so a plain "Common Stock" buy is never screened."""
+    ev = insider_conviction.score([_adr_row("Common Stock", None)], SID, ASOF)
+    assert ev is not None and ev.fired
+
+
+def test_pbr_bare_foreign_symbol_title_is_screened():
+    """Petrobras titles the row with the bare symbol "PETR4"; the containment predicate catches it."""
+    assert insider_conviction.score([_adr_row("PETR4", "PETR4", usd=600_000)], SID, ASOF) is None
+
+
+def test_predicate_case_insensitive_and_adr_token_guard():
+    """Direct contract of ``_is_foreign_ordinary``: the foreign-symbol containment is case-insensitive, and
+    a title that positively names a DEPOSITARY instrument is KEPT even if it also cites the ordinary symbol
+    (the belt-and-suspenders guard — recall-safe #9)."""
+    assert _is_foreign_ordinary(
+        {"security_title": "common shares (2330.tw)", "issuer_foreign_symbol": "2330.TW"}
+    )
+    assert not _is_foreign_ordinary(
+        {"security_title": "American Depositary Shares (TSM)", "issuer_foreign_symbol": "2330.TW"}
+    )
+    # a hypothetical ADS title that ALSO cites the ordinary symbol — the depositary token wins -> KEPT
+    assert not _is_foreign_ordinary(
+        {
+            "security_title": "American Depositary Shares representing Common Shares (2330.TW)",
+            "issuer_foreign_symbol": "2330.TW",
+        }
+    )
+    # no declared foreign symbol / no title -> KEPT
+    assert not _is_foreign_ordinary(
+        {"security_title": "Common Shares (2330.TW)", "issuer_foreign_symbol": None}
+    )
+    assert not _is_foreign_ordinary({"security_title": None, "issuer_foreign_symbol": "2330.TW"})
+
+
+def test_real_mixed_tsm_filing_before_and_after_the_screen():
+    """THE #291 interaction, on a REAL TSM filing (0001046179-26-000461): a $67,970 home-market ordinary
+    buy ("Common Shares (2330.TW)") sits beside two tiny genuine ADR buys ($3,900 + $1,950). BEFORE the
+    S2c capture the ordinary buy makes the name FIRE; AFTER, only the ADR rows remain — $5,850, below the
+    $10k floor -> the conviction correctly drops (no ordinary row anchors a fire)."""
+    # the stored-row shape the detector reads (ingest maps txn_date -> valid_from + stamps the accession)
+    txns = [
+        {**t, "valid_from": t["txn_date"], "accession": "0001046179-26-000461"}
+        for t in parse_form4(_TSM_MIXED)  # 2 ADR + 1 ordinary, all code P, 2026-07-28
+    ]
+    asof = date(2026, 8, 1)
+    # BEFORE: the pre-migration state (columns NULL) — the mis-attributed ordinary buy is included + fires
+    pre = [{**t, "security_title": None, "issuer_foreign_symbol": None} for t in txns]
+    before = insider_conviction.score(pre, SID, asof)
+    assert before is not None and before.fired
+    # AFTER: the captured title screens the ordinary row; the genuine ADR rows miss the $10k floor
+    after = insider_conviction.score(txns, SID, asof)
+    assert after is None

@@ -40,6 +40,10 @@ SID = uuid4()
 
 _ON = DEFAULT_CONFIG.model_copy(update={"insider_sell_enabled": True})  # the master switch ON
 
+_PBR_ORDINARY = (
+    Path(__file__).resolve().parent.parent / "fixtures" / "edgar" / "form4_pbr_ordinary.xml"
+).read_text(encoding="utf-8")
+
 
 def _sell(name, role, usd, d=date(2026, 5, 20), code="S", aff=False, **extra):
     """A Form 4 sell row as fact_insider_txn hands it back. ``aff`` defaults to False — the checkbox
@@ -357,6 +361,115 @@ def test_implausible_row_dropped_even_without_price_context():
     assert ev is not None
     assert "$270,000" in ev.label
     assert ev.provenance[0].detail["implausible_dropped"] == 1
+
+
+# --- the ADR / dual-listed foreign-ordinary screen (S2c) — the risk-side mirror of the buy screen ----
+
+
+def test_foreign_ordinary_sells_screened_out_of_the_cluster():
+    """Two senior discretionary "Common Shares (2330.TW)" sells would cluster + fire without the screen;
+    screened as the WRONG instrument (a home-market ordinary line on the ADR's tape) -> nothing kept.
+    """
+    txns = [
+        _sell(
+            "A Sun",
+            "Chief Executive Officer",
+            400_000,
+            d=date(2026, 5, 18),
+            security_title="Common Shares (2330.TW)",
+            issuer_foreign_symbol="2330.TW",
+        ),
+        _sell(
+            "B Moon",
+            "Chief Financial Officer",
+            400_000,
+            d=date(2026, 5, 20),
+            security_title="Common Shares (2330.TW)",
+            issuer_foreign_symbol="2330.TW",
+        ),
+    ]
+    assert insider_sell.score(txns, SID, ASOF, _ON) is None
+
+
+def test_genuine_adr_sells_still_cluster_and_fire():
+    """The ADR rows ("American Depositary Shares (TSM)") do not name the foreign symbol -> KEPT + fire."""
+    txns = [
+        _sell(
+            "A Sun",
+            "Chief Executive Officer",
+            400_000,
+            d=date(2026, 5, 18),
+            security_title="American Depositary Shares (TSM)",
+            issuer_foreign_symbol="2330.TW",
+        ),
+        _sell(
+            "B Moon",
+            "Chief Financial Officer",
+            400_000,
+            d=date(2026, 5, 20),
+            security_title="American Depositary Shares (TSM)",
+            issuer_foreign_symbol="2330.TW",
+        ),
+    ]
+    ev = insider_sell.score(txns, SID, ASOF, _ON)
+    assert ev is not None and ev.fired
+
+
+def test_foreign_ordinary_screened_beside_a_real_cluster_and_counted():
+    """The screen isolates the wrong-instrument rows only: the real senior cluster beside them still
+    fires on its own numbers, and the set-aside is counted in the work (#6/#9)."""
+    txns = [
+        _sell("A Sun", "Chief Executive Officer", 400_000, d=date(2026, 5, 18)),  # US -> kept
+        _sell("B Moon", "Chief Financial Officer", 400_000, d=date(2026, 5, 20)),  # US -> kept
+        _sell(
+            "C Star",
+            "Director",
+            900_000,
+            d=date(2026, 5, 19),
+            security_title="Common Shares (2330.TW)",
+            issuer_foreign_symbol="2330.TW",
+        ),  # screened
+    ]
+    ev = insider_sell.score(txns, SID, ASOF, _ON)
+    assert ev is not None
+    detail = ev.provenance[0].detail
+    assert detail["foreign_ordinary_screened"] == 1
+    assert (
+        detail["total_usd"] == 800_000.0 and detail["txn_count"] == 2
+    )  # the $900k is not in the total
+    assert all("C Star" not in p.ref for p in ev.provenance)
+
+
+def test_real_pbr_sell_row_buckets_as_foreign():
+    """A REAL Petrobras code-S row titled bare "PETR4" (foreign symbol PETR4) lands in the foreign
+    bucket — the different real title shape (no parenthetical), screened all the same."""
+    from signals.insider_sell import _FOREIGN, _screen
+
+    sell = next(t for t in parse_form4(_PBR_ORDINARY) if t["txn_code"] == "S")
+    assert _screen(sell, {}, None, DEFAULT_CONFIG) == _FOREIGN
+
+
+def test_both_detectors_screen_identically():
+    """The buy + sell detectors intentionally DUPLICATE ``_is_foreign_ordinary``; they must agree
+    row-for-row (the duplicate-with-pointer contract — re-sync by hand if one changes)."""
+    from signals.insider_conviction import _is_foreign_ordinary as buy_screen
+    from signals.insider_sell import _is_foreign_ordinary as sell_screen
+
+    rows = [
+        {"security_title": "Common Shares (2330.TW)", "issuer_foreign_symbol": "2330.TW"},  # screen
+        {
+            "security_title": "American Depositary Shares (TSM)",
+            "issuer_foreign_symbol": "2330.TW",
+        },  # keep
+        {"security_title": "PETR4", "issuer_foreign_symbol": "PETR4"},  # screen
+        {"security_title": "Common Stock", "issuer_foreign_symbol": None},  # keep (US)
+        {"security_title": None, "issuer_foreign_symbol": "2330.TW"},  # keep (ambiguous)
+    ]
+    assert (
+        [buy_screen(r) for r in rows]
+        == [sell_screen(r) for r in rows]
+        == [True, False, True, False, False]
+    )
 
 
 # --- the CEILING (ratified decision 1): a sell cluster can never block in v1 ------------------------

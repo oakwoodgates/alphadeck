@@ -17,6 +17,10 @@ display tape, ``signals/display/insider_flow.py``, which shows sells unscreened;
   tri-state flag migration 0022 captured; the BUY detector still does not read it.
 - **Issuer self-filings** (the company transacting its own stock — buyback/treasury/ADR mechanics)
   are never personal insider supply; same identity screen as the buy side.
+- **Foreign/ordinary rows mis-filed on an ADR's tape** (a dual-listed issuer's home-market ordinary
+  sale — 2330.TW under the TSM ADR) are the WRONG instrument, screened out the same way as the buy
+  side (``_is_foreign_ordinary``, S2c). Positive + keep-when-ambiguous: only a title that names the
+  declared foreign symbol is screened; a depositary title / no foreign symbol / NULL title is KEPT.
 - **Below-day's-low sales** are discounted registered secondaries — real supply, but a *different*
   risk family (the dilution tape's future job), not open-market selling pressure; set aside, named.
   No above-high screen (the buy side's forward-split rationale, mirrored).
@@ -36,11 +40,11 @@ committed seed Form 4s carry no code-S rows at all. ``detect`` remains GATED —
 and it no-ops (registered either way); the pure ``score`` is UNGATED (the math stays testable), and
 ``replay.run``'s ``--insider-sell`` / ``ALPHADECK_INSIDER_SELL`` set it explicitly for the backtest.
 
-The ``_is_senior`` / ``_norm_entity`` / ``_is_issuer_self`` helpers DUPLICATE the buy side
+The ``_is_senior`` / ``_norm_entity`` / ``_is_issuer_self`` / ``_is_foreign_ordinary`` (+ its
+``_norm_title`` / ``_ADR_TITLE_TOKENS``) helpers DUPLICATE the buy side
 (``signals/insider_conviction.py``) with this pointer rather than extracting a shared module: this
-slice explicitly does not touch the buy detector (its 10b5-1 screen is a separate, later decision) —
-the display seam's documented duplicate-with-pointer pattern. If the buy side's screens recalibrate,
-re-sync these by hand.
+slice explicitly does not touch the buy detector's OWN calibration decisions — the display seam's
+documented duplicate-with-pointer pattern. If the buy side's screens recalibrate, re-sync these by hand.
 """
 
 from __future__ import annotations
@@ -66,6 +70,7 @@ _PLANNED = "planned"  # aff_10b5_1 is True — a pre-planned 10b5-1 sale (near-n
 _SELF = "self"  # the issuer filing on itself — never personal insider supply
 _BELOW_LOW = "below_low"  # below the day's tape — a discounted secondary, a different risk family
 _IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data (#3)
+_FOREIGN = "foreign"  # a home-market ordinary line mis-filed on the ADR's tape — the wrong instrument (S2c)
 
 
 def _is_senior(role: str | None, keywords: frozenset[str]) -> bool:
@@ -99,20 +104,51 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
     return bool(filer) and filer == issuer
 
 
+# duplicated from insider_conviction (see module docstring — the buy/sell duplicate-with-pointer pattern):
+# the ADR/dual-listed screen. Re-sync by hand if the buy side's rule changes.
+_ADR_TITLE_TOKENS = ("depositary", "depository")
+
+
+def _norm_title(s: str | None) -> str:
+    # duplicated from insider_conviction._norm_title: casefold + collapse whitespace.
+    if not s:
+        return ""
+    return " ".join(str(s).casefold().split())
+
+
+def _is_foreign_ordinary(txn: dict[str, Any]) -> bool:
+    """duplicated from insider_conviction._is_foreign_ordinary (see that docstring — the full derivation).
+
+    Is this SALE in the issuer's foreign/ordinary home-market line, mis-filed on its US ADR's tape? Screen
+    ONLY when the issuer declares a foreign trading symbol AND the title positively names it (a depositary
+    title, or no declared symbol / a NULL title, is KEPT — keep-when-ambiguous, #9). A pure per-row
+    predicate; the excluded sale STAYS on the tape + the display flow, only the CALL's cluster skips it.
+    """
+    fsym = txn.get("issuer_foreign_symbol")
+    title = _norm_title(txn.get("security_title"))
+    if not fsym or not title:
+        return False
+    if any(tok in title for tok in _ADR_TITLE_TOKENS):
+        return False
+    return _norm_title(fsym) in title
+
+
 def _screen(
     txn: dict[str, Any],
     day_lows: dict[date, float],
     issuer_name: str | None,
     cfg: CallConfig,
 ) -> str:
-    """Which bucket does this code-S row land in? Ordered most-structural first (implausible data,
-    then identity, then price, then the plan flag) so a row tripping several screens has ONE
-    deterministic attribution. Absent price context only disables the below-low screen — a sale with
-    no day low is KEPT (recall-safe, #9: we cannot prove it was off-market). Note the direction of
-    error is inverted vs the buy side: over-screening SELLS makes the platform MORE bullish, which is
-    exactly why every set-aside is counted and named (#6)."""
+    """Which bucket does this code-S row land in? Ordered most-structural first (implausible data, then
+    the wrong-INSTRUMENT foreign line, then identity, then price, then the plan flag) so a row tripping
+    several screens has ONE deterministic attribution. Absent price context only disables the below-low
+    screen — a sale with no day low is KEPT (recall-safe, #9: we cannot prove it was off-market). Note the
+    direction of error is inverted vs the buy side: over-screening SELLS makes the platform MORE bullish,
+    which is exactly why every set-aside is counted and named (#6)."""
     if float(txn.get("usd") or 0.0) > cfg.insider_max_plausible_txn_usd:
         return _IMPLAUSIBLE
+    if _is_foreign_ordinary(txn):  # S2c: a home-market ordinary sale mis-filed on the ADR's tape
+        return _FOREIGN
     if _is_issuer_self(txn, issuer_name):
         return _SELF
     price = txn.get("price")
@@ -185,6 +221,7 @@ def score(
         _SELF: [],
         _BELOW_LOW: [],
         _IMPLAUSIBLE: [],
+        _FOREIGN: [],
     }
     for t in rows:
         buckets[_screen(t, lows, issuer_name, cfg)].append(t)
@@ -241,6 +278,7 @@ def score(
     below_low_w = [t for t in buckets[_BELOW_LOW] if _in_window(t)]
     self_w = [t for t in buckets[_SELF] if _in_window(t)]
     implausible_w = [t for t in buckets[_IMPLAUSIBLE] if _in_window(t)]
+    foreign_w = [t for t in buckets[_FOREIGN] if _in_window(t)]
     unknown_plan = [t for t in cluster if t.get("aff_10b5_1") is None]
 
     label = (
@@ -273,6 +311,7 @@ def score(
         "self_filings_screened": len(self_w),
         "below_low_set_aside": len(below_low_w),
         "implausible_dropped": len(implausible_w),
+        "foreign_ordinary_screened": len(foreign_w),  # S2c: wrong-instrument rows off the ADR tape
     }
     by_accession = {t["accession"] for t in cluster if t.get("accession")}
     return fired_signal(
