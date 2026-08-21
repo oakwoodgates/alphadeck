@@ -15,7 +15,10 @@ The v1 fire policy (operator-confirmed 2026-08-18, the S3 1.01-flood lessons app
 - **Amendments (/A) never re-anchor a fire** — a 13D/A is direction-blind (an increase, a
   sell-down, and an exit all file identically; the measured CMPS 13D/A reporting 4.96%, a sell-down
   BELOW 5%, must not fire a fresh CORE). Amendments inside the fired window ride the PROVENANCE so
-  the operator sees the full episode (#6).
+  the operator sees the full episode (#6). A DORMANT exit path (``cfg.activist_exit_terminates``,
+  default OFF — Item 4) additionally reads a PRESENT sub-5% /A filed AFTER the anchor as a real EXIT
+  and TERMINATES the fire; flag-gated because it makes the /A's ``pct_owned`` a fire input for the
+  first time (NULL-safe — an unparsed pct never asserts exit).
 - **13G-family rows fire NOTHING** — passive crossings are mostly index-fund plumbing (measured ~2
   originals/yr/name vs 1 13D per 6 years on the richest real subject); firing them would re-land
   the 1.01 flood. They stay on the tape (#9) and now power the **13G→13D SWITCH** enrichment
@@ -116,6 +119,44 @@ def _is_misattributed(fact: dict[str, Any], subject_cik: str | None) -> bool:
     return False
 
 
+def _stake_exited(d_family: list[dict[str, Any]], anchor: dict[str, Any]) -> bool:
+    """Item 4 (flag-gated) — has THE FIRED HOLDER's stake EXITED? A later 13D-family /A **by the SAME
+    filer as the fire ``anchor``**, filed strictly AFTER it (both already asof-filtered by the caller, so
+    an exit /A sits between the anchor and asof), whose ``pct_owned`` is PRESENT and ``< 5.0`` is a real
+    sell-BELOW-5% exit: the reporting holder dropping under the 5% threshold files a direction-blind /A.
+
+    SAME-FILER (mirrors ``_switch_from_13g``) — the load-bearing screen: an exit is THE ANCHOR's filer
+    selling down. A DIFFERENT activist's sub-5% /A on the same (multi-filer) subject, or a self-filed
+    mis-attributed /A (``filer_cik`` == subject, which never matches a legit non-subject anchor filer),
+    must NOT terminate the anchor's fire. This same-filer match is the correct and SUFFICIENT screen — do
+    NOT reuse ``_is_misattributed`` here: its sub-5% branch would wrongly screen out the LEGITIMATE exit
+    /A, which is sub-5% by design. An UNRESOLVED anchor filer (NULL/absent) never terminates (recall-safe
+    #9 — the switch's ``if not anchor_filer`` precedent: no fabricated exit from an absent CIK).
+
+    NULL-SAFE / recall-sacred (#9): ONLY a PRESENT sub-5% pct terminates — a NULL/unparsed pct on an /A
+    NEVER asserts exit (unparsed != exit). Direction-blindness is preserved on the fire/re-anchor side (an
+    increase or an above-5% /A still never re-anchors AND never terminates); this adds ONLY the sub-5%
+    same-filer terminate path. Because pct becomes a genuine fire input here (evidence-only elsewhere),
+    the whole path is flag-gated (``cfg.activist_exit_terminates``) pending a parse-reliability review.
+    """
+    anchor_filer = _norm_cik(anchor.get("filer_cik"))
+    if not anchor_filer:
+        return (
+            False  # an unresolved anchor filer can't be matched to an exit /A (no fabricated exit)
+        )
+    for f in d_family:
+        if not f["form"].endswith("/A"):
+            continue
+        if f["valid_from"] <= anchor["valid_from"]:
+            continue  # must strictly POST-DATE the fire anchor (a give-back after the crossing)
+        if _norm_cik(f.get("filer_cik")) != anchor_filer:
+            continue  # only the FIRED HOLDER's OWN sell-down is an exit (same-filer, like the switch)
+        pct = f.get("pct_owned")
+        if pct is not None and float(pct) < 5.0:
+            return True  # the anchor's filer dropped below 5% on a later /A = a real exit
+    return False
+
+
 def _switch_from_13g(
     facts: list[dict[str, Any]],
     anchor: dict[str, Any],
@@ -196,6 +237,13 @@ def score(
     # the FIRE ANCHOR: the most recent live original; the accession tail makes a same-day tie
     # deterministic (live/replay byte-parity).
     anchor = max(live_originals, key=lambda f: (f["valid_from"], f["accession"]))
+    # Item 4 — activist EXIT termination (flag-gated; default OFF => byte-identical to today). Guarded
+    # EARLY and short-circuited on the flag, so the disabled path never even scans: a present sub-5% /A
+    # after the anchor means the holder sold BELOW 5% (a real exit), so the CORE fire terminates rather
+    # than staying live the full liveness window. Returning None is the clean termination — the exit /A
+    # already post-dates the anchor and predates asof, so any liveness-truncation would read dead here too.
+    if cfg.activist_exit_terminates and _stake_exited(d_family, anchor):
+        return None
     # the fired episode's evidence: the anchor + every 13D-family filing (amendments included)
     # from the anchor to asof, sorted — the operator sees the whole episode, nothing hidden (#6).
     episode = sorted(

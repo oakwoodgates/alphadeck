@@ -458,6 +458,114 @@ def test_switch_ignores_a_mis_attributed_prior_13g():
     assert e is not None and e.grade is Grade.CORE and "ESCALATED" not in e.label
 
 
+# --- the activist EXIT termination (Item 4, flag-gated; default OFF = byte-identical to today) --------
+# THE FIRED HOLDER selling BELOW 5% files a direction-blind /A; when cfg.activist_exit_terminates is ON,
+# a SAME-FILER (the anchor's filer) PRESENT sub-5% /A filed AFTER the anchor terminates the CORE fire.
+# Screens (mirroring the switch): a DIFFERENT activist's /A, a self-filed (filer==subject) /A, and an
+# UNRESOLVED anchor filer never terminate. NULL-safe (#9): only a PRESENT sub-5% pct terminates; an
+# unparsed pct or an above-5% /A never does (direction-blindness preserved).
+
+_EXIT_ON = DEFAULT_CONFIG.model_copy(update={"activist_exit_terminates": True})
+_HOLDER = "0001111111"  # the fired holder's filer CIK (the _fact default)
+_SUBJECT = "0009999999"  # the subject security's own CIK (a real 13D has filer != subject)
+
+
+def _live_original(pct=7.0, filer_cik=_HOLDER):
+    """A live 13D ORIGINAL (filer ≠ subject, pct ≥ 5) filed 10d before ASOF — inside its liveness window."""
+    return _fact(
+        accession="ACC-ORIG",
+        form="SC 13D",
+        filed=ASOF - timedelta(days=10),
+        pct=pct,
+        filer_cik=filer_cik,
+    )
+
+
+def _amendment(pct, filed=ASOF - timedelta(days=2), filer_cik=_HOLDER):
+    return _fact(accession="ACC-A", form="SC 13D/A", filed=filed, pct=pct, filer_cik=filer_cik)
+
+
+def test_exit_flag_off_is_byte_identical_a_sub5_amendment_does_not_terminate():
+    """Item 4 flag OFF (the DEFAULT): a same-filer present sub-5% /A after the anchor changes NOTHING —
+    the CORE fires exactly as today, and the /A merely rides the provenance (an ordinary episode
+    amendment). The guard short-circuits on the flag, so the disabled path is byte-identical to
+    pre-Item-4 behavior."""
+    tape = [_live_original(), _amendment(pct=4.0)]
+    off = activist_stake.score(tape, SID, ASOF, DEFAULT_CONFIG, subject_cik=_SUBJECT)
+    assert off is not None and off.grade is Grade.CORE  # still fires with the flag off
+    assert off.asof == ASOF - timedelta(days=10)  # anchored on the original, unchanged
+    assert [p.ref for p in off.provenance] == ["ACC-ORIG", "ACC-A"]  # /A rides provenance as today
+
+
+def test_exit_flag_on_same_filer_sub5_amendment_terminates_the_fire():
+    """Item 4 flag ON (a): a SAME-FILER (the anchor's filer) PRESENT sub-5% /A filed after the anchor is a
+    real sell-below-5% exit — the CORE fire TERMINATES (returns None) instead of staying live the full
+    180d liveness window."""
+    tape = [_live_original(filer_cik=_HOLDER), _amendment(pct=4.0, filer_cik=_HOLDER)]
+    assert activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT) is None
+
+
+def test_exit_flag_on_a_different_filer_sub5_amendment_does_not_terminate():
+    """Item 4 flag ON (b): a DIFFERENT activist's sub-5% /A on the same (multi-filer) subject is NOT the
+    fired holder selling down — it must not terminate the anchor's fire (the same-filer screen, mirroring
+    the 13G→13D switch)."""
+    tape = [_live_original(filer_cik=_HOLDER), _amendment(pct=4.0, filer_cik="0002222222")]
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE  # a different filer's /A never terminates
+
+
+def test_exit_flag_on_a_self_filed_sub5_amendment_does_not_terminate():
+    """Item 4 flag ON (c): a self-filed (filer == subject) sub-5% /A is a mis-attributed row, not the
+    holder's exit — the SAME-FILER screen handles it (subject ≠ the legit non-subject anchor filer), so
+    it never terminates WITHOUT reusing _is_misattributed (whose sub-5% branch would wrongly screen a
+    LEGITIMATE sub-5% exit /A)."""
+    tape = [_live_original(filer_cik=_HOLDER), _amendment(pct=4.0, filer_cik=_SUBJECT)]
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE  # self-filed /A ≠ the anchor's filer -> no exit
+
+
+def test_exit_flag_on_a_null_filer_anchor_never_terminates_recall():
+    """Item 4 flag ON (d): an UNRESOLVED (NULL) anchor filer can't be matched to an exit /A, so the fire
+    never terminates (recall-safe #9 — no fabricated exit from an absent CIK, the switch's precedent).
+    The original still fires (a NULL filer with pct ≥ 5 is not mis-attributed)."""
+    tape = [_live_original(filer_cik=None), _amendment(pct=4.0, filer_cik=_HOLDER)]
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE  # NULL anchor filer -> can't assert an exit
+
+
+def test_exit_flag_on_a_null_pct_amendment_never_terminates_recall():
+    """Item 4 NULL-SAFE (#9): with the flag ON, a same-filer /A with an UNPARSED (NULL) pct NEVER asserts
+    exit — the CORE still fires. Unparsed != exit; the terminate path never drops a real stake on absence.
+    """
+    tape = [_live_original(), _amendment(pct=None)]
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE
+
+
+def test_exit_flag_on_an_above5_amendment_never_terminates_direction_blind():
+    """Item 4 direction-blindness preserved on the fire side: with the flag ON, a same-filer /A reporting
+    an INCREASE (above 5%) never terminates — only a sub-5% exit does. An add is not an exit."""
+    tape = [_live_original(), _amendment(pct=8.0)]
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE
+
+
+def test_exit_flag_on_ignores_a_sub5_amendment_that_predates_the_anchor():
+    """Item 4 post-date guard: a same-filer sub-5% /A that PRE-dates the fire anchor (amending an older,
+    superseded original) never terminates the fresh anchor's fire — only an exit AFTER the crossing does.
+    """
+    old_amend = _fact(
+        accession="ACC-OLD-A",
+        form="SC 13D/A",
+        filed=ASOF - timedelta(days=40),
+        pct=3.0,
+        filer_cik=_HOLDER,
+    )
+    tape = [_live_original(pct=7.0), old_amend]  # the /A (ASOF-40) predates the ASOF-10 anchor
+    e = activist_stake.score(tape, SID, ASOF, _EXIT_ON, subject_cik=_SUBJECT)
+    assert e is not None and e.grade is Grade.CORE
+
+
 # --- the two-key gate + the standing guard (the REAL pipeline over a COMPLETE fake) -----------------
 
 # A flat 50.0 base long enough for the 52-week detectors, then one 65.0 close on 3x volume — the

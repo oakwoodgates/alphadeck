@@ -567,6 +567,20 @@ class CallConfig(DomainModel):
     # 2026-05-18, ~185 days). The switch only ENRICHES an already-firing CORE 13D's label + provenance;
     # it never changes the fire, grade, or score, so this dial cannot flood. [PROPOSED] prior, lab-finalized.
     activist_switch_min_gap_days: int = 30
+    # --- activist EXIT termination (Band 03 S5 follow-on) — a DORMANT flag; False IS today -------------
+    # DEFAULT OFF (shipped INERT, the Band 03 detector precedent): when False the detector is
+    # byte-identical to today (``score`` guards on it EARLY, so the disabled path never scans). When True,
+    # a fired 13D whose stake has since EXITED terminates: a later 13D-family /A — filed AFTER the fire
+    # anchor, ``valid_from <= asof`` — whose ``pct_owned`` is PRESENT and ``< 5.0`` is a real sell-BELOW-5%
+    # exit (a holder dropping under the 5% reporting threshold files a direction-blind /A), so the fire
+    # returns None instead of staying live the full ``activist_13d_liveness_days`` (180d). NULL-SAFE /
+    # recall-sacred (#9): ONLY a PRESENT sub-5% pct terminates — an unparsed/NULL pct on an /A NEVER
+    # asserts exit (unparsed != exit), and an increase / above-5% /A never terminates (direction-blindness
+    # preserved on the fire side; only the sub-5% terminate path is added). This makes ``pct_owned`` a
+    # genuine FIRE INPUT on the exit side for the FIRST time (elsewhere the module treats pct as display
+    # evidence), which is exactly why it is flag-gated pending the operator's /A pct parse-reliability
+    # review (the insider_sell / share_creep INERT-first precedent). [PROPOSED].
+    activist_exit_terminates: bool = False
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
