@@ -458,14 +458,17 @@ def test_switch_ignores_a_mis_attributed_prior_13g():
     assert e is not None and e.grade is Grade.CORE and "ESCALATED" not in e.label
 
 
-# --- the activist EXIT termination (Item 4, flag-gated; default OFF = byte-identical to today) --------
-# THE FIRED HOLDER selling BELOW 5% files a direction-blind /A; when cfg.activist_exit_terminates is ON,
-# a SAME-FILER (the anchor's filer) PRESENT sub-5% /A filed AFTER the anchor terminates the CORE fire.
-# Screens (mirroring the switch): a DIFFERENT activist's /A, a self-filed (filer==subject) /A, and an
-# UNRESOLVED anchor filer never terminate. NULL-safe (#9): only a PRESENT sub-5% pct terminates; an
-# unparsed pct or an above-5% /A never does (direction-blindness preserved).
+# --- the activist EXIT termination (Item 4, flag-guarded; LIVE default ON since the 2026-08-21 flip) ---
+# THE FIRED HOLDER selling BELOW 5% files a direction-blind /A; when cfg.activist_exit_terminates is ON
+# (now the DEFAULT), a SAME-FILER (the anchor's filer) PRESENT sub-5% /A filed AFTER the anchor terminates
+# the CORE fire. Screens (mirroring the switch): a DIFFERENT activist's /A, a self-filed (filer==subject)
+# /A, and an UNRESOLVED anchor filer never terminate. NULL-safe (#9): only a PRESENT sub-5% pct
+# terminates; an unparsed pct or an above-5% /A never does (direction-blindness preserved). The on/off
+# configs are pinned EXPLICITLY so each test outlives the default in either direction (the corporate_risk
+# / activist_stake_enabled precedent).
 
 _EXIT_ON = DEFAULT_CONFIG.model_copy(update={"activist_exit_terminates": True})
+_EXIT_OFF = DEFAULT_CONFIG.model_copy(update={"activist_exit_terminates": False})
 _HOLDER = "0001111111"  # the fired holder's filer CIK (the _fact default)
 _SUBJECT = "0009999999"  # the subject security's own CIK (a real 13D has filer != subject)
 
@@ -485,16 +488,30 @@ def _amendment(pct, filed=ASOF - timedelta(days=2), filer_cik=_HOLDER):
     return _fact(accession="ACC-A", form="SC 13D/A", filed=filed, pct=pct, filer_cik=filer_cik)
 
 
-def test_exit_flag_off_is_byte_identical_a_sub5_amendment_does_not_terminate():
-    """Item 4 flag OFF (the DEFAULT): a same-filer present sub-5% /A after the anchor changes NOTHING —
-    the CORE fires exactly as today, and the /A merely rides the provenance (an ordinary episode
-    amendment). The guard short-circuits on the flag, so the disabled path is byte-identical to
-    pre-Item-4 behavior."""
+def test_exit_default_now_terminates_a_same_filer_sub5_exit():
+    """Item 4 LIVE default (flipped 2026-08-21 after the parse-reliability + prod off-vs-on measures):
+    DEFAULT_CONFIG now terminates a same-filer sub-5% exit — the flag defaults ON. Pinned EXPLICITLY on
+    DEFAULT_CONFIG so the test outlives the default in either direction (the switch-defaults-on precedent).
+    """
+    assert DEFAULT_CONFIG.activist_exit_terminates is True  # the ratified LIVE default
+    tape = [_live_original(filer_cik=_HOLDER), _amendment(pct=4.0, filer_cik=_HOLDER)]
+    assert activist_stake.score(tape, SID, ASOF, DEFAULT_CONFIG, subject_cik=_SUBJECT) is None
+
+
+def test_exit_flag_explicitly_off_is_byte_identical_a_sub5_amendment_does_not_terminate():
+    """Item 4 flag EXPLICITLY OFF (no longer the default since the 2026-08-21 flip — re-pointed at an
+    explicit-off config, the corporate_risk / activist_stake_enabled precedent): a same-filer present
+    sub-5% /A after the anchor changes NOTHING — the CORE fires exactly as pre-Item-4, and the /A merely
+    rides the provenance (an ordinary episode amendment). The guard short-circuits on the flag, so the
+    disabled path is byte-identical to pre-flip behavior."""
     tape = [_live_original(), _amendment(pct=4.0)]
-    off = activist_stake.score(tape, SID, ASOF, DEFAULT_CONFIG, subject_cik=_SUBJECT)
-    assert off is not None and off.grade is Grade.CORE  # still fires with the flag off
+    off = activist_stake.score(tape, SID, ASOF, _EXIT_OFF, subject_cik=_SUBJECT)
+    assert off is not None and off.grade is Grade.CORE  # still fires with the flag explicitly off
     assert off.asof == ASOF - timedelta(days=10)  # anchored on the original, unchanged
-    assert [p.ref for p in off.provenance] == ["ACC-ORIG", "ACC-A"]  # /A rides provenance as today
+    assert [p.ref for p in off.provenance] == [
+        "ACC-ORIG",
+        "ACC-A",
+    ]  # /A rides provenance as pre-flip
 
 
 def test_exit_flag_on_same_filer_sub5_amendment_terminates_the_fire():

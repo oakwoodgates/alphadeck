@@ -15,10 +15,11 @@ The v1 fire policy (operator-confirmed 2026-08-18, the S3 1.01-flood lessons app
 - **Amendments (/A) never re-anchor a fire** — a 13D/A is direction-blind (an increase, a
   sell-down, and an exit all file identically; the measured CMPS 13D/A reporting 4.96%, a sell-down
   BELOW 5%, must not fire a fresh CORE). Amendments inside the fired window ride the PROVENANCE so
-  the operator sees the full episode (#6). A DORMANT exit path (``cfg.activist_exit_terminates``,
-  default OFF — Item 4) additionally reads a PRESENT sub-5% /A filed AFTER the anchor as a real EXIT
-  and TERMINATES the fire; flag-gated because it makes the /A's ``pct_owned`` a fire input for the
-  first time (NULL-safe — an unparsed pct never asserts exit).
+  the operator sees the full episode (#6). The LIVE exit path (``cfg.activist_exit_terminates``,
+  DEFAULT ON since 2026-08-21 — Item 4) additionally reads a SAME-FILER PRESENT sub-5% /A filed AFTER
+  the anchor as a real EXIT and TERMINATES the fire; still flag-guarded (set it False and behavior is
+  byte-identical to pre-flip). NULL-safe — an unparsed pct never asserts exit, and a different/self-filed
+  filer never terminates (the /A's ``pct_owned`` is a fire input, hence the measured flip).
 - **13G-family rows fire NOTHING** — passive crossings are mostly index-fund plumbing (measured ~2
   originals/yr/name vs 1 13D per 6 years on the richest real subject); firing them would re-land
   the 1.01 flood. They stay on the tape (#9) and now power the **13G→13D SWITCH** enrichment
@@ -137,7 +138,8 @@ def _stake_exited(d_family: list[dict[str, Any]], anchor: dict[str, Any]) -> boo
     NEVER asserts exit (unparsed != exit). Direction-blindness is preserved on the fire/re-anchor side (an
     increase or an above-5% /A still never re-anchors AND never terminates); this adds ONLY the sub-5%
     same-filer terminate path. Because pct becomes a genuine fire input here (evidence-only elsewhere),
-    the whole path is flag-gated (``cfg.activist_exit_terminates``) pending a parse-reliability review.
+    the whole path stays flag-guarded (``cfg.activist_exit_terminates``, LIVE since the measured flip of
+    2026-08-21 — 98.1% /A-cover parse-reliability, 0 verdict changes in the read-only prod measure).
     """
     anchor_filer = _norm_cik(anchor.get("filer_cik"))
     if not anchor_filer:
@@ -237,11 +239,12 @@ def score(
     # the FIRE ANCHOR: the most recent live original; the accession tail makes a same-day tie
     # deterministic (live/replay byte-parity).
     anchor = max(live_originals, key=lambda f: (f["valid_from"], f["accession"]))
-    # Item 4 — activist EXIT termination (flag-gated; default OFF => byte-identical to today). Guarded
-    # EARLY and short-circuited on the flag, so the disabled path never even scans: a present sub-5% /A
-    # after the anchor means the holder sold BELOW 5% (a real exit), so the CORE fire terminates rather
-    # than staying live the full liveness window. Returning None is the clean termination — the exit /A
-    # already post-dates the anchor and predates asof, so any liveness-truncation would read dead here too.
+    # Item 4 — activist EXIT termination (flag-guarded; LIVE default ON since 2026-08-21, an explicit-off
+    # config is byte-identical to pre-flip). Guarded EARLY and short-circuited on the flag: a same-filer
+    # present sub-5% /A after the anchor means the holder sold BELOW 5% (a real exit), so the CORE fire
+    # terminates rather than staying live the full liveness window. Returning None is the clean
+    # termination — the exit /A already post-dates the anchor and predates asof, so any liveness-truncation
+    # would read dead here too.
     if cfg.activist_exit_terminates and _stake_exited(d_family, anchor):
         return None
     # the fired episode's evidence: the anchor + every 13D-family filing (amendments included)
