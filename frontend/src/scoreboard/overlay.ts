@@ -261,6 +261,12 @@ function triggerTooltip(e: TriggerChipEvent): TooltipContent {
   const source = [t.kind, t.ticker].filter(Boolean).join(" · ");
   if (source) lines.push(source);
   if (t.grade) lines.push(`grade ${t.grade}`); // the call-strength CLASS (flip/core), never a size
+  // The TRUE fire date, ONLY when the chip is NOT sitting on it — i.e. the fallback case, where the fire
+  // predates the first loaded bar so `buildOverlayEvents` anchored the chip at the arm instead. There the
+  // linkage line below stays silent (date === armDate) and the valid time would otherwise vanish from the
+  // UI entirely; a recorded fact is named, never dropped (#6/#9). At its own date the line is redundant.
+  if (t.event_date != null && t.event_date !== e.date)
+    lines.push(`fired ${t.event_date} (before the loaded window)`);
   // The arm linkage — ONLY when the chip sits away from the arm. At the arm it would restate the chip's
   // own x on every trigger, and a line true of every row carries no information (#7, honest loudness).
   if (e.date !== e.armDate) lines.push(`→ fed the ${e.armDate} arm`);

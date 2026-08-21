@@ -72,9 +72,11 @@ export function EventLedger({
                     {/* the filing behind the fact, where the server resolved a link — quiet anchors
                         appended to the text (the refs themselves already ride in `detail`, so a
                         link-less source is still visible; this only adds the jump, #6) */}
-                    {r.links?.map((l) => (
+                    {/* the index rides in the key: two sources can resolve to the SAME filing url
+                        (one accession, two refs), and a bare url key would collide */}
+                    {r.links?.map((l, i) => (
                       <a
-                        key={l.url}
+                        key={`${i}-${l.url}`}
                         className="evled-link"
                         href={l.url}
                         target="_blank"

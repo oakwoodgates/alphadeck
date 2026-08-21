@@ -334,6 +334,28 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
     ).toBe(false);
   });
 
+  // A1 review: in the FALLBACK case (event_date before the first loaded bar → the chip rides at the arm)
+  // the linkage line is silent by the rule above, so the true fire date has nowhere else to appear —
+  // name it explicitly rather than let a recorded fact vanish from the UI (#6/#9).
+  it("trigger: names the true fire date when the chip fell back to the arm (before the loaded window)", () => {
+    const lines = trigTip({ ticker: "IBM", event_date: "2026-01-02" }, "2026-06-01", "2026-06-01").lines;
+    expect(lines).toContain("fired 2026-01-02 (before the loaded window)");
+    expect(lines.some((l) => l.includes("fed the"))).toBe(false); // the chip IS at the arm — still silent
+  });
+
+  it("trigger: no fire-date line when the chip sits at its own event_date (it would restate the x)", () => {
+    // fired 05-20 and drawn at 05-20 → the linkage carries the arm; the fire date is the chip's own x
+    const at = trigTip({ ticker: "IBM", event_date: "2026-05-20" }, "2026-05-20", "2026-06-01").lines;
+    expect(at.some((l) => l.startsWith("fired "))).toBe(false);
+    expect(at).toContain("→ fed the 2026-06-01 arm");
+    // and a null event_date (the pre-A1 wire shape) never invents one
+    expect(
+      trigTip({ ticker: "IBM", event_date: null }, "2026-06-01", "2026-06-01").lines.some((l) =>
+        l.startsWith("fired "),
+      ),
+    ).toBe(false);
+  });
+
   it("trigger: per-source provenance lines, capped at 2 — the remainder stays VISIBLE as '+N more'", () => {
     const src = (ref: string) => ({ source: "form4", ref, url: null, detail: {} });
     const one = trigTip({ sources: [src("0001-a")] }).lines;
