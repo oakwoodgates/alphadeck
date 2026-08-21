@@ -16,6 +16,7 @@ import {
   episodeMarkers,
   insiderSetAside,
   legendEntries,
+  nearestBarDate,
   overlayTooltip,
   stackChips,
   tapeSignals,
@@ -127,6 +128,67 @@ describe("closeOnDate — the market close on/around a date", () => {
   });
   it("is null before the first bar", () => {
     expect(closeOnDate(bars, "2026-05-31")).toBeNull();
+  });
+});
+
+describe("nearestBarDate — the binary-search chip anchor (Slice B perf)", () => {
+  // The behavioral contract is "identical to the linear scan it replaced": the nearest bar by
+  // calendar distance, the EARLIER bar on a tie (the old strict-< first-min kept the first bar seen).
+  const linearReference = (bars: { d: string }[], iso: string): string | null => {
+    if (bars.length === 0) return null;
+    let best = bars[0].d;
+    let bestDiff = Infinity;
+    const t = Date.parse(iso);
+    for (const b of bars) {
+      const diff = Math.abs(Date.parse(b.d) - t);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = b.d;
+      }
+    }
+    return best;
+  };
+
+  it("matches the linear reference on every probe — exact hits, gaps, ties, out-of-range", () => {
+    const bars = [
+      bar("2026-05-01", 1),
+      bar("2026-05-04", 1), // a weekend gap
+      bar("2026-05-05", 1),
+      bar("2026-06-01", 1), // a long gap (halt / thin history)
+      bar("2026-06-02", 1),
+      bar("2026-06-30", 1),
+    ];
+    const probes = [
+      "2026-04-01", // before the first bar → clamps to it
+      "2026-05-01", // exact hit, first bar
+      "2026-05-02", // nearer 05-01 than 05-04
+      "2026-05-03", // nearer 05-04
+      "2026-05-05", // exact hit, mid
+      "2026-05-18", // mid-gap TIE (17d each way) → the earlier bar
+      "2026-05-20", // nearer 06-01
+      "2026-06-16", // TIE between 06-02 and 06-30 (14d each) → the earlier bar
+      "2026-06-30", // exact hit, last bar
+      "2026-07-15", // after the last bar → clamps to it
+    ];
+    for (const p of probes) expect(nearestBarDate(bars, p)).toBe(linearReference(bars, p));
+  });
+
+  it("prefers the EARLIER bar on an equidistant tie (the linear scan's behavior, preserved)", () => {
+    const bars = [bar("2026-06-01", 1), bar("2026-06-05", 1)];
+    expect(nearestBarDate(bars, "2026-06-03")).toBe("2026-06-01"); // 2d either way → earlier wins
+  });
+
+  it("clamps outside the range and is null with no bars", () => {
+    const bars = [bar("2026-06-01", 1), bar("2026-06-02", 1)];
+    expect(nearestBarDate(bars, "2025-01-01")).toBe("2026-06-01");
+    expect(nearestBarDate(bars, "2027-01-01")).toBe("2026-06-02");
+    expect(nearestBarDate([], "2026-06-01")).toBeNull();
+  });
+
+  it("agrees with the reference on a single-bar series (every probe maps to it)", () => {
+    const bars = [bar("2026-06-15", 1)];
+    for (const p of ["2026-01-01", "2026-06-15", "2026-12-31"])
+      expect(nearestBarDate(bars, p)).toBe("2026-06-15");
   });
 });
 

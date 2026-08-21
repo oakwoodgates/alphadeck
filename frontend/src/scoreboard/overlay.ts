@@ -59,6 +59,29 @@ export function closeOnDate(bars: Bar[], iso: string): number | null {
   return c;
 }
 
+/** The nearest loaded bar DATE to `iso` (either side) — the chip-positioning anchor. Binary search
+ *  over the ascending ISO `d` strings (lexicographic = chronological, the codebase's standing idiom),
+ *  then only the two neighbor candidates are compared by calendar distance; a tie prefers the EARLIER
+ *  bar (behavior-identical to the linear scan it replaced, whose strict-< first-min kept the earlier
+ *  date). Null when no bars are loaded. O(log B) matters here: the chart repositions every chip on
+ *  every pan/zoom frame, and Slice B triples the event count. */
+export function nearestBarDate(bars: { d: string }[], iso: string): string | null {
+  if (bars.length === 0) return null;
+  let lo = 0;
+  let hi = bars.length; // lower bound: the first index with d >= iso
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].d < iso) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo === 0) return bars[0].d; // before (or at) the first bar
+  if (lo === bars.length) return bars[bars.length - 1].d; // after the last bar
+  const prev = bars[lo - 1].d;
+  const next = bars[lo].d;
+  const t = Date.parse(iso);
+  return t - Date.parse(prev) <= Date.parse(next) - t ? prev : next; // <= → the earlier bar wins ties
+}
+
 /** The latest bar's DATE with `d <= iso` — the honest x for a bar-anchored marker (a weekend/holiday
  *  date maps to the prior trading day, exactly `closeOnDate`'s convention). Null when the date precedes
  *  the first loaded bar: no honest x → the marker is dropped, never clamped (the A1 trigger-chip rule). */
