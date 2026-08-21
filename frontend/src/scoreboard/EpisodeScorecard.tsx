@@ -6,7 +6,13 @@ import { fmtDate, gradeClass } from "../util/format";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines } from "./ledger";
 import { buildOverlayEvents } from "./overlay";
-import { episodeBadges, fmtReturn, returnLabel } from "./rows";
+import {
+  closeReasonLabel,
+  episodeBadges,
+  fmtReturn,
+  ingestProvenanceLine,
+  returnLabel,
+} from "./rows";
 import {
   edgeLens,
   fmtPrice,
@@ -53,6 +59,7 @@ export function EpisodeScorecard({
   const armUntil = fmtReturn(ep.arm_until_return);
   const strength = setupStrengthPct(ep);
   const badges = episodeBadges(ep);
+  const ingestLine = ingestProvenanceLine(ep); // null on a healthy arm → nothing renders
   // the arm_until_return row is a forward-return too — degenerate before the first bar; the grades
   // and setup strength are arm-date facts, so they stay.
   const showArmUntil = !noBar && (ep.arm_until != null || ep.arm_until_return != null);
@@ -115,8 +122,15 @@ export function EpisodeScorecard({
         </div>
       )}
       {ep.status === "closed" && ep.close_reason && (
-        <div className="sc-reason">closed · {ep.close_reason}</div>
+        // the reason in English; `title` keeps the raw wire token one hover away (translated, not hidden)
+        <div className="sc-reason" title={ep.close_reason}>
+          closed · {closeReasonLabel(ep.close_reason)}
+        </div>
       )}
+      {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a
+          healthy episode carries nothing at all (#7: loudness marks the exception). The INGEST badge
+          above says THAT it's flagged; this says WHY (the server's composed note + the measured lag). */}
+      {ingestLine && <div className="sc-ingest">{ingestLine}</div>}
 
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">
@@ -163,6 +177,15 @@ export function EpisodeScorecard({
               error={windowQ.isError}
             />
           </Suspense>
+        )}
+        {/* The tape's own provenance (#6): WHICH fact table drew this path, the EFFECTIVE floor the
+            server computed (not the start we asked for), and the as-of it was capped at (#1). Renders
+            only once the window has landed — a caption over a loading chart would describe nothing. */}
+        {windowQ.data && (
+          <div className="sc-tape">
+            tape: {windowQ.data.source} · loaded from {fmtDate(windowQ.data.start)} · as-of{" "}
+            {fmtDate(windowQ.data.asof)}
+          </div>
         )}
       </section>
 

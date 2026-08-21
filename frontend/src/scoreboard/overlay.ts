@@ -1,9 +1,11 @@
 import type {
   InsiderBuyOut,
   PriceBar,
+  ProvenanceOut,
   ScoreboardEpisodeOut,
   TriggerRefOut,
 } from "../api/hooks";
+import { closeReasonLabel } from "./rows";
 
 // Pure overlay logic for the drawer chart (Slice A, Revision 1): the default visible range, the STABLE
 // chronological 1..N numbering across the three recorded event families (insider buy / arm trigger /
@@ -65,6 +67,9 @@ export interface InsiderChipEvent extends ChipBase {
 export interface TriggerChipEvent extends ChipBase {
   family: "trigger";
   trigger: TriggerRefOut;
+  /** The arm this trigger fed — carried so the tooltip can name the linkage when the chip's own date
+   *  sits away from it (`date !== armDate`). The chip's x is VALID time; this is the call's time. */
+  armDate: string;
 }
 export interface LifecycleChipEvent extends ChipBase {
   family: "lifecycle";
@@ -97,8 +102,16 @@ export function buildOverlayEvents(
   if (ep.warm_date)
     raw.push({ family: "lifecycle", date: ep.warm_date, kind: "warmed", closeThatDay: closeAt(ep.warm_date) });
   raw.push({ family: "lifecycle", date: ep.arm_date, kind: "armed", closeThatDay: closeAt(ep.arm_date) });
-  for (const t of ep.triggers_at_arm ?? [])
-    raw.push({ family: "trigger", date: ep.arm_date, trigger: t, closeThatDay: closeAt(ep.arm_date) }); // the WHY, at the arm
+  for (const t of ep.triggers_at_arm ?? []) {
+    // The WHY, at its OWN fire date: `event_date` (the SignalEvent's valid time) anchors the chip
+    // whenever the loaded window can actually show it; a fire that predates the first bar has no
+    // honest x, so it falls back to the arm rather than clamping onto a bar that never saw it (#6).
+    // VALID TIME positions the chip; the arm linkage rides the tooltip — so a trigger may now sit
+    // LEFT of `armed` and take a lower number. That is fine: the numbering is a per-render identity
+    // (chart ⇄ ledger, built once here), never persisted, so no stored reference can go stale.
+    const d = t.event_date != null && t.event_date >= bars[0].d ? t.event_date : ep.arm_date;
+    raw.push({ family: "trigger", date: d, trigger: t, armDate: ep.arm_date, closeThatDay: closeAt(d) });
+  }
   for (const b of insiderBuys) {
     const c = closeAt(b.d);
     raw.push({
@@ -210,9 +223,52 @@ function insiderTooltip(e: InsiderChipEvent): TooltipContent {
   return { title: who, lines };
 }
 
-function triggerTooltip(t: TriggerRefOut): TooltipContent {
+// How many per-source provenance lines a trigger surfaces before it collapses the rest into a visible
+// "+N more sources". A hover card is transient real estate; the cap keeps it readable — and the "+N"
+// keeps the omission VISIBLE rather than a silent drop (#9, the same discipline as the chip overflow).
+const PROVENANCE_LINES = 2;
+
+/** A provenance ref's clickable target, or null when it has none. The server resolves `url` (the EDGAR
+ *  index page) where it can and leaves it null otherwise — an unresolvable ref stays TEXT, never a
+ *  fabricated href (#6). A `ref` that is itself an http(s) URL is honored as the fallback; anything
+ *  else (an accession, a metric key) is not a link. */
+function provenanceHref(p: ProvenanceOut): string | null {
+  const u = p.url ?? p.ref;
+  return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null;
+}
+
+export interface ProvenanceLink {
+  label: string;
+  url: string;
+}
+
+/** The linkable subset of a trigger's provenance, in wire order, under the SAME cap the tooltip uses —
+ *  so the ledger row's anchors and the hover card's lines never disagree about which sources surfaced.
+ *  Text-only refs are absent here (they still ride as tooltip/detail TEXT — provenance is never hidden,
+ *  it just isn't always clickable). */
+export function triggerLinks(t: TriggerRefOut): ProvenanceLink[] {
+  const out: ProvenanceLink[] = [];
+  for (const p of (t.sources ?? []).slice(0, PROVENANCE_LINES)) {
+    const url = provenanceHref(p);
+    if (url) out.push({ label: p.source, url });
+  }
+  return out;
+}
+
+function triggerTooltip(e: TriggerChipEvent): TooltipContent {
+  const t = e.trigger;
+  const lines: string[] = [];
   const source = [t.kind, t.ticker].filter(Boolean).join(" · ");
-  return { title: t.label, lines: source ? [source] : [] };
+  if (source) lines.push(source);
+  if (t.grade) lines.push(`grade ${t.grade}`); // the call-strength CLASS (flip/core), never a size
+  // The arm linkage — ONLY when the chip sits away from the arm. At the arm it would restate the chip's
+  // own x on every trigger, and a line true of every row carries no information (#7, honest loudness).
+  if (e.date !== e.armDate) lines.push(`→ fed the ${e.armDate} arm`);
+  const sources = t.sources ?? [];
+  for (const p of sources.slice(0, PROVENANCE_LINES)) lines.push(`${p.source}: ${p.ref}`);
+  const hidden = sources.length - PROVENANCE_LINES;
+  if (hidden > 0) lines.push(`+${hidden} more source${hidden === 1 ? "" : "s"}`); // visible, not dropped
+  return { title: t.label, lines };
 }
 
 const LIFECYCLE_TITLE: Record<LifecycleKind, string> = {
@@ -223,8 +279,12 @@ const LIFECYCLE_TITLE: Record<LifecycleKind, string> = {
 };
 
 function lifecycleTooltip(e: LifecycleChipEvent): TooltipContent {
+  // the de-arm reason reads as ENGLISH here (`closeReasonLabel`), not as the wire token — the raw token
+  // stays reachable on the components that render it (a `title=`), so nothing is hidden, only translated
   const title =
-    e.kind === "dearmed" && e.closeReason ? `de-armed (${e.closeReason})` : LIFECYCLE_TITLE[e.kind];
+    e.kind === "dearmed" && e.closeReason
+      ? `de-armed (${closeReasonLabel(e.closeReason)})`
+      : LIFECYCLE_TITLE[e.kind];
   return { title, lines: [e.date] };
 }
 
@@ -232,7 +292,7 @@ function lifecycleTooltip(e: LifecycleChipEvent): TooltipContent {
  *  available: the number is never a dead reference (#6). */
 export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "insider") return insiderTooltip(e);
-  if (e.family === "trigger") return triggerTooltip(e.trigger);
+  if (e.family === "trigger") return triggerTooltip(e);
   return lifecycleTooltip(e);
 }
 

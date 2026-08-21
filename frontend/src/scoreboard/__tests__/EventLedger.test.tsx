@@ -113,6 +113,31 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     expect(insider.textContent).toContain("Jane Doe (CEO)"); // detail reuses the tooltip's line
   });
 
+  // A1: a trigger row whose provenance resolved to a filing gets a quiet anchor beside the detail text.
+  it("renders the trigger's resolved provenance as a new-tab anchor; link-less rows get none", () => {
+    const linked = {
+      label: "3 insiders bought",
+      kind: "insider",
+      ticker: "IBM",
+      sources: [{ source: "form4", ref: "0001-a", url: "https://sec.gov/a-index.htm", detail: {} }],
+    } as unknown as TriggerRefOut;
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01", triggers_at_arm: [linked] }),
+      [],
+      BARS as PriceBar[],
+    );
+    const { container } = renderLedger({ events });
+    const a = container.querySelector("a.evled-link") as HTMLAnchorElement;
+    expect(a).toHaveAttribute("href", "https://sec.gov/a-index.htm");
+    expect(a).toHaveAttribute("target", "_blank");
+    expect(a).toHaveAttribute("rel", "noreferrer"); // never leaks the drawer's referrer
+    expect(a.textContent).toContain("form4");
+    // the ref is still legible as TEXT in the same cell — the link only adds the jump (#6)
+    expect(a.closest("td")?.textContent).toContain("form4: 0001-a");
+    // the default fixture's trigger carries no sources → no anchor at all (no empty affordance)
+    expect(renderLedger().container.querySelector("a.evled-link")).toBeNull();
+  });
+
   it("empty events → no table at all (mirrors the chart's empty state)", () => {
     const { container } = renderLedger({ events: [] });
     expect(container.querySelector("table")).toBeNull();

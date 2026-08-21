@@ -9,6 +9,7 @@ import {
   legendEntries,
   overlayTooltip,
   stackChips,
+  triggerLinks,
 } from "../overlay";
 
 // Pure overlay logic — the parts a canvas can't render in jsdom (numbering, tooltip content, legend, the
@@ -132,6 +133,43 @@ describe("buildOverlayEvents — stable, unified chronological 1..N (R1)", () =>
     const events = buildOverlayEvents(ep({ exit_by: "2026-08-01" }), [], BARS);
     expect(events.some((e) => e.date === "2026-08-01")).toBe(false); // beyond last (2026-06-30)
     expect(events.map((e) => e.family)).toEqual(["lifecycle"]); // just the armed anchor
+  });
+
+  // A1: a trigger chip sits at its OWN fire date (`event_date` — the SignalEvent's valid time) when the
+  // loaded window can show it, and falls back to the arm otherwise. The arm linkage moves to the tooltip.
+  it("places a trigger at its event_date when that date is inside the loaded window", () => {
+    const trig = {
+      label: "insider cluster",
+      kind: "insider",
+      event_date: "2026-05-20",
+    } as TriggerRefOut;
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01", triggers_at_arm: [trig] }), [], BARS);
+    // the trigger now PRECEDES its own arm — the numbering is a per-render identity, so a lower
+    // number for the earlier fact is correct, not a regression
+    expect(events.map((e) => [e.n, e.family, e.date])).toEqual([
+      [1, "trigger", "2026-05-20"],
+      [2, "lifecycle", "2026-06-01"], // armed
+    ]);
+    const t = events[0];
+    expect(t.family === "trigger" && t.armDate).toBe("2026-06-01"); // the arm linkage rides along
+    // the guide-line anchors on ITS date's close, not the arm's (05-20 → the 05-15 bar, 100)
+    expect(t.closeThatDay).toBe(100);
+  });
+
+  it("falls back to the arm date when event_date predates the first loaded bar (no honest x)", () => {
+    const trig = { label: "old fire", kind: "insider", event_date: "2026-01-02" } as TriggerRefOut;
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01", triggers_at_arm: [trig] }), [], BARS);
+    // clamping it onto 2026-05-15 would assert a bar that never saw the fire — it rides at the arm
+    expect(events.map((e) => [e.family, e.date])).toEqual([
+      ["lifecycle", "2026-06-01"], // armed keeps the insertion tiebreak
+      ["trigger", "2026-06-01"],
+    ]);
+  });
+
+  it("falls back to the arm date when event_date is null (the pre-A1 wire shape)", () => {
+    const trig = { label: "no date", kind: "insider", event_date: null } as TriggerRefOut;
+    const events = buildOverlayEvents(ep({ arm_date: "2026-06-01", triggers_at_arm: [trig] }), [], BARS);
+    expect(events.find((e) => e.family === "trigger")?.date).toBe("2026-06-01");
   });
 
   it("attaches the market close that day + the return vs now to each insider event (R3)", () => {
@@ -262,16 +300,54 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
     expect(t.lines).toContain("10b5-1 plan (pre-scheduled)");
   });
 
-  it("trigger: the label is the title, kind + ticker the source line", () => {
-    const t = overlayTooltip({
+  // A1: the trigger card carries WHY (kind/ticker), HOW STRONG (grade), WHEN IT FED THE CALL (only when
+  // the chip sits away from the arm), and WHAT IT RESTS ON (the capped per-source provenance refs).
+  const trigTip = (trigger: Partial<TriggerRefOut>, date = "2026-06-01", armDate = "2026-06-01") =>
+    overlayTooltip({
       n: 1,
       family: "trigger",
-      date: "2026-06-01",
+      date,
+      armDate,
       closeThatDay: 100,
-      trigger: { label: "3 insiders bought $2.1M", kind: "insider", ticker: "IBM" } as TriggerRefOut,
+      trigger: { label: "3 insiders bought $2.1M", kind: "insider", ...trigger } as TriggerRefOut,
     });
+
+  it("trigger: the label is the title, kind + ticker the source line", () => {
+    const t = trigTip({ ticker: "IBM" });
     expect(t.title).toBe("3 insiders bought $2.1M");
     expect(t.lines).toEqual(["insider · IBM"]);
+  });
+
+  it("trigger: the grade rides as its own line when the wire carries one", () => {
+    expect(trigTip({ ticker: "IBM", grade: "core" }).lines).toEqual(["insider · IBM", "grade core"]);
+    expect(trigTip({ ticker: "IBM", grade: null }).lines).toEqual(["insider · IBM"]);
+  });
+
+  it("trigger: the arm linkage shows ONLY when the chip's date differs from the arm (#7)", () => {
+    // fired 05-20, armed 06-01 → the chip sits away from the arm, so the linkage is real information
+    expect(trigTip({ ticker: "IBM" }, "2026-05-20", "2026-06-01").lines).toContain(
+      "→ fed the 2026-06-01 arm",
+    );
+    // at the arm the line would restate the chip's own x on every trigger — silence instead
+    expect(
+      trigTip({ ticker: "IBM" }, "2026-06-01", "2026-06-01").lines.some((l) => l.includes("fed the")),
+    ).toBe(false);
+  });
+
+  it("trigger: per-source provenance lines, capped at 2 — the remainder stays VISIBLE as '+N more'", () => {
+    const src = (ref: string) => ({ source: "form4", ref, url: null, detail: {} });
+    const one = trigTip({ sources: [src("0001-a")] }).lines;
+    expect(one).toContain("form4: 0001-a");
+    expect(one.some((l) => l.includes("more source"))).toBe(false); // nothing hidden → no "+N"
+
+    const four = trigTip({ sources: [src("a"), src("b"), src("c"), src("d")] }).lines;
+    expect(four.filter((l) => l.startsWith("form4: "))).toEqual(["form4: a", "form4: b"]);
+    expect(four).toContain("+2 more sources"); // never a silent drop (#9)
+    expect(trigTip({ sources: [src("a"), src("b"), src("c")] }).lines).toContain("+1 more source");
+  });
+
+  it("trigger: no sources on the wire → no provenance lines at all (never an empty shell)", () => {
+    expect(trigTip({ ticker: "IBM", sources: [] }).lines).toEqual(["insider · IBM"]);
   });
 
   it("lifecycle: armed / de-armed(reason) / exit-by titles", () => {
@@ -280,6 +356,54 @@ describe("overlayTooltip — provenance-first, honest disclosure lag + price con
     expect(lc("armed").title).toBe("armed");
     expect(lc("dearmed", "aged out").title).toBe("de-armed (aged out)");
     expect(lc("exit_by").title).toBe("exit-by (horizon)");
+  });
+
+  it("lifecycle: a de-arm TOKEN is humanized in the title; an unknown reason rides raw (A1)", () => {
+    const lc = (closeReason: string) =>
+      overlayTooltip({
+        n: 1,
+        family: "lifecycle",
+        date: "2026-06-01",
+        closeThatDay: 100,
+        kind: "dearmed",
+        closeReason,
+      });
+    expect(lc("conviction_aged_out").title).toBe("de-armed (conviction aged out (past exit-by))");
+    expect(lc("arm_until_lapsed").title).toBe("de-armed (entry window lapsed)");
+    expect(lc("something_new").title).toBe("de-armed (something_new)"); // additive-safe, never dropped
+  });
+});
+
+describe("triggerLinks — the clickable subset of a trigger's provenance (A1)", () => {
+  const trig = (sources: unknown[]) => ({ label: "l", kind: "insider", sources } as TriggerRefOut);
+  const p = (over: Record<string, unknown>) => ({ source: "form4", ref: "acc-1", url: null, detail: {}, ...over });
+
+  it("links the server-resolved url, labeled by its source", () => {
+    expect(triggerLinks(trig([p({ url: "https://sec.gov/x-index.htm" })]))).toEqual([
+      { label: "form4", url: "https://sec.gov/x-index.htm" },
+    ]);
+  });
+
+  it("falls back to a ref that is ITSELF an http(s) URL", () => {
+    expect(triggerLinks(trig([p({ ref: "http://example.com/f" })]))).toEqual([
+      { label: "form4", url: "http://example.com/f" },
+    ]);
+  });
+
+  it("never fabricates an href from a non-URL ref — an accession/metric key is text, not a link (#6)", () => {
+    expect(triggerLinks(trig([p({ ref: "0001628280-25-042718" })]))).toEqual([]);
+    expect(triggerLinks(trig([p({ source: "fact_price_eod", ref: "close" })]))).toEqual([]);
+    // and a hostile scheme is not an http(s) URL either
+    expect(triggerLinks(trig([p({ url: "javascript:alert(1)" })]))).toEqual([]);
+  });
+
+  it("shares the tooltip's 2-source cap, so the row's anchors and the card's lines never disagree", () => {
+    const many = trig([1, 2, 3].map((i) => p({ url: `https://sec.gov/${i}` })));
+    expect(triggerLinks(many).map((l) => l.url)).toEqual(["https://sec.gov/1", "https://sec.gov/2"]);
+  });
+
+  it("a trigger with no sources links nothing", () => {
+    expect(triggerLinks({ label: "l", kind: "insider" } as TriggerRefOut)).toEqual([]);
   });
 });
 

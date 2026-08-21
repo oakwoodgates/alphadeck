@@ -71,6 +71,39 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
   return out;
 }
 
+// The de-arm tokens replay stamps on an episode (`backend/replay/episodes.py::_close_reason`) in the
+// operator's English. A CLASSIFICATION, never a judgement — "aged out" says the horizon elapsed, not that
+// the call was wrong. Additive-safe: a token this map doesn't know renders RAW rather than "unknown", so
+// a new backend reason surfaces as itself instead of vanishing (#9) — and every render site keeps the raw
+// token reachable in a `title=`, so the translation never hides what the record actually says.
+const CLOSE_REASON_LABEL: Record<string, string> = {
+  arm_until_lapsed: "entry window lapsed",
+  conviction_aged_out: "conviction aged out (past exit-by)",
+  managing: "position taken — managing",
+  window_end: "still armed at the record edge",
+  dearmed_other: "de-armed (see de-arm day)",
+};
+
+/** One de-arm token → its plain-English label; an unknown token returns itself (never a guess). */
+export function closeReasonLabel(token: string): string {
+  return CLOSE_REASON_LABEL[token] ?? token;
+}
+
+/** The drawer's ONE ingest-provenance line — null (render nothing at all) when the arm's ingest was
+ *  healthy. Loudness marks the exception (#7): a line under every episode saying "ingest fine" would
+ *  carry no information, so the healthy case is silence. Flagged means any of the three wire signals:
+ *  the rollup `ingest_flagged`, the 2026-07 EDGAR freeze window, or an explicitly stale arm-date run
+ *  (`arm_ingest_fresh === false` — a null is UNKNOWN, and unknown is not a judgement). The server's
+ *  composed `ingest_note` is the "why" verbatim where it exists; the thaw lag rides beside it as the
+ *  measured number (#6 — the flag always shows its work). */
+export function ingestProvenanceLine(e: ScoreboardEpisodeOut): string | null {
+  const flagged = e.ingest_flagged || e.freeze_era || e.arm_ingest_fresh === false;
+  if (!flagged) return null;
+  const parts = [e.ingest_note ?? "the arm rested on partial or late-ingested data"];
+  if (e.thaw_lag_days != null) parts.push(`worst source lag ${e.thaw_lag_days}d`);
+  return `ingest provenance: ${parts.join(" · ")}`;
+}
+
 /** The operator cell's one-line story (the wire slot, or the honest capture gap). */
 export function operatorLine(e: ScoreboardEpisodeOut): {
   kind: "took" | "passed" | "none";

@@ -1,7 +1,15 @@
 import type { DisplaySignal, MemberDisplaySignalsOut, ScoredMemberOut } from "../api/hooks";
 import { businessTypeLabel } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
-import { familyCls, type LifecycleKind, type OverlayEvent, overlayTooltip } from "./overlay";
+import {
+  familyCls,
+  type LifecycleKind,
+  type OverlayEvent,
+  overlayTooltip,
+  type ProvenanceLink,
+  triggerLinks,
+} from "./overlay";
+import { closeReasonLabel } from "./rows";
 
 // Pure formatters for the drawer's per-episode event LEDGER (Slice B) — the tabular companion to the chart.
 // The ledger lists the SAME numbered events the chart draws (row #N ↔ chip #N); it shares the ONE `events`
@@ -16,6 +24,11 @@ export interface LedgerRow {
   date: string; // raw ISO — the component formats via fmtDate
   type: string; // the human family/kind label
   detail: string; // the family specifics (reuses overlayTooltip's per-family lines where they read well)
+  /** The row's clickable provenance — the filing behind the fact, where the server resolved one. The
+   *  refs ALSO ride as text in `detail`, so an unresolvable source is never lost; this only adds the
+   *  jump (#6, explainability: the table can reach the document). Absent on rows with no linkable
+   *  source — the table stays quiet rather than rendering an empty affordance. */
+  links?: ProvenanceLink[];
 }
 
 // A lifecycle row names its specific kind in the type cell — the number's tint already carries the family,
@@ -39,12 +52,24 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     return { ...base, type: "insider buy", detail: [tip.title, ...lines].join(" · ") };
   }
   if (e.family === "trigger") {
-    const tip = overlayTooltip(e); // title = the trigger label; lines = ["kind · ticker"]
-    return { ...base, type: "arm trigger", detail: [tip.title, ...tip.lines].join(" · ") };
+    // title = the trigger label; lines = kind · ticker, grade, the arm linkage (only when the chip's
+    // date differs from the arm), then the capped per-source provenance refs
+    const tip = overlayTooltip(e);
+    const links = triggerLinks(e.trigger);
+    return {
+      ...base,
+      type: "arm trigger",
+      detail: [tip.title, ...tip.lines].join(" · "),
+      ...(links.length > 0 ? { links } : {}),
+    };
   }
   const detail =
     e.kind === "dearmed"
-      ? (e.closeReason ?? "—")
+      ? e.closeReason
+        // English, not the wire token — the raw token stays reachable on the same drawer, in the
+        // scorecard header's `title=` (the drawer never shows the label without the token behind it)
+        ? closeReasonLabel(e.closeReason)
+        : "—"
       : e.kind === "exit_by"
         ? "signal-validity horizon"
         : "—"; // warmed / armed: the WHY rides the separate numbered trigger rows
@@ -87,9 +112,21 @@ export function identityCells(scored: ScoredMemberOut | null | undefined): Ident
   return cells;
 }
 
-// The display-signal registry render order (backend signals/display/__init__.py). The ledger owns the order
-// so it is stable regardless of wire order; an unregistered new kind sorts last (renders, zero FE change).
-const SIGNAL_ORDER = ["sma_position", "range_52w", "volume_regime", "insider_flow_90d"];
+// The display-signal registry render order — MIRRORS the import order in backend/signals/display/__init__.py
+// ("registration order is the panel's render order"), by each member's wire `kind`. The ledger owns the
+// order so it is stable regardless of wire order; an unregistered new kind sorts last (renders, zero FE
+// change), so this list drifting behind the registry costs placement, never a dropped signal.
+const SIGNAL_ORDER = [
+  "sma_position", // sma
+  "trailing_returns", // trailing_returns
+  "range_52w", // range52w
+  "volume_regime", // volume_regime
+  "rvol", // rvol
+  "relative_strength", // relative_strength
+  "insider_flow_90d", // insider_flow
+  "etf_flow", // etf_flow
+  "vcp", // vcp
+];
 
 /** The present-only display-signal headlines for the drawer strip, in registry order. Renders ONLY the
  *  signals that actually carry a headline (honest loudness #7 — a headline-less signal is silence, not a

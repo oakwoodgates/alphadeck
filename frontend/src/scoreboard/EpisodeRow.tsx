@@ -2,6 +2,7 @@ import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import {
   awaitingForwardBar,
+  closeReasonLabel,
   episodeBadges,
   fmtPastPeak,
   fmtReturn,
@@ -61,7 +62,12 @@ export function EpisodeRow({
           {b.label}
         </span>
       ))}
-      {ep.status === "closed" && <span className="sb-reason">{ep.close_reason}</span>}
+      {/* the de-arm reason in English; the raw wire token stays one hover away (never hidden) */}
+      {ep.status === "closed" && (
+        <span className="sb-reason" title={ep.close_reason}>
+          {closeReasonLabel(ep.close_reason)}
+        </span>
+      )}
     </td>
   );
 

@@ -70,18 +70,49 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(row("primary_market").type).toBe("insider buy");
   });
 
-  it("trigger: the label leads, then kind · ticker", () => {
-    const e: OverlayEvent = {
+  const trigRow = (trigger: Partial<TriggerRefOut>, date = "2026-06-01", armDate = "2026-06-01") =>
+    ledgerRow({
       n: 4,
       family: "trigger",
-      date: "2026-06-01",
+      date,
+      armDate,
       closeThatDay: 100,
-      trigger: { label: "3 insiders bought $2.1M", kind: "insider", ticker: "IBM" } as TriggerRefOut,
-    };
-    const r = ledgerRow(e);
+      trigger: { label: "3 insiders bought $2.1M", kind: "insider", ...trigger } as TriggerRefOut,
+    } as OverlayEvent);
+
+  it("trigger: the label leads, then kind · ticker", () => {
+    const r = trigRow({ ticker: "IBM" });
     expect(r.cls).toBe("ov-trigger");
     expect(r.type).toBe("arm trigger");
     expect(r.detail).toBe("3 insiders bought $2.1M · insider · IBM");
+    expect(r.links).toBeUndefined(); // no linkable source → no empty affordance on the row
+  });
+
+  it("trigger: grade, the arm linkage, and the provenance refs inherit into the detail cell (A1)", () => {
+    const r = trigRow(
+      {
+        ticker: "IBM",
+        grade: "core",
+        sources: [{ source: "form4", ref: "0001-a", url: null, detail: {} }],
+      },
+      "2026-05-20", // fired before the arm → the linkage line is real information
+      "2026-06-01",
+    );
+    expect(r.detail).toContain("grade core");
+    expect(r.detail).toContain("→ fed the 2026-06-01 arm");
+    expect(r.detail).toContain("form4: 0001-a"); // the ref rides as TEXT even without a link (#6)
+  });
+
+  it("trigger: an http(s)-resolvable source becomes a link — the ref STILL rides as text beside it", () => {
+    const r = trigRow({
+      sources: [
+        { source: "form4", ref: "0001-a", url: "https://sec.gov/a-index.htm", detail: {} },
+        { source: "fact_price_eod", ref: "close", url: null, detail: {} }, // not linkable
+      ],
+    });
+    expect(r.links).toEqual([{ label: "form4", url: "https://sec.gov/a-index.htm" }]);
+    expect(r.detail).toContain("form4: 0001-a");
+    expect(r.detail).toContain("fact_price_eod: close"); // the link-less source is visible, not dropped
   });
 
   it("lifecycle: the type names the specific kind; de-armed carries its reason, exit-by its gloss", () => {
@@ -95,6 +126,11 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     });
     expect(ledgerRow(lc("warmed"))).toMatchObject({ type: "warmed", cls: "ov-lifecycle", detail: "—" });
     expect(ledgerRow(lc("armed"))).toMatchObject({ type: "armed", detail: "—" });
+    // A1: the de-arm reason reads as ENGLISH; an unknown token rides raw rather than vanishing
+    expect(ledgerRow(lc("dearmed", "conviction_aged_out"))).toMatchObject({
+      type: "de-armed",
+      detail: "conviction aged out (past exit-by)",
+    });
     expect(ledgerRow(lc("dearmed", "aged out"))).toMatchObject({ type: "de-armed", detail: "aged out" });
     expect(ledgerRow(lc("dearmed"))).toMatchObject({ type: "de-armed", detail: "—" }); // no reason → "—"
     expect(ledgerRow(lc("exit_by"))).toMatchObject({ type: "exit-by", detail: "signal-validity horizon" });
@@ -177,6 +213,34 @@ describe("signalHeadlines — present-only, in the display registry order (#7)",
       "sma_position",
       "range_52w",
       "volume_regime",
+    ]);
+  });
+
+  // A1 chore: the order mirrors backend/signals/display/__init__.py's import (= registration) order.
+  it("orders the FULL registry — the four newer members sort into place, not to the tail", () => {
+    const member = {
+      signals: [
+        "vcp",
+        "etf_flow",
+        "insider_flow_90d",
+        "relative_strength",
+        "rvol",
+        "volume_regime",
+        "range_52w",
+        "trailing_returns",
+        "sma_position",
+      ].map((k) => sig(k, true)), // deliberately reversed on the wire
+    } as unknown as MemberDisplaySignalsOut;
+    expect(signalHeadlines(member).map((s) => s.kind)).toEqual([
+      "sma_position",
+      "trailing_returns",
+      "range_52w",
+      "volume_regime",
+      "rvol",
+      "relative_strength",
+      "insider_flow_90d",
+      "etf_flow",
+      "vcp",
     ]);
   });
 
