@@ -76,9 +76,18 @@ class CallConfig(DomainModel):
     risk_penalty_per_signal: float = 0.10  # confidence cut per active risk signal (scaled by score)
 
     # --- dilution severity (used by the dilution detector in M4a) ---
-    # gross overhang (% of shares outstanding) that scales to the block severity; a convert's potential
-    # dilution is scored against this (STARTING calibration). HIMS's ~6% lands well below the block.
+    # gross overhang (% of shares outstanding) at/above which a convert overhang scores as SEVERE — the
+    # "what overhang counts as severe" knob (STARTING calibration). HIMS's ~6% lands well below it.
     dilution_overhang_severe_pct: float = 25.0
+    # The SEVERITY SCALE a severe (>= dilution_overhang_severe_pct) overhang scores to — the "how loud is
+    # a severe dilution" knob. DECOUPLED from two neighbours it must not be confused with: risk_block_severity
+    # (the UNIVERSAL veto threshold — a score >= it withholds the Armed call) and dilution_overhang_severe_pct
+    # (the "what overhang counts as severe" knob). Before this dial the severity math multiplied by
+    # risk_block_severity, so retuning the veto dial silently rescaled EVERY dilution score AND a >= severe
+    # overhang landed EXACTLY on the >= gate with zero margin. Set ABOVE risk_block_severity (0.70) so a
+    # severe overhang clears the veto gate WITH MARGIN. [PROPOSED] 0.80 — the operator confirms the exact
+    # value. (The detector additionally caps the emitted score at 0.95, dilution's ceiling.)
+    dilution_severe_score: float = 0.80
 
     # --- insider_conviction (Key 1) — grade rule (§3); STARTING calibration, not precision ---
     # cohesion window: open-market buys within this many days of the most-recent buy count as ONE
