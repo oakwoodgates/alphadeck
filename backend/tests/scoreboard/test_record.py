@@ -8,10 +8,22 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
-from replay.schema import Episode
+from replay.schema import CallSnapshot, Episode, MemberRow
 from repositories import thesis_repo
-from scoreboard.record import _dearm_detail, _risk_events, derive_thesis_record, scoreboard_records
-from tests.calls.factories import breakdown_event, dilution_event, insider_event, insider_sell_event
+from scoreboard.record import (
+    _dearm_detail,
+    _risk_events,
+    _transitions,
+    derive_thesis_record,
+    scoreboard_records,
+)
+from tests.calls.factories import (
+    breakdown_event,
+    breakout_event,
+    dilution_event,
+    insider_event,
+    insider_sell_event,
+)
 from tests.scoreboard.helpers import bar, keys_fired
 from tests.scoreboard.helpers import persist_thesis as _thesis
 from tests.scoreboard.helpers import record_day as _record_day
@@ -464,6 +476,86 @@ def test_risk_events_walk_stops_at_dearm_unit():
     }
     ep = _bare_episode(date(2026, 6, 1), date(2026, 6, 2), dearm=date(2026, 6, 3))
     assert _risk_events(cards, ep) == []
+
+
+# --- Slice C3: transitions — the un-numbered record trail (verdict/grade diffs, never confidence) ---
+
+
+def _member_row(
+    *,
+    verdict: Verdict | None = Verdict.CORE_ENTRY,
+    entry_grade: Grade | None = Grade.CORE,
+    conviction_grade: Grade | None = Grade.CORE,
+    confidence: float | None = 0.8,
+) -> MemberRow:
+    return MemberRow(
+        security_id=_SID,
+        tier="armed",
+        verdict=verdict,
+        entry_grade=entry_grade,
+        conviction_grade=conviction_grade,
+        confidence=confidence,
+    )
+
+
+def _armed_snap(asof: date, row: MemberRow) -> CallSnapshot:
+    return CallSnapshot(
+        thesis_id=uuid.UUID(int=0xA1),
+        asof=asof,
+        state=State.ARMED,
+        verdict=row.verdict or Verdict.NOT_YET,
+        armed_security_id=_SID,
+        members=[row],
+    )
+
+
+def test_transitions_differ_unit():
+    """The pure differ: the first card is the baseline (no emission); a multi-field change on one
+    day emits one row PER field; a None → value change reads from_value=None; the daily confidence
+    wobble emits NOTHING; snaps outside [arm_date, last_armed_date] never contribute."""
+    snaps = [
+        _armed_snap(date(2026, 5, 30), _member_row(verdict=Verdict.STARTER_ENTRY)),  # pre-arm: out
+        _armed_snap(date(2026, 6, 1), _member_row(conviction_grade=None)),  # baseline
+        _armed_snap(
+            date(2026, 6, 2), _member_row(conviction_grade=None, confidence=0.55)
+        ),  # wobble
+        _armed_snap(  # verdict + entry_grade same day; conviction None -> core
+            date(2026, 6, 4),
+            _member_row(verdict=Verdict.STARTER_ENTRY, entry_grade=Grade.FLIP, confidence=0.55),
+        ),
+        _armed_snap(date(2026, 6, 8), _member_row(verdict=Verdict.MANAGING)),  # past the run: out
+    ]
+    ep = _bare_episode(date(2026, 6, 1), date(2026, 6, 4))
+    out = _transitions(snaps, ep)
+    assert [(t.asof, t.field, t.from_value, t.to_value) for t in out] == [
+        (date(2026, 6, 4), "verdict", "core_entry", "starter_entry"),
+        (date(2026, 6, 4), "entry_grade", "core", "flip"),
+        (date(2026, 6, 4), "conviction_grade", None, "core"),
+    ]
+
+    # no change at all -> an empty trail (the quiet default, #7)
+    flat = [_armed_snap(d, _member_row()) for d in (date(2026, 6, 1), date(2026, 6, 2))]
+    assert _transitions(flat, _bare_episode(date(2026, 6, 1), date(2026, 6, 2))) == []
+
+
+def test_transitions_recorded_run_captures_a_grade_flip(db, security_id):
+    """Integration through the record: a confirmation re-fire at FLIP grade mid-run moves the
+    member's entry grade core -> flip on the card that first said it; the arm card stays the
+    baseline (no 06-01 rows)."""
+    thesis = _thesis(db, security_id)
+    _warm_first(db, thesis, security_id, date(2026, 5, 29))
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=30)
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 1))  # armed core/core
+    conf_flip = breakout_event(grade=Grade.FLIP, liveness=10, security_id=security_id).model_copy(
+        update={"asof": date(2026, 6, 3)}
+    )
+    _record_day(db, thesis, [conv, conf_flip], date(2026, 6, 3))  # confirmation now flip-grade
+
+    record, _ = derive_thesis_record(db, thesis, date(2026, 6, 5))
+    (ep,) = record.episodes
+    eg = next(t for t in ep.transitions if t.field == "entry_grade")
+    assert (eg.asof, eg.from_value, eg.to_value) == (date(2026, 6, 3), "core", "flip")
+    assert all(t.asof != date(2026, 6, 1) for t in ep.transitions)  # the baseline emits nothing
 
 
 def test_zero_episode_thesis_reports_coverage_and_warming(db, security_id):

@@ -8,7 +8,7 @@ import type {
   ScoredMemberOut,
   TriggerRefOut,
 } from "../../api/hooks";
-import { identityCells, ledgerRow, signalHeadlines } from "../ledger";
+import { identityCells, ledgerRow, signalHeadlines, transitionLines } from "../ledger";
 import type { OverlayEvent } from "../overlay";
 
 // The ledger's pure formatters — the jsdom-testable strings behind the table + Cockpit strip. The numbering
@@ -485,5 +485,29 @@ describe("ledgerRow — the Slice B families", () => {
     expect(unresolved.type).toBe("SC 13G");
     expect(unresolved.detail).toContain("filer unresolved"); // #9 — said, never guessed or dropped
     expect(unresolved.detail).not.toContain("% of class");
+  });
+});
+
+// Slice C3: the un-numbered record trail — intra-run verdict/grade changes, never chips.
+describe("transitionLines — the quiet record trail below the event ledger", () => {
+  it("maps each recorded change to a dated English line; null sides read 'unset'", () => {
+    expect(
+      transitionLines([
+        { asof: "2026-06-03", field: "entry_grade", from_value: "core", to_value: "flip" },
+        { asof: "2026-06-03", field: "verdict", from_value: "core_entry", to_value: "starter_entry" },
+        { asof: "2026-06-05", field: "conviction_grade", from_value: null, to_value: "core" },
+      ]),
+    ).toEqual([
+      { date: "2026-06-03", text: "entry grade core → flip" },
+      { date: "2026-06-03", text: "verdict core_entry → starter_entry" },
+      { date: "2026-06-05", text: "conviction grade unset → core" },
+    ]);
+  });
+  it("an unknown future field renders RAW rather than vanishing (#9); empty/absent → []", () => {
+    expect(
+      transitionLines([{ asof: "2026-06-03", field: "some_new_field", from_value: "a", to_value: "b" }]),
+    ).toEqual([{ date: "2026-06-03", text: "some_new_field a → b" }]);
+    expect(transitionLines([])).toEqual([]);
+    expect(transitionLines(undefined)).toEqual([]);
   });
 });

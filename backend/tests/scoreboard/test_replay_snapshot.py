@@ -116,6 +116,7 @@ def test_flags_censoring_maturity_status_and_triggers():
     # Slice C degrades to the defaults here BY CONSTRUCTION: CallSnapshot deliberately drops
     # risk_signals/missing, so the replay flattener never composes the new fields
     assert first.dearm_detail is None and first.risk_events == []
+    assert first.transitions == []  # C3: replay never populates the record trail
 
 
 def test_metrics_judge_only_matured_non_censored():
@@ -164,13 +165,13 @@ def test_old_artifact_missing_slice_c_fields_parses_to_defaults():
     data = _build([(ep, _outcome(ep, 0.10))], timeline).model_dump(mode="json")
     for t in data["theses"]:
         for e in t["episodes"]:
-            for key in ("dearm_detail", "risk_events"):
+            for key in ("dearm_detail", "risk_events", "transitions"):
                 e.pop(key, None)
 
     loaded = ReplaySnapshot.model_validate(data)
     (t,) = loaded.theses
     (e,) = t.episodes
-    assert e.dearm_detail is None and e.risk_events == []
+    assert e.dearm_detail is None and e.risk_events == [] and e.transitions == []
 
 
 def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):

@@ -10,13 +10,13 @@ from domain.call import CallCard, TriggerRef
 from domain.enums import Kind, State
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
-from replay.schema import CallSnapshot, Episode
+from replay.schema import CallSnapshot, Episode, MemberRow
 from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, thesis_repo
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
 from scoreboard.prices import PgRealizedPrices
-from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord
+from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Transition
 
 # The record read + episode derivation. The scoring source is the CALLS LOG (what the platform
 # actually said), never a recompute: ``latest_for_thesis`` -> ascending ``CallSnapshot``s ->
@@ -97,6 +97,45 @@ def _risk_events(cards_by_asof: dict[date, CallCard], ep: Episode) -> list[Trigg
                 continue
             seen.add(key)
             out.append(r if r.event_date is not None else r.model_copy(update={"event_date": asof}))
+    return out
+
+
+# The three per-member fields the record trail diffs (Slice C3) — the CALL-read of the member, and
+# nothing that wobbles daily (confidence is deliberately out: a per-day float would spam a trail
+# whose whole point is the rare, meaningful shift).
+_TRANSITION_FIELDS = ("verdict", "entry_grade", "conviction_grade")
+
+
+def _transitions(snaps: list[CallSnapshot], ep: Episode) -> list[Transition]:
+    """The member's intra-run RECORD changes over ``[arm_date, last_armed_date]`` (Slice C3):
+    consecutive-card diffs of verdict / entry_grade / conviction_grade on the member's own armed
+    row. The first card is the baseline (no emission — the episode already carries the at-arm
+    values); a change across a weekend/cron gap lands on the LATER card's asof (a recorded fact:
+    when the record first said it). By ``derive_episodes`` construction the member is armed on
+    every snap in the interval; a missing row is skipped defensively, never invented."""
+    prev: MemberRow | None = None
+    out: list[Transition] = []
+    for s in snaps:
+        if not (ep.arm_date <= s.asof <= ep.last_armed_date):
+            continue
+        row = next(
+            (m for m in s.members if m.tier == "armed" and m.security_id == ep.security_id), None
+        )
+        if row is None:
+            continue
+        if prev is not None:
+            for field in _TRANSITION_FIELDS:
+                a, b = getattr(prev, field), getattr(row, field)
+                if a != b:
+                    out.append(
+                        Transition(
+                            asof=s.asof,
+                            field=field,
+                            from_value=a.value if a is not None else None,
+                            to_value=b.value if b is not None else None,
+                        )
+                    )
+        prev = row
     return out
 
 
@@ -188,6 +227,7 @@ def derive_thesis_record(
                         else None
                     ),
                     risk_events=_risk_events(cards_by_asof, ep),
+                    transitions=_transitions(snaps, ep),
                 )
             )
 

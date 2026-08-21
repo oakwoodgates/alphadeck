@@ -10,7 +10,12 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade
 from repositories import thesis_repo
-from tests.calls.factories import breakdown_event, insider_event, insider_sell_event
+from tests.calls.factories import (
+    breakdown_event,
+    breakout_event,
+    insider_event,
+    insider_sell_event,
+)
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
 # GET /scoreboard — the record served: shape, asof scrubbing, the metrics gate (matured +
@@ -193,6 +198,34 @@ def test_slice_c_fields_ride_the_wire(client, db, security_id):
     assert ep["risk_events"][0]["event_date"] == "2026-06-01"  # the fact-anchored fire date
     form4 = ep["risk_events"][0]["sources"][0]
     assert form4["source"] == "form4" and form4["url"]  # resolved via the issuer CIK (#6)
+
+
+def test_transitions_ride_the_wire(client, db, security_id):
+    """C3: a mid-run confirmation re-fire at FLIP grade serializes as an entry-grade transition on
+    the card that first said it; the arm card is the baseline (no 06-01 rows)."""
+    thesis = persist_thesis(db, security_id)
+    warm = [
+        insider_event(security_id=security_id, liveness=60).model_copy(
+            update={"asof": date(2026, 5, 29)}
+        )
+    ]
+    record_day(db, thesis, warm, date(2026, 5, 29))
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=30)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1))  # armed core/core
+    conf_flip = breakout_event(grade=Grade.FLIP, liveness=10, security_id=security_id).model_copy(
+        update={"asof": date(2026, 6, 3)}
+    )
+    record_day(db, thesis, [conv, conf_flip], date(2026, 6, 3))
+
+    ep = _one_episode(client)
+    eg = next(t for t in ep["transitions"] if t["field"] == "entry_grade")
+    assert eg == {
+        "asof": "2026-06-03",
+        "field": "entry_grade",
+        "from_value": "core",
+        "to_value": "flip",
+    }
+    assert all(t["asof"] != "2026-06-01" for t in ep["transitions"])
 
 
 # --- 2d: record provenance — flagged episodes stay in the ledger, out of the aggregates ---

@@ -140,6 +140,33 @@ describe("EpisodeScorecard — a populated matured episode", () => {
     expect(screen.getByText(/closed ·/)).toHaveTextContent("closed · de-armed (see de-arm day)");
   });
 
+  it("renders the un-numbered record trail when transitions exist; silence when none (C3)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          transitions: [
+            { asof: "2026-08-01", field: "entry_grade", from_value: "core", to_value: "flip" },
+            {
+              asof: "2026-08-01",
+              field: "verdict",
+              from_value: "core_entry",
+              to_value: "starter_entry",
+            },
+          ],
+        })}
+      />,
+    );
+    const section = screen.getByText("Record trail").closest("section") as HTMLElement;
+    expect(section.textContent).toContain("Aug 1 · entry grade core → flip");
+    expect(section.textContent).toContain("Aug 1 · verdict core_entry → starter_entry");
+    // the trail is NOT part of the numbered chip/ledger universe — no # cell, no chip class
+    expect(section.querySelector(".evled-n")).toBeNull();
+
+    // no transitions → the section does not render at all (#7)
+    renderCard(<EpisodeScorecard ep={ep()} />);
+    expect(screen.getAllByText("Record trail")).toHaveLength(1); // only the first render's section
+  });
+
   it("Lens 1 — the move: prices, the realized return, its label", () => {
     renderCard(<EpisodeScorecard ep={MATURED} />);
     const t = lens("The move").textContent ?? "";

@@ -1,4 +1,9 @@
-import type { DisplaySignal, MemberDisplaySignalsOut, ScoredMemberOut } from "../api/hooks";
+import type {
+  DisplaySignal,
+  MemberDisplaySignalsOut,
+  ScoredMemberOut,
+  TransitionOut,
+} from "../api/hooks";
 import { businessTypeLabel } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
 import {
@@ -135,6 +140,33 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
         ? "signal-validity horizon"
         : "—"; // warmed / armed: the WHY rides the separate numbered trigger rows
   return { ...base, type: LIFECYCLE_TYPE[e.kind], detail };
+}
+
+// C3: the record-trail field names in the operator's English — an unknown future field renders RAW
+// rather than vanishing (#9, the closeReasonLabel idiom).
+const TRANSITION_FIELD_LABEL: Record<string, string> = {
+  verdict: "verdict",
+  entry_grade: "entry grade",
+  conviction_grade: "conviction grade",
+};
+
+export interface TransitionLine {
+  date: string; // raw ISO — the component formats via fmtDate
+  text: string; // "entry grade core → flip"
+}
+
+/** The un-numbered "record trail" lines (Slice C3): one per recorded intra-run change, in wire
+ *  (chronological) order. Deliberately NOT chips and NOT in the 1..N array — the numbered ledger
+ *  stays chip-events-only (docs/SCOREBOARD.md); this is the quiet list below it. A null side reads
+ *  "unset" (a conviction grade appearing mid-run is a real record change, never a blank). Empty
+ *  in → empty out (the component renders nothing, #7). */
+export function transitionLines(ts: TransitionOut[] | null | undefined): TransitionLine[] {
+  return (ts ?? []).map((t) => ({
+    date: t.asof,
+    text: `${TRANSITION_FIELD_LABEL[t.field] ?? t.field} ${t.from_value ?? "unset"} → ${
+      t.to_value ?? "unset"
+    }`,
+  }));
 }
 
 export interface IdentityCell {

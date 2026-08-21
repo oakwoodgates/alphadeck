@@ -72,6 +72,20 @@ class OperatorSpan(BaseModel):
     reason: str | None = None
 
 
+class Transition(BaseModel):
+    """One intra-run change in the RECORD's read of an episode's member (Slice C3) — the drawer's
+    un-numbered "record trail". ``field`` ∈ {verdict, entry_grade, conviction_grade} ONLY (never the
+    daily confidence wobble); values are the wire tokens, None = unset. ``asof`` = the card that
+    FIRST said the new value — a change across a weekend/cron gap lands on the later card (a
+    recorded fact: when the record first said it, the same stamp rule as ``risk_events``). Lives
+    here, not in ``replay/schema.py``: a record-honesty concept the replay panel never populates."""
+
+    asof: date
+    field: str
+    from_value: str | None = None
+    to_value: str | None = None
+
+
 class ScoredEpisode(BaseModel):
     """One arm episode from the record, scored — plus the live record-honesty flags."""
 
@@ -100,6 +114,11 @@ class ScoredEpisode(BaseModel):
     #   risk re-fires on every daily card. A ``None`` event_date is stamped with the FIRST card-asof
     #   it appeared on — a recorded fact (when the record first said it), NOT the market event date.
     risk_events: list[TriggerRef] = []
+    # - ``transitions`` (C3): the member's intra-run verdict/grade changes, diffed consecutive-card
+    #   over ``[arm_date, last_armed_date]`` — the finer calls-log record the chip families can't
+    #   carry (the numbered ledger stays chip-events-only; these render as the quiet un-numbered
+    #   "record trail"). Empty on the replay path.
+    transitions: list[Transition] = []
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
 
 

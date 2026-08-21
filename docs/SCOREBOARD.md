@@ -250,9 +250,9 @@ A **Cockpit strip** brings over *some* per-name context without duplicating the 
 **headlines** (SMA position · 52-week range · volume regime · insider-flow 90d, reusing the Cockpit's
 `DisplayHeadlineRow`). For a **closed** episode those trailing windows are labeled **"current tape · as-of X"**
 — a name-current 90d figure is not the episode's own period. Read-only, FE-only (reuses the workbench-scored
-and display-signals endpoints; no new backend). **Deferred:** the finer intra-run calls-log transitions
-(verdict/confidence changes *within* an arm run) have no chip, so the numbered ledger stays chip-events-only; a
-later un-numbered "record trail" can surface them (needs a `transitions[]` field on the episode).
+and display-signals endpoints; no new backend). The finer intra-run calls-log transitions have no chip — the
+numbered ledger stays chip-events-only; they surface as the un-numbered **record trail** below it (Slice C3,
+the `transitions[]` field — see §"Episode enrichment").
 
 ### Episode enrichment (Slice C)
 
@@ -280,6 +280,13 @@ artifact parses to the defaults and the endpoint never 500s:
   the market event date. On the chart/ledger they ride as the quiet **risk** chip family (hollow
   muted negative — deliberately distinct from the `sell` FACT family: a fact is what the tape did;
   a risk signal is what the record made of it, so one sell cluster appearing as both is by design).
+- **`transitions`** (C3) — the member's intra-run RECORD changes over `[arm_date,
+  last_armed_date]`: consecutive-card diffs of **verdict / entry_grade / conviction_grade only**
+  (never the daily confidence wobble). The arm card is the baseline (the episode already carries
+  the at-arm values); a change across a weekend/cron gap lands on the LATER card's asof — a
+  recorded fact, the same stamp rule as `risk_events`. Rendered as the quiet un-numbered **record
+  trail** below the event ledger — deliberately NOT chips and NOT in the 1..N array (the numbered
+  ledger stays chip-events-only).
 
 ## Reading it
 
@@ -303,6 +310,6 @@ keep `CallCard` evolution **additive-only** so old cards stay loadable.
 Follow-blindly track + deltas (v2) · a second metrics-led view behind a toggle (v2, once n
 accrues) · persistence/caching of scores · cron changes · notifications · the second
 recalibration (unlocked by this, not part of it) · a transaction-time (`known_at`) scrub
-parameter · stitching replayed and recorded episodes across the seam (noted, never merged) ·
-the chip-less intra-run "record trail" (deferred — see §"The event ledger"). *(Charts moved from
-this list to built — the episode drill-down chart, Slice A.)*
+parameter · stitching replayed and recorded episodes across the seam (noted, never merged).
+*(Charts moved from this list to built — the episode drill-down chart, Slice A; the chip-less
+intra-run "record trail" likewise — Slice C3, §"Episode enrichment".)*
