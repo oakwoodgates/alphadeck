@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from typing import get_args
 
-from scoreboard.overlays import annotate_sma, known_at_for_asof
+from app.schemas_api import InsiderSellOut
+from scoreboard.overlays import annotate_sma, known_at_for_asof, sell_character_wire
+from signals.insider_sell import _BELOW_LOW, _FOREIGN, _IMPLAUSIBLE, _KEPT, _PLANNED, _SELF
 
-# Pure overlay helpers (no DB): the SMA rolling mean + its honest left-edge gap, and the insider read's
-# transaction-axis cap (min(now, asof-EOD)). The DB-backed insider path (no-lookahead event twin,
-# superseded no-double-count, the open-market screen) is exercised through the API in
-# tests/app/test_scoreboard_price_window_api.py.
+# Pure overlay helpers (no DB): the SMA rolling mean + its honest left-edge gap, the insider read's
+# transaction-axis cap (min(now, asof-EOD)), and the Slice B sell-character wire map's drift pin. The
+# DB-backed event paths (no-lookahead event twins, superseded no-double-count, the screens) are
+# exercised through the API in tests/app/test_scoreboard_price_window_api.py.
 
 
 def _bars(closes: list[float]) -> list[dict]:
@@ -59,3 +62,19 @@ def test_known_at_is_now_for_a_live_view():
     assert (
         known_at_for_asof(date(2026, 7, 24), now=now) == now
     )  # same day, now is before EOD → now wins
+
+
+def test_sell_character_wire_map_covers_every_screen_bucket():
+    """The Slice B drift pin: every ``insider_sell._screen`` bucket, pushed through the wire map,
+    lands EXACTLY on ``InsiderSellOut.character``'s Literal — so a future new screen bucket (or a
+    renamed one) fails HERE, loudly, instead of as a runtime response-validation 500 on the price-
+    window endpoint. A new bucket constant in ``signals/insider_sell.py`` must be added to this set,
+    the wire Literal, and (if its short name is cryptic) the map."""
+    buckets = {_KEPT, _PLANNED, _SELF, _BELOW_LOW, _IMPLAUSIBLE, _FOREIGN}
+    wire = {sell_character_wire(b) for b in buckets}
+    literal = set(get_args(InsiderSellOut.model_fields["character"].annotation))
+    assert wire == literal
+    # the two deliberate renames (cryptic short names -> the contract vocabulary), identity otherwise
+    assert sell_character_wire(_SELF) == "self_filing"
+    assert sell_character_wire(_FOREIGN) == "foreign_ordinary"
+    assert sell_character_wire(_KEPT) == _KEPT and sell_character_wire(_PLANNED) == _PLANNED

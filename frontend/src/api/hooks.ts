@@ -168,12 +168,17 @@ export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 export type ScoreboardReplayResponse = components["schemas"]["ScoreboardReplayResponse"];
 export type ScoreboardReplayThesisOut = components["schemas"]["ScoreboardReplayThesisOut"];
 
-// the episode price-window (Slice 3, extended in Slice A): the drawer chart's on-demand OHLCV series
-// (line draws close; OHLC/volume ride the wire for a later candlestick), each bar carrying sma50/sma200
-// context, plus the window's open-market insider_buys — all capped at asof server-side (no-lookahead)
+// the episode price-window (Slice 3, extended in Slice A, widened in Slice B): the drawer chart's
+// on-demand OHLCV series (line draws close; OHLC/volume ride the wire for a later candlestick), each
+// bar carrying sma50/sma200 context, plus the window's dated event families — insider_buys,
+// insider_sells, corporate_events (every stored 8-K), activist_stakes (the 13D/G tape) — all capped
+// at asof server-side on BOTH axes (no-lookahead)
 export type ScoreboardPriceWindow = components["schemas"]["ScoreboardPriceWindowOut"];
 export type PriceBar = components["schemas"]["PriceBar"];
 export type InsiderBuyOut = components["schemas"]["InsiderBuyOut"];
+export type InsiderSellOut = components["schemas"]["InsiderSellOut"];
+export type CorporateEventOut = components["schemas"]["CorporateEventOut"];
+export type ActivistStakeOut = components["schemas"]["ActivistStakeOut"];
 
 // The HISTORICAL (replayed) panel — served from the operator-kicked artifact, so it is
 // asof-INDEPENDENT (the artifact is what it is; no asof in the key). available:false = no

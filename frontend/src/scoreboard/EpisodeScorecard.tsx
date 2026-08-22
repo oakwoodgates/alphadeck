@@ -107,6 +107,13 @@ export function EpisodeScorecard({
         windowQ.data?.insider_buys ?? [],
         windowQ.data?.bars ?? [],
         asof ? { signals: tapeSignals(memberSignals), asof } : undefined,
+        // Slice B: the widened recorded families off the SAME price-window response — sells, 8-Ks,
+        // 13D/G stakes — through the same numbering (screened/passive rows grey via eventSetAside).
+        {
+          sells: windowQ.data?.insider_sells ?? [],
+          filings: windowQ.data?.corporate_events ?? [],
+          stakes: windowQ.data?.activist_stakes ?? [],
+        },
       ),
     [ep, windowQ.data, memberSignals, asof],
   );

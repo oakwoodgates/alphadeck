@@ -50,10 +50,13 @@ def insider_buy(
     rpt_owner_cik=None,
     issuer_cik=None,
     issuer_name=None,
+    security_title=None,
+    issuer_foreign_symbol=None,
 ):
     """Seed one ``fact_insider_txn`` row with an EXPLICIT recorded_at (the disclosure axis is the
     whole point of the no-lookahead-on-insider test — the shared ``bar`` helper is close-only prices).
-    The identity columns (migration 0024) feed the S2c self-filing character.
+    The identity columns (migration 0024) feed the S2c self-filing character; the title/foreign-symbol
+    columns (0041) feed the Slice B sell screen's foreign-ordinary bucket.
     """
     append_fact(
         db,
@@ -76,6 +79,63 @@ def insider_buy(
             "rpt_owner_cik": rpt_owner_cik,
             "issuer_cik": issuer_cik,
             "issuer_name": issuer_name,
+            "security_title": security_title,
+            "issuer_foreign_symbol": issuer_foreign_symbol,
+        },
+    )
+    db.commit()
+
+
+def corp_event(db, security_id, *, accession, filed, recorded_at, items, form="8-K"):
+    """Seed one ``fact_corporate_event`` row (migration 0038) with an EXPLICIT recorded_at — the
+    knowability gate is the load-bearing Slice B assertion. ``items=None`` = not-yet-resolved."""
+    append_fact(
+        db,
+        "fact_corporate_event",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "form": form,
+            "items": items,
+            "accession": accession,
+            "filed": filed,
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": filed,  # = filed — the 0038 knowability rule
+            "recorded_at": recorded_at,
+        },
+    )
+    db.commit()
+
+
+def activist(
+    db,
+    security_id,
+    *,
+    accession,
+    filed,
+    recorded_at,
+    form,
+    filer_cik=None,
+    filer_name=None,
+    pct_owned=None,
+):
+    """Seed one ``fact_activist_stake`` row (migration 0039) with an EXPLICIT recorded_at. Null
+    filer identity / pct is the honest unresolved shape (#9 — the row must still ride)."""
+    append_fact(
+        db,
+        "fact_activist_stake",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "form": form,
+            "filer_cik": filer_cik,
+            "filer_name": filer_name,
+            "pct_owned": pct_owned,
+            "accession": accession,
+            "filed": filed,
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/1/{accession}-index.htm",
+            "valid_from": filed,  # = filed — the 0039 knowability rule (never the in-doc event date)
+            "recorded_at": recorded_at,
         },
     )
     db.commit()
@@ -537,3 +597,329 @@ def test_price_window_insider_carries_the_10b5_1_role_and_character(client, db, 
     assert (
         buy["character"] == "open_market"
     )  # planned ≠ set aside; no day low → never "primary_market"
+
+
+# --- Slice B: three more dated event families through the SAME window + knowability gate ---
+# Per family the load-bearing case is the two-axis no-lookahead one: a row RECORDED after
+# known_at_for_asof(asof) is invisible on a scrubbed-back asof (the recorded_at gate), and a row
+# whose event date is past the asof never appears (the valid axis) — rows seeded at EXPLICIT
+# recorded_at values, mirroring the insider-buy gate test above.
+
+
+def test_price_window_sell_gate_keys_on_recorded_at(client, db, security_id):
+    """The sell twin of the insider no-lookahead test — BOTH axes, keyed on ``recorded_at``:
+    a sale transacted 06-05 but INGESTED 07-01 is ABSENT at as-of 06-25 and PRESENT at 07-05; a
+    FUTURE-transacted sale (recorded early) never appears. When visible the sale carries the
+    two-clock fields and its wire ``character`` (``kept`` — no screen trips here)."""
+    thesis = persist_thesis(db, security_id)
+    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # accepted — display-only, never gates
+    ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # recorded_at — THE gate
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000101-26-000101",
+        valid_from=date(2026, 6, 5),
+        recorded_at=ingest,
+        accepted=disc,
+        txn_code="S",
+        insider_name="A Seller",
+    )
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000102-26-000102",
+        valid_from=date(2026, 8, 15),  # future vs both as-ofs — the valid axis must hide it
+        recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        txn_code="S",
+        insider_name="Future Seller",
+    )
+
+    early = _get(client, thesis.id, security_id, "2026-06-25").json()
+    late = _get(client, thesis.id, security_id, "2026-07-05").json()
+    assert early["insider_sells"] == []  # recorded 07-01 > known_at(06-25) → not held yet
+    (sell,) = late["insider_sells"]
+    assert sell["d"] == "2026-06-05" and sell["insider_name"] == "A Seller"
+    assert sell["disclosed"] == "2026-06-20" and sell["ingested"] == "2026-07-01"  # two clocks
+    assert sell["character"] == "kept"
+    # a code-S row is never a BUY chip (and vice versa — the family split is by txn_code)
+    assert early["insider_buys"] == [] and late["insider_buys"] == []
+    for asof, body in (("2026-06-25", early), ("2026-07-05", late)):
+        assert all(s["d"] <= asof for s in body["insider_sells"])  # never past the as-of
+
+
+def test_price_window_sell_characters_ride_the_wire(client, db, security_id):
+    """Every sell-screen bucket reaches the wire, mapped to the contract vocabulary (``self`` →
+    ``self_filing``, ``foreign`` → ``foreign_ordinary``), and NOTHING vanishes (WB #2 / #9): six
+    sales — one per bucket — all ride, each with its deterministic attribution. A code-P buy beside
+    them stays in ``insider_buys`` only."""
+    thesis = persist_thesis(db, security_id)
+    with db.cursor() as cur:  # the master name feeds the self-filing name fallback
+        cur.execute(
+            "UPDATE security_master SET name = %s WHERE id = %s", ("Devco Inc", security_id)
+        )
+    db.commit()
+    ohlcv_bar(db, security_id, date(2026, 6, 5), 42.0, 46.0, 40.0, 45.0, 1_000.0)  # day low = 40
+    disc = datetime(2026, 6, 20, tzinfo=timezone.utc)
+
+    def sell(accession, name, **kw):
+        insider_buy(
+            db,
+            security_id,
+            accession=accession,
+            valid_from=date(2026, 6, 5),
+            recorded_at=disc,
+            txn_code="S",
+            insider_name=name,
+            **kw,
+        )
+
+    sell("0000000103-26-000103", "Jane Doe", price=45.0, usd=45_000.0)  # kept
+    sell("0000000104-26-000104", "Plan Seller", price=45.0, aff_10b5_1=True)  # planned
+    sell(  # issuer self-filing via CIK equality (zero-padding normalized)
+        "0000000105-26-000105",
+        "Devco Holdings KK",
+        price=45.0,
+        rpt_owner_cik="1234567",
+        issuer_cik="0001234567",
+    )
+    sell("0000000106-26-000106", "Discount Seller", price=30.0)  # below 40 × 0.9 → below_low
+    sell("0000000107-26-000107", "Fat Finger", price=100_000.0, usd=2_000_000_000_000.0)
+    sell(  # a home-market ordinary line mis-filed on the ADR's tape (S2c)
+        "0000000108-26-000108",
+        "Foreign Seller",
+        price=45.0,
+        security_title="Common Shares (2330.TW)",
+        issuer_foreign_symbol="2330.TW",
+    )
+    # a code-P buy beside them — the family split is by txn_code, never a shared pool
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000109-26-000109",
+        valid_from=date(2026, 6, 5),
+        recorded_at=disc,
+        price=45.0,
+    )
+
+    body = _get(client, thesis.id, security_id, "2026-07-15").json()
+    sells = body["insider_sells"]
+    assert len(sells) == 6  # every screened sale rides — greyed on the FE, never dropped
+    by_name = {s["insider_name"]: s["character"] for s in sells}
+    assert by_name == {
+        "Jane Doe": "kept",
+        "Plan Seller": "planned",
+        "Devco Holdings KK": "self_filing",  # wire-mapped from the screen's "self"
+        "Discount Seller": "below_low",
+        "Fat Finger": "implausible",
+        "Foreign Seller": "foreign_ordinary",  # wire-mapped from the screen's "foreign"
+    }
+    assert [b["insider_name"] for b in body["insider_buys"]] == ["A Buyer"]  # the P row only
+
+
+def test_price_window_relevance_floor_applies_to_all_three_families(client, db, security_id):
+    """R1's relevance floor bounds the NEW families exactly as it bounds buys: a pre-floor sale /
+    8-K / 13D (all genuinely pre-thesis — NOT a recall cut) is excluded; the in-window sibling of
+    each survives."""
+    thesis = persist_thesis(db, security_id)
+    _set_created_at(db, thesis.id, date(2026, 6, 1))  # floor = 2025-06-01 (no bars → created−365)
+    rec = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000110-26-000110",
+        valid_from=date(2020, 1, 15),
+        recorded_at=rec,
+        txn_code="S",
+        insider_name="Ancient Seller",
+    )
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000111-26-000111",
+        valid_from=date(2025, 8, 1),
+        recorded_at=rec,
+        txn_code="S",
+        insider_name="Recent Seller",
+    )
+    corp_event(
+        db,
+        security_id,
+        accession="0000000112-26-000112",
+        filed=date(2020, 2, 1),
+        recorded_at=rec,
+        items=["2.02"],
+    )
+    corp_event(
+        db,
+        security_id,
+        accession="0000000113-26-000113",
+        filed=date(2025, 9, 1),
+        recorded_at=rec,
+        items=["2.02"],
+    )
+    activist(
+        db,
+        security_id,
+        accession="0000000114-26-000114",
+        filed=date(2020, 3, 1),
+        recorded_at=rec,
+        form="SC 13D",
+    )
+    activist(
+        db,
+        security_id,
+        accession="0000000115-26-000115",
+        filed=date(2025, 10, 1),
+        recorded_at=rec,
+        form="SC 13D",
+    )
+
+    body = _get(client, thesis.id, security_id, "2026-07-15").json()
+    assert body["start"] == "2025-06-01"  # the effective floor
+    assert [s["insider_name"] for s in body["insider_sells"]] == ["Recent Seller"]
+    assert [e["d"] for e in body["corporate_events"]] == ["2025-09-01"]
+    assert [s["d"] for s in body["activist_stakes"]] == ["2025-10-01"]
+
+
+def test_price_window_corporate_events_gate_keys_on_recorded_at(client, db, security_id):
+    """The 8-K twin of the no-lookahead test: filed 06-05 but INGESTED 07-01 → absent at as-of
+    06-25, present at 07-05 with form/items/url/ingested; a future-FILED 8-K (recorded early) never
+    appears at either as-of."""
+    thesis = persist_thesis(db, security_id)
+    corp_event(
+        db,
+        security_id,
+        accession="0000000116-26-000116",
+        filed=date(2026, 6, 5),
+        recorded_at=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        items=["2.02", "9.01"],
+    )
+    corp_event(
+        db,
+        security_id,
+        accession="0000000117-26-000117",
+        filed=date(2026, 8, 15),  # future vs both as-ofs
+        recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        items=["1.01"],
+    )
+
+    early = _get(client, thesis.id, security_id, "2026-06-25").json()["corporate_events"]
+    late = _get(client, thesis.id, security_id, "2026-07-05").json()["corporate_events"]
+    assert early == []  # recorded 07-01 > known_at(06-25); the 08-15 filing is future
+    (ev,) = late
+    assert ev["d"] == "2026-06-05" and ev["form"] == "8-K"
+    assert ev["items"] == ["2.02", "9.01"]
+    assert ev["url"].endswith("0000000116-26-000116-index.htm")  # the EDGAR index provenance (#6)
+    assert ev["ingested"] == "2026-07-01"
+
+
+def test_price_window_corporate_event_items_resolution_is_honest(client, db, security_id):
+    """The items-resolve flow through the bitemporal read: v1 (items NULL) recorded 06-10, v2 (items
+    resolved) recorded 06-20 — an as-of BETWEEN the two honestly reads ``items: null`` (what we held
+    then), a later as-of reads the resolved codes, and there is never a double-count (latest version
+    per accession). An off-policy item set rides too — NO server-side item cut."""
+    thesis = persist_thesis(db, security_id)
+    corp_event(
+        db,
+        security_id,
+        accession="0000000118-26-000118",
+        filed=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 10, tzinfo=timezone.utc),
+        items=None,  # v1 — not-yet-resolved
+    )
+    corp_event(
+        db,
+        security_id,
+        accession="0000000118-26-000118",  # SAME accession — a re-version, not a new event
+        filed=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 20, tzinfo=timezone.utc),
+        items=["2.02", "9.01"],  # v2 — resolved
+    )
+    corp_event(  # an item outside any detector policy cut — still on the wire (#9)
+        db,
+        security_id,
+        accession="0000000119-26-000119",
+        filed=date(2026, 6, 6),
+        recorded_at=datetime(2026, 6, 10, tzinfo=timezone.utc),
+        items=["7.01"],
+    )
+
+    mid = _get(client, thesis.id, security_id, "2026-06-15").json()["corporate_events"]
+    late = _get(client, thesis.id, security_id, "2026-07-15").json()["corporate_events"]
+    # at 06-15 only v1 was recorded: items honestly null (never the not-yet-known resolve)
+    assert [(e["d"], e["items"]) for e in mid] == [
+        ("2026-06-05", None),
+        ("2026-06-06", ["7.01"]),
+    ]
+    # at 07-15 the resolve is held: ONE row (no double-count), the latest version's items
+    assert [(e["d"], e["items"]) for e in late] == [
+        ("2026-06-05", ["2.02", "9.01"]),
+        ("2026-06-06", ["7.01"]),
+    ]
+
+
+def test_price_window_activist_gate_keys_on_recorded_at(client, db, security_id):
+    """The 13D twin of the no-lookahead test: filed 06-05 but INGESTED 07-01 → absent at as-of
+    06-25, present at 07-05; a future-filed 13D (recorded early) never appears."""
+    thesis = persist_thesis(db, security_id)
+    activist(
+        db,
+        security_id,
+        accession="0000000120-26-000120",
+        filed=date(2026, 6, 5),
+        recorded_at=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        form="SCHEDULE 13D",
+        filer_cik="0001234567",
+        filer_name="Big Activist LP",
+        pct_owned=7.5,
+    )
+    activist(
+        db,
+        security_id,
+        accession="0000000121-26-000121",
+        filed=date(2026, 8, 15),  # future vs both as-ofs
+        recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        form="SC 13D",
+    )
+
+    early = _get(client, thesis.id, security_id, "2026-06-25").json()["activist_stakes"]
+    late = _get(client, thesis.id, security_id, "2026-07-05").json()["activist_stakes"]
+    assert early == []
+    (stake,) = late
+    assert stake["d"] == "2026-06-05" and stake["form"] == "SCHEDULE 13D"
+    assert stake["filer_name"] == "Big Activist LP" and stake["pct_owned"] == 7.5
+    assert stake["ingested"] == "2026-07-01"
+
+
+def test_price_window_activist_unresolved_identity_ships_null_not_dropped(client, db, security_id):
+    """Invariant #9 on the wire: an old-era ``SC 13G`` whose filer identity / pct never resolved
+    ships with nulls — the row RIDES, never dropped — beside a fully-resolved structured-era 13D.
+    Both era form strings ride verbatim; the FE (not the server) greys the passive family."""
+    thesis = persist_thesis(db, security_id)
+    rec = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    activist(  # old-era passive row: identity fetch out of the bounded depth → all nulls
+        db,
+        security_id,
+        accession="0000000122-26-000122",
+        filed=date(2026, 6, 3),
+        recorded_at=rec,
+        form="SC 13G",
+    )
+    activist(
+        db,
+        security_id,
+        accession="0000000123-26-000123",
+        filed=date(2026, 6, 10),
+        recorded_at=rec,
+        form="SCHEDULE 13D",
+        filer_cik="0009876543",
+        filer_name="Engaged Capital",
+        pct_owned=6.2,
+    )
+
+    stakes = _get(client, thesis.id, security_id, "2026-07-15").json()["activist_stakes"]
+    assert [s["form"] for s in stakes] == ["SC 13G", "SCHEDULE 13D"]  # both eras, both families
+    g, d = stakes
+    assert g["filer_name"] is None and g["filer_cik"] is None and g["pct_owned"] is None  # kept
+    assert g["url"].endswith("0000000122-26-000122-index.htm")  # provenance still rides (#6)
+    assert d["filer_name"] == "Engaged Capital" and d["pct_owned"] == 6.2

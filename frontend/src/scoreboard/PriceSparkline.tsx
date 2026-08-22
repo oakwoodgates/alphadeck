@@ -5,9 +5,10 @@ import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import {
   defaultVisibleRange,
   episodeMarkers,
+  eventSetAside,
   familyCls,
-  insiderSetAside,
   legendEntries,
+  nearestBarDate,
   type OverlayEvent,
   overlayTooltip,
   type PriceMarkerKind,
@@ -220,17 +221,11 @@ export function PriceSparkline({
 
     // The nearest bar to a date (either side) → a real x on the business-day scale; timeToCoordinate
     // returns null when that bar is OUTSIDE the visible range (R5: a chip fully off-view is hidden).
+    // The nearest-bar pick is the pure, tested `nearestBarDate` (binary search — Slice B triples the
+    // event count, and this runs per event on every pan/zoom reposition).
     const coordFor = (isoDate: string): number | null => {
-      let best = data[0].d;
-      let bestDiff = Infinity;
-      const t = Date.parse(isoDate);
-      for (const b of data) {
-        const diff = Math.abs(Date.parse(b.d) - t);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          best = b.d;
-        }
-      }
+      const best = nearestBarDate(data, isoDate); // data.length >= 2 here — never null
+      if (best == null) return null;
       const x = chart.timeScale().timeToCoordinate(best as Time);
       return x == null ? null : x;
     };
@@ -343,9 +338,10 @@ export function PriceSparkline({
             <button
               key={c.event.n}
               type="button"
-              // S2c: a set-aside buy (primary-market / implausible) renders GREYED, never hidden (WB #2)
+              // A set-aside chip (screened buy/sell, passive 13G) renders GREYED, never hidden (WB
+              // #2) — `eventSetAside` is the one helper the chip and its ledger row both read.
               className={`ov-chip ${familyCls(c.event.family)}${
-                c.event.family === "insider" && insiderSetAside(c.event.buy) ? " ov-setaside" : ""
+                eventSetAside(c.event) ? " ov-setaside" : ""
               }${c.event.n === activeN ? " active" : ""}`}
               style={{ left: c.x, top: c.y }}
               onMouseEnter={() => onEnter(c)}

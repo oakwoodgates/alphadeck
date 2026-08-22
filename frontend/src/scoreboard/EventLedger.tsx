@@ -2,7 +2,7 @@ import type { DisplaySignal } from "../api/hooks";
 import { DisplayHeadlineRow } from "../cockpit/DisplaySignalsSection";
 import { fmtDate } from "../util/format";
 import { type IdentityCell, ledgerRow } from "./ledger";
-import { insiderSetAside, type OverlayEvent } from "./overlay";
+import { eventSetAside, type OverlayEvent } from "./overlay";
 
 // The per-episode event LEDGER (Slice B) — the tabular companion to the drawer chart. It lists the SAME
 // unified numbered events the chart draws (row #N ↔ chip #N, sharing the ONE `events` array from
@@ -51,9 +51,10 @@ export function EventLedger({
           <tbody>
             {events.map((e) => {
               const r = ledgerRow(e);
-              // S2c: a set-aside buy's row is MUTED, never removed (WB #2) — the type cell stays
-              // "insider buy"; the grey + the detail's "set aside" label carry the exception (#7)
-              const setAside = e.family === "insider" && insiderSetAside(e.buy);
+              // A set-aside row (screened buy/sell, passive 13G) is MUTED, never removed (WB #2) —
+              // the type cell keeps its family label; the grey + the detail's screen line carry the
+              // exception (#7). Same `eventSetAside` the chart chip reads — the two never disagree.
+              const setAside = eventSetAside(e);
               return (
                 <tr
                   key={r.n}
