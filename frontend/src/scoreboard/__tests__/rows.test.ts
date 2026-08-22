@@ -8,6 +8,7 @@ import type {
 } from "../../api/hooks";
 import {
   awaitingForwardBar,
+  closeReasonLabel,
   episodeBadges,
   fmtPastPeak,
   fmtReturn,
@@ -15,6 +16,7 @@ import {
   groupCount,
   groupHint,
   groupToneClass,
+  ingestProvenanceLine,
   ledgerColCount,
   maturityHorizon,
   metricHeadline,
@@ -164,6 +166,63 @@ describe("episodeBadges — marks are exceptions, not constants", () => {
     const badge = episodeBadges(ep({ ingest_flagged: true })).find((b) => b.label === "INGEST");
     expect(badge?.title).toBe(
       "the arm rested on partial or late-ingested data — excluded from metrics",
+    );
+  });
+});
+
+// A1: the de-arm tokens replay stamps (backend/replay/episodes.py::_close_reason) → the operator's English.
+describe("closeReasonLabel — every de-arm token in English, unknown tokens raw", () => {
+  it("translates each token replay can stamp", () => {
+    expect(closeReasonLabel("arm_until_lapsed")).toBe("entry window lapsed");
+    expect(closeReasonLabel("conviction_aged_out")).toBe("conviction aged out (past exit-by)");
+    expect(closeReasonLabel("managing")).toBe("position taken — managing");
+    expect(closeReasonLabel("window_end")).toBe("still armed at the record edge");
+    expect(closeReasonLabel("dearmed_other")).toBe("de-armed (see de-arm day)");
+  });
+  it("an unknown token returns ITSELF — a new backend reason surfaces, never blanks out (#9)", () => {
+    expect(closeReasonLabel("some_future_reason")).toBe("some_future_reason");
+    expect(closeReasonLabel("")).toBe("");
+  });
+});
+
+// A1: the drawer's one ingest line — the healthy arm renders NOTHING (loudness marks the exception, #7).
+describe("ingestProvenanceLine — silence when healthy, the composed why when flagged", () => {
+  it("is null on a clean arm, and on an UNKNOWN (null) freshness stamp — unknown is not a judgement", () => {
+    expect(ingestProvenanceLine(ep())).toBeNull();
+    expect(ingestProvenanceLine(ep({ arm_ingest_fresh: null }))).toBeNull();
+    expect(ingestProvenanceLine(ep({ arm_ingest_fresh: true, thaw_lag_days: 2 }))).toBeNull();
+  });
+
+  it("fires on ANY of the three wire signals (the rollup, the freeze era, an explicitly stale run)", () => {
+    expect(ingestProvenanceLine(ep({ ingest_flagged: true }))).not.toBeNull();
+    expect(ingestProvenanceLine(ep({ freeze_era: true }))).not.toBeNull();
+    expect(ingestProvenanceLine(ep({ arm_ingest_fresh: false }))).not.toBeNull();
+  });
+
+  it("uses the server's composed note verbatim and appends the measured thaw lag (#6)", () => {
+    expect(
+      ingestProvenanceLine(
+        ep({
+          ingest_flagged: true,
+          ingest_note: "armed inside the 2026-07 EDGAR freeze window",
+          freeze_era: true,
+          thaw_lag_days: 11,
+        }),
+      ),
+    ).toBe(
+      "ingest provenance: armed inside the 2026-07 EDGAR freeze window · worst source lag 11d",
+    );
+  });
+
+  it("falls back to the generic why when no note rides, and omits the lag when it is unknown", () => {
+    expect(ingestProvenanceLine(ep({ ingest_flagged: true, thaw_lag_days: null }))).toBe(
+      "ingest provenance: the arm rested on partial or late-ingested data",
+    );
+  });
+
+  it("keeps a real 0-day lag (a measured 0 is information, unlike an unknown)", () => {
+    expect(ingestProvenanceLine(ep({ freeze_era: true, thaw_lag_days: 0 }))).toContain(
+      "worst source lag 0d",
     );
   });
 });

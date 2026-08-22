@@ -67,7 +67,25 @@ export function EventLedger({
                   <td className={`evled-n ${r.cls}`}>{r.n}</td>
                   <td className="evled-d">{fmtDate(r.date)}</td>
                   <td className="evled-t">{r.type}</td>
-                  <td className="evled-x">{r.detail}</td>
+                  <td className="evled-x">
+                    {r.detail}
+                    {/* the filing behind the fact, where the server resolved a link — quiet anchors
+                        appended to the text (the refs themselves already ride in `detail`, so a
+                        link-less source is still visible; this only adds the jump, #6) */}
+                    {/* the index rides in the key: two sources can resolve to the SAME filing url
+                        (one accession, two refs), and a bare url key would collide */}
+                    {r.links?.map((l, i) => (
+                      <a
+                        key={`${i}-${l.url}`}
+                        className="evled-link"
+                        href={l.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {l.label} ↗
+                      </a>
+                    ))}
+                  </td>
                 </tr>
               );
             })}

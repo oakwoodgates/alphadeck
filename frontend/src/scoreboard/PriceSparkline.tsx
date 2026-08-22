@@ -4,17 +4,23 @@ import { ColorType, createChart, type ISeriesApi, type Time } from "lightweight-
 import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import {
   defaultVisibleRange,
+  episodeMarkers,
   familyCls,
   insiderSetAside,
   legendEntries,
   type OverlayEvent,
   overlayTooltip,
+  type PriceMarkerKind,
   stackChips,
+  volumeData,
 } from "./overlay";
 
 // The drawer's episode chart (Slice 3, evolved in Slice A/R1, and — Slice B — lifted onto shared props). It
 // draws the CLOSE line with faint SMA 50/200 context behind it, plus a CUSTOM numbered-chip overlay for the
-// three RECORDED event families (insider buy / arm trigger / lifecycle). The DEFAULT visible range is the
+// RECORDED event families (insider buy / arm trigger / lifecycle / operator — A2). Slice A2 also adds the
+// un-numbered OUTCOME markers (entry/exit/peak — derived points, not recorded events → setMarkers on the
+// close series, never chips) and an expanded-mode-only volume histogram on its own overlay price scale
+// ("vol" — the #229 close pin never sees it). The DEFAULT visible range is the
 // recent episode; the user pans/zooms to reach earlier dots (zoom de-crowds a dense cluster). Each chip is
 // hoverable (a tooltip with the disclosure lag + market-price context, and a guide-line to its point on the
 // price), a legend names the present families, and collision-stacking never drops a chip (a hidden one shows
@@ -37,6 +43,15 @@ const SMA50 = "#586374"; // --incub (faint)
 const SMA200 = "#3c4450"; // --txt-4 (fainter)
 const AXIS = "#5a6470"; // --txt-3
 const GRID = "#1e232c"; // --line
+// A2: the un-numbered OUTCOME markers (entry/exit/peak) — muted AXIS-grade grays (#7: derived outcome
+// points annotate the path, they never compete with the recorded-event chips), live-eye tunable.
+const MARKER_COLOR: Record<PriceMarkerKind, string> = {
+  entry: "#5a6470",
+  exit: "#5a6470",
+  peak: "#586374",
+};
+// A2: the expanded-mode volume histogram — very faint (between GRID and --txt-4), tape texture only.
+const VOLUME = "#232a35";
 
 // Layout constants for the chip overlay (positioning is live-verified by eye; the math is pure/tested).
 const INLINE_H = 132;
@@ -124,6 +139,23 @@ export function PriceSparkline({
       handleScale: true,
     });
 
+    // A2: the volume histogram — EXPANDED MODE ONLY (the inline 132px chart has no room for a second
+    // register; "expanded" here IS the measured width crossing EXPAND_WIDTH_THRESHOLD, the same seam
+    // that switches the chart height — no prop from the Drawer). Created first so it draws BENEATH the
+    // SMA + close lines, on its OWN overlay price scale ("vol"): the right price scale — where the #229
+    // close pin lives — never sees it, so the autoscale pin is structurally undisturbed. The scale
+    // margins confine the bars to the bottom ~22%. Null-volume bars are skipped upstream (volumeData).
+    const vol = chart.addHistogramSeries({
+      color: VOLUME,
+      priceScaleId: "vol",
+      priceFormat: { type: "volume" },
+      priceLineVisible: false,
+      lastValueVisible: false,
+      visible: width0 > EXPAND_WIDTH_THRESHOLD,
+    });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+    vol.setData(volumeData(data).map((p) => ({ time: p.time as Time, value: p.value })));
+
     // SMA context, drawn BEHIND the close. Each SMA series is EXCLUDED from the autoscale
     // (`autoscaleInfoProvider: () => null`) so it can't re-inflate the y-axis — the #229 pin below stays
     // authoritative. Null SMA points (the honest left-edge gap) are filtered out: the line simply begins
@@ -162,6 +194,23 @@ export function PriceSparkline({
     });
     series.setData(data.map((b) => ({ time: b.d as Time, value: b.close })));
     seriesRef.current = series;
+
+    // A2: the un-numbered OUTCOME markers (entry/exit/peak) ride the pinned close series. The
+    // marker-autoscale trap does not bite here: in v4 marker margins enter the autoscale only through
+    // the series' DEFAULT computation, and the close series' `autoscaleInfoProvider` above REPLACES
+    // that wholesale (it ignores the `original` callback) — so markers can never re-inflate the
+    // y-axis, and at close prices they sit inside the pinned band. Selection is pure (episodeMarkers,
+    // tested); only this mapping to the lib's shape lives on the canvas side.
+    series.setMarkers(
+      episodeMarkers(ep, data).map((m) => ({
+        time: m.time as Time,
+        position: m.position,
+        shape: m.shape,
+        text: m.text,
+        color: MARKER_COLOR[m.kind],
+        size: 1,
+      })),
+    );
 
     // R2: DEFAULT the visible range to the recent episode (not fitContent-to-all) — earlier dots stay
     // loaded, left of view, reached by panning.
@@ -226,6 +275,9 @@ export function PriceSparkline({
         ? new ResizeObserver(() => {
             const w = el.clientWidth || 320;
             chart.applyOptions({ width: w, height: w > EXPAND_WIDTH_THRESHOLD ? EXPAND_H : INLINE_H });
+            // A2: the volume flips with the SAME width seam — a visibility toggle only, never an
+            // effect re-run (the anti-storm invariant: the canvas is not rebuilt on expand/collapse).
+            vol.applyOptions({ visible: w > EXPAND_WIDTH_THRESHOLD });
             reposition();
           })
         : null;

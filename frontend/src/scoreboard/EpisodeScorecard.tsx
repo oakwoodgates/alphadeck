@@ -5,14 +5,21 @@ import { useDisplaySignals, useEpisodePriceWindow, useWorkbenchScored } from "..
 import { fmtDate, gradeClass } from "../util/format";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines } from "./ledger";
-import { buildOverlayEvents } from "./overlay";
-import { episodeBadges, fmtReturn, returnLabel } from "./rows";
+import { buildOverlayEvents, tapeSignals } from "./overlay";
+import {
+  closeReasonLabel,
+  episodeBadges,
+  fmtReturn,
+  ingestProvenanceLine,
+  returnLabel,
+} from "./rows";
 import {
   edgeLens,
   fmtPrice,
   horizonLens,
   moveNote,
   noForwardBar,
+  operatorLensLine,
   setupStrengthPct,
 } from "./scorecard";
 
@@ -53,11 +60,15 @@ export function EpisodeScorecard({
   const armUntil = fmtReturn(ep.arm_until_return);
   const strength = setupStrengthPct(ep);
   const badges = episodeBadges(ep);
+  const ingestLine = ingestProvenanceLine(ep); // null on a healthy arm → nothing renders
   // the arm_until_return row is a forward-return too — degenerate before the first bar; the grades
   // and setup strength are arm-date facts, so they stay.
   const showArmUntil = !noBar && (ep.arm_until != null || ep.arm_until_return != null);
   const showGrades = ep.entry_grade != null || ep.conviction_grade != null || strength != null;
-  const hasSetup = showArmUntil || showGrades;
+  // A2: the quiet operator line rides the Lens-4 section — which must render for it even when the
+  // grades/arm_until are absent (a logged decision on a grade-less episode still shows).
+  const opLine = operatorLensLine(ep);
+  const hasSetup = showArmUntil || showGrades || opLine != null;
 
   // --- Slice B: lift the price window + the unified numbered events HERE so the chart and the ledger share
   // the ONE array (row #N ↔ chip #N, built once). Fetched whenever the drawer is open (asof present): the
@@ -71,16 +82,11 @@ export function EpisodeScorecard({
     Boolean(asof),
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
-  const events = useMemo(
-    () => buildOverlayEvents(ep, windowQ.data?.insider_buys ?? [], windowQ.data?.bars ?? []),
-    [ep, windowQ.data],
-  );
-  // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
-  // the other child rings/tints the match. Held here so both children read one source of truth.
-  const [activeN, setActiveN] = useState<number | null>(null);
 
   // The Cockpit strip's two reads (identity + signal headlines) — same asof, drawer-open gated (the hooks
   // disable themselves without an asof), joined to THIS episode by security_id. A missing field → "—".
+  // Read BEFORE the event universe: A3 threads the display signals' dated events into it as the quiet
+  // "tape signal" chip family, so this join feeds the chart + ledger as well as the strip.
   const scoredMember =
     useWorkbenchScored(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
@@ -89,6 +95,25 @@ export function EpisodeScorecard({
     useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
     ) ?? null;
+  // A3: the display-signal events join the numbered universe as the greyest family. Only the allow-listed
+  // kinds contribute (`tapeSignals` — sma_position + relative_strength; `insider_flow_90d` is excluded by
+  // construction, its buys/sells already ARE the insider family). The `asof` rides in because these are
+  // compute-on-read, not recorded history: the tooltip/ledger date the read rather than implying the call
+  // knew it. No asof → no tape argument at all (never a fabricated as-of on a chip that claims one, #6).
+  const events = useMemo(
+    () =>
+      buildOverlayEvents(
+        ep,
+        windowQ.data?.insider_buys ?? [],
+        windowQ.data?.bars ?? [],
+        asof ? { signals: tapeSignals(memberSignals), asof } : undefined,
+      ),
+    [ep, windowQ.data, memberSignals, asof],
+  );
+  // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
+  // the other child rings/tints the match. Held here so both children read one source of truth.
+  const [activeN, setActiveN] = useState<number | null>(null);
+
   const identity = identityCells(scoredMember);
   const signals = signalHeadlines(memberSignals);
   // A closed/matured episode's display signals are trailing windows re-derived at the drawer's asof, NOT the
@@ -115,8 +140,15 @@ export function EpisodeScorecard({
         </div>
       )}
       {ep.status === "closed" && ep.close_reason && (
-        <div className="sc-reason">closed · {ep.close_reason}</div>
+        // the reason in English; `title` keeps the raw wire token one hover away (translated, not hidden)
+        <div className="sc-reason" title={ep.close_reason}>
+          closed · {closeReasonLabel(ep.close_reason)}
+        </div>
       )}
+      {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a
+          healthy episode carries nothing at all (#7: loudness marks the exception). The INGEST badge
+          above says THAT it's flagged; this says WHY (the server's composed note + the measured lag). */}
+      {ingestLine && <div className="sc-ingest">{ingestLine}</div>}
 
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">
@@ -163,6 +195,15 @@ export function EpisodeScorecard({
               error={windowQ.isError}
             />
           </Suspense>
+        )}
+        {/* The tape's own provenance (#6): WHICH fact table drew this path, the EFFECTIVE floor the
+            server computed (not the start we asked for), and the as-of it was capped at (#1). Renders
+            only once the window has landed — a caption over a loading chart would describe nothing. */}
+        {windowQ.data && (
+          <div className="sc-tape">
+            tape: {windowQ.data.source} · loaded from {fmtDate(windowQ.data.start)} · as-of{" "}
+            {fmtDate(windowQ.data.asof)}
+          </div>
         )}
       </section>
 
@@ -240,6 +281,8 @@ export function EpisodeScorecard({
               )}
             </div>
           )}
+          {/* A2: the operator's decision, one quiet line — the chip/ledger row carry the full detail */}
+          {opLine && <div className="sc-muted">{opLine}</div>}
         </section>
       )}
 

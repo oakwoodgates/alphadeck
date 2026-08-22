@@ -1,5 +1,5 @@
 import type { ScoreboardEpisodeOut } from "../api/hooks";
-import { awaitingForwardBar, fmtReturn } from "./rows";
+import { awaitingForwardBar, fmtReturn, operatorLine } from "./rows";
 
 // Pure display logic for the episode scorecard's four timing lenses (the rows.ts model: unit-tested,
 // no React). Honest loudness throughout: a lens with no data returns null (the component renders
@@ -114,4 +114,16 @@ export function edgeLens(e: ScoreboardEpisodeOut): EdgeLens {
  *  experimental relative indicator, NOT a probability. null when unset (renders nothing). */
 export function setupStrengthPct(e: ScoreboardEpisodeOut): number | null {
   return e.confidence === null || e.confidence === undefined ? null : Math.round(e.confidence * 100);
+}
+
+/** Lens 4 (A2): the ONE quiet operator line — null when no decision is logged (nothing renders, not a
+ *  "no decision" stub: the capture gap is the episode ROW's story, `operatorLine`'s "none"). Delegates
+ *  to `rows.operatorLine` so the row cell and this line can never phrase the same decision two ways:
+ *  "operator: took 2026-06-05 @ 12.34 · running +8.0% (close, inferred)" / "operator: passed 2026-06-05". */
+export function operatorLensLine(e: ScoreboardEpisodeOut): string | null {
+  const l = operatorLine(e);
+  if (l.kind === "none") return null;
+  const ret = l.ret != null && l.ret.text !== "—" ? ` ${l.ret.text}` : "";
+  const inferred = l.inferred ? " (close, inferred)" : "";
+  return `operator: ${l.text}${ret}${inferred}`;
 }

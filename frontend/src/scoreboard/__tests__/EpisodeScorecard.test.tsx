@@ -107,7 +107,10 @@ describe("EpisodeScorecard — a populated matured episode", () => {
     expect(screen.getByText("· HIMS")).toBeInTheDocument();
     expect(screen.getByText(/Jul 10 → Nov 22/)).toBeInTheDocument();
     expect(screen.getByText("MATURED")).toBeInTheDocument();
-    expect(screen.getByText(/closed · window_end/)).toBeInTheDocument();
+    // A1: the reason reads as English, with the raw wire token kept one hover away
+    const reason = screen.getByText(/closed ·/);
+    expect(reason).toHaveTextContent("closed · still armed at the record edge");
+    expect(reason).toHaveAttribute("title", "window_end");
   });
 
   it("Lens 1 — the move: prices, the realized return, its label", () => {
@@ -171,9 +174,84 @@ describe("EpisodeScorecard — honest loudness on thin data", () => {
     expect(container.querySelector(".sc-cmp")).toBeNull(); // no two-legged comparison block
   });
 
+  // A1: the ingest-provenance line is EXCEPTION-ONLY — a healthy arm carries no line at all (#7).
+  it("renders no ingest line on a healthy arm", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={MATURED} />);
+    expect(container.querySelector(".sc-ingest")).toBeNull();
+  });
+
+  it("surfaces ONE quiet ingest line when the arm's provenance is flagged, with the measured lag", () => {
+    const { container } = renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          ingest_flagged: true,
+          freeze_era: true,
+          thaw_lag_days: 11,
+          ingest_note: "armed inside the 2026-07 EDGAR freeze window",
+        })}
+      />,
+    );
+    const lines = container.querySelectorAll(".sc-ingest");
+    expect(lines).toHaveLength(1); // ONE line, never a stack of flags
+    expect(lines[0]).toHaveTextContent(
+      "ingest provenance: armed inside the 2026-07 EDGAR freeze window · worst source lag 11d",
+    );
+  });
+
+  it("an explicitly-stale arm-date run surfaces the line too (any of the three signals fires it)", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={ep({ arm_ingest_fresh: false })} />);
+    expect(container.querySelector(".sc-ingest")).toBeInTheDocument();
+  });
+
   it("still armed reads 'still armed', not a dangling arrow", () => {
     renderCard(<EpisodeScorecard ep={ep({ dearm_date: null })} />);
     expect(screen.getByText(/Jul 10 → still armed/)).toBeInTheDocument();
+  });
+});
+
+// A2: the ONE quiet operator line under Lens 4 — present only when a decision is logged.
+describe("EpisodeScorecard — the operator line (A2)", () => {
+  const TOOK = {
+    action: "took" as const,
+    decision_id: "d1",
+    decision_date: "2026-07-12",
+    reason: null,
+    thesis_level: false,
+    entry_price: 12.34,
+    entry_inferred: false,
+    exit_price: null,
+    exit_inferred: false,
+    exit_date: null,
+    running: true,
+    operator_return: 0.08,
+  };
+
+  it("renders the quiet took line under Entry window + setup", () => {
+    renderCard(<EpisodeScorecard ep={ep({ operator: TOOK })} />);
+    expect(lens("Entry window + setup").textContent).toContain(
+      "operator: took 2026-07-12 @ 12.34 · running +8.0%",
+    );
+  });
+
+  it("the section renders for the operator line even when grades + arm_until are absent", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          operator: TOOK,
+          entry_grade: null,
+          conviction_grade: null,
+          confidence: null,
+          arm_until: null,
+          arm_until_return: null,
+        })}
+      />,
+    );
+    expect(lens("Entry window + setup").textContent).toContain("operator: took 2026-07-12");
+  });
+
+  it("no decision logged → no operator line anywhere (the row owns the capture-gap story)", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={ep()} />);
+    expect(container.textContent).not.toContain("operator:");
   });
 });
 
@@ -279,6 +357,11 @@ const DISPLAY = {
 
 function seedLedger(qc: QueryClient) {
   qc.setQueryData(["episode-price-window", "t1", "s1", MATURED.arm_date, ASOF], {
+    // `start` is the EFFECTIVE relevance floor the SERVER computed, not the requested start; `asof` is
+    // the cap the bars were read under (#1) — both are what the tape caption reports.
+    source: "fact_price_eod",
+    start: "2026-06-15",
+    asof: ASOF,
     bars: LBARS,
     insider_buys: [LBUY],
   });
@@ -308,6 +391,64 @@ describe("EpisodeScorecard — Slice B: the ledger shares the chart's numbered e
     expect(section).toHaveTextContent("above the 50d"); // the display headline
     // MATURED is closed → the current-tape caption warns the 90d figure is name-current, not the episode's
     expect(section).toHaveTextContent("current tape · as-of Jul 15");
+  });
+
+  // A1: the tape's own provenance under the chart — which fact table, the server's effective floor,
+  // and the as-of cap. It describes a LOADED window, so it waits for the data rather than captioning air.
+  it("captions the tape with its source, the effective floor, and the as-of (#6/#1)", async () => {
+    const { container } = renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, seedLedger);
+    await screen.findByText("Event ledger");
+    expect(container.querySelector(".sc-tape")).toHaveTextContent(
+      "tape: fact_price_eod · loaded from Jun 15 · as-of Jul 15",
+    );
+  });
+
+  it("renders no tape caption while the window has not landed (a caption over nothing describes nothing)", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={MATURED} />); // no asof → the query is disabled
+    expect(container.querySelector(".sc-tape")).toBeNull();
+  });
+
+  // A3: the display read feeds the chart/ledger as well as the strip — the drawer filters the member's
+  // signals to the chip-eligible kinds and threads them (with the page asof) into the ONE event array.
+  it("threads the member's display-signal events into the ledger as 'tape signal' rows (A3)", async () => {
+    renderCard(<EpisodeScorecard ep={MATURED} asof={ASOF} />, (qc) => {
+      seedLedger(qc);
+      qc.setQueryData(["display-signals", "t1", ASOF], {
+        members: [
+          {
+            ...DISPLAY,
+            signals: [
+              {
+                ...DISPLAY.signals[0],
+                events: [
+                  {
+                    key: "golden_cross",
+                    label: "golden cross: 50d crossed above 200d",
+                    date: "2026-07-01",
+                    direction: "up",
+                  },
+                ],
+              },
+              // the excluded kind, seeded on purpose: its events must NOT double-chip the insider family
+              {
+                kind: "insider_flow_90d",
+                label: "insider flow",
+                headline: null,
+                metrics: [],
+                events: [{ key: "last_buy", label: "last insider buy", date: "2026-08-01" }],
+                basis: { source: "fact_insider_txn", params: {} },
+              },
+            ],
+          },
+        ],
+      });
+    });
+    const section = (await screen.findByText("Event ledger")).closest("section") as HTMLElement;
+    const types = Array.from(section.querySelectorAll("tbody .evled-t")).map((c) => c.textContent);
+    expect(types.filter((t) => t === "tape signal")).toHaveLength(1); // the cross, once — not twice
+    expect(section).toHaveTextContent("golden cross: 50d crossed above 200d");
+    expect(section).toHaveTextContent("display-only tape read · derived as-of 2026-07-15");
+    expect(section).not.toHaveTextContent("last insider buy"); // insider_flow_90d never chips (A3 filter)
   });
 
   it("a no-forward-bar episode WITH pre-arm price data renders the ledger + chart (not gated on the forward bar)", async () => {
