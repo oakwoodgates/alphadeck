@@ -72,6 +72,20 @@ class OperatorSpan(BaseModel):
     reason: str | None = None
 
 
+class Transition(BaseModel):
+    """One intra-run change in the RECORD's read of an episode's member (Slice C3) — the drawer's
+    un-numbered "record trail". ``field`` ∈ {verdict, entry_grade, conviction_grade} ONLY (never the
+    daily confidence wobble); values are the wire tokens, None = unset. ``asof`` = the card that
+    FIRST said the new value — a change across a weekend/cron gap lands on the later card (a
+    recorded fact: when the record first said it, the same stamp rule as ``risk_events``). Lives
+    here, not in ``replay/schema.py``: a record-honesty concept the replay panel never populates."""
+
+    asof: date
+    field: str
+    from_value: str | None = None
+    to_value: str | None = None
+
+
 class ScoredEpisode(BaseModel):
     """One arm episode from the record, scored — plus the live record-honesty flags."""
 
@@ -87,6 +101,24 @@ class ScoredEpisode(BaseModel):
     ingest_flagged: bool = False  # the rollup: badge + excluded from aggregate metrics
     ingest_note: str | None = None  # the composed human "why" — None when clean
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
+    # Slice C — the run's own record detail, each field composed from the recorded cards (#6) and
+    # DEFAULTED on the replay path (CallSnapshot deliberately drops risk_signals/missing — do not
+    # widen it; an old artifact parses to these defaults):
+    # - ``dearm_detail``: the composed WHY behind a ``dearmed_other`` close — the ONE opaque token
+    #   (the other four self-explain, #7). Backend-authored copy, one authority (the ``ingest_note``
+    #   precedent). None when another token closed the run, or the de-arm-day card says nothing.
+    dearm_detail: str | None = None
+    # - ``risk_events``: the member's fired risk signals over ``[arm_date, dearm_date or the record
+    #   edge]`` (both ends inclusive — a risk live AT arm haircut the arm's own setup strength, and
+    #   the de-arm-day risk is what ended the run), deduped by ``(kind, event_date)`` since a live
+    #   risk re-fires on every daily card. A ``None`` event_date is stamped with the FIRST card-asof
+    #   it appeared on — a recorded fact (when the record first said it), NOT the market event date.
+    risk_events: list[TriggerRef] = []
+    # - ``transitions`` (C3): the member's intra-run verdict/grade changes, diffed consecutive-card
+    #   over ``[arm_date, last_armed_date]`` — the finer calls-log record the chip families can't
+    #   carry (the numbered ledger stays chip-events-only; these render as the quiet un-numbered
+    #   "record trail"). Empty on the replay path.
+    transitions: list[Transition] = []
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
 
 

@@ -4,10 +4,10 @@ import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
 import { useDisplaySignals, useEpisodePriceWindow, useWorkbenchScored } from "../api/hooks";
 import { fmtDate, gradeClass } from "../util/format";
 import { EventLedger } from "./EventLedger";
-import { identityCells, signalHeadlines } from "./ledger";
+import { identityCells, signalHeadlines, transitionLines } from "./ledger";
 import { buildOverlayEvents, tapeSignals } from "./overlay";
 import {
-  closeReasonLabel,
+  closeReasonLine,
   episodeBadges,
   fmtReturn,
   ingestProvenanceLine,
@@ -123,6 +123,9 @@ export function EpisodeScorecard({
 
   const identity = identityCells(scoredMember);
   const signals = signalHeadlines(memberSignals);
+  // C3: the un-numbered record trail — intra-run verdict/grade changes off the wire. Not gated on
+  // asof: it reads the episode alone (no price window), so the pure-render path shows it too.
+  const trail = transitionLines(ep.transitions);
   // A closed/matured episode's display signals are trailing windows re-derived at the drawer's asof, NOT the
   // episode's period — caption them so a name-current 90d figure isn't misread as the episode's own.
   const tapeAsof = asof && (ep.status === "closed" || ep.matured) ? asof : null;
@@ -147,9 +150,11 @@ export function EpisodeScorecard({
         </div>
       )}
       {ep.status === "closed" && ep.close_reason && (
-        // the reason in English; `title` keeps the raw wire token one hover away (translated, not hidden)
+        // the reason in English; `title` keeps the raw wire token one hover away (translated, not
+        // hidden). Slice C: a composed dearm_detail turns the "(see de-arm day)" deferral into the
+        // actual answer — backend-authored copy, this line only renders it.
         <div className="sc-reason" title={ep.close_reason}>
-          closed · {closeReasonLabel(ep.close_reason)}
+          closed · {closeReasonLine(ep.close_reason, ep.dearm_detail)}
         </div>
       )}
       {/* The ingest-provenance line — rendered ONLY when the arm's ingest is actually flagged, so a
@@ -306,6 +311,21 @@ export function EpisodeScorecard({
           signals={signals}
           tapeAsof={tapeAsof}
         />
+      )}
+
+      {/* Slice C3 — the record trail: the finer intra-run calls-log transitions (verdict/grade)
+          below the event ledger. A quiet UN-NUMBERED list — deliberately NOT chips and NOT in the
+          1..N array (the numbered ledger stays chip-events-only, docs/SCOREBOARD.md). Every line
+          traces to a recorded card diff (#6); no changes → nothing renders at all (#7). */}
+      {trail.length > 0 && (
+        <section className="sc-lens sc-trail">
+          <div className="sc-h">Record trail</div>
+          {trail.map((l, i) => (
+            <div key={i} className="sc-muted">
+              {fmtDate(l.date)} · {l.text}
+            </div>
+          ))}
+        </section>
       )}
     </div>
   );

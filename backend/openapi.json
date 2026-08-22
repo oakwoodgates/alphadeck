@@ -6453,6 +6453,33 @@
             "title": "Triggers At Arm",
             "default": []
           },
+          "dearm_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dearm Detail"
+          },
+          "risk_events": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRefOut"
+            },
+            "type": "array",
+            "title": "Risk Events",
+            "default": []
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionOut"
+            },
+            "type": "array",
+            "title": "Transitions",
+            "default": []
+          },
           "entry_close": {
             "anyOf": [
               {
@@ -8085,6 +8112,48 @@
         ],
         "title": "TierRecommendation",
         "description": "An advisory tier recommendation for ONE term (INVARIANT #10 \u2014 the LLM recommends, the operator decides).\nDISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating\n``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where\n``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type \u2014 it never rides on\n``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).\nCarries NO number (#3): a tier label + a one-line reason."
+      },
+      "TransitionOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "from_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Value"
+          },
+          "to_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "field"
+        ],
+        "title": "TransitionOut",
+        "description": "One intra-run change in the record's read of the member (Slice C3) \u2014 the drawer's\nun-numbered \"record trail\" (deliberately NOT a chip: the numbered ledger stays\nchip-events-only). ``field`` \u2208 {verdict, entry_grade, conviction_grade} \u2014 never the daily\nconfidence wobble; values are the wire tokens, None = unset. ``asof`` = the card that FIRST\nsaid the new value (a gap lands the change on the later card \u2014 a recorded fact)."
       },
       "TriageSessionEnvelope": {
         "properties": {

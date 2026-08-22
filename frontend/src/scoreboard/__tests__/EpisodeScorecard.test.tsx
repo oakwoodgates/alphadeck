@@ -113,6 +113,60 @@ describe("EpisodeScorecard — a populated matured episode", () => {
     expect(reason).toHaveAttribute("title", "window_end");
   });
 
+  it("renders the composed dearm_detail on the close-reason line, raw token still behind it (Slice C)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          status: "closed",
+          dearm_date: "2026-08-01",
+          close_reason: "dearmed_other",
+          dearm_detail: "now missing: Volume-confirmed breakout (the confirmation key)",
+        })}
+      />,
+    );
+    const reason = screen.getByText(/closed ·/);
+    expect(reason).toHaveTextContent(
+      "closed · de-armed — now missing: Volume-confirmed breakout (the confirmation key)",
+    );
+    expect(reason).toHaveAttribute("title", "dearmed_other"); // translated, never hidden
+  });
+
+  it("keeps the deferral label when the backend composed nothing (dearm_detail null)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({ status: "closed", dearm_date: "2026-08-01", close_reason: "dearmed_other" })}
+      />,
+    );
+    expect(screen.getByText(/closed ·/)).toHaveTextContent("closed · de-armed (see de-arm day)");
+  });
+
+  it("renders the un-numbered record trail when transitions exist; silence when none (C3)", () => {
+    renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          transitions: [
+            { asof: "2026-08-01", field: "entry_grade", from_value: "core", to_value: "flip" },
+            {
+              asof: "2026-08-01",
+              field: "verdict",
+              from_value: "core_entry",
+              to_value: "starter_entry",
+            },
+          ],
+        })}
+      />,
+    );
+    const section = screen.getByText("Record trail").closest("section") as HTMLElement;
+    expect(section.textContent).toContain("Aug 1 · entry grade core → flip");
+    expect(section.textContent).toContain("Aug 1 · verdict core_entry → starter_entry");
+    // the trail is NOT part of the numbered chip/ledger universe — no # cell, no chip class
+    expect(section.querySelector(".evled-n")).toBeNull();
+
+    // no transitions → the section does not render at all (#7)
+    renderCard(<EpisodeScorecard ep={ep()} />);
+    expect(screen.getAllByText("Record trail")).toHaveLength(1); // only the first render's section
+  });
+
   it("Lens 1 — the move: prices, the realized return, its label", () => {
     renderCard(<EpisodeScorecard ep={MATURED} />);
     const t = lens("The move").textContent ?? "";

@@ -889,6 +889,19 @@ class DecisionOut(BaseModel):
 # ---------- The Scoreboard (SCORE) — the forward record, served ----------
 
 
+class TransitionOut(BaseModel):
+    """One intra-run change in the record's read of the member (Slice C3) — the drawer's
+    un-numbered "record trail" (deliberately NOT a chip: the numbered ledger stays
+    chip-events-only). ``field`` ∈ {verdict, entry_grade, conviction_grade} — never the daily
+    confidence wobble; values are the wire tokens, None = unset. ``asof`` = the card that FIRST
+    said the new value (a gap lands the change on the later card — a recorded fact)."""
+
+    asof: date
+    field: str
+    from_value: str | None = None
+    to_value: str | None = None
+
+
 class ScoreboardEpisodeOut(BaseModel):
     """One arm episode from the record, scored — a ledger row. Outcome fields keep replay's
     canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
@@ -924,6 +937,14 @@ class ScoreboardEpisodeOut(BaseModel):
     arm_until: date | None = None
     warm_date: date | None = None
     triggers_at_arm: list[TriggerRefOut] = []  # the WHY behind the arm (invariant #6)
+    # Slice C — the run's own record detail (each traces to a recorded card, #6; both DEFAULT on
+    # the replay path, whose snapshots carry no risk/missing detail — old artifacts parse fine):
+    dearm_detail: str | None = None  # composed WHY, ``close_reason == "dearmed_other"`` only
+    # the member's fired risks over the run, deduped (kind, event_date) — a stamped date is when
+    # the record FIRST carried the risk, not the market event date (see scoreboard/schema.py)
+    risk_events: list[TriggerRefOut] = []
+    # C3: the member's intra-run verdict/grade changes — the un-numbered record trail
+    transitions: list[TransitionOut] = []
     entry_close: float | None = None
     exit_close: float | None = None
     exit_date: date | None = None
@@ -971,6 +992,14 @@ def _scoreboard_episode_out(
         arm_until=ep.arm_until,
         warm_date=ep.warm_date,
         triggers_at_arm=[_trigger_out(t, ciks, tickers) for t in e.triggers_at_arm],
+        dearm_detail=e.dearm_detail,
+        # risk triggers carry the EPISODE's security_id by construction (the member filter), so the
+        # router's existing sids set already resolves their ticker/CIK — no router change needed
+        risk_events=[_trigger_out(t, ciks, tickers) for t in e.risk_events],
+        transitions=[
+            TransitionOut(asof=t.asof, field=t.field, from_value=t.from_value, to_value=t.to_value)
+            for t in e.transitions
+        ],
         entry_close=out.entry_close,
         exit_close=out.exit_close,
         exit_date=out.exit_date,

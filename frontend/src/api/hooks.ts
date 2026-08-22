@@ -161,6 +161,7 @@ export type ScoreboardResponse = components["schemas"]["ScoreboardResponse"];
 export type ScoreboardSummaryOut = components["schemas"]["ScoreboardSummaryOut"];
 export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
 export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
+export type TransitionOut = components["schemas"]["TransitionOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];

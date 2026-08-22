@@ -8,7 +8,7 @@ import type {
   ScoredMemberOut,
   TriggerRefOut,
 } from "../../api/hooks";
-import { identityCells, ledgerRow, signalHeadlines } from "../ledger";
+import { identityCells, ledgerRow, signalHeadlines, transitionLines } from "../ledger";
 import type { OverlayEvent } from "../overlay";
 
 // The ledger's pure formatters — the jsdom-testable strings behind the table + Cockpit strip. The numbering
@@ -205,6 +205,53 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(ledgerRow(lc("dearmed", "aged out"))).toMatchObject({ type: "de-armed", detail: "aged out" });
     expect(ledgerRow(lc("dearmed"))).toMatchObject({ type: "de-armed", detail: "—" }); // no reason → "—"
     expect(ledgerRow(lc("exit_by"))).toMatchObject({ type: "exit-by", detail: "signal-validity horizon" });
+  });
+
+  // Slice C: the composed dearm_detail answers the "(see de-arm day)" deferral in the row itself.
+  it("de-armed: a composed dearm_detail replaces the deferral with the actual answer (Slice C)", () => {
+    const r = ledgerRow({
+      n: 7,
+      family: "lifecycle",
+      date: "2026-06-05",
+      closeThatDay: 100,
+      kind: "dearmed",
+      closeReason: "dearmed_other",
+      dearmDetail: "Structural break: closed below the 200-day base (a de-arm, not a sell)",
+    });
+    expect(r.detail).toBe(
+      "de-armed — Structural break: closed below the 200-day base (a de-arm, not a sell)",
+    );
+  });
+
+  // Slice C: the risk row — the call's own risk tape, distinct from the sell/filing FACT rows.
+  it("risk: label + kind · ticker + provenance in the detail, the filing as the row's jump (#6)", () => {
+    const trigger = {
+      label: "2 insiders incl. senior officer sold $1,850,000 open-market (code S) across 3 txns",
+      kind: "insider_sell",
+      grade: null,
+      event_date: "2026-06-01",
+      ticker: "DEVCO",
+      sources: [
+        {
+          source: "form4",
+          ref: "0001234567-26-000321",
+          url: "https://www.sec.gov/Archives/edgar/data/123/000123456726000321-index.htm",
+          detail: {},
+        },
+      ],
+    } as TriggerRefOut;
+    const r = ledgerRow({ n: 4, family: "risk", date: "2026-06-01", closeThatDay: null, trigger });
+    expect(r.type).toBe("risk signal");
+    expect(r.cls).toBe("ov-risk");
+    expect(r.detail).toContain("sold $1,850,000 open-market");
+    expect(r.detail).toContain("insider_sell · DEVCO");
+    expect(r.detail).toContain("form4: 0001234567-26-000321"); // the ref rides as TEXT too
+    expect(r.links).toEqual([
+      {
+        label: "form4",
+        url: "https://www.sec.gov/Archives/edgar/data/123/000123456726000321-index.htm",
+      },
+    ]);
   });
 });
 
@@ -438,5 +485,29 @@ describe("ledgerRow — the Slice B families", () => {
     expect(unresolved.type).toBe("SC 13G");
     expect(unresolved.detail).toContain("filer unresolved"); // #9 — said, never guessed or dropped
     expect(unresolved.detail).not.toContain("% of class");
+  });
+});
+
+// Slice C3: the un-numbered record trail — intra-run verdict/grade changes, never chips.
+describe("transitionLines — the quiet record trail below the event ledger", () => {
+  it("maps each recorded change to a dated English line; null sides read 'unset'", () => {
+    expect(
+      transitionLines([
+        { asof: "2026-06-03", field: "entry_grade", from_value: "core", to_value: "flip" },
+        { asof: "2026-06-03", field: "verdict", from_value: "core_entry", to_value: "starter_entry" },
+        { asof: "2026-06-05", field: "conviction_grade", from_value: null, to_value: "core" },
+      ]),
+    ).toEqual([
+      { date: "2026-06-03", text: "entry grade core → flip" },
+      { date: "2026-06-03", text: "verdict core_entry → starter_entry" },
+      { date: "2026-06-05", text: "conviction grade unset → core" },
+    ]);
+  });
+  it("an unknown future field renders RAW rather than vanishing (#9); empty/absent → []", () => {
+    expect(
+      transitionLines([{ asof: "2026-06-03", field: "some_new_field", from_value: "a", to_value: "b" }]),
+    ).toEqual([{ date: "2026-06-03", text: "some_new_field a → b" }]);
+    expect(transitionLines([])).toEqual([]);
+    expect(transitionLines(undefined)).toEqual([]);
   });
 });

@@ -144,6 +144,26 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     expect(container.querySelector(".sb-evledger")).toBeNull();
   });
 
+  it("a risk row renders under its own family tint, distinct from the fact rows (Slice C)", () => {
+    const risk = {
+      label: "Share count creeping — +9.1% over 4 quarters",
+      kind: "dilution_risk",
+      event_date: "2026-06-10",
+      ticker: "IBM",
+    } as unknown as TriggerRefOut;
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01", risk_events: [risk] }),
+      [],
+      BARS as PriceBar[],
+    );
+    const { container } = renderLedger({ events });
+    const riskRow = rowFor(container, 2); // armed #1, the risk #2 (2026-06-10)
+    expect(within(riskRow).getByText("risk signal")).toBeInTheDocument();
+    expect(riskRow.querySelector(".evled-n")).toHaveClass("ov-risk");
+    expect(riskRow.textContent).toContain("Share count creeping");
+    expect(riskRow).not.toHaveClass("evled-setaside"); // quiet family hue, not the excluded grey
+  });
+
   it("a SET-ASIDE buy's row renders muted-but-present with its label; type stays 'insider buy' (S2c)", () => {
     // same shape as EVENTS but the insider buy is a primary-market set-aside — it must NOT vanish
     const events = buildOverlayEvents(

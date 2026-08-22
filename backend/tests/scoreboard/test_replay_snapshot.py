@@ -113,6 +113,10 @@ def test_flags_censoring_maturity_status_and_triggers():
     assert second.censored_start is False and second.matured is False and second.status == "open"
     assert [tr.label for tr in first.triggers_at_arm] == ["2 insiders bought open-market"]
     assert snap.n_episodes == 2 and snap.n_censored == 1
+    # Slice C degrades to the defaults here BY CONSTRUCTION: CallSnapshot deliberately drops
+    # risk_signals/missing, so the replay flattener never composes the new fields
+    assert first.dearm_detail is None and first.risk_events == []
+    assert first.transitions == []  # C3: replay never populates the record trail
 
 
 def test_metrics_judge_only_matured_non_censored():
@@ -149,6 +153,25 @@ def test_window_overlap_is_loud_never_silent():
     assert clean.window_overlaps_record is False
     assert "overlaps" not in clean.banner
     assert "NOT the record" in clean.banner  # the recompute caveat always rides
+
+
+def test_old_artifact_missing_slice_c_fields_parses_to_defaults():
+    """An artifact written BEFORE Slice C lacks the new episode fields entirely — it must still
+    validate (defaults flow; the endpoint never 500s on an old artifact). Additive-only, proved."""
+    from scoreboard.schema import ReplaySnapshot
+
+    timeline = {_TID: [_snap(date(2026, 6, 1), armed=True, exit_by=date(2026, 6, 20))]}
+    ep = _episode(date(2026, 6, 1), dearm=None, exit_by=date(2026, 6, 20))
+    data = _build([(ep, _outcome(ep, 0.10))], timeline).model_dump(mode="json")
+    for t in data["theses"]:
+        for e in t["episodes"]:
+            for key in ("dearm_detail", "risk_events", "transitions"):
+                e.pop(key, None)
+
+    loaded = ReplaySnapshot.model_validate(data)
+    (t,) = loaded.theses
+    (e,) = t.episodes
+    assert e.dearm_detail is None and e.risk_events == [] and e.transitions == []
 
 
 def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):

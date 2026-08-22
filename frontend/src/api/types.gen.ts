@@ -3150,6 +3150,18 @@ export interface components {
              * @default []
              */
             triggers_at_arm: components["schemas"]["TriggerRefOut"][];
+            /** Dearm Detail */
+            dearm_detail?: string | null;
+            /**
+             * Risk Events
+             * @default []
+             */
+            risk_events: components["schemas"]["TriggerRefOut"][];
+            /**
+             * Transitions
+             * @default []
+             */
+            transitions: components["schemas"]["TransitionOut"][];
             /** Entry Close */
             entry_close?: number | null;
             /** Exit Close */
@@ -3931,6 +3943,27 @@ export interface components {
             recommended_tier: components["schemas"]["TermTier"];
             /** Reason */
             reason: string;
+        };
+        /**
+         * TransitionOut
+         * @description One intra-run change in the record's read of the member (Slice C3) — the drawer's
+         *     un-numbered "record trail" (deliberately NOT a chip: the numbered ledger stays
+         *     chip-events-only). ``field`` ∈ {verdict, entry_grade, conviction_grade} — never the daily
+         *     confidence wobble; values are the wire tokens, None = unset. ``asof`` = the card that FIRST
+         *     said the new value (a gap lands the change on the later card — a recorded fact).
+         */
+        TransitionOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Field */
+            field: string;
+            /** From Value */
+            from_value?: string | null;
+            /** To Value */
+            to_value?: string | null;
         };
         /**
          * TriageSessionEnvelope

@@ -89,6 +89,17 @@ export function closeReasonLabel(token: string): string {
   return CLOSE_REASON_LABEL[token] ?? token;
 }
 
+/** The close-reason line WITH the Slice-C composed detail: a `dearmed_other` close that carries a
+ *  backend-authored `dearm_detail` reads "de-armed — <detail>" — the "(see de-arm day)" placeholder
+ *  replaced by the actual answer (one authority for the copy: the backend composes, this only
+ *  renders). Every other case — the four self-explaining tokens, or an opaque de-arm the record
+ *  couldn't explain — falls through to `closeReasonLabel` unchanged, so no render site loses the
+ *  raw-token-in-`title=` discipline. */
+export function closeReasonLine(token: string, detail: string | null | undefined): string {
+  if (token === "dearmed_other" && detail) return `de-armed — ${detail}`;
+  return closeReasonLabel(token);
+}
+
 /** The drawer's ONE ingest-provenance line — null (render nothing at all) when the arm's ingest was
  *  healthy. Loudness marks the exception (#7): a line under every episode saying "ingest fine" would
  *  carry no information, so the healthy case is silence. Flagged means any of the three wire signals:

@@ -1,4 +1,9 @@
-import type { DisplaySignal, MemberDisplaySignalsOut, ScoredMemberOut } from "../api/hooks";
+import type {
+  DisplaySignal,
+  MemberDisplaySignalsOut,
+  ScoredMemberOut,
+  TransitionOut,
+} from "../api/hooks";
 import { businessTypeLabel } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
 import {
@@ -9,7 +14,7 @@ import {
   type ProvenanceLink,
   triggerLinks,
 } from "./overlay";
-import { closeReasonLabel } from "./rows";
+import { closeReasonLine } from "./rows";
 
 // Pure formatters for the drawer's per-episode event LEDGER (Slice B) — the tabular companion to the chart.
 // The ledger lists the SAME numbered events the chart draws (row #N ↔ chip #N); it shares the ONE `events`
@@ -95,6 +100,19 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
       ...(links.length > 0 ? { links } : {}),
     };
   }
+  if (e.family === "risk") {
+    // Slice C: a fired risk off the recorded daily cards (deduped server-side) — the call's own
+    // risk tape, distinct from the sell/filing FACT rows (a fact is what the tape did; this is what
+    // the record made of it). Detail leads with the risk's label; the filing rides as the jump (#6).
+    const tip = overlayTooltip(e);
+    const links = triggerLinks(e.trigger);
+    return {
+      ...base,
+      type: "risk signal",
+      detail: [tip.title, ...tip.lines].join(" · "),
+      ...(links.length > 0 ? { links } : {}),
+    };
+  }
   if (e.family === "operator") {
     // the type cell already says "operator" (= the tooltip's title), so only the LINES join: the
     // action word leads them by construction — "took @ $X (logged fill) · running +8.0% · <reason>"
@@ -113,13 +131,42 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     e.kind === "dearmed"
       ? e.closeReason
         // English, not the wire token — the raw token stays reachable on the same drawer, in the
-        // scorecard header's `title=` (the drawer never shows the label without the token behind it)
-        ? closeReasonLabel(e.closeReason)
+        // scorecard header's `title=` (the drawer never shows the label without the token behind
+        // it). Slice C: a composed dearm_detail replaces the "(see de-arm day)" deferral with the
+        // actual answer (`closeReasonLine`); every other token reads exactly as before.
+        ? closeReasonLine(e.closeReason, e.dearmDetail)
         : "—"
       : e.kind === "exit_by"
         ? "signal-validity horizon"
         : "—"; // warmed / armed: the WHY rides the separate numbered trigger rows
   return { ...base, type: LIFECYCLE_TYPE[e.kind], detail };
+}
+
+// C3: the record-trail field names in the operator's English — an unknown future field renders RAW
+// rather than vanishing (#9, the closeReasonLabel idiom).
+const TRANSITION_FIELD_LABEL: Record<string, string> = {
+  verdict: "verdict",
+  entry_grade: "entry grade",
+  conviction_grade: "conviction grade",
+};
+
+export interface TransitionLine {
+  date: string; // raw ISO — the component formats via fmtDate
+  text: string; // "entry grade core → flip"
+}
+
+/** The un-numbered "record trail" lines (Slice C3): one per recorded intra-run change, in wire
+ *  (chronological) order. Deliberately NOT chips and NOT in the 1..N array — the numbered ledger
+ *  stays chip-events-only (docs/SCOREBOARD.md); this is the quiet list below it. A null side reads
+ *  "unset" (a conviction grade appearing mid-run is a real record change, never a blank). Empty
+ *  in → empty out (the component renders nothing, #7). */
+export function transitionLines(ts: TransitionOut[] | null | undefined): TransitionLine[] {
+  return (ts ?? []).map((t) => ({
+    date: t.asof,
+    text: `${TRANSITION_FIELD_LABEL[t.field] ?? t.field} ${t.from_value ?? "unset"} → ${
+      t.to_value ?? "unset"
+    }`,
+  }));
 }
 
 export interface IdentityCell {
