@@ -102,7 +102,18 @@ def test_a_fill_is_invisible_to_a_past_asof(client, db):
 
 def test_a_later_recorded_fill_is_invisible_to_a_pinned_known_at(db):
     """Transaction time: a replay with known_at BEFORE the append sees the log as it stood — no
-    rows at all (any_rows False), so even the fallback path is exactly the pre-log world."""
+    rows at all (any_rows False), so even the fallback path is exactly the pre-log world.
+
+    The unpinned read below is also the TWO-CLOCK regression guard. ``recorded_at`` is stamped by the
+    POSTGRES clock (``DEFAULT now()``, 0019); ``derived_position`` once defaulted its bound to
+    ``datetime.now(timezone.utc)`` on the APP HOST, so the two clocks were compared against each
+    other and a row appended ~1 ms earlier could read as not-yet-recorded — measured on the dev box,
+    the DB clock ran ~0.2-0.6 ms ahead while the whole append-then-read window was ~0.5-1.5 ms, and
+    the filter is exact to the microsecond. It failed here once under a full-suite run and passed in
+    isolation. The bound now comes from the DB (``clock_timestamp()``), so this read is one-clock — do
+    NOT "stabilize" it by widening the window or padding with a sleep; that would hide the seam
+    instead of closing it.
+    """
     t = _thesis(db)
     decisions_repo.append(
         db,
