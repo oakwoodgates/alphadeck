@@ -11,11 +11,15 @@ silently close a stored position), and a position open/close is temporal — nev
 
 One open position per thesis (gate-1 v1): the position is the LATEST non-voided take/close event —
 a take opens, a close closes; the API layer enforces take-only-when-flat / close-only-when-open.
+
+ONE CLOCK on the transaction axis: ``recorded_at`` is stamped by Postgres, so an unpinned read takes
+its ``recorded_at <=`` bound from Postgres too (``clock_timestamp()``), never ``datetime.now()`` on
+the app host — see ``derived_position`` for the two-clock trap that rule closes.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -101,13 +105,29 @@ def derived_position(
     True when the thesis has ANY decision row at all (regardless of the as-of window) — the
     precedence signal ``effective_position`` uses, so a logged-then-closed position does NOT fall
     back to the stale seed columns. Voids recorded after ``known_at`` do not yet apply (a replay
-    sees the log exactly as it stood)."""
-    known = known_at or datetime.now(timezone.utc)
+    sees the log exactly as it stood).
+
+    ONE CLOCK FOR THE TRANSACTION AXIS (the two-clock trap — a fixed flake, do not re-introduce).
+    ``known_at=None`` means "the log as it stands", and that bound is supplied by the DATABASE
+    (``clock_timestamp()``), never by ``datetime.now()`` on the app host. ``recorded_at`` is stamped
+    by the Postgres clock (``DEFAULT now()``, migration 0019), so defaulting the bound to the HOST
+    clock compared two independent clocks: when the DB clock ran fractionally ahead, a row appended
+    milliseconds earlier read as *not yet recorded* and vanished from its own log. That is not
+    hypothetical — measured on the dev box, the DB clock ran ~0.2-0.6 ms ahead of the host while the
+    whole append-then-read window was only ~0.5-1.5 ms, and the filter is exact to the microsecond;
+    it surfaced once as a full-suite-only flake in the pinned-``known_at`` decisions test, and it
+    would have bitten ``POST /decisions`` the same way (a close 422-ing "no open position to close"
+    because the take it should see is invisible). ``clock_timestamp()`` (the statement instant), NOT
+    ``now()`` (the TRANSACTION-start instant): any row this statement's snapshot can see was
+    committed before the statement ran, so its ``recorded_at`` is necessarily <=
+    ``clock_timestamp()`` — a read in a long-open transaction can't lose a concurrently-committed
+    append. An explicitly PASSED ``known_at`` is untouched: replay still pins the transaction axis
+    exactly where the caller says."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT * FROM operator_decision WHERE thesis_id = %s AND tenant_id = %s "
-            "AND recorded_at <= %s ORDER BY seq",
-            (thesis_id, tenant_id, known),
+            "AND recorded_at <= COALESCE(%s::timestamptz, clock_timestamp()) ORDER BY seq",
+            (thesis_id, tenant_id, known_at),
         )
         rows = cur.fetchall()
     if not rows:
