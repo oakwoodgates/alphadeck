@@ -307,6 +307,30 @@ def run_daily_pass(
     health = assess_health(results, asof=asof, allow_live=allow_live)
     if health is not None:
         notifier.notify_health(health)
+    # The SPAC shell sweep (facts-only blank-check enrichment) — BEFORE the radar leg, so the same
+    # night's run_spac_radar (which reads known_shell_ciks at its start) sees freshly-enriched
+    # shells and collects their 8-K/proxy/25 events. The units-U / "Acquisition Corp" pattern only
+    # SELECTS which CIKs to fetch; the SEC sicDescription is the sole shell-or-not authority (#3 —
+    # the existing spacClass classifier does the flagging). Same discipline as the legs above: own
+    # connection + lazy import + fail-open; a sweep fault never fails the call cron. Mondays add
+    # the de-SPAC re-enrich (reenrich=True re-pulls the current Blank Checks set, least-recently-
+    # enriched first) so a completed merger's SIC flip stops the flag within a week — the gate must
+    # be a WEEKDAY because the cron fires Mon-Fri only (pipeline/schedule.py). Skipped on --no-live
+    # (the recording-gate philosophy; `python -m pipeline.spac_sweep --live` is the manual path).
+    if allow_live:
+        try:
+            from radar.shell_sweep import run_shell_sweep
+
+            sweep_conn = connect()
+            try:
+                sw = run_shell_sweep(sweep_conn, allow_live=True, reenrich=(asof.weekday() == 0))
+            finally:
+                sweep_conn.close()
+            print(f"shell sweep: {sw.summary}")
+            for err in sw.errors:
+                print(f"  shell sweep ERROR: {err}")
+        except Exception as e:  # noqa: BLE001 — the sweep is a passenger, never the driver
+            print(f"WARNING: shell sweep leg failed: {e}")
     # The SPAC Radar's universe-level leg (docs/temp/spac-radar-options.md, slice 1) — deliberately
     # OUTSIDE run_daily: its own connection + EdgarClient, so it can never pollute the per-thesis
     # edgar_fetches freeze counters or the recording gate. Fail-open: a radar fault never fails the
