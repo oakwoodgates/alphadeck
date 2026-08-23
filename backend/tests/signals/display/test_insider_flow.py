@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import get_args
 
+from app.schemas_api import InsiderBuyOut
 from signals.display import insider_flow
 
 _ASOF = date(2026, 7, 1)
@@ -230,6 +232,18 @@ def test_absolute_ceiling_excludes_a_physically_impossible_row_without_price_con
 # equality — the call-path suite's own fixtures), PBLS accessions 0001231919-26-000638 /
 # 0001213900-26-072928 / 0001193125-26-271324 (the $20-offer below-low subscriptions), CNBX (the $2T
 # implausible row). ---
+
+
+def test_buy_character_set_covers_the_wire_literal():
+    """Drift pin (the buy mirror of ``test_overlays``'s sell pin): the full set of characters
+    ``_screen`` can return is EXACTLY ``InsiderBuyOut.character``'s Literal. The buy side ships its
+    screen values on the wire VERBATIM (no translation map), so a new character added to
+    ``BUY_SCREEN_CHARACTERS`` without a matching Literal value — or an orphan Literal value with no
+    character — fails HERE, loudly, instead of as a runtime response-validation 500 on the price-window
+    endpoint. ``BUY_SCREEN_CHARACTERS`` is the authoritative vocabulary declared BESIDE ``_screen``'s
+    constants (not re-listed here), so adding a character there is what this pin keys on."""
+    literal = set(get_args(InsiderBuyOut.model_fields["character"].annotation))
+    assert insider_flow.BUY_SCREEN_CHARACTERS == literal
 
 
 def test_screen_open_market_is_the_default_character():

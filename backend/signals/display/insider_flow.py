@@ -63,6 +63,18 @@ SELF_FILING = (
 PRIMARY_MARKET = "primary_market"  # an offer-price subscription (IPO/PIPE/placement) — set aside
 IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data — set aside
 
+# The COMPLETE set of characters ``_screen`` can return — the single source of truth for the buy
+# character vocabulary, co-located with the constants so a dev ADDING a character updates it right HERE
+# (beside the constant and the ``return`` branch). UNLIKE the sell side these ARE the wire values
+# verbatim (no translation map — ``episode_insider_buys`` ships ``_screen``'s output as-is), so the
+# drift-pin test (``tests/signals/display/test_insider_flow.py``) asserts this set equals
+# ``InsiderBuyOut.character``'s Literal DIRECTLY — a new character added without its Literal value (or an
+# orphan Literal value) fails THAT test loudly, never as a runtime response-validation 500 on
+# ``/scoreboard/price-window``.
+BUY_SCREEN_CHARACTERS: frozenset[str] = frozenset(
+    {OPEN_MARKET, SELF_FILING, PRIMARY_MARKET, IMPLAUSIBLE}
+)
+
 
 def _usd_sum(rows: list[dict[str, Any]]) -> tuple[float, int]:
     """Sum the priced rows; the count of rows WITHOUT a $ value rides back for the honest note."""
