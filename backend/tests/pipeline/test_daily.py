@@ -409,22 +409,38 @@ class _Silent:
         pass
 
 
-def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False):
-    """Stub run_daily_pass's seams so the two refresh legs run DB-free. Returns (order, calls, seen):
-    ``order`` is the recorded call sequence (for the load-bearing before-run_daily property), ``calls``
-    counts each seam, and ``seen`` captures the kwargs each ingest leg was invoked with — so a test can
-    prove the load-bearing freshness wiring (benchmarks force_refresh=True; fundamentals no per-call flag).
+def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_raises=False):
+    """Stub run_daily_pass's seams so the refresh + universe legs run DB-free. Returns (order, calls,
+    seen): ``order`` is the recorded call sequence (the load-bearing ordering properties), ``calls``
+    counts each seam, and ``seen`` captures the kwargs each leg was invoked with — so a test can prove
+    the load-bearing wiring (benchmarks force_refresh=True; fundamentals no per-call flag; the shell
+    sweep's Monday-only reenrich).
     """
     order: list[str] = []
-    calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0}
-    seen: dict[str, dict] = {}  # last-seen kwargs per ingest leg
+    calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0, "shell_sweep": 0, "spac_radar": 0}
+    seen: dict[str, dict] = {}  # last-seen kwargs per leg
 
     monkeypatch.setattr(daily, "connect", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(daily, "write_cron_run_log", lambda *a, **k: None)  # fail-open, no file I/O
+
+    def _radar(conn, **k):
+        order.append("spac_radar")
+        calls["spac_radar"] += 1
+        return SimpleNamespace(summary="stub", errors=[])
+
     # the SPAC-radar leg is also allow_live-gated — stub it so a live pass doesn't run real radar code
-    monkeypatch.setattr(
-        "radar.spac.run_spac_radar", lambda *a, **k: SimpleNamespace(summary="stub", errors=[])
-    )
+    monkeypatch.setattr("radar.spac.run_spac_radar", _radar)
+
+    def _sweep(conn, **k):
+        order.append("shell_sweep")
+        calls["shell_sweep"] += 1
+        seen["shell_sweep"] = k  # capture kwargs -> assert the Monday-only reenrich wiring
+        if sweep_raises:
+            raise RuntimeError("shell sweep boom")
+        return SimpleNamespace(summary="stub", errors=[])
+
+    # the shell-sweep leg (allow_live-gated too, lazily imported from radar.shell_sweep)
+    monkeypatch.setattr("radar.shell_sweep.run_shell_sweep", _sweep)
 
     def _run_daily(conn, **k):
         order.append("run_daily")
@@ -500,6 +516,48 @@ def test_pass_fundamentals_failure_is_FAIL_OPEN(monkeypatch):
     assert calls["fundamentals"] == 1  # attempted (then raised inside its own try)
     assert calls["run_daily"] == 1
     assert isinstance(out, daily.DailyPassOutcome)
+
+
+# --- the SPAC shell-sweep leg in run_daily_pass (PR-2): before-radar, fail-open, Monday reenrich ---
+
+
+def test_pass_runs_shell_sweep_BEFORE_the_radar_leg(monkeypatch):
+    # THE load-bearing ordering: the sweep commits its enrichments (per-CIK, inside enrich_for_ciks)
+    # before the radar's run-start known_shell_ciks read — so the SAME night's radar collects a
+    # freshly-admitted shell's 8-K/proxy/25 events instead of dropping them for one more day.
+    order, calls, _ = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert calls["shell_sweep"] == 1 and calls["spac_radar"] == 1
+    assert order.index("shell_sweep") < order.index("spac_radar")
+
+
+def test_pass_shell_sweep_failure_is_FAIL_OPEN_radar_still_runs(monkeypatch):
+    # a sweep fault must NOT skip the radar leg (separate try per leg) and must NOT fail the cron
+    _, calls, _ = _prime_pass(monkeypatch, sweep_raises=True)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
+    assert calls["shell_sweep"] == 1  # attempted (then raised inside its own try)
+    assert calls["spac_radar"] == 1  # ...the radar leg STILL ran
+    assert isinstance(out, daily.DailyPassOutcome)
+
+
+def test_pass_skips_shell_sweep_on_no_live(monkeypatch):
+    # --no-live: a cache-only run can't refresh — the sweep (like every universe leg) is gated off;
+    # `python -m pipeline.spac_sweep` stays the manual cache-only path
+    _, calls, _ = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
+    assert calls["shell_sweep"] == 0 and calls["spac_radar"] == 0
+
+
+def test_pass_shell_sweep_reenriches_on_mondays_only(monkeypatch):
+    # the weekly de-SPAC re-enrich gate is a WEEKDAY (the cron fires Mon-Fri — a weekend gate would
+    # never fire): a Monday asof threads reenrich=True, any other weekday False.
+    _, _, seen = _prime_pass(monkeypatch)
+    monday, tuesday = date(2026, 8, 24), date(2026, 8, 25)
+    assert (monday.weekday(), tuesday.weekday()) == (0, 1)  # pin the fixture dates themselves
+    daily.run_daily_pass(asof=monday, allow_live=True, notifier=_Silent())
+    assert seen["shell_sweep"]["reenrich"] is True
+    daily.run_daily_pass(asof=tuesday, allow_live=True, notifier=_Silent())
+    assert seen["shell_sweep"]["reenrich"] is False
 
 
 def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypatch):
