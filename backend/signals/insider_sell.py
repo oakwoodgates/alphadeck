@@ -72,6 +72,16 @@ _BELOW_LOW = "below_low"  # below the day's tape — a discounted secondary, a d
 _IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data (#3)
 _FOREIGN = "foreign"  # a home-market ordinary line mis-filed on the ADR's tape — the wrong instrument (S2c)
 
+# The COMPLETE vocabulary ``_screen`` can return — the single source of truth for the sell-screen
+# buckets, co-located with the constants so a dev ADDING a bucket updates it right HERE (beside the
+# constant and the ``return`` branch). The drift-pin test (``tests/scoreboard/test_overlays.py``)
+# iterates this set through ``scoreboard.overlays.sell_character_wire`` and asserts every value lands
+# in ``InsiderSellOut.character``'s Literal — so a new bucket added WITHOUT its wire-map entry + Literal
+# value fails THAT test loudly, never as a runtime response-validation 500 on ``/scoreboard/price-window``.
+SELL_SCREEN_BUCKETS: frozenset[str] = frozenset(
+    {_KEPT, _PLANNED, _SELF, _BELOW_LOW, _IMPLAUSIBLE, _FOREIGN}
+)
+
 
 def _is_senior(role: str | None, keywords: frozenset[str]) -> bool:
     # duplicated from insider_conviction._is_senior (see module docstring) — ONE definition of

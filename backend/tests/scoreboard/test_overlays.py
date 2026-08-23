@@ -5,7 +5,7 @@ from typing import get_args
 
 from app.schemas_api import InsiderSellOut
 from scoreboard.overlays import annotate_sma, known_at_for_asof, sell_character_wire
-from signals.insider_sell import _BELOW_LOW, _FOREIGN, _IMPLAUSIBLE, _KEPT, _PLANNED, _SELF
+from signals.insider_sell import _FOREIGN, _KEPT, _PLANNED, _SELF, SELL_SCREEN_BUCKETS
 
 # Pure overlay helpers (no DB): the SMA rolling mean + its honest left-edge gap, the insider read's
 # transaction-axis cap (min(now, asof-EOD)), and the Slice B sell-character wire map's drift pin. The
@@ -68,10 +68,14 @@ def test_sell_character_wire_map_covers_every_screen_bucket():
     """The Slice B drift pin: every ``insider_sell._screen`` bucket, pushed through the wire map,
     lands EXACTLY on ``InsiderSellOut.character``'s Literal — so a future new screen bucket (or a
     renamed one) fails HERE, loudly, instead of as a runtime response-validation 500 on the price-
-    window endpoint. A new bucket constant in ``signals/insider_sell.py`` must be added to this set,
-    the wire Literal, and (if its short name is cryptic) the map."""
-    buckets = {_KEPT, _PLANNED, _SELF, _BELOW_LOW, _IMPLAUSIBLE, _FOREIGN}
-    wire = {sell_character_wire(b) for b in buckets}
+    window endpoint.
+
+    The bucket set is read from ``SELL_SCREEN_BUCKETS`` — the authoritative vocabulary declared BESIDE
+    ``_screen``'s constants (not re-listed here), so a 7th bucket added there without a matching wire-map
+    entry + ``InsiderSellOut.character`` Literal value drops through ``sell_character_wire``'s identity
+    fallback as a token the Literal doesn't contain and BREAKS this equality. (Were the set re-typed
+    here, that same new bucket would sail past — which is exactly the gap this rewrite closes.)"""
+    wire = {sell_character_wire(b) for b in SELL_SCREEN_BUCKETS}
     literal = set(get_args(InsiderSellOut.model_fields["character"].annotation))
     assert wire == literal
     # the two deliberate renames (cryptic short names -> the contract vocabulary), identity otherwise
