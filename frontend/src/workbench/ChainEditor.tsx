@@ -53,6 +53,7 @@ import {
   type JunkTellContext,
 } from "./junkTells";
 import { RunPicker } from "./RunPicker";
+import { groupHasTerm, hasTermUniverse, termsInclude, termUniverse } from "./termFilter";
 import {
   SCHEMA_VERSION,
   serialize,
@@ -693,6 +694,9 @@ export function ChainEditor({
   const [fCountry, setFCountry] = useState<"" | CountryClass>("");
   const [fExch, setFExch] = useState<"" | ExchangeClass>("");
   const [fSpac, setFSpac] = useState<"" | SpacClass>("");
+  // the discovery-term find-filter: narrow to names whose `surfaced_terms` include the pick. The value is a
+  // NORMALIZED term key (the dropdown's option value), so "" is the cleared state (mirrors the others).
+  const [fTerm, setFTerm] = useState("");
   const [fOffUniv, setFOffUniv] = useState(false);
   const [compact, setCompact] = useState(false);
   const filtersActive =
@@ -704,6 +708,7 @@ export function ChainEditor({
     !!fCountry ||
     !!fExch ||
     !!fSpac ||
+    !!fTerm ||
     fOffUniv;
   const clearFilters = () => {
     setSortBy("draft");
@@ -714,8 +719,15 @@ export function ChainEditor({
     setFCountry("");
     setFExch("");
     setFSpac("");
+    setFTerm("");
     setFOffUniv(false);
   };
+  // The term-filter dropdown universe — every discovery term that surfaced ≥1 PLACED name, tier-grouped
+  // (SEED / BROAD) off the working term set. Read from the persisted `surfaced_terms` on the whole placed
+  // basket (not the ephemeral draft-run matches), so it's the same whenever the thesis is opened. The
+  // control renders ONLY when this can discriminate (a fully off-universe basket → no terms → no control, #3).
+  const termOptions = termUniverse(d.draft.basket, termSet);
+  const termFilterActive = hasTermUniverse(termOptions);
   const sec = (m: BasketMember) => idFor(m.security_id)?.sector ?? "";
   // Country + Exchange + Type filters classify a name's stored IDENTITY (origin / exchange / sector) and
   // span the Basket panel, the working Placed list, AND the To-Review candidates (like INCLUDE) — the
@@ -746,6 +758,10 @@ export function ChainEditor({
     if (fSign === "unsigned" && m.signed_off) return false;
     if (fInc === "included" && !d.isIncluded(g.key)) return false;
     if (fInc === "excluded" && d.isIncluded(g.key)) return false;
+    // term: a name matches when ANY of its rows' surfaced (discovery) terms include the pick. Union across
+    // the group's rows (recall-safe #9 — provenance is per-CIK so the rows are uniform, but a union never
+    // drops a match). An off-universe name (empty surfaced_terms) never matches a term pick — correct.
+    if (fTerm && !groupHasTerm(g.rows, fTerm)) return false;
     if (fOffUniv && !(m.security_id && offUniverse.has(m.security_id))) return false;
     // the scored-join-baseline read (idFor) — so the filters work on a saved thesis opened with NO
     // draft/session (the #241-blocked scenario): the join alone classifies the placed members
@@ -1116,8 +1132,14 @@ export function ChainEditor({
   // duplicate suggestion, never a name from the universe (#9 — it's kept, not dropped). Derived off the live
   // `keys`, so a name sent back down out of the basket re-appears here.
   const verifyCandidates = verify.filter((p) => !(p.security_id && keys.has(p.security_id)));
+  // The term filter narrows To-Review too (like the identity filters): a candidate matches on its
+  // `matched_terms` (its current-run discovery provenance — the verify counterpart to a placed member's
+  // frozen `surfaced_terms`). A candidate that didn't match the picked term drops from the queue view.
   const verifyVisible = verifyCandidates.filter(
-    (p) => matchesVerifyInclude(p) && matchesIdentity(p.origin, p.exchange, p.sector),
+    (p) =>
+      matchesVerifyInclude(p) &&
+      matchesIdentity(p.origin, p.exchange, p.sector) &&
+      termsInclude(p.matched_terms, fTerm),
   );
   // The off-thesis noise, split by keyword provenance so the flood is read at a glance (honest loudness #7):
   //   Low signal    = matched 2+ discovery terms (the stronger keyword evidence — more likely a missed keeper).
@@ -2138,6 +2160,40 @@ export function ChainEditor({
                   <option value="unknown">unknown</option>
                 </select>
               </label>
+              {/* TERM — the discovery-term filter: narrow to names a chosen keyword surfaced. Rendered ONLY
+                  when the universe can discriminate (≥1 surfaced term, #3). The operator's own SIGNAL seeds
+                  sit first under "Seed terms"; keyword-gen BROAD terms follow. Each optgroup renders only
+                  when non-empty (no bare "Seed terms" header when every term is broad). */}
+              {termFilterActive && (
+                <label className="wb-find-ctl">
+                  term
+                  <select
+                    aria-label="filter by discovery term"
+                    value={fTerm}
+                    onChange={(e) => setFTerm(e.target.value)}
+                  >
+                    <option value="">all</option>
+                    {termOptions.signal.length > 0 && (
+                      <optgroup label="Seed terms">
+                        {termOptions.signal.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {termOptions.broad.length > 0 && (
+                      <optgroup label="Broad terms">
+                        {termOptions.broad.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </label>
+              )}
               <button
                 type="button"
                 className={`wb-mini ghost${fOffUniv ? " on" : ""}`}
@@ -2164,7 +2220,7 @@ export function ChainEditor({
                 {/* whole-basket NAME count across BOTH lists (Basket panel + working) — the denominator
                     stays the full set of names, so a filter reads the same as before the split */}
                 showing {basketRows.length + triaged.length} of {nameCount} placed
-                {(fInc || fCountry || fExch || fSpac) && verifyCandidates.length > 0
+                {(fInc || fCountry || fExch || fSpac || fTerm) && verifyCandidates.length > 0
                   ? ` · ${verifyVisible.length} of ${verifyCandidates.length} to review`
                   : ""}
               </span>
