@@ -55,6 +55,7 @@ function fullEditor(): EditorRuntime {
     tail_sweep: "skipped",
     narration_needed: 0,
     narration_filled: 0,
+    scope: "full", // the draft-scope field (PR #303) — additive inside the report, no SCHEMA_VERSION bump
   };
   return {
     ambiguous: [p("Amb Co")],
@@ -153,6 +154,26 @@ describe("triageSession serialize/deserialize", () => {
     expect(m.authored_by).toBe("system_drafted"); // the retired value never reaches the hook
     expect(m.signed_off).toBe(true); // old accept meant ENDORSED — the 0035 rule at the restore seam
     expect(m.thesis_fit).toBe("core name"); // content untouched (non-destructive, like the migration)
+  });
+
+  it("report.scope rides the draftStatus blob (draft-scope PR-2 — additive, NO SCHEMA_VERSION bump)", () => {
+    const editor = fullEditor();
+    editor.draftStatus!.report.scope = "seeds_only"; // a fast-lane run's report
+    const result = throughWire(fullHook(), editor);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.editor.draftStatus?.report.scope).toBe("seeds_only"); // the badge survives save → restore
+  });
+
+  it("an OLD blob whose report predates `scope` restores ok with scope ABSENT (never invented)", () => {
+    // simulate a blob autosaved before the field existed: strip it from the stored report
+    const state = JSON.parse(JSON.stringify(serialize(fullHook(), fullEditor())));
+    delete state.editor.draftStatus.report.scope;
+    const result = deserialize({ schema_version: SCHEMA_VERSION, state });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const report = result.editor.draftStatus?.report as unknown as Record<string, unknown>;
+    expect("scope" in report).toBe(false); // absent, not defaulted — the strip renders it badge-free
   });
 
   it("S1 legacy normalize: a member merely MISSING signed_off defaults false (no false endorsement)", () => {

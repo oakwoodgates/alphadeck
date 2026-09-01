@@ -4,6 +4,7 @@ import type {
   BasketMember,
   ChainDraftOut,
   DraftReportOut,
+  DraftScope,
   ResolvedPlacement,
   ScoredMemberOut,
   SecurityCandidate,
@@ -943,15 +944,17 @@ export function ChainEditor({
   };
 
   // Draft the chain from the narrative — an EXPLICIT operator action (never on render). KICK OFF the job and
-  // start polling; arm a poll-timeout so the operator always reaches a terminal state.
-  const onDraft = async () => {
+  // start polling; arm a poll-timeout so the operator always reaches a terminal state. `scope` is the fast
+  // lane (draft-scope PR-2): omitted = the full draft, which posts NO kick-off body (the pre-scope wire shape,
+  // preserved); "seeds_only" rides as the body and scopes discovery to the SIGNAL seeds, tail-sweep skipped.
+  const onDraft = async (scope?: DraftScope) => {
     setDraftError(null);
     setDraftEmpty(false);
     setDraftStatus(null); // the strip + capped/empty markers describe the LAST run — stale once a new one starts
     setCappedTerms(new Set());
     setEmptyTerms(new Set());
     try {
-      const ref = await startDraft.mutateAsync();
+      const ref = await startDraft.mutateAsync(scope ? { scope } : undefined);
       setJobId(ref.job_id);
       clearPollTimeout();
       pollTimeout.current = window.setTimeout(() => {
@@ -1795,8 +1798,27 @@ export function ChainEditor({
       </div>
 
       <div className="wb-draft-gap">
-        <button type="button" className="wb-edit-btn" onClick={onDraft} disabled={drafting}>
+        {/* the arrow (not a bare onClick={onDraft}) keeps the click event out of the scope param */}
+        <button type="button" className="wb-edit-btn" onClick={() => onDraft()} disabled={drafting}>
           {drafting ? "Drafting… (can take a few minutes)" : "✦ Draft from narrative"}
+        </button>
+        {/* The fast lane (draft-scope PR-2): the SAME kick-off + poll flow, scoped to the operator's own
+            SIGNAL seeds — BROAD terms aren't enumerated and the Opus tail-sweep is skipped, so it's minutes
+            cheaper (the cost thread: a narrower spend the operator explicitly picks). With zero SIGNAL seeds
+            there's nothing to enumerate, so the button DISABLES (visible, not vanished) and the title says
+            what to do about it. Same one-draft-at-a-time discipline (`drafting`; the server 409s anyway). */}
+        <button
+          type="button"
+          className="wb-edit-btn"
+          onClick={() => onDraft("seeds_only")}
+          disabled={drafting || signalTerms.length === 0}
+          title={
+            signalTerms.length === 0
+              ? "no SIGNAL seeds — seed terms in the drawer first"
+              : "Fast lane: discovery on your SIGNAL seeds only — BROAD terms and the tail-sweep are not run; run a full draft to complete discovery."
+          }
+        >
+          ⚡ Quick draft (seeds only)
         </button>
         {/* S3 — Re-scope (the maintenance loop): DISTINCT from Draft-from-narrative (which layers onto the
             current pile). Parent-owned: it confirms, clears the transient candidate pile (the autosaved

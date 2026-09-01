@@ -44,6 +44,9 @@ export type ChainDraftOut = components["schemas"]["ChainDraftOut"];
 // the draft run's honesty report (the honest-discovery slice): EFTS coverage + capped terms + the tail-sweep
 // tri-state + the narration fill — display-only RUN state the status strip renders, never persisted
 export type DraftReportOut = components["schemas"]["DraftReportOut"];
+// the draft SCOPE (DraftChainIn): "full" (the whole pipeline, the default) vs "seeds_only" (the fast lane —
+// SIGNAL-seeds-only discovery, no tail-sweep); the report carries back which scope actually ran
+export type DraftScope = components["schemas"]["DraftChainIn"]["scope"];
 export type ResolvedPlacement = components["schemas"]["ResolvedPlacement"];
 export type ResolvedSegment = components["schemas"]["ResolvedSegment"];
 export type SecurityCandidate = components["schemas"]["SecurityCandidate"];
@@ -618,13 +621,17 @@ export function useSectionData(thesisId: string) {
 // persists nothing; the operator ratifies + promotes.
 
 // Kick off the draft job. retry:false — an expensive Opus pass must NEVER auto-retry (the server 409s a parallel
-// run); the operator re-clicks on failure.
+// run); the operator re-clicks on failure. `scope` is the optional fast lane (draft-scope PR-2): an OMITTED
+// scope posts NO body — byte-identical to the pre-scope kick-off (the backend defaults an absent body to
+// "full") — so the full-draft path's wire shape never moved; only an explicit scope rides as the body.
 export function useStartDraft(thesisId: string) {
   return useMutation({
     retry: false,
-    mutationFn: async () => {
+    mutationFn: async (vars?: { scope?: DraftScope }) => {
+      const scope = vars?.scope;
       const { data, error } = await api.POST("/workbench/theses/{thesis_id}/draft-chain", {
         params: { path: { thesis_id: thesisId } },
+        ...(scope ? { body: { scope } } : {}),
       });
       if (error) throw error;
       return data; // DraftJobRef { job_id, status: "running" }
