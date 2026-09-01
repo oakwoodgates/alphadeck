@@ -67,6 +67,16 @@ excluded names simply aren't sent) and a **sign-off toggle** rides the row, reac
   session never re-surfaced are carried forward on Save; re-including a name withdraws its NO. (v1 scope:
   keyed by `security_id` — unresolved names' set-asides stay session-local.)
 
+**Pick-mode (cherry-pick) — the inverted ENTRY gesture for a starter basket.** Prune-mode's default-included
+flood fits an established thesis; for a small starter basket, unchecking hundreds is the wrong gesture. In
+pick-mode (⚡ quick draft's default; a tri-state select overrides either lane) genuinely-new placed names land
+in a visible **Recommended** pile and the operator **checks keepers IN** — the To-Review add, with the default
+flipped. A pick lands on the ladder's **middle rung** (Included, `signed_off: false` — never auto-endorsed),
+and the bulk **"✓ sign off all picked"** endorses the origin-tracked picked set in one act — endorsement stays
+a DISTINCT act from picking, exactly as sign-off stays distinct from include. Existing basket members are never
+touched by the mode (only the append-new branch redirects), and unpicked rows stay visible working state. Full
+mechanics: `CHAIN_DRAFTER.md` §the draft/ratify UI.
+
 ## The find — the sortable / filterable view (#114)
 
 The placed list becomes a triage instrument: **sort** by name / segment / sector, **filter** by

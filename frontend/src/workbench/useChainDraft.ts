@@ -209,6 +209,19 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : { ...d, basket: [...d.basket, m] },
     );
 
+  // CHERRY-PICK (pick-mode): append ALL of ONE name's membership rows in a single act — the Recommended
+  // pile's check-to-add for a name the draft recommends into N links (N rows, same security_id — the S1
+  // multi-membership shape loadDraft's additions branch would have appended). addMember dedups by NAME, so
+  // rows 2..N of a multi-link pick would silently drop through it — this is its multi-row sibling with the
+  // SAME one-name guard: a name already in the basket appends nothing. Rows arrive pre-shaped by the caller.
+  const addMemberRows = (rows: BasketMember[]) =>
+    setDraft((d) => {
+      if (rows.length === 0) return d;
+      const key = memberKey(rows[0]);
+      if (d.basket.some((x) => memberKey(x) === key)) return d;
+      return { ...d, basket: [...d.basket, ...rows] };
+    });
+
   const removeMember = (key: string) => {
     setDraft((d) => ({ ...d, basket: d.basket.filter((m) => memberKey(m) !== key) }));
     // a hard-removed name leaves the draft entirely — drop any stale exclude marker so `dirty` doesn't linger.
@@ -361,6 +374,20 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       };
     });
 
+  // Bulk "✓ sign off all picked" (the cherry-pick slice) — stamp the flag TRUE on a specific set of NAMES
+  // (the origin-tracked picked set; the caller decides membership). Same per-name discipline as
+  // toggleSignOff: the `.map` over memberKey co-mutates ALL of a name's multi-membership rows, and the
+  // target (true) is fixed up front so a sweep can never half-flip a name. Stamps the FLAG only — never
+  // authorship, never include-state — and stays reversible per-name via the existing toggle (#1).
+  const signOffKeys = (keys: string[]) =>
+    setDraft((d) => {
+      const set = new Set(keys);
+      return {
+        ...d,
+        basket: d.basket.map((m) => (set.has(memberKey(m)) ? { ...m, signed_off: true } : m)),
+      };
+    });
+
   // Edit the per-NAME description (thesis_fit) — the ONE act that makes the words the operator's:
   // system_drafted → operator_edited ("your words"). Co-mutates all of a name's rows (per-name field).
   // Editing does NOT auto-sign-off — endorsing the name and writing its description are separate acts.
@@ -383,9 +410,11 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     // conviction weight live on the TRIAGE screen now; this surface renders the draft's placement
     // read-only. The `conviction` FIELD stays on the model/DB and rides Save untouched.
     addMember,
+    addMemberRows,
     removeMember,
     loadDraft,
     toggleSignOff,
+    signOffKeys,
     editProse,
     // THE BASKET FREEZE: the established (saved-spine) keys, frozen against the drafter
     establishedKeys,

@@ -240,6 +240,40 @@ decisions).
 - **CIK is surfaced** in the resolver matches (`AddName`) + the pick list — the homonym tell, by sight.
 - In-memory React state only (no browser storage); the full draft persists only on **promote** (the
   full-replace `POST /workbench/theses`, which honors authorship + stores `thesis_fit`).
+- **⚡ Quick draft (seeds only)** — the fast lane (draft-scope #303/#304): the SAME kick-off + poll flow with
+  `{scope: "seeds_only"}` (the full button still posts NO body — the pre-scope wire holds). Discovery
+  enumerates only the operator's SIGNAL seeds, the tail-sweep is skipped, everything downstream unchanged —
+  minutes cheaper, and the operator explicitly picked the narrower spend (the cost thread). At zero SIGNAL
+  seeds the button **disables with the why** in its tooltip (visible, not vanished); a completed seeds-only
+  run stamps a **persistent badge on the status strip** ("Seeds-only draft — BROAD terms + tail-sweep not
+  run") — a *chosen* state on the mid-loudness cool tint, never the ⚑ gap block, and it survives the session
+  round-trip. Full wire detail: `DISCOVERY.md` §the draft scope.
+- **CHERRY-PICK / pick-mode** (PR-3) — the starter-basket inversion of the load. A quiet **tri-state
+  load-mode select** beside the draft buttons: untouched ⇒ the LANE decides (⚡ quick ⇒ pick, ✦ full ⇒
+  auto-load — the operator-decided pairing); an explicit choice wins for both lanes, and the active mode is
+  visible before kick-off (the running draft freezes its mode at kick-off). In pick-mode, **genuinely-NEW
+  placed names divert to a Recommended pile** above To-Review (seed-hit — higher confidence than To-Review's
+  broad-only) with the same check-to-add gesture: a **pick enters exactly like a To-Review add**
+  (`system_drafted`, `signed_off: false` — pick = INCLUDED, endorsement stays a separate act —
+  `surfaced_terms` captured, the draft's recommended segment(s); a multi-link name is ONE pile row picking
+  into N membership rows), and the placed row carries the visible inverse (**↩ to recommended** restores the
+  pile row exactly as it was, WB#1). **THE WIPE-TRAP-COUSIN GUARANTEE:** the mode redirects ONLY
+  `loadDraft`'s append-new branch — the editor partitions the result BEFORE calling `loadDraft`, removing
+  only placed rows of sids not already in the basket, so every existing member (established, re-rolled,
+  parked) takes `loadDraft`'s path byte-identically; "start empty" is about NEW names, never a wipe or
+  shrink of the basket. A re-draft merges the pile (dedup by `security_id`; picked names never re-enter;
+  un-re-placed pending rows stay visible, WB#2), and the pile + origin map + mode ride the triage session as
+  ADDITIVE blob fields (old blobs restore with an empty pile; no SCHEMA_VERSION bump).
+- **✓ Sign off all picked** — the bulk endorse for the ORIGIN-TRACKED picked set only (the pile's picks +
+  To-Review's adds; hand-adds enter signed off already): picking is deliberate, so bulk-endorsing the picked
+  set is honest — auto-endorsing on pick was rejected, the acts stay separate. Renders ONLY when it
+  discriminates (≥1 picked, included, un-endorsed name — WB#3), co-mutates a name's multi-membership rows
+  with the target computed once, never touches established / excluded / non-picked members, and stays
+  reversible per name via each row's sign-off toggle (WB#1).
+- *Enforced by:* `frontend/src/workbench/__tests__/ChainEditor.cherrypick.test.tsx` (routing, lane defaults +
+  override, pick shape, send-back, re-draft merge, bulk sign-off scope) +
+  `triageSession.cherrypick.test.ts` (the additive session fields; SCHEMA_VERSION pinned at 1), and the
+  quick-draft/badge suites in `__tests__/ChainEditor.test.tsx`.
 
 ## Enablement — `ANTHROPIC_API_KEY` via `.env`
 

@@ -265,6 +265,20 @@ enumerate the universe, the draft **503s** (`DiscoveryNoTerms` / `DiscoveryDegra
 a silent fall back to model recall (#9) — and the failed job's operator-facing message **carries the counts**
 (`"discovery unavailable — discovery degraded: N/M EFTS pages failed (X%) after retries"`).
 
+**The draft SCOPE — the seeds-only fast lane** (draft-scope PR pair #303/#304). The kick-off takes an optional
+`{scope: "full" | "seeds_only"}`; absent = `"full"`, **byte-identical to the pre-scope wire** (the FE's full
+button posts no body). `seeds_only` narrows the INPUT the operator explicitly chose: discovery enumerates ONLY
+the SIGNAL seeds (BROAD terms aren't searched) and the Opus tail-sweep is **skipped outright** — everything
+downstream (classify → reconcile → organize → narrate) is unchanged. It's minutes and dollars cheaper (the cost
+thread), and the #9 position is that a narrowed input is fine **only when loudly labeled, never a silent
+substitute**: the scope rides `report.scope`, the run-log's dials entry, and the FE's persistent seeds-only
+badge — a *chosen* state, not a fault. Zero SIGNAL seeds fails visibly BEFORE any EFTS fetch
+(`DiscoveryNoSeeds`, its message traveling to the failed job **verbatim**: `"no SIGNAL seeds — seed terms in
+the drawer, or run a full draft"`), and a seeds-only `DiscoveryEmpty` appends `"— the seed set may be narrow;
+try a full draft"` — the narrow lane never reads as "nothing exists". *Enforced by:* the scope tests in
+`tests/app/test_workbench_api.py`, the run-loader compat test, and the strip badge tests
+(`frontend/src/workbench/__tests__/ChainEditor.test.tsx`).
+
 **Every draft carries its run report** (`ChainDraftOut.report`, the honest-discovery slice): EFTS coverage
 (pages ok/attempted + the failed terms), the `capped_terms`, the **tail-sweep tri-state** (`ran | failed |
 skipped` — `research_tail_sweep` returns a `TailSweep`, so a transiently-LOST sweep is no longer
