@@ -56,6 +56,15 @@ export interface EditorRuntime {
   recs: Record<string, { tier: string; reason: string }>;
   adopted: Set<string>;
   setAside: Set<string>;
+  // CHERRY-PICK (pick-mode) — ADDITIVE working state (optional so pre-existing constructors and old blobs
+  // stay valid; NO SCHEMA_VERSION bump — `deserialize` defaults them): the Recommended pile (genuinely-new
+  // PLACED placements a pick-mode draft diverted for check-to-add instead of auto-loading; flat like
+  // `verify` — a multi-link name carries N entries), the origin stash powering a picked name's send-back
+  // (sid → the pile placements it left; the array-valued twin of `verifyOrigin`), and the operator's
+  // explicit load-mode choice (null = untouched → the lane decides: ⚡ quick ⇒ pick, ✦ full ⇒ auto-load).
+  recommended?: ResolvedPlacement[];
+  recommendedOrigin?: Record<string, ResolvedPlacement[]>;
+  pickPref?: boolean | null;
 }
 
 /** The serialized (JSON-clean) blob — the opaque `state` the backend stores verbatim. Sets → arrays, the one
@@ -85,6 +94,10 @@ export interface SerializedSession {
     recs: Record<string, { tier: string; reason: string }>;
     adopted: string[];
     setAside: string[];
+    // the cherry-pick fields (all JSON-native already) — optional in the blob: an old blob simply lacks them
+    recommended?: ResolvedPlacement[];
+    recommendedOrigin?: Record<string, ResolvedPlacement[]>;
+    pickPref?: boolean | null;
   };
 }
 
@@ -127,6 +140,9 @@ export function clearedRestore(
       recs: {},
       adopted: new Set(),
       setAside: new Set(),
+      recommended: [],
+      recommendedOrigin: {},
+      pickPref: null, // Clear resets working state — the load mode returns to the lane default
     },
   };
 }
@@ -157,6 +173,9 @@ export function serialize(hook: HookRuntime, editor: EditorRuntime): SerializedS
       recs: editor.recs,
       adopted: [...editor.adopted],
       setAside: [...editor.setAside],
+      recommended: editor.recommended ?? [],
+      recommendedOrigin: editor.recommendedOrigin ?? {},
+      pickPref: editor.pickPref ?? null,
     },
   };
 }
@@ -184,6 +203,21 @@ const normalizeDraft = (d: ChainDraft): ChainDraft => ({
   segments: d.segments ?? [],
   basket: (d.basket ?? []).map(normalizeMember),
 });
+
+// THE PRE-SCOPE REPORT NORMALIZE (the draft-scope PR-2 gap): `DraftReportOut.scope` is NON-optional in the
+// generated TS (a server-defaulted field, hardened by openapi-typescript), but a blob autosaved BEFORE the
+// field existed restores a report genuinely missing it at runtime — a shape the type says can't exist,
+// round-tripped verbatim by every autosave until a new draft replaces it. Same restore-seam discipline as
+// `normalizeMember` above: default it to "full" — NOT an invention, every pre-scope blob is definitionally
+// a FULL draft (`seeds_only` did not exist when it was saved) — so the type is true at runtime everywhere
+// and the blob self-heals on the next autosave. Additive tolerance (no SCHEMA_VERSION bump); "full"
+// renders no badge, so the restored strip looks exactly as it did.
+const normalizeDraftStatus = (v: unknown): DraftStatus => {
+  const ds = (v as DraftStatus) ?? null;
+  if (!ds?.report) return ds; // null (no run) — or a malformed report, passed through as before
+  // the type says scope is always present; a pre-scope blob's report proves it wrong at runtime — heal it
+  return { ...ds, report: { ...ds.report, scope: ds.report.scope ?? "full" } };
+};
 
 /** Reconstruct live working state from a stored session envelope. `schema_version` mismatch (a breaking bump)
  *  → `incompatible` (surfaced, never silently discarded); a same-version blob reconstructs with per-field
@@ -222,7 +256,7 @@ export function deserialize(session: {
       offThesisSet: strSet(e.offThesisSet),
       identity: rec<Identity>(e.identity),
       names: rec<string>(e.names),
-      draftStatus: (e.draftStatus as DraftStatus) ?? null,
+      draftStatus: normalizeDraftStatus(e.draftStatus),
       cappedTerms: strSet(e.cappedTerms),
       emptyTerms: strSet(e.emptyTerms),
       draftEmpty: Boolean(e.draftEmpty),
@@ -230,6 +264,10 @@ export function deserialize(session: {
       recs: rec<{ tier: string; reason: string }>(e.recs),
       adopted: strSet(e.adopted),
       setAside: strSet(e.setAside),
+      // cherry-pick (additive): an old blob restores with an EMPTY pile + no explicit mode (lane default)
+      recommended: arr<ResolvedPlacement>(e.recommended),
+      recommendedOrigin: rec<ResolvedPlacement[]>(e.recommendedOrigin),
+      pickPref: typeof e.pickPref === "boolean" ? e.pickPref : null,
     },
   };
 }

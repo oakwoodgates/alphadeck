@@ -451,6 +451,27 @@ export function ChainEditor({
   const [verifyOrigin, setVerifyOrigin] = useState<Record<string, ResolvedPlacement>>(
     () => re?.verifyOrigin ?? {},
   );
+  // CHERRY-PICK (pick-mode) — the Recommended pile: genuinely-NEW placed names a pick-mode draft DIVERTED
+  // here for check-to-add instead of auto-loading into the basket (the starter workflow: check keepers IN,
+  // the To-Review gesture with the default inverted). FLAT placements like `verify` (a multi-link name
+  // carries N entries; the pile renders it as ONE row); session-persisted (additive) so unpicked
+  // recommendations survive a refresh — working state, never vanished (#2).
+  const [recommended, setRecommended] = useState<ResolvedPlacement[]>(() => re?.recommended ?? []);
+  // Reversibility (#1) for a PICKED name: sid → the pile placements it left, so "↩ to recommended" can
+  // restore the row exactly as it was — the array-valued twin of `verifyOrigin` (a multi-link name left N
+  // placements). Only rows with an origin here get the send-back (others never came from the pile).
+  const [recommendedOrigin, setRecommendedOrigin] = useState<Record<string, ResolvedPlacement[]>>(
+    () => re?.recommendedOrigin ?? {},
+  );
+  // The operator's explicit LOAD-MODE choice — TRI-STATE: null = untouched → the LANE decides (⚡ quick
+  // draft ⇒ pick-mode, ✦ full draft ⇒ auto-load, the operator-decided pairing); true/false = the explicit
+  // choice, which wins for BOTH lanes. Surfaced in the select beside the draft buttons so the active mode
+  // is visible BEFORE any kick-off. Session-persisted (additive).
+  const [pickPref, setPickPref] = useState<boolean | null>(() => re?.pickPref ?? null);
+  const effectivePick = (lane: "full" | "quick"): boolean => pickPref ?? lane === "quick";
+  // the mode the CURRENTLY-RUNNING draft was kicked off under — FROZEN at kick-off: a toggle flipped
+  // mid-run must not re-route a result the operator launched under the other mode
+  const pickRun = useRef(false);
   const [draftEmpty, setDraftEmpty] = useState(() => re?.draftEmpty ?? false);
   // Display-only provenance: security_id -> the discovery term(s) that surfaced it. Set on a draft, NOT a
   // field on BasketMember (it's draft-time discovery provenance, not a thesis fact — never promoted).
@@ -548,6 +569,43 @@ export function ChainEditor({
   };
   const nameGroups = groupByName(d.draft.basket);
   const nameCount = nameGroups.length;
+
+  // --- CHERRY-PICK: the Recommended pile (pick-mode), grouped per NAME ---------------------------------
+  // The pile groups per NAME for display + pick (the S1 multi-membership shape: a name the draft recommends
+  // into N links carries N placements — ONE row, N link chips, one pick). Rows already in the basket are
+  // dropped from the view (like To-Review's `verifyCandidates` dedup): the name stays fully visible as a
+  // member — only the redundant suggestion hides, never a name from the universe (#9).
+  type RecGroup = { sid: string; placements: ResolvedPlacement[] };
+  const recommendedPending = recommended.filter((p) => !(p.security_id && keys.has(p.security_id)));
+  const recGroups: RecGroup[] = (() => {
+    const order: string[] = [];
+    const bySid = new Map<string, ResolvedPlacement[]>();
+    for (const p of recommendedPending) {
+      const sid = p.security_id as string; // the divert filter admits only resolved placed rows
+      if (!bySid.has(sid)) {
+        bySid.set(sid, []);
+        order.push(sid);
+      }
+      bySid.get(sid)!.push(p);
+    }
+    return order.map((sid) => ({ sid, placements: bySid.get(sid)! }));
+  })();
+
+  // The bulk "✓ sign off all picked" TARGET: the ORIGIN-TRACKED adds of this session (the pile's picks +
+  // To-Review's adds — the deliberate one-by-one gestures; a hand-add enters signed off already) that are
+  // still un-endorsed AND included. Excluded members are never touched (the ladder: excluded wins — an
+  // excluded name can't be endorsed); established and non-picked draft members sit structurally outside
+  // the two origin maps. Computed per render so the control renders ONLY when it discriminates (#3):
+  // ≥1 picked member the stamp would actually change.
+  const pickedUnsignedKeys = nameGroups
+    .filter(
+      (g) =>
+        g.first.security_id &&
+        (verifyOrigin[g.first.security_id] || recommendedOrigin[g.first.security_id]) &&
+        !g.first.signed_off &&
+        d.isIncluded(g.key),
+    )
+    .map((g) => g.key);
   const includedNameCount = nameGroups.filter((g) => d.isIncluded(g.key)).length;
   // Item 6(c): how many placed NAMES still sit in the "Discovered" holding pen (unsorted into a real link).
   const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
@@ -573,6 +631,7 @@ export function ChainEditor({
   const [flaggedOpen, setFlaggedOpen] = useState(true);
   const [lowQualityOpen, setLowQualityOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(true); // the master To-Review section (open by default)
+  const [recOpen, setRecOpen] = useState(true); // the Recommended pile (pick-mode) — the signal, open
   const [keepersOpen, setKeepersOpen] = useState(true); // the keepers sub-drawer (the signal — open)
   const [couldntOpen, setCouldntOpen] = useState(true); // the couldn't-resolve drawer (open by default)
   const [lowSignalOpen, setLowSignalOpen] = useState(false); // the low-signal noise sub-drawer (2+ terms; collapsed)
@@ -625,6 +684,9 @@ export function ChainEditor({
     recs,
     adopted,
     setAside,
+    recommended,
+    recommendedOrigin,
+    pickPref,
   };
   const sessionBlob = serialize(
     { draft: d.draft, excluded: d.excluded, reasons: d.reasons, reasonsDirty: d.reasonsDirty },
@@ -673,13 +735,22 @@ export function ChainEditor({
         label: "Placed",
         rows: nameGroups.map((g) => toExportedName({ ticker: g.first.ticker, name: nameOf(g.first) })),
       },
+      // the Recommended pile (pick-mode) — surfaced + placed by the draft, awaiting a pick; "EVERY name
+      // this narrative surfaced" must include the still-pending recommendations (empty groups are dropped)
+      {
+        label: "Recommended",
+        rows: recGroups.map((g) =>
+          toExportedName({ ticker: g.placements[0].ticker, name: g.placements[0].name }),
+        ),
+      },
       // the To-Review pile — surfaced by the draft but never placed into the basket
       { label: "To Review", rows: bucket(verify) },
       { label: "Ambiguous", rows: bucket(ambiguous) },
       { label: "Couldn't resolve", rows: bucket(absent) },
     ];
   };
-  const exportAllCount = nameCount + verify.length + ambiguous.length + absent.length;
+  const exportAllCount =
+    nameCount + recGroups.length + verify.length + ambiguous.length + absent.length;
 
   // TRIAGE PR-2 (the find) — sort + filter the placed list so pruning ~90 names is fast. The VIEW only: it
   // reorders/hides rows, it NEVER changes what Save persists (Save is basket − excluded, computed over the whole
@@ -873,8 +944,38 @@ export function ChainEditor({
     });
   // Load a completed draft into the editor (MERGE, not replace). Fail-open: an empty draft (no key / the model
   // declined) loads nothing and shows the quiet "returned nothing" note.
-  const applyDraft = (data: ChainDraftOut) => {
-    d.loadDraft(data);
+  // `pick` (the run's load mode, frozen at kick-off) routes ONLY the genuinely-NEW placed names: pick-mode
+  // diverts them to the Recommended pile (check keepers IN) instead of letting loadDraft append them.
+  // THE WIPE-TRAP COUSIN, guaranteed by construction: the ONLY placements removed from what loadDraft sees
+  // are placed rows of sids NOT already in the basket — every existing member (established / re-rolled /
+  // parked) takes loadDraft's existing path byte-identically, and the segments ride through untouched.
+  // "Start empty" is about NEW names only; a saved basket is never wiped or shrunk by a load (#9/WB#2).
+  const applyDraft = (data: ChainDraftOut, pick: boolean) => {
+    if (pick) {
+      const have = new Set(d.draft.basket.map(memberKey));
+      const diverted = data.placements.filter(
+        (p) => p.status === "placed" && !!p.security_id && !have.has(p.security_id),
+      );
+      const divertedSids = new Set(diverted.map((p) => p.security_id as string));
+      d.loadDraft({
+        ...data,
+        placements: data.placements.filter(
+          (p) => !(p.status === "placed" && p.security_id && divertedSids.has(p.security_id)),
+        ),
+      });
+      // MERGE the pile (a re-draft must not duplicate or reset judgments): a still-pending name the new
+      // draft re-places UPDATES (its old entries swap for the latest recommendation set); a pending name
+      // the new draft no longer places STAYS visible (#2 — never vanished); a PICKED name is in the basket
+      // (`have`), so it is never diverted back into the pile.
+      setRecommended((prev) => [
+        ...prev.filter((p) => !(p.security_id && divertedSids.has(p.security_id))),
+        ...diverted,
+      ]);
+    } else {
+      d.loadDraft(data);
+    }
+    // the run-state maps below (matched / identity / names / off-*) key by security_id and deliberately
+    // cover the WHOLE result — diverted names included, so a later pick reads them like any placed member
     setAmbiguous(data.placements.filter((p) => p.status === "ambiguous"));
     setVerify(data.placements.filter((p) => p.status === "verify"));
     setAbsent(data.placements.filter((p) => p.status === "absent"));
@@ -948,6 +1049,9 @@ export function ChainEditor({
   // lane (draft-scope PR-2): omitted = the full draft, which posts NO kick-off body (the pre-scope wire shape,
   // preserved); "seeds_only" rides as the body and scopes discovery to the SIGNAL seeds, tail-sweep skipped.
   const onDraft = async (scope?: DraftScope) => {
+    // freeze THIS run's load mode at kick-off (the operator saw it in the select before clicking):
+    // ⚡ seeds_only is the quick lane (default pick), the full draft auto-loads — an explicit choice wins
+    pickRun.current = effectivePick(scope === "seeds_only" ? "quick" : "full");
     setDraftError(null);
     setDraftEmpty(false);
     setDraftStatus(null); // the strip + capped/empty markers describe the LAST run — stale once a new one starts
@@ -989,7 +1093,7 @@ export function ChainEditor({
     if (!jobId) return;
     if (jobStatus === "done") {
       clearPollTimeout();
-      if (jobQ.data?.result) applyDraft(jobQ.data.result);
+      if (jobQ.data?.result) applyDraft(jobQ.data.result, pickRun.current);
       setJobId(null);
     } else if (jobStatus === "failed") {
       clearPollTimeout();
@@ -1052,6 +1156,51 @@ export function ChainEditor({
     d.removeMember(sid); // memberKey === security_id for a resolved name
     setVerify((prev) => [...prev, origin]);
     setVerifyOrigin((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+  };
+
+  // PICK (the pile's check-to-add): the name enters the basket EXACTLY like addVerify — `system_drafted`,
+  // NOT signed off (pick = INCLUDED, the ladder's middle rung; endorsement stays a separate act),
+  // `surfaced_terms` captured at entry, the draft's recommended segment(s). A multi-link recommendation
+  // yields one row per link (dedup by segment — the same freshRows shape loadDraft's additions branch
+  // would have appended) via the hook's addMemberRows. The origin stash powers the visible inverse.
+  const pickRecommended = (g: RecGroup) => {
+    const first = g.placements[0];
+    const prose = g.placements.find((p) => p.prose)?.prose ?? null;
+    const seen = new Set<string>();
+    const rows: BasketMember[] = [];
+    for (const p of g.placements) {
+      if (seen.has(p.segment ?? "")) continue;
+      seen.add(p.segment ?? "");
+      rows.push({
+        ticker: first.ticker || first.name,
+        role: "—",
+        security_id: g.sid,
+        segment: p.segment,
+        thesis_fit: prose,
+        conviction: null, // the drafter never weights
+        surfaced_terms: first.matched_terms, // capture at entry — frozen once the promote persists it
+        authored_by: "system_drafted",
+        signed_off: false, // pick = INCLUDED; sign-off stays a separate act (per-row or bulk)
+      });
+    }
+    d.addMemberRows(rows);
+    setRecommendedOrigin((prev) => ({ ...prev, [g.sid]: g.placements }));
+    setRecommended((prev) => prev.filter((p) => p.security_id !== g.sid));
+  };
+
+  // The inverse of pick (reversibility #1): return a picked name to the Recommended pile exactly as it
+  // was, and drop its rows from the basket. Offered ONLY on rows whose sid is in `recommendedOrigin`
+  // (i.e. names that came from the pile) — the send-back twin of sendBackToVerify.
+  const sendBackToRecommended = (sid: string) => {
+    const origin = recommendedOrigin[sid];
+    if (!origin) return;
+    d.removeMember(sid); // removes ALL of the name's membership rows (keyed per name)
+    setRecommended((prev) => [...prev, ...origin]);
+    setRecommendedOrigin((prev) => {
       const next = { ...prev };
       delete next[sid];
       return next;
@@ -1257,6 +1406,67 @@ export function ChainEditor({
     );
   };
 
+  // The Recommended-pile row (pick-mode) — ONE row per NAME, carrying the same affordances as a To-Review
+  // row (identity chips, off-universe pill, matched-term provenance, off-thesis ⚑, prose) plus the
+  // recommended link(s) as chips (N links → N chips — exactly the membership rows a pick creates). Unlike
+  // To-Review, EVERY row is addable: these are the draft's PLACED recommendations (seed-hit — higher
+  // confidence than To-Review's broad-only), and in auto-load mode each would already be in the basket, so
+  // withholding the add on any would be a silent recall cut (#9). The same one-action check-to-add.
+  const recommendedRow = (g: RecGroup) => {
+    const first = g.placements[0];
+    const prose = g.placements.find((p) => p.prose)?.prose ?? null;
+    const segs = [...new Set(g.placements.map((p) => p.segment).filter((s) => s))];
+    return (
+      <div className="nmrow" key={g.sid}>
+        <div className="top">
+          {/* check-to-add, LEFT of the name — the To-Review gesture: checking promotes the name → it moves
+              up to Placed. The reverse is the Placed row's "↩ to recommended" (reversibility #1). */}
+          <input
+            type="checkbox"
+            className="wb-inc"
+            checked={false}
+            aria-label={`pick ${first.ticker || first.name}`}
+            title="check to add — moves it up to Placed (the basket); sign-off stays a separate act"
+            onChange={() => pickRecommended(g)}
+          />
+          <span className="tk">{first.ticker || "—"}</span>
+          <span className="co">{first.name}</span>
+          <IdentityChips
+            sector={first.sector}
+            businessType={first.business_type}
+            royalty={first.royalty}
+            exchange={first.exchange}
+            category={first.category}
+            origin={first.origin}
+          />
+          {first.discovery_source === "off_universe" && <OffUniversePill />}
+          {/* the draft's recommended link(s) — the same read-only chips a placed row carries */}
+          {segs.length > 0 && (
+            <span className="ctl wb-reclinks" aria-label={`links for ${first.ticker || first.name}`}>
+              {segs.map((s) => (
+                <span
+                  key={s}
+                  className={`recchip${s === DISCOVERED ? " pen" : ""}`}
+                  title="the draft's recommended link — picking creates a membership row per chip"
+                >
+                  {s === DISCOVERED ? "Discovered (unsorted)" : s}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+        {prose ? <div className="fit">{prose}</div> : null}
+        {first.matched_terms.length > 0 && (
+          <div className="prov lead">matched {first.matched_terms.join(", ")}</div>
+        )}
+        {first.off_thesis && (
+          <div className="flag">⚑ model thinks off-thesis — its reason is the note above; pick only if it belongs</div>
+        )}
+        {first.listing_status === "inactive" && <NotListedFlag />}
+      </div>
+    );
+  };
+
   // ONE row renderer shared by the frozen Basket panel, the flat list, and the C-B/G display groups (it
   // closes over the editor's run-state — matched/identity/names/offThesisSet — so it stays a local, not a
   // component). Renders a NAME (the group of its N membership rows): per-name fields off the first row,
@@ -1402,6 +1612,19 @@ export function ChainEditor({
                       onClick={() => sendBackToVerify(m.security_id as string)}
                     >
                       ↩ to review
+                    </button>
+                  )}
+                  {/* the inverse of "pick" for a name checked in from the Recommended pile — send it back
+                      exactly as it was (reversibility #1); only pile-origin rows carry it */}
+                  {m.security_id && recommendedOrigin[m.security_id] && (
+                    <button
+                      type="button"
+                      className="wb-mini ghost"
+                      aria-label={`send ${m.ticker} back to recommended`}
+                      title="send this name back to the Recommended pile (the inverse of pick)"
+                      onClick={() => sendBackToRecommended(m.security_id as string)}
+                    >
+                      ↩ to recommended
                     </button>
                   )}
                 </span>
@@ -1820,6 +2043,27 @@ export function ChainEditor({
         >
           ⚡ Quick draft (seeds only)
         </button>
+        {/* CHERRY-PICK — the LOAD-MODE choice for the next draft: how genuinely-NEW placed names land.
+            "Start empty — pick keepers" diverts them to the Recommended pile (check keepers IN — the
+            To-Review gesture); "auto-load all" appends them to the basket (today's prune-mode). A quiet
+            TRI-STATE select (a checkbox can't honestly show "untouched ⇒ per-lane defaults"): untouched
+            reads the lane pairing out loud; an explicit choice wins for BOTH lanes. Existing basket
+            members are NEVER touched by the mode — it redirects only the append-new branch. */}
+        <label className="wb-find-ctl wb-pickmode">
+          new names
+          <select
+            aria-label="draft load mode"
+            value={pickPref === null ? "auto" : pickPref ? "pick" : "load"}
+            onChange={(e) =>
+              setPickPref(e.target.value === "auto" ? null : e.target.value === "pick")
+            }
+            title="How the NEXT draft loads genuinely-new placed names — existing basket members are never touched. Pick keepers: new names land in a Recommended pile and you check keepers in. Auto-load all: new names append straight to the basket (prune-mode)."
+          >
+            <option value="auto">lane default (⚡ pick · ✦ load all)</option>
+            <option value="pick">start empty — pick keepers</option>
+            <option value="load">auto-load all</option>
+          </select>
+        </label>
         {/* S3 — Re-scope (the maintenance loop): DISTINCT from Draft-from-narrative (which layers onto the
             current pile). Parent-owned: it confirms, clears the transient candidate pile (the autosaved
             prune), keeps the WHOLE saved Basket frozen, and remounts fresh-from-thesis with one auto-draft
@@ -1848,10 +2092,12 @@ export function ChainEditor({
       <RunPicker
         thesisId={thesis.id}
         disabled={drafting}
-        onLoad={(d) => {
+        onLoad={(run) => {
           setDraftError(null);
           setDraftEmpty(false);
-          applyDraft(d);
+          // a saved run re-applies under the mode its LANE would run today (a seeds_only run is the ⚡
+          // lane ⇒ pick by default, anything else the ✦ lane) — the explicit toggle overrides either way
+          applyDraft(run, effectivePick(run.report?.scope === "seeds_only" ? "quick" : "full"));
         }}
       />
       {draftError && <ErrorToast>Couldn't draft — {draftError}.</ErrorToast>}
@@ -2035,6 +2281,21 @@ export function ChainEditor({
               >
                 clear not signed-off
               </button>
+              {/* Feature 2 (cherry-pick) — bulk-endorse the PICKED set: picking is deliberate, so
+                  endorsing it wholesale is honest (auto-endorse-on-pick was rejected — the acts stay
+                  separate). Renders ONLY when it discriminates (#3): ≥1 picked, included, un-endorsed
+                  name. Stamps the FLAG per NAME (multi-membership rows co-mutate, target computed once);
+                  reversible per name via each row's sign-off toggle (#1). */}
+              {pickedUnsignedKeys.length > 0 && (
+                <button
+                  type="button"
+                  className="wb-mini ghost"
+                  title="sign off every name you PICKED this session (from the Recommended pile or To-Review) that isn't yet endorsed — excluded names untouched; reversible per name"
+                  onClick={() => d.signOffKeys(pickedUnsignedKeys)}
+                >
+                  ✓ sign off all picked ({pickedUnsignedKeys.length})
+                </button>
+              )}
               <button
                 type="button"
                 className="wb-mini ghost"
@@ -2311,6 +2572,28 @@ export function ChainEditor({
             </>
           )}
         </div>
+
+        {/* RECOMMENDED (pick-mode) — the pile of genuinely-NEW placed names a pick-mode draft diverted for
+            check-to-add, ABOVE To-Review (these are seed-hit / draft-placed — higher confidence than
+            To-Review's broad-only corroboration) and visually distinct (the accent panel). Renders ONLY
+            while it holds pending rows (#3 — an empty pile is noise); unpicked rows persist (session
+            working state), and none is ever silently dropped (#9). */}
+        {recGroups.length > 0 && (
+          <div className="sect wb-recommended">
+            <button
+              type="button"
+              className="sect-h wb-sect-toggle"
+              aria-expanded={recOpen}
+              onClick={() => setRecOpen((o) => !o)}
+            >
+              <span className="chev">{recOpen ? "▾" : "▸"}</span>
+              Recommended{" "}
+              <em>· the draft placed these — start-empty mode holds them here; check keepers in</em>
+              <span className="ct">· {recGroups.length}</span>
+            </button>
+            {recOpen && recGroups.map(recommendedRow)}
+          </div>
+        )}
 
         {/* TO REVIEW — resolved, lower confidence. ONE master collapsible holding three nested sub-drawers
             (Keepers · Low signal · No listed ticker), mirroring the Placed section (.wb-placed-groups). Inverse

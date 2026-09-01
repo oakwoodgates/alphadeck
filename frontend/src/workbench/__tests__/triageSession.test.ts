@@ -165,15 +165,18 @@ describe("triageSession serialize/deserialize", () => {
     expect(result.editor.draftStatus?.report.scope).toBe("seeds_only"); // the badge survives save → restore
   });
 
-  it("an OLD blob whose report predates `scope` restores ok with scope ABSENT (never invented)", () => {
-    // simulate a blob autosaved before the field existed: strip it from the stored report
+  it("an OLD blob whose report predates `scope` restores NORMALIZED to scope 'full' (the restore-seam default)", () => {
+    // simulate a blob autosaved before the field existed: strip it from the stored report. The restore
+    // seam DEFAULTS it to "full" (the normalizeMember discipline) — not an invention: `seeds_only` did not
+    // exist when the blob was saved, so every pre-scope report is DEFINITIONALLY a full draft. The
+    // generated non-optional type becomes true at runtime, the blob self-heals on the next autosave, and
+    // the strip still renders badge-free ("full" never badges — only seeds_only does).
     const state = JSON.parse(JSON.stringify(serialize(fullHook(), fullEditor())));
     delete state.editor.draftStatus.report.scope;
     const result = deserialize({ schema_version: SCHEMA_VERSION, state });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    const report = result.editor.draftStatus?.report as unknown as Record<string, unknown>;
-    expect("scope" in report).toBe(false); // absent, not defaulted — the strip renders it badge-free
+    expect(result.editor.draftStatus?.report.scope).toBe("full");
   });
 
   it("S1 legacy normalize: a member merely MISSING signed_off defaults false (no false endorsement)", () => {

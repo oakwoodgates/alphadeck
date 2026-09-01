@@ -2700,7 +2700,10 @@ describe("ChainEditor — the quick draft (the seeds-only fast lane)", () => {
 
     expect(h.start).toHaveBeenCalledTimes(1);
     expect(h.start).toHaveBeenCalledWith({ scope: "seeds_only" }); // the fast lane's kick-off payload
-    await screen.findByLabelText("include SMR"); // the same kick-off + poll machinery lands the draft
+    // the same kick-off + poll machinery lands the draft. Since cherry-pick PR-3 the ⚡ lane DEFAULTS
+    // pick-mode, so an untouched-toggle quick draft delivers the new name into the Recommended pile
+    // (check-to-add), not straight into the basket — the one deliberate quick-lane behavior change.
+    await screen.findByLabelText("pick SMR");
   });
 
   it("the FULL button's kick-off is unchanged — no scope forwarded (the hook then posts NO body; see hooks.startDraft)", async () => {
