@@ -19,6 +19,12 @@ interface Props {
 // no strip). Display-only RUN state from the last draft — never persisted.
 export function DraftStatusStrip({ counts, report }: Props) {
   const cov = report.coverage;
+  // The seeds-only scope badge (draft-scope PR-2): the operator CHOSE the fast lane, so this is a state, not
+  // a fault — NOT the ⚑ block, but persistent + mid-loudness while the state holds (a scoped draft must never
+  // read as completed discovery). Renders ONLY for scope === "seeds_only" (honest loudness — a badge on every
+  // draft is noise): "full" AND an absent scope (an old restored session blob predating the field — the wire
+  // type says required, but the blob is what it is) both render exactly as before.
+  const seedsOnly = report.scope === "seeds_only";
   const gaps: string[] = [];
   if (cov.pages_ok < cov.pages_attempted) {
     gaps.push(
@@ -52,24 +58,43 @@ export function DraftStatusStrip({ counts, report }: Props) {
   const sweepLabel = report.tail_sweep === "skipped" ? "skipped (no key)" : report.tail_sweep;
   const summary =
     `${counts.placed} placed · ${counts.verify} to review · ${counts.ambiguous} to pick · ` +
-    `${counts.absent} absent · coverage ${cov.pages_ok}/${cov.pages_attempted} · sweep ${sweepLabel}` +
+    `${counts.absent} absent · coverage ${cov.pages_ok}/${cov.pages_attempted}` +
+    // Under seeds_only the skip is the CHOSEN scope, not the no-key config — the badge below is the skip's
+    // one explanation, so the quiet "sweep skipped (no key)" mention is suppressed IN THIS CASE ONLY (it
+    // would double-report the same skip with the wrong reason). Every other case renders exactly as before.
+    (seedsOnly && report.tail_sweep === "skipped" ? "" : ` · sweep ${sweepLabel}`) +
     (report.narration_needed > 0
       ? ` · narration ${report.narration_filled}/${report.narration_needed}`
       : "");
 
+  // Persistent while the state holds — beneath the quiet line AND the ⚑ block alike.
+  const scopeBadge = seedsOnly ? (
+    <div className="wb-draft-strip scoped">
+      Seeds-only draft — BROAD terms + tail-sweep not run · run a full draft to complete discovery
+    </div>
+  ) : null;
+
   if (gaps.length === 0) {
-    return <div className="wb-draft-strip note">Draft complete — {summary}</div>;
+    return (
+      <>
+        <div className="wb-draft-strip note">Draft complete — {summary}</div>
+        {scopeBadge}
+      </>
+    );
   }
   return (
-    <div className="wb-draft-strip loud">
-      <div>
-        <b>⚑ Draft completed with gaps</b> — {summary}
+    <>
+      <div className="wb-draft-strip loud">
+        <div>
+          <b>⚑ Draft completed with gaps</b> — {summary}
+        </div>
+        <ul>
+          {gaps.map((g, i) => (
+            <li key={i}>{g}</li>
+          ))}
+        </ul>
       </div>
-      <ul>
-        {gaps.map((g, i) => (
-          <li key={i}>{g}</li>
-        ))}
-      </ul>
-    </div>
+      {scopeBadge}
+    </>
   );
 }

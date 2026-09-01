@@ -830,6 +830,10 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-draft-strip { margin: 14px 0; }
 .wb-draft-strip.loud { margin: 14px 0; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: var(--warm); background: rgba(224, 162, 60, 0.08); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 6px; }
 .wb-draft-strip.loud ul { margin: 4px 0 0 16px; padding: 0; color: var(--txt-2); }
+/* the seeds-only SCOPE badge (draft-scope PR-2): a CHOSEN state, not a fault — mid-loudness (a cool
+   informational tint, deliberately NOT the ⚑ block's warm), persistent under the strip while it holds.
+   The negative top margin ties it visually to the strip line above it. */
+.wb-draft-strip.scoped { margin: -8px 0 14px; padding: 6px 10px; font-size: 11px; line-height: 1.5; color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px solid rgba(138, 180, 255, 0.25); border-radius: 6px; }
 
 /* ===========================================================================
    Workbench RESULTS surface (post-draft) — three buckets: PLACED · TO REVIEW · COULDN'T RESOLVE.

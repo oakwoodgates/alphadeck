@@ -71,6 +71,8 @@ vi.mock("../../util/exportNames", async (importOriginal) => {
 });
 
 import { ChainEditor } from "../ChainEditor";
+// the REAL session codec — the seeds-only badge's old-blob cases enter through the same seam the app restores through
+import { clearedRestore, deserialize, SCHEMA_VERSION, serialize } from "../triageSession";
 
 const flatThesis = {
   id: "t1",
@@ -2682,5 +2684,148 @@ describe("ChainEditor — S3: re-scope (the button · the auto-draft · the resu
 
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     expect(screen.queryByText(/resumed autosave/)).toBeNull(); // spine-seeded → no badge
+  });
+});
+
+// --- the seeds-only fast lane (draft-scope PR-2): the quick-draft button + the scope badge ---
+
+describe("ChainEditor — the quick draft (the seeds-only fast lane)", () => {
+  it('kicks off the SAME job flow with { scope: "seeds_only" } and delivers the result', async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "skipped", scope: "seeds_only" })),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Quick draft \(seeds only\)/ }));
+
+    expect(h.start).toHaveBeenCalledTimes(1);
+    expect(h.start).toHaveBeenCalledWith({ scope: "seeds_only" }); // the fast lane's kick-off payload
+    await screen.findByLabelText("include SMR"); // the same kick-off + poll machinery lands the draft
+  });
+
+  it("the FULL button's kick-off is unchanged — no scope forwarded (the hook then posts NO body; see hooks.startDraft)", async () => {
+    const user = userEvent.setup();
+    mockDraft(draft([PLACED_SMR]));
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    expect(h.start).toHaveBeenCalledTimes(1);
+    expect(h.start).toHaveBeenCalledWith(undefined); // exactly as today — the pre-scope wire shape holds
+  });
+
+  it("disables with the seed-terms tooltip when the term set has no SIGNAL entry, enables with one", () => {
+    // flatThesis carries NO term set at all → nothing for a seeds-only run to enumerate
+    const { unmount } = render(
+      <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />,
+    );
+    const btn = screen.getByRole("button", { name: /Quick draft \(seeds only\)/ });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute("title", "no SIGNAL seeds — seed terms in the drawer first");
+    unmount();
+
+    // one SIGNAL seed (psilocybin) → the fast lane opens
+    render(<ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Quick draft \(seeds only\)/ })).toBeEnabled();
+  });
+
+  it("a BROAD-only term set still disables it — broad terms are corroboration, not seeds", () => {
+    const broadOnly = {
+      ...flatThesis,
+      term_set: [
+        { term: "ketamine", tier: "broad", authored_by: "system_drafted", source: "keyword_gen" },
+      ],
+    };
+    render(<ChainEditor asof="2026-06-08" thesis={broadOnly} onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Quick draft \(seeds only\)/ })).toBeDisabled();
+  });
+});
+
+describe("ChainEditor — the seeds-only scope badge (the strip's chosen-state line)", () => {
+  // Build a RESTORED session through the REAL serialize → JSON → deserialize wire round-trip, carrying one
+  // draftStatus — the old-blob and seeds_only badge cases enter through the same seam the app restores through.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const restoredWithReport = (report: any) => {
+    const seeded = clearedRestore([]);
+    seeded.editor.draftStatus = {
+      counts: { placed: 1, verify: 0, ambiguous: 0, absent: 0 },
+      report,
+    };
+    const state = JSON.parse(JSON.stringify(serialize(seeded.hook, seeded.editor)));
+    const result = deserialize({ schema_version: SCHEMA_VERSION, state });
+    if (result.status !== "ok") throw new Error("restore failed");
+    return result;
+  };
+
+  it("a seeds_only report renders the persistent badge — and suppresses the redundant no-key sweep mention", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport([PLACED_SMR], healthyReport({ tail_sweep: "skipped", scope: "seeds_only" })),
+    );
+    const { container } = render(
+      <ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /Quick draft \(seeds only\)/ }));
+
+    const strip = await screen.findByText(/Draft complete —/);
+    expect(
+      screen.getByText(/Seeds-only draft — BROAD terms \+ tail-sweep not run/),
+    ).toBeInTheDocument();
+    // the badge IS the skip's explanation — the quiet "sweep skipped (no key)" summary mention would
+    // double-report the same skip with the WRONG reason, so it's suppressed in the seeds_only case only
+    expect(strip).not.toHaveTextContent("sweep skipped");
+    // a CHOSEN state, not a fault: the mid-loudness .scoped line, never the ⚑ block
+    expect(container.querySelector(".wb-draft-strip.scoped")).not.toBeNull();
+    expect(container.querySelector(".wb-draft-strip.loud")).toBeNull();
+  });
+
+  it("the badge persists BESIDE the ⚑ block when the seeds_only run also has gaps", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draftWithReport(
+        [PLACED_SMR],
+        healthyReport({
+          tail_sweep: "skipped",
+          scope: "seeds_only",
+          capped_terms: ["psilocybin"],
+        }),
+      ),
+    );
+    const { container } = render(
+      <ChainEditor asof="2026-06-08" thesis={thesisWithTerms} onDone={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /Quick draft \(seeds only\)/ }));
+
+    await screen.findByText(/completed with gaps/); // the capped term stays loud, as ever
+    expect(screen.getByText(/Seeds-only draft/)).toBeInTheDocument(); // the badge holds beside it
+    expect(container.querySelector(".wb-draft-strip.scoped")).not.toBeNull();
+  });
+
+  it('scope "full" renders NO badge and keeps the sweep mention — exactly today\'s strip', async () => {
+    const user = userEvent.setup();
+    mockDraft(draftWithReport([PLACED_SMR], healthyReport({ scope: "full" })));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+
+    const strip = await screen.findByText(/Draft complete —/);
+    expect(strip).toHaveTextContent("sweep ran"); // the summary untouched outside seeds_only
+    expect(screen.queryByText(/Seeds-only draft/)).toBeNull();
+  });
+
+  it("a restored OLD blob (report without scope) is badge-free; a seeds_only one round-trips WITH the badge", () => {
+    // the old blob: healthyReport() predates `scope` entirely — restored, the strip renders as today
+    const old = restoredWithReport(healthyReport());
+    const { unmount } = render(
+      <ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} restored={old} />,
+    );
+    expect(screen.getByText(/Draft complete —/)).toBeInTheDocument(); // the strip itself restored
+    expect(screen.queryByText(/Seeds-only draft/)).toBeNull(); // no scope → no badge (never invented)
+    unmount();
+
+    // the round-trip: a seeds_only draftStatus serialized + restored keeps its badge (no SCHEMA_VERSION bump)
+    const scoped = restoredWithReport(
+      healthyReport({ tail_sweep: "skipped", scope: "seeds_only" }),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} restored={scoped} />);
+    expect(screen.getByText(/Seeds-only draft/)).toBeInTheDocument();
   });
 });
