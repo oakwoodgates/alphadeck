@@ -1229,7 +1229,7 @@
           "workbench"
         ],
         "summary": "Start Draft Chain",
-        "description": "KICK OFF the narrative\u2192chain draft as a background JOB and return immediately (**202** + ``job_id``); the\nFE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the\nOpus tail-sweep + decompose + narrate); held open as one request it blew past nginx's 300s proxy timeout \u2014\nthe browser 504'd while the backend kept billing. Only the DELIVERY changed; ``execute_draft`` is unchanged.\n\nThe IN-FLIGHT 409 guard lives HERE now (one running draft per thesis \u2014 ``DraftInFlight`` \u2192 HTTP 409, so a\ndouble-click / stray retry can never launch a parallel Opus pass). The job runs in a daemon thread that opens\nits OWN DB connection (it OUTLIVES this request \u2014 the ``get_thesis_or_404`` conn is closed once the 202 is\nsent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty\ndraft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY\n(the job writes only its in-memory result \u2014 no fact, no promote). A completed job additionally dumps a\nWRITE-ONLY run-of-record artifact (``data/draft_runs/`` \u2014 the DISCOVER stage's ``calls``-log analogue:\nthe term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is\nlogged + swallowed, never a failed draft.",
+        "description": "KICK OFF the narrative\u2192chain draft as a background JOB and return immediately (**202** + ``job_id``); the\nFE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the\nOpus tail-sweep + decompose + narrate); held open as one request it blew past nginx's 300s proxy timeout \u2014\nthe browser 504'd while the backend kept billing. Only the DELIVERY changed; ``execute_draft`` is unchanged.\n\nThe IN-FLIGHT 409 guard lives HERE now (one running draft per thesis \u2014 ``DraftInFlight`` \u2192 HTTP 409, so a\ndouble-click / stray retry can never launch a parallel Opus pass). The job runs in a daemon thread that opens\nits OWN DB connection (it OUTLIVES this request \u2014 the ``get_thesis_or_404`` conn is closed once the 202 is\nsent). Discovery-not-ready / unexpected faults become a VISIBLE *failed* job on the poll (never a silent empty\ndraft, #9); a benign fail-open (no key / the model declined) is a *done* job with an empty draft. RESPONSE-ONLY\n(the job writes only its in-memory result \u2014 no fact, no promote). A completed job additionally dumps a\nWRITE-ONLY run-of-record artifact (``data/draft_runs/`` \u2014 the DISCOVER stage's ``calls``-log analogue:\nthe term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is\nlogged + swallowed, never a failed draft.\n\nThe OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field\n= ``full`` \u2014 byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only\ndiscovery, no tail-sweep \u2014 see ``execute_draft``). The report + the run-of-record name which scope ran.",
         "operationId": "start_draft_chain_workbench_theses__thesis_id__draft_chain_post",
         "parameters": [
           {
@@ -1243,6 +1243,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DraftChainIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "Successful Response",
@@ -3900,6 +3917,22 @@
         "title": "DisplaySignalsResponse",
         "description": "Read-only per-name display indicators, re-derived from the bitemporal facts at ``asof``.\n\nDisplay-only tape context beside the call \u2014 NEVER a SignalEvent, never an input to the call,\nand never recorded: a day-varying field on the recorded domain CallCard would break the daily\ncron's ``record_if_changed`` idempotency (one appended calls row per night), so indicators ride\nthis compute-on-read endpoint instead. See ``docs/DISPLAY_SIGNALS.md``."
       },
+      "DraftChainIn": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "full",
+              "seeds_only"
+            ],
+            "title": "Scope",
+            "default": "full"
+          }
+        },
+        "type": "object",
+        "title": "DraftChainIn",
+        "description": "The OPTIONAL draft kick-off body \u2014 the draft SCOPE. ``full`` (the default; an ABSENT body or field\nmeans full, so today's no-body FE kick-off is untouched) runs the whole pipeline; ``seeds_only`` is the\nfast lane: discovery enumerates ONLY the term set's SIGNAL seeds \u2014 the operator's own ratified anchors \u2014\nand the Opus tail-sweep is skipped outright (never invoked). Scope narrows the INPUT the operator chose,\nnever the results (#9 stays whole: nothing found is dropped, and the report names which scope ran)."
+      },
       "DraftCoverageOut": {
         "properties": {
           "pages_ok": {
@@ -4033,6 +4066,15 @@
           "narration_filled": {
             "type": "integer",
             "title": "Narration Filled"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "full",
+              "seeds_only"
+            ],
+            "title": "Scope",
+            "default": "full"
           }
         },
         "type": "object",

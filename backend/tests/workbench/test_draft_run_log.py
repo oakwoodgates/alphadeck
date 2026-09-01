@@ -101,3 +101,16 @@ def test_an_empty_term_set_still_records_honestly(tmp_path):
     path = write_draft_run_log(t, _Draft(thesis_id=t.id), "job5", base_dir=tmp_path)
     assert path is not None
     assert json.loads(path.read_text(encoding="utf-8"))["term_set"] == []
+
+
+def test_scope_rides_the_dials_only_for_the_non_default_lane(tmp_path):
+    """``scope="seeds_only"`` lands in the dials block (the run's mode readable at a glance); the default
+    (full) keeps the artifact's historical dials shape byte-for-byte — absent == full, exactly like every
+    artifact written before scope existed (the exact-equality dials asserts above stay the pin)."""
+    t = _thesis()
+    seeded = write_draft_run_log(
+        t, _Draft(thesis_id=t.id), "job6", base_dir=tmp_path, scope="seeds_only"
+    )
+    assert json.loads(seeded.read_text(encoding="utf-8"))["dials"]["scope"] == "seeds_only"
+    full = write_draft_run_log(t, _Draft(thesis_id=t.id), "job7", base_dir=tmp_path)
+    assert "scope" not in json.loads(full.read_text(encoding="utf-8"))["dials"]
