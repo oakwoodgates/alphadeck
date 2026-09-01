@@ -45,17 +45,18 @@ _DEFAULT_RUNS = Path(__file__).resolve().parents[2] / "data" / "draft_runs"
 
 
 def write_draft_run_log(
-    thesis: Thesis, draft: Any, job_id: str, *, base_dir: Path | None = None
+    thesis: Thesis, draft: Any, job_id: str, *, base_dir: Path | None = None, scope: str = "full"
 ) -> Path | None:
     """Dump one completed draft run to ``<base>/<thesis_id>/<utc-timestamp>-<job_id>.json``; return the path.
 
-    The payload is the run's full accountability record: the thesis identity + narrative, the term set AS USED
-    (the exact entries discovery read — term/tier/authored_by/source), the dials in effect (the hit cap + the
-    two draft models — the knobs that make one run's universe differ from another's), and the draft itself
-    (segments, every placement with its provenance, the honesty report) via ``model_dump(mode="json")``, so
-    the ``draft`` key round-trips ``ChainDraftOut.model_validate`` byte-honestly. ``draft`` is typed ``Any``
-    deliberately — this workbench module never imports the ``app`` wire schema (the layering stays one-way);
-    any pydantic model dumps.
+    The payload is the run's full accountability record: the thesis identity + narrative, the term set AS
+    STORED (the thesis's full set — term/tier/authored_by/source; under a narrowed ``scope`` the used subset
+    stays unambiguous from scope + tiers), the dials in effect (the hit cap + the two draft models — the
+    knobs that make one run's universe differ from another's — plus, for a non-default lane, the run's
+    ``scope``), and the draft itself (segments, every placement with its provenance, the honesty report) via
+    ``model_dump(mode="json")``, so the ``draft`` key round-trips ``ChainDraftOut.model_validate``
+    byte-honestly. ``draft`` is typed ``Any`` deliberately — this workbench module never imports the ``app``
+    wire schema (the layering stays one-way); any pydantic model dumps.
 
     FAIL-OPEN: any fault (assembly or I/O) is logged with its traceback and swallowed (``None``) — the run
     record must never fail the draft it records.
@@ -76,6 +77,10 @@ def write_draft_run_log(
                 "discovery_hit_cap": s.discovery_hit_cap,
                 "research_model": s.llm_research_model,
                 "decompose_model": s.llm_decompose_model,
+                # the run's draft SCOPE, recorded ONLY for the non-default lane — a full run's dials keep
+                # their historical shape byte-for-byte (absent == "full", exactly like every artifact
+                # written before scope existed; the report inside ``draft`` carries scope either way).
+                **({"scope": scope} if scope != "full" else {}),
             },
             "draft": draft.model_dump(mode="json"),
         }

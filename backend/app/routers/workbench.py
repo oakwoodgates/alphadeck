@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date
+from typing import Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -26,6 +27,7 @@ from app.schemas_api import (
     AutoConfirmRequest,
     BusinessTypeOut,
     ChainDraftOut,
+    DraftChainIn,
     DraftCoverageOut,
     DraftJobRef,
     DraftJobStatus,
@@ -89,6 +91,8 @@ from workbench.chain_draft import (
     resolve_discovered_chain,
 )
 from workbench.discovery import (
+    DiscoveryEmpty,
+    DiscoveryNoSeeds,
     DiscoveryNoTerms,
     discovered_names,
     discovery_context,
@@ -820,6 +824,8 @@ def execute_draft(
     decompose_llm: LLMClient,
     edgar: EdgarClient,
     thesis: Thesis,
+    *,
+    scope: Literal["full", "seeds_only"] = "full",
 ) -> ChainDraftOut:
     """The narrative→chain draft PIPELINE — the SECOND LLM seam (S5), EDGAR-FIRST. Unchanged by the async-job
     move; it runs inside a background job now (``start_draft_chain`` → ``workbench.draft_jobs``), not held open.
@@ -855,8 +861,23 @@ def execute_draft(
     RAISES (``DiscoveryNoTerms`` / the ``DiscoveryUnavailable`` base = Degraded/Empty) — the JOB RUNNER maps these
     to a VISIBLE failed job (never a silent recall draft, #9). The tail-sweep still fails-open to None (an
     additive corner), and a failed DECOMPOSE yields an EMPTY draft (a done-but-empty job, today's benign note).
+
+    THE SCOPE (the fast lane): ``scope="seeds_only"`` narrows discovery's INPUT to the term set's SIGNAL
+    seeds — the operator's own ratified anchors — and SKIPS the Opus tail-sweep outright (never invoked, not
+    called-and-ignored; the report reads ``tail_sweep="skipped"``). The filter lives HERE at the orchestration
+    layer (``run_discovery``/``discover``/``classify`` are untouched), and zero SIGNAL entries is guarded
+    BEFORE any EFTS traffic (``DiscoveryNoSeeds`` → a visible failed job naming both ways out). Everything
+    downstream (narration, organize, reconcile, enrichment) runs unchanged over the smaller universe;
+    ``scope="full"`` (the default) is byte-identical to the pre-scope pipeline.
     """
-    universe = run_discovery(conn, edgar, thesis.term_set, tenant_id=thesis.tenant_id)
+    term_set = list(thesis.term_set)
+    if scope == "seeds_only":
+        term_set = [e for e in term_set if e.tier is TermTier.SIGNAL]
+        if not term_set:
+            # the pre-flight guard: the fast lane has nothing to enumerate — fail BEFORE discovery (zero
+            # EFTS fetches), with the verbatim operator-facing message (never the generic wrapper).
+            raise DiscoveryNoSeeds()
+    universe = run_discovery(conn, edgar, term_set, tenant_id=thesis.tenant_id)
     # Lazy IDENTITY enrichment (Slice 2): fill sector / exchange / status onto the discovered names' master rows
     # from their submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing
     # status. Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the
@@ -869,19 +890,24 @@ def execute_draft(
     # cache HIT never runs the thunk but IS a prior successful run -> "ran".
     sweep_status: list[TailSweepStatus] = ["skipped"]
 
-    def _sweep() -> str | None:
-        ts = research_tail_sweep(research_llm, thesis.narrative, discovered_names(universe))
-        sweep_status[0] = ts.status
-        return ts.synthesis
+    if scope == "seeds_only":
+        # the fast lane SKIPS the tail-sweep OUTRIGHT — neither ``run_research`` nor
+        # ``research_tail_sweep`` is invoked (no Opus spend, no TTL-cache touch), and the report
+        # honestly reads "skipped": the operator's own scope choice, not a fault.
+        sweep = None
+    else:
 
-    sweep = (
-        run_research(  # fail-open -> None; TTL cache; the job layer owns the in-flight 409 guard
+        def _sweep() -> str | None:
+            ts = research_tail_sweep(research_llm, thesis.narrative, discovered_names(universe))
+            sweep_status[0] = ts.status
+            return ts.synthesis
+
+        sweep = run_research(  # fail-open -> None; TTL cache; the job layer owns the in-flight 409 guard
             thesis.id,
             thesis.narrative,
             ttl_s=get_settings().llm_research_cache_ttl_s,
             run=_sweep,
         )
-    )
     tail_status: TailSweepStatus = "ran" if sweep is not None else sweep_status[0]
     context = discovery_context(universe, sweep)
     segments = proposed_from_decomposition(
@@ -955,6 +981,7 @@ def execute_draft(
         tail_sweep=tail_status,
         narration_needed=len(needs),
         narration_filled=narration_filled,
+        scope=scope,
     )
     return ChainDraftOut(
         thesis_id=thesis.id, segments=chain.segments, placements=placements, report=report
@@ -963,6 +990,7 @@ def execute_draft(
 
 @router.post("/theses/{thesis_id}/draft-chain", status_code=202, response_model=DraftJobRef)
 def start_draft_chain(
+    body: DraftChainIn | None = None,
     research_llm: LLMClient = Depends(get_research_client),
     decompose_llm: LLMClient = Depends(get_decompose_client),
     edgar: EdgarClient = Depends(get_edgar_client),
@@ -981,20 +1009,35 @@ def start_draft_chain(
     (the job writes only its in-memory result — no fact, no promote). A completed job additionally dumps a
     WRITE-ONLY run-of-record artifact (``data/draft_runs/`` — the DISCOVER stage's ``calls``-log analogue:
     the term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is
-    logged + swallowed, never a failed draft."""
+    logged + swallowed, never a failed draft.
+
+    The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
+    = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only
+    discovery, no tail-sweep — see ``execute_draft``). The report + the run-of-record name which scope ran.
+    """
+    scope: Literal["full", "seeds_only"] = body.scope if body is not None else "full"
 
     def _run() -> ChainDraftOut:
         own = connect()  # the job outlives the request; the request-scoped conn is already closed
         try:
-            return execute_draft(own, research_llm, decompose_llm, edgar, thesis)
+            return execute_draft(own, research_llm, decompose_llm, edgar, thesis, scope=scope)
+        except DiscoveryNoSeeds as exc:  # the seeds-only pre-flight — the message travels VERBATIM
+            raise DraftError(str(exc)) from exc
         except DiscoveryNoTerms as exc:  # SPECIFIC first (it subclasses DiscoveryUnavailable)
             raise DraftError(
                 "term set is empty — produce or seed it first (POST .../terms or the edit UI)"
             ) from exc
-        except DiscoveryUnavailable as exc:  # Degraded / Empty / enumerate fault
+        except DiscoveryEmpty as exc:
+            # Full scope keeps today's message BYTE-IDENTICAL; a seeds-only empty additionally points at
+            # the wider lane (a narrow seed set is the likeliest cause there, not a broken EFTS).
+            msg = f"discovery unavailable — {exc}; please retry"
+            if scope == "seeds_only":
+                msg += " — the seed set may be narrow; try a full draft"
+            raise DraftError(msg) from exc
+        except DiscoveryUnavailable as exc:  # Degraded / enumerate fault
             # The exception's own message carries the COUNTS (DiscoveryDegraded: "N/M EFTS pages failed
-            # (X%) after retries"; DiscoveryEmpty: the term counts) — the operator-facing error names the
-            # numbers, never just "unavailable" (#9 rule 3: degradation is loud AND specific).
+            # (X%) after retries") — the operator-facing error names the numbers, never just
+            # "unavailable" (#9 rule 3: degradation is loud AND specific).
             raise DraftError(f"discovery unavailable — {exc}; please retry") from exc
         finally:
             own.close()
@@ -1002,8 +1045,9 @@ def start_draft_chain(
     def _record_run(job: DraftJob, result: ChainDraftOut) -> None:
         # The DISCOVER run-of-record: dump the completed draft + its inputs (write-only, fail-open — see
         # workbench/draft_run_log.py). The thesis captured here is the SAME object execute_draft read, so
-        # the artifact's term set is the set the run actually used.
-        write_draft_run_log(thesis, result, job_id=job.job_id)
+        # the artifact's term set is the thesis's full stored set (scope + tiers make the used subset
+        # unambiguous); ``scope`` rides the dials so the run's mode is readable at a glance.
+        write_draft_run_log(thesis, result, job_id=job.job_id, scope=scope)
 
     try:
         job_id = start_draft_job(thesis.id, _run, on_success=_record_run)

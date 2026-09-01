@@ -730,6 +730,10 @@ class DraftReportOut(BaseModel):
     tail_sweep: Literal["ran", "failed", "skipped"]
     narration_needed: int
     narration_filled: int
+    # which SCOPE this run used: "seeds_only" = SIGNAL-seeds-only discovery + no tail-sweep (the fast
+    # lane). DEFAULTED so a previously-saved run-of-record artifact (written before scope existed) still
+    # validates through the run loader as "full" — a required field would 422 every historical run.
+    scope: Literal["full", "seeds_only"] = "full"
 
 
 class ChainDraftOut(BaseModel):
@@ -750,6 +754,17 @@ class ChainDraftOut(BaseModel):
 
 
 # --- Async draft delivery (kick-off → poll): the draft is a JOB, not a held-open request ---
+
+
+class DraftChainIn(BaseModel):
+    """The OPTIONAL draft kick-off body — the draft SCOPE. ``full`` (the default; an ABSENT body or field
+    means full, so today's no-body FE kick-off is untouched) runs the whole pipeline; ``seeds_only`` is the
+    fast lane: discovery enumerates ONLY the term set's SIGNAL seeds — the operator's own ratified anchors —
+    and the Opus tail-sweep is skipped outright (never invoked). Scope narrows the INPUT the operator chose,
+    never the results (#9 stays whole: nothing found is dropped, and the report names which scope ran).
+    """
+
+    scope: Literal["full", "seeds_only"] = "full"
 
 
 class DraftJobRef(BaseModel):

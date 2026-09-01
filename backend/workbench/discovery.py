@@ -58,6 +58,17 @@ class DiscoveryNoTerms(DiscoveryUnavailable):
         super().__init__("no term set produced for this thesis — run POST .../terms first")
 
 
+class DiscoveryNoSeeds(DiscoveryUnavailable):
+    """A seeds-only draft was asked for but the term set holds ZERO SIGNAL entries — the fast lane has
+    nothing to enumerate. Raised by ``execute_draft``'s scope filter BEFORE discovery runs (never from in
+    here), so a run that cannot place a name costs zero EFTS fetches. The message is OPERATOR-FACING and
+    travels to the failed job VERBATIM (no generic "discovery unavailable" wrapper): it names both ways
+    out — seed terms, or the full draft."""
+
+    def __init__(self) -> None:
+        super().__init__("no SIGNAL seeds — seed terms in the drawer, or run a full draft")
+
+
 class DiscoveryEmpty(DiscoveryUnavailable):
     """Keyword-gen produced keywords but EFTS returned NOTHING placeable — against a populated master that is a
     BROKEN discovery, not an empty theme. Surfaced (the draft 503s) rather than silently degrading to recall.

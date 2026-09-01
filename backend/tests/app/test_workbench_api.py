@@ -2824,6 +2824,221 @@ def test_draft_poll_404_for_unknown_job(client, db):
     assert r.status_code == 404
 
 
+# --- Draft SCOPE (the fast lane): seeds_only = SIGNAL-seeds-only discovery + no tail-sweep ---
+
+
+class _RecordingEfts(_FakeEfts):
+    """A ``_FakeEfts`` that records every requested cache_key — so a scope test can assert WHICH terms were
+    actually enumerated (a broad term must never reach EFTS under seeds_only)."""
+
+    def __init__(self, pages: dict, *, raises: bool = False) -> None:
+        super().__init__(pages, raises=raises)
+        self.requested: list[str] = []
+
+    def get_json(self, url, cache_key):
+        self.requested.append(cache_key)
+        return super().get_json(url, cache_key)
+
+
+def _draft_scoped(client, tid, body) -> dict:
+    """Kick off the draft WITH a JSON body (the scope), then poll once (the inline executor makes the job
+    terminal before the 202 returns). Returns the poll body ({status, result, error})."""
+    started = client.post(f"/workbench/theses/{tid}/draft-chain", json=body)
+    assert started.status_code == 202, started.text
+    polled = client.get(f"/workbench/theses/{tid}/draft-chain/jobs/{started.json()['job_id']}")
+    assert polled.status_code == 200, polled.text
+    return polled.json()
+
+
+def test_draft_seeds_only_queries_only_the_signal_terms(client, db):
+    """The fast lane's discovery INPUT: under scope=seeds_only EFTS is enumerated with ONLY the term set's
+    SIGNAL seeds — asserted on the RECORDED cache keys (what actually went to the wire), never just the
+    result. The seed universe still places; the broad-only name simply isn't searched this run (a scope the
+    operator chose, not a silent filter), and the fast lane stays response-only."""
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    _insert_security(db, "GENCO", name="Generic Reactor Co", cik="0001000000")
+    tid = _thesis_for_draft(db, terms=("nuclear",), broad=("reactor",))
+    edgar = _RecordingEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)")
+            ),
+            # present so a leak WOULD find it: only ever fetched if the broad term reaches EFTS
+            "efts/reactor_0.json": _efts_page(
+                ("0001000000", "Generic Reactor Co  (GENCO)  (CIK 0001000000)")
+            ),
+        }
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft_scoped(client, tid, {"scope": "seeds_only"})
+    assert body["status"] == "done", body
+    efts_keys = [k for k in edgar.requested if k.startswith("efts/")]
+    assert efts_keys == ["efts/nuclear_0.json"]  # the SIGNAL seed — and nothing else
+    assert not any("reactor" in k for k in edgar.requested)  # the broad term never hit the wire
+    by_name = {p["name"]: p for p in body["result"]["placements"]}
+    assert by_name["Oklo Inc."]["security_id"] == str(oklo)  # the seed universe still places
+    assert "Generic Reactor Co" not in by_name  # unsearched this run — a visible scope, not a drop
+    with db.cursor() as cur:  # response-only holds on the fast lane too
+        cur.execute("SELECT count(*) AS n FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert cur.fetchone()["n"] == 0
+
+
+def test_draft_seeds_only_never_invokes_the_research_client(client, db):
+    """The fast lane SKIPS the tail-sweep OUTRIGHT — the research client records ZERO calls (never invoked,
+    not called-and-ignored), and the report honestly reads tail_sweep="skipped" (the operator's own scope
+    choice, not a fault)."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db)
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    research = _FakeLLM(research_returns="Foreign tail: Nuclear ADR Co (NADR).")
+    _override_draft(
+        edgar=edgar, research=research, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
+    )
+    body = _draft_scoped(client, tid, {"scope": "seeds_only"})
+    assert body["status"] == "done", body
+    assert research.research_calls == []  # the sweep was never launched
+    assert body["result"]["report"]["tail_sweep"] == "skipped"
+
+
+def test_draft_scope_rides_the_report_and_absent_body_defaults_to_full(client, db):
+    """The scope ROUND-TRIPS kick-off → poll on the report for both lanes, and the no-body kick-off (the FE
+    today) stays exactly the full draft — backward compatibility is the contract, not a courtesy. A present
+    body with the field absent also reads full (the schema default)."""
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    pages = {
+        "efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))
+    }
+    for kickoff, want in (
+        (lambda tid: _draft(client, tid), "full"),  # absent body — the FE's current kick-off
+        (lambda tid: _draft_scoped(client, tid, {}), "full"),  # body present, field absent
+        (lambda tid: _draft_scoped(client, tid, {"scope": "full"}), "full"),
+        (lambda tid: _draft_scoped(client, tid, {"scope": "seeds_only"}), "seeds_only"),
+    ):
+        tid = _thesis_for_draft(db)
+        _override_draft(
+            edgar=_FakeEfts(pages), decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO")))
+        )
+        body = kickoff(tid)
+        assert body["status"] == "done", body
+        assert body["result"]["report"]["scope"] == want
+
+
+def test_draft_seeds_only_fails_before_discovery_when_no_signal_seeds(client, db):
+    """The pre-flight guard: seeds_only on a BROAD-only term set is a VISIBLE failed job carrying the
+    verbatim two-ways-out message — and EFTS is never queried (the guard fires BEFORE discovery, so a run
+    that cannot place a name costs zero fetches)."""
+    _insert_security(db, "GENCO", name="Generic Reactor Co", cik="0001000000")
+    tid = _thesis_for_draft(db, terms=(), broad=("reactor",))  # broad-only: zero SIGNAL seeds
+    edgar = _RecordingEfts(
+        {
+            "efts/reactor_0.json": _efts_page(
+                ("0001000000", "Generic Reactor Co  (GENCO)  (CIK 0001000000)")
+            )
+        }
+    )
+    _override_draft(
+        edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Generic Reactor Co", "GENCO")))
+    )
+    body = _draft_scoped(client, tid, {"scope": "seeds_only"})
+    assert body["status"] == "failed"
+    # the exact operator-facing message, VERBATIM — no generic "discovery unavailable" wrapper
+    assert body["error"] == "no SIGNAL seeds — seed terms in the drawer, or run a full draft"
+    assert edgar.requested == []  # the guard fired BEFORE any EFTS traffic
+
+
+def test_draft_seeds_only_empty_discovery_suggests_the_full_draft(client, db):
+    """DiscoveryEmpty under seeds_only additionally points at the wider lane (a narrow seed set is the
+    likeliest cause there) — while the FULL lane's message stays byte-identical to today's (no hint). Same
+    broken-discovery scenario both times: the discovered CIK is not in the master → 0 placeable."""
+    tid = _thesis_for_draft(db)  # SIGNAL seed "nuclear"; the hit CIK is deliberately NOT inserted
+    pages = {
+        "efts/nuclear_0.json": _efts_page(("0009999999", "Ghost Co  (GHST)  (CIK 0009999999)"))
+    }
+    _override_draft(edgar=_FakeEfts(pages), decompose=_FakeLLM(returns=_decomp(("Ghost", "GHST"))))
+    seeded = _draft_scoped(client, tid, {"scope": "seeds_only"})
+    assert seeded["status"] == "failed"
+    assert "discovery unavailable" in seeded["error"]
+    assert seeded["error"].endswith(" — the seed set may be narrow; try a full draft")
+
+    full = _draft(client, tid)  # the same thesis, full lane (the prior job finished; slot is free)
+    assert full["status"] == "failed"
+    assert "discovery unavailable" in full["error"] and full["error"].endswith("; please retry")
+    assert "try a full draft" not in full["error"]  # today's full-scope message, byte-unchanged
+
+
+def test_run_loader_loads_artifacts_with_and_without_scope(client, db, draft_runs_dir, monkeypatch):
+    """Run-loader compatibility: a PRE-SCOPE artifact (its report has no ``scope`` key) still loads — the
+    defaulted field reads "full" — and a seeds_only artifact carries its scope through. A required field
+    here would 422 every historical run out of the picker."""
+    import json
+
+    tid = _thesis_for_draft(db)
+    d = draft_runs_dir / str(tid)
+    d.mkdir(parents=True, exist_ok=True)
+    report_base = {
+        "coverage": {"pages_ok": 1, "pages_attempted": 1, "failed_terms": []},
+        "capped_terms": [],
+        "empty_terms": [],
+        "tail_sweep": "ran",
+        "narration_needed": 0,
+        "narration_filled": 0,
+    }
+    for run_id, report in (
+        ("20260701T000000Z-oldjob", dict(report_base)),  # the OLD shape: no scope key at all
+        (
+            "20260702T000000Z-newjob",
+            {**report_base, "tail_sweep": "skipped", "scope": "seeds_only"},
+        ),
+    ):
+        payload = {
+            "written_at": "2026-07-01T00:00:00+00:00",
+            "job_id": run_id.split("-")[-1],
+            "thesis": {"id": str(tid), "name": "n", "narrative": "x"},
+            "term_set": [],
+            "dials": {},
+            "draft": {"thesis_id": str(tid), "segments": [], "placements": [], "report": report},
+        }
+        (d / f"{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    _enable_run_loader(monkeypatch)
+    old = client.get(f"/workbench/theses/{tid}/runs/20260701T000000Z-oldjob")
+    assert old.status_code == 200
+    assert old.json()["report"]["scope"] == "full"  # absent → the default, never a 422
+    new = client.get(f"/workbench/theses/{tid}/runs/20260702T000000Z-newjob")
+    assert new.status_code == 200
+    assert new.json()["report"]["scope"] == "seeds_only"  # carried through
+
+
+def test_seeds_only_run_log_records_scope_in_dials_and_the_full_stored_term_set(
+    client, db, draft_runs_dir
+):
+    """The run-of-record for a seeds_only draft: the dials block names the mode (``scope: seeds_only`` —
+    the run's lane readable at a glance; a FULL run's dials keep their historical shape, pinned by the
+    exact-equality assert in test_completed_draft_job_writes_the_run_log_artifact), while ``term_set``
+    still records the thesis's FULL stored set — scope + tiers make the used subset unambiguous."""
+    import json
+
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db, terms=("nuclear",), broad=("reactor",))
+    edgar = _FakeEfts(
+        {"efts/nuclear_0.json": _efts_page(("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"))}
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    body = _draft_scoped(client, tid, {"scope": "seeds_only"})
+    assert body["status"] == "done", body
+    files = list((draft_runs_dir / str(tid)).glob("*.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert payload["dials"]["scope"] == "seeds_only"  # the run's mode, at a glance
+    # the FULL stored term set is still the recorded input — both tiers present, nothing narrowed away
+    assert {(e["term"], e["tier"]) for e in payload["term_set"]} == {
+        ("nuclear", "signal"),
+        ("reactor", "broad"),
+    }
+    assert payload["draft"]["report"]["scope"] == "seeds_only"  # the report carries it for free
+
+
 # --- Triage session: the resumable prune (one MUTABLE opaque blob per thesis; NOT the spine) ---
 
 

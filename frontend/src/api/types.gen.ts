@@ -646,6 +646,10 @@ export interface paths {
          *     WRITE-ONLY run-of-record artifact (``data/draft_runs/`` — the DISCOVER stage's ``calls``-log analogue:
          *     the term set as used, the dials, the full draft); nothing in the app reads it, and a failed write is
          *     logged + swallowed, never a failed draft.
+         *
+         *     The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
+         *     = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only
+         *     discovery, no tail-sweep — see ``execute_draft``). The report + the run-of-record name which scope ran.
          */
         post: operations["start_draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;
@@ -1954,6 +1958,22 @@ export interface components {
             members: components["schemas"]["MemberDisplaySignalsOut"][];
         };
         /**
+         * DraftChainIn
+         * @description The OPTIONAL draft kick-off body — the draft SCOPE. ``full`` (the default; an ABSENT body or field
+         *     means full, so today's no-body FE kick-off is untouched) runs the whole pipeline; ``seeds_only`` is the
+         *     fast lane: discovery enumerates ONLY the term set's SIGNAL seeds — the operator's own ratified anchors —
+         *     and the Opus tail-sweep is skipped outright (never invoked). Scope narrows the INPUT the operator chose,
+         *     never the results (#9 stays whole: nothing found is dropped, and the report names which scope ran).
+         */
+        DraftChainIn: {
+            /**
+             * Scope
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "seeds_only";
+        };
+        /**
          * DraftCoverageOut
          * @description How much of the universe the draft's EFTS enumeration actually covered (the #9 rule-2/3 instrument on
          *     the wire): a sub-threshold gap used to pass looking complete (logged only); now the pages fetched vs
@@ -2034,6 +2054,12 @@ export interface components {
             narration_needed: number;
             /** Narration Filled */
             narration_filled: number;
+            /**
+             * Scope
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "seeds_only";
         };
         /**
          * EditTermsRequest
@@ -4855,7 +4881,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DraftChainIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
