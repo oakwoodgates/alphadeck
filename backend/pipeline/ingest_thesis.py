@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import xml.etree.ElementTree as ET
+from collections.abc import Collection
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -206,6 +207,7 @@ def ingest_thesis(
     price_source: PriceSource | None = None,
     edgar_client: EdgarClient | None = None,
     fund_source: FundSharesSource | None = None,
+    only_security_ids: Collection[UUID] | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -224,6 +226,12 @@ def ingest_thesis(
     to Yahoo); ``fund_source`` the swappable shares source (defaults to issuer-first + fallback).
     ``edgar_client`` lets the caller INJECT the client (else one is constructed) so it can read
     ``client.live_fetches`` afterwards — the daily cron does, to record the freeze-detector count.
+
+    ``only_security_ids`` SCOPES the run to the given resolved members (the on-promote kick for a
+    promote's NEWLY-ADDED names — the cost thread: the cron walks the whole basket nightly, so an
+    interactive kick pays only for the names actually waiting). ``None`` (the default — the CLI and the
+    cron) walks every resolved member, byte-identical to before the parameter existed. Scope narrows
+    WHICH members are walked, never what a walked member ingests.
     """
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
@@ -234,6 +242,8 @@ def ingest_thesis(
     for m in thesis.basket:
         if m.security_id is None:
             continue  # unresolved placement — no exact member to ingest against
+        if only_security_ids is not None and m.security_id not in only_security_ids:
+            continue  # scoped run (the on-promote kick): only the requested members are walked
         sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
         if sec is None:
             # a placed id not in this tenant's master (shouldn't happen post-promote-guard) — report it

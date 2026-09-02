@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     draft_job_running_ttl_s: float = 900.0
     draft_job_finished_ttl_s: float = 1800.0
 
+    # --- On-promote ingest job (workbench/ingest_jobs) — its OWN reaper TTLs ---
+    # The promote-kicked back-half ingest for a promote's NEWLY-ADDED members. Deliberately NOT the
+    # drafter's dials: a large starter basket's first ingest (full Form 4 history + EOD per name at
+    # EDGAR-polite rates) can run well past the drafter's 900s, so RUNNING sits at an hour (the cron's
+    # ~65-min ceiling is the whole-platform walk; one basket stays under it). FINISHED keeps the
+    # summary pollable for half an hour (the facts in Postgres are the durable record regardless).
+    ingest_job_running_ttl_s: float = 3600.0
+    ingest_job_finished_ttl_s: float = 1800.0
+
     # --- Admin ops surface (Slice 1) — the "Run daily now" job registry + the schedule read ---
     # The daily-run job's OWN reaper TTLs (pipeline/daily_job.py — deliberately NOT the drafter's dials
     # above: a COLD daily pass measured ~65 min, so the drafter's 900s running TTL would flip a healthy

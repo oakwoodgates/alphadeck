@@ -1,8 +1,9 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import {
   type BasketMember,
   type BusinessTypeLeaf,
+  type PromoteIngestRef,
   type Segment,
   type ThesisDetail,
   useDeleteTriageSession,
@@ -17,6 +18,7 @@ import {
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
+import { IngestNote } from "./IngestNote";
 import {
   addLink,
   effectiveSegment,
@@ -42,7 +44,7 @@ interface Props {
 // silently driving the editor and surfaces the resume-vs-start-from-the-saved-Basket choice instead (it is
 // NEVER auto-deleted — expiry ends the silent restore, not the prune; principle #2). Named + trivially
 // tunable; the always-on "resumed autosave" badge (ChainEditor) carries awareness below the threshold.
-const STALE_SESSION_DAYS = 3;
+const STALE_SESSION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STALE_SESSION_MS = STALE_SESSION_DAYS * DAY_MS;
 
@@ -83,6 +85,17 @@ export function Workbench({ header, asof }: Props) {
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
   const promote = usePromoteThesis();
+  // PR-4 — the on-promote ingest kick: the LAST save that ADDED members returned an `ingest` job ref;
+  // IngestNote polls it. One state, fed from both save surfaces — the effect below catches every
+  // Workbench-side promote (this component's mutation), and the editor's Save hands its ref up through
+  // onDone (its mutation instance unmounts with the editor). STICKY until replaced or thesis-switch, so
+  // an in-flight fetch note never vanishes behind a later no-new-names save (keep-it-visible, WB #2);
+  // honest loudness: null (the common case — nothing added) renders nothing at all.
+  const [ingestKick, setIngestKick] = useState<PromoteIngestRef | null>(null);
+  const promoteIngest = promote.data?.ingest;
+  useEffect(() => {
+    if (promoteIngest) setIngestKick(promoteIngest);
+  }, [promoteIngest]);
   // the SECTION data runner (gate 2 at section granularity): prices + staged extraction for every name
   // in the active section — bounded by the section, extract-and-propose only (the operator still
   // ratifies per fact). The per-name row button stays the surgical option.
@@ -185,6 +198,7 @@ export function Workbench({ header, asof }: Props) {
     setCleared(false); // the cleared state is per thesis / per edit session
     setRescoping(false); // the re-scope one-shot is per thesis / per edit session
     setStaleSessionChoice(""); // the stale-session choice is per thesis
+    setIngestKick(null); // the ingest note refers to the previous thesis's save
     sectionData.reset();
     promote.reset();
   };
@@ -447,11 +461,14 @@ export function Workbench({ header, asof }: Props) {
       autoDraft={rescoping}
       onStartOver={startOver}
       onRescope={startRescope}
-      onDone={(saved) => {
+      onDone={(saved, ingest) => {
         setEditing(false);
         setCleared(false); // the cleared state is one-shot — re-entry shows the real saved state
         setRescoping(false); // the re-scope one-shot too — re-entry never re-fires the draft
         setChainSaved(saved); // a saved exit surfaces the re-entry note; a discard clears it
+        // PR-4: a Save that ADDED members kicked their data fetch — the editor's mutation instance
+        // unmounts with it, so the job ref rides up here for the scored view's IngestNote to poll.
+        if (ingest) setIngestKick(ingest);
       }}
       scoredById={scoredById}
     />
@@ -884,6 +901,9 @@ export function Workbench({ header, asof }: Props) {
                     saved basket (a re-draft is how you re-run discovery).
                   </div>
                 )}
+                {/* PR-4 — the on-promote ingest note: renders ONLY when a save actually added members
+                    (and so kicked their data fetch); quiet while fetching/done, loud only on failure. */}
+                {ingestKick && <IngestNote thesisId={thesisId} ingest={ingestKick} />}
               </section>
 
               {shownMembers.length > 0 && (

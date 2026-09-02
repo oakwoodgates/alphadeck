@@ -36,8 +36,11 @@ from app.schemas_api import (
     EtfHoldingOut,
     EtfHoldingsOut,
     FlagExplanationOut,
+    IngestJobStatusOut,
     PriceIngestOut,
     ProduceTermsRequest,
+    PromoteIngestRef,
+    PromoteOut,
     PromoteThesisRequest,
     RatifiedFactOut,
     RatifyFactRequest,
@@ -79,12 +82,13 @@ from llm.client import LLMClient
 from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
+from pipeline import ingest_thesis as ingest_thesis_mod
 from repositories import thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
 from signals.base import PointInTimeData
-from workbench import etf_overlap, run_loader, triage_store
+from workbench import etf_overlap, ingest_jobs, run_loader, triage_store
 from workbench.chain_draft import (
     PlacementStatus,
     proposed_from_decomposition,
@@ -561,12 +565,70 @@ def explain_flag_candidate(
     return FlagExplanationOut(explanation=explanation, grounded=grounded)
 
 
-@router.post("/theses", response_model=ThesisDetail)
+def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
+    """The on-promote ingest job body: run the SAME per-thesis ingest unit the cron uses
+    (``pipeline.ingest_thesis``), scoped to the given newly-added members, on the job's OWN connection
+    (the job outlives the request — the request conn is closed once the promote returns). FACTS ONLY:
+    the unit appends facts with ``recorded_at`` = now (never backdated, never UPDATE-in-place); no call
+    record is written — ``record_if_changed`` stays the daily cron's. Cache-first (``force_refresh``
+    defaults False): a brand-new name's cache MISSES and fetches live; recurring freshness stays the
+    cron's job (the #72 split).
+
+    Returns the summary the poll serves. Raises ``IngestJobError`` (→ a VISIBLE failed job) when any
+    name's legs errored — the per-name isolation inside ``ingest_thesis`` means what succeeded is
+    already committed; the message says what landed and what failed."""
+    own = connect()
+    try:
+        results = ingest_thesis_mod.ingest_thesis(own, thesis_id, only_security_ids=ids)
+    finally:
+        own.close()
+    summary = {
+        # DISTINCT members: a name placed in N segments is N basket rows (same security_id), and the
+        # unit walks each row (the later walks append 0 — incremental); the summary must not double-count
+        "members": len({r.security_id for r in results}),
+        "form4": sum(r.form4_appended for r in results),
+        "price_bars": sum(r.price_bars_appended + r.price_bars_reversioned for r in results),
+        "form8k": sum(r.form8k_appended + r.form8k_reversioned for r in results),
+        "sched13": sum(r.sched13_appended + r.sched13_reversioned for r in results),
+        "fund_shares": sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results),
+    }
+    # the failure summary counts NAMES, not rows (dedup by security_id, mirroring `members` above)
+    errored = list({r.security_id: r for r in results if r.error}.values())
+    if errored:
+        ok = summary["members"] - len(errored)
+        detail = "; ".join(f"{r.ticker or r.security_id}: {r.error}" for r in errored)
+        raise ingest_jobs.IngestJobError(
+            f"ingested {ok} of {summary['members']} new names (+{summary['form4']} insider txns, "
+            f"+{summary['price_bars']} price bars); {len(errored)} failed — {detail}"
+        )
+    return summary
+
+
+def _kick_member_ingest(thesis_id: UUID, new_ids: set[UUID]) -> ingest_jobs.IngestJob | None:
+    """Kick (or queue — see ``ingest_jobs.start_ingest_job``) the background ingest for a promote's
+    newly-added members. The kick must NEVER fail the promote — the spine write is already committed —
+    so a (should-never-happen) registry/thread fault is logged LOUD and swallowed; the nightly cron
+    remains the backstop that ingests everything regardless."""
+    try:
+        return ingest_jobs.start_ingest_job(
+            thesis_id, new_ids, lambda ids: _run_member_ingest(thesis_id, ids)
+        )
+    except Exception:  # noqa: BLE001 — fail the kick, never the committed promote
+        _log.exception(
+            "promote: could not kick the new-member ingest for thesis %s (%d new members) — "
+            "the nightly cron will pick them up",
+            thesis_id,
+            len(new_ids),
+        )
+        return None
+
+
+@router.post("/theses", response_model=PromoteOut)
 def promote(
     req: PromoteThesisRequest,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
-) -> ThesisDetail:
+) -> PromoteOut:
     """Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
     via ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment
@@ -585,7 +647,15 @@ def promote(
     ordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary
     instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
     the basket stores the instrument the operator actually trades; the response carries the canonical
-    ticker."""
+    ticker.
+
+    ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
+    the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
+    after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive
+    ``ingest`` field on the response names the job. Deliberately scoped to the genuinely-new members
+    (the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient
+    cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
+    ``ingest`` null. The job never blocks or fails the promote."""
     try:
         thesis = Thesis(  # the Slice-1 segment-consistency validator runs here
             id=req.id or uuid4(),
@@ -719,9 +789,43 @@ def promote(
         for i, m in enumerate(thesis.basket):
             if m.security_id in frozen:
                 thesis.basket[i] = m.model_copy(update={"surfaced_terms": frozen[m.security_id]})
+    # THE NEW-MEMBER DIFF (on-promote ingest, PR-4): the resolved ids this promote ADDS to the spine —
+    # incoming minus pre-upsert stored, by security_id (post-canonicalize, so the diff keys match what
+    # the spine stores). A brand-new thesis (no stored row) is all-new — the starter-basket case.
+    prior_ids = {m.security_id for m in stored.basket if m.security_id} if stored else set()
+    new_ids = {m.security_id for m in thesis.basket if m.security_id} - prior_ids
     thesis_repo.upsert(conn, thesis)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis)
+    # Kick the new members' back-half ingest AFTER the commit (the job's own connection must see the
+    # spine rows) — background, never blocking or failing the promote. No new members → no job at all
+    # (the cost thread: a plain Save/triage promote pays nothing).
+    ingest_ref: PromoteIngestRef | None = None
+    if new_ids:
+        job = _kick_member_ingest(thesis.id, new_ids)
+        if job is not None:
+            ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
+    out = PromoteOut.from_thesis(thesis)
+    out.ingest = ingest_ref
+    return out
+
+
+@router.get("/theses/{thesis_id}/ingest/jobs/{job_id}", response_model=IngestJobStatusOut)
+def get_member_ingest_job(thesis_id: UUID, job_id: str) -> IngestJobStatusOut:
+    """POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote
+    added members). ``queued`` = waiting behind this thesis's running ingest; ``done`` → the summary of
+    what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
+    remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
+    or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
+    infinite spinner). The job_id must belong to this thesis."""
+    job = ingest_jobs.get_job(job_id)
+    if job is None or job.thesis_id != str(thesis_id):
+        raise HTTPException(
+            status_code=404,
+            detail="ingest job not found (it may have expired or the server restarted)",
+        )
+    return IngestJobStatusOut(
+        job_id=job.job_id, status=job.status, result=job.result, error=job.error
+    )
 
 
 @router.post("/theses/{thesis_id}/terms", response_model=ThesisDetail)

@@ -6,7 +6,22 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from pipeline import backup, cron_run_log
-from workbench import draft_run_log, triage_store
+from workbench import draft_run_log, ingest_jobs, triage_store
+
+
+@pytest.fixture(autouse=True)
+def _no_ingest_threads(monkeypatch):
+    """Neuter the on-promote ingest executor for EVERY app test — a promote that adds members kicks a
+    background ingest job (PR-4), and without this every promote in the suite would spawn a REAL daemon
+    thread running the REAL ``pipeline.ingest_thesis`` (live EDGAR/Yahoo if a User-Agent is configured,
+    plus test-DB races against per-test truncates). The job still REGISTERS (the response's ``ingest``
+    ref is real and pollable as 'running'); it just never executes. The dedicated kick suite
+    (``test_workbench_ingest_kick``) overrides this with an inline executor + a faked ingest unit.
+    Autouse so no promote-calling test can forget it (the ``draft_runs_dir`` precedent)."""
+    ingest_jobs.reset_state()
+    monkeypatch.setattr(ingest_jobs, "_DEFAULT_EXECUTOR", lambda job: None)
+    yield
+    ingest_jobs.reset_state()
 
 
 @pytest.fixture

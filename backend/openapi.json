@@ -1024,7 +1024,7 @@
           "workbench"
         ],
         "summary": "Promote",
-        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.\n\nWrite-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member\nvalues \u2014 ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator\nedited it \u2014 \"your words\") \u2014 so a drafted description stays honestly drafted until the operator actually\nchanges it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:\n``signed_off=true`` + ``authored_by='system_drafted'`` (the 0035 reset rule applied at the wire \u2014 old\naccept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:\nit never gates promotion and never feeds the call (#4). Every\nplaced ``security_id`` must be an EXACT member of this tenant's master (fail-closed \u2014 a caller-supplied\nid is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft\nand writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign\nordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary\ninstrument before the spine write (``master.canonicalize_ids`` \u2014 the same pick as ``ids_for_ciks``), so\nthe basket stores the instrument the operator actually trades; the response carries the canonical\nticker.",
+        "description": "Promote a structured thesis to the Board (Incubating) \u2014 the app's FIRST mutation. Create (``id``\nnull) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists\nvia ``thesis_repo.upsert`` (the existing operational save path). The tenant comes from the deployment\nresolver, NOT the body. Scores are never sent and never persist \u2014 they re-derive on read.\n\nWrite-side guards (INVARIANT #2): ``authored_by`` is HONORED from the body for the two live member\nvalues \u2014 ``system_drafted`` (the description is the model's draft) or ``operator_edited`` (the operator\nedited it \u2014 \"your words\") \u2014 so a drafted description stays honestly drafted until the operator actually\nchanges it. The RETIRED ``operator_set`` (pre-S1 accept/hand-add) is legacy-TRANSLATED, never stored:\n``signed_off=true`` + ``authored_by='system_drafted'`` (the 0035 reset rule applied at the wire \u2014 old\naccept meant ENDORSED, and the text stays the model's). ``signed_off`` itself round-trips as a marker:\nit never gates promotion and never feeds the call (#4). Every\nplaced ``security_id`` must be an EXACT member of this tenant's master (fail-closed \u2014 a caller-supplied\nid is never trusted), the single point where bound #2 is enforced now that the S5 drafter returns a draft\nand writes nothing itself. And the id is CANONICALIZED: a multi-sibling CIK's non-primary row (a foreign\nordinary / warrant / dual-class sibling the draft happened to surface) is re-pointed to the CIK's primary\ninstrument before the spine write (``master.canonicalize_ids`` \u2014 the same pick as ``ids_for_ciks``), so\nthe basket stores the instrument the operator actually trades; the response carries the canonical\nticker.\n\nON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from\nthe pre-upsert spine \u2014 diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job\nafter the commit, so a fresh starter basket needn't wait for the nightly cron; the additive\n``ingest`` field on the response names the job. Deliberately scoped to the genuinely-new members\n(the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient\ncost); a brand-new thesis is all-new (the full starter-basket ingest); no new members \u2192 no job and\n``ingest`` null. The job never blocks or fails the promote.",
         "operationId": "promote_workbench_theses_post",
         "requestBody": {
           "content": {
@@ -1042,7 +1042,60 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ThesisDetail"
+                  "$ref": "#/components/schemas/PromoteOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workbench/theses/{thesis_id}/ingest/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Member Ingest Job",
+        "description": "POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote\nadded members). ``queued`` = waiting behind this thesis's running ingest; ``done`` \u2192 the summary of\nwhat landed; ``failed`` \u2192 an operator-facing ``error`` (VISIBLE, never silent \u2014 the nightly cron\nremains the backstop that ingests everything regardless). **404** if the job is unknown / expired,\nor the registry was wiped by a restart \u2014 the FE shows a visible \"lost from view\" line (never an\ninfinite spinner). The job_id must belong to this thesis.",
+        "operationId": "get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestJobStatusOut"
                 }
               }
             }
@@ -4725,6 +4778,91 @@
         "title": "HealthResponse",
         "description": "The ``/health`` body. ``status`` is ``\"ok\"`` or ``\"degraded\"``; ``degraded`` maps each degraded\nsubsystem to a short reason (empty when healthy). The compose healthcheck only needs the HTTP 200 \u2014\n``degraded`` is a body flag an operator or agent can SEE, never a failed check (fail-open)."
       },
+      "IngestJobResultOut": {
+        "properties": {
+          "members": {
+            "type": "integer",
+            "title": "Members"
+          },
+          "form4": {
+            "type": "integer",
+            "title": "Form4",
+            "default": 0
+          },
+          "price_bars": {
+            "type": "integer",
+            "title": "Price Bars",
+            "default": 0
+          },
+          "form8k": {
+            "type": "integer",
+            "title": "Form8K",
+            "default": 0
+          },
+          "sched13": {
+            "type": "integer",
+            "title": "Sched13",
+            "default": 0
+          },
+          "fund_shares": {
+            "type": "integer",
+            "title": "Fund Shares",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "title": "IngestJobResultOut",
+        "description": "A done ingest job's summary \u2014 what landed, per fact kind (append counts from the run's\n``NameResult``s; re-versioned rows are folded in, matching the CLI's tallies). Counts only, never a\nsignal or a score."
+      },
+      "IngestJobStatusOut": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestJobResultOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "IngestJobStatusOut",
+        "description": "The ingest-job poll body. ``queued`` = waiting behind this thesis's running ingest (one follow-up\nrun, never a parallel one); ``done`` carries the ``result`` summary; ``failed`` carries an\noperator-facing ``error`` (the per-name partial-failure summary, a timeout, or an unexpected fault \u2014\nVISIBLE, never silent; the nightly cron remains the backstop either way)."
+      },
       "InsiderBuyOut": {
         "properties": {
           "d": {
@@ -5590,6 +5728,149 @@
         "type": "object",
         "title": "ProduceTermsRequest",
         "description": "Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds\n(e.g. the known psychedelic compounds) \u2014 persisted as operator-authored SIGNAL, the recall guarantor against\nkeyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator\nseeds and just re-rolls the LLM-proposed terms."
+      },
+      "PromoteIngestRef": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "new_members": {
+            "type": "integer",
+            "title": "New Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "new_members"
+        ],
+        "title": "PromoteIngestRef",
+        "description": "The promote response's ingest kick (PR-4): a promote that ADDED members starts their back-half\ningest (Form 4 + 8-K + 13D/G + EOD \u2014 the same per-thesis unit the cron runs, scoped to the new ids)\nas a background job so a fresh basket needn't wait for the nightly cron. ``new_members`` is THIS\npromote's newly-added count; the FE polls ``GET .../ingest/jobs/{job_id}``. Absent (``ingest`` null)\n= nothing was added, nothing was kicked (the cost thread: every editor Save promotes, so only\ngenuinely-new names ever pay)."
+      },
+      "PromoteOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "narrative": {
+            "type": "string",
+            "title": "Narrative"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "basket": {
+            "items": {
+              "$ref": "#/components/schemas/BasketMember"
+            },
+            "type": "array",
+            "title": "Basket",
+            "default": []
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "default": []
+          },
+          "term_set": {
+            "items": {
+              "$ref": "#/components/schemas/TermSetEntry"
+            },
+            "type": "array",
+            "title": "Term Set",
+            "default": []
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array",
+            "title": "Evidence",
+            "default": []
+          },
+          "catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/Catalyst"
+            },
+            "type": "array",
+            "title": "Catalysts",
+            "default": []
+          },
+          "kill_criteria": {
+            "items": {
+              "$ref": "#/components/schemas/KillCriterion"
+            },
+            "type": "array",
+            "title": "Kill Criteria",
+            "default": []
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exclusions": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedName"
+            },
+            "type": "array",
+            "title": "Exclusions",
+            "default": []
+          },
+          "ingest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteIngestRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "narrative"
+        ],
+        "title": "PromoteOut",
+        "description": "The promote response: the saved ``ThesisDetail`` (the FE re-snapshot \u2014 unchanged) + the ADDITIVE\n``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every\npre-existing consumer of the promote response keeps its exact shape."
       },
       "PromoteThesisRequest": {
         "properties": {
