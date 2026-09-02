@@ -99,8 +99,8 @@ describe("fmtPastPeak — the Timing view's past-peak gap cell (Slice 2)", () =>
 });
 
 describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", () => {
-  it("summary spans 7 columns, timing 6", () => {
-    expect(ledgerColCount("summary")).toBe(7);
+  it("summary spans 8 columns, timing 6", () => {
+    expect(ledgerColCount("summary")).toBe(8);
     expect(ledgerColCount("timing")).toBe(6);
   });
 });

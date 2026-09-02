@@ -50,6 +50,7 @@ export function LedgerHead({
         <col className="c-exit" />
         <col className="c-status" />
         <col className="c-ret" />
+        <col className="c-peak" />
         <col className="c-op" />
       </colgroup>
       <thead>
@@ -60,6 +61,7 @@ export function LedgerHead({
           <th>Exit-by</th>
           <th>Status</th>
           <th>{returnHeader}</th>
+          <th>Peak</th>
           <th>Operator</th>
         </tr>
       </thead>
