@@ -29,6 +29,7 @@ Discipline:
 from __future__ import annotations
 
 import argparse
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -37,14 +38,17 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.enums import State
 from domain.market_time import market_today
 from ingest.edgar.client import EdgarClient
-from notify import HealthEvent, Notifier, TransitionEvent, get_notifier
+from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import already_ran_live, write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from repositories import calls_repo, thesis_repo
 from securities import master
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -156,6 +160,35 @@ def run_daily(
             if prior is not None and (
                 prior.state is not card.state or prior.verdict is not card.verdict
             ):
+                # Company-level detail for the compact armed push: resolve each armed member to its
+                # ticker + its distinct entry-trigger kinds. FAIL-OPEN in its OWN try/except — the
+                # notifier.notify below runs inside the shared try/except that ROLLS BACK the call-of-
+                # record on any exception, so this DB-touching enrichment must NEVER raise. It degrades
+                # to an empty payload (the notifier then falls back to the thesis-only line). Only built
+                # on a → armed transition (armed_members is empty otherwise).
+                armed_payload: tuple[ArmedName, ...] = ()
+                if card.state is State.ARMED and card.armed_members:
+                    try:
+                        sids = {m.security_id for m in card.armed_members}
+                        tickers = master.tickers_for(conn, sids, tenant_id=thesis.tenant_id)
+                        armed_payload = tuple(
+                            ArmedName(
+                                ticker=tickers.get(m.security_id),
+                                # distinct, order-preserving (headline kind first)
+                                trigger_kinds=tuple(
+                                    dict.fromkeys(t.kind.value for t in m.triggers)
+                                ),
+                                grade=(m.entry_grade.value if m.entry_grade else None),
+                            )
+                            for m in card.armed_members
+                        )
+                    except Exception:  # noqa: BLE001 — enrichment never risks the record
+                        _log.warning(
+                            "armed-notify enrichment failed for %s (fail-open)",
+                            thesis.id,
+                            exc_info=True,
+                        )
+                        armed_payload = ()
                 evt = TransitionEvent(
                     thesis_id=thesis.id,
                     thesis_name=thesis.name,
@@ -164,6 +197,7 @@ def run_daily(
                     to_state=card.state.value,
                     from_verdict=prior.verdict.value,
                     to_verdict=card.verdict.value,
+                    armed=armed_payload,
                 )
                 notifier.notify(evt)
                 res.transition = evt.label

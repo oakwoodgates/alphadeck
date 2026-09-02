@@ -28,6 +28,17 @@ _log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class ArmedName:
+    """One armed basket member, resolved for the notification — ticker + the distinct entry-trigger
+    kinds that armed it. Raw Kind.value strings; the formatter maps them to friendly short labels.
+    """
+
+    ticker: str | None
+    trigger_kinds: tuple[str, ...] = ()
+    grade: str | None = None  # entry_grade.value (FLIP/CORE) — carried for future richer formats
+
+
+@dataclass(frozen=True)
 class TransitionEvent:
     """One thesis's state/verdict move between consecutive calls-of-record."""
 
@@ -38,6 +49,7 @@ class TransitionEvent:
     to_state: str
     from_verdict: str
     to_verdict: str
+    armed: tuple[ArmedName, ...] = ()  # populated only on a → armed transition; empty otherwise
 
     @property
     def label(self) -> str:
@@ -113,6 +125,23 @@ class LogNotifier:
         _log.error("CRON HEALTH %s", event.label)
 
 
+_KIND_LABELS = {
+    "insider": "insider buy",
+    "technical_breakout": "breakout",
+    "catalyst": "catalyst",
+    "laggard": "laggard",
+    "squeeze": "squeeze",
+    "activist_stake": "activist",
+    "etf_launch": "ETF launch",
+    "etf_flow": "ETF flow",
+    "theme_conviction": "theme",
+}
+
+
+def _kind_label(kind: str) -> str:
+    return _KIND_LABELS.get(kind, kind.replace("_", " "))
+
+
 class SlackNotifier:
     """The loud DELIVERY channel: an incoming-webhook POST, gated by inverse loudness (#7).
 
@@ -183,8 +212,23 @@ class SlackNotifier:
 
     @staticmethod
     def _format(event: TransitionEvent) -> str:
-        """A glanceable one-liner — thesis name identifies WHAT armed, plus the state move."""
-        return f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
+        """The compact company-level push: line 1 the thesis header (the state move), line 2 the armed
+        tickers, line 3 per-company its friendly trigger tail. FALLS BACK to today's exact thesis-only
+        header line when no armed name resolved to a ticker (back-compat + graceful degrade — a Slack
+        push never depends on the enrichment having succeeded)."""
+        head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
+        named = [a for a in event.armed if a.ticker]  # only names that resolved to a ticker
+        if not named:
+            return head  # thesis-only fallback — identical to today's message
+        lines = [head, f"{', '.join(a.ticker for a in named)} armed"]
+        tails = [
+            f"{a.ticker} {', '.join(_kind_label(k) for k in a.trigger_kinds)}"
+            for a in named
+            if a.trigger_kinds
+        ]
+        if tails:
+            lines.append(" · ".join(tails))
+        return "\n".join(lines)
 
 
 def get_notifier() -> Notifier:
