@@ -522,8 +522,41 @@ export interface paths {
          *     instrument before the spine write (``master.canonicalize_ids`` — the same pick as ``ids_for_ciks``), so
          *     the basket stores the instrument the operator actually trades; the response carries the canonical
          *     ticker.
+         *
+         *     ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
+         *     the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
+         *     after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive
+         *     ``ingest`` field on the response names the job. Deliberately scoped to the genuinely-new members
+         *     (the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient
+         *     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
+         *     ``ingest`` null. The job never blocks or fails the promote.
          */
         post: operations["promote_workbench_theses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workbench/theses/{thesis_id}/ingest/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Member Ingest Job
+         * @description POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote
+         *     added members). ``queued`` = waiting behind this thesis's running ingest; ``done`` → the summary of
+         *     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
+         *     remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
+         *     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
+         *     infinite spinner). The job_id must belong to this thesis.
+         */
+        get: operations["get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2378,6 +2411,60 @@ export interface components {
             };
         };
         /**
+         * IngestJobResultOut
+         * @description A done ingest job's summary — what landed, per fact kind (append counts from the run's
+         *     ``NameResult``s; re-versioned rows are folded in, matching the CLI's tallies). Counts only, never a
+         *     signal or a score.
+         */
+        IngestJobResultOut: {
+            /** Members */
+            members: number;
+            /**
+             * Form4
+             * @default 0
+             */
+            form4: number;
+            /**
+             * Price Bars
+             * @default 0
+             */
+            price_bars: number;
+            /**
+             * Form8K
+             * @default 0
+             */
+            form8k: number;
+            /**
+             * Sched13
+             * @default 0
+             */
+            sched13: number;
+            /**
+             * Fund Shares
+             * @default 0
+             */
+            fund_shares: number;
+        };
+        /**
+         * IngestJobStatusOut
+         * @description The ingest-job poll body. ``queued`` = waiting behind this thesis's running ingest (one follow-up
+         *     run, never a parallel one); ``done`` carries the ``result`` summary; ``failed`` carries an
+         *     operator-facing ``error`` (the per-name partial-failure summary, a timeout, or an unexpected fault —
+         *     VISIBLE, never silent; the nightly cron remains the backstop either way).
+         */
+        IngestJobStatusOut: {
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+            result?: components["schemas"]["IngestJobResultOut"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
          * InsiderBuyOut
          * @description One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) — an
          *     overlay chip / event-ledger row.
@@ -2761,6 +2848,79 @@ export interface components {
              * @default []
              */
             seeds: string[];
+        };
+        /**
+         * PromoteIngestRef
+         * @description The promote response's ingest kick (PR-4): a promote that ADDED members starts their back-half
+         *     ingest (Form 4 + 8-K + 13D/G + EOD — the same per-thesis unit the cron runs, scoped to the new ids)
+         *     as a background job so a fresh basket needn't wait for the nightly cron. ``new_members`` is THIS
+         *     promote's newly-added count; the FE polls ``GET .../ingest/jobs/{job_id}``. Absent (``ingest`` null)
+         *     = nothing was added, nothing was kicked (the cost thread: every editor Save promotes, so only
+         *     genuinely-new names ever pay).
+         */
+        PromoteIngestRef: {
+            /** Job Id */
+            job_id: string;
+            /** New Members */
+            new_members: number;
+        };
+        /**
+         * PromoteOut
+         * @description The promote response: the saved ``ThesisDetail`` (the FE re-snapshot — unchanged) + the ADDITIVE
+         *     ``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every
+         *     pre-existing consumer of the promote response keeps its exact shape.
+         */
+        PromoteOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Name */
+            name: string;
+            /** Narrative */
+            narrative: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Basket
+             * @default []
+             */
+            basket: components["schemas"]["BasketMember"][];
+            /**
+             * Segments
+             * @default []
+             */
+            segments: components["schemas"]["Segment"][];
+            /**
+             * Term Set
+             * @default []
+             */
+            term_set: components["schemas"]["TermSetEntry"][];
+            /**
+             * Evidence
+             * @default []
+             */
+            evidence: components["schemas"]["Evidence"][];
+            /**
+             * Catalysts
+             * @default []
+             */
+            catalysts: components["schemas"]["Catalyst"][];
+            /**
+             * Kill Criteria
+             * @default []
+             */
+            kill_criteria: components["schemas"]["KillCriterion"][];
+            position?: components["schemas"]["Position"] | null;
+            /**
+             * Exclusions
+             * @default []
+             */
+            exclusions: components["schemas"]["ExcludedName"][];
+            ingest?: components["schemas"]["PromoteIngestRef"] | null;
         };
         /**
          * PromoteThesisRequest
@@ -4757,7 +4917,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ThesisDetail"];
+                    "application/json": components["schemas"]["PromoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestJobStatusOut"];
                 };
             };
             /** @description Validation Error */

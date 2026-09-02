@@ -17,6 +17,9 @@ export type ScoredFigureOut = components["schemas"]["ScoredFigureOut"];
 export type Segment = components["schemas"]["Segment"];
 export type ProvenanceOut = components["schemas"]["ProvenanceOut"];
 export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"];
+// the on-promote ingest kick (PR-4): the promote response's additive `ingest` ref + its poll body
+export type PromoteIngestRef = components["schemas"]["PromoteIngestRef"];
+export type IngestJobStatusOut = components["schemas"]["IngestJobStatusOut"];
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
@@ -655,6 +658,29 @@ export function useDraftJobStatus(thesisId: string, jobId: string | null) {
       );
       if (error) throw error;
       return data; // DraftJobStatus { job_id, status, result, error }
+    },
+  });
+}
+
+// Poll an on-promote new-member ingest job (PR-4): enabled only once a job_id exists; polls every 2.5s
+// while the job is queued/running and STOPS on a terminal status (done|failed). retry:false — a 404
+// (unknown/expired/restart-wiped job) is a terminal, VISIBLE failure line (the nightly cron remains the
+// backstop that ingests everything), never an infinite spinner.
+export function useIngestJobStatus(thesisId: string, jobId: string | null) {
+  return useQuery({
+    queryKey: ["workbench-ingest-job", thesisId, jobId] as const,
+    enabled: !!jobId,
+    retry: false,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === "queued" || s === "running" ? 2500 : false;
+    },
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/theses/{thesis_id}/ingest/jobs/{job_id}", {
+        params: { path: { thesis_id: thesisId, job_id: jobId as string } },
+      });
+      if (error) throw error;
+      return data; // IngestJobStatusOut { job_id, status, result, error }
     },
   });
 }

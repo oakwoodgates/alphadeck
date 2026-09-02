@@ -535,6 +535,51 @@ class PromoteThesisRequest(BaseModel):
     identity_overrides: list[UUID] = []
 
 
+class PromoteIngestRef(BaseModel):
+    """The promote response's ingest kick (PR-4): a promote that ADDED members starts their back-half
+    ingest (Form 4 + 8-K + 13D/G + EOD — the same per-thesis unit the cron runs, scoped to the new ids)
+    as a background job so a fresh basket needn't wait for the nightly cron. ``new_members`` is THIS
+    promote's newly-added count; the FE polls ``GET .../ingest/jobs/{job_id}``. Absent (``ingest`` null)
+    = nothing was added, nothing was kicked (the cost thread: every editor Save promotes, so only
+    genuinely-new names ever pay)."""
+
+    job_id: str
+    new_members: int
+
+
+class PromoteOut(ThesisDetail):
+    """The promote response: the saved ``ThesisDetail`` (the FE re-snapshot — unchanged) + the ADDITIVE
+    ``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every
+    pre-existing consumer of the promote response keeps its exact shape."""
+
+    ingest: PromoteIngestRef | None = None
+
+
+class IngestJobResultOut(BaseModel):
+    """A done ingest job's summary — what landed, per fact kind (append counts from the run's
+    ``NameResult``s; re-versioned rows are folded in, matching the CLI's tallies). Counts only, never a
+    signal or a score."""
+
+    members: int  # names walked (had a resolved id in the scope)
+    form4: int = 0
+    price_bars: int = 0
+    form8k: int = 0
+    sched13: int = 0
+    fund_shares: int = 0
+
+
+class IngestJobStatusOut(BaseModel):
+    """The ingest-job poll body. ``queued`` = waiting behind this thesis's running ingest (one follow-up
+    run, never a parallel one); ``done`` carries the ``result`` summary; ``failed`` carries an
+    operator-facing ``error`` (the per-name partial-failure summary, a timeout, or an unexpected fault —
+    VISIBLE, never silent; the nightly cron remains the backstop either way)."""
+
+    job_id: str
+    status: Literal["queued", "running", "done", "failed"]
+    result: IngestJobResultOut | None = None
+    error: str | None = None
+
+
 class ProduceTermsRequest(BaseModel):
     """Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds
     (e.g. the known psychedelic compounds) — persisted as operator-authored SIGNAL, the recall guarantor against

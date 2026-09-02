@@ -5,6 +5,7 @@ import type {
   ChainDraftOut,
   DraftReportOut,
   DraftScope,
+  PromoteIngestRef,
   ResolvedPlacement,
   ScoredMemberOut,
   SecurityCandidate,
@@ -74,7 +75,10 @@ interface Props {
   asof: string;
   // Exit edit mode (the parent unmounts this, re-snapshotting on the next edit). `saved` = the exit
   // FOLLOWED a successful Save — it drives the parent's "your saved basket is editable on return" note (D).
-  onDone: (saved: boolean) => void;
+  // `ingest` (PR-4, passed ONLY when the save response carried one) = the Save ADDED members and kicked
+  // their background data fetch — the ref rides up so the parent's IngestNote can poll it after this
+  // editor (and its mutation instance) unmounts.
+  onDone: (saved: boolean, ingest?: PromoteIngestRef | null) => void;
   // TRIAGE: the parent's scored members, keyed by security_id — a cheap read-time join (no fetch) that drives
   // the per-row "fundamentals loaded vs not" badge. Reflects the LAST SAVED state, so a freshly-drafted (unsaved)
   // name reads "needs SURFACE" — exactly the shortlist signal. Optional (an un-scored / test render omits it).
@@ -1266,7 +1270,10 @@ export function ChainEditor({
         basket,
         segments: d.draft.segments,
       },
-      { onSuccess: () => onDone(true) },
+      // PR-4: a Save that ADDED members returns an `ingest` job ref — hand it up so the parent's
+      // IngestNote can poll it after this editor unmounts. The two-arg call fires ONLY when a ref
+      // actually rode the response (honest loudness: a no-new-names save changes nothing here).
+      { onSuccess: (data) => (data?.ingest ? onDone(true, data.ingest) : onDone(true)) },
     );
   };
 
