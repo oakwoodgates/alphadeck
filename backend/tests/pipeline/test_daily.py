@@ -224,9 +224,11 @@ def test_daily_armed_transition_threads_company_detail_onto_the_event(db, securi
 
 def test_daily_armed_enrichment_is_FAIL_OPEN(db, security_id, monkeypatch):
     """The enrichment is DB-touching and runs INSIDE the shared try that rolls back the call-of-record on
-    any exception — so it has its OWN fail-open guard. A resolver that RAISES degrades the event to
-    thesis-only (armed=()) and the call-of-record is STILL written (never dropped by this change).
-    """
+    any exception — so its ticker read is wrapped in a SAVEPOINT (conn.transaction()) and the whole block
+    has its OWN fail-open guard. A resolver that RAISES rolls back to the savepoint (issuing real
+    SAVEPOINT/ROLLBACK SQL on the test conn), re-raises into the except → the event degrades to thesis-only
+    (armed=()), the OUTER txn stays clean, and the ARMED call-of-record is STILL written (the point of the
+    savepoint: a query-specific fault never costs the thesis its record)."""
     _no_network(monkeypatch)
     tid = _thesis(db, "AI Memory", members=[("DEVCO", security_id)])
     daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # INCUBATING prior
@@ -246,6 +248,8 @@ def test_daily_armed_enrichment_is_FAIL_OPEN(db, security_id, monkeypatch):
     evt = cap.events[0]
     assert evt.to_state == "armed" and evt.armed == ()  # degraded to the thesis-only line
     assert by[tid].recorded is True and len(_calls(db, tid)) == 2  # ...the record was NOT dropped
+    # the savepoint kept the outer txn writable: the ARMED card actually landed as the call-of-record
+    assert calls_repo.latest_for_thesis(db, tid)[0].state is State.ARMED
 
 
 def test_daily_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):

@@ -170,7 +170,15 @@ def run_daily(
                 if card.state is State.ARMED and card.armed_members:
                     try:
                         sids = {m.security_id for m in card.armed_members}
-                        tickers = master.tickers_for(conn, sids, tenant_id=thesis.tenant_id)
+                        # SAVEPOINT: isolate the enrichment read from the record's transaction. The outer
+                        # conn is transactional (record_if_changed + conn.commit below), so a query-SPECIFIC
+                        # fault on this SELECT — a statement timeout, a lock, a serialization failure, a
+                        # transient blip — would otherwise poison the outer txn and cost this thesis its
+                        # call-of-record even though the DB is writable. conn.transaction() rolls back to
+                        # HERE on any fault and re-raises into the except → the outer txn stays clean for
+                        # the record write. The tuple-build stays OUTSIDE the savepoint (pure Python, no DB).
+                        with conn.transaction():
+                            tickers = master.tickers_for(conn, sids, tenant_id=thesis.tenant_id)
                         armed_payload = tuple(
                             ArmedName(
                                 ticker=tickers.get(m.security_id),
