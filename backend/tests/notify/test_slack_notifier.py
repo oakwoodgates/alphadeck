@@ -14,7 +14,14 @@ import httpx
 import pytest
 
 from domain.settings import get_settings
-from notify import HealthEvent, LogNotifier, SlackNotifier, TransitionEvent, get_notifier
+from notify import (
+    ArmedName,
+    HealthEvent,
+    LogNotifier,
+    SlackNotifier,
+    TransitionEvent,
+    get_notifier,
+)
 
 _WEBHOOK = "https://hooks.slack.example/T000/B000/xxxx: the webhook"
 
@@ -80,6 +87,95 @@ def test_posts_on_armed_transition(monkeypatch):
     assert "warming → armed" in text  # the state move is glanceable
 
 
+# --- (1b) COMPACT company-level detail on the armed push ---------------------------------------------------
+# The push gains WHICH names armed + the events that armed them, in a 3-line form: header (state move kept),
+# the armed tickers, then a per-company trigger tail. Adds the triggering evidence to the push (#6), still
+# only on a → armed move (#7); the friendly kind map is a static presentation layer (no LLM, #3).
+
+
+def _armed_event(*, thesis_name="AI Memory & Storage", armed=()):
+    return TransitionEvent(
+        thesis_id=uuid4(),
+        thesis_name=thesis_name,
+        asof=date(2026, 6, 5),
+        from_state="warming",
+        to_state="armed",
+        from_verdict="watching",
+        to_verdict="core_entry",
+        armed=armed,
+    )
+
+
+def test_armed_push_renders_compact_company_detail(monkeypatch):
+    """The 3-line compact push: header (the state move is KEPT), the armed tickers, then per-company its
+    ticker + friendly trigger kinds. The kind map applies (insider→'insider buy',
+    technical_breakout→'breakout'); a member's kinds join by ', ', companies by ' · '."""
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(
+        _armed_event(
+            armed=(
+                ArmedName("CRDO", ("insider", "technical_breakout")),
+                ArmedName("MRVL", ("technical_breakout",)),
+            )
+        )
+    )
+
+    assert len(calls) == 1
+    text = calls[0]["json"]["text"]
+    assert text == (
+        "🔴 AI Memory & Storage — ARMED (warming → armed)\n"
+        "CRDO, MRVL armed\n"
+        "CRDO insider buy, breakout · MRVL breakout"
+    )
+
+
+def test_kind_label_maps_friendly_and_falls_back_to_underscores_to_spaces():
+    """The friendly map is a static presentation layer; an UNMAPPED kind degrades to underscores→spaces
+    (never a KeyError), so a new Kind added to the enum still renders a readable label unchanged here.
+    """
+    from notify import _kind_label
+
+    assert _kind_label("insider") == "insider buy"
+    assert _kind_label("technical_breakout") == "breakout"
+    assert _kind_label("activist_stake") == "activist"
+    assert _kind_label("some_new_kind") == "some new kind"  # unmapped → underscores to spaces
+
+
+def test_armed_push_falls_back_to_the_thesis_only_line_when_nothing_resolves(monkeypatch):
+    """Back-compat + graceful degrade: with no resolved armed name the push is EXACTLY today's thesis-only
+    header line. Covers both armed=() (enrichment produced nothing / failed open) and a name whose ticker
+    never resolved (ticker=None is skipped)."""
+    _enable_slack(monkeypatch)
+
+    # (a) armed=() — the default / degraded-enrichment case
+    calls = _capture_post(monkeypatch)
+    SlackNotifier().notify(_event(to_state="armed"))  # _event leaves armed=()
+    assert calls[0]["json"]["text"] == (
+        "🔴 AI Memory & Storage Supercycle — ARMED (warming → armed)"
+    )
+
+    # (b) an ArmedName that never resolved to a ticker (ticker=None) → skipped → same fallback
+    calls2 = _capture_post(monkeypatch)
+    SlackNotifier().notify(_armed_event(thesis_name="Solo", armed=(ArmedName(None, ("insider",)),)))
+    assert calls2[0]["json"]["text"] == "🔴 Solo — ARMED (warming → armed)"
+
+
+def test_armed_push_omits_the_tail_line_when_no_member_has_triggers(monkeypatch):
+    """A resolved name with NO trigger kinds still lists in line 2 (it armed) but contributes no tail; if
+    NO member has a tail, the push is just the 2 lines (header + tickers) — the tail line is loud only
+    when there's evidence to show."""
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(_armed_event(armed=(ArmedName("CRDO", ()), ArmedName("MRVL", ()))))
+
+    assert calls[0]["json"]["text"] == (
+        "🔴 AI Memory & Storage — ARMED (warming → armed)\nCRDO, MRVL armed"
+    )
+
+
 # --- (2) no-op on a quiet (non-armed) move -----------------------------------------------------------------
 
 
@@ -91,6 +187,20 @@ def test_does_not_post_on_non_armed_transition(monkeypatch):
     SlackNotifier().notify(_event(from_state="incubating", to_state="warming"))
 
     assert calls == []
+
+
+def test_the_record_sink_logs_every_transition_even_when_not_pushed(monkeypatch, caplog):
+    """Inverse loudness (#7) lives in the PUSH decision, not the record: SlackNotifier delegates to a
+    LogNotifier so EVERY transition is recorded (a log is a record, not a nag) whether or not it's a loud
+    → armed push. A quiet → warming move posts nothing (above) but is still logged here."""
+    import logging
+
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        SlackNotifier().notify(_event(from_state="incubating", to_state="warming"))
+    assert calls == []  # not pushed (quiet move)...
+    assert any("TRANSITION" in r.message for r in caplog.records)  # ...but still recorded
 
 
 # --- (3) FAIL-OPEN: a raising POST must NOT propagate out of notify() ---------------------------------------

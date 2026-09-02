@@ -15,8 +15,10 @@ from types import SimpleNamespace
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
-from domain.enums import State
+from domain.call import CallCard, KeyState, MemberCall, TriggerRef
+from domain.enums import Grade, Kind, State, Verdict
 from ingest.edgar.form4 import ingest_form4
+from notify import ArmedName
 from pipeline import daily
 from repositories import calls_repo
 
@@ -154,6 +156,100 @@ def test_daily_emits_a_transition_only_on_a_real_state_or_verdict_move(
     }
     assert captured == [] and day3[tid].transition is None  # a changed card, but no MOVE
     assert day3[tid].recorded is True  # ...and it DID version the log (churn without transition)
+
+
+# --- the compact armed push: company-level detail threaded onto the TransitionEvent (+ fail-open) ---
+
+
+def _armed_card(thesis_id, sid, asof):
+    """A minimal ARMED CallCard whose single armed member fired two distinct entry triggers — the shape the
+    daily enrichment reads (armed_members -> per-member security_id + entry_grade + trigger kinds).
+    """
+    return CallCard(
+        thesis_id=thesis_id,
+        asof=asof,
+        state=State.ARMED,
+        verdict=Verdict.CORE_ENTRY,
+        armed_security_id=sid,
+        expression="—",
+        key_conviction=KeyState(turned=True, label="conviction"),
+        key_confirmation=KeyState(turned=True, label="confirmation"),
+        armed_members=[
+            MemberCall(
+                security_id=sid,
+                verdict=Verdict.CORE_ENTRY,
+                entry_grade=Grade.CORE,
+                triggers=[
+                    TriggerRef(label="P-buy", kind=Kind.INSIDER, security_id=sid),
+                    TriggerRef(label="breakout", kind=Kind.TECHNICAL_BREAKOUT, security_id=sid),
+                ],
+            )
+        ],
+    )
+
+
+class _Capture:
+    def __init__(self):
+        self.events = []
+
+    def notify(self, event):
+        self.events.append(event)
+
+
+def test_daily_armed_transition_threads_company_detail_onto_the_event(db, security_id, monkeypatch):
+    """A → armed transition resolves each armed member to its ticker (master.tickers_for) + its DISTINCT
+    entry-trigger kinds and threads them onto the TransitionEvent — the compact push's data. The
+    call-of-record is still written (the enrichment is additive, never gating)."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "AI Memory", members=[("DEVCO", security_id)])
+
+    # day 1: the real (fact-less) call is INCUBATING — the prior to move FROM
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)
+    assert len(_calls(db, tid)) == 1
+
+    # day 2: stub the assembler to return an ARMED card → INCUBATING → ARMED transition fires
+    monkeypatch.setattr(
+        daily, "call_for_thesis", lambda conn, thid, asof, **k: _armed_card(thid, security_id, asof)
+    )
+    cap = _Capture()
+    by = {r.thesis_id: r for r in daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=cap)}
+
+    assert len(cap.events) == 1
+    evt = cap.events[0]
+    assert evt.from_state == "incubating" and evt.to_state == "armed"
+    # DEVCO resolved from the security master; the two distinct kinds carried in fire order; grade carried
+    assert evt.armed == (ArmedName("DEVCO", ("insider", "technical_breakout"), "core"),)
+    assert by[tid].recorded is True and len(_calls(db, tid)) == 2  # the record was still written
+
+
+def test_daily_armed_enrichment_is_FAIL_OPEN(db, security_id, monkeypatch):
+    """The enrichment is DB-touching and runs INSIDE the shared try that rolls back the call-of-record on
+    any exception — so its ticker read is wrapped in a SAVEPOINT (conn.transaction()) and the whole block
+    has its OWN fail-open guard. A resolver that RAISES rolls back to the savepoint (issuing real
+    SAVEPOINT/ROLLBACK SQL on the test conn), re-raises into the except → the event degrades to thesis-only
+    (armed=()), the OUTER txn stays clean, and the ARMED call-of-record is STILL written (the point of the
+    savepoint: a query-specific fault never costs the thesis its record)."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "AI Memory", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # INCUBATING prior
+
+    monkeypatch.setattr(
+        daily, "call_for_thesis", lambda conn, thid, asof, **k: _armed_card(thid, security_id, asof)
+    )
+
+    def _boom(*a, **k):
+        raise RuntimeError("resolver down")
+
+    monkeypatch.setattr(daily.master, "tickers_for", _boom)  # the enrichment's DB read raises
+    cap = _Capture()
+    by = {r.thesis_id: r for r in daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=cap)}
+
+    assert len(cap.events) == 1
+    evt = cap.events[0]
+    assert evt.to_state == "armed" and evt.armed == ()  # degraded to the thesis-only line
+    assert by[tid].recorded is True and len(_calls(db, tid)) == 2  # ...the record was NOT dropped
+    # the savepoint kept the outer txn writable: the ARMED card actually landed as the call-of-record
+    assert calls_repo.latest_for_thesis(db, tid)[0].state is State.ARMED
 
 
 def test_daily_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
