@@ -211,7 +211,7 @@ export function groupCount(t: ScoreboardThesisOut): number {
 export type LedgerView = "summary" | "timing";
 
 /** The ledger's column count for the current view — the group-row/note-row `colSpan` tracks it so a
- *  full-width group header spans exactly the rendered columns (Summary = 7, Timing = 6). */
+ *  full-width group header spans exactly the rendered columns (Summary = 8, Timing = 6). */
 export function ledgerColCount(view: LedgerView): number {
-  return view === "timing" ? 6 : 7;
+  return view === "timing" ? 6 : 8;
 }

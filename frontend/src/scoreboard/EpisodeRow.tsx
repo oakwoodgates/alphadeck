@@ -138,6 +138,10 @@ export function EpisodeRow({
             <span className={`ret ${ret.cls}`}>{awaiting ? "—" : ret.text}</span>
             <span className="sb-retlabel"> {returnLabel(ep)}</span>
           </td>
+          {/* Peak — the realized high; "—" until a forward bar lands (same honest-loudness guard as Timing). */}
+          <td className="sb-ret">
+            <span className={`ret ${noBar ? "" : peak.cls}`}>{noBar ? "—" : peak.text}</span>
+          </td>
           {historical ? (
             <td className="sb-op sb-op-none">— predates decision capture</td>
           ) : (

@@ -432,7 +432,7 @@ describe("Scoreboard", () => {
     expect(screen.getByText("Why")).toBeInTheDocument();
     expect(screen.getByText("Exit-by")).toBeInTheDocument();
     expect(screen.getByText("Operator")).toBeInTheDocument();
-    expect(screen.queryByText("Peak")).not.toBeInTheDocument();
+    expect(screen.getByText("Peak")).toBeInTheDocument();
     expect(screen.queryByText("Past peak")).not.toBeInTheDocument();
 
     // flip to Timing → the timing headers appear, the summary-only ones are gone
@@ -446,7 +446,7 @@ describe("Scoreboard", () => {
     // reversible: flip back to Summary
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     expect(screen.getByText("Why")).toBeInTheDocument();
-    expect(screen.queryByText("Peak")).not.toBeInTheDocument();
+    expect(screen.getByText("Peak")).toBeInTheDocument();
   });
 
   it("Slice 2: Timing view renders a scored episode's Return / Peak / Past peak", () => {
@@ -460,6 +460,7 @@ describe("Scoreboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     const srow = screen.getByText("MATR").closest("tr")!;
     expect(within(srow).getByText("technical_breakout")).toBeInTheDocument(); // Why
+    expect(within(srow).getByText("+20.4%")).toBeInTheDocument(); // Peak (the realized high, now in Summary too)
     expect(within(srow).getByText("no decision logged")).toBeInTheDocument(); // Operator
   });
 
