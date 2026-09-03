@@ -51,7 +51,10 @@ to the compose file there, and worktrees never run the stack.
    docker compose up -d --build --no-deps cron               # + a daily-cron-path change
    ```
    A backend rebuild re-runs the idempotent migrate + seed (~20-40s, brief API blip —
-   safe, it is what every restart does).
+   safe, it is what every restart does). "Idempotent" now covers the FACT tables too: until
+   PR-1c every boot re-appended the demo fixtures as a fresh bitemporal version (~1,900 rows a
+   restart; the seed names reached ~140-155 stored versions per price bar and 175 per Form 4
+   fact), so a rebuild is no longer a write.
 
    **Cron caveat — the daily-pipeline path.** The `cron` service shares the backend build
    context (`build: ./backend`) but is a SEPARATE image (`alphadeck-cron`) and container

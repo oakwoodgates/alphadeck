@@ -9,6 +9,28 @@ is stable. Run after `docker compose up` + `python -m db.migrate`:
 
 A live seed (resolve HIMS + pull from EDGAR/Yahoo) can replace the fixture ingest later; the thesis
 definition and the wiring stay the same.
+
+**Idempotent on the FACT tables too, not just the spine.** The backend image runs this at EVERY container
+start (``Dockerfile`` CMD: ``db.migrate && pipeline.seed && uvicorn``), so "idempotent" has to mean "a
+second run appends ZERO fact rows", not merely "it doesn't error". It did not: the thesis upsert and the
+``set_catalysts`` / ``set_kill_criteria`` child writers were idempotent (fixed ids, full replace), but every
+``ingest_*`` call underneath re-appended its fixture as a fresh bitemporal VERSION — each boot a new
+``recorded_at``, each one legal under the tables' ``UNIQUE (…, recorded_at)``. Measured on the demo DB
+before this guard: ~140–155 stored versions of every seed price bar (UNH alone 87,297 rows for 561 bars,
+~59% of ``fact_price_eod`` byte-identical re-versions) and 175 versions of each of the six seed Form 4
+facts, growing ~1,900 rows per restart and costing the one-name HIMS thesis ~0.55 s of read time per call.
+
+So every fixture append here is now guarded by the table's NATURAL KEY (``db.bitemporal._FACT_IDENTITY``):
+
+- prices -> ``stored_bars`` (append only a fixture bar whose ``d`` is not stored yet — per-date, so a
+  bar the store is genuinely missing is still filled in);
+- Form 4 -> ``existing_accessions`` (the same guard the per-thesis ingest already uses);
+- ``source_ref`` / ``accession``-keyed facts -> ``fact_exists`` / ``fact_exists_thesis``.
+
+The guards live HERE, on the seed's own call sites, deliberately: the shared ``ingest_*`` writers stay
+unguarded so a genuine RESTATEMENT through the cron / the Workbench still appends a new version. This
+module replays STATIC fixtures that never restate a value — "already stored" and "unchanged" are the same
+thing for it, and for nothing else.
 """
 
 from __future__ import annotations
@@ -20,6 +42,7 @@ from uuid import UUID
 
 import psycopg
 
+from db.bitemporal import fact_exists, fact_exists_thesis
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import CatalystType, Grade
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
@@ -29,8 +52,8 @@ from ingest.doe import entities as doe_entities
 from ingest.doe.client import UsaSpendingClient
 from ingest.doe.feed import run_doe_feed
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
-from ingest.edgar.form4 import ingest_form4
-from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
+from ingest.edgar.form4 import existing_accessions, ingest_form4
+from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart, stored_bars
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from ingest.theme_conviction import ingest_theme_conviction
@@ -57,6 +80,42 @@ _NUCLEAR_SECURITIES = [
     (NNE_ID, "0001923891", "NNE", "Nano Nuclear Energy"),
     (LEU_ID, "0001065059", "LEU", "Centrus Energy"),
 ]
+
+
+def _ingest_new_bars(conn: psycopg.Connection, security_id: UUID, bars: list[dict]) -> int:
+    """Append only the fixture bars this security does NOT already have a stored version of.
+
+    Keyed on ``fact_price_eod``'s natural key ``(security_id, d)`` via ``stored_bars`` — the SAME
+    DISTINCT-ON-latest-version read the as-of path applies, so the compare sees what the detectors see.
+    Per-DATE rather than ``latest_bar_date``'s tail-only test: that keeps the seed's promise that its
+    fixture history is present (a date the store is missing is still filled) while a re-run of an
+    unchanged fixture appends NOTHING. A restatement is deliberately NOT re-versioned here — the committed
+    fixture is static, and the live re-version pass belongs to ``ingest.prices.ingest_security``, which the
+    cron drives. Returns the count appended."""
+    stored = stored_bars(conn, security_id)
+    return ingest_prices(conn, security_id, [b for b in bars if b["d"] not in stored])
+
+
+def _ingest_form4_once(
+    conn: psycopg.Connection, security_id: UUID, filings: list[tuple[str, str]]
+) -> int:
+    """Ingest each ``(accession, filename)`` Form 4 fixture whose accession is not already stored.
+
+    ``existing_accessions`` is read ONCE for the security (accession is the filing identity and the lead
+    column of the insider natural key, so "accession present" ⇔ "its txns stored") — the same guard the
+    per-thesis ingest uses. Returns the count of transaction rows appended."""
+    seen = existing_accessions(conn, security_id)
+    count = 0
+    for accession, fname in filings:
+        if accession in seen:
+            continue
+        count += ingest_form4(
+            conn,
+            security_id,
+            (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
+            accession,
+        )
+    return count
 
 
 def _ensure_hims_security(conn: psycopg.Connection) -> UUID:
@@ -133,15 +192,11 @@ def _persist_thesis(conn: psycopg.Connection, thesis: Thesis) -> None:
 
 
 def seed_hims(conn: psycopg.Connection) -> UUID:
-    """Ingest the HIMS fixtures + upsert the HIMS thesis (idempotent). Caller commits. Returns the id."""
+    """Ingest the HIMS fixtures + upsert the HIMS thesis (idempotent — a re-run appends ZERO fact rows;
+    see the module docstring). Caller commits. Returns the id."""
     security_id = _ensure_hims_security(conn)
-    ingest_form4(
-        conn,
-        security_id,
-        (_SEED_DATA / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
-        _WELLS_ACCESSION,
-    )
-    ingest_prices(
+    _ingest_form4_once(conn, security_id, [(_WELLS_ACCESSION, "hims_wells_form4.xml")])
+    _ingest_new_bars(
         conn,
         security_id,
         parse_yahoo_chart(
@@ -160,14 +215,22 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
             (_SEED_DATA / "edgar" / "hims_converts_pricing.htm").read_text(encoding="utf-8")
         ),
     )
-    ingest_convert_terms(
+    converts_accession = "0001193125-26-234847"
+    if not fact_exists(  # fact_dilution's natural key is the accession
         conn,
-        security_id,
-        terms,
-        accession="0001193125-26-234847",
-        shares_outstanding=228_357_303,  # HIMS Q1-26 10-Q
-        shares_outstanding_ref="0001773751-26-000076",
-    )
+        "fact_dilution",
+        security_id=security_id,
+        tenant_id=DEFAULT_TENANT_ID,
+        accession=converts_accession,
+    ):
+        ingest_convert_terms(
+            conn,
+            security_id,
+            terms,
+            accession=converts_accession,
+            shares_outstanding=228_357_303,  # HIMS Q1-26 10-Q
+            shares_outstanding_ref="0001773751-26-000076",
+        )
     return thesis.id
 
 
@@ -236,7 +299,8 @@ def _nuclear_thesis() -> Thesis:
 
 
 def seed_nuclear(conn: psycopg.Connection) -> UUID:
-    """Seed the small-scale-nuclear THEME thesis (idempotent). Caller commits. Returns the id.
+    """Seed the small-scale-nuclear THEME thesis (idempotent — a re-run appends ZERO fact rows). Caller
+    commits. Returns the id.
 
     The basket broke out sector-wide on 2026-06-02 but has no insider-conviction signal, so this is
     an honest WARMING thesis: the platform won't arm a sector move without a conviction key.
@@ -246,7 +310,7 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
         bars = parse_yahoo_chart(
             json.loads((_SEED_DATA / "prices" / f"{ticker}.yahoo.json").read_text(encoding="utf-8"))
         )
-        ingest_prices(conn, sid, bars)
+        _ingest_new_bars(conn, sid, bars)
     thesis = _nuclear_thesis()
     _persist_thesis(conn, thesis)
     return thesis.id
@@ -258,7 +322,20 @@ def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
     commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness horizon. Co-located
     with OKLO's 2026-06-02 breakout it arms OKLO as a disciplined STARTER. Paired with seed_leu_catalyst (the
     BINDING one); kept OUT of seed_nuclear, and separate from LEU, so each path tests in isolation.
+
+    Idempotent: ``fact_catalyst``'s natural key is ``source_ref``, so a re-run of this fixture appends
+    nothing. (Not reached by ``main()`` — ``seed_doe_catalysts`` supersedes it — but it is a live test
+    entry point, and a guard that only half the call sites carry is the one that rots.)
     """
+    source_ref = "https://www.usaspending.gov/award/ASST_NON_DENE0009589_089"
+    if fact_exists(
+        conn,
+        "fact_catalyst",
+        security_id=OKLO_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref=source_ref,
+    ):
+        return
     ingest_catalyst(
         conn,
         OKLO_ID,
@@ -269,7 +346,7 @@ def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
             "$0 DOE obligation (company-funded)"
         ),
         source="ratified",
-        source_ref="https://www.usaspending.gov/award/ASST_NON_DENE0009589_089",
+        source_ref=source_ref,
         event_date=date(2026, 2, 9),
         horizon_end=date(2029, 7, 1),
         ratified_by="operator",
@@ -291,7 +368,18 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
     Near-the-edge by design: the base term ends 2026-06-30 — ~3wk past the demo asof — so the card's hold
     clock (exit_by) lands on 2026-06-30, surfacing a renewal/option cliff rather than an open-ended core hold.
     Kept OUT of seed_nuclear, and separate from OKLO, so each path tests in isolation.
+
+    Idempotent on ``fact_catalyst``'s ``source_ref`` natural key — see ``seed_nuclear_catalyst``.
     """
+    source_ref = "https://www.usaspending.gov/award/CONT_AWD_89243223CNE000030_8900_-NONE-_-NONE-"
+    if fact_exists(
+        conn,
+        "fact_catalyst",
+        security_id=LEU_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref=source_ref,
+    ):
+        return
     ingest_catalyst(
         conn,
         LEU_ID,
@@ -302,7 +390,7 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
             "base term through 2026-06-30 (options to 2028 at DOE discretion, excluded)"
         ),
         source="ratified",
-        source_ref="https://www.usaspending.gov/award/CONT_AWD_89243223CNE000030_8900_-NONE-_-NONE-",
+        source_ref=source_ref,
         event_date=date(2022, 11, 30),
         horizon_end=date(2026, 6, 30),
         ratified_by="operator",
@@ -318,7 +406,19 @@ def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
     correctly not enough (rule 4: volume-backed only), so NNE stays in the watch tier — one theme-armed
     name, the volume gate working. Kept OUT of seed_nuclear and separate from the catalysts so each path
     tests in isolation; ranks beneath OKLO (own flip) and LEU (own core) — own-above-theme + freshness.
+
+    Idempotent: ``fact_theme_conviction`` is THESIS-scoped and keyed on ``source_ref``, so a re-run of this
+    fixture appends nothing.
     """
+    source_ref = "https://www.congress.gov/bill/118th-congress/senate-bill/1111"
+    if fact_exists_thesis(
+        conn,
+        "fact_theme_conviction",
+        thesis_id=NUCLEAR_THESIS_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref=source_ref,
+    ):
+        return
     ingest_theme_conviction(
         conn,
         NUCLEAR_THESIS_ID,
@@ -329,7 +429,7 @@ def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
             "power demand is surging (operator-ratified theme conviction)"
         ),
         source="ratified",
-        source_ref="https://www.congress.gov/bill/118th-congress/senate-bill/1111",
+        source_ref=source_ref,
         event_date=date(2026, 1, 15),
         horizon_end=date(
             2027, 1, 15
@@ -347,10 +447,14 @@ def seed_doe_catalysts(conn: psycopg.Connection) -> list:
     asof only the LIVE awards arm — LEU's $317M HALEU contract (core, -> 2026-06-30) headlines a core_entry;
     OKLO's reactor-pilot OTA (flip, -> 2029) sits beneath as a starter. Expired DOE awards are emitted too
     (real, provenanced) but liveness keeps them off the card. Caller commits.
+
+    ``skip_stored=True`` makes the replay idempotent: an award whose ``source_ref`` (``fact_catalyst``'s
+    natural key) is already stored is still RETURNED but not re-appended. The feed's default is ``False``,
+    so a live/recurring caller keeps re-versioning a restated award.
     """
     client = UsaSpendingClient(cache_dir=_SEED_DATA / "doe", allow_live=False)
     ids = master.ids_for_tickers(conn, doe_entities.curated_tickers())
-    return run_doe_feed(conn, client, ids.get)
+    return run_doe_feed(conn, client, ids.get, skip_stored=True)
 
 
 # --- UNH (M4a-iii): the May-2025 CEO-led open-market insider cluster — a CORE core_entry ---
@@ -412,7 +516,8 @@ def _unh_thesis() -> Thesis:
 
 
 def seed_unh(conn: psycopg.Connection) -> UUID:
-    """Seed the UNH insider-cluster thesis (idempotent). Caller commits. Returns the id.
+    """Seed the UNH insider-cluster thesis (idempotent — a re-run appends ZERO fact rows). Caller commits.
+    Returns the id.
 
     A 2025 case: the CEO-led CORE cluster (mid-May) WARMS, then ARMS at the August volume-backed
     breakout (a real core_entry) — the graded core-conviction horizon spans the ~3-month gap that the
@@ -420,14 +525,8 @@ def seed_unh(conn: psycopg.Connection) -> UUID:
     as-of back to 2025 to see the warm -> arm arc.
     """
     _ensure_security(conn, UNH_SECURITY_ID, _UNH_CIK, "UNH", "UnitedHealth Group")
-    for accession, fname in _UNH_FORM4S:
-        ingest_form4(
-            conn,
-            UNH_SECURITY_ID,
-            (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
-            accession,
-        )
-    ingest_prices(
+    _ingest_form4_once(conn, UNH_SECURITY_ID, _UNH_FORM4S)
+    _ingest_new_bars(
         conn,
         UNH_SECURITY_ID,
         parse_yahoo_chart(
@@ -501,6 +600,11 @@ def seed_nuclear_revenue_mix(conn: psycopg.Connection) -> None:
         ),
     ]
     for sid, seg, pct, source, ref, event_date, note in rows:
+        # fact_revenue_mix's natural key is source_ref (the 10-K segment) — a stored fixture is a no-op
+        if fact_exists(
+            conn, "fact_revenue_mix", security_id=sid, tenant_id=DEFAULT_TENANT_ID, source_ref=ref
+        ):
+            continue
         ingest_revenue_mix(
             conn,
             sid,
@@ -542,6 +646,15 @@ def seed_nuclear_shares(conn: psycopg.Connection) -> None:
         (NNE_ID, 52_083_294, _NNE_10Q, date(2026, 5, 12), "Common stock as of 2026-05-12."),
     ]
     for sid, shares, ref, event_date, note in rows:
+        # natural key = source_ref (the 10-Q cover) — a stored fixture is a no-op
+        if fact_exists(
+            conn,
+            "fact_shares_outstanding",
+            security_id=sid,
+            tenant_id=DEFAULT_TENANT_ID,
+            source_ref=ref,
+        ):
+            continue
         ingest_shares_outstanding(
             conn,
             sid,
@@ -599,6 +712,11 @@ def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
         ),
     ]
     for sid, cash, burn, ref, note in rows:
+        # natural key = source_ref (the 10-Q) — a stored fixture is a no-op
+        if fact_exists(
+            conn, "fact_cash_burn", security_id=sid, tenant_id=DEFAULT_TENANT_ID, source_ref=ref
+        ):
+            continue
         ingest_cash_burn(
             conn,
             sid,

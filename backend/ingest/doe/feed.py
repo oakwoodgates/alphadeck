@@ -17,6 +17,7 @@ from uuid import UUID
 
 import psycopg
 
+from db.bitemporal import fact_exists
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade
@@ -170,6 +171,7 @@ def run_doe_feed(
     cfg: CallConfig = DEFAULT_CONFIG,
     search_terms: tuple[str, ...] = entities.SEARCH_TERMS,
     tenant_id: UUID = DEFAULT_TENANT_ID,
+    skip_stored: bool = False,
 ) -> list[DoeCatalyst]:
     """Run the feed end-to-end: discover → exact-resolve → detail-parse → emit catalyst facts.
 
@@ -178,6 +180,14 @@ def run_doe_feed(
     skipped. Catalyst facts are emitted under ``tenant_id`` (defaults to demo; pass a production tenant to
     run the feed into production). ``resolve_security`` must resolve in the SAME tenant. Returns the emitted
     catalysts (for logging / assertions).
+
+    ``skip_stored`` (default ``False`` — the emit path is BYTE-IDENTICAL to before) suppresses the fact
+    APPEND for a catalyst whose ``source_ref`` (the ``fact_catalyst`` natural key) is already stored under
+    that security, while still returning it in ``emitted``. It exists for ``pipeline.seed``, this function's
+    ONLY caller today (``seed_doe_catalysts``), which replays the committed USASpending fixtures at every
+    container boot: without it each boot appended a fresh version of the same six awards. A live/recurring
+    caller must leave it ``False`` — a re-run that legitimately RESTATES an award (a re-graded obligation,
+    a moved period-of-performance end) has to append a new version, and this flag would swallow it.
     """
     emitted: list[DoeCatalyst] = []
     for gid, ticker in discover(client, search_terms=search_terms).items():
@@ -187,6 +197,15 @@ def run_doe_feed(
         catalyst = parse_award(client, gid, ticker, cfg)
         if catalyst is None:
             continue
+        emitted.append(catalyst)
+        if skip_stored and fact_exists(
+            conn,
+            "fact_catalyst",
+            security_id=sec,
+            tenant_id=tenant_id,
+            source_ref=catalyst.source_ref,
+        ):
+            continue  # a fixture replay, not new information — see ``skip_stored``
         ingest_catalyst(
             conn,
             sec,
@@ -199,5 +218,4 @@ def run_doe_feed(
             horizon_end=catalyst.horizon_end,
             tenant_id=tenant_id,
         )
-        emitted.append(catalyst)
     return emitted
