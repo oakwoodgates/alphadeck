@@ -17,6 +17,15 @@ from signals.common import entry_signal_is_live, fired_signal, source_provenance
 _THEME_SCORE = 0.45
 
 
+def HORIZONS(
+    cfg: CallConfig,
+) -> dict[str, int | None]:  # noqa: N802 — the registry's module-level name
+    """The READ-HORIZON declaration (``signals/horizons.py``) for this THESIS-LEVEL reader: the
+    thesis-scoped theme-conviction tape is read UNBOUNDED (``None``) — liveness selects from the full
+    as-of tape, so no event-time floor may ever be applied."""
+    return {"fact_theme_conviction": None}
+
+
 def _liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
     """The theme conviction's relevance HORIZON in days — its operator-set expiry, DECOUPLED from grade
     (like a catalyst). Runs to ``horizon_end`` when ratified with one, else the configured default.

@@ -221,6 +221,18 @@ default, an accent marks the exception (#7). The columns are individually sortab
 call-state group (nulls-last; the call hierarchy never moves) — the surface detail lives in
 `docs/BOARD.md`.
 
-**Perf note.** Each member does its own PIT read (2–3 price reads + 1 insider read per name per
-request — the `/scored` cost profile). If latency ever shows on a big basket, memoize the PIT reads
-per-request in the router; deliberately not built until it hurts.
+**Perf note (built — Board/Cockpit perf PR-1b).** Each member still does its own PIT read, but the
+display route builds ONE `PointInTimeData` per request with the resolved basket as its **prefetch scope**
+and `signals.horizons.display_bounds()` as its **read bounds**: each fact table is loaded for the whole
+basket in one `as_of_many` query, memoized per `(table, security_id)`, and every member trims its own
+`LOOKBACK_DAYS` window from that shared read (the memo rule — a per-call window is never a memo key; the
+SPY/IWM benchmark tape, never a basket member, comes through the per-security fallback, memoized once).
+The price bound is DERIVED from the members' declarations (`DisplayMember.horizons`, a REQUIRED field —
+the max is `sma.py`'s 600 d, + `MARGIN_DAYS`); the insider read stays **unbounded** because
+`insider_flow_90d` declares `None`: its "no rows at all" (→ the panel's `—`) vs "rows, none in the
+window" (→ `0/0`) semantics would collapse under a floor for a name whose only Form 4s are older than it
+(a batched existence check is the deferred follow-up that would let display take the call's insider bound).
+A member that reads a table it has not declared, or asks for a longer window than it declared, fails
+`tests/signals/test_horizons.py` — never a truncated read. MEASURED on the 190-name Modern Defense thesis
+(dev, host venv → dev DB, 2026-09-03): the `/display-signals` body 16.3 s → 3.1 s and `/call` 10.9 s → 2.1 s (2,851 and
+2,934 per-security queries → one batch query per table), output byte-identical on all eleven theses at two as-ofs. See `docs/INVARIANTS.md` §4.

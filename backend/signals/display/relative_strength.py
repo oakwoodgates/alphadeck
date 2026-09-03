@@ -329,4 +329,13 @@ def _sector_headline(
     )
 
 
-MEMBER = register_display_member(DisplayMember(name=MEMBER_NAME, compute=display))
+# The READ-HORIZON declarations (``signals/horizons.py``). The per-name member reads the member's bars
+# AND the benchmarks' bars at the same lookback (both ``fact_price_eod``); the thesis-level rollup
+# (``sector_rs_for``, not a registered member) declares its own, identical need.
+HORIZONS: dict[str, int | None] = {"fact_price_eod": LOOKBACK_DAYS}
+SECTOR_RS_HORIZONS: dict[str, int | None] = {"fact_price_eod": LOOKBACK_DAYS}
+
+
+MEMBER = register_display_member(
+    DisplayMember(name=MEMBER_NAME, compute=display, horizons=HORIZONS)
+)

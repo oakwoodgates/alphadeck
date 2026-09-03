@@ -20,6 +20,7 @@ from domain.thesis import BasketMember, Thesis
 from domain.workbench import ScoredFigure, ScoredMember
 from signals import catalyst_conviction, dilution_clock
 from signals.base import PointInTimeData
+from signals.horizons import derive_bounds
 
 _MONTHS_PER_QUARTER = 3  # quarterly burn -> monthly (a calendar fact, not a calibration dial)
 
@@ -61,6 +62,26 @@ def _prov(fact: dict[str, Any], **figures: Any) -> Provenance:
     if fact.get("ratified_by"):
         detail["ratified_by"] = fact["ratified_by"]
     return Provenance(source=fact["source"], ref=fact["source_ref"], detail=detail)
+
+
+# The READ-HORIZON declaration (``signals/horizons.py``) for the scored PIT: every table the meters read
+# is UNBOUNDED (``None``). ``fact_price_eod`` in particular must stay unbounded — ``_market_cap`` prices
+# off the LATEST bar as-of, however old it is (a stale/delisted name still shows "price on file"), so an
+# event-time floor would flip that reading, not just trim it.
+HORIZONS: dict[str, int | None] = {
+    "fact_revenue_mix": None,
+    "fact_cash_burn": None,
+    "fact_catalyst": None,
+    "fact_dilution": None,
+    "fact_shares_outstanding": None,
+    "fact_price_eod": None,
+}
+
+
+def scored_bounds() -> dict[str, int | None]:
+    """The SCORED PIT's read bounds (``/workbench/theses/{id}/scored``) — derived from ``HORIZONS``, so
+    every bounded table reads ``None`` (unbounded) and the basket prefetch is the whole gain."""
+    return derive_bounds([HORIZONS])
 
 
 def _purity(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:

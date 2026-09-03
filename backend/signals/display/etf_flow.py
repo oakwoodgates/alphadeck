@@ -213,4 +213,18 @@ def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> Displ
     return compute(pit.fund_shares(security_id), pit.price_history(security_id), asof)
 
 
-MEMBER = register_display_member(DisplayMember(name=MEMBER_NAME, compute=display))
+# The READ-HORIZON declaration (``signals/horizons.py``).
+# - ``fact_fund_shares`` is UNBOUNDED (``None``): the whole sampled series is the basis (the baseline
+#   sample on/before a window start may be any age).
+# - ``fact_price_eod`` at the LONGER trailing window (1 month): a delta is priced at "the close on/before
+#   its sample date", and only deltas inside ``(asof - WINDOW_1M_DAYS, asof]`` reach a metric, so the
+#   member's TRUE need is one close on/before each in-window sample date — normally that day's or the
+#   prior day's bar. The one edge, NAMED not silent: a fund whose price tape has gone stale by more than
+#   (the derived display bound - this window) days — today ~600 d — prices such a delta as
+#   "unpriced (no close on file)", the honest note ``_window`` already carries, never a wrong number.
+HORIZONS: dict[str, int | None] = {"fact_fund_shares": None, "fact_price_eod": WINDOW_1M_DAYS}
+
+
+MEMBER = register_display_member(
+    DisplayMember(name=MEMBER_NAME, compute=display, horizons=HORIZONS)
+)

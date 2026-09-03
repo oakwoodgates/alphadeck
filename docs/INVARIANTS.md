@@ -130,6 +130,29 @@ replay stays honest.
   backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
   is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,
   the no-lookahead test). See `FEED_LOOP.md`.
+- *Also honored by (Board/Cockpit perf PR-1b — the PIT memo rule + the horizon registry):* one
+  `PointInTimeData` per request / per cron assemble **memoizes** each `(table, security_id)` as-of result
+  and **prefetches** a whole basket per table in ONE `db.bitemporal.as_of_many` query — the SAME
+  `valid_from <= asof AND recorded_at <= known_at` gate, the same latest-version pick and tiebreak, tenant-
+  filtered exactly like `as_of`. A memo can never cross a time or tenant boundary: `asof` / `known_at` /
+  `tenant_id` are fixed at construction and a per-call value (a reader's `lookback_days`) is never a memo key.
+  **Read bounds are derived, never hand-typed.** A bounded table (`fact_price_eod`, `fact_insider_txn`) is
+  floored at `valid_from >= asof - bound`, where every reader DECLARES its max horizon (`Detector.horizons(cfg)`
+  from the SAME `CallConfig` the assembler runs with; `DisplayMember.horizons` from the module `LOOKBACK_DAYS`;
+  a module `HORIZONS` on the thesis-level readers and the Workbench scorer) and the PIT's bound per table is
+  `max(declared) + MARGIN_DAYS` (`signals/horizons.py` — today 460 d price / 240 d insider for the call PIT,
+  630 d / unbounded for the display PIT, unbounded for the scored PIT). A reader declaring `None` unbounds the
+  table; a reader with NO declaration fails a TEST — never a truncated read. **The memo rule:** the memo holds
+  ONLY that max-horizon window per `(table, security_id)` (the prefetch floors it in SQL, the per-security
+  fallback trims to the same floor in Python) and every caller trims its OWN window from it. Version-safe:
+  `valid_from` is (or equals) a natural-key column on both bounded tables, so a floor drops whole facts and can
+  never change which version wins. The replay mirror (`replay/pit.py`) is untouched and stays parity-gated.
+  *Enforced by:* `tests/signals/test_horizons.py` (every reader declared; a RECORDING PIT proves each reader's
+  touched tables ⊆ its declaration and its requested window ≤ its declared horizon; the derived numbers pinned;
+  a reader without a declaration cannot be constructed), `tests/db/test_as_of_many.py` (accessor-level equality
+  vs the per-security read at `known_at = now` AND a `known_at` pinned BETWEEN two recorded versions of a fact),
+  `tests/pipeline/test_pit_prefetch_equality.py` (canonical CallCard + display-body equality, incl. the
+  `insider_flow_90d` '—' vs '0/0' shapes), and the grown poison-row test (`test_basket_prefetch_read_is_tenant_isolated`).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 

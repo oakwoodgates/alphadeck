@@ -149,4 +149,11 @@ def detect(
     return score(pit.dilution_facts(security_id), security_id, asof, cfg)
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
+def horizons(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration (``signals/horizons.py``): the convert-terms tape is read UNBOUNDED
+    (``None``) — the detector's own liveness/asof filters select from the full as-of tape, so no event-
+    time floor may ever be applied to it."""
+    return {"fact_dilution": None}
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))

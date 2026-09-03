@@ -367,4 +367,20 @@ def detect(
     )
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
+def horizons(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration (``signals/horizons.py``), from the SAME dials ``score`` runs with.
+
+    - ``fact_insider_txn`` — the anchor walk breaks at the first candidate older than
+      ``insider_sell_liveness_days`` (grade-independent, so every older one is staler) and an episode
+      gathers sales inside ``[anchor - insider_sell_cluster_window_days, anchor]``; the screened-bucket
+      counts are framed on that SAME window. The oldest row that can matter is therefore
+      ``asof - (liveness + cluster window)``.
+    - ``fact_price_eod`` — the SAME horizon, deliberately (the buy side's rule mirrored): the bars feed
+      ONLY the below-day-low screen, and a sale outside the walk is never scored, so its day-low is
+      never needed.
+    """
+    days = cfg.insider_sell_liveness_days + cfg.insider_sell_cluster_window_days
+    return {"fact_insider_txn": days, "fact_price_eod": days}
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))

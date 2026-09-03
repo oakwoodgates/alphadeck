@@ -83,4 +83,11 @@ def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> Displ
     return compute(pit.price_history(security_id, lookback_days=LOOKBACK_DAYS), asof)
 
 
-MEMBER = register_display_member(DisplayMember(name=MEMBER_NAME, compute=display))
+# The READ-HORIZON declaration (``signals/horizons.py``): exactly the lookback ``display`` passes to
+# ``price_history`` — the display PIT's price bound is derived from the max over every member.
+HORIZONS: dict[str, int | None] = {"fact_price_eod": LOOKBACK_DAYS}
+
+
+MEMBER = register_display_member(
+    DisplayMember(name=MEMBER_NAME, compute=display, horizons=HORIZONS)
+)

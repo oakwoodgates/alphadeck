@@ -55,7 +55,9 @@ def test_registry_contains_exactly_the_members_in_display_order():
 
 
 def test_registry_rejects_duplicate_member_names():
-    duplicate = DisplayMember(name="sma_position", compute=lambda pit, security_id, asof: None)
+    duplicate = DisplayMember(
+        name="sma_position", compute=lambda pit, security_id, asof: None, horizons={}
+    )
     with pytest.raises(ValueError, match="already registered"):
         register_display_member(duplicate)
 
@@ -64,7 +66,9 @@ def test_member_rejects_a_signal_stamped_with_another_kind():
     stray = DisplaySignal(
         kind="someone_else", label="x", basis=DisplayBasis(source="fact_price_eod")
     )
-    member = DisplayMember(name="expected_name", compute=lambda pit, security_id, asof: stray)
+    member = DisplayMember(
+        name="expected_name", compute=lambda pit, security_id, asof: stray, horizons={}
+    )
     with pytest.raises(ValueError, match="emitted a signal stamped"):
         member(SimpleNamespace(), _SID, _ASOF)
 

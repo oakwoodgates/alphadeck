@@ -333,4 +333,24 @@ def detect(
     )
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
+def horizons(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration (``signals/horizons.py``): the furthest-back event date ``detect``
+    can ever need per table, from the SAME dials ``score`` runs with.
+
+    - ``fact_insider_txn`` — the anchor walk stops at ``asof - max(core, flip liveness)`` (the
+      ``earliest_live_anchor`` line in ``score``) and each candidate gathers buys inside
+      ``[anchor - insider_cluster_window_days, anchor]``, so the oldest buy that can ever enter a
+      qualifying cluster is ``asof - (max liveness + cluster window)``. An older row would sit in
+      ``p_buys`` but can never be a candidate anchor nor fall inside one's window.
+    - ``fact_price_eod`` — the SAME horizon, deliberately: the bars feed ONLY the per-day low map for
+      ``_is_open_market_buy``, and a buy outside the anchor walk is never scored, so its day-low is never
+      needed; a buy inside the walk has its trade-date bar inside this window.
+    """
+    days = (
+        max(cfg.insider_core_alpha_liveness_days, cfg.insider_flip_alpha_liveness_days)
+        + cfg.insider_cluster_window_days
+    )
+    return {"fact_insider_txn": days, "fact_price_eod": days}
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))

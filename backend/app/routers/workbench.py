@@ -106,7 +106,7 @@ from workbench.draft_jobs import DraftError, DraftInFlight, DraftJob, get_job, s
 from workbench.draft_run_log import write_draft_run_log
 from workbench.enrichment import enrich_for_ciks
 from workbench.research_runner import run_research
-from workbench.scoring import score_thesis
+from workbench.scoring import score_thesis, scored_bounds
 from workbench.term_set import produce_term_set, stamp_edited_term_set
 
 _log = logging.getLogger("alphadeck.workbench")
@@ -123,7 +123,12 @@ def get_scored(
     """Re-derive the per-name Workbench scores live at ``asof`` — a READ-ONLY path (Option B; nothing
     persists). Mirrors the call endpoint: load the thesis (404 + its tenant), thread ``thesis.tenant_id``
     into every scoring fact read so a production thesis scores off production's facts."""
-    pit = PointInTimeData(conn, asof=asof, tenant_id=thesis.tenant_id)
+    # the resolved basket = the PIT's prefetch scope (one query per fact table); ``scored_bounds()`` is
+    # the scorer's own declaration — every table unbounded (signals/horizons.py)
+    basket = {m.security_id for m in thesis.basket if m.security_id is not None}
+    pit = PointInTimeData(
+        conn, asof=asof, tenant_id=thesis.tenant_id, basket=basket, bounds=scored_bounds()
+    )
     scored = score_thesis(pit, thesis)
     sec_ids = {m.security_id for m in scored}
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
