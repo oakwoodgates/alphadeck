@@ -29,6 +29,19 @@ column (``security_id`` vs ``thesis_id``) and the payload column list are both D
 ``information_schema.columns`` at runtime, never hardcoded — so a schema change (a new column, a new
 scoped fact table) is picked up automatically rather than silently going stale.
 
+THE SUPERSEDES EXCEPTION: 8 of the 12 whitelisted tables (cash_burn, catalyst, dilution, fundamentals,
+insider_txn, revenue_mix, shares_outstanding, theme_conviction) carry a self-referencing ``supersedes``
+FK — a correction row points ``supersedes`` at the exact version it replaces, and that replaced row can
+itself be one of this tool's identical-copy candidates. Deleting it would raise a real
+``ForeignKeyViolation`` (hit on dev 2026-09-03 mid-run against ``fact_insider_txn``, which has 278,624
+rows referenced by some ``supersedes``). ``self_referencing_fk_columns`` discovers every such FK column
+per table from ``information_schema`` at runtime — never hardcodes ``supersedes`` — and every candidate
+query EXCLUDES a row referenced through one: a referenced identical copy is KEPT, not deleted. Keeping
+a row is always unobservable (the same argument as EARLIEST-SURVIVES below — a read can only ever
+resolve to a row that's still there), so this is a pure precision loss on a handful of rows, never a
+correctness risk. It also fails loud if any OTHER table is ever found to hold an FK onto a fact table
+(today none do) rather than silently mis-deleting.
+
 MECHANISM: ``ROW(payload_cols) IS NOT DISTINCT FROM lag(ROW(payload_cols)) OVER (PARTITION BY ... ORDER
 BY recorded_at, id)`` — Postgres composite (record) comparison is NULL-safe field-by-field (unlike plain
 ``=`` over rows, which is NULL if any field is NULL), so this is the direct NULL-safe compare the rule
@@ -120,6 +133,54 @@ def partition_columns(scope_col: str, table: str) -> list[str]:
     return ["tenant_id", scope_col] + [c for c in _FACT_IDENTITY[table] if c != scope_col]
 
 
+def self_referencing_fk_columns(conn: psycopg.Connection, table: str) -> list[str]:
+    """FK columns on ``table`` whose constraint points back at ``table`` itself — e.g. ``supersedes``
+    (8 of the 12 whitelisted fact tables carry one: cash_burn, catalyst, dilution, fundamentals,
+    insider_txn, revenue_mix, shares_outstanding, theme_conviction). A correction row's ``supersedes``
+    points at the exact version it replaces; when that replaced row is ALSO one of this tool's
+    identical-copy candidates, deleting it would orphan the pointer (a real ``ForeignKeyViolation`` —
+    hit on dev 2026-09-03 deleting ``fact_insider_txn``, where 278,624 rows are referenced by some
+    ``supersedes``). Keeping a referenced row instead is always safe: the rule's unobservability
+    argument doesn't care WHICH later-or-equal row survives, only that no row a read could ever
+    resolve to gets removed — so this is a pure precision loss on a handful of rows, never a
+    correctness risk.
+
+    DERIVED from ``information_schema`` at runtime — never hardcodes ``supersedes`` — so a renamed or
+    newly-added self-referencing FK is picked up automatically. Also FAILS LOUD if any OTHER table is
+    ever found to hold an FK onto ``table`` (today none do: no FK anywhere targets a fact table except
+    a fact table's own self-referencing one) — that case needs the same exclusion treatment and must
+    never be silently ignored.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT tc.table_name AS referencing_table, kcu.column_name AS referencing_column "
+            "FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
+            "JOIN information_schema.constraint_column_usage ccu "
+            "  ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema "
+            "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public' "
+            "  AND ccu.table_name = %s",
+            (table,),
+        )
+        rows = cur.fetchall()
+    self_cols = sorted({r["referencing_column"] for r in rows if r["referencing_table"] == table})
+    external = sorted(
+        {
+            f"{r['referencing_table']}.{r['referencing_column']}"
+            for r in rows
+            if r["referencing_table"] != table
+        }
+    )
+    if external:
+        raise ValueError(
+            f"{table!r} is referenced by FK(s) from another table {external} that this tool does not "
+            "account for — deleting a row could orphan them. Refusing until dedup_identical_versions "
+            "is updated to exclude rows referenced from outside the table too."
+        )
+    return self_cols
+
+
 # --------------------------------------------------------------------------------------------------
 # The shared "is this row a redundant copy of its immediate predecessor" query — one builder, reused by
 # the dry-run report, the top-5-partitions breakdown, and the delete.
@@ -145,12 +206,14 @@ def _is_dup_select(
     ).format(partition=partition, payload=payload, table=sql.Identifier(table), where=where)
 
 
-def duplicate_ids(
-    conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
-) -> list[UUID]:
-    """The ids of every row whose payload matches the row immediately before it in its partition — the
-    exact set this tool is permitted to delete. Ordered by id for deterministic test/report output.
-    """
+def _candidates_select(
+    conn: psycopg.Connection, table: str, tenant_id: UUID | None
+) -> tuple[sql.Composed, dict, list[str]]:
+    """The shared per-row flags every query below is built on: ``is_dup`` (payload matches the
+    immediate predecessor in its partition) and ``is_referenced`` (some OTHER row's self-FK column —
+    e.g. ``supersedes`` — points at this row's id, so deleting it would orphan that pointer). Computing
+    both flags in ONE place keeps every reporting/delete query in agreement. Returns
+    ``(select, params, partition_cols)``."""
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
     payload_cols = payload_columns(conn, table)
@@ -158,9 +221,53 @@ def duplicate_ids(
     partition_cols = partition_columns(scope_col, table)
     where, params = _tenant_where(tenant_id)
     inner = _is_dup_select(table, payload_cols, partition_cols, where)
+    partition = sql.SQL(", ").join(sql.Identifier(c) for c in partition_cols)
+    fk_cols = self_referencing_fk_columns(conn, table)
+    if fk_cols:
+        referenced = sql.SQL(" UNION ").join(
+            sql.SQL("SELECT {c} AS rid FROM {t} WHERE {c} IS NOT NULL").format(
+                c=sql.Identifier(c), t=sql.Identifier(table)
+            )
+            for c in fk_cols
+        )
+        is_referenced = sql.SQL("(y.id IN ({referenced}))").format(referenced=referenced)
+    else:
+        is_referenced = sql.SQL("false")
+    select = sql.SQL(
+        "SELECT y.id, {partition}, y.is_dup, {is_referenced} AS is_referenced FROM ({inner}) y"
+    ).format(partition=partition, is_referenced=is_referenced, inner=inner)
+    return select, params, partition_cols
+
+
+def duplicate_ids(
+    conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
+) -> list[UUID]:
+    """The DELETABLE ids: payload matches the immediate predecessor in its partition AND no OTHER row's
+    self-FK column (e.g. ``supersedes``) references it. A referenced identical copy is KEPT — see
+    ``self_referencing_fk_columns``. Ordered by id for deterministic test/report output."""
+    select, params, _ = _candidates_select(conn, table, tenant_id)
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("SELECT id FROM ({inner}) x WHERE is_dup ORDER BY id").format(inner=inner),
+            sql.SQL("SELECT id FROM ({s}) z WHERE is_dup AND NOT is_referenced ORDER BY id").format(
+                s=select
+            ),
+            params,
+        )
+        return [r["id"] for r in cur.fetchall()]
+
+
+def referenced_duplicate_ids(
+    conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
+) -> list[UUID]:
+    """Payload-duplicate rows that ARE referenced by a self-FK pointer — kept, never deleted, reported
+    separately so the operator sees exactly how many candidates a ``supersedes``-style correction
+    pinned in place."""
+    select, params, _ = _candidates_select(conn, table, tenant_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL("SELECT id FROM ({s}) z WHERE is_dup AND is_referenced ORDER BY id").format(
+                s=select
+            ),
             params,
         )
         return [r["id"] for r in cur.fetchall()]
@@ -169,20 +276,17 @@ def duplicate_ids(
 def top_duplicate_partitions(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None, limit: int = 5
 ) -> list[dict]:
-    """The ``limit`` partitions with the most identical-copy rows — the "which name/date is the pile-up
-    concentrated on" breakdown for the two big tables."""
-    payload_cols = payload_columns(conn, table)
-    scope_col = scope_column(conn, table)
-    partition_cols = partition_columns(scope_col, table)
-    where, params = _tenant_where(tenant_id)
-    inner = _is_dup_select(table, payload_cols, partition_cols, where)
+    """The ``limit`` partitions with the most DELETABLE identical-copy rows — the "which name/date is
+    the pile-up concentrated on" breakdown for the two big tables (a referenced-and-kept row never
+    actually shrinks the table, so it's excluded from this concentration view too)."""
+    select, params, partition_cols = _candidates_select(conn, table, tenant_id)
     part_list = sql.SQL(", ").join(sql.Identifier(c) for c in partition_cols)
     with conn.cursor() as cur:
         cur.execute(
             sql.SQL(
-                "SELECT {p}, count(*) AS copies FROM ({inner}) x WHERE is_dup "
+                "SELECT {p}, count(*) AS copies FROM ({s}) z WHERE is_dup AND NOT is_referenced "
                 "GROUP BY {p} ORDER BY copies DESC LIMIT %(limit)s"
-            ).format(p=part_list, inner=inner),
+            ).format(p=part_list, s=select),
             {**params, "limit": limit},
         )
         return [dict(r) for r in cur.fetchall()]
@@ -237,7 +341,9 @@ class TableReport:
     table: str
     rows: int
     distinct_facts: int
-    identical_copies: int
+    identical_copies: int  # payload-duplicate rows, total (referenced_kept + deletable)
+    referenced_kept: int  # of those, pinned by a supersedes-style self-FK pointer — KEPT
+    deletable: int  # of those, safe to delete
     top_partitions: list[dict] = field(default_factory=list)
     size_bytes: int = 0
 
@@ -245,13 +351,16 @@ class TableReport:
 def build_report(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
 ) -> TableReport:
-    ids = duplicate_ids(conn, table, tenant_id=tenant_id)
+    deletable_ids = duplicate_ids(conn, table, tenant_id=tenant_id)
+    referenced_ids = referenced_duplicate_ids(conn, table, tenant_id=tenant_id)
     top = top_duplicate_partitions(conn, table, tenant_id=tenant_id) if table in _BIG_TABLES else []
     return TableReport(
         table=table,
         rows=row_count(conn, table, tenant_id=tenant_id),
         distinct_facts=distinct_fact_count(conn, table, tenant_id=tenant_id),
-        identical_copies=len(ids),
+        identical_copies=len(deletable_ids) + len(referenced_ids),
+        referenced_kept=len(referenced_ids),
+        deletable=len(deletable_ids),
         top_partitions=top,
         size_bytes=table_size(conn, table),
     )
@@ -270,7 +379,9 @@ def _print_report(rep: TableReport) -> None:
     print(f"\n-- {rep.table} --")
     print(f"  rows                    : {rep.rows}")
     print(f"  distinct facts          : {rep.distinct_facts}")
-    print(f"  identical later copies  : {rep.identical_copies}  (candidates for deletion)")
+    print(f"  identical later copies  : {rep.identical_copies}")
+    print(f"    referenced by a supersedes-style FK (kept) : {rep.referenced_kept}")
+    print(f"    deletable                                  : {rep.deletable}")
     print(f"  on-disk size            : {_human(rep.size_bytes)} ({rep.size_bytes} bytes)")
     for p in rep.top_partitions:
         copies = p["copies"]
@@ -285,6 +396,8 @@ class ApplyResult:
     rows_after: int
     size_before: int
     size_after: int
+    identical_copies: int
+    referenced_kept: int
     deleted: int
 
 
@@ -292,6 +405,10 @@ def _print_apply(res: ApplyResult) -> None:
     print(f"\n-- {res.table} — APPLIED --")
     print(f"  rows before : {res.rows_before}")
     print(f"  rows after  : {res.rows_after}")
+    print(
+        f"  identical later copies : {res.identical_copies}  "
+        f"(referenced by a supersedes-style FK, kept: {res.referenced_kept})"
+    )
     print(f"  deleted     : {res.deleted}")
     print(f"  size before : {_human(res.size_before)} ({res.size_before} bytes)")
     print(
@@ -330,8 +447,9 @@ def diff_snapshots(before: dict[UUID, str], after: dict[UUID, str]) -> list[UUID
 def apply_table(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
 ) -> list[UUID]:
-    """Delete exactly the flagged duplicate ids for ``table`` (uncommitted — the caller owns the
-    transaction). Returns the deleted ids."""
+    """Delete exactly the DELETABLE duplicate ids for ``table`` (``duplicate_ids`` already excludes any
+    row referenced by a self-FK pointer — uncommitted; the caller owns the transaction). Returns the
+    deleted ids."""
     ids = duplicate_ids(conn, table, tenant_id=tenant_id)
     if ids:
         with conn.cursor() as cur:
@@ -457,6 +575,9 @@ def main(argv: list[str] | None = None) -> None:
         for table in tables:
             rows_before = row_count(conn, table, tenant_id=args.tenant)
             size_before = table_size(conn, table)
+            # read the referenced-and-kept set BEFORE the delete — same unmodified state apply_table
+            # itself reads a moment later; the delete never touches these ids by construction.
+            referenced_ids = referenced_duplicate_ids(conn, table, tenant_id=args.tenant)
             deleted_ids = apply_table(conn, table, tenant_id=args.tenant)  # uncommitted
 
             if before_snapshot is not None:
@@ -482,19 +603,25 @@ def main(argv: list[str] | None = None) -> None:
                 rows_after=rows_after,
                 size_before=size_before,
                 size_after=size_after,
+                identical_copies=len(deleted_ids) + len(referenced_ids),
+                referenced_kept=len(referenced_ids),
                 deleted=len(deleted_ids),
             )
             results.append(res)
             _print_apply(res)
 
         total_deleted = sum(r.deleted for r in results)
+        total_referenced_kept = sum(r.referenced_kept for r in results)
         verify_line = (
             f"verify_asof=PASS(asof={args.verify_asof},known_at={known_at.isoformat()})"
             if before_snapshot is not None
             else "verify_asof=SKIPPED"
         )
         per_table = " ".join(f"{r.table}=-{r.deleted}rows" for r in results)
-        print(f"\nSUMMARY: {per_table} total_deleted={total_deleted} {verify_line}")
+        print(
+            f"\nSUMMARY: {per_table} total_deleted={total_deleted} "
+            f"total_referenced_kept={total_referenced_kept} {verify_line}"
+        )
     finally:
         conn.close()
 
