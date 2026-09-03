@@ -42,6 +42,9 @@ const SUBJECTS = [
   { id: "huge", basket_size: 200 },
 ];
 // by basket size: zero(0) tiny(1) small(4) mid(90) big(196) huge(200)
+const sortedIds = [...SUBJECTS]
+  .sort((a, b) => a.basket_size - b.basket_size)
+  .map((s) => s.id);
 
 function mount(qc = createQueryClient(), subjects = SUBJECTS) {
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -66,28 +69,37 @@ describe("useCalls — progressive paint (C3)", () => {
   it("fires at most CALL_CONCURRENCY at once, smallest basket first", async () => {
     mount();
     await waitFor(() => expect(started.length).toBe(CALL_CONCURRENCY));
-    // the three SMALLEST baskets, and nothing else — the 196- and 200-name theses wait
-    expect(startedSet()).toEqual(["small", "tiny", "zero"]);
+    // the CALL_CONCURRENCY smallest baskets, and nothing else — the rest wait
+    expect(startedSet()).toEqual(sortedIds.slice(0, CALL_CONCURRENCY).sort());
 
-    // a settled call frees exactly ONE slot, and it goes to the next-smallest
-    await resolve("tiny");
-    await waitFor(() => expect(started.length).toBe(4));
-    expect(started[3]).toBe("mid");
+    // the next-smallest query must NOT start while the in-flight one is still pending — only
+    // resolving it opens the slot. Walk the whole size-ordered queue one resolve at a time (at
+    // CALL_CONCURRENCY=1 this is the literal staircase the paint produces).
+    for (let next = CALL_CONCURRENCY; next < sortedIds.length; next++) {
+      await act(async () => {
+        await Promise.resolve(); // let any queued microtasks settle — nothing new should start
+      });
+      expect(started.length).toBe(next); // still waiting on the in-flight one(s)
 
-    await resolve("zero");
-    await waitFor(() => expect(started[4]).toBe("big"));
-    await resolve("small");
-    await waitFor(() => expect(started[5]).toBe("huge"));
+      await resolve(sortedIds[next - CALL_CONCURRENCY]); // frees exactly one slot
+      await waitFor(() => expect(started.length).toBe(next + 1));
+      expect(started[next]).toBe(sortedIds[next]); // the freed slot goes to the next-smallest
+    }
+    // drain whatever is still in flight so nothing dangles between tests
+    for (const id of sortedIds.slice(sortedIds.length - CALL_CONCURRENCY)) await resolve(id);
+
     // every thesis eventually ran, and the launch sequence after the first batch is size-ordered
-    expect(startedSet()).toEqual(["big", "huge", "mid", "small", "tiny", "zero"]);
+    expect(startedSet()).toEqual([...sortedIds].sort());
   });
 
   it("returns results ALIGNED to the input order, not the launch order", async () => {
     const { result } = mount();
-    await waitFor(() => expect(started.length).toBe(CALL_CONCURRENCY));
-    for (const id of ["zero", "tiny", "small"]) await resolve(id);
-    await waitFor(() => expect(started.length).toBe(6));
-    for (const id of ["mid", "big", "huge"]) await resolve(id);
+    // resolve strictly in launch (size) order — with CALL_CONCURRENCY=1 that's the only order
+    // possible, but the assertion below is what actually matters: alignment to INPUT order.
+    for (const id of sortedIds) {
+      await waitFor(() => expect(started).toContain(id));
+      await resolve(id);
+    }
 
     await waitFor(() => expect(result.current.every((r) => r.isSuccess)).toBe(true));
     expect(result.current.map((r) => r.data?.thesis_id)).toEqual(SUBJECTS.map((s) => s.id));
@@ -100,9 +112,11 @@ describe("useCalls — progressive paint (C3)", () => {
 
     const { result } = mount(qc);
     await waitFor(() => expect(started.length).toBe(CALL_CONCURRENCY));
-    // the cached one never re-fetches, and all three slots went to real work — "mid" (the 4th
-    // smallest) is in flight only because "zero" took no slot
-    expect(startedSet()).toEqual(["mid", "small", "tiny"]);
+    // the cached one never re-fetches, so its slot(s) go to the next-smallest not-yet-started
+    // theses instead — "zero" is excluded from the queue entirely
+    expect(startedSet()).toEqual(
+      sortedIds.filter((id) => id !== "zero").slice(0, CALL_CONCURRENCY).sort(),
+    );
     expect(result.current[3].data?.thesis_id).toBe("zero"); // index 3 = "zero" in input order
   });
 
@@ -118,8 +132,10 @@ describe("useCalls — progressive paint (C3)", () => {
     });
 
     mount();
-    // "zero" fails (1 retry -> 2 attempts), then its slot opens for the next-smallest
-    await waitFor(() => expect(started.filter((id) => id === "mid").length).toBe(1), {
+    // "zero" is in the initial batch and fails (1 retry -> 2 attempts); its slot then opens for
+    // the next-smallest thesis that hadn't started yet — sortedIds[CALL_CONCURRENCY]
+    const nextSmallest = sortedIds[CALL_CONCURRENCY];
+    await waitFor(() => expect(started.filter((id) => id === nextSmallest).length).toBe(1), {
       timeout: 5000,
     });
   });
