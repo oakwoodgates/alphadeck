@@ -151,7 +151,7 @@ export function useCall(thesisId: string, asof: string) {
 }
 
 /** How many Board `/call`s may be in flight at once (C3). */
-export const CALL_CONCURRENCY = 3;
+export const CALL_CONCURRENCY = 1;
 
 /** The Board's thesis shape this hook needs: an id and the basket size that orders the paint. */
 type CallSubject = { id: string; basket_size?: number | null };
@@ -159,10 +159,14 @@ type CallSubject = { id: string; basket_size?: number | null };
 // The Board computes a call per thesis to place each card in its lifecycle column.
 //
 // PROGRESSIVE PAINT (C3), and ONLY that: the queries fire smallest-basket-first, at most
-// CALL_CONCURRENCY at a time. Under one uvicorn worker and one GIL this CANNOT shorten the cold
-// total — MEASURED (§8.4): five big theses concurrently = 1.1× the sequential sum, so ordering
-// them changes what lands first, not when the last one lands. What it buys is the first big armed
-// card at ~3 s instead of all five arriving together at the end.
+// CALL_CONCURRENCY at a time (now 1, tuned down from 3 on 2026-09-03). Under one uvicorn worker
+// and one GIL, concurrent calls don't run in parallel — they land together at roughly the same
+// time: MEASURED on prod (§8.4) with a cap of 3, the four armed theses' cards landed at
+// 4.5 / 5.0 / 8.6 / 10.3 s, while the ungated storm landed them all together at ~7–8 s. A cap of 1
+// turns the cold Board into a staircase — the small baskets paint in the first second, then each
+// big thesis lands ~2 s apart — at a cost of at most ~10% on the total (concurrency was only ever
+// worth 1.1× on this backend). This is a progressive-PAINT choice; it does not change what any
+// call computes.
 //
 // The gate is a PURE FUNCTION of (subjects, asof, the query cache), computed in render before
 // useQueries — no state, no effect, so there is no race and no render loop: a query settling
