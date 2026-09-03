@@ -44,7 +44,14 @@ def _append_price(conn, security_id, *, close, recorded_at, d=_D):
 
 
 def _append_insider(
-    conn, security_id, *, accession, aff_10b5_1, recorded_at, insider_name="Jane Doe"
+    conn,
+    security_id,
+    *,
+    accession,
+    aff_10b5_1,
+    recorded_at,
+    insider_name="Jane Doe",
+    supersedes=None,
 ):
     return append_fact(
         conn,
@@ -62,6 +69,26 @@ def _append_insider(
             valid_from=date(2026, 6, 1),
             recorded_at=recorded_at,
             aff_10b5_1=aff_10b5_1,
+            supersedes=supersedes,
+        ),
+    )
+
+
+def _append_catalyst(conn, security_id, *, source_ref, label, recorded_at, supersedes=None):
+    return append_fact(
+        conn,
+        "fact_catalyst",
+        dict(
+            tenant_id=DEFAULT_TENANT_ID,
+            security_id=security_id,
+            catalyst_type="regulatory",
+            grade="flip",
+            label=label,
+            source="ratified",
+            source_ref=source_ref,
+            valid_from=date(2026, 6, 1),
+            recorded_at=recorded_at,
+            supersedes=supersedes,
         ),
     )
 
@@ -255,6 +282,113 @@ def test_apply_with_real_verify_asof_end_to_end(db, security_id):
     finally:
         fresh.rollback()
         fresh.close()
+
+
+# --------------------------------------------------------------------------------------------------
+# 2.5. The dev abort, reproduced: a row that IS an identical-copy candidate but is also referenced by
+# another row's self-referencing `supersedes` FK must be KEPT (deleting it raises a real
+# ForeignKeyViolation on the real schema), while an unreferenced identical copy is still deleted, with
+# no error. Runs against the REAL migrated schema (the `db` fixture applies every migration, so the
+# fact_insider_txn_supersedes_fkey / fact_catalyst_supersedes_fkey constraints are live).
+# --------------------------------------------------------------------------------------------------
+
+
+def test_self_referencing_fk_columns_finds_supersedes_and_nothing_external(db):
+    assert dedup.self_referencing_fk_columns(db, "fact_insider_txn") == ["supersedes"]
+    assert dedup.self_referencing_fk_columns(db, "fact_catalyst") == ["supersedes"]
+    assert (
+        dedup.self_referencing_fk_columns(db, "fact_price_eod") == []
+    )  # no supersedes column at all
+
+
+def test_apply_keeps_a_row_referenced_by_supersedes_and_deletes_the_rest_on_insider_txn(
+    db, security_id
+):
+    """The exact dev shape: THREE plain seed re-appends (v1, v2, v3 — all supersedes=NULL, byte-
+    identical) followed by a SEPARATE 0037/0040-style correction whose ``supersedes`` points at the
+    MIDDLE copy (v2), not the first or last — exactly how the real backfill's "latest version at the
+    time" landed on one of the piled-up seed copies. v1 is the earliest survivor (never a candidate);
+    v2 IS a candidate (dup of v1) but is REFERENCED by the correction, so it must be KEPT; v3 is a dup
+    of v2 and is unreferenced, so it IS deleted. apply_table must not raise ForeignKeyViolation."""
+    t0, t1, t2, t3 = (datetime(2026, 6, i, tzinfo=timezone.utc) for i in (1, 2, 3, 4))
+    v1 = _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t0)
+    v2 = _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t1)
+    v3 = _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t2)
+    correction = _append_insider(
+        db, security_id, accession="acc-1", aff_10b5_1=True, recorded_at=t3, supersedes=v2
+    )
+    db.commit()
+    before = _count(db, "fact_insider_txn")
+
+    assert dedup.referenced_duplicate_ids(db, "fact_insider_txn") == [v2]
+    assert dedup.duplicate_ids(db, "fact_insider_txn") == [v3]
+
+    deleted = dedup.apply_table(db, "fact_insider_txn")  # would raise ForeignKeyViolation pre-fix
+    db.commit()
+
+    assert deleted == [v3]
+    assert _count(db, "fact_insider_txn") == before - 1
+    with db.cursor() as cur:
+        cur.execute("SELECT id FROM fact_insider_txn ORDER BY id")
+        # v2 survives — referenced by the correction, not a dud; v1 survives as the earliest version;
+        # the correction itself was never a candidate (its payload differs from v3's)
+        assert {r["id"] for r in cur.fetchall()} == {v1, v2, correction}
+
+
+def test_apply_keeps_a_referenced_row_on_a_small_supersedes_table_fact_catalyst(db, security_id):
+    """The same shape on a SECOND, small self-referencing table — proves the FK discovery + exclusion
+    isn't insider_txn-specific."""
+    t0, t1, t2, t3 = (datetime(2026, 6, i, tzinfo=timezone.utc) for i in (1, 2, 3, 4))
+    v1 = _append_catalyst(db, security_id, source_ref="ref-1", label="l", recorded_at=t0)
+    v2 = _append_catalyst(db, security_id, source_ref="ref-1", label="l", recorded_at=t1)
+    v3 = _append_catalyst(db, security_id, source_ref="ref-1", label="l", recorded_at=t2)
+    correction = _append_catalyst(
+        db, security_id, source_ref="ref-1", label="RESTATED", recorded_at=t3, supersedes=v2
+    )
+    db.commit()
+    before = _count(db, "fact_catalyst")
+
+    assert dedup.referenced_duplicate_ids(db, "fact_catalyst") == [v2]
+    assert dedup.duplicate_ids(db, "fact_catalyst") == [v3]
+
+    deleted = dedup.apply_table(db, "fact_catalyst")
+    db.commit()
+
+    assert deleted == [v3]
+    assert _count(db, "fact_catalyst") == before - 1
+    with db.cursor() as cur:
+        cur.execute("SELECT id FROM fact_catalyst ORDER BY id")
+        assert {r["id"] for r in cur.fetchall()} == {v1, v2, correction}
+
+
+def test_second_apply_is_a_no_op_across_every_table_including_referenced_rows(db, security_id):
+    """Idempotency after the fix: dev landed 7 tables and aborted on insider_txn mid-run, so a rerun
+    MUST be a no-op on the already-finished tables and finish cleanly on the rest — a referenced row
+    stays referenced (never re-flagged as newly deletable) on every subsequent run."""
+    t0, t1, t2, t3 = (datetime(2026, 6, i, tzinfo=timezone.utc) for i in (1, 2, 3, 4))
+    _append_price(db, security_id, close=10.0, recorded_at=t0)
+    _append_price(db, security_id, close=10.0, recorded_at=t1)  # a plain dup, no FK involved
+    _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t0)
+    v2 = _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t1)
+    _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t2)
+    _append_insider(
+        db, security_id, accession="acc-1", aff_10b5_1=True, recorded_at=t3, supersedes=v2
+    )
+    db.commit()
+
+    for table in ("fact_price_eod", "fact_insider_txn"):
+        first = dedup.apply_table(db, table)
+        db.commit()
+        assert first, f"expected the first apply on {table} to delete something"
+        before_second = _count(db, table)
+
+        second = dedup.apply_table(db, table)
+        db.commit()
+
+        assert (
+            second == []
+        )  # count the TABLE, not the read — the convention this whole tool follows
+        assert _count(db, table) == before_second
 
 
 # --------------------------------------------------------------------------------------------------
