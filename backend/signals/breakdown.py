@@ -249,5 +249,20 @@ def detect_flip(
     return flip_score(bars, security_id, asof, cfg)
 
 
-DETECTOR_CORE = register_detector(Detector(name=DETECTOR_CORE_NAME, detect=detect_core))
-DETECTOR_FLIP = register_detector(Detector(name=DETECTOR_FLIP_NAME, detect=detect_flip))
+def horizons_core(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration: exactly the lookback ``detect_core`` passes to ``price_history``."""
+    return {"fact_price_eod": cfg.breakdown_core_lookback_days}
+
+
+def horizons_flip(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration: the flip breakdown reads the SAME 8-day-breakout lookback dial
+    ``detect_flip`` passes to ``price_history`` (the mirror of ``volume_breakout``)."""
+    return {"fact_price_eod": cfg.breakout_lookback_days}
+
+
+DETECTOR_CORE = register_detector(
+    Detector(name=DETECTOR_CORE_NAME, detect=detect_core, horizons=horizons_core)
+)
+DETECTOR_FLIP = register_detector(
+    Detector(name=DETECTOR_FLIP_NAME, detect=detect_flip, horizons=horizons_flip)
+)

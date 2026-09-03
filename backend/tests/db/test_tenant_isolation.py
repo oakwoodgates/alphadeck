@@ -19,8 +19,9 @@ import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from db.bitemporal import append_fact, as_of, as_of_thesis
+from db.bitemporal import append_fact, as_of, as_of_many, as_of_thesis
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG
 from domain.enums import State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.cash_burn import ingest_cash_burn
@@ -33,6 +34,7 @@ from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
+from signals.horizons import call_bounds
 from workbench.chain_draft import (
     PlacementStatus,
     ProposedPlacement,
@@ -627,3 +629,53 @@ def test_scoreboard_issuer_name_read_is_tenant_isolated(db):
 
     assert security_issuer_name(db, DEFAULT_TENANT_ID, demo_sec) == "Devco Inc"
     assert security_issuer_name(db, PROD_TENANT_ID, demo_sec) is None  # never the demo row's name
+
+
+def test_basket_prefetch_read_is_tenant_isolated(db):
+    """The per-basket PREFETCH (``as_of_many`` + the basket-scoped ``PointInTimeData``, Board/Cockpit
+    perf PR-1b) is a new read surface — it stays on the tenant filter exactly like ``as_of``: a batch
+    whose id list carries the OTHER tenant's security (the poison row) returns ``[]`` for it under this
+    tenant, on the price AND the insider table, through the raw batch read and through every PIT
+    accessor (the identity batch included). Grows the poison-row proof (discipline-not-RLS)."""
+    provision_tenant(db, "prod-prefetch", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID)
+    prod_sec = _security(db, PROD_TENANT_ID)
+    bar = {"d": date(2026, 5, 29), "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+    ingest_prices(db, demo_sec, [bar])
+    ingest_prices(db, prod_sec, [bar], tenant_id=PROD_TENANT_ID)
+    xml = (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
+    ingest_form4(db, demo_sec, xml, "DEMO-F4")
+    ingest_form4(db, prod_sec, xml, "PROD-F4", tenant_id=PROD_TENANT_ID)
+    db.commit()
+
+    asof = date(2026, 6, 1)
+    both = [demo_sec, prod_sec]
+    for table in ("fact_price_eod", "fact_insider_txn"):
+        demo = as_of_many(
+            db, table, security_ids=both, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID
+        )
+        prod = as_of_many(
+            db, table, security_ids=both, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID
+        )
+        assert demo[demo_sec] and demo[prod_sec] == []  # the poison row never crosses
+        assert prod[prod_sec] and prod[demo_sec] == []
+        assert {r["tenant_id"] for r in demo[demo_sec]} == {DEFAULT_TENANT_ID}
+        assert {r["tenant_id"] for r in prod[prod_sec]} == {PROD_TENANT_ID}
+
+    bounds = call_bounds(DEFAULT_CONFIG)
+    demo_pit = PointInTimeData(
+        db, asof=asof, known_at=_KNOWN, tenant_id=DEFAULT_TENANT_ID, basket=both, bounds=bounds
+    )
+    prod_pit = PointInTimeData(
+        db, asof=asof, known_at=_KNOWN, tenant_id=PROD_TENANT_ID, basket=both, bounds=bounds
+    )
+    for accessor in ("price_history", "insider_txns"):
+        assert getattr(demo_pit, accessor)(demo_sec) and getattr(demo_pit, accessor)(prod_sec) == []
+        assert getattr(prod_pit, accessor)(prod_sec) and getattr(prod_pit, accessor)(demo_sec) == []
+    # the identity batch is tenant-filtered too: the other tenant's row reads as unknown (None)
+    assert (
+        demo_pit.security_cik(demo_sec) == "0001773751" and demo_pit.security_cik(prod_sec) is None
+    )
+    assert (
+        prod_pit.security_cik(prod_sec) == "0001773751" and prod_pit.security_cik(demo_sec) is None
+    )

@@ -337,4 +337,17 @@ def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> Displ
     return compute(pit.insider_txns(security_id), asof, day_lows=day_lows)
 
 
-MEMBER = register_display_member(DisplayMember(name=MEMBER_NAME, compute=display))
+# The READ-HORIZON declaration (``signals/horizons.py``).
+# - ``fact_insider_txn`` is UNBOUNDED (``None``) on purpose: ``compute`` uses "no rows at all" to mean
+#   "no Form 4 ingested -> render nothing (the panel's '—')" versus "rows, but none in the window ->
+#   0/0". A floor would collapse the two for a name whose only filings are older than it, so this
+#   member keeps the whole display PIT's insider read unbounded (a batched existence check is the
+#   deferred follow-up that would let display take the call's insider bound).
+# - ``fact_price_eod`` at the trailing window: the bars feed ONLY the day-low map for the buys inside
+#   ``(asof - WINDOW_DAYS, asof]``, so a bar older than the window is never consulted.
+HORIZONS: dict[str, int | None] = {"fact_insider_txn": None, "fact_price_eod": WINDOW_DAYS}
+
+
+MEMBER = register_display_member(
+    DisplayMember(name=MEMBER_NAME, compute=display, horizons=HORIZONS)
+)

@@ -38,6 +38,9 @@ LOOKBACK_DAYS = 250
 # The thrust (the loud state, #7): a majority above the line AND a surge vs DELTA_LOOKBACK_BARS ago.
 THRUST_MIN_BREADTH = 0.50  # >= 50% of counted members at/above their 50d SMA
 THRUST_MIN_DELTA_PTS = 25.0  # AND breadth rose by >= 25 percentage points vs 20 bars ago
+# The READ-HORIZON declaration (``signals/horizons.py``) for this THESIS-LEVEL reader (not a registered
+# per-security member, so it declares here): exactly the lookback ``breadth_for`` passes per member.
+HORIZONS: dict[str, int | None] = {"fact_price_eod": LOOKBACK_DAYS}
 
 
 def _sma_at(closes: list[float], end_idx: int, window: int) -> float | None:

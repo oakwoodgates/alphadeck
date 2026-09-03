@@ -27,6 +27,7 @@ from repositories import calls_repo, decisions_repo, thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import registered_display_members, relative_strength, theme_breadth
+from signals.horizons import display_bounds
 
 router = APIRouter(prefix="/theses", tags=["theses"])
 
@@ -133,11 +134,15 @@ def get_display_signals(
     untouched. Covers every resolved basket member; a member with no computable indicator (e.g. no
     ingested bars yet) shows with ``signals: []`` — an honest empty, never a dropped row.
     """
-    pit = PointInTimeData(conn, asof=asof, tenant_id=thesis.tenant_id)
     sids: list[UUID] = []
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in sids:
             sids.append(m.security_id)
+    # the resolved basket = the PIT's prefetch scope; ``display_bounds()`` = the registry-derived read
+    # bounds over every display member + the two thesis-level readers (signals/horizons.py)
+    pit = PointInTimeData(
+        conn, asof=asof, tenant_id=thesis.tenant_id, basket=sids, bounds=display_bounds()
+    )
     ticker_for = master.tickers_for(conn, set(sids), tenant_id=thesis.tenant_id)
     members = [
         MemberDisplaySignalsOut(

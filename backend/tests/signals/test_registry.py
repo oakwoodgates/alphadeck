@@ -66,6 +66,7 @@ def test_registry_rejects_duplicate_detector_names():
     duplicate = Detector(
         name="insider_conviction",
         detect=lambda pit, security_id, asof, cfg: None,
+        horizons=lambda cfg: {},
     )
     with pytest.raises(ValueError, match="already registered"):
         register_detector(duplicate)
@@ -75,6 +76,7 @@ def test_detector_rejects_an_event_stamped_with_another_name():
     detector = Detector(
         name="expected_name",
         detect=lambda pit, security_id, asof, cfg: insider_event(),
+        horizons=lambda cfg: {},
     )
     with pytest.raises(ValueError, match="emitted event stamped"):
         detector(SimpleNamespace(), SID, ASOF, DEFAULT_CONFIG)

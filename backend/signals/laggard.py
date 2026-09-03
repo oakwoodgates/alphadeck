@@ -35,6 +35,15 @@ from signals.common import fired_signal, source_provenance
 DETECTOR_NAME = "laggard"
 
 
+def HORIZONS(
+    cfg: CallConfig,
+) -> dict[str, int | None]:  # noqa: N802 — the registry's module-level name
+    """The READ-HORIZON declaration (``signals/horizons.py``) for this THESIS-LEVEL reader (not a
+    registered per-security detector, so it declares here): exactly the lookback ``detect`` passes to
+    ``price_history`` for every basket member."""
+    return {"fact_price_eod": cfg.laggard_lookback_days}
+
+
 def _return(closes: list[float], days: int) -> float | None:
     """Close-to-close return over ``days`` TRADING bars (``close_now / close_{days back} − 1``) — the
     same window convention as ``signals.display.trailing_returns``. ``None`` (an honest gap, never a

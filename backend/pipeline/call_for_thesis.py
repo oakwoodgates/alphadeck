@@ -10,6 +10,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from pipeline.core import assemble_from_pit
 from repositories import calls_repo, decisions_repo, thesis_repo
 from signals.base import PointInTimeData
+from signals.horizons import call_bounds
 
 
 def call_for_thesis(
@@ -50,7 +51,19 @@ def call_for_thesis(
     # write — making both the API read path and the batch pipeline tenant-correct from this one place.
     # Pass it explicitly: the column is NOT NULL, so a loaded thesis's tenant_id is non-None; never
     # `or DEFAULT` here, so a None would surface as a bug rather than silently read demo facts.
-    pit = PointInTimeData(conn, asof=asof, known_at=known_at, tenant_id=thesis.tenant_id)
+    # The resolved basket is the PIT's PREFETCH scope (one query per fact table for the whole thesis)
+    # and ``call_bounds(cfg)`` its registry-DERIVED read bounds — from the SAME cfg the assembler runs
+    # with, so a widened dial widens the bound. Which rows a detector sees is unchanged (the memo
+    # rule, ``signals/base.py``); only where they are fetched from.
+    basket = {m.security_id for m in thesis.basket if m.security_id is not None}
+    pit = PointInTimeData(
+        conn,
+        asof=asof,
+        known_at=known_at,
+        tenant_id=thesis.tenant_id,
+        basket=basket,
+        bounds=call_bounds(cfg),
+    )
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
         calls_repo.append(conn, card, thesis.tenant_id)

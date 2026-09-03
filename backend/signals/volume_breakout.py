@@ -183,4 +183,9 @@ def detect(
     return score(bars, security_id, asof, cfg)
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect))
+def horizons(cfg: CallConfig) -> dict[str, int | None]:
+    """The READ-HORIZON declaration: exactly the lookback ``detect`` passes to ``price_history``."""
+    return {"fact_price_eod": cfg.breakout_lookback_days}
+
+
+DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))

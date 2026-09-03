@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -150,6 +151,66 @@ def as_of(
         known_at=known_at,
         tenant_id=tenant_id,
     )
+
+
+def as_of_many(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    security_ids: Collection[UUID],
+    asof: date,
+    known_at: datetime,
+    tenant_id: UUID,
+    valid_from_lower: date | None = None,
+) -> dict[UUID, list[dict[str, Any]]]:
+    """The BATCH twin of ``as_of``: ONE query for a whole basket of securities, the SAME bitemporal gate.
+
+    Row-for-row equivalent to calling ``as_of`` once per id — same WHERE gate (``valid_from <= asof AND
+    <knowability> <= known_at``, tenant-filtered exactly like ``_as_of``), the same latest-version-per-
+    natural-key pick, the same deterministic ``recorded_at DESC, id DESC`` tiebreak, and the same
+    within-security row ORDER: the ``DISTINCT ON`` partition is the per-security natural key with
+    ``security_id`` prefixed, so each security's partition (and its ``ORDER BY`` prefix) is exactly what
+    the scoped read sees. Returns an entry for EVERY requested id — ``[]`` when it has no rows — so a
+    caller can memoize "nothing on file" and never re-query.
+
+    ``valid_from_lower`` is an OPTIONAL event-time floor (``valid_from >= lower``): the horizon-registry
+    read bound (``signals/horizons.py``). It is version-safe on the tables it is used for because every
+    version of one logical fact shares its ``valid_from`` (``fact_price_eod``: ``valid_from = d`` and
+    ``d`` is the natural key; ``fact_insider_txn``: ``valid_from`` IS a natural-key column), so a floor
+    can only drop whole facts older than the floor — never change which VERSION of a fact wins. The
+    floor is never applied by this function on its own initiative: it is a caller-supplied, registry-
+    derived bound (or None), and a caller that trims further does so in Python (the memo rule).
+    """
+    if table not in _FACT_IDENTITY:
+        raise ValueError(f"unknown fact table: {table!r}")
+    ids = list(dict.fromkeys(security_ids))  # de-duplicated, order-preserving
+    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in ids}
+    if not ids:
+        return out
+    partition = ["security_id"] + [c for c in _FACT_IDENTITY[table] if c != "security_id"]
+    ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
+    knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
+    lower = sql.SQL(" AND valid_from >= %(lower)s") if valid_from_lower is not None else sql.SQL("")
+    query = sql.SQL(
+        "SELECT DISTINCT ON ({ident}) * FROM {table} "
+        "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower} "
+        "ORDER BY {ident}, recorded_at DESC, id DESC"
+    ).format(ident=ident, table=sql.Identifier(table), knowability=knowability, lower=lower)
+    with conn.cursor() as cur:
+        cur.execute(
+            query,
+            {
+                "tenant_id": tenant_id,
+                "ids": ids,
+                "asof": asof,
+                "known_at": known_at,
+                "lower": valid_from_lower,
+            },
+        )
+        for row in cur.fetchall():
+            out[row["security_id"]].append(row)
+    return out
 
 
 def as_of_thesis(

@@ -12,7 +12,7 @@ would append a call-of-record row every night. See ``docs/DISPLAY_SIGNALS.md``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
@@ -121,10 +121,17 @@ DisplayFn = Callable[[DisplayPointInTimeData, UUID, date], DisplaySignal | None]
 
 @dataclass(frozen=True, slots=True)
 class DisplayMember:
-    """One registered display member with the read-only contract."""
+    """One registered display member with the read-only contract.
+
+    ``horizons`` is REQUIRED (no default): ``{fact table: max days before asof the member reads, or
+    None = unbounded}`` — a STATIC mapping from the module's own ``LOOKBACK_DAYS``-style dials (the
+    seam cannot import ``CallConfig``). The display point-in-time view's read bound for a table is
+    DERIVED from these declarations, so a member with none fails the registry test, never a
+    truncated read (``signals/horizons.py``)."""
 
     name: str
     compute: DisplayFn
+    horizons: Mapping[str, int | None]
 
     def __call__(
         self, pit: DisplayPointInTimeData, security_id: UUID, asof: date
