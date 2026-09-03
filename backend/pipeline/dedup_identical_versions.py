@@ -42,6 +42,17 @@ resolve to a row that's still there), so this is a pure precision loss on a hand
 correctness risk. It also fails loud if any OTHER table is ever found to hold an FK onto a fact table
 (today none do) rather than silently mis-deleting.
 
+THE HASH-JOIN FIX: the referenced-id check is a ``LEFT JOIN`` against the DISTINCT set of referenced
+ids, never an ``id IN (SELECT ...)``. Postgres hash/merge-joins a ``LEFT JOIN`` regardless of size
+(spilling to disk past ``work_mem`` if needed), but an ``IN`` subquery too large to fit a hashed subplan
+in ``work_mem`` falls back to re-scanning the whole materialized list PER ROW — an
+``O(rows x references)`` plan. Measured on dev (2026-09-04): 605k ``fact_insider_txn`` rows x 278,585
+non-null ``supersedes`` under the ``IN`` form planned at cost ~7.8 BILLION and hung for 10+ minutes
+before being terminated (nothing written — the query never finished computing candidates). The
+candidate set is also computed EXACTLY ONCE per table per run (``fetch_candidates``, returning a
+``Candidates`` with both the deletable and referenced id lists already partitioned) — the report and
+``apply_table`` both reuse it, so a large table's window query is never paid for twice.
+
 MECHANISM: ``ROW(payload_cols) IS NOT DISTINCT FROM lag(ROW(payload_cols)) OVER (PARTITION BY ... ORDER
 BY recorded_at, id)`` — Postgres composite (record) comparison is NULL-safe field-by-field (unlike plain
 ``=`` over rows, which is NULL if any field is NULL), so this is the direct NULL-safe compare the rule
@@ -213,7 +224,16 @@ def _candidates_select(
     immediate predecessor in its partition) and ``is_referenced`` (some OTHER row's self-FK column —
     e.g. ``supersedes`` — points at this row's id, so deleting it would orphan that pointer). Computing
     both flags in ONE place keeps every reporting/delete query in agreement. Returns
-    ``(select, params, partition_cols)``."""
+    ``(select, params, partition_cols)``.
+
+    ``is_referenced`` is a ``LEFT JOIN`` against the DISTINCT set of referenced ids, never an
+    ``IN (SELECT ...)`` — Postgres hash/merge-joins a ``LEFT JOIN`` (spilling to disk past
+    ``work_mem`` if the referenced set is large) but, for an ``IN`` subquery too big to fit a hashed
+    subplan in ``work_mem``, falls back to re-scanning the whole materialized list PER ROW (an
+    ``O(rows x references)`` plan). Measured on dev (2026-09-04): 605k ``fact_insider_txn`` rows x
+    278,585 non-null ``supersedes`` under the ``IN`` form planned at cost ~7.8 BILLION and hung for
+    10+ minutes; the ``LEFT JOIN`` form is the fix.
+    """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
     payload_cols = payload_columns(conn, table)
@@ -225,52 +245,75 @@ def _candidates_select(
     fk_cols = self_referencing_fk_columns(conn, table)
     if fk_cols:
         referenced = sql.SQL(" UNION ").join(
-            sql.SQL("SELECT {c} AS rid FROM {t} WHERE {c} IS NOT NULL").format(
+            sql.SQL("SELECT DISTINCT {c} AS rid FROM {t} WHERE {c} IS NOT NULL").format(
                 c=sql.Identifier(c), t=sql.Identifier(table)
             )
             for c in fk_cols
         )
-        is_referenced = sql.SQL("(y.id IN ({referenced}))").format(referenced=referenced)
+        select = sql.SQL(
+            "SELECT y.id, {partition}, y.is_dup, (r.rid IS NOT NULL) AS is_referenced "
+            "FROM ({inner}) y LEFT JOIN ({referenced}) r ON r.rid = y.id"
+        ).format(partition=partition, inner=inner, referenced=referenced)
     else:
-        is_referenced = sql.SQL("false")
-    select = sql.SQL(
-        "SELECT y.id, {partition}, y.is_dup, {is_referenced} AS is_referenced FROM ({inner}) y"
-    ).format(partition=partition, is_referenced=is_referenced, inner=inner)
+        select = sql.SQL(
+            "SELECT y.id, {partition}, y.is_dup, false AS is_referenced FROM ({inner}) y"
+        ).format(partition=partition, inner=inner)
     return select, params, partition_cols
+
+
+@dataclass
+class Candidates:
+    """The result of ONE execution of the shared candidates query, already partitioned into the two
+    outcomes every caller needs — computed once per table per run, never re-queried, because the
+    window query itself (a ``lag() OVER (PARTITION BY ...)`` scan of the whole table) is the expensive
+    part on a large table: paying for it twice (once for the report, once for the apply) doubles the
+    cost for nothing."""
+
+    table: str
+    deletable_ids: list[UUID]  # payload-duplicate AND unreferenced — safe to delete
+    referenced_ids: list[UUID]  # payload-duplicate but referenced by a self-FK pointer — KEPT
+
+    @property
+    def identical_copies(self) -> int:
+        return len(self.deletable_ids) + len(self.referenced_ids)
+
+
+def fetch_candidates(
+    conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
+) -> Candidates:
+    """Run the shared is_dup/is_referenced query EXACTLY ONCE and partition the flagged rows in
+    Python. ``build_report`` and ``apply_table`` both call this (and only this) for the candidate set
+    — never ``duplicate_ids``/``referenced_duplicate_ids`` separately — so a table's window query is
+    never paid for twice in the same run. Ordered by id for deterministic test/report output."""
+    select, params, _ = _candidates_select(conn, table, tenant_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL("SELECT id, is_referenced FROM ({s}) z WHERE is_dup ORDER BY id").format(
+                s=select
+            ),
+            params,
+        )
+        rows = cur.fetchall()
+    deletable = [r["id"] for r in rows if not r["is_referenced"]]
+    referenced = [r["id"] for r in rows if r["is_referenced"]]
+    return Candidates(table=table, deletable_ids=deletable, referenced_ids=referenced)
 
 
 def duplicate_ids(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
 ) -> list[UUID]:
-    """The DELETABLE ids: payload matches the immediate predecessor in its partition AND no OTHER row's
-    self-FK column (e.g. ``supersedes``) references it. A referenced identical copy is KEPT — see
-    ``self_referencing_fk_columns``. Ordered by id for deterministic test/report output."""
-    select, params, _ = _candidates_select(conn, table, tenant_id)
-    with conn.cursor() as cur:
-        cur.execute(
-            sql.SQL("SELECT id FROM ({s}) z WHERE is_dup AND NOT is_referenced ORDER BY id").format(
-                s=select
-            ),
-            params,
-        )
-        return [r["id"] for r in cur.fetchall()]
+    """Convenience wrapper over ``fetch_candidates`` for callers (tests, ad-hoc use) that only need the
+    DELETABLE ids. Runs the full candidates query on its own — prefer ``fetch_candidates`` directly
+    when you also need ``referenced_ids``, to avoid paying for the query twice."""
+    return fetch_candidates(conn, table, tenant_id=tenant_id).deletable_ids
 
 
 def referenced_duplicate_ids(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
 ) -> list[UUID]:
-    """Payload-duplicate rows that ARE referenced by a self-FK pointer — kept, never deleted, reported
-    separately so the operator sees exactly how many candidates a ``supersedes``-style correction
-    pinned in place."""
-    select, params, _ = _candidates_select(conn, table, tenant_id)
-    with conn.cursor() as cur:
-        cur.execute(
-            sql.SQL("SELECT id FROM ({s}) z WHERE is_dup AND is_referenced ORDER BY id").format(
-                s=select
-            ),
-            params,
-        )
-        return [r["id"] for r in cur.fetchall()]
+    """Convenience wrapper over ``fetch_candidates`` for callers that only need the REFERENCED (kept)
+    ids. Same caveat as ``duplicate_ids`` — prefer ``fetch_candidates`` when you need both."""
+    return fetch_candidates(conn, table, tenant_id=tenant_id).referenced_ids
 
 
 def top_duplicate_partitions(
@@ -351,16 +394,17 @@ class TableReport:
 def build_report(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
 ) -> TableReport:
-    deletable_ids = duplicate_ids(conn, table, tenant_id=tenant_id)
-    referenced_ids = referenced_duplicate_ids(conn, table, tenant_id=tenant_id)
+    # ONE candidates query (fetch_candidates), never duplicate_ids + referenced_duplicate_ids
+    # separately — see Candidates' docstring for why paying for the window query twice matters.
+    candidates = fetch_candidates(conn, table, tenant_id=tenant_id)
     top = top_duplicate_partitions(conn, table, tenant_id=tenant_id) if table in _BIG_TABLES else []
     return TableReport(
         table=table,
         rows=row_count(conn, table, tenant_id=tenant_id),
         distinct_facts=distinct_fact_count(conn, table, tenant_id=tenant_id),
-        identical_copies=len(deletable_ids) + len(referenced_ids),
-        referenced_kept=len(referenced_ids),
-        deletable=len(deletable_ids),
+        identical_copies=candidates.identical_copies,
+        referenced_kept=len(candidates.referenced_ids),
+        deletable=len(candidates.deletable_ids),
         top_partitions=top,
         size_bytes=table_size(conn, table),
     )
@@ -446,18 +490,20 @@ def diff_snapshots(before: dict[UUID, str], after: dict[UUID, str]) -> list[UUID
 
 def apply_table(
     conn: psycopg.Connection, table: str, *, tenant_id: UUID | None = None
-) -> list[UUID]:
-    """Delete exactly the DELETABLE duplicate ids for ``table`` (``duplicate_ids`` already excludes any
-    row referenced by a self-FK pointer — uncommitted; the caller owns the transaction). Returns the
-    deleted ids."""
-    ids = duplicate_ids(conn, table, tenant_id=tenant_id)
-    if ids:
+) -> Candidates:
+    """Delete exactly the DELETABLE duplicate ids for ``table`` (a row referenced by a self-FK pointer
+    is excluded — uncommitted; the caller owns the transaction). Runs ``fetch_candidates`` ONCE and
+    returns the full ``Candidates`` — ``deletable_ids`` is what was just removed, ``referenced_ids`` is
+    what was kept — so a caller (``main``'s apply loop) never re-queries just to report the
+    referenced-kept count."""
+    candidates = fetch_candidates(conn, table, tenant_id=tenant_id)
+    if candidates.deletable_ids:
         with conn.cursor() as cur:
             cur.execute(
                 sql.SQL("DELETE FROM {t} WHERE id = ANY(%(ids)s)").format(t=sql.Identifier(table)),
-                {"ids": ids},
+                {"ids": candidates.deletable_ids},
             )
-    return ids
+    return candidates
 
 
 def vacuum_analyze(conn: psycopg.Connection, table: str) -> None:
@@ -575,10 +621,10 @@ def main(argv: list[str] | None = None) -> None:
         for table in tables:
             rows_before = row_count(conn, table, tenant_id=args.tenant)
             size_before = table_size(conn, table)
-            # read the referenced-and-kept set BEFORE the delete — same unmodified state apply_table
-            # itself reads a moment later; the delete never touches these ids by construction.
-            referenced_ids = referenced_duplicate_ids(conn, table, tenant_id=args.tenant)
-            deleted_ids = apply_table(conn, table, tenant_id=args.tenant)  # uncommitted
+            # ONE candidates query + the delete — apply_table returns the full Candidates, so the
+            # referenced-kept count below never re-queries (previously a separate
+            # referenced_duplicate_ids call before apply_table, paying for the window query twice).
+            candidates = apply_table(conn, table, tenant_id=args.tenant)  # uncommitted
 
             if before_snapshot is not None:
                 after_snapshot = snapshot_canonical_calls(conn, args.verify_asof, known_at)
@@ -603,9 +649,9 @@ def main(argv: list[str] | None = None) -> None:
                 rows_after=rows_after,
                 size_before=size_before,
                 size_after=size_after,
-                identical_copies=len(deleted_ids) + len(referenced_ids),
-                referenced_kept=len(referenced_ids),
-                deleted=len(deleted_ids),
+                identical_copies=candidates.identical_copies,
+                referenced_kept=len(candidates.referenced_ids),
+                deleted=len(candidates.deletable_ids),
             )
             results.append(res)
             _print_apply(res)
