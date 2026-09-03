@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useSetArchived, useTheses } from "../api/hooks";
-import { tickerLabel, verdictLabel } from "../util/format";
+import { fmtDate, tickerLabel, verdictLabel } from "../util/format";
 import { ThesisCard } from "./ThesisCard";
 
 const COLUMNS = [
@@ -24,6 +24,10 @@ interface Props {
 interface Row {
   thesis: ThesisSummary;
   call: CallCardResponse;
+  /** This card is the PREVIOUS as-of's call, kept on screen while the new one computes
+   *  (`placeholderData: keepPreviousData`) — it renders dimmed and tagged, never as the answer for
+   *  the date in the dial, and it is barred from the Decision Queue. */
+  stale: boolean;
 }
 
 export function Board({ header, asof, onSelect }: Props) {
@@ -34,21 +38,43 @@ export function Board({ header, asof, onSelect }: Props) {
   const all = thesesQ.data ?? [];
   const theses = all.filter((t) => !t.archived);
   const archived = all.filter((t) => t.archived);
-  const callResults = useCalls(
-    theses.map((t) => t.id),
-    asof,
-  );
+  // the whole summary rides in (not just the ids) so the calls can fire smallest-basket-first —
+  // progressive PAINT only: under one backend worker this orders what lands first, it does not
+  // shorten the total (see useCalls)
+  const callResults = useCalls(theses, asof);
 
   // pair each thesis with its resolved call — a card appears once its call computes
   const rows: Row[] = theses
-    .map((thesis, i) => ({ thesis, call: callResults[i]?.data }))
+    .map((thesis, i) => ({
+      thesis,
+      call: callResults[i]?.data,
+      stale: Boolean(callResults[i]?.isPlaceholderData),
+    }))
     .filter((r): r is Row => Boolean(r.call));
   // keep-it-visible (#2 + BOARD.md "no silent loudness"): a thesis whose /call ERRORED (a 500, a
   // mid-flight delete) must NOT drop off the board with no trace — surface it as a placeholder with
   // an error affordance instead of filtering it into oblivion. Errored = isError with no data.
   const erroredRows = theses.filter((_t, i) => callResults[i]?.isError && !callResults[i]?.data);
-  const armedRows = rows.filter((r) => r.call.state === "armed");
-  const computing = callResults.some((r) => r.isLoading);
+  // The Decision Queue is the ONE loud element (#7), so it must never prompt action on a previous
+  // date: a placeholder (previous as-of) call is barred from it. Its dimmed card still shows in the
+  // column — column = context, queue = the action prompt.
+  const armedRows = rows.filter((r) => r.call.state === "armed" && !r.stale);
+  // "Still working" must stay honest now that the calls are QUEUED (C3): a query waiting for a slot
+  // is pending with fetchStatus idle, so `isLoading` (v5 = pending AND fetching) reads false for it
+  // — keying the all-clear off isLoading alone would flash "Nothing to do ✓" with eight calls still
+  // queued. Pending-or-fetching covers queued, in-flight, and recomputing-behind-a-placeholder.
+  const computing = callResults.some((r) => r.isPending || r.isFetching);
+  // any card on screen belongs to the previous as-of (the scrub is still computing)
+  const recomputing = rows.some((r) => r.stale);
+  // the queue's quiet line, in priority order: a previous-date board can NEVER read as an all-clear
+  const dqNote = recomputing
+    ? "Recomputing…"
+    : computing
+      ? "Computing…"
+      : erroredRows.length > 0
+        ? // don't sound the all-clear when a call didn't compute — it might have been armed
+          "Some calls didn't compute — see below."
+        : "Nothing armed. Nothing to do. ✓";
 
   return (
     <div className="board-shell">
@@ -93,14 +119,7 @@ export function Board({ header, asof, onSelect }: Props) {
               );
             })
           ) : (
-            <span className="dq-empty">
-              {computing
-                ? "Computing…"
-                : erroredRows.length > 0
-                  ? // don't sound the all-clear when a call didn't compute — it might have been armed
-                    "Some calls didn't compute — see below."
-                  : "Nothing armed. Nothing to do. ✓"}
-            </span>
+            <span className="dq-empty">{dqNote}</span>
           )}
         </div>
       </div>
@@ -117,11 +136,19 @@ export function Board({ header, asof, onSelect }: Props) {
                 <span className="n">{colRows.length}</span>
               </div>
               <div className="col-body">
-                {colRows.map(({ thesis, call }) => (
+                {colRows.map(({ thesis, call, stale }) => (
                   // the archive control is a SIBLING of the card (the card is itself a <button> —
                   // nesting one inside would be the nested-button trap), hover-quiet
-                  <div className="card-wrap" key={thesis.id}>
+                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id}>
                     <ThesisCard thesis={thesis} call={call} onSelect={onSelect} />
+                    {/* C2 honest rendering: a kept previous-as-of card is dimmed AND says which
+                        date it is for — the scrub keeps context instead of blanking the board, and
+                        the card never passes itself off as the dial's answer. */}
+                    {stale && (
+                      <span className="stale-tag" title="the as-of you picked is still computing">
+                        · as of {fmtDate(call.asof)}
+                      </span>
+                    )}
                     <button
                       type="button"
                       className="card-x"

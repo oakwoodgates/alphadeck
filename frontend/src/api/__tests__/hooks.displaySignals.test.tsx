@@ -10,9 +10,14 @@ vi.mock("../client", () => ({ api: { GET: h.get } }));
 
 import { useDisplaySignals } from "../hooks";
 
+// The hook now sets its OWN `retry: 1` (PR-1a / C4 — this read is compute-heavy), which wins over
+// the client default below; `retryDelay: 0` keeps that one retry instant so the error still surfaces
+// inside waitFor's window. The retry count itself is asserted in hooks.cache.test.tsx.
 function wrapper({ children }: { children: ReactNode }) {
   return (
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } })}
+    >
       {children}
     </QueryClientProvider>
   );

@@ -144,6 +144,9 @@ export function Cockpit({
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
+  // C2: any of the three as-of-keyed reads may still be showing the PREVIOUS date's values
+  const tableRecomputing =
+    callQ.isPlaceholderData || displayQ.isPlaceholderData || scoredQ.isPlaceholderData;
 
   const state = card?.state ?? "incubating";
   const sc = STATE_CLASS[state] ?? "incub";
@@ -422,7 +425,10 @@ export function Cockpit({
                     column idiom in-table). The dead Role/Detail columns are gone from the table —
                     the authored text survives on the per-name panel, not as an all-"—" column.
                     Empty buckets render no header (loudness marks the exception). */}
-                <table className="basket">
+                {/* every value in this table (the call-state dots, the scored cells, the display
+                    columns) is as-of-keyed and keeps its PREVIOUS values through a scrub — dimmed
+                    while the new ones compute, never presented as the new date's numbers (C2) */}
+                <table className={`basket${tableRecomputing ? " recomputing" : ""}`}>
                   <thead>
                     {/* Click a header to rank the basket by that column — WITHIN each group (the
                         call hierarchy stays; the biggest mover inside Quiet still surfaces). A "—"
@@ -695,7 +701,15 @@ export function Cockpit({
 
         {/* the thesis-level rail stays (no longer the ONLY per-name view); it dims — not hides —
             under the panel overlay, and comes right back on close */}
-        <aside className={`cp-rail${selected ? " dimmed" : ""}`}>
+        {/* C2 honest rendering: on an as-of scrub the rail keeps the PREVIOUS date's card up
+            (keepPreviousData) instead of blanking — so it is dimmed and says so, and the card's own
+            "as-of" line stays the authority on which date it answers. */}
+        <aside
+          className={`cp-rail${selected ? " dimmed" : ""}${callQ.isPlaceholderData ? " recomputing" : ""}`}
+        >
+          {callQ.isPlaceholderData && (
+            <p className="muted stale-tag">Recomputing the call for {fmtDate(asof)}…</p>
+          )}
           {callQ.isLoading && <p className="muted">Computing the call…</p>}
           {callQ.error && <p style={{ color: "var(--neg)" }}>Failed to compute the call.</p>}
           {card && <CallCard card={card} thesisId={thesisId} foreignFiler={foreignFiler} />}

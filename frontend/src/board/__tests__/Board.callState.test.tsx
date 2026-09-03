@@ -15,8 +15,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../api/hooks", () => ({
   useTheses: () => ({ data: h.theses, isLoading: false, error: null }),
-  useCalls: (ids: string[]) =>
-    ids.map((id) => h.calls[id] ?? { data: undefined, isLoading: false, isError: false }),
+  // useCalls now takes the thesis SUMMARIES (it needs basket_size to order the paint) and returns
+  // results ALIGNED to that input order — the Board pairs callResults[i] with theses[i].
+  useCalls: (subjects: { id: string }[]) =>
+    subjects.map((s) => h.calls[s.id] ?? { data: undefined, isLoading: false, isError: false }),
   useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),
 }));
 
@@ -126,5 +128,44 @@ describe("Board — errored /call stays visible (#2)", () => {
     expect(screen.getByText(/Nothing to do/)).toBeInTheDocument();
     expect(screen.queryByText("call failed to compute")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("Board — a QUEUED call is still work in progress (C3)", () => {
+  it("does not sound the all-clear while a call waits for a concurrency slot", () => {
+    // Progressive paint means a query can be PENDING with fetchStatus idle — `isLoading` (v5 =
+    // pending AND fetching) is FALSE for it. Keying the all-clear off isLoading alone would flash
+    // "Nothing armed. Nothing to do. ✓" with calls still queued.
+    h.calls = {
+      "t-a": { data: incubCall() },
+      "t-b": { data: undefined, isPending: true, isFetching: false, isLoading: false },
+    };
+    renderBoard();
+    expect(within(dq()).getByText("Computing…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing to do/)).toBeNull();
+  });
+});
+
+describe("Board — a kept previous-as-of card (C2)", () => {
+  const staleArmed = {
+    data: { ...armedCall([{ ticker: "OKLO", security_id: "s-oklo" }]), asof: "2026-08-29" },
+    isPlaceholderData: true,
+    isFetching: true,
+  };
+
+  it("keeps the card visible, dimmed and DATED — the scrub never blanks the board", () => {
+    h.calls = { "t-a": staleArmed, "t-b": { data: incubCall() } };
+    const { container } = renderBoard();
+    expect(screen.getByText("Alpha thesis")).toBeInTheDocument();
+    expect(screen.getByText(/as of Aug 29/)).toBeInTheDocument();
+    expect(container.querySelector(".card-wrap.recomputing")).not.toBeNull();
+  });
+
+  it("bars it from the Decision Queue — the one loud element never prompts on a previous date", () => {
+    h.calls = { "t-a": staleArmed, "t-b": { data: incubCall() } };
+    renderBoard();
+    expect(within(dq()).queryByText("OKLO")).toBeNull();
+    expect(within(dq()).getByText("Recomputing…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing to do/)).toBeNull(); // and no fake all-clear either
   });
 });
