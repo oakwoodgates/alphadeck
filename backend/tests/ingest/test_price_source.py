@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 
 from ingest.prices import eod_loader
 from ingest.prices.eod_loader import fetch_eod, parse_stooq_csv
-from ingest.prices.source import StooqPriceSource, YahooPriceSource
+from ingest.prices.source import DEFAULT_RANGE, StooqPriceSource, YahooPriceSource
 
 # A "stale" cache (bars through 06-15) vs a "fresh" live series (adds 06-16) — the daily re-ingest case.
 _STALE = [date(2026, 6, 14), date(2026, 6, 15)]
@@ -136,3 +136,30 @@ def test_stooq_adapter_matches_parse(tmp_path):
     (tmp_path / "DEVCO.csv").write_text(csv_text, encoding="utf-8")
     bars = StooqPriceSource(cache_dir=tmp_path).get_bars("DEVCO", allow_live=False)
     assert bars == parse_stooq_csv(csv_text)
+
+
+# --- the default range covers the longest read-side lookback (the 1Y-return / 600d-SMA fix) ----------
+
+
+def test_default_range_is_2y():
+    """Direct-input guard against a silent revert to "1y": "1y" yields ~252 bars, ONE short of the 253 a
+    1Y return needs, and sma.py reads 600 calendar days — so the member-name pull defaults to "2y". An
+    explicit range still overrides (the seam stays configurable; benchmarks pass a deeper "5y")."""
+    assert DEFAULT_RANGE == "2y"
+    assert YahooPriceSource()._range == "2y"  # the constructor default
+    assert YahooPriceSource(range_="5y")._range == "5y"  # explicit still wins
+
+
+def test_default_range_reaches_the_fetch_url(tmp_path, monkeypatch):
+    """Flow-through: a default-range pull requests Yahoo's range=2y (a cache MISS fetches live). Proves the
+    "2y" default actually reaches the request, not just the attribute — still no real network (stubbed).
+    """
+    calls: list = []
+    monkeypatch.setattr(eod_loader, "polite_get", _fake_live(_payload(_FRESH), calls))
+
+    YahooPriceSource(cache_dir=tmp_path).get_bars(
+        "NEWCO", allow_live=True
+    )  # default range, no cache
+
+    assert len(calls) == 1
+    assert "range=2y" in calls[0]  # the default flows all the way into the chart URL

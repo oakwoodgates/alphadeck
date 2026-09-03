@@ -33,11 +33,20 @@ class PriceSource(Protocol):
     ) -> list[dict]: ...
 
 
+# Yahoo's history range for a member-name pull. "1y" returns ~252 trading bars — ONE short of the 253 a
+# 1Y *return* needs (today's close + the close 252 bars back), so a brand-new name's 1Y cell blanked until
+# the daily cron accreted past it. sma.py reads 600 CALENDAR days (its longest read-side lookback), which
+# "1y" (~365 calendar days) also under-covers. "2y" is Yahoo's next discrete range (~504 bars / ~730
+# calendar days) — it covers the 253-bar 1Y return AND the 600-day SMA lookback with margin. (Benchmarks
+# pull a deeper "5y" for relative strength — pipeline.ingest_benchmarks.DEFAULT_RANGE — a separate choice.)
+DEFAULT_RANGE = "2y"
+
+
 class YahooPriceSource:
     """Yahoo's chart API (the current live default; close + volume are split-adjusted + re-based on every
     split — see ``docs/DATA_SOURCES.md``). A thin wrapper over the cache-first ``fetch_eod``."""
 
-    def __init__(self, *, cache_dir: Path | None = None, range_: str = "1y") -> None:
+    def __init__(self, *, cache_dir: Path | None = None, range_: str = DEFAULT_RANGE) -> None:
         self._cache_dir = cache_dir
         self._range = range_
 
