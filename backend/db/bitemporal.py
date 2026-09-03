@@ -175,6 +175,88 @@ def as_of_thesis(
     )
 
 
+def _fact_exists(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    scope_col: str,
+    scope_id: UUID,
+    tenant_id: UUID,
+    key: dict[str, Any],
+) -> bool:
+    """Shared "is this natural key stored AT ALL?" probe — see ``fact_exists`` for the contract.
+
+    ``scope_col`` is a TRUSTED literal from the wrappers below, never caller input. Every ``key`` column
+    must belong to the table's ``_FACT_IDENTITY`` — the SAME whitelist ``_as_of`` renders from, so the
+    dynamic SQL stays injection-safe.
+    """
+    if table not in _FACT_IDENTITY:
+        raise ValueError(f"unknown fact table: {table!r}")
+    if not key:
+        raise ValueError(f"fact_exists on {table!r} needs at least one natural-key column")
+    allowed = set(_FACT_IDENTITY[table])
+    unknown = sorted(set(key) - allowed)
+    if unknown:
+        raise ValueError(
+            f"{unknown} is not part of {table!r}'s natural key ({sorted(allowed)}) — "
+            "an existence probe must key on the identity, nothing else"
+        )
+    where = sql.SQL(" AND ").join(
+        sql.SQL("{col} = {val}").format(col=sql.Identifier(c), val=sql.Placeholder(c)) for c in key
+    )
+    query = sql.SQL(
+        "SELECT 1 FROM {table} "
+        "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s AND {where} LIMIT 1"
+    ).format(table=sql.Identifier(table), scope=sql.Identifier(scope_col), where=where)
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id, "scope_id": scope_id, **key})
+        return cur.fetchone() is not None
+
+
+def fact_exists(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    security_id: UUID,
+    tenant_id: UUID,
+    **key: Any,
+) -> bool:
+    """Is ANY version of this natural key already stored for (tenant, security)?
+
+    **This is NOT an as-of read** and must never stand in for one. It is deliberately version- AND
+    time-agnostic: no ``valid_from <= asof`` gate, no ``recorded_at <= known_at`` gate, no ``DISTINCT ON``
+    version pick. It answers exactly one question — "have we stored this fact at all?" — which is the right
+    question for a caller replaying a STATIC fixture that never restates a value (``pipeline.seed``, whose
+    demo fixtures re-run at every container boot). Anything that needs to know what a fact SAYS at a point
+    in time must call ``as_of`` / ``as_of_thesis``.
+
+    It is a guard for the CALLER, never for the writers: the ``ingest_*`` functions stay unguarded, so a
+    genuine restatement through the normal ingest paths still appends a new version (later ``recorded_at``,
+    latest-version-wins on the as-of read) — the bitemporal contract is untouched.
+
+    ``key`` names the table's ``_FACT_IDENTITY`` columns (e.g. ``source_ref=…``, ``accession=…``); a column
+    outside that identity raises.
+    """
+    return _fact_exists(
+        conn, table, scope_col="security_id", scope_id=security_id, tenant_id=tenant_id, key=key
+    )
+
+
+def fact_exists_thesis(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    thesis_id: UUID,
+    tenant_id: UUID,
+    **key: Any,
+) -> bool:
+    """The THESIS-scoped form of ``fact_exists`` (e.g. ``fact_theme_conviction``, which is basket-level and
+    so is not co-located on a security). Same contract, same caveat: NOT an as-of read."""
+    return _fact_exists(
+        conn, table, scope_col="thesis_id", scope_id=thesis_id, tenant_id=tenant_id, key=key
+    )
+
+
 def append_fact(conn: psycopg.Connection, table: str, values: dict[str, Any]) -> UUID:
     """Append a fact row. Corrections are new rows with a later ``recorded_at`` — never UPDATEs."""
     if table not in _FACT_IDENTITY:

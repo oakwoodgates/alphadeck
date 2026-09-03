@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 import psycopg
 import pytest
 
-from db.bitemporal import append_fact, as_of, as_of_thesis
+from db.bitemporal import append_fact, as_of, as_of_thesis, fact_exists, fact_exists_thesis
 from db.session import DEFAULT_TENANT_ID
 
 
@@ -379,3 +379,113 @@ def test_theme_conviction_as_of_thesis_is_thesis_scoped_and_bitemporal(db):
     assert len(at_t2) == 1 and at_t2[0]["valid_from"] == date(
         2026, 2, 1
     )  # by t2 the newer one is live
+
+
+def test_fact_exists_is_version_and_time_agnostic(db, security_id):
+    """``fact_exists`` answers "is this natural key stored AT ALL?" — no as-of gate, no version pick.
+
+    That is deliberate and is what makes it a safe idempotency guard for a caller replaying a STATIC
+    fixture: a fact whose event date is in the future, or that was recorded after any ``known_at`` a
+    reader might pin, still counts as stored. Anything needing the fact's VALUE at a time uses ``as_of``.
+    """
+    assert not fact_exists(
+        db,
+        "fact_catalyst",
+        security_id=security_id,
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref="cat-1",
+    )
+    append_fact(
+        db,
+        "fact_catalyst",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "catalyst_type": "gov_funding",
+            "grade": "core",
+            "label": "an award",
+            "source": "ratified",
+            "source_ref": "cat-1",
+            "valid_from": date(2030, 1, 1),  # far-future event time
+            "recorded_at": datetime(2030, 1, 1, tzinfo=timezone.utc),  # and far-future ingest time
+        },
+    )
+    db.commit()
+    assert fact_exists(
+        db,
+        "fact_catalyst",
+        security_id=security_id,
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref="cat-1",
+    )
+    # an as-of read pinned before either axis sees nothing — the two questions are genuinely different
+    assert (
+        as_of(
+            db,
+            "fact_catalyst",
+            security_id=security_id,
+            asof=date(2026, 6, 1),
+            known_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        == []
+    )
+    # and it is scoped: another security / another tenant does not see it
+    assert not fact_exists(
+        db,
+        "fact_catalyst",
+        security_id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref="cat-1",
+    )
+    assert not fact_exists(
+        db, "fact_catalyst", security_id=security_id, tenant_id=uuid.uuid4(), source_ref="cat-1"
+    )
+
+
+def test_fact_exists_refuses_an_unknown_table_or_a_non_identity_column(db, security_id):
+    """The injection-safe whitelist: the table must be a known fact table and every key column must belong
+    to that table's ``_FACT_IDENTITY``. Anything else raises before a query is built."""
+    with pytest.raises(ValueError, match="unknown fact table"):
+        fact_exists(
+            db,
+            "users; DROP TABLE thesis",
+            security_id=security_id,
+            tenant_id=DEFAULT_TENANT_ID,
+            x=1,
+        )
+    with pytest.raises(ValueError, match="natural key"):
+        fact_exists(  # a real column, but not part of fact_catalyst's identity
+            db, "fact_catalyst", security_id=security_id, tenant_id=DEFAULT_TENANT_ID, label="x"
+        )
+    with pytest.raises(ValueError, match="at least one natural-key column"):
+        fact_exists(db, "fact_catalyst", security_id=security_id, tenant_id=DEFAULT_TENANT_ID)
+
+
+def test_fact_exists_thesis_is_thesis_scoped(db):
+    """The THESIS-scoped sibling — a theme conviction is basket-level, so it keys off ``thesis_id``."""
+    tid = _make_thesis_row(db)
+    assert not fact_exists_thesis(
+        db, "fact_theme_conviction", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, source_ref="th-X"
+    )
+    append_fact(
+        db,
+        "fact_theme_conviction",
+        _theme(
+            tid,
+            source_ref="th-X",
+            valid_from=date(2026, 1, 15),
+            recorded_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+        ),
+    )
+    db.commit()
+    assert fact_exists_thesis(
+        db, "fact_theme_conviction", thesis_id=tid, tenant_id=DEFAULT_TENANT_ID, source_ref="th-X"
+    )
+    assert not fact_exists_thesis(
+        db,
+        "fact_theme_conviction",
+        thesis_id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        source_ref="th-X",
+    )
