@@ -15,6 +15,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from psycopg import sql
 
 from db.bitemporal import append_fact, as_of
 from db.session import DEFAULT_TENANT_ID, connect
@@ -225,10 +226,11 @@ def test_apply_deletes_exactly_the_flagged_copies_and_asof_reads_stay_identical(
         name: as_of(db, "fact_price_eod", known_at=k, **read_kwargs) for name, k in pins.items()
     }
 
-    deleted = dedup.apply_table(db, "fact_price_eod")
+    candidates = dedup.apply_table(db, "fact_price_eod")
     db.commit()
 
-    assert set(deleted) == {v2, v4}
+    assert set(candidates.deletable_ids) == {v2, v4}
+    assert candidates.referenced_ids == []  # fact_price_eod has no self-referencing FK
     after_rows = _count(db, "fact_price_eod")
     assert after_rows == before_rows - 2
     with db.cursor() as cur:
@@ -301,6 +303,34 @@ def test_self_referencing_fk_columns_finds_supersedes_and_nothing_external(db):
     )  # no supersedes column at all
 
 
+def test_candidate_query_plan_has_no_subplan_for_the_referenced_check(db, security_id):
+    """The regression guard for the dev hang (2026-09-04): the is_referenced check must compile to a
+    JOIN, never an ``id IN (SELECT ...)`` — Postgres falls back to re-scanning a materialized subplan
+    PER ROW once the referenced set is too big for a hashed subplan under work_mem, which is exactly
+    the O(rows x references) plan that hung on dev for 10+ minutes moving 605k fact_insider_txn rows
+    against 278,585 non-null supersedes values (planned cost ~7.8 BILLION, terminated before it wrote
+    anything). EXPLAIN's plan text for the real candidates query (fetch_candidates's exact SQL) must
+    never contain a SubPlan node again."""
+    t0, t1 = datetime(2026, 6, 1, tzinfo=timezone.utc), datetime(2026, 6, 2, tzinfo=timezone.utc)
+    v1 = _append_insider(db, security_id, accession="acc-1", aff_10b5_1=None, recorded_at=t0)
+    _append_insider(
+        db, security_id, accession="acc-1", aff_10b5_1=True, recorded_at=t1, supersedes=v1
+    )
+    db.commit()
+
+    select, params, _ = dedup._candidates_select(db, "fact_insider_txn", None)
+    query = sql.SQL("EXPLAIN SELECT id, is_referenced FROM ({s}) z WHERE is_dup").format(s=select)
+    with db.cursor() as cur:
+        cur.execute(query, params)
+        plan_lines = [next(iter(row.values())) for row in cur.fetchall()]
+    plan_text = "\n".join(plan_lines)
+
+    assert "SubPlan" not in plan_text, f"regression: the IN-subplan shape is back:\n{plan_text}"
+    assert any(
+        keyword in plan_text for keyword in ("Join", "Hash")
+    ), f"expected a join-shaped plan for the referenced check:\n{plan_text}"
+
+
 def test_apply_keeps_a_row_referenced_by_supersedes_and_deletes_the_rest_on_insider_txn(
     db, security_id
 ):
@@ -323,10 +353,13 @@ def test_apply_keeps_a_row_referenced_by_supersedes_and_deletes_the_rest_on_insi
     assert dedup.referenced_duplicate_ids(db, "fact_insider_txn") == [v2]
     assert dedup.duplicate_ids(db, "fact_insider_txn") == [v3]
 
-    deleted = dedup.apply_table(db, "fact_insider_txn")  # would raise ForeignKeyViolation pre-fix
+    candidates = dedup.apply_table(
+        db, "fact_insider_txn"
+    )  # would raise ForeignKeyViolation pre-fix
     db.commit()
 
-    assert deleted == [v3]
+    assert candidates.deletable_ids == [v3]
+    assert candidates.referenced_ids == [v2]
     assert _count(db, "fact_insider_txn") == before - 1
     with db.cursor() as cur:
         cur.execute("SELECT id FROM fact_insider_txn ORDER BY id")
@@ -351,10 +384,11 @@ def test_apply_keeps_a_referenced_row_on_a_small_supersedes_table_fact_catalyst(
     assert dedup.referenced_duplicate_ids(db, "fact_catalyst") == [v2]
     assert dedup.duplicate_ids(db, "fact_catalyst") == [v3]
 
-    deleted = dedup.apply_table(db, "fact_catalyst")
+    candidates = dedup.apply_table(db, "fact_catalyst")
     db.commit()
 
-    assert deleted == [v3]
+    assert candidates.deletable_ids == [v3]
+    assert candidates.referenced_ids == [v2]
     assert _count(db, "fact_catalyst") == before - 1
     with db.cursor() as cur:
         cur.execute("SELECT id FROM fact_catalyst ORDER BY id")
@@ -379,15 +413,14 @@ def test_second_apply_is_a_no_op_across_every_table_including_referenced_rows(db
     for table in ("fact_price_eod", "fact_insider_txn"):
         first = dedup.apply_table(db, table)
         db.commit()
-        assert first, f"expected the first apply on {table} to delete something"
+        assert first.deletable_ids, f"expected the first apply on {table} to delete something"
         before_second = _count(db, table)
 
         second = dedup.apply_table(db, table)
         db.commit()
 
-        assert (
-            second == []
-        )  # count the TABLE, not the read — the convention this whole tool follows
+        # count the TABLE, not the read — the convention this whole tool follows
+        assert second.deletable_ids == []
         assert _count(db, table) == before_second
 
 
