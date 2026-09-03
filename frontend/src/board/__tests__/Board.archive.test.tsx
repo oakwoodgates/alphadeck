@@ -11,8 +11,8 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../api/hooks", () => ({
   useTheses: () => ({ data: h.theses, isLoading: false, error: null }),
-  useCalls: (ids: string[]) =>
-    ids.map((id) => ({
+  useCalls: (subjects: { id: string }[]) =>
+    subjects.map(({ id }) => ({
       data: {
         thesis_id: id,
         state: "incubating",

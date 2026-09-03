@@ -1058,6 +1058,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-exc-why { flex: 0 1 260px; min-width: 120px; font-size: 10.5px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; }
 .wb-exc-why::placeholder { color: var(--txt-4); font-style: italic; }
 
+/* --- kept-through-a-scrub data (PR-1a / C2): the previous as-of's values, still on screen while
+   the new ones compute. Dimmed + labelled so it can never read as the answer for the date in the
+   dial; the Decision Queue drops these rows entirely (it is the one loud, act-now element). --- */
+.recomputing { opacity: 0.45; transition: opacity 0.15s; }
+.stale-tag { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--txt-4); font-style: italic; }
+.card-wrap > .stale-tag { position: absolute; left: 12px; bottom: 4px; }
+
 /* --- thesis archive (board hygiene): the sibling ✕ + the collapsed archived section --- */
 .card-wrap { position: relative; }
 .card-wrap .card-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; line-height: 1; font-size: 11px; color: var(--txt-4); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }

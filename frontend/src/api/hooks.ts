@@ -1,7 +1,14 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "./client";
+import { MONITOR_STALE_MS } from "./queryClient";
 import type { components } from "./types.gen";
 
 // Wire types — generated from the backend's OpenAPI (never hand-written; run `npm run gen:api`).
@@ -72,6 +79,7 @@ export function useTheses(includeArchived = false) {
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the
     // list keeps working); archived stay excluded by default — only the Board asks for them
     queryKey: ["theses", includeArchived] as const,
+    staleTime: MONITOR_STALE_MS, // MONITOR read — a remount inside the window reuses the cache
     queryFn: async () => {
       const { data, error } = await api.GET("/theses", {
         params: { query: { include_archived: includeArchived } },
@@ -103,6 +111,7 @@ export function useThesis(thesisId: string) {
   return useQuery({
     queryKey: ["thesis", thesisId],
     enabled: Boolean(thesisId),
+    staleTime: MONITOR_STALE_MS, // MONITOR read; every spine writer invalidates ["thesis", id]
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}", {
         params: { path: { thesis_id: thesisId } },
@@ -114,10 +123,19 @@ export function useThesis(thesisId: string) {
 }
 
 // One thesis's call, recomputed at `asof` (the read path; never reads the calls log).
+//
+// The most expensive read in the app (MEASURED: 8–25 s on a 160–196-name basket), so it carries the
+// whole PR-1a policy: staleTime (the Cockpit reuses the Board's card instead of recomputing it),
+// retry:1 (the default 3 retries cost 4× the compute before the Board's "Calls that didn't compute"
+// strip appears), and keepPreviousData so an as-of scrub keeps the previous cards up instead of
+// blanking the board — rendered DIMMED and tagged, never passed off as the new date's answer.
 function callQuery(thesisId: string, asof: string) {
   return {
     queryKey: ["call", thesisId, asof] as const,
     enabled: Boolean(thesisId) && Boolean(asof),
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}/call", {
         params: { path: { thesis_id: thesisId }, query: { asof } },
@@ -132,9 +150,58 @@ export function useCall(thesisId: string, asof: string) {
   return useQuery(callQuery(thesisId, asof));
 }
 
+/** How many Board `/call`s may be in flight at once (C3). */
+export const CALL_CONCURRENCY = 3;
+
+/** The Board's thesis shape this hook needs: an id and the basket size that orders the paint. */
+type CallSubject = { id: string; basket_size?: number | null };
+
 // The Board computes a call per thesis to place each card in its lifecycle column.
-export function useCalls(thesisIds: string[], asof: string) {
-  return useQueries({ queries: thesisIds.map((id) => callQuery(id, asof)) });
+//
+// PROGRESSIVE PAINT (C3), and ONLY that: the queries fire smallest-basket-first, at most
+// CALL_CONCURRENCY at a time. Under one uvicorn worker and one GIL this CANNOT shorten the cold
+// total — MEASURED (§8.4): five big theses concurrently = 1.1× the sequential sum, so ordering
+// them changes what lands first, not when the last one lands. What it buys is the first big armed
+// card at ~3 s instead of all five arriving together at the end.
+//
+// The gate is a PURE FUNCTION of (subjects, asof, the query cache), computed in render before
+// useQueries — no state, no effect, so there is no race and no render loop: a query settling
+// re-renders this subscriber, the gate is recomputed from the cache, and the next slot opens.
+// The `queries` array is NEVER reordered — only the gate consults the sorted order — so
+// `results[i]` always pairs with `subjects[i]` (the Board relies on that alignment).
+export function useCalls(subjects: readonly CallSubject[], asof: string) {
+  const qc = useQueryClient();
+
+  // A subject is SETTLED once it holds data or has errored: it renders now and never occupies a
+  // slot (a cached card costs no backend work; a retry-exhausted error must not block the queue).
+  // Anything else is PENDING — either not started, or fetching with nothing to show yet.
+  const settled = subjects.map((s) => {
+    const state = qc.getQueryState(["call", s.id, asof]);
+    return state?.data !== undefined || state?.status === "error";
+  });
+
+  // Launch order: smallest basket first, ties broken by the caller's order (a stable sort of
+  // indices, so the ordering is deterministic across renders).
+  const order = subjects
+    .map((_s, i) => i)
+    .sort((a, b) => (subjects[a].basket_size ?? 0) - (subjects[b].basket_size ?? 0) || a - b);
+
+  const open = new Array<boolean>(subjects.length).fill(false);
+  let slots = CALL_CONCURRENCY;
+  for (const i of order) {
+    if (settled[i]) open[i] = true; // settled: enabled, but takes no slot
+    else if (slots > 0) {
+      open[i] = true;
+      slots -= 1;
+    }
+  }
+
+  return useQueries({
+    queries: subjects.map((s, i) => {
+      const q = callQuery(s.id, asof);
+      return { ...q, enabled: q.enabled && open[i] };
+    }),
+  });
 }
 
 // --- display signals: read-only per-name indicators (docs/DISPLAY_SIGNALS.md) ---
@@ -152,6 +219,12 @@ export function useDisplaySignals(thesisId: string, asof: string) {
   return useQuery({
     queryKey: ["display-signals", thesisId, asof] as const,
     enabled: Boolean(thesisId) && Boolean(asof),
+    // the other compute-heavy read (MEASURED: 13–16 s on a 196-name basket) — same PR-1a policy as
+    // the call: cache it for the window, retry once not three times, keep the previous columns up
+    // (dimmed) through an as-of scrub instead of emptying the table
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}/display-signals", {
         params: { path: { thesis_id: thesisId }, query: { asof } },
@@ -254,6 +327,7 @@ export function useDecisions(thesisId: string) {
   return useQuery({
     queryKey: ["decisions", thesisId] as const,
     enabled: Boolean(thesisId),
+    staleTime: MONITOR_STALE_MS, // MONITOR read; usePostDecision invalidates it on every append
     queryFn: async () => {
       const { data, error } = await api.GET("/theses/{thesis_id}/decisions", {
         params: { path: { thesis_id: thesisId } },
@@ -294,6 +368,12 @@ export function useWorkbenchScored(thesisId: string, asof: string) {
   return useQuery({
     queryKey: ["workbench-scored", thesisId, asof] as const,
     enabled: Boolean(thesisId) && Boolean(asof),
+    // MONITOR read, and compute-heavy (MEASURED: ~3.3 s on 196 names) — same policy as the call and
+    // display-signals. Every ratify / promote / price pull invalidates this key, so the window
+    // never hides the operator's own write.
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await api.GET("/workbench/theses/{thesis_id}/scored", {
         params: { path: { thesis_id: thesisId }, query: { asof } },
@@ -361,6 +441,11 @@ export function usePromoteThesis() {
       if (thesis?.id) {
         qc.invalidateQueries({ queryKey: ["thesis", thesis.id] });
         qc.invalidateQueries({ queryKey: ["workbench-scored", thesis.id] }); // re-score on edit
+        // A basket edit changes WHICH names the call and the display members run over, so both
+        // re-derive — without these the 10-minute MONITOR window would keep showing a card and a
+        // tape computed over the OLD basket (PR-1a invalidation audit).
+        qc.invalidateQueries({ queryKey: ["call", thesis.id] });
+        qc.invalidateQueries({ queryKey: ["display-signals", thesis.id] });
       }
     },
   });
@@ -496,7 +581,14 @@ export function useIngestPrices() {
   return useMutation({
     retry: false,
     mutationFn: postIngestPrices,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["workbench-scored"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      // New bars are an input to BOTH the call's price detectors and every price-based display
+      // member (SMA, trailing returns, RVOL, relative strength), so a price pull must not leave a
+      // 10-minute-stale card or tape behind it (PR-1a invalidation audit).
+      qc.invalidateQueries({ queryKey: ["call"] });
+      qc.invalidateQueries({ queryKey: ["display-signals"] });
+    },
   });
 }
 
@@ -526,7 +618,12 @@ export function useSetBusinessType() {
   return useMutation({
     retry: false,
     mutationFn: postBusinessType,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["workbench-scored"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      // The display `sector_rs` member GROUPS by business supersector, so a re-tag moves the
+      // rotation strip. NOT the call: business type is display identity, never a call input.
+      qc.invalidateQueries({ queryKey: ["display-signals"] });
+    },
   });
 }
 
@@ -611,8 +708,13 @@ export function useSectionData(thesisId: string) {
       failures,
     });
     setRunning(false);
-    // ONE re-derive after the whole section lands (caps compute where shares are already ratified)
+    // ONE re-derive after the whole section lands (caps compute where shares are already ratified).
+    // The run pulls PRICES for every member, so it is the same write class as useIngestPrices — the
+    // call and the display tape re-derive too, or the MONITOR window would serve a card computed
+    // before the section's bars landed (PR-1a invalidation audit).
     qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+    qc.invalidateQueries({ queryKey: ["call"] });
+    qc.invalidateQueries({ queryKey: ["display-signals"] });
   };
 
   return { run, running, report, reset: () => setReport(null) };
@@ -662,12 +764,33 @@ export function useDraftJobStatus(thesisId: string, jobId: string | null) {
   });
 }
 
+// A BACKGROUND JOB writes facts server-side, so nothing in the client's cache knows the data moved.
+// When its poll reaches the terminal `done`, invalidate what the job could have changed — ONCE per
+// job (a ref keyed on job_id: the poll keeps re-rendering, and an invalidate storm would re-fire the
+// very reads PR-1a exists to stop). A `failed` job wrote nothing worth re-reading; the poll's own
+// error surface stays the operator's signal.
+function useInvalidateOnJobDone(
+  jobId: string | null,
+  status: string | undefined,
+  keys: readonly unknown[][],
+) {
+  const qc = useQueryClient();
+  const latestKeys = useRef(keys);
+  latestKeys.current = keys;
+  const firedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jobId || status !== "done" || firedFor.current === jobId) return;
+    firedFor.current = jobId;
+    for (const queryKey of latestKeys.current) qc.invalidateQueries({ queryKey });
+  }, [jobId, status, qc]);
+}
+
 // Poll an on-promote new-member ingest job (PR-4): enabled only once a job_id exists; polls every 2.5s
 // while the job is queued/running and STOPS on a terminal status (done|failed). retry:false — a 404
 // (unknown/expired/restart-wiped job) is a terminal, VISIBLE failure line (the nightly cron remains the
 // backstop that ingests everything), never an infinite spinner.
 export function useIngestJobStatus(thesisId: string, jobId: string | null) {
-  return useQuery({
+  const q = useQuery({
     queryKey: ["workbench-ingest-job", thesisId, jobId] as const,
     enabled: !!jobId,
     retry: false,
@@ -683,6 +806,14 @@ export function useIngestJobStatus(thesisId: string, jobId: string | null) {
       return data; // IngestJobStatusOut { job_id, status, result, error }
     },
   });
+  // The job ingested Form 4 + EOD for the newly-promoted members: THIS thesis's card, tape, and
+  // scored view all read those facts (PR-1a invalidation audit).
+  useInvalidateOnJobDone(jobId, q.data?.status, [
+    ["call", thesisId],
+    ["display-signals", thesisId],
+    ["workbench-scored", thesisId],
+  ]);
+  return q;
 }
 
 // --- Run loader (the saved-draft-run picker, a dev/test cost-saver) ---
@@ -819,6 +950,9 @@ export function useRatifyFact() {
       // a ratified fact can move the CALL too (a catalyst conviction turns Key-1; a shares fact
       // completes a cap) — refresh every observed call read (partial key: all theses, all asofs)
       qc.invalidateQueries({ queryKey: ["call"] });
+      // NOT display-signals (PR-1a invalidation audit): the only display member that reads a share
+      // count is `etf_flow`, and it reads `fact_fund_shares` (the ETF sample table) — never the
+      // `fact_shares_outstanding` this ratify writes. A ratified fact reaches no display member.
     },
   });
 }
@@ -840,6 +974,8 @@ export function useAutoConfirmShares() {
       if (!d?.applied) return; // declined (flagged / already on file) — nothing moved, nothing to refresh
       qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap + funnel re-derive
       qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
+      // NOT display-signals — same reason as useRatifyFact: `fact_shares_outstanding` feeds no
+      // display member (`etf_flow` reads the separate `fact_fund_shares` table).
     },
   });
 }
@@ -903,6 +1039,10 @@ export function useSpacAttach() {
       qc.invalidateQueries({ queryKey: ["theses"] });
       qc.invalidateQueries({ queryKey: ["thesis", v.thesis_id] });
       qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      // attach/detach CHANGES BASKET MEMBERSHIP — the same reason usePromoteThesis invalidates
+      // these: the card and the tape are computed over the basket (PR-1a invalidation audit).
+      qc.invalidateQueries({ queryKey: ["call", v.thesis_id] });
+      qc.invalidateQueries({ queryKey: ["display-signals", v.thesis_id] });
     },
   });
 }
@@ -1025,7 +1165,7 @@ export function useStartDailyRun() {
 // a 404 (expired/restart-wiped registry) is a terminal, VISIBLE "lost from view" (the run itself may
 // still finish server-side; the run history is the durable authority), never an infinite spinner.
 export function useDailyRunJob(jobId: string | null) {
-  return useQuery({
+  const q = useQuery({
     queryKey: ["admin-run-job", jobId] as const,
     enabled: !!jobId,
     retry: false,
@@ -1038,6 +1178,16 @@ export function useDailyRunJob(jobId: string | null) {
       return data; // AdminRunJobStatus { job_id, status, result, error }
     },
   });
+  // The daily pass ingests live facts and appends each thesis's call-of-record — it moves EVERY
+  // monitor read at once, across all theses and as-ofs (partial keys). Without this the operator
+  // would sit in front of a 10-minute-stale Board after watching the run finish (PR-1a audit).
+  useInvalidateOnJobDone(jobId, q.data?.status, [
+    ["theses"],
+    ["call"],
+    ["display-signals"],
+    ["scoreboard"],
+  ]);
+  return q;
 }
 
 // --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
