@@ -230,6 +230,7 @@ __marimo__/
 .claude/*
 !.claude/skills/
 !.claude/settings.json
+!.claude/agents/
 
 # Alpha Deck runtime data — on-disk caches (EDGAR/OpenFIGI/SEC), Parquet snapshots, DuckDB. Not committed.
 data/
