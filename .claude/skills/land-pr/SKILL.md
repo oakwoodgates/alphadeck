@@ -24,6 +24,9 @@ STOP and report on any failed precondition (red CI, conflicts); do NOT guess or 
 ## Steps
 1. **Preconditions per PR:** CI green + mergeable (`gh pr checks <n>`,
    `gh pr view <n> --json mergeable,baseRefName,headRefOid`). Red CI → stop, report.
+   CI takes ~6 min (the backend pytest job dominates): wait with
+   `gh pr checks <n> --watch` run in the BACKGROUND (or re-check on the completion
+   notification) — never in a foreground call, which times out under the Bash cap.
 2. **Contract check (FastAPI-touching PRs):** if the diff touches anything FastAPI
    emits into the schema (a route docstring counts — #61), the PR must already carry
    the regenerated `backend/openapi.json` + `frontend/src/api/types.gen.ts`. Missing →

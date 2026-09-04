@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+
+# The pandas sentinel (a measured ~5x on the replay lab, Windows). DuckDB's Python binding probes
+# ``import pandas`` twice per bound parameter on EVERY execute (8x per as-of read below), and CPython
+# never caches a FAILED import — each probe re-walks sys.path with stat calls (69,559 attempts ->
+# 483,920 nt.stat = 217 s of a 308 s replay test; Windows stat is far slower than Linux, which was the
+# whole CI-vs-local gap). A ``None`` entry makes ``import pandas`` raise ImportError IMMEDIATELY (loud,
+# not silent — DuckDB's own try/except takes its no-pandas branch exactly as before) with no path scan;
+# semantically a no-op because pandas is absent anyway. The ``find_spec`` guard means a venv WITH pandas
+# is untouched. Measured: test_compare 315 s -> 67 s, rows identical. Pinned by test_pandas_probe.py.
+if importlib.util.find_spec("pandas") is None:  # only when pandas is genuinely absent
+    sys.modules["pandas"] = None
 
 import duckdb
 

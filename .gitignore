@@ -224,9 +224,12 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Claude — local worktrees/settings stay ignored; committed agent skills are the exception
+# Claude — local worktrees + settings.local.json stay ignored; the committed exceptions are the agent skills and
+# the project settings.json (env: BASH_DEFAULT_TIMEOUT_MS=300000 — the foreground Bash cap, so a ~94 s scoped
+# pytest run has headroom under load; the 600 s max is untouched)
 .claude/*
 !.claude/skills/
+!.claude/settings.json
 
 # Alpha Deck runtime data — on-disk caches (EDGAR/OpenFIGI/SEC), Parquet snapshots, DuckDB. Not committed.
 data/

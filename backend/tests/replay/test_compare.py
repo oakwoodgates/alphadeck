@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from domain.config import DEFAULT_CONFIG
 from pipeline.seed import seed_unh
 from replay.compare import compare
 
 
+@pytest.mark.slow  # ~66 s serial with the pandas sentinel (was 316 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_compare_varies_only_cfg(db, tmp_path):
     """The recalibration sweep runner exports the mirror ONCE and replays each cfg variant over that same
     frozen snapshot, so the only difference between variants is ``cfg``: a base-vs-base pair is
