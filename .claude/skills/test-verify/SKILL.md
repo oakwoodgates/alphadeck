@@ -49,7 +49,8 @@ idempotency count-the-table rule); the fail-closed test-DB hook is
    replay / signal path** (`backend/db/bitemporal`, `backend/signals`, `backend/calls`,
    `backend/replay`, `backend/pipeline/core`): the FULL suite including `slow` runs
    every iteration; `-m "not slow"` is never used there (the sweeps are the only
-   end-to-end exercise of that path).
+   day-by-day, zero-forward-knowledge run of the REAL pipeline; the fast parity +
+   lookahead guards in `tests/replay` stay in every run regardless).
 4. **Waiting.** The full suite (~6 min) must run in the BACKGROUND, output redirected to
    a file outside the repo (the session scratchpad), e.g.
    ```
