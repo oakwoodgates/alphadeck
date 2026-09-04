@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import pytest
+
 from domain.enums import State, Verdict
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
 from replay.export import export_snapshot
@@ -12,6 +14,8 @@ from repositories import thesis_repo
 _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
 
+@pytest.mark.slow  # ~21 s serial with the pandas sentinel (was 104 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_unh_arc_replays_warm_to_arm_to_ageout(db, tmp_path):
     """The flagship end-to-end replay, on the one richly-covered arc (UNH: the mid-May-2025 CEO-led insider
     cluster -> the August-2025 volume-backed breakout -> aged out by 2026). Run the REAL pipeline day by day

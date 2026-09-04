@@ -129,6 +129,8 @@ def test_lab_config_leaves_non_switch_dials_untouched():
     assert changed == {"insider_sell_enabled"}
 
 
+@pytest.mark.slow  # ~41 s serial with the pandas sentinel (was 206 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_run_is_reproducible(db, tmp_path):
     """Determinism pin (req 4): same (snapshot, pin, window, cfg) -> value-identical timeline + scores. We
     compare the returned metrics by value (the honest, achievable form of 'byte-reproducible'). UNH-only
@@ -142,6 +144,8 @@ def test_run_is_reproducible(db, tmp_path):
     assert m1.n_episodes > 0
 
 
+@pytest.mark.slow  # ~40 s serial with the pandas sentinel (was 202 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_cfg_is_swept_not_hardcoded(db, tmp_path):
     """Req 3: cfg flows through the harness. Raising the breakout bar to an unreachable 50%/10d means UNH
     never confirms -> never arms, so the timeline differs from the default — proving cfg isn't hardcoded.
@@ -163,6 +167,8 @@ def test_cfg_is_swept_not_hardcoded(db, tmp_path):
         con.close()
 
 
+@pytest.mark.slow  # ~89 s serial with the pandas sentinel (was 571 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_metrics_carry_n_and_insufficient_flags(db, tmp_path):
     """The seven claim-tied metrics are all present, each carrying n + insufficient_n + its claim; at the
     seed's scale calibration is honestly flagged insufficient (instrument, not a claim)."""

@@ -106,6 +106,9 @@ python -m replay.run --start 2025-04-01 --end 2026-06-30 --pin 2027-01-01 --out 
 # writes: <out>/{fact_*.parquet (mirror), outcomes.parquet, episodes.parquet, metrics.json}; prints the metrics
 ```
 
+> **Windows note:** the lab used to pay a ~5x tax from DuckDB's failed `import pandas` probe (per bound parameter, per query;
+> CPython never caches a failed import, so each probe re-walked `sys.path` — a stat storm). `replay/pit.py` now short-circuits it when pandas is absent.
+
 Tests (`backend/tests/replay/`): `pytest tests/replay` — the parity gate, both no-lookahead mirror tests, the
 UNH arc end-to-end, episode derivation, the scorer + the import-graph boundary guard, reproducibility, and the
 cfg-sweep. Parity + the two no-lookahead tests are the gate.

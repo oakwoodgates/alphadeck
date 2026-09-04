@@ -5,6 +5,8 @@ import inspect
 from datetime import date, datetime, timezone
 from math import isfinite
 
+import pytest
+
 import replay.harness
 import replay.scoring
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
@@ -45,6 +47,8 @@ def test_lookahead_boundary_is_structural():
     assert "RealizedPrices" not in _imported_names(replay.harness)
 
 
+@pytest.mark.slow  # ~21 s serial with the pandas sentinel (was 113 s before it)
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
 def test_unh_arm_scores_a_finite_forward_outcome(db, tmp_path):
     """End-to-end through the scoring pass: the UNH August-2025 arm scores a finite, correctly-shaped
     realized forward return to its own ``exit_by`` (the conviction hold horizon, within the data).
