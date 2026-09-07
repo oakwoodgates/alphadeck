@@ -62,7 +62,7 @@ import {
   type DeserializeResult,
   type EditorRuntime,
 } from "./triageSession";
-import { DISCOVERED, memberKey, useChainDraft } from "./useChainDraft";
+import { DISCOVERED, memberKey, type PlacedMode, useChainDraft } from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
 // tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
@@ -291,6 +291,9 @@ export function ChainEditor({
   // flip the badge on over a spine-seeded editor, the exact confusion the badge exists to close.
   const [restoredAt] = useState<string | null>(() => restoredUpdatedAt ?? null);
   const d = useChainDraft(thesis, restored?.hook);
+  // THE PLACED MODE (Research ⇄ Pick — see useChainDraft): `pick` flips the PLACED section's polarity
+  // (checking picks a name IN and collapses it; un-picked = available, never excluded) and the copy.
+  const pick = d.placedMode === "pick";
   const save = usePromoteThesis();
   const putExclusions = usePutExclusions(thesis.id); // #7: the durable NOs ride every Save
   // The draft is a KICK-OFF + POLL job now (it takes minutes; held open it 504'd). Start it, stash the job_id,
@@ -601,15 +604,21 @@ export function ChainEditor({
   // excluded name can't be endorsed); established and non-picked draft members sit structurally outside
   // the two origin maps. Computed per render so the control renders ONLY when it discriminates (#3):
   // ≥1 picked member the stamp would actually change.
-  const pickedUnsignedKeys = nameGroups
-    .filter(
-      (g) =>
-        g.first.security_id &&
-        (verifyOrigin[g.first.security_id] || recommendedOrigin[g.first.security_id]) &&
-        !g.first.signed_off &&
-        d.isIncluded(g.key),
-    )
-    .map((g) => g.key);
+  // PICK MODE: every checked working name IS a deliberate pick (checking is the gesture), so the target is
+  // simply selected − established − signed_off — the origin maps don't decide it.
+  const pickedUnsignedKeys = (
+    pick
+      ? nameGroups.filter(
+          (g) => d.selected.has(g.key) && !d.isEstablished(g.key) && !g.first.signed_off,
+        )
+      : nameGroups.filter(
+          (g) =>
+            g.first.security_id &&
+            (verifyOrigin[g.first.security_id] || recommendedOrigin[g.first.security_id]) &&
+            !g.first.signed_off &&
+            d.isIncluded(g.key),
+        )
+  ).map((g) => g.key);
   const includedNameCount = nameGroups.filter((g) => d.isIncluded(g.key)).length;
   // Item 6(c): how many placed NAMES still sit in the "Discovered" holding pen (unsorted into a real link).
   const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
@@ -693,7 +702,14 @@ export function ChainEditor({
     pickPref,
   };
   const sessionBlob = serialize(
-    { draft: d.draft, excluded: d.excluded, reasons: d.reasons, reasonsDirty: d.reasonsDirty },
+    {
+      draft: d.draft,
+      excluded: d.excluded,
+      reasons: d.reasons,
+      reasonsDirty: d.reasonsDirty,
+      selected: d.selected,
+      placedMode: d.placedMode,
+    },
     editorRuntime,
   );
   const sessionKey = JSON.stringify(sessionBlob); // the change signal (referentially stable across no-op renders)
@@ -1211,6 +1227,25 @@ export function ChainEditor({
     });
   };
 
+  // THE MODE TOGGLE (Research ⇄ Pick) — a WORKING-SCOPED RESET, never a restore (the hook owns the rule:
+  // the saved Basket's kept names and every signed-off name stay checked either way; sign-off itself is
+  // never touched). CONDITIONAL confirm: only when the reset would actually flip ≥1 name's checked state —
+  // a switch that changes nothing asks nothing. Clicking the active mode is a no-op.
+  const switchPlacedMode = (mode: PlacedMode) => {
+    if (mode === d.placedMode) return;
+    const n = d.placedModeResetCount(mode);
+    if (n > 0) {
+      const names = n === 1 ? "1 name" : `${n} names`;
+      const ok = window.confirm(
+        mode === "pick"
+          ? `Switch to Pick? ${names} in the working list will become un-picked (available — not excluded). Your saved Basket and signed-off names stay checked.`
+          : `Switch to Research? ${names} will change: every working name is included again, except persisted exclusions (they return greyed). Signed-off names stay checked.`,
+      );
+      if (!ok) return;
+    }
+    d.setPlacedMode(mode);
+  };
+
   // Save persists ONLY the INCLUDED subset (the prune) — the promote full-replaces, so excluded names simply
   // aren't sent. The current sort/filter VIEW never affects this: it's the whole basket minus `excluded`,
   // regardless of what's visible (#9 — the view hides, only include decides what persists).
@@ -1218,28 +1253,50 @@ export function ChainEditor({
   // set-asides, each with its optional reason) ∪ the CARRIED-FORWARD prior exclusions this session never
   // re-surfaced (a name absent from today's draft must not lose its durable NO). A re-included name is
   // simply not in the payload — the NO is withdrawn.
+  // PICK MODE: the basket = the selected rows (`includedBasket`, mode-aware); the exclusion set is the
+  // prior NOs carried forward VERBATIM minus any name PICKED this session — NOTHING from `excluded`
+  // (dormant), and no new NO for an un-picked name (available ≠ rejected). The To-Review ✕ set-asides
+  // persist in BOTH modes (an explicit rejection is a decision regardless of mode).
   const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
   const onSave = async () => {
     const basket = d.includedBasket;
     if (basket.length === 0 && d.draft.basket.length > 0) {
       const ok = window.confirm(
-        "Save an empty basket? Every name is excluded — the thesis will have no basket to score. Include at least one, or confirm the wipe.",
+        pick
+          ? "Save an empty basket? Nothing is picked — the thesis will have no basket to score. Pick at least one, or confirm the wipe."
+          : "Save an empty basket? Every name is excluded — the thesis will have no basket to score. Include at least one, or confirm the wipe.",
       );
       if (!ok) return;
     }
+    // THE AUTOSAVE DEBOUNCE RACE: a Save within ~1s of the last checkbox click would lose that autosave
+    // (the debounce timer clears on the post-save unmount) — the spine would carry the decision but the
+    // session wouldn't, so on return the name reads undecided (and a pick Save would drop it). Write the
+    // CURRENT blob directly before persisting anything. Mode-agnostic; timing only, never semantics.
+    putSession.mutate({
+      schema_version: SCHEMA_VERSION,
+      state: sessionBlob as unknown as TriageSessionPut["state"],
+    });
     const priorTicker = new Map((thesis.exclusions ?? []).map((e) => [e.security_id, e.ticker]));
     const priorReason = new Map((thesis.exclusions ?? []).map((e) => [e.security_id, e.reason]));
     const exclusions: { security_id: string; ticker: string | null; reason: string | null }[] = [];
     const seen = new Set<string>();
-    for (const m of d.draft.basket) {
-      if (!m.security_id) continue;
-      seen.add(m.security_id);
-      if (d.excluded.has(memberKey(m))) {
-        exclusions.push({
-          security_id: m.security_id,
-          ticker: m.ticker,
-          reason: d.reasons.get(memberKey(m)) ?? priorReason.get(m.security_id) ?? null,
-        });
+    if (pick) {
+      // a PICKED name is re-decided (kept) — its prior NO is withdrawn below; an un-picked name is NOT
+      // in `seen`, so its prior NO carries forward untouched and no new NO is ever written for it
+      for (const m of d.draft.basket) {
+        if (m.security_id && d.isIncluded(memberKey(m))) seen.add(m.security_id);
+      }
+    } else {
+      for (const m of d.draft.basket) {
+        if (!m.security_id) continue;
+        seen.add(m.security_id);
+        if (d.excluded.has(memberKey(m))) {
+          exclusions.push({
+            security_id: m.security_id,
+            ticker: m.ticker,
+            reason: d.reasons.get(memberKey(m)) ?? priorReason.get(m.security_id) ?? null,
+          });
+        }
       }
     }
     for (const id of setAside) {
@@ -1495,21 +1552,84 @@ export function ChainEditor({
     // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
     const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
     const included = d.isIncluded(k);
+    // THE PLACED-MODE POLARITY: research collapses the EXCLUDED row (the decided-OUT stub, greyed +
+    // struck); pick collapses the PICKED row (the decided-IN stub, quiet, never struck). The open row is
+    // today's included row in both modes.
+    const collapsed = d.isCollapsed(k);
+    // the cross-mode tag (pick only): a name with a PERSISTED research NO renders open + un-picked, tagged
+    // — keep-visible (#2), never pre-greyed into a mode that has no exclusions; picking it withdraws the
+    // NO on Save, leaving it un-picked carries the NO forward verbatim.
+    const durablyExcluded = pick && !included && d.isDurablyExcluded(k);
     const loaded = hasFundamentals(m.security_id, scoredById);
+    // the row actions (sign off ⇄ withdraw · the To-Review / Recommended send-backs) — rendered on the open
+    // row AND on the pick-mode picked stub, so a decided keeper stays un-endorsable and reversible (#1).
+    // Reversibility (#1): sign-off is a TOGGLE on the confidence ladder's top rung — it endorses the NAME,
+    // never sets authorship, never gates Save.
+    const rowActions = (
+      <>
+        <button
+          type="button"
+          className={`wb-mini${m.signed_off ? " on" : ""}`}
+          aria-pressed={m.signed_off}
+          aria-label={`${m.signed_off ? "withdraw sign-off" : "sign off"} ${m.ticker}`}
+          title={
+            m.signed_off
+              ? "withdraw your sign-off — the name stays included; nothing else changes"
+              : "sign off — endorse this NAME for the thesis (a marker: never authorship, never a gate)"
+          }
+          onClick={() => d.toggleSignOff(k)}
+        >
+          {m.signed_off ? "✓ signed off" : "sign off"}
+        </button>
+        {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
+        {m.security_id && verifyOrigin[m.security_id] && (
+          <button
+            type="button"
+            className="wb-mini ghost"
+            aria-label={`send ${m.ticker} back to review`}
+            title="send this name back to To-Review (the inverse of add)"
+            onClick={() => sendBackToVerify(m.security_id as string)}
+          >
+            ↩ to review
+          </button>
+        )}
+        {/* the inverse of "pick" for a name checked in from the Recommended pile — send it back
+            exactly as it was (reversibility #1); only pile-origin rows carry it */}
+        {m.security_id && recommendedOrigin[m.security_id] && (
+          <button
+            type="button"
+            className="wb-mini ghost"
+            aria-label={`send ${m.ticker} back to recommended`}
+            title="send this name back to the Recommended pile (the inverse of pick)"
+            onClick={() => sendBackToRecommended(m.security_id as string)}
+          >
+            ↩ to recommended
+          </button>
+        )}
+      </>
+    );
     return (
       <div
-        className={`nmrow${offThesis ? " flagged" : ""}${included ? "" : " excluded"}`}
+        className={`nmrow${offThesis ? " flagged" : ""}${collapsed ? (pick ? " picked" : " excluded") : ""}`}
         key={k}
       >
         <div className="top">
           {/* the LADDER's gate (default-on, #9): unchecking EXCLUDES the name from Save (excluded wins);
               the row stays visible (greyed), one click from re-including. Include never touches
-              authorship or the sign-off flag. */}
+              authorship or the sign-off flag. PICK: the same box PICKS the name in (default-off; an
+              un-picked name is available, never excluded). */}
           <input
             type="checkbox"
             className="wb-inc"
             aria-label={`include ${m.ticker}`}
             checked={included}
+            title={
+              pick
+                ? included
+                  ? "picked — uncheck to un-pick (it stays available, never excluded)"
+                  : "check to pick this name into the basket"
+                : undefined
+            }
             onChange={() => d.toggleInclude(k)}
           />
           <span className="tk">{m.ticker}</span>
@@ -1522,25 +1642,40 @@ export function ChainEditor({
               "excluded" tag stay visible (#9, re-check to restore); its chips, controls (incl. the
               sign-off toggle — structurally unreachable while excluded, the ladder's "excluded wins"),
               and prose hide so the noise recedes (inverse loudness). Exclude never touches authorship
-              or the flag (an edited note stays operator_edited, safe from the next re-roll). */}
-          {!included ? (
-            <>
-              <span
-                className="wb-exc-tag"
-                title="excluded from Save — re-check to restore its detail"
-              >
-                excluded
+              or the flag (an edited note stays operator_edited, safe from the next re-roll).
+              PICK: the PICKED row collapses to a quiet decided-IN stub instead — a `picked` tag PLUS
+              the row actions still reachable (a decided keeper must stay un-endorsable and reversible,
+              #1); no why-input (pick writes no exclusion, so there is nothing to explain). */}
+          {collapsed ? (
+            pick ? (
+              <span className="rowactions">
+                <span
+                  className="wb-pick-tag"
+                  title="picked into the basket — uncheck to un-pick (it stays available, never excluded)"
+                >
+                  picked
+                </span>
+                {rowActions}
               </span>
-              {/* #7: the optional "rejected because X" — persisted with the exclusion on
-                  Save; quiet, skippable, editable (never a modal on a 300-name prune) */}
-              <input
-                className="wb-exc-why"
-                aria-label={`why excluded ${m.ticker}`}
-                placeholder="why? (optional)"
-                value={d.reasons.get(k) ?? ""}
-                onChange={(e) => d.editReason(k, e.target.value)}
-              />
-            </>
+            ) : (
+              <>
+                <span
+                  className="wb-exc-tag"
+                  title="excluded from Save — re-check to restore its detail"
+                >
+                  excluded
+                </span>
+                {/* #7: the optional "rejected because X" — persisted with the exclusion on
+                    Save; quiet, skippable, editable (never a modal on a 300-name prune) */}
+                <input
+                  className="wb-exc-why"
+                  aria-label={`why excluded ${m.ticker}`}
+                  placeholder="why? (optional)"
+                  value={d.reasons.get(k) ?? ""}
+                  onChange={(e) => d.editReason(k, e.target.value)}
+                />
+              </>
+            )
           ) : (
             <>
               {m.security_id && offUniverse.has(m.security_id) && <OffUniversePill />}
@@ -1558,6 +1693,16 @@ export function ChainEditor({
                     needs SURFACE
                   </span>
                 ))}
+              {/* the cross-mode tag: this name carries a persisted research NO — shown, never hidden or
+                  pre-greyed (#2); picking it withdraws the NO on Save */}
+              {durablyExcluded && (
+                <span
+                  className="wb-exc-tag"
+                  title="excluded in Research (a persisted NO) — it stays available here; picking it withdraws the exclusion on Save, leaving it un-picked keeps it"
+                >
+                  excluded in research
+                </span>
+              )}
               {/* R1: the recommended-links chips sit on their own line; the row actions (sign-off +
                   send-back) right-align at the END of this row. No seg/conviction controls here (S1):
                   segment sorting + weighting move to the triage screen — this surface shows the DRAFT'S
@@ -1592,59 +1737,19 @@ export function ChainEditor({
                   </span>
                 )}
                 {/* the row actions right-align at the END of the controls row (sign off ⇄ withdraw · the
-                    To-Review send-back). Reversibility (#1): sign-off is a TOGGLE on the confidence
-                    ladder's top rung — it endorses the NAME, never sets authorship, never gates Save. */}
-                <span className="rowactions">
-                  <button
-                    type="button"
-                    className={`wb-mini${m.signed_off ? " on" : ""}`}
-                    aria-pressed={m.signed_off}
-                    aria-label={`${m.signed_off ? "withdraw sign-off" : "sign off"} ${m.ticker}`}
-                    title={
-                      m.signed_off
-                        ? "withdraw your sign-off — the name stays included; nothing else changes"
-                        : "sign off — endorse this NAME for the thesis (a marker: never authorship, never a gate)"
-                    }
-                    onClick={() => d.toggleSignOff(k)}
-                  >
-                    {m.signed_off ? "✓ signed off" : "sign off"}
-                  </button>
-                  {/* the inverse of "add" for a name pulled from To-Review — send it back (reversibility #1) */}
-                  {m.security_id && verifyOrigin[m.security_id] && (
-                    <button
-                      type="button"
-                      className="wb-mini ghost"
-                      aria-label={`send ${m.ticker} back to review`}
-                      title="send this name back to To-Review (the inverse of add)"
-                      onClick={() => sendBackToVerify(m.security_id as string)}
-                    >
-                      ↩ to review
-                    </button>
-                  )}
-                  {/* the inverse of "pick" for a name checked in from the Recommended pile — send it back
-                      exactly as it was (reversibility #1); only pile-origin rows carry it */}
-                  {m.security_id && recommendedOrigin[m.security_id] && (
-                    <button
-                      type="button"
-                      className="wb-mini ghost"
-                      aria-label={`send ${m.ticker} back to recommended`}
-                      title="send this name back to the Recommended pile (the inverse of pick)"
-                      onClick={() => sendBackToRecommended(m.security_id as string)}
-                    >
-                      ↩ to recommended
-                    </button>
-                  )}
-                </span>
+                    To-Review / Recommended send-backs) — `rowActions` above. */}
+                <span className="rowactions">{rowActions}</span>
               </span>
             </>
           )}
         </div>
-        {/* the row's detail (prose · provenance · off-thesis flag) is hidden while EXCLUDED (R3 collapse)
-            and while COMPACT (the scannable read). The prose auto-sizes to its content, capped at 3 rows
-            then scrolling (R2). HONEST AUTHORSHIP (S1): the label reads "model draft" until the operator
-            EDITS the text → "your words" — nothing else flips it (sign-off endorses the NAME, not the
-            words). No label on an empty description (nothing written by anyone — the honest abstain). */}
-        {included && !compact && (
+        {/* the row's detail (prose · provenance · off-thesis flag) is hidden while COLLAPSED (R3 — the
+            excluded stub in research, the picked stub in pick) and while COMPACT (the scannable read).
+            The prose auto-sizes to its content, capped at 3 rows then scrolling (R2). HONEST AUTHORSHIP
+            (S1): the label reads "model draft" until the operator EDITS the text → "your words" —
+            nothing else flips it (sign-off endorses the NAME, not the words). No label on an empty
+            description (nothing written by anyone — the honest abstain). */}
+        {!collapsed && !compact && (
           <>
             {(m.thesis_fit ?? "").trim() !== "" && (
               <div className="wb-prose-head">
@@ -1675,7 +1780,7 @@ export function ChainEditor({
             set (honest loudness — the diff renders only when it says something; a just-added member's
             frozen == matched, so no duplicate line). A member with NO frozen terms (hand-added / sleeve /
             pre-backfill) keeps today's single ← current-match line — unchanged semantics. */}
-        {included && frozen.length > 0 && (
+        {!collapsed && frozen.length > 0 && (
           <div
             className="prov"
             title={`seeded by: ${frozen.join(", ")} — the discovery terms that surfaced this name when it entered the Basket (frozen at entry; term-set edits never change it)`}
@@ -1683,7 +1788,7 @@ export function ChainEditor({
             ⚓ seeded by: {frozen.join(" · ")}
           </div>
         )}
-        {included && alsoNow.length > 0 && (
+        {!collapsed && alsoNow.length > 0 && (
           <div
             className="prov"
             title={`also matches the current term set: ${alsoNow.join(", ")} — current-run matches beyond the frozen seed terms`}
@@ -1691,13 +1796,17 @@ export function ChainEditor({
             + also matches now: {alsoNow.join(" · ")}
           </div>
         )}
-        {included && frozen.length === 0 && mt && mt.length > 0 && (
+        {!collapsed && frozen.length === 0 && mt && mt.length > 0 && (
           <div className="prov" title={`discovery match: ${mt.join(", ")}`}>
             ← {mt.join(" · ")}
           </div>
         )}
-        {included && offThesis && (
-          <div className="flag">⚑ model thinks off-thesis — stays placed; uncheck to exclude</div>
+        {!collapsed && offThesis && (
+          <div className="flag">
+            {pick
+              ? "⚑ model thinks off-thesis — available, not picked; pick it only if it belongs"
+              : "⚑ model thinks off-thesis — stays placed; uncheck to exclude"}
+          </div>
         )}
       </div>
     );
@@ -1844,7 +1953,11 @@ export function ChainEditor({
               onClick={() => setBasketOpen((o) => !o)}
             >
               <span className="chev">{basketOpen ? "▾" : "▸"}</span>
-              Basket <em>· the saved basket — a re-draft only adds; uncheck to send a name down</em>
+              Basket{" "}
+              <em>
+                · the saved basket — a re-draft only adds;{" "}
+                {pick ? "uncheck to un-pick" : "uncheck to send a name down"}
+              </em>
               {basketGroups.length > 0 && (
                 <span className="ct">
                   · {basketIncludedGroups.length} of {basketGroups.length} kept
@@ -1855,7 +1968,7 @@ export function ChainEditor({
               (basketGroups.length > 0 && basketIncludedGroups.length === 0 ? (
                 // every established name is demoted — keep the header + an honest note, never vanish (#2)
                 <div className="note">
-                  all {basketGroups.length} demoted — re-check below to restore
+                  all {basketGroups.length} {pick ? "un-picked" : "demoted"} — re-check below to restore
                 </div>
               ) : (
                 basketRows.map(placedRow)
@@ -2252,7 +2365,7 @@ export function ChainEditor({
             Placed names <em>· links are the draft's recommendation (read-only chips) · a description is a model draft until you edit it</em>
             {nameCount > 0 && (
               <span className="ct">
-                · {includedNameCount} of {nameCount} included
+                · {includedNameCount} of {nameCount} {pick ? "picked" : "included"}
               </span>
             )}
           </button>
@@ -2263,31 +2376,67 @@ export function ChainEditor({
               names) without touching authorship. */}
           {nameCount > 0 && (
             <div className="wb-triage-bulk">
-              <span className="note">Only included names are saved.</span>
+              {/* THE PLACED-MODE TOGGLE (Research ⇄ Pick) — a two-button segmented control at the head of
+                  the bar. Research = today's prune (all checked, unchecking is the durable NO); Pick = the
+                  additive select (all available, checking picks a name in — never writes an exclusion).
+                  Switching is a working-scoped reset the operator confirms only when it changes something.
+                  NB "Pick" here is the PLACED mode — distinct from the draft LOAD mode ("start empty — pick
+                  keepers", the Recommended pile) above. */}
+              <span className="wb-placed-mode" role="group" aria-label="placed mode">
+                <button
+                  type="button"
+                  className={`wb-mini${pick ? "" : " on"}`}
+                  aria-pressed={!pick}
+                  title="Research: every name starts included — uncheck to exclude it (a durable NO, persisted on Save)"
+                  onClick={() => switchPlacedMode("research")}
+                >
+                  Research
+                </button>
+                <button
+                  type="button"
+                  className={`wb-mini${pick ? " on" : ""}`}
+                  aria-pressed={pick}
+                  title="Pick: every name starts available — check to pick it into the basket; un-picked names stay available, never excluded"
+                  onClick={() => switchPlacedMode("pick")}
+                >
+                  Pick
+                </button>
+              </span>
+              <span className="note">
+                {pick
+                  ? "Only picked names are saved — un-picked names stay available, never excluded."
+                  : "Only included names are saved."}
+              </span>
               {/* WORKING-SCOPED bulk include/exclude — they sweep the working set (new + demoted names),
-                  never the frozen Basket: the established basket is pruned per-row, deliberately. */}
-              <button
-                type="button"
-                className="wb-mini ghost"
-                onClick={() => d.includeKeys(workingKeys)}
-              >
-                include all new
-              </button>
-              <button
-                type="button"
-                className="wb-mini ghost"
-                onClick={() => d.excludeKeys(workingKeys)}
-              >
-                exclude all new
-              </button>
-              <button
-                type="button"
-                className="wb-mini ghost"
-                title="exclude every name you have NOT signed off — keep only your endorsed names (each stays visible, one click back)"
-                onClick={d.excludeNotSignedOff}
-              >
-                clear not signed-off
-              </button>
+                  never the frozen Basket: the established basket is pruned per-row, deliberately.
+                  RESEARCH-ONLY: all three write `excluded`, dormant in pick — a control that can't act
+                  shouldn't render (WB#3). */}
+              {!pick && (
+                <>
+                  <button
+                    type="button"
+                    className="wb-mini ghost"
+                    onClick={() => d.includeKeys(workingKeys)}
+                  >
+                    include all new
+                  </button>
+                  <button
+                    type="button"
+                    className="wb-mini ghost"
+                    onClick={() => d.excludeKeys(workingKeys)}
+                  >
+                    exclude all new
+                  </button>
+                  <button
+                    type="button"
+                    className="wb-mini ghost"
+                    title="exclude every name you have NOT signed off — keep only your endorsed names (each stays visible, one click back)"
+                    onClick={d.excludeNotSignedOff}
+                  >
+                    clear not signed-off
+                  </button>
+                </>
+              )}
               {/* Feature 2 (cherry-pick) — bulk-endorse the PICKED set: picking is deliberate, so
                   endorsing it wholesale is honest (auto-endorse-on-pick was rejected — the acts stay
                   separate). Renders ONLY when it discriminates (#3): ≥1 picked, included, un-endorsed
@@ -2307,7 +2456,7 @@ export function ChainEditor({
                 type="button"
                 className="wb-mini ghost"
                 disabled={includedNameCount === 0}
-                aria-label={`export ${includedNameCount} included names`}
+                aria-label={`export ${includedNameCount} ${pick ? "picked" : "included"} names`}
                 onClick={() =>
                   exportKeptNames({
                     thesisName: thesis.name,
@@ -2406,8 +2555,9 @@ export function ChainEditor({
                   onChange={(e) => setFInc(e.target.value as typeof fInc)}
                 >
                   <option value="">all</option>
-                  <option value="included">included</option>
-                  <option value="excluded">excluded</option>
+                  {/* values unchanged (the filter reads the mode-aware isIncluded); labels follow the mode */}
+                  <option value="included">{pick ? "picked" : "included"}</option>
+                  <option value="excluded">{pick ? "not picked" : "excluded"}</option>
                 </select>
               </label>
               <label className="wb-find-ctl">
@@ -2547,16 +2697,22 @@ export function ChainEditor({
                   <div className="wb-triage-bulk">
                     <span className="note">
                       Each name here was flagged off-thesis by the model AND matched a junk tell (acronym
-                      collision, fund-name pattern, …). Scan for real names, then clear the rest.
+                      collision, fund-name pattern, …).{" "}
+                      {pick
+                        ? "Scan for real names and pick them; the rest stay available."
+                        : "Scan for real names, then clear the rest."}
                     </span>
-                    <button
-                      type="button"
-                      className="wb-mini ghost"
-                      title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
-                      onClick={() => d.excludeKeys(gLowQuality.map((g) => g.key))}
-                    >
-                      exclude all {gLowQuality.length}
-                    </button>
+                    {/* RESEARCH-ONLY (writes `excluded`, dormant in pick — WB#3) */}
+                    {!pick && (
+                      <button
+                        type="button"
+                        className="wb-mini ghost"
+                        title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
+                        onClick={() => d.excludeKeys(gLowQuality.map((g) => g.key))}
+                      >
+                        exclude all {gLowQuality.length}
+                      </button>
+                    )}
                   </div>,
                 )}
               </div>

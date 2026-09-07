@@ -927,6 +927,17 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-results .nmrow.excluded .tk { text-decoration: line-through; }
 /* R3: the collapsed-stub tag on an excluded row (chips/controls/prose are hidden; re-check restores them). */
 .wb-results .wb-exc-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); margin-left: auto; }
+/* THE PLACED MODE (Research ⇄ Pick) — the segmented toggle at the head of the bulk bar (two .wb-mini buttons
+   fused into one control; the active mode lights via .on, the sign-off green) and the PICKED row: pick's
+   decided-IN stub. Reduced opacity (decided — the eye moves on) but NO strikethrough (it is IN, not out —
+   the excluded stub's line-through would lie), and a green-tinted `picked` tag; its row actions stay
+   reachable so a decided keeper is un-endorsable + reversible (#1). */
+.wb-placed-mode { display: inline-flex; }
+.wb-placed-mode .wb-mini { border-radius: 0; }
+.wb-placed-mode .wb-mini:first-child { border-radius: 6px 0 0 6px; }
+.wb-placed-mode .wb-mini:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.wb-results .nmrow.picked { opacity: 0.62; }
+.wb-results .wb-pick-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; color: var(--pos); background: rgba(70, 208, 127, 0.1); border: 1px solid rgba(70, 208, 127, 0.3); border-radius: 5px; padding: 2px 7px; }
 /* the keeper set-aside ✕ (To-Review) — a top-right VIEW toggle: grey the row to a stub, click again to restore.
    Sits far right (margin-left:auto); the tag + ✕ group together on a set-aside row (both auto-margined). */
 .wb-results .wb-setaside { margin-left: auto; flex: none; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: 1px solid transparent; border-radius: 5px; padding: 2px 7px; cursor: pointer; }
