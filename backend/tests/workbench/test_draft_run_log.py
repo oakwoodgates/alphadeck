@@ -68,7 +68,8 @@ def test_payload_carries_the_inputs_and_round_trips_the_draft(tmp_path):
     ]
     s = get_settings()  # the dials in effect — what makes one run's universe differ from another's
     assert payload["dials"] == {
-        "discovery_hit_cap": s.discovery_hit_cap,
+        "discovery_hit_cap": s.discovery_hit_cap,  # the SIGNAL (deep) cap
+        "discovery_broad_hit_cap": s.discovery_broad_hit_cap,  # the BROAD (shallow) cap
         "research_model": s.llm_research_model,
         "decompose_model": s.llm_decompose_model,
     }

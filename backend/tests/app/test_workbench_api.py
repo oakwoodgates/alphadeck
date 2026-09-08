@@ -2091,7 +2091,8 @@ def test_completed_draft_job_writes_the_run_log_artifact(client, db, draft_runs_
     ]
     s = get_settings()  # the dials in effect (run-to-run drift lives at these knobs)
     assert payload["dials"] == {
-        "discovery_hit_cap": s.discovery_hit_cap,
+        "discovery_hit_cap": s.discovery_hit_cap,  # the SIGNAL (deep) cap
+        "discovery_broad_hit_cap": s.discovery_broad_hit_cap,  # the BROAD (shallow) cap
         "research_model": s.llm_research_model,
         "decompose_model": s.llm_decompose_model,
     }
@@ -2429,6 +2430,47 @@ def test_draft_report_carries_capped_term(client, db, monkeypatch):
     rep = body["result"]["report"]
     assert rep["capped_terms"] == ["nuclear"]  # the truncation is ON THE RECORD, never silent
     assert rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 1
+
+
+def test_draft_report_carries_capped_broad_term_per_tier(client, db, monkeypatch):
+    """The PER-TIER cap on the wire: with the BROAD cap forced to 1 (env dial) and the SIGNAL cap at its
+    default, a BROAD term whose page reports total=2 is capped while the SIGNAL seed (also total=2) is not —
+    the report's ``capped_terms`` names ONLY the BROAD term. Same flat list, no schema change: the FE chip
+    renders per term inside its own tier list, so the BROAD chip alone carries ``⚠ capped``."""
+    from domain.settings import get_settings
+
+    _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    tid = _thesis_for_draft(db, broad=("broadterm",))  # SIGNAL 'nuclear' + BROAD 'broadterm'
+    edgar = _FakeEfts(
+        {
+            "efts/nuclear_0.json": _efts_page(
+                ("0001849056", "Oklo Inc.  (OKLO)  (CIK 0001849056)"),
+                ("0009999998", "Deep Hit Co  (DEEP)  (CIK 0009999998)"),
+            ),
+            "efts/broadterm_0.json": _efts_page(
+                ("0009999991", "Wide Net Co  (WIDE)  (CIK 0009999991)"),
+                ("0009999992", "Second Net Co  (SNET)  (CIK 0009999992)"),
+            ),
+        }
+    )
+    _override_draft(edgar=edgar, decompose=_FakeLLM(returns=_decomp(("Oklo Inc.", "OKLO"))))
+    monkeypatch.delenv(
+        "ALPHADECK_DISCOVERY_HIT_CAP", raising=False
+    )  # the SIGNAL cap at its default
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", "1")
+    get_settings.cache_clear()  # re-read the env (the singleton may have been built at the default)
+    try:
+        body = _draft(client, tid)
+    finally:
+        get_settings.cache_clear()  # drop the capped singleton; monkeypatch restores the env after
+    assert body["status"] == "done", body
+    rep = body["result"]["report"]
+    assert rep["capped_terms"] == [
+        "broadterm"
+    ]  # the BROAD term alone — the seed walked its deep cap
+    assert (
+        rep["coverage"]["pages_ok"] == rep["coverage"]["pages_attempted"] == 2
+    )  # one page-0 per term
 
 
 def test_draft_report_carries_empty_term(client, db):

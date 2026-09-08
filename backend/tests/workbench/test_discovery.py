@@ -161,6 +161,86 @@ def test_end_to_end_shown_identity_equals_bound_identity(db):
         assert p.ticker == bound.ticker  # shown ≡ bound — the crossed display never rides a row
 
 
+# --- the per-tier hit cap at the orchestration layer: SIGNAL deep / BROAD shallow ---
+
+_DEEP_SIG = (
+    "0000000116"  # on the SIGNAL term's DEEP page (beyond the BROAD cap, within the SIGNAL cap)
+)
+_DEEP_BRD = "0000000126"  # on the BROAD term's deep page (beyond the BROAD cap — unsearched)
+_SHALLOW_BRD = "0000000121"  # on the BROAD term's page-0 (within the BROAD cap)
+
+
+def _tier_pages() -> dict[str, dict]:
+    """A SIGNAL term ``alphaterm`` (CIKs 111..116) and a BROAD term ``betaterm`` (CIKs 121..126), each 3
+    pages of 2 hits (total 6) — the deep names sit on each term's offset-4 page. Invented names."""
+
+    def _rows(*ids: int) -> list[tuple[str, str]]:
+        return [(f"{i:010d}", f"Invented Co {i}  (IC{i})  (CIK {i:010d})") for i in ids]
+
+    return {
+        "efts/alphaterm_0.json": _page(6, *_rows(111, 112)),
+        "efts/alphaterm_2.json": _page(6, *_rows(113, 114)),
+        "efts/alphaterm_4.json": _page(6, *_rows(115, 116)),
+        "efts/betaterm_0.json": _page(6, *_rows(121, 122)),
+        "efts/betaterm_2.json": _page(6, *_rows(123, 124)),
+        "efts/betaterm_4.json": _page(6, *_rows(125, 126)),
+    }
+
+
+def test_run_discovery_per_tier_caps(db):
+    """SIGNAL deep / BROAD shallow end to end: under ``hit_cap=6, broad_hit_cap=2`` the name on the seed's
+    DEEP page is PLACED, the name on the broad term's page-0 is VERIFY, the name on the broad term's deep page
+    is ABSENT (its page was never searched) — and that truncation is ON THE RECORD: the BROAD term alone lands
+    in ``capped_terms`` (#9 rule 4)."""
+    deep_sig = _insert(db, "IC116", name="Invented Co 116", cik=_DEEP_SIG)
+    shallow_brd = _insert(db, "IC121", name="Invented Co 121", cik=_SHALLOW_BRD)
+    _insert(db, "IC126", name="Invented Co 126", cik=_DEEP_BRD)
+    edgar = _FakeEfts(_tier_pages())
+    uni = run_discovery(db, edgar, _terms(["alphaterm"], ["betaterm"]), hit_cap=6, broad_hit_cap=2)
+    assert (
+        uni.placed[_DEEP_SIG] == deep_sig
+    )  # the deep SIGNAL name — walked to the deep cap, placed
+    assert uni.verify[_SHALLOW_BRD] == shallow_brd  # the in-cap broad name — surfaced as VERIFY
+    assert _DEEP_BRD not in uni.verify and _DEEP_BRD not in uni.filers  # beyond the shallow cap
+    assert "efts/alphaterm_4.json" in edgar.calls and "efts/betaterm_4.json" not in edgar.calls
+    assert uni.capped_terms == ["betaterm"]  # the BROAD term flagged; the seed was not capped
+    assert uni.coverage is not None and uni.coverage.failed_terms == []
+
+
+def test_run_discovery_a_term_in_both_tiers_enumerates_deep(db):
+    """Recall-first: a term stored in BOTH tiers is a seed too, so it enumerates to the DEEP cap (the shallow
+    set is ``broad − signal``) — its deep page IS searched, the name there PLACES, and nothing is flagged
+    capped. The shallow cap never touches a seed."""
+    deep = _insert(db, "IC126", name="Invented Co 126", cik=_DEEP_BRD)
+    edgar = _FakeEfts(_tier_pages())
+    terms = _terms(["alphaterm", "betaterm"], ["betaterm"])  # betaterm in BOTH tiers
+    uni = run_discovery(db, edgar, terms, hit_cap=6, broad_hit_cap=2)
+    assert uni.placed[_DEEP_BRD] == deep  # a SIGNAL hit on the deep page -> PLACED
+    assert "efts/betaterm_4.json" in edgar.calls  # walked deep, not shallow
+    assert uni.capped_terms == []  # neither term hit its (deep) cap
+
+
+def test_run_discovery_env_caps_reach_discover(db, monkeypatch):
+    """The Settings dials drive the run when the caller passes no caps: ``ALPHADECK_DISCOVERY_HIT_CAP`` bounds
+    the SIGNAL tier and ``ALPHADECK_DISCOVERY_BROAD_HIT_CAP`` the BROAD tier — the same deep-placed /
+    shallow-capped outcome as the explicit-argument run above."""
+    from domain.settings import get_settings
+
+    deep_sig = _insert(db, "IC116", name="Invented Co 116", cik=_DEEP_SIG)
+    _insert(db, "IC126", name="Invented Co 126", cik=_DEEP_BRD)
+    edgar = _FakeEfts(_tier_pages())
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_HIT_CAP", "6")
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", "2")
+    get_settings.cache_clear()  # re-read the env (the singleton may have been built at the defaults)
+    try:
+        uni = run_discovery(db, edgar, _terms(["alphaterm"], ["betaterm"]))
+    finally:
+        get_settings.cache_clear()  # drop the env-driven singleton; monkeypatch restores the env after
+    assert uni.placed[_DEEP_SIG] == deep_sig
+    assert _DEEP_BRD not in uni.filers and "efts/betaterm_4.json" not in edgar.calls
+    assert uni.capped_terms == ["betaterm"]
+
+
 def test_run_discovery_raises_when_no_term_set(db):
     """No term set produced yet (empty list) -> DiscoveryNoTerms (the operator must run .../terms first); EFTS is
     never queried. The not-ready state FAILS VISIBLY (503), never a silent recall fallback."""

@@ -113,6 +113,51 @@ def test_the_llm_dials_left_callconfig():
         CallConfig(llm_model="x")
 
 
+def test_discovery_hit_cap_defaults_are_per_tier(monkeypatch):
+    """The per-tier EFTS hit caps: SIGNAL deep (5000 — a seed hit PLACES a name, so its deep pages are exactly
+    what a low cap silently dropped) / BROAD shallow (1000 — collision-prone, corroboration only). Env
+    hermetic so an ambient override can't mask the defaults."""
+    monkeypatch.delenv("ALPHADECK_DISCOVERY_HIT_CAP", raising=False)
+    monkeypatch.delenv("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", raising=False)
+    s = Settings()
+    assert s.discovery_hit_cap == 5000 and isinstance(s.discovery_hit_cap, int)
+    assert s.discovery_broad_hit_cap == 1000 and isinstance(s.discovery_broad_hit_cap, int)
+
+
+def test_discovery_hit_cap_env_overrides_reach_the_cached_settings(monkeypatch):
+    """Both caps are env dials (ALPHADECK_DISCOVERY_HIT_CAP / ALPHADECK_DISCOVERY_BROAD_HIT_CAP) — an operator
+    tunes either without a code edit, independently."""
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_HIT_CAP", "7000")
+    monkeypatch.setenv("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", "300")
+    get_settings.cache_clear()  # re-read the env (the singleton may have been built at the defaults)
+    assert get_settings().discovery_hit_cap == 7000
+    assert get_settings().discovery_broad_hit_cap == 300
+
+
+def test_compose_hit_cap_fallbacks_agree_with_the_settings_defaults(monkeypatch):
+    """docker-compose.yml ALWAYS injects both cap vars (with a ``:-`` fallback, because an empty env value can't
+    parse as an int), so a compose fallback that drifted from the Settings default would SILENTLY override it
+    on every containerized boot. Pin the two sources to each other."""
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    monkeypatch.delenv("ALPHADECK_DISCOVERY_HIT_CAP", raising=False)
+    monkeypatch.delenv("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", raising=False)
+    s = Settings()
+    for var, default in (
+        ("ALPHADECK_DISCOVERY_HIT_CAP", s.discovery_hit_cap),
+        ("ALPHADECK_DISCOVERY_BROAD_HIT_CAP", s.discovery_broad_hit_cap),
+    ):
+        m = re.search(rf"{var}: \$\{{{var}:-(\d+)\}}", compose)
+        assert m is not None, f"{var} fallback not found in docker-compose.yml"
+        assert (
+            int(m.group(1)) == default
+        ), f"{var}: compose fallback {m.group(1)} != Settings {default}"
+
+
 # --- the late-read rule (D5): the 3 env-toggled vars, monkeypatched AFTER import ---
 
 

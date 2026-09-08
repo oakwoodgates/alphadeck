@@ -219,12 +219,23 @@ class Settings(BaseSettings):
     llm_purity_timeout_s: float = 30.0
 
     # --- EDGAR-first discovery (the EFTS enumerator) — operational dials ---
-    # The per-keyword pagination cap. NOT a recall limiter — a BACKSTOP against a pathological keyword: a low
-    # cap silently drops real on-thesis names that surface deep (the Slice-1 gate measured 25 dropped at 200).
-    # Speed comes from CONCURRENCY (``discover`` fans the pages over a thread pool under the shared rate limit),
-    # never from capping recall. On-thesis filers file repeatedly + hit several keywords, so signal keywords
-    # never reach this; the precision filter drops the deep collision tail. Keep it generous.
-    discovery_hit_cap: int = 1000
+    # The per-keyword pagination caps, PER TIER (SIGNAL deep / BROAD shallow). NOT recall limiters — BACKSTOPS
+    # against a pathological keyword: a low cap silently drops real on-thesis names that surface deep (the
+    # Slice-1 gate measured 25 dropped at 200). Speed comes from CONCURRENCY (``discover`` fans the pages over
+    # a thread pool under the shared rate limit), never from capping recall. BOTH defaults MUST equal the
+    # docker-compose ``:-`` fallbacks: compose always injects the vars, so a drifted fallback would silently
+    # override the code default.
+    #
+    # The SIGNAL-tier cap (and the cap for any untiered caller): DEEP. A SIGNAL term is a discriminating,
+    # operator-specified compound and a hit on it PLACES a name, so a real name surfacing deep under a seed is
+    # exactly what a low cap silently dropped. Keep it generous.
+    discovery_hit_cap: int = 5000
+    # The BROAD-tier cap: SHALLOW. A BROAD term is collision-prone (a short generic token hits thousands of
+    # unrelated filers whose deep pages are nearly all noise) and a hit on it only corroborates (VERIFY, never
+    # places). A measured large draft showed per-tier capping keeps the placed-recall of a high global cap
+    # with far less verify noise. A term stored in BOTH tiers enumerates DEEP (``workbench.discovery``), and
+    # hitting either cap flags the term (``capped_terms`` + the ``⚠ capped`` chip) — never silent (#9 rule 4).
+    discovery_broad_hit_cap: int = 1000
     # The discovery thread-pool size: how many EFTS pages are in flight at once. Set a hair above
     # ``edgar_rate_per_sec`` so the SHARED RateLimiter (the global SEC budget) stays saturated despite
     # per-request latency, never to exceed it — the limiter, not the pool, is the throttle.

@@ -94,8 +94,9 @@ confirmed → recall stays sacred (#9), no number (#3).
 
 ### 2. EFTS enumeration — deterministic, free, CIK-keyed, parallel under a shared rate limit
 
-`discover(edgar, [*signal, *broad])` queries `efts.sec.gov/LATEST/search-index?q="<term>"` for every US filer
-whose filings mention a term, unioning the distinct **CIKs** (each tagged with which terms hit it). It is
+`discover(edgar, [*signal, *broad], broad=broad − signal, hit_cap=…, broad_hit_cap=…)` queries
+`efts.sec.gov/LATEST/search-index?q="<term>"` for every US filer whose filings mention a term, unioning the
+distinct **CIKs** (each tagged with which terms hit it). It is
 **DETERMINISTIC** (an index query — re-running returns the same set), **CIK-keyed** (the stable identity — no
 ticker-guessing), and **FREE**. Parallel but rate-bounded: per-term pages fan out over a thread pool, yet every
 fetch funnels through the ONE shared `EdgarClient` → the ONE `RateLimiter` (the SEC budget is global), so
@@ -114,18 +115,37 @@ structural, not log-only):
   message carries the counts (`"N/M EFTS pages failed"`). A **within-tolerance gap is no longer only a log
   line**: `DiscoveryCoverage` (pages ok/attempted, the failed TERMS, retried/recovered) rides the draft report
   to the operator.
-- **The hit-cap is on the record.** `hit_cap` (default 1000, `ALPHADECK_DISCOVERY_HIT_CAP`) is a
-  pathological-keyword backstop, not a recall limiter — and HITTING it now flags: the term lands in
-  `capped_terms` (+ a WARNING log), rides the draft report, and the FE marks the term chip (`⚠ capped`). Pages
-  beyond the cap are genuinely not searched, so a capped term says "deep hits for this term may be missing" —
-  visible, never silent (#9 rule 4).
+- **The hit-cap is on the record — and it is PER TIER.** Two caps, one loop, one cap site: SIGNAL terms
+  enumerate **deep** (`hit_cap`, default 5000, `ALPHADECK_DISCOVERY_HIT_CAP`) and BROAD terms **shallow**
+  (`broad_hit_cap`, default 1000, `ALPHADECK_DISCOVERY_BROAD_HIT_CAP`); a term stored in BOTH tiers enumerates
+  deep (recall-first — `run_discovery` sends `broad − signal` as the shallow set). Why the split: a BROAD term
+  is collision-prone (a short generic token hits thousands of unrelated filers, and its deep pages are nearly
+  all noise that only corroborates — VERIFY, never places), while a SIGNAL term is a discriminating operator
+  seed whose hit PLACES a name — a real name surfacing deep under a seed is exactly what a low cap silently
+  dropped. A measured large draft showed per-tier capping keeps the placed-recall of a high global cap with
+  far less verify noise. Both caps are pathological-keyword backstops, not recall limiters — and HITTING
+  either flags: the term lands in `capped_terms` (+ a WARNING naming the cap that applied), rides the draft
+  report, and the FE marks the term chip (`⚠ capped`) inside its own tier list, so a capped SIGNAL term and a
+  capped BROAD term each surface independently with no wire change (`capped_terms` stays one flat,
+  input-ordered list). Pages beyond a cap are genuinely not searched, so a capped term says "deep hits for
+  this term may be missing" — visible, never silent (#9 rule 4). Against the single-cap era (one number for
+  every term) the default universe is a **monotone superset**: BROAD is unchanged and SIGNAL only deepens, so
+  no name that surfaced before can stop surfacing — proven by the answer-key re-score at both configs, not
+  asserted. `discover(broad=, broad_hit_cap=None)` is the single-cap behavior, so every untiered caller is
+  untouched.
 
 - *Enforced by:* `ingest/edgar/fulltext.py` (`discover` → `DiscoveryRun`/`DiscoveryCoverage`, `Filer`;
   determinism + parallel-==-sequential tests in `tests/ingest/test_fulltext.py`; the coverage/retry/capped
   gates there — `test_discover_retry_recovers_a_transient_page`,
   `test_discover_retry_recovered_page0_fetches_its_deep_pages` (the silent-partial nuance pinned),
   `test_discover_reports_capped_term`, `test_discover_clean_run_coverage`, and the post-retry count asserts on
-  the degraded tests).
+  the degraded tests; the per-tier gates — `test_discover_per_tier_caps_flag_each_tier_independently`,
+  `test_discover_deep_signal_page_survives_the_shallow_broad_cap`,
+  `test_discover_broad_hit_cap_none_is_the_single_cap`,
+  `test_discover_per_tier_parallel_matches_the_sequential_reference`,
+  `test_discover_retry_recovered_broad_page0_caps_its_late_offsets_shallow`; and the tier split at
+  `workbench/discovery.run_discovery` — `tests/workbench/test_discovery.py::test_run_discovery_per_tier_caps`,
+  `…_a_term_in_both_tiers_enumerates_deep`, `…_env_caps_reach_discover`).
 
 ### 3. classify — PLACED / VERIFY (seeds-only-place)
 
@@ -296,8 +316,9 @@ tail-sweep status asserts), `llm/chain_decomposition.py` (`TailSweep`;
 
 **And every COMPLETED run leaves a run-of-record** — one WRITE-ONLY JSON artifact per finished draft job
 (`data/draft_runs/<thesis_id>/<utc-timestamp>-<job_id>.json`; `workbench/draft_run_log.py`, fired by the job
-layer on success): the thesis + narrative, the **term set as used**, the dials in effect (hit cap + models),
-and the full draft (segments, placements, the report above). The `calls`-log pattern applied to DISCOVER: the
+layer on success): the thesis + narrative, the **term set as used**, the dials in effect (both per-tier hit
+caps + models — an artifact lacking `discovery_broad_hit_cap` is from the single-cap era, where
+`discovery_hit_cap` alone bounded every term), and the full draft (segments, placements, the report above). The `calls`-log pattern applied to DISCOVER: the
 report tells the operator the run's honesty *live*; the artifact preserves it *after* the draft is pruned and
 promoted, so "what did that run surface, under which dials?" stays answerable (run-to-run drift at the hit-cap
 boundary is now diffable, not folklore). **Never a read path** — nothing in the app loads it (a file is not a

@@ -414,6 +414,137 @@ def test_discover_retry_recovered_empty_page0_reports_empty_term():
     assert cov.failed_terms == []  # recovered -> not a failed term (empty is a separate axis)
 
 
+# --- the per-tier cap: SIGNAL deep / BROAD shallow (one loop, one cap site, the cap chosen per keyword) ---
+
+
+def _cik(n: int) -> str:
+    return f"{n:010d}"
+
+
+def _cik_rows(*ids: int) -> list[tuple[str, str]]:
+    """Invented single-CIK rows: ``Co<n> (T<n>) (CIK <n>)``."""
+    return [(_cik(i), f"Co{i}  (T{i})  (CIK {_cik(i)})") for i in ids]
+
+
+def _tier_pages() -> dict[str, dict]:
+    """A SIGNAL-tier keyword ``sig`` (CIKs 11..16) and a BROAD-tier keyword ``brd`` (CIKs 21..26), each 3
+    pages of 2 hits (total 6) -> cache keys sig_0/sig_2/sig_4 and brd_0/brd_2/brd_4. The CIK ranges are
+    disjoint so which keyword — and how deep — a name came from is unambiguous. Neutral, invented names.
+    """
+    return {
+        "efts/sig_0.json": _page(6, *_cik_rows(11, 12)),
+        "efts/sig_2.json": _page(6, *_cik_rows(13, 14)),
+        "efts/sig_4.json": _page(6, *_cik_rows(15, 16)),
+        "efts/brd_0.json": _page(6, *_cik_rows(21, 22)),
+        "efts/brd_2.json": _page(6, *_cik_rows(23, 24)),
+        "efts/brd_4.json": _page(6, *_cik_rows(25, 26)),
+    }
+
+
+def test_discover_per_tier_caps_flag_each_tier_independently():
+    """SIGNAL deep / BROAD shallow in ONE run: ``sig`` (total 6) over the SIGNAL cap 4 AND ``brd`` (total 6)
+    over the BROAD cap 2 -> BOTH land in ``capped_terms`` (input order, one flat list — the chip renders per
+    term inside its own tier list, so each surfaces independently, no wire change), each keyword's beyond-cap
+    pages are genuinely NOT fetched, and there is ONE run-wide coverage (the caps change how far each keyword
+    walks, never the accounting)."""
+    fake = _FakeEfts(_tier_pages())
+    run = discover(fake, ["sig", "brd"], hit_cap=4, broad={"brd"}, broad_hit_cap=2, max_workers=4)
+    assert run.capped_terms == ["sig", "brd"]
+    assert (
+        "efts/sig_2.json" in fake.calls and "efts/sig_4.json" not in fake.calls
+    )  # sig: to 4, not 6
+    assert "efts/brd_2.json" not in fake.calls and "efts/brd_4.json" not in fake.calls  # brd: to 2
+    assert set(run.filers) == {_cik(i) for i in (11, 12, 13, 14, 21, 22)}
+    cov = run.coverage
+    assert (
+        cov.pages_ok == cov.pages_attempted == 3
+    )  # 2 page-0s + sig's one in-cap offset, one accounting
+    assert (cov.retried, cov.recovered, cov.failed_terms) == (0, 0, [])
+
+
+def test_discover_deep_signal_page_survives_the_shallow_broad_cap():
+    """THE POINT of the split: a name found ONLY on a deep SIGNAL page (offset 4 — beyond the BROAD cap, within
+    the SIGNAL cap) IS enumerated, while the BROAD keyword at the same depth is not walked — the shallow cap
+    bounds the collision-prone tier only, never a seed's deep hits (#9 rule 4)."""
+    fake = _FakeEfts(_tier_pages())
+    run = discover(fake, ["sig", "brd"], hit_cap=6, broad={"brd"}, broad_hit_cap=2, max_workers=4)
+    assert _cik(16) in run.filers and run.filers[_cik(16)].keywords == {"sig"}  # the deep seed hit
+    assert "efts/sig_4.json" in fake.calls
+    assert (
+        _cik(26) not in run.filers and "efts/brd_4.json" not in fake.calls
+    )  # brd's deep page unsearched
+    assert run.capped_terms == ["brd"]  # only the shallow tier hit its cap — the seed did not
+
+
+def test_discover_broad_hit_cap_none_is_the_single_cap():
+    """The back-compat pin: ``broad_hit_cap=None`` collapses the tiers — a keyword listed in ``broad``
+    enumerates to ``hit_cap`` exactly as if ``broad`` had not been passed (same pages fetched, same universe,
+    same capped list), so every existing single-cap caller is byte-identical."""
+    tiered, plain = _FakeEfts(_tier_pages()), _FakeEfts(_tier_pages())
+    a = discover(
+        tiered, ["sig", "brd"], hit_cap=4, broad={"brd"}, broad_hit_cap=None, max_workers=4
+    )
+    b = discover(plain, ["sig", "brd"], hit_cap=4, max_workers=4)
+    assert sorted(tiered.calls) == sorted(
+        plain.calls
+    )  # the fan-out order varies; the page SET must not
+    assert {c: f.keywords for c, f in a.filers.items()} == {
+        c: f.keywords for c, f in b.filers.items()
+    }
+    assert a.capped_terms == b.capped_terms == ["sig", "brd"]  # both capped at the ONE cap (4 < 6)
+    assert (
+        "efts/brd_2.json" in tiered.calls
+    )  # the 'broad' keyword walked to hit_cap, not a shallow cap
+
+
+def test_discover_per_tier_parallel_matches_the_sequential_reference():
+    """The determinism gate under per-tier caps: the PARALLEL run equals the SEQUENTIAL per-keyword walk
+    (``ciks_for_keyword``) given each keyword ITS OWN cap — the deep cap for the seed, the shallow cap for the
+    broad keyword. Multi-page (25 hits over 3 pages of 10) so the fan-out AND the cap boundary are exercised,
+    with a CIK shared across the two keywords (the union is exercised)."""
+    pages = {
+        "efts/sig_0.json": _page(25, *_cik_rows(*range(100, 110))),
+        "efts/sig_10.json": _page(25, *_cik_rows(*range(110, 120))),
+        "efts/sig_20.json": _page(25, *_cik_rows(*range(120, 125))),
+        "efts/brd_0.json": _page(25, *_cik_rows(105, *range(200, 209))),  # 105 overlaps sig
+        "efts/brd_10.json": _page(25, *_cik_rows(*range(210, 220))),
+        "efts/brd_20.json": _page(25, *_cik_rows(*range(220, 225))),
+    }
+    par = discover(
+        _FakeEfts(pages), ["sig", "brd"], hit_cap=25, broad={"brd"}, broad_hit_cap=10, max_workers=8
+    )
+    ref: dict[str, set[str]] = (
+        {}
+    )  # the sequential union, keyword-by-keyword, each under its own cap
+    for kw, cap in (("sig", 25), ("brd", 10)):
+        for cik in ciks_for_keyword(_FakeEfts(pages), kw, hit_cap=cap):
+            ref.setdefault(cik, set()).add(kw)
+    assert {
+        c: f.keywords for c, f in par.filers.items()
+    } == ref  # identical CIK set + keyword tagging
+    assert par.filers[_cik(105)].keywords == {"sig", "brd"}  # the shared CIK tagged by both
+    assert _cik(124) in par.filers  # the seed's deepest page is walked
+    assert _cik(210) not in par.filers  # the broad keyword's beyond-cap pages — in NEITHER walk
+    assert par.capped_terms == ["brd"]
+
+
+def test_discover_retry_recovered_broad_page0_caps_its_late_offsets_shallow():
+    """The retry pass honors the per-tier cap too: a BROAD keyword whose page-0 fails TRANSIENTLY is recovered
+    on the retry pass, and the late offsets it then owes are bounded by the BROAD cap (offset 2 fetched, the
+    beyond-cap offset 4 not) — the same one cap site, so the retry can never walk a shallow keyword deep. The
+    seed beside it is untouched (deep cap, fully enumerated)."""
+    fake = _FakeEfts(_tier_pages(), fail_once={"efts/brd_0.json"})
+    run = discover(fake, ["sig", "brd"], hit_cap=6, broad={"brd"}, broad_hit_cap=4, max_workers=4)
+    assert set(run.filers) == {_cik(i) for i in (11, 12, 13, 14, 15, 16, 21, 22, 23, 24)}
+    assert "efts/brd_2.json" in fake.calls and "efts/brd_4.json" not in fake.calls
+    assert run.capped_terms == ["brd"]
+    cov = run.coverage
+    assert (cov.retried, cov.recovered, cov.failed_terms) == (1, 1, [])
+    assert (
+        cov.pages_ok == cov.pages_attempted == 5
+    )  # sig: 3 pages; brd: page-0 (retried) + 1 in-cap late
+
+
 # --- classify: the PLACED / VERIFY tiers (Slice 2b) ---
 
 

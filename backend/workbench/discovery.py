@@ -7,8 +7,9 @@ One call, two FREE deterministic steps over the thesis's PERSISTED term set, end
    produced by ``POST .../terms``). The "is this term discriminating?" decision is OFF the model and OFF the
    draft path — discovery just READS what the operator ratified. No term set -> ``DiscoveryNoTerms`` (the draft
    503s "produce the term set first"); the LLM is no longer called here.
-2. **EFTS enumerate** (FREE, deterministic, Slice 1) — ``discover`` unions the distinct CIKs across the terms;
-   the keyword tiers stay attached for ``classify``.
+2. **EFTS enumerate** (FREE, deterministic, Slice 1) — ``discover`` unions the distinct CIKs across the terms
+   under PER-TIER hit caps (SIGNAL deep / BROAD shallow; a term in both tiers enumerates deep); the keyword
+   tiers stay attached for ``classify``.
 3. **CIK -> placeable** (FREE, deterministic) — ``master.ids_for_ciks`` resolves each CIK to an EXACT in-master
    member (INVARIANT #2, the cleanest form), then ``classify`` splits PLACED (>=1 SIGNAL seed) vs VERIFY
    (broad-only, lower-confidence) and omits the not-in-master tail (the LLM tail-sweep's job).
@@ -186,9 +187,16 @@ def run_discovery(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     hit_cap: int | None = None,
+    broad_hit_cap: int | None = None,
 ) -> DiscoveredUniverse:
     """Run the EDGAR-first discovery off the thesis's PERSISTED term set: read SIGNAL/BROAD -> EFTS enumerate ->
     CIK-resolve -> classify. The LLM is NOT called here (the term set was produced out-of-band by ``.../terms``).
+
+    THE HIT CAPS ARE PER TIER: SIGNAL terms enumerate DEEP (``hit_cap``, default ``settings.discovery_hit_cap``)
+    and BROAD terms SHALLOW (``broad_hit_cap``, default ``settings.discovery_broad_hit_cap``) — a seed is
+    discriminating and its hit PLACES a name, a broad term is collision-prone and only corroborates. A term
+    stored in BOTH tiers enumerates DEEP (recall-first: the shallow cap never touches a seed). ``None`` for
+    either cap reads the Settings dial; hitting either cap flags the term in ``capped_terms``.
 
     Returns a ``DiscoveredUniverse`` (placeable CIKs by tier + the raw filer map). COMPLETENESS-OR-FAIL: an empty
     term set -> ``DiscoveryNoTerms`` (the operator hasn't produced one); nothing placeable -> ``DiscoveryEmpty``;
@@ -202,7 +210,11 @@ def run_discovery(
         # rather than silently degrade to recall: an empty term set is not-ready, not an empty theme.
         raise DiscoveryNoTerms()
     settings = get_settings()
-    cap = hit_cap if hit_cap is not None else settings.discovery_hit_cap
+    signal_cap = hit_cap if hit_cap is not None else settings.discovery_hit_cap
+    broad_cap = broad_hit_cap if broad_hit_cap is not None else settings.discovery_broad_hit_cap
+    # PER-TIER CAP: the SHALLOW set is BROAD minus SIGNAL, so a term stored in both tiers enumerates DEEP — a
+    # seed hit PLACES a name, and its deep pages are exactly what a low cap silently dropped (#9 rule 4).
+    shallow = set(broad) - set(signal)
     # NO bare except-to-empty: that conflated "broke" with "found nothing" and SILENTLY degraded the
     # deterministic layer to model recall. discover() already absorbs transient page failures (retry +
     # skip-one) and raises DiscoveryDegraded only when it couldn't enumerate the universe — let that PROPAGATE
@@ -211,7 +223,9 @@ def run_discovery(
     run = discover(
         edgar,
         [*signal, *broad],
-        hit_cap=cap,
+        hit_cap=signal_cap,
+        broad=shallow,
+        broad_hit_cap=broad_cap,
         max_workers=settings.discovery_max_workers,
         degraded_ratio=settings.discovery_degraded_ratio,
     )
