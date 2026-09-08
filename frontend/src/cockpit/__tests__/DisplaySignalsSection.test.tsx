@@ -7,6 +7,8 @@ import {
   DisplaySignalsSection,
   fmtMetricValue,
   ReturnCells,
+  sparkGeometry,
+  SparklineCell,
 } from "../DisplaySignalsSection";
 
 // One member's readings, exercising every unit the wire can carry plus an honest gap — the section
@@ -219,5 +221,110 @@ describe("ReturnCells — the trailing-return table cells (1d/7d/30d/90d/1Y)", (
     const { container } = renderCells(null);
     expect(container.querySelectorAll("td.retc")).toHaveLength(5);
     expect(screen.getAllByText("—")).toHaveLength(5); // never a blank/zero cell — always the honest dash
+  });
+});
+
+// -------- the close-path sparkline (the price_path member's fixed-slot `close` series) ---------------
+// The geometry is pure (hand-computed points on a 72×16 box); the cell is the honest-degrade contract:
+// a null slot BREAKS the line (never interpolated), a young tape is a shorter right-aligned path, a
+// single point is "—" (a point is not a path), and the shape stays NEUTRAL (no accent class).
+describe("sparkGeometry — the pure sparkline geometry (a null slot BREAKS the line)", () => {
+  it("maps slots across the whole window and values min → bottom / max → top", () => {
+    const g = sparkGeometry([1, 3, 2], 72, 16);
+    expect(g).not.toBeNull();
+    expect(g!.bars).toBe(3);
+    expect(g!.dots).toEqual([]);
+    // x = 0/36/72 (3 slots over 72px); y: min 1 → 15 (bottom, 1px pad), max 3 → 1 (top), 2 → 8 (mid)
+    expect(g!.paths).toEqual(["M0 15 L36 1 L72 8"]);
+  });
+
+  it("a leading gap starts the path at the first REAL slot — right-aligned, never stretched", () => {
+    const g = sparkGeometry([null, null, 5, 6], 72, 16)!;
+    expect(g.paths).toEqual(["M48 15 L72 1"]); // slot 2 of 4 → x=48; the two gaps draw nothing
+    expect(g.bars).toBe(2);
+  });
+
+  it("a mid-series gap splits the line into TWO paths — nothing is drawn across it", () => {
+    const g = sparkGeometry([1, 2, null, 2, 1], 72, 16)!;
+    expect(g.paths).toEqual(["M0 15 L18 1", "M54 1 L72 15"]); // the x=36 slot is left empty
+    expect(g.dots).toEqual([]);
+  });
+
+  it("an isolated bar between gaps is a dot — shown, never joined to a neighbour across a gap", () => {
+    const g = sparkGeometry([1, null, 3, null, 2], 72, 16)!;
+    expect(g.paths).toEqual([]);
+    expect(g.dots).toEqual([
+      { x: 0, y: 15 },
+      { x: 36, y: 1 },
+      { x: 72, y: 8 },
+    ]);
+  });
+
+  it("fewer than two real values is NOT a path (null) — the cell reads '—'", () => {
+    expect(sparkGeometry([null, null, 42])).toBeNull();
+    expect(sparkGeometry([null, null])).toBeNull();
+    expect(sparkGeometry([])).toBeNull();
+  });
+
+  it("a flat series draws a midline, never a zero-range blow-up", () => {
+    expect(sparkGeometry([5, 5, 5], 72, 16)!.paths).toEqual(["M0 8 L36 8 L72 8"]);
+  });
+});
+
+describe("SparklineCell — the basket-table close-path cell", () => {
+  const pathSig = (values: (number | null)[], note: string | null = null) =>
+    ({
+      kind: "price_path",
+      label: "Price path",
+      metrics: [],
+      events: [],
+      series: [{ key: "close", label: "close", unit: "price", values }],
+      basis: {
+        source: "fact_price_eod",
+        params: { bars: 90, lookback_days: 150 },
+        bars_used: values.filter((v) => v != null).length,
+        window_start: "2026-04-01",
+        window_end: "2026-08-07",
+        note,
+      },
+    }) as unknown as DisplaySignal;
+
+  it("draws a NEUTRAL hairline path — no return/RVOL/insider accent — with the exact tape on hover", () => {
+    const { container } = render(<SparklineCell sig={pathSig([10, 11, 12, 11.5])} />);
+    const svg = screen.getByRole("img", { name: "price path, 4 bars" });
+    expect(svg).toHaveAttribute("class", "spark-svg");
+    expect(svg.querySelectorAll("path")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle")).toHaveLength(0);
+    // the shape carries none of the other columns' accent classes (#7)
+    expect(container.querySelector(".pos, .neg, .hot, .cluster")).toBeNull();
+    // show-the-work rides the hover: bars + through-date (the basis line the panel prints, #6)
+    expect((svg.parentElement as HTMLElement).title).toMatch(/^4 bars · through /);
+  });
+
+  it("a leading-null (young) series draws a shorter path that starts mid-cell and names its thinness", () => {
+    const values: (number | null)[] = [null, null, null, null, null, null, 7, 8, 9, 10];
+    render(<SparklineCell sig={pathSig(values, "thin: 4/10 bars")} />);
+    const svg = screen.getByRole("img", { name: "price path, 4 bars" });
+    const d = svg.querySelector("path")!.getAttribute("d") as string;
+    expect(d.startsWith("M48 15")).toBe(true); // slot 6 of 10 → x = 6/9·72 = 48, never x = 0
+    expect(d.endsWith("L72 1")).toBe(true); // …and reaches "now" at the right edge
+    expect(d.match(/L/g)).toHaveLength(3); // 4 points, 3 links — nothing drawn across the gaps
+    expect((svg.parentElement as HTMLElement).title).toContain("thin: 4/10 bars");
+  });
+
+  it("reads '—' with the why on hover for a single point (a point is not a path)", () => {
+    render(<SparklineCell sig={pathSig([null, null, 42], "thin: 1/90 bars")} />);
+    expect(screen.queryByRole("img")).toBeNull();
+    const dash = screen.getByText("—");
+    expect(dash.className).toContain("muted");
+    expect(dash.title).toBe("thin: 1/90 bars");
+  });
+
+  it("reads '—' when the name has no price_path signal, or the signal carries no close series", () => {
+    const { rerender } = render(<SparklineCell sig={null} />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    rerender(<SparklineCell sig={{ ...pathSig([1, 2]), series: [] } as DisplaySignal} />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 });

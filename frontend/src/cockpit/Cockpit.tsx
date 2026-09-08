@@ -4,7 +4,13 @@ import { flushSync } from "react-dom";
 import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
-import { InsiderCell, PostureCell, ReturnCells, RvolCell } from "./DisplaySignalsSection";
+import {
+  InsiderCell,
+  PostureCell,
+  ReturnCells,
+  RvolCell,
+  SparklineCell,
+} from "./DisplaySignalsSection";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -141,6 +147,14 @@ export function Cockpit({
   for (const m of displayQ.data?.members ?? []) {
     const sig = (m.signals ?? []).find((s) => s.kind === "insider_flow_90d");
     if (sig) insiderBySid.set(m.security_id, sig);
+  }
+  // the recent close PATH (the basket sparkline) — the SAME display-signals query, one more member
+  // (`price_path`) on the generic payload, bridged by security_id. A SHAPE beside the return ladder,
+  // deliberately NOT in `signalsFor` / the sort machinery: a path is not a number to rank on (#4).
+  const pathBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const sig = (m.signals ?? []).find((s) => s.kind === "price_path");
+    if (sig) pathBySid.set(m.security_id, sig);
   }
   const thesis = thesisQ.data;
   const card = callQ.data;
@@ -448,6 +462,16 @@ export function Cockpit({
                       <SortableTh col="ret_90d" label="90d" align="right" sort={sort} onSort={onSort} />
                       {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
                       <SortableTh col="ret_1y" label="1Y" align="right" sort={sort} onSort={onSort} />
+                      {/* the close-PATH sparkline — the shape behind the ladder's endpoint numbers
+                          (the price_path member's fixed-slot series). A plain, NON-sortable header:
+                          a shape is not a number to rank on, so it never joins the sort machinery. */}
+                      <th
+                        className="sparkc"
+                        style={{ textAlign: "right" }}
+                        title="the recent close path, one slot per trading bar (newest at the right) — hover a cell for its exact bars; a shape, not a number, so it is not sortable"
+                      >
+                        Path
+                      </th>
                       {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
                           vs the prior 8-bar average (mirrors the breakout detector — the call-matched
                           read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
@@ -469,7 +493,7 @@ export function Cockpit({
                     {sortedGroups.map((g) => (
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
-                          <td colSpan={16}>
+                          <td colSpan={17}>
                             {/* the To Review heading idiom (chev · label · hint · count · hairline),
                                 bucket-colored; click-to-collapse, open by default — the count stays
                                 visible while closed, so a collapsed bucket never reads as dropped */}
@@ -568,6 +592,19 @@ export function Cockpit({
                                   : null
                               }
                             />
+                            <td className="met sparkc">
+                              {/* the close-path sparkline off the price_path member's fixed-slot
+                                  series: a neutral hairline that BREAKS on a gap (a young name draws
+                                  a shorter, right-aligned path), "—" below two closes. On the
+                                  per-name row, so it renders in BOTH lenses. */}
+                              <SparklineCell
+                                sig={
+                                  r.member.security_id
+                                    ? (pathBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                              />
+                            </td>
                             <td className="met rvolc">
                               {/* RVOL|8 — the call-matched 8-bar read: a warm 'hot' accent on a
                                   volume-backed move (>= the wire's loud_mult), "—" on a

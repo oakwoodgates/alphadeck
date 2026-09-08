@@ -116,8 +116,8 @@ same `security_id` ⇒ same call bucket + scored join); the value-chain lens kee
 point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never
 disappears behind a view.
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · RVOL|8 · RVOL|20 · Ins 30d ·
-Ins 90d · Mkt cap · Exit-by`.
+**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL|8 · RVOL|20 ·
+Ins 30d · Ins 90d · Mkt cap · Exit-by`.
 
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
@@ -132,6 +132,12 @@ Ins 90d · Mkt cap · Exit-by`.
   insider cells read `{open-market buys}/{distinct buyers}` per trailing window (a ≥2-buyer **cluster**
   takes the leader-blue accent — breadth is the tell). Every display cell is a muted "—" when absent — the
   accent marks the exception (#7).
+- **Path** — the close-path **sparkline** behind the ladder's endpoint numbers (the `price_path` member's
+  fixed-slot series: the last 90 closes, one slot per trading bar, newest at the right). A **neutral**
+  hairline — no accent, so the shape never blurs into the return green/red, the RVOL warm, or the insider
+  blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
+  path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
+  not a path). The one display column that is **not sortable** — a shape with no scalar to rank on.
 - **Mkt cap** — bridged from the scoring read ("—" when un-scored). **Exit-by** — the member's **own**
   signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
 

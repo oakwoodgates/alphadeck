@@ -51,13 +51,20 @@ each registered member's `DisplaySignal`:
   number (#6/#7).
 - `events[]` — `{key, label, date, direction}`: dated flips/crosses the tape actually printed,
   stamped with the **bar date**, never the query asof.
+- `series[]` — `{key, label, unit, values: (float|null)[]}`: a compact **fixed-slot SHAPE** read
+  (the basket sparkline — `price_path`'s last 90 closes), one slot per trading BAR (index-spaced, never
+  calendar-spaced), ascending, newest LAST. A `null` slot is an **honest gap**: a thin tape is
+  LEFT-padded to the window so a young name draws a shorter, right-aligned path, and the FE **breaks
+  the line on a gap, never interpolates** (#6/#9). A series has no scalar, so nothing sorts, ranks, or
+  grades on it (#4); the exact tape behind the slots rides `basis`.
 - `basis` — show-the-work (#6): `source` (the fact table), `params` (every dial the member used),
   `bars_used`, `window_start/window_end` (the exact tape the reading stands on), and a staleness
   `note` when the last bar lags the asof (the delisted/halted tell).
 
-The payload is **generic on purpose**: adding a member changes zero wire schema (no
+The payload is **generic on purpose**: adding a metrics/events member changes zero wire schema (no
 `openapi.json` / `types.gen.ts` diff, no FE change) and one panel section renders every member
-uniformly. Because every read is the bitemporal as-of, an old `asof` time-travels the tape for free
+uniformly (`series[]` was the one deliberate widening — a SHAPE needed a field of its own; the next
+series member rides it with zero schema change). Because every read is the bitemporal as-of, an old `asof` time-travels the tape for free
 (#1). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
 
 ## Member catalog
@@ -71,6 +78,7 @@ uniformly. Because every read is the bitemporal as-of, an old `asof` time-travel
 | `rvol` | `fact_price_eod` | rvol (as-of vol ÷ mean of the prior **8** bars — call-matched), rvol20 (÷ the prior **20** bars — trader convention, call-decoupled) | — | baseline_bars=8, loud_mult=1.5, baseline_bars_20=20, loud_mult_20=1.5, lookback_days=55 |
 | `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, **buy_count_30d / distinct_buyers_30d** (a 30d sub-window off the SAME screened buys), buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, window_days_short=30, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
 | `etf_flow` | `fact_fund_shares` (+ `fact_price_eod` closes) | flow_1w_usd, flow_1w_pct_of_shares, flow_1m_usd, flow_1m_pct_of_shares | — | window_1w_days=7, window_1m_days=30 |
+| `price_path` | `fact_price_eod` | — (a **series** instead: `close` — the last 90 closes, one slot per trading BAR, newest last, LEFT-padded with `null` to exactly 90 slots; the shape behind the `90d` return cell) | — | bars=90, lookback_days=150 |
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing
 ingested** (nothing to say) but a **quiet zero** for an ingested name with no window activity (zero
@@ -203,7 +211,9 @@ or adding an EMA sibling that reuses `_headline` on its own two series — never
    is the panel's render order and must stay behavior-stable).
 3. Update the registry pin in `tests/signals/display/test_registry.py` + add the member's own pure
    tests (hand-computed values, the honest-degrade notes, event stamping).
-4. Add a catalog row above. That's the whole diff — no wire, no FE, no OpenAPI regen.
+4. Add a catalog row above. That's the whole diff for a metrics/events member — no wire, no FE, no
+   OpenAPI regen. (A member that needs a NEW field shape — as `price_path` did with `series[]` —
+   regenerates the contract pair in the same PR; the next series member rides the field for free.)
 
 If a member ever needs a new PIT accessor, widen `DisplayPointInTimeData` (not the detectors'
 protocol); if one ever needs clickable filing provenance, add an `*Out` mirror with
@@ -215,11 +225,12 @@ The NamePanel's **"Indicators · this name"** section (S2) renders metrics as qu
 muted dated lines, and the basis as fine print — inverse loudness (#7): indicators are ambient
 context, never an alert, and an Incubating name's panel must not get louder because a moving
 average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
-the trailing-return ladder (`1d/7d/30d/90d/1Y`), `RVOL|8` / `RVOL|20`, and `Ins 30d` / `Ins 90d` —
-each bridged onto its row by `security_id` and holding the same discipline: a muted "—" is the
-default, an accent marks the exception (#7). The columns are individually sortable **within** each
-call-state group (nulls-last; the call hierarchy never moves) — the surface detail lives in
-`docs/BOARD.md`.
+the trailing-return ladder (`1d/7d/30d/90d/1Y`), the **`Path`** sparkline (`price_path`'s close
+series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RVOL|8` / `RVOL|20`, and
+`Ins 30d` / `Ins 90d` — each bridged onto its row by `security_id` and holding the same discipline: a
+muted "—" is the default, an accent marks the exception (#7). The columns are individually sortable
+**within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path`, a
+shape with no scalar to rank on — the surface detail lives in `docs/BOARD.md`.
 
 **Perf note (built — Board/Cockpit perf PR-1b).** Each member still does its own PIT read, but the
 display route builds ONE `PointInTimeData` per request with the resolved basket as its **prefetch scope**

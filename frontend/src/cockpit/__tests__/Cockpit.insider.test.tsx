@@ -166,9 +166,9 @@ describe("Cockpit — insider-buys columns (Ins 30d + Ins 90d)", () => {
     expect(screen.getByRole("columnheader", { name: "Ins 90d" })).toBeInTheDocument();
   });
 
-  it("spans the group header across all 16 columns (the two insider columns added)", () => {
+  it("spans the group header across all 17 columns (the two insider columns + the Path sparkline added)", () => {
     const { container } = renderCockpit();
     const grpCell = container.querySelector("tr.grp > td") as HTMLTableCellElement;
-    expect(grpCell.colSpan).toBe(16);
+    expect(grpCell.colSpan).toBe(17);
   });
 });
