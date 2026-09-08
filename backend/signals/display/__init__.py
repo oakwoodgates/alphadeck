@@ -19,12 +19,14 @@ from signals.display import relative_strength as relative_strength
 from signals.display import insider_flow as insider_flow
 from signals.display import etf_flow as etf_flow
 from signals.display import vcp as vcp
+from signals.display import price_path as price_path
 
 # isort: on
 
 __all__ = [
     "etf_flow",
     "insider_flow",
+    "price_path",
     "range52w",
     "registered_display_members",
     "relative_strength",
