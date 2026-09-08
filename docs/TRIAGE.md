@@ -77,6 +77,26 @@ a DISTINCT act from picking, exactly as sign-off stays distinct from include. Ex
 touched by the mode (only the append-new branch redirects), and unpicked rows stay visible working state. Full
 mechanics: `CHAIN_DRAFTER.md` §the draft/ratify UI.
 
+**The placed mode — Research ⇄ Pick (the PLACED section's gesture toggle).** Distinct from the load mode above
+(which decides WHERE a new name lands), the placed-mode toggle at the head of the bulk bar decides HOW the operator
+decides the placed list. **Research** is the prune above: every name starts checked + open, unchecking is the
+durable NO (`excluded`, persisted on Save). **Pick** is the additive select: every name starts un-picked + open
+(available), checking **picks** it into the basket and collapses it to a quiet `picked` stub (its sign-off and
+send-back stay reachable — #1), and **pick never writes a durable exclusion**: an un-picked name is *available,
+not rejected* — a pick Save persists the picked rows through the full-replace promote and carries the prior NOs
+forward verbatim minus any name picked this session (a persisted NO renders open + un-picked with a quiet
+`excluded in research` tag; picking it withdraws the NO). The two sets are per-mode and the other lies dormant
+(`selected` vs `excluded`); the reads keep their names (`isIncluded` / `includedBasket`) so Save is mode-blind.
+Switching is a **working-scoped reset, never a restore** — entering Pick keeps the saved Basket's kept names and
+every signed-off name checked (mode entry never empties the saved basket) and un-picks the rest; entering Research
+returns to the fresh-mount state (persisted NOs pre-greyed, signed-off names checked, all else included) — never a
+literal all-check, which would silently withdraw every durable NO on the next Save. Sign-off is untouched by either
+reset; a sign-off in Pick also picks the name (endorsed ⇒ in), a withdraw never un-picks. Explicit arrivals (a
+To-Review add, a pile pick, a hand-add, an ETF sleeve) enter picked; a bulk draft arrival enters undecided. The
+research-only bulk prunes (include/exclude all new, clear not signed-off, the low-quality group's exclude-all)
+don't render in Pick (they can't act — WB#3). The mode + selection ride the autosaved session (additive fields, no
+schema bump) and a Save writes the session directly before the promote, so a click-then-Save can't lose its pick.
+
 ## The find — the sortable / filterable view (#114)
 
 The placed list becomes a triage instrument: **sort** by name / segment / sector, **filter** by

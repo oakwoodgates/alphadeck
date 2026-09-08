@@ -10,7 +10,7 @@
 
 import type { BasketMember, DraftReportOut, ResolvedPlacement, TermSetEntry } from "../api/hooks";
 import type { DraftCounts } from "./DraftStatusStrip";
-import type { ChainDraft } from "./useChainDraft";
+import type { ChainDraft, PlacedMode } from "./useChainDraft";
 
 // Bump ONLY on a BREAKING shape change (a removed/renamed/re-typed field). An ADDITIVE change (a new optional
 // field) must NOT bump — `deserialize` defaults missing fields, so old blobs keep restoring. A breaking bump
@@ -24,6 +24,12 @@ export interface HookRuntime {
   excluded: Set<string>;
   reasons: Map<string, string>;
   reasonsDirty: boolean;
+  // THE PLACED MODE (Research ⇄ Pick) — ADDITIVE working state (optional so pre-existing constructors and
+  // old blobs stay valid; NO SCHEMA_VERSION bump — the `pickPref` precedent; `deserialize` defaults them):
+  // the pick-mode selection (the names checked INTO the basket this session) + the mode itself. Both must
+  // round-trip: a lost selection is a silently-dropped pick on the operator's next open.
+  selected?: Set<string>;
+  placedMode?: PlacedMode;
 }
 
 // `origin` (the derived where-from chip) is optional — an older restored blob deserializes without it and the
@@ -75,6 +81,9 @@ export interface SerializedSession {
     excluded: string[];
     reasons: Record<string, string>;
     reasonsDirty: boolean;
+    // the placed-mode fields — optional in the blob: an old blob simply lacks them (→ research + ∅)
+    selected?: string[];
+    placedMode?: PlacedMode;
   };
   editor: {
     ambiguous: ResolvedPlacement[];
@@ -121,6 +130,8 @@ export function clearedRestore(
       excluded: new Set(),
       reasons: new Map(),
       reasonsDirty: false,
+      selected: new Set(),
+      placedMode: "research", // Clear resets working state — the placed mode returns to the default
     },
     editor: {
       ambiguous: [],
@@ -154,6 +165,8 @@ export function serialize(hook: HookRuntime, editor: EditorRuntime): SerializedS
       excluded: [...hook.excluded],
       reasons: Object.fromEntries(hook.reasons),
       reasonsDirty: hook.reasonsDirty,
+      selected: [...(hook.selected ?? [])],
+      placedMode: hook.placedMode ?? "research",
     },
     editor: {
       ambiguous: editor.ambiguous,
@@ -245,6 +258,10 @@ export function deserialize(session: {
       excluded: strSet(h.excluded),
       reasons: new Map(Object.entries(rec<string>(h.reasons))),
       reasonsDirty: Boolean(h.reasonsDirty),
+      // placed mode (additive): an old blob restores byte-identical to before — research, empty selection;
+      // anything but the literal "pick" (absent / malformed) is research, never an invented pick session
+      selected: strSet(h.selected),
+      placedMode: h.placedMode === "pick" ? "pick" : "research",
     },
     editor: {
       ambiguous: arr<ResolvedPlacement>(e.ambiguous),
