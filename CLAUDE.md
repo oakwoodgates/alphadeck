@@ -137,6 +137,7 @@ See `README.md` for the full table. Key shape:
 - **LLM calls** go through the `backend/llm` interface only — no scattered API calls. Prompts and structured-output schemas live with that module; responses must carry citations.
 - **The OpenAPI contract is generated — regenerate it in the SAME PR as anything FastAPI emits into the schema.** A route docstring (it becomes the operation `description`), a response model, a new endpoint, a status code — all drift `backend/openapi.json` *and* `frontend/src/api/types.gen.ts`. Regenerate both (`python -m app.openapi_export` + `npm run gen:api`) in the same PR, or CI's diff-guard fails (it bit #61 — a docstring rewrite alone was enough).
 - **A "tests pass" claim must come from a run that EXECUTED the DB tests.** The DB-backed suite SKIPS when Postgres is unreachable — a large "skipped" count is **not** a pass. The test DB is now **auto-derived per worktree** (`alphadeck_test_<hash>`) and demo-safe **by construction**: a `pytest_configure` hook (`backend/db/testdb.py`) overrides `DATABASE_URL` to a guaranteed-`alphadeck_test*` name before any `connect()`, and **fail-closed refuses** any non-`alphadeck_test` name — so a forgotten/stale `DATABASE_URL` can never truncate the demo (the 2026-07-21 lesson). Just run `pytest` (no env needed); set `ALPHADECK_TEST_DB` to pin an exact name (CI does), and `python -m db.drop_test_dbs` to clean up stale per-worktree DBs. The six replay sweeps are marked `slow`; `-m "not slow"` is for scoped iteration only and never when touching the PIT / replay / signal path.
+- **`pytest -n 6` needs a venv WITH the `dev` extra — provisioned PER CHECKOUT, never borrowed.** A fresh git worktree has no `backend/.venv`; `scripts/ensure-venv.ps1` / `.sh` (`make venv`) creates it and installs `-e ".[dev,replay]"` (pytest-xdist + pytest-timeout + the pinned linters, plus the replay extra so the replay tests EXECUTE rather than collect-skip) — idempotent (a ready venv is a ~1 s no-op), non-destructive, and pinned to THAT checkout's `backend/` (the probe refuses a venv whose editable `app` resolves elsewhere). `unrecognized arguments: -n` means a lean venv: run the helper, don't drop `-n`. Never point a worktree at a sibling's or the main checkout's venv: its editable install targets the OTHER tree (cwd shadowing only makes it look fine), its deps can be stale for your branch, a `pip install` there races another tree's running suite, and a sibling worktree can be pruned out from under you (it was).
 - **Idempotency tests COUNT THE TABLE, not the read.** The bitemporal as-of read dedups (`DISTINCT ON (natural-key) … recorded_at DESC`), so a duplicate append **hides behind a correct read** while the table silently grows. Assert `count(*)` / `list_*` length before *and* after a re-run — never just that the read looks right. The load-bearing pattern across the M2 ingest (`fact_*`) and the daily cron (`calls`); see `docs/FEED_LOOP.md`.
 - **Recall is sacred — a silently dropped name is a system failure.** Any change touching discovery / classify / filters / caps / term tiers optimizes for recall and over-includes; precision is the operator deleting visible junk, never a filter that silently drops a real name. Prove recall holds (the answer-key re-score) and make any tier-demotion VISIBLE. The full rule + the five tests it imposes: `docs/INVARIANTS.md` #9.
 - **A recurring/daily fetch must stay FRESH — and for a heterogeneous cache, structurally, not with a flag.** Two mechanisms, don't conflate them. **(1) Prices** — `fetch_eod`/`fetch_csv` are cache-first (a cache *hit* returns STALE bars and never re-pulls — the #72 latent bug); the recurring path passes `force_refresh=True` (re-pull + overwrite), dev/`--no-live` stays cache-first, a cache MISS always fetches. **(2) EDGAR (and any heterogeneous cache)** — freshness is **key-classed / default-refresh**, NOT a per-call flag: immutable prefixes (`forms/*`) cache forever, every other prefix re-fetches on a 12h TTL when `allow_live`, so a new mutable endpoint is safe-by-default and no caller threads anything. R1 (#196) chose this over a per-call `force_refresh`/`ttl=` on EDGAR precisely because "the boolean wearing a timedelta — the next mutable endpoint forgets it" is how the ~11-day insider freeze happened. See `docs/DATA_SOURCES.md` §cache-freshness + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md`.
@@ -158,7 +159,9 @@ Full detail in `docs/DATA_SOURCES.md`. Summary:
 
 The whole app runs from one command via Docker (below). For backend development, use a stdlib venv +
 pip (no `uv`); run from `backend/` with the venv active (or set `$env:PYTHONPATH="backend"` and call
-`backend\.venv\Scripts\python` from the repo root). Postgres is Docker Compose on host port 5544.
+`backend\.venv\Scripts\python` from the repo root). `scripts/ensure-venv.ps1` / `.sh` (`make venv`) provisions
+that venv — per checkout, idempotent, with the `dev` + `replay` extras (what CI installs). Postgres is Docker
+Compose on host port 5544.
 
 ```powershell
 # full stack — one command: Postgres + API (migrates + seeds HIMS on start) + the SPA behind nginx
@@ -179,7 +182,7 @@ docker compose up -d --scale cron=0                      # ...skip the cron side
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev up -d --build
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev down   # stop dev (KEEPS its volumes)
 bash scripts/refresh-dev.sh                             # ONE-WAY prod->dev data refresh (pg_dump READ; never writes prod)
-# If `make` is installed (often not on Windows): make prod-up · make dev-up · make dev-down · make refresh-dev
+# If `make` is installed (often not on Windows): make prod-up · make dev-up · make dev-down · make refresh-dev · make venv
 
 # FORKS — self-serve experiment stacks (own worktree/branch/DB/ports, cron OFF, no live SEC), seeded
 # ONE-WAY from prod: scripts/fork.sh init <name> --slot N · fork.sh refresh --reset · docs/FORKS.md
@@ -187,9 +190,11 @@ bash scripts/refresh-dev.sh                             # ONE-WAY prod->dev data
 # infra only — Postgres for the local backend dev loop (SHARES prod's DB/volume — a footgun; see DEV_PROD.md)
 docker compose -f infra/docker-compose.yml up -d        # Postgres 16 (localhost:5544)
 
-# backend setup (once)
-python -m venv backend\.venv
-backend\.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" "anthropic>=0.40" pytest ruff black
+# backend setup (once PER CHECKOUT — a fresh git worktree has no venv; every worktree gets its OWN, never borrow one)
+.\scripts\ensure-venv.ps1                                # creates backend\.venv + `pip install -e ".[dev,replay]"` = what CI installs:
+bash scripts/ensure-venv.sh                              #   runtime deps + pytest/xdist/timeout + pinned ruff/black + duckdb/pyarrow (Git Bash twin; or `make venv`)
+#   idempotent: a ready venv is a ~1 s no-op (stamp + import probe) · `--check` reports without installing · `--force` re-pips.
+#   The bare-pip equivalent it runs (from backend\): python -m venv .venv ; .venv\Scripts\python -m pip install -e ".[dev,replay]"
 # the LLM seams (the FLAG-explanation + narrative->chain drafters) need ANTHROPIC_API_KEY for LIVE drafts; with
 # no key they fail open (no draft, the app works as today). The suite never needs the key (the SDK is lazy).
 # Put it in a gitignored .env (copy .env.example) — docker compose injects it into the backend container.
@@ -204,7 +209,7 @@ python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from t
 python -m pipeline.ingest_thesis --thesis <id>          # ingest a thesis's back-half facts (Form 4 + EOD)
 python -m pipeline.daily                                 # the cron's unit: refresh facts + log each thesis's call-of-record
 python -m pipeline.dedup_identical_versions --apply --verify-asof 2026-09-03  # repair (B2): delete byte-identical fact re-versions from the seed pile-up
-pytest -n 6                                              # full suite (~6 min here; xdist per-worker DBs) — scoped: pytest tests/<area> -m "not slow"
+pytest -n 6                                              # full suite (~6 min here; xdist per-worker DBs; `-n` needs the dev extra = ensure-venv) — scoped: pytest tests/<area> -n 6 -m "not slow"
 ruff check . ; black --check .                          # lint + format
 
 # Checkpoint A, served:

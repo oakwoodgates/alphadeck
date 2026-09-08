@@ -26,7 +26,13 @@ idempotency count-the-table rule); the fail-closed test-DB hook is
   `count(*)` / `list_*` length before AND after a re-run.
 
 ## Steps
-1. **Postgres reachable?** Anything serving host port 5544 works (the full stack, or
+1. **Venv ready?** `bash scripts/ensure-venv.sh` (or `.\scripts\ensure-venv.ps1`) from THIS
+   checkout — idempotent (a ready venv is a ~1 s no-op; a fresh worktree has NO venv and gets one:
+   `-e ".[dev,replay]"`, what CI installs — pytest-xdist for `-n 6`, pytest-timeout, the pinned
+   linters, duckdb/pyarrow so the replay tests EXECUTE). `unrecognized arguments: -n` means a lean
+   venv — run the helper; never drop `-n`. **Never borrow another worktree's (or the main
+   checkout's) venv**: its editable install points at the OTHER tree, and it can be pruned mid-run.
+   **Postgres reachable?** Anything serving host port 5544 works (the full stack, or
    `docker compose -f infra/docker-compose.yml up -d`). The test DB name is
    auto-derived — no env needed (`ALPHADECK_TEST_DB` pins one; CI does). Under `-n`,
    each xdist worker gets its own `alphadeck_test_<hash>_gwN` (the hook's
@@ -56,7 +62,9 @@ idempotency count-the-table rule); the fail-closed test-DB hook is
    ```
    pytest -n 6 -q > <scratchpad>\pytest-full.log 2>&1     # run_in_background; read the file after
    ```
-   then wait for the harness completion notification — do NOT poll in a loop.
+   then wait for the harness completion notification — do NOT poll in a loop. (A dispatched
+   SUBAGENT — the `builder` — runs it in the FOREGROUND with an explicit 600000 ms timeout instead:
+   the orchestrator cannot wake a backgrounded agent — `.claude/agents/builder.md` rule 1.)
    pytest-timeout (120 s default, `thread` method — the only one that can kill a hung
    native call; the slow sweeps override to 300 s) is the ONLY hang guard for a
    background run: a hung test fails LOUD instead of hanging the notification forever.

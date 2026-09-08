@@ -39,7 +39,10 @@ prod stack. Additive, prod-safe. Full record + traps: the
    container (`docker exec -i alphadeck_dev-backend-1 python < script.py`): `thesis_repo.get`
    → dump the PromoteThesisRequest subset (`id,name,narrative,ticker,basket=[m.model_dump()],
    segments=[s.model_dump()]`) AND `term_set` (+ catalysts / kill_criteria / exclusions if the
-   source has any) separately.
+   source has any) separately. **Two traps here (shared with `seed-thesis`):** `docker exec -i …
+   python < script.py` consumes stdin for the SCRIPT, so you can't ALSO pipe the data in — EMBED
+   the extracted data as a literal in the container-side script (or `docker cp` a file in); and read
+   the thesis via `thesis_repo.get`, not `GET /workbench/theses/{id}` (that's not a route → 404).
 4. **Promote to prod** (create): `POST http://localhost:8000/workbench/theses` with the payload
    (id preserved if asked). Fail-closes 404 on any member sid absent from prod's master;
    canonicalizes non-primary siblings; kicks the on-promote fact ingest for the new members.

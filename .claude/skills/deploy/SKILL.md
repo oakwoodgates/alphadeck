@@ -35,12 +35,23 @@ on any failed precondition; do NOT guess.
    docker compose up -d --build --no-deps frontend backend    # + backend half
    ```
    (A backend rebuild re-runs the idempotent migrate + seed — ~20-40s, brief API blip.)
+   **After a backend rebuild, restart the frontend too** — a recreated backend gets a NEW
+   Docker-network IP, and the frontend nginx cached the old one, so every `/api` call 502s
+   until nginx re-resolves. (A rebuild that already includes `frontend` recreates it, so no
+   extra restart is needed; a backend-ONLY rebuild needs this.)
+   ```
+   docker restart alphadeck-frontend-1
+   ```
 3. **Verify the REAL artifact**, not just the build:
    ```
    docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1   # healthy
    curl http://localhost:8000/<endpoint>                                    # new field
+   curl -o /dev/null -w '%{http_code}' http://localhost:8080/api/health     # the /api PROXY — MUST be 200
    ```
-   For a frontend change, open the live control in the Browser pane. Prod app :8080 / api :8000.
+   **Verify the `/api` PROXY (`:8080/api/health`), not just the backend directly (`:8000`)** — a
+   backend rebuild can leave the frontend's nginx pointing at the old backend IP (502) even while
+   `:8000/health` is 200. For a frontend change, open the live control in the Browser pane. Prod app
+   :8080 / api :8000. (If the proxy 502s / the SPA 000s, see the `stack-recovery` skill.)
 
 ## Preview on DEV (unmerged branch)
 Detach the main checkout to the sha, rebuild the dev service, restore main — full form in

@@ -18,6 +18,12 @@ and commands are binding.
   checkout, never touch prod/dev stacks or their DBs.
 - Backend commands run from `backend\` with `backend\.venv\Scripts\python.exe -m ...`
   (a stdlib venv). Windows host, Git Bash shell.
+- **The venv is THIS worktree's** — a fresh worktree has none. Before the first backend command run
+  `bash scripts/ensure-venv.sh` (idempotent: a ready venv is a ~1 s no-op; a fresh one is a minute or
+  two of pip — foreground, it ends with an `OK:`/`FAIL:` line). It installs `-e ".[dev,replay]"`:
+  pytest-xdist for `-n 6`, pytest-timeout, the pinned linters, duckdb/pyarrow. NEVER borrow a sibling
+  worktree's or the main checkout's venv: its editable install points at the OTHER tree, its deps may
+  not match your branch, and a sibling can be pruned mid-task (it has been).
 - Commit messages via a quoted heredoc (`git commit -F - <<'MSG' ... MSG`) — shell
   metacharacters in `-m "..."` get evaluated. End with
   `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
@@ -33,6 +39,8 @@ and commands are binding.
    before you report. **EXCEPTION:** if the change touches the PIT / replay / signal path
    (`backend/db/bitemporal`, `backend/signals`, `backend/calls`, `backend/replay`,
    `backend/pipeline/core`), the full suite INCLUDING the `slow` sweeps runs every iteration.
+   `unrecognized arguments: -n` means a lean venv — run `bash scripts/ensure-venv.sh`; never drop
+   `-n` or point at another worktree's venv.
 3. **Never two pytest runs at once.** Within this worktree they share one test DB and collide;
    other worktrees share the one Postgres, so a single unrelated failure while another run
    may be in flight is "re-run serialized first", not a bug to fix. Before any re-run:

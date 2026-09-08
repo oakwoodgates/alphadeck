@@ -37,6 +37,7 @@ alphadeck/
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
 ├── scripts/refresh-dev.sh          # ops: the ONE-WAY prod→dev data refresh (pg_dump READ; never writes prod) — DEV_PROD.md
+├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order
@@ -186,7 +187,9 @@ alphadeck/
 - `.env` — the real secrets (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`, `POLYGON_API_KEY`, …). Copy from
   `.env.example`. Docker Compose injects it into the backend container; the local dev loop reads the same names
   from the shell. `.env.dev` is the dev-stack twin (also gitignored) — see `DEV_PROD.md`.
-- `backend/.venv/` — the project venv (stdlib venv + pip; the image pins Python 3.11, `requires-python >=3.11`).
+- `backend/.venv/` — the project venv (stdlib venv + pip; `scripts/ensure-venv.ps1` / `.sh` provisions it PER CHECKOUT with
+  the `dev` + `replay` extras and writes `.alphadeck-venv-stamp` inside it for the idempotent no-op; the image pins
+  Python 3.11, `requires-python >=3.11`).
 - `data/` — on-disk caches of live pulls (`edgar_cache/`, `price_cache/`, `figi_cache/`, `sec_cache/`,
   `doe_cache/`) + the write-only DISCOVER run logs (`draft_runs/`) + the rolling DB snapshots (`backups/`, #215).
 - Local **Postgres** via Docker Compose (`localhost:5544`, the shared `pgdata` volume). The demo DB
