@@ -18,11 +18,16 @@ Python project root. Packages (the file-by-file map is `docs/PROJECT_LAYOUT.md`)
 ## Dev setup
 
 `uv` is not installed on this machine, so we use a stdlib venv + pip (pyproject stays the source of truth).
+The helper provisions it — per checkout (every git worktree gets its OWN `.venv`; never borrow one), idempotent
+(a ready venv is a ~1 s no-op), installing exactly what CI installs:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\python -m pip install "pydantic>=2.6" "psycopg[binary]>=3.1" "httpx>=0.27" "fastapi>=0.110" "uvicorn>=0.29" "anthropic>=0.40" pytest ruff black
+..\scripts\ensure-venv.ps1        # from backend\ — or from the repo root: .\scripts\ensure-venv.ps1 · bash scripts/ensure-venv.sh · make venv
 ```
+
+By hand it is the same two steps: `python -m venv .venv` then `.venv\Scripts\python -m pip install -e ".[dev,replay]"` —
+the `dev` extra carries pytest + pytest-xdist (`pytest -n 6`) + pytest-timeout (the hang guard) + the pinned ruff/black;
+`replay` (duckdb + pyarrow) so the replay tests execute instead of being collect-skipped.
 
 ## Database
 

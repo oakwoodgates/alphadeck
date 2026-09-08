@@ -6,13 +6,15 @@
 #
 # Run from the MAIN checkout root, NOT a worktree — worktrees never run the stack (see docs/DEV_PROD.md).
 # Requires `.env` (prod) and `.env.dev` (dev) at this root; copy `.env.example`.
+# The one per-checkout target is `venv`: it provisions the backend venv of WHICHEVER checkout you run it
+# from (each worktree gets its own), so it is the exception to "main checkout only".
 
 COMPOSE ?= docker compose
 # The dev invocation: base + dev override, its own project name (namespaces containers/network/volumes),
 # and the dev env file for ${VAR} interpolation (--env-file REPLACES the auto-loaded .env for dev).
 DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev
 
-.PHONY: prod-up dev-up dev-down refresh-dev
+.PHONY: prod-up dev-up dev-down refresh-dev venv
 
 prod-up: ## PROD stack up (project alphadeck | 8080/8000/5544 | cron ON). Auto-loads .env. Detached.
 	$(COMPOSE) up -d --build
@@ -25,3 +27,6 @@ dev-down: ## Stop + remove the DEV containers/network. KEEPS the alphadeck_dev_*
 
 refresh-dev: ## One-way prod->dev data refresh: pg_dump READ from prod -> restore into the dev DB. Never writes prod.
 	bash scripts/refresh-dev.sh
+
+venv: ## Provision/refresh THIS checkout's backend/.venv with `-e ".[dev,replay]"` (what CI installs). Idempotent; fine in a worktree.
+	bash scripts/ensure-venv.sh
