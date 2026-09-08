@@ -306,7 +306,12 @@ surfaced to the operator, not silently resolved in code.**
   ok/attempted + the failed TERMS ride every draft, after **one politeness-budgeted retry pass** over the
   failed subset (a recovered page-0 also fetches the deep pages it owed — the silent-partial trap, pinned by
   `test_discover_retry_recovered_page0_fetches_its_deep_pages`); the **hit-cap flag** (`capped_terms` + the
-  `⚠ capped` chip — rule 4's "hitting the backstop goes on the record", `test_discover_reports_capped_term`);
+  `⚠ capped` chip — rule 4's "hitting the backstop goes on the record", `test_discover_reports_capped_term`),
+  now **per tier** — SIGNAL deep / BROAD shallow (`discover(broad=, broad_hit_cap=)`; a term in both tiers
+  enumerates deep; each capped term flags independently inside its own tier list,
+  `test_discover_per_tier_caps_flag_each_tier_independently`): against the single-cap era BROAD is unchanged
+  and SIGNAL only deepens, so the default universe is a **monotone superset**, never a drop — proven by the
+  answer-key re-score at both configs, not asserted;
   the **tail-sweep tri-state** (`TailSweep.status` — a LOST sweep reads `failed`, never conflated with
   "ran-and-found-nothing" or the deliberate no-key `skipped`); the **narration fill count** (M of N on the
   report); and the **single-worker startup guard** (`draft_jobs.assert_single_worker`, the app lifespan +

@@ -51,9 +51,11 @@ def write_draft_run_log(
 
     The payload is the run's full accountability record: the thesis identity + narrative, the term set AS
     STORED (the thesis's full set — term/tier/authored_by/source; under a narrowed ``scope`` the used subset
-    stays unambiguous from scope + tiers), the dials in effect (the hit cap + the two draft models — the
-    knobs that make one run's universe differ from another's — plus, for a non-default lane, the run's
-    ``scope``), and the draft itself (segments, every placement with its provenance, the honesty report) via
+    stays unambiguous from scope + tiers), the dials in effect (BOTH per-tier hit caps — SIGNAL deep, BROAD
+    shallow — + the two draft models — the knobs that make one run's universe differ from another's — plus,
+    for a non-default lane, the run's ``scope``; an artifact written before the per-tier split carries only
+    ``discovery_hit_cap``, the single-cap era in which that one number bounded every term), and the draft
+    itself (segments, every placement with its provenance, the honesty report) via
     ``model_dump(mode="json")``, so the ``draft`` key round-trips ``ChainDraftOut.model_validate``
     byte-honestly. ``draft`` is typed ``Any`` deliberately — this workbench module never imports the ``app``
     wire schema (the layering stays one-way); any pydantic model dumps.
@@ -74,7 +76,8 @@ def write_draft_run_log(
             },
             "term_set": [e.model_dump(mode="json") for e in thesis.term_set],
             "dials": {
-                "discovery_hit_cap": s.discovery_hit_cap,
+                "discovery_hit_cap": s.discovery_hit_cap,  # the SIGNAL (deep) cap
+                "discovery_broad_hit_cap": s.discovery_broad_hit_cap,  # the BROAD (shallow) cap
                 "research_model": s.llm_research_model,
                 "decompose_model": s.llm_decompose_model,
                 # the run's draft SCOPE, recorded ONLY for the non-default lane — a full run's dials keep

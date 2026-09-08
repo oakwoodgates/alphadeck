@@ -12,6 +12,9 @@ the on-thesis names, which mention MANY of a theme's terms. A bake-off measured 
 
 Reaches EFTS through the existing ``EdgarClient`` (cache-first, polite, declared User-Agent). The keyword set is
 supplied by the caller (a fixed list now; the per-thesis LLM keyword-gen is Slice 2).
+
+The per-keyword pagination cap is PER TIER (``discover``): collision-prone BROAD terms enumerate SHALLOW,
+discriminating SIGNAL terms enumerate DEEP — one loop, one cap site, the cap chosen per keyword.
 """
 
 from __future__ import annotations
@@ -84,11 +87,13 @@ class DiscoveryCoverage:
 @dataclass
 class DiscoveryRun:
     """``discover``'s result: the enumerated universe + the run's own honesty report. ``capped_terms`` names
-    every keyword whose EFTS total exceeded the hit-cap — pages beyond the cap were NOT enumerated, so a name
-    surfacing only that deep is invisible this run (#9 rule 4: the cap is a pathology backstop, and hitting
-    it goes on the record, never silent). ``empty_terms`` is the zero-hit counterpart: a keyword whose page-0
-    came back with NO hits at all — a dead seed that placed no names, recorded so it is never silently
-    discarded (#9)."""
+    every keyword whose EFTS total exceeded ITS tier's hit-cap (SIGNAL deep / BROAD shallow) — pages beyond
+    the cap were NOT enumerated, so a name surfacing only that deep is invisible this run (#9 rule 4: the cap
+    is a pathology backstop, and hitting it goes on the record, never silent). One flat, input-ordered list
+    regardless of tier: the term-chip marker renders per term inside its own tier list, so a capped SIGNAL
+    term and a capped BROAD term each surface independently. ``empty_terms`` is the zero-hit counterpart: a
+    keyword whose page-0 came back with NO hits at all — a dead seed that placed no names, recorded so it is
+    never silently discarded (#9)."""
 
     filers: dict[str, Filer]
     coverage: DiscoveryCoverage
@@ -225,6 +230,8 @@ def discover(
     keywords: Iterable[str],
     *,
     hit_cap: int = 1000,
+    broad: Iterable[str] = (),
+    broad_hit_cap: int | None = None,
     max_workers: int = 8,
     degraded_ratio: float = 0.05,
 ) -> DiscoveryRun:
@@ -238,8 +245,21 @@ def discover(
     exceeding the limit. Two phases: (A) page 0 of every keyword -> read ``total`` + the real ``page_size``;
     (B) fan out all remaining offsets. ``ThreadPoolExecutor.map`` yields in INPUT order, so the merge order is
     fixed run-to-run; the CIK set + keyword tagging are order-independent -> identical to the sequential walk
-    (``ciks_for_keyword``, the gate's determinism reference). ``hit_cap`` is the per-keyword backstop, and
-    HITTING it is recorded (``capped_terms`` + a WARNING), never silent.
+    (``ciks_for_keyword``, the gate's determinism reference — with the same per-keyword cap).
+
+    THE CAP IS PER TIER — SIGNAL deep, BROAD shallow. Every keyword enumerates to ``hit_cap``, except the
+    keywords in ``broad`` (the caller's SUBSET of ``keywords`` to enumerate shallow), which enumerate to
+    ``broad_hit_cap``; ``broad_hit_cap=None`` means "the same as ``hit_cap``" — the single-cap behavior, so a
+    caller that passes neither is byte-identical to before. Why: a BROAD term is collision-prone (a short
+    generic token hits thousands of unrelated filers whose deep pages are nearly all noise, and a hit only
+    corroborates — VERIFY, never places), while a SIGNAL term is a discriminating operator seed whose hit
+    PLACES a name — a real name surfacing deep under a seed is exactly what a low cap silently dropped. A
+    measured large draft showed per-tier capping keeps the placed-recall of a high global cap with far less
+    verify noise. Still ONE loop and ONE cap site (``_offsets_for``) — merge order, coverage, the retry pass,
+    and the run-wide degraded ratio are untouched; only the number each keyword is bounded by differs. The
+    tier split is the caller's (``workbench.discovery.run_discovery`` sends a term stored in both tiers DEEP —
+    recall-first). HITTING either cap is recorded per keyword (``capped_terms`` + a WARNING naming the cap
+    that applied), never silent.
 
     COMPLETENESS-OR-FAIL (the reliability contract): a page that fails AFTER ``polite_get``'s retries is
     logged (keyword + offset) and skipped, then given ONE retry pass at the end — same client, same rate
@@ -273,19 +293,31 @@ def discover(
     # Zero-hit seeds — the too-FEW counterpart to ``capped`` (too many). Accumulated at the SERIAL page-0
     # branches below (never inside a threaded map), so no lock is needed. Returned as ``empty_terms``.
     empty: set[str] = set()
+    # The keywords enumerated to the SHALLOW cap (the per-tier rule). With ``broad_hit_cap=None`` the set is
+    # inert — every keyword takes ``hit_cap``, the single-cap behavior.
+    shallow: set[str] = set(broad) if broad_hit_cap is not None else set()
+    shallow_cap: int = broad_hit_cap if broad_hit_cap is not None else hit_cap
+
+    def _cap_for(kw: str) -> tuple[str, int]:
+        # PER-TIER: a BROAD (collision-prone) keyword is bounded by the shallow cap, every other keyword by the
+        # deep one. Returns the dial's NAME too, so the WARNING names the cap that actually applied.
+        return ("broad_hit_cap", shallow_cap) if kw in shallow else ("hit_cap", hit_cap)
 
     def _offsets_for(kw: str, total: int, page_size: int) -> list[tuple[str, int]]:
-        # The keyword's remaining pages after a successful page-0 — the ONE site the cap applies, so the
-        # capped flag is detected here (no extra fetch: EFTS already reported ``total``).
-        if total > hit_cap:
+        # The keyword's remaining pages after a successful page-0 — the ONE site the cap applies (chosen per
+        # keyword by ``_cap_for``), so the capped flag is detected here (no extra fetch: EFTS already reported
+        # ``total``). Both phase B and the retry pass's late offsets come through here.
+        dial, cap = _cap_for(kw)
+        if total > cap:
             capped.add(kw)
             _log.warning(
-                "discovery: keyword %r hit-capped: total=%d > hit_cap=%d — pages beyond the cap NOT enumerated",
+                "discovery: keyword %r hit-capped: total=%d > %s=%d — pages beyond the cap NOT enumerated",
                 kw,
                 total,
-                hit_cap,
+                dial,
+                cap,
             )
-        limit = min(total, hit_cap)
+        limit = min(total, cap)
         return [(kw, frm) for frm in range(page_size, limit, page_size)]
 
     failed: list[tuple[str, int]] = []

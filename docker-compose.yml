@@ -40,11 +40,16 @@ services:
       # FIRST (exact counts + the historical backfill CLI); without it, the free scrapers keep covering
       # the forward sample. Fail-open like the two above.
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}
-      # Optional discovery BACKSTOP cap, exposed for tuning (unset -> 1000, the Settings default). NOT a recall
-      # limiter — only a pathological-keyword bound; speed comes from the parallel EFTS fan-out under the shared
-      # rate limit, never from capping recall. The fallback is 1000 (not empty) because an EMPTY env value
-      # can't parse as an int — pydantic-settings treats "" as a value, not "unset", and would crash on boot.
-      ALPHADECK_DISCOVERY_HIT_CAP: ${ALPHADECK_DISCOVERY_HIT_CAP:-1000}
+      # Optional discovery BACKSTOP caps, PER TIER, exposed for tuning: SIGNAL terms enumerate DEEP (a seed hit
+      # places a name; unset -> 5000) and BROAD terms SHALLOW (collision-prone, corroboration only; unset ->
+      # 1000). NOT recall limiters — only a pathological-keyword bound; speed comes from the parallel EFTS
+      # fan-out under the shared rate limit, never from capping recall. The fallbacks are numbers (not empty)
+      # because an EMPTY env value can't parse as an int — pydantic-settings treats "" as a value, not
+      # "unset", and would crash on boot — and they MUST EQUAL the Settings defaults
+      # (backend/domain/settings.py): compose ALWAYS injects these, so a drifted fallback would silently
+      # override the code default.
+      ALPHADECK_DISCOVERY_HIT_CAP: ${ALPHADECK_DISCOVERY_HIT_CAP:-5000}
+      ALPHADECK_DISCOVERY_BROAD_HIT_CAP: ${ALPHADECK_DISCOVERY_BROAD_HIT_CAP:-1000}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
