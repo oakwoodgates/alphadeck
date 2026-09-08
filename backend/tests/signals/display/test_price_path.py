@@ -94,7 +94,8 @@ def test_basis_shows_the_work():
     assert sig.basis.source == "fact_price_eod"
     assert sig.basis.params == {"bars": 90, "lookback_days": 150}
     assert sig.basis.bars_used == 90
-    assert sig.basis.window_start == bars[-90]["d"]  # the EXACT tape behind the slots, not the fetch
+    # the window is the EXACT tape behind the slots, not the fetch
+    assert sig.basis.window_start == bars[-90]["d"]
     assert sig.basis.window_end == _ASOF
     # a shape, never a scalar: nothing here for the sort, the panel strip, or the call to read (#4)
     assert sig.metrics == [] and sig.events == [] and sig.headline is None
