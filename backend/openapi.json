@@ -3873,6 +3873,59 @@
         "title": "DisplayMetric",
         "description": "One labeled reading. ``value=None`` is an HONEST gap \u2014 the ``note`` says why (\"n/a: 140/200\nbars\"), never a fake number (#6 show the work, #7 quiet degrade).\n\n``tone`` opts a DIRECTIONAL metric into a green/red (pos/neg) render \u2014 set ONLY where the sign is\na genuine up/down read (ETF net flow: inflow vs outflow, where a bare minus is too quiet), left\nNone everywhere else so a non-directional chip stays neutral. The FE renders it generically off\nthis field, so a future directional member colors with zero frontend change."
       },
+      "DisplaySeries": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pct",
+                  "usd",
+                  "price",
+                  "count",
+                  "ratio"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "values"
+        ],
+        "title": "DisplaySeries",
+        "description": "A compact, FIXED-SLOT ordered series a member emits for a SHAPE read (the basket table's\nsparkline) \u2014 e.g. the last N closes. ``values`` is ascending by bar and index-spaced (one slot\nper trading bar, the tape's own convention \u2014 never calendar-spaced), newest LAST. A ``None``\nslot is an HONEST gap \u2014 no bar there: a thin tape is LEFT-padded to the window so a young name\ndraws a shorter, right-aligned path, never a line stretched to look like a full window \u2014 and the\nFE breaks the line on it, never interpolates (#6/#9). The exact tape behind the slots rides the\nsignal's ``basis`` (``bars_used``, ``window_start``/``window_end``). Display context only: a\nseries has no role and no scalar, so it cannot fire, sort, rank, or grade (#4)."
+      },
       "DisplaySignal": {
         "properties": {
           "kind": {
@@ -3906,6 +3959,13 @@
             },
             "type": "array",
             "title": "Events"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/DisplaySeries"
+            },
+            "type": "array",
+            "title": "Series"
           },
           "basis": {
             "$ref": "#/components/schemas/DisplayBasis"

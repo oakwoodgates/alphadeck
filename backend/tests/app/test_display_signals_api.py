@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 
+import pytest
+
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.thesis import BasketMember, Thesis
@@ -93,6 +95,7 @@ def test_display_signals_happy_path(client, db, security_id):
         "volume_regime",
         "rvol",
         "vcp",
+        "price_path",
     ]
     sig = m["signals"][0]
     assert sig["basis"]["bars_used"] == 220
@@ -136,6 +139,19 @@ def test_display_signals_happy_path(client, db, security_id):
         rv["basis"]["params"]["loud_mult_20"] == 1.5
         and rv["basis"]["params"]["baseline_bars_20"] == 20
     )
+    # the price path rides the wire as the ONE fixed-slot `series` (the widening that let a SHAPE
+    # onto the payload): the 220-bar fixture fills all 90 slots (no gaps), newest last = the asof
+    # close, first = 89 bars back; a shape only — no metric the sort or the call could read (#4)
+    path = next(s for s in m["signals"] if s["kind"] == "price_path")
+    assert [s["key"] for s in path["series"]] == ["close"]
+    vals = path["series"][0]["values"]
+    assert len(vals) == 90 and None not in vals
+    assert vals[-1] == pytest.approx(31.9)  # 10.0 + 219*0.1
+    assert vals[0] == pytest.approx(23.0)  # 10.0 + (219-89)*0.1
+    assert path["series"][0]["unit"] == "price"
+    assert path["metrics"] == [] and path["headline"] is None
+    assert path["basis"]["bars_used"] == 90 and path["basis"]["note"] is None
+    assert path["basis"]["params"] == {"bars": 90, "lookback_days": 150}
 
 
 def test_theme_breadth_rides_the_response(client, db, security_id):
@@ -257,6 +273,10 @@ def test_no_lookahead_a_post_asof_bar_is_invisible(client, db, security_id):
     # 999 future bar is invisible, so the 1d return is a quiet +0.63%, never a lookahead-blown spike
     ret = next(s for s in signals if s["kind"] == "trailing_returns")
     assert {mt["key"]: mt["value"] for mt in ret["metrics"]}["ret_1d"] == 0.63
+    # …and the price path's last slot is the asof close too — the 999 print never enters the shape
+    path = next(s for s in signals if s["kind"] == "price_path")
+    assert path["series"][0]["values"][-1] == pytest.approx(15.9)
+    assert path["basis"]["window_end"] == _ASOF.isoformat()
 
 
 def test_display_get_writes_nothing(client, db, security_id):

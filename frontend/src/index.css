@@ -247,6 +247,15 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.insc { white-space: nowrap; }
 .basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
+/* the close-path sparkline (the price_path member's fixed-slot series, after the return ladder): a
+   NEUTRAL hairline in the muted text grey — no accent, so the shape never conflates with the return
+   green/red, the RVOL warm, or the insider blue (#7). A null slot BREAKS the line (never interpolated):
+   a young name draws a shorter, right-aligned path; below two closes the cell is "—". Not sortable. */
+.basket td.sparkc { white-space: nowrap; }
+.spark { display: inline-block; vertical-align: middle; line-height: 0; }
+.spark-svg { display: block; overflow: visible; }
+.spark-svg path { fill: none; stroke: var(--txt-3); stroke-width: 1; stroke-linejoin: round; stroke-linecap: round; }
+.spark-svg circle { fill: var(--txt-3); }
 .np-ind-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .np-ind-chip { display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 3px 8px; }
 .np-ind-chip .k { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }

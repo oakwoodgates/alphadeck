@@ -12,6 +12,7 @@ from signals import registered_detectors
 from signals.display import (
     etf_flow,
     insider_flow,
+    price_path,
     range52w,
     registered_display_members,
     relative_strength,
@@ -39,7 +40,8 @@ def test_registry_contains_exactly_the_members_in_display_order():
         "relative_strength",
         "insider_flow_90d",
         "etf_flow",
-        "vcp",  # §3.2 base-tightening / VCP — appended LAST (existing members keep their render order)
+        "vcp",  # §3.2 base-tightening / VCP — appended after the originals (render order is stable)
+        "price_path",  # the basket sparkline's close series — appended LAST (existing order kept)
     ]
     assert [m.compute for m in members] == [
         sma.display,
@@ -51,6 +53,7 @@ def test_registry_contains_exactly_the_members_in_display_order():
         insider_flow.display,
         etf_flow.display,
         vcp.display,
+        price_path.display,
     ]
 
 

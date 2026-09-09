@@ -1944,6 +1944,27 @@ export interface components {
             tone?: ("pos" | "neg") | null;
         };
         /**
+         * DisplaySeries
+         * @description A compact, FIXED-SLOT ordered series a member emits for a SHAPE read (the basket table's
+         *     sparkline) — e.g. the last N closes. ``values`` is ascending by bar and index-spaced (one slot
+         *     per trading bar, the tape's own convention — never calendar-spaced), newest LAST. A ``None``
+         *     slot is an HONEST gap — no bar there: a thin tape is LEFT-padded to the window so a young name
+         *     draws a shorter, right-aligned path, never a line stretched to look like a full window — and the
+         *     FE breaks the line on it, never interpolates (#6/#9). The exact tape behind the slots rides the
+         *     signal's ``basis`` (``bars_used``, ``window_start``/``window_end``). Display context only: a
+         *     series has no role and no scalar, so it cannot fire, sort, rank, or grade (#4).
+         */
+        DisplaySeries: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Unit */
+            unit?: ("pct" | "usd" | "price" | "count" | "ratio") | null;
+            /** Values */
+            values: (number | null)[];
+        };
+        /**
          * DisplaySignal
          * @description A display member's output: f(point_in_time_data, security_id, asof) -> DisplaySignal | None.
          *
@@ -1960,6 +1981,8 @@ export interface components {
             metrics?: components["schemas"]["DisplayMetric"][];
             /** Events */
             events?: components["schemas"]["DisplayEvent"][];
+            /** Series */
+            series?: components["schemas"]["DisplaySeries"][];
             basis: components["schemas"]["DisplayBasis"];
         };
         /**

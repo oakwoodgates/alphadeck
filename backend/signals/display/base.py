@@ -72,6 +72,22 @@ class DisplayEvent(DomainModel):
     direction: Literal["up", "down"] | None = None
 
 
+class DisplaySeries(DomainModel):
+    """A compact, FIXED-SLOT ordered series a member emits for a SHAPE read (the basket table's
+    sparkline) — e.g. the last N closes. ``values`` is ascending by bar and index-spaced (one slot
+    per trading bar, the tape's own convention — never calendar-spaced), newest LAST. A ``None``
+    slot is an HONEST gap — no bar there: a thin tape is LEFT-padded to the window so a young name
+    draws a shorter, right-aligned path, never a line stretched to look like a full window — and the
+    FE breaks the line on it, never interpolates (#6/#9). The exact tape behind the slots rides the
+    signal's ``basis`` (``bars_used``, ``window_start``/``window_end``). Display context only: a
+    series has no role and no scalar, so it cannot fire, sort, rank, or grade (#4)."""
+
+    key: str
+    label: str
+    unit: Literal["pct", "usd", "price", "count", "ratio"] | None = None
+    values: list[float | None]
+
+
 class DisplayBasis(DomainModel):
     """Show-the-work for a computed indicator (#6): the fact table it read, the parameters, and the
     exact bar window used — plus a staleness note when the tape lags the asof."""
@@ -111,6 +127,7 @@ class DisplaySignal(DomainModel):
     headline: DisplayHeadline | None = None  # the optional at-the-top state chip (any member)
     metrics: list[DisplayMetric] = Field(default_factory=list)
     events: list[DisplayEvent] = Field(default_factory=list)
+    series: list[DisplaySeries] = Field(default_factory=list)  # fixed-slot SHAPE reads (sparkline)
     basis: DisplayBasis
 
 

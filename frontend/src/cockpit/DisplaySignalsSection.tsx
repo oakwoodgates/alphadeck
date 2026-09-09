@@ -173,6 +173,105 @@ export function InsiderCell({
   );
 }
 
+/** The sparkline cell's box (px). The `price_path` member's 90 slots over ~72px is a hairline per
+ *  bar; the geometry scales to whatever slot count a series carries — the FE hardcodes no window. */
+export const SPARK_W = 72;
+export const SPARK_H = 16;
+const SPARK_PAD = 1; // keeps the 1px stroke inside the box at the min/max slots
+/** The one series the basket cell reads off the `price_path` member. */
+export const SPARK_SERIES_KEY = "close";
+
+export interface SparkGeometry {
+  /** One SVG path `d` per run of ≥2 consecutive real slots. A null slot BREAKS the line — the runs
+   *  either side of a gap are separate paths, never joined (no interpolation, #6/#9). */
+  paths: string[];
+  /** Isolated real slots (a run of one between gaps): drawn as a dot, so a bar the tape printed
+   *  is still shown, never silently dropped — and never stretched into a line it isn't. */
+  dots: { x: number; y: number }[];
+  /** The count of real (non-null) slots — the bars actually drawn. */
+  bars: number;
+}
+
+/** The pure geometry of a fixed-slot series: slot i sits at x = i/(n−1)·w across the WHOLE window,
+ *  so a left-padded (young) tape draws a genuinely shorter, right-aligned path; y maps the real
+ *  values' min → bottom / max → top (a flat series is a midline, never a zero-range blow-up).
+ *  Returns null below two real values — a point is not a path, and the cell reads "—". */
+export function sparkGeometry(
+  values: readonly (number | null | undefined)[],
+  w = SPARK_W,
+  h = SPARK_H,
+): SparkGeometry | null {
+  const isReal = (v: number | null | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v);
+  const real = values.filter(isReal);
+  if (real.length < 2) return null;
+  const n = values.length;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of real) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  const r1 = (v: number) => Math.round(v * 10) / 10; // 0.1px — a light DOM, not a precise one
+  const xAt = (i: number) => r1(n > 1 ? (i / (n - 1)) * w : w / 2);
+  const yAt = (v: number) =>
+    r1(hi === lo ? h / 2 : SPARK_PAD + (1 - (v - lo) / (hi - lo)) * (h - 2 * SPARK_PAD));
+  const paths: string[] = [];
+  const dots: { x: number; y: number }[] = [];
+  let run: { x: number; y: number }[] = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      paths.push(run.map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`).join(" "));
+    } else if (run.length === 1) {
+      dots.push(run[0]);
+    }
+    run = [];
+  };
+  values.forEach((v, i) => {
+    if (isReal(v)) run.push({ x: xAt(i), y: yAt(v) });
+    else flush(); // the gap: close the run here, never bridge to the next real slot
+  });
+  flush();
+  return { paths, dots, bars: real.length };
+}
+
+/** One basket-table sparkline cell from the `price_path` display member's fixed-slot `close`
+ *  series — the SHAPE behind the return ladder's endpoint numbers. A NEUTRAL hairline in the muted
+ *  text grey, no accent: it must never conflate with the return green/red, the RVOL warm, or the
+ *  insider blue (#7). A null slot is an honest gap the line BREAKS on — never interpolated — so a
+ *  young name draws a shorter, right-aligned path; fewer than two real closes (or no series at all)
+ *  reads a muted "—" with the why on hover (a point is not a path, #6/#9). Not sortable: a shape,
+ *  never a number the sort or the call could read (#4). The exact tape rides the hover title. */
+export function SparklineCell({ sig }: { sig: DisplaySignal | null }) {
+  const series = (sig?.series ?? []).find((s) => s.key === SPARK_SERIES_KEY);
+  const geo = series ? sparkGeometry(series.values) : null;
+  if (!sig || !geo)
+    return (
+      <span className="muted" title={sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  return (
+    <span className="spark" title={basisLine(sig)}>
+      <svg
+        className="spark-svg"
+        width={SPARK_W}
+        height={SPARK_H}
+        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+        role="img"
+        aria-label={`price path, ${geo.bars} bars`}
+      >
+        {geo.paths.map((d, i) => (
+          <path key={i} d={d} />
+        ))}
+        {geo.dots.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={1} />
+        ))}
+      </svg>
+    </span>
+  );
+}
+
 function basisLine(sig: DisplaySignal): string {
   const b = sig.basis;
   const parts: string[] = [];

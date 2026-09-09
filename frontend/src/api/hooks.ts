@@ -215,6 +215,7 @@ export type DisplaySignal = components["schemas"]["DisplaySignal"];
 export type DisplayHeadline = components["schemas"]["DisplayHeadline"];
 export type DisplayMetric = components["schemas"]["DisplayMetric"];
 export type DisplayEvent = components["schemas"]["DisplayEvent"];
+export type DisplaySeries = components["schemas"]["DisplaySeries"];
 export type DisplayBasis = components["schemas"]["DisplayBasis"];
 
 // Per-name read-only indicators (SMA position/flips, …), re-derived at `asof` — quiet tape context
