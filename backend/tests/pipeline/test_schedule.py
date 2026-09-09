@@ -13,7 +13,9 @@ from pipeline.schedule import (
     expected_runs_behind,
     is_scheduled_day,
     last_expected_asof,
+    missed_asofs,
     parse_run_at,
+    scheduled_window,
 )
 
 _RUN_AT = time(22, 30)
@@ -22,6 +24,16 @@ _FRI = date(2026, 7, 17)
 _SAT = date(2026, 7, 18)
 _SUN = date(2026, 7, 19)
 _MON = date(2026, 7, 20)
+
+# The hole-aware read's fixtures — the MEASURED prod week: 2026-09-03 Thu, 09-04 Fri (a hole: the Friday
+# target woke on Saturday and the wake-day weekday check skipped it), 09-07 Mon, 09-08 Tue (a hole: the
+# Tuesday target fired Wed 09:09 and recorded Wednesday), 09-09 Wed, 09-10 Thu.
+_S_THU = date(2026, 9, 3)
+_S_FRI = date(2026, 9, 4)
+_S_MON = date(2026, 9, 7)
+_S_TUE = date(2026, 9, 8)
+_S_WED = date(2026, 9, 9)
+_S_THU2 = date(2026, 9, 10)
 
 
 def test_parse_run_at_reads_the_sidecar_format():
@@ -96,3 +108,67 @@ def test_none_edge_is_none_not_a_number():
     # the record-never-began state has no schedule to be behind — the QUIET fresh-install state (the
     # caller renders it as "never begun", never a loud stale alarm)
     assert expected_runs_behind(None, _MON) is None
+
+
+# --- the hole-aware read: scheduled_window + missed_asofs (pure; no DB) ---
+
+
+def test_scheduled_window_is_the_last_n_weekdays_ascending():
+    # 5 scheduled days ending Tue 09-08: Wed 09-02, Thu, Fri, (weekend skipped), Mon, Tue — ascending
+    assert scheduled_window(_S_TUE, 5) == [date(2026, 9, 2), _S_THU, _S_FRI, _S_MON, _S_TUE]
+    assert scheduled_window(_S_TUE, 0) == []  # 0 disables the scan
+    # a weekend `expected` (a manual weekend run's date) walks back to Friday — never a weekend day
+    assert scheduled_window(date(2026, 9, 6), 1) == [_S_FRI]
+
+
+def test_missed_a_single_friday_hole():
+    # THE measured shape #1: the Friday target woke on Saturday → skipped; Thu + Mon + Tue recorded. The
+    # edge (Tue) is CURRENT on Tuesday night — the edge check sees nothing; this read sees Friday.
+    missed = missed_asofs({_S_THU, _S_MON, _S_TUE}, expected=_S_TUE, first=_S_THU, window=10)
+    assert missed == [_S_FRI]
+    assert expected_runs_behind(_S_TUE, _S_TUE) == 0  # ...and the edge check is indeed blind to it
+
+
+def test_missed_the_wrong_day_tuesday_hole():
+    # THE measured shape #2: the Tuesday target fired Wed 09:09 → recorded WEDNESDAY; Tuesday is a hole
+    # under a current edge
+    missed = missed_asofs({_S_MON, _S_WED, _S_THU2}, expected=_S_THU2, first=_S_MON, window=10)
+    assert missed == [_S_TUE]
+
+
+def test_missed_never_lists_weekends():
+    # a clean Fri → Mon record: Sat/Sun are never scheduled, so they are never "missing" — and a manual
+    # Saturday run in `recorded` changes nothing
+    assert missed_asofs({_S_FRI, _S_MON}, expected=_S_MON, first=_S_FRI, window=10) == []
+    assert (
+        missed_asofs({_S_FRI, date(2026, 9, 5), _S_MON}, expected=_S_MON, first=_S_FRI, window=10)
+        == []
+    )
+
+
+def test_missed_ignores_pre_history_when_the_record_began_mid_window():
+    # the record's first as-of is Monday: the window reaches back to late August, but nights before the
+    # record began are pre-history, not holes (a fresh install must never show them)
+    assert missed_asofs({_S_MON, _S_TUE}, expected=_S_TUE, first=_S_MON, window=10) == []
+    # ...whereas a hole INSIDE the record's span still counts
+    assert missed_asofs({_S_MON, _S_WED}, expected=_S_WED, first=_S_MON, window=10) == [_S_TUE]
+
+
+def test_missed_is_bounded_by_the_window():
+    # first = Aug 31, only Tue 09-08 recorded: a 3-day window (Fri, Mon, Tue) lists Fri + Mon only —
+    # Aug 31 → Sep 3 are holes too, but OUTSIDE the window (loudness stays bounded, ascending order)
+    missed = missed_asofs({_S_TUE}, expected=_S_TUE, first=date(2026, 8, 31), window=3)
+    assert missed == [_S_FRI, _S_MON]
+    assert missed_asofs({_S_TUE}, expected=_S_TUE, first=date(2026, 8, 31), window=0) == []
+
+
+def test_missed_is_empty_when_the_record_never_began():
+    # first=None = no call-of-record at all — the quiet fresh-install state, never a list of "misses"
+    assert missed_asofs(set(), expected=_S_TUE, first=None, window=10) == []
+
+
+def test_the_expected_day_itself_missing_is_in_BOTH_reads():
+    # Monday recorded, Tuesday's run expected and absent: it is 1 behind (the edge check) AND a listed
+    # hole (this read) — deliberate; the router's verdict priority (stale > gappy) decides the wording
+    assert missed_asofs({_S_MON}, expected=_S_TUE, first=_S_MON, window=10) == [_S_TUE]
+    assert expected_runs_behind(_S_MON, _S_TUE) == 1

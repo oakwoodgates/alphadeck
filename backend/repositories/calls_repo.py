@@ -118,6 +118,25 @@ def record_edge(conn: psycopg.Connection) -> date | None:
         return cur.fetchone()["edge"]
 
 
+def record_first(conn: psycopg.Connection) -> date | None:
+    """The record's FIRST as-of — ``MIN(asof)`` across every thesis (``record_edge``'s mirror), or
+    ``None`` when the log is empty. The hole-aware freshness read's lower bound: a night before the
+    record began is pre-history, never a "missed" run. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT MIN(asof) AS first FROM calls")
+        return cur.fetchone()["first"]
+
+
+def recorded_asofs(conn: psycopg.Connection, *, since: date) -> set[date]:
+    """Every DISTINCT as-of with at least one call-of-record on or after ``since`` (all tenants, every
+    thesis — one recorded thesis makes the night recorded; the cron walks them all). The hole-aware
+    freshness read's membership set: ``schedule.missed_asofs`` subtracts it from the scheduled window.
+    Read-only, bounded by ``since`` (the window's first scheduled day)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT asof FROM calls WHERE asof >= %s", (since,))
+        return {r["asof"] for r in cur.fetchall()}
+
+
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
     """Every logged card for a thesis, oldest first — the full append-only history (accountability
     inspection), never the serve path (the API recomputes from facts).

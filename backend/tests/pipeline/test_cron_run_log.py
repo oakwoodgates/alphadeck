@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from pipeline.cron_run_log import already_ran_live, write_cron_run_log
+from pipeline.cron_run_log import already_ran_live, list_run_logs, write_cron_run_log
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
 
@@ -136,6 +136,52 @@ def test_edgar_fetches_separates_a_FREEZE_from_a_healthy_quiet_day(tmp_path):
     assert doc["edgar_fetches"] == 88  # run total
     assert next(t for t in doc["theses"] if t["name"] == "Frozen")["edgar_fetches"] == 0
     assert next(t for t in doc["theses"] if t["name"] == "Healthy quiet")["edgar_fetches"] == 88
+
+
+def test_payload_carries_catch_up_default_false(tmp_path):
+    # the sidecar's boot / late-wake `--catch-up` pass is marked on the artifact (the admin history skips
+    # its freeze check); a scheduled pass records False
+    scheduled = write_cron_run_log(
+        [_thesis_result()],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    assert _read(scheduled)["catch_up"] is False
+    caught_up = write_cron_run_log(
+        [_thesis_result()],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_END,  # a distinct started-at → a distinct filename
+        finished_at=_END,
+        base_dir=tmp_path,
+        catch_up=True,
+    )
+    assert _read(caught_up)["catch_up"] is True
+    # a catch-up is a LIVE pass (it satisfies already_ran_live — mode is untouched by the flag)
+    assert _read(caught_up)["mode"] == "live"
+
+
+def test_an_artifact_WITHOUT_the_catch_up_key_still_parses(tmp_path):
+    # an artifact written before the key existed: list_run_logs returns it unchanged (the reader is
+    # fail-open per artifact, never strict over new keys) and the guard still counts it as ran-live
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=date(2026, 7, 17),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    doc = _read(path)
+    del doc["catch_up"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    logs = list_run_logs(base_dir=tmp_path)
+    assert len(logs) == 1 and "catch_up" not in logs[0]
+    assert logs[0].get("catch_up", False) is False  # the admin reconstruction's read
+    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is True
 
 
 def test_records_thesis_level_error_and_transition(tmp_path):

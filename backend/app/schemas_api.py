@@ -1529,7 +1529,10 @@ class AdminRunOut(BaseModel):
     ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
     (``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row — a
     bad run can never hide behind a green history. ``mode`` is ``"live" | "no-live"`` (the R2
-    recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO)."""
+    recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a
+    ``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected
+    (it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written
+    before the key existed reads ``False``."""
 
     ran_at: str
     finished_at: str
@@ -1545,13 +1548,20 @@ class AdminRunOut(BaseModel):
     edgar_fetches: int
     healthy: bool
     problems: list[str] = []
+    catch_up: bool
 
 
 class AdminRecordOut(BaseModel):
     """The record's freshness vs the LAST EXPECTED scheduled run — never raw ``today - edge``: a
     Friday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1
     behind (stale). ``edge is None`` = the record has never begun — a QUIET state (``days_behind``
-    None, ``stale`` False), never an alarm on a fresh install."""
+    None, ``stale`` False), never an alarm on a fresh install.
+
+    ``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly
+    that meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last
+    ``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with NO
+    call-of-record — a run that fired on the wrong day advances the edge right over the night it skipped,
+    invisible to the edge check. ``[]`` / ``0`` on a clean window."""
 
     edge: date | None
     today: date
@@ -1559,15 +1569,21 @@ class AdminRecordOut(BaseModel):
     days_behind: int | None
     stale: bool
     reason: str
+    missed: int
+    missed_asofs: list[date]
+    window_days: int
 
 
 class AdminCronOut(BaseModel):
     """The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
     withheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` — a bad run
     must read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign
-    ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet)."""
+    ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =
+    the edge is current and the last run clean, but the recent window has a night with NO call-of-record
+    (a wrong-day fire) — as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.
+    """
 
-    status: Literal["healthy", "stale", "never_ran", "unhealthy"]
+    status: Literal["healthy", "stale", "never_ran", "unhealthy", "gappy"]
     detail: str
 
 

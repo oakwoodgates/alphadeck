@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     # the sidecar's exact env name (the prefix would otherwise read ALPHADECK_CRON_RUN_AT — a different,
     # wrong var). Parsed at the edge by schedule.parse_run_at (a malformed value fails LOUD there).
     cron_run_at: str = Field(default="22:30", validation_alias=AliasChoices("ALPHADECK_CRON_AT"))
+    # The hole-aware freshness read's window: how many SCHEDULED weekdays (ending at the last expected
+    # run) `/admin/status` scans for nights with NO call-of-record. The edge check alone (MAX(asof)) read
+    # "current" over 6 empty nights in 13 — a run that fired on the wrong day advances the edge right over
+    # the night it skipped. 10 = two trading weeks, enough to see a laptop's suspend drift pattern without
+    # dragging in old history; 0 disables the scan. Read via the env_prefix (ALPHADECK_ADMIN_MISSED_WINDOW).
+    admin_missed_window: int = 10
 
     # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
     # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the

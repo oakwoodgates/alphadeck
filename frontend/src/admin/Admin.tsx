@@ -68,8 +68,10 @@ function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
 /** The Operator Admin (ops surface, Slice 1) — a READ surface over the cron's own instrumentation
  *  (record freshness vs the Mon-Fri+RUN_AT schedule, the run-of-record history, a health verdict)
  *  plus ONE explicit trigger: "Run daily now". Honest loudness throughout: loud styling is reserved
- *  for stale / unhealthy; "current", "never begun", and "never ran" stay quiet. The trigger fires
- *  ONLY on the button click — never on mount, render, or poll (reads may poll; the trigger may not). */
+ *  for stale / unhealthy / gappy (a night inside the recent window with NO call-of-record — the
+ *  wrong-day fire the edge check can't see); "current", "never begun", and "never ran" stay quiet,
+ *  and the missed-nights list renders ONLY when there is one to show. The trigger fires ONLY on the
+ *  button click — never on mount, render, or poll (reads may poll; the trigger may not). */
 export function Admin({ header }: Props) {
   const statusQ = useAdminStatus();
   const runsQ = useAdminRuns(20);
@@ -132,9 +134,11 @@ export function Admin({ header }: Props) {
 
       {status && (
         <div className="adm-body">
-          {/* 1 — freshness / the dead-man's switch: loud ONLY when stale */}
+          {/* 1 — freshness / the dead-man's switch: loud ONLY when stale (the edge) or gappy (a hole) */}
           <section
-            className={`adm-card adm-fresh${status.record.stale ? " stale" : ""}`}
+            className={`adm-card adm-fresh${
+              status.record.stale ? " stale" : status.record.missed > 0 ? " gappy" : ""
+            }`}
             data-testid="adm-fresh"
           >
             <div className="adm-h">Record freshness</div>
@@ -151,6 +155,15 @@ export function Admin({ header }: Props) {
             ) : (
               <div className="adm-line adm-quiet">
                 record last advanced <b>{status.record.edge}</b> · current
+              </div>
+            )}
+            {/* the HOLES — nights with no call-of-record inside the scanned window. Rendered only when
+                there is one (a list that is always empty carries no information); the edge line above
+                can read "current" right over a hole, which is exactly why this exists. */}
+            {status.record.missed > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-missed">
+                <b>{status.record.missed}</b> of the last {status.record.window_days} scheduled
+                night(s) have no call-of-record: {status.record.missed_asofs.join(", ")}
               </div>
             )}
             <div className="adm-sub">
@@ -335,7 +348,11 @@ export function Admin({ header }: Props) {
                     <tr key={r.ran_at} className={r.healthy ? undefined : "adm-row-bad"}>
                       <td className="adm-mono">{fmtStamp(r.ran_at)}</td>
                       <td className="adm-mono">{r.asof}</td>
-                      <td className="adm-mono">{r.mode}</td>
+                      <td className="adm-mono">
+                        {r.mode}
+                        {/* a --catch-up pass (boot / late wake): its ~0 EDGAR fetches are expected */}
+                        {r.catch_up && <span className="adm-badge b-catchup">catch-up</span>}
+                      </td>
                       <td className="adm-num">{r.appended}</td>
                       <td className="adm-num">{r.unchanged}</td>
                       <td className="adm-num">{r.withheld}</td>

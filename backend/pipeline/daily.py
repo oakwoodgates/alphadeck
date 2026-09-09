@@ -24,6 +24,8 @@ Discipline:
 
     python -m pipeline.daily                 # asof=today, live ingest
     python -m pipeline.daily --asof 2026-06-10 --no-live
+    python -m pipeline.daily --catch-up --asof 2026-09-08   # the sidecar's late-wake / boot catch-up:
+                                                            # a no-op if a LIVE pass for that asof ran
 """
 
 from __future__ import annotations
@@ -228,12 +230,21 @@ def run_daily(
 
 
 def assess_health(
-    results: list[ThesisRunResult], *, asof: date, allow_live: bool
+    results: list[ThesisRunResult],
+    *,
+    asof: date,
+    allow_live: bool,
+    freeze_check: bool = True,
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
     refreshed signal), any WITHHELD call (no-live / total ingest failure), or any thesis ERROR. Pure over the
     collected results, so it is unit-testable without a DB; ``main`` emits it through the notifier.
+
+    ``freeze_check=False`` SKIPS the frozen predicate only (withheld / errored still page): a ``--catch-up``
+    pass runs inside the EDGAR cache's 12h TTL right after the scheduled run, so ~0 fetches is what a
+    CORRECT catch-up looks like — the known R4 false-positive (FEED_LOOP.md "Known gaps", option B). The
+    scheduled run and the Admin "Run daily now" keep the default ``True``.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -242,7 +253,7 @@ def assess_health(
     withheld_failure = sum(1 for r in results if r.withheld_reason == "total ingest failure")
     errored = sum(1 for r in results if r.error)
     edgar_fetches = sum(r.edgar_fetches for r in results)
-    frozen = allow_live and theses > 0 and edgar_fetches == 0
+    frozen = freeze_check and allow_live and theses > 0 and edgar_fetches == 0
     if not (withheld_no_live or withheld_failure or errored or frozen):
         return None  # healthy — no page
     return HealthEvent(
@@ -260,7 +271,8 @@ def assess_health(
 class DailyPassOutcome:
     """One COMPLETED daily pass: the per-thesis results plus the run metadata the artifact carries —
     what the admin "run now" job needs to shape its poll result exactly like a parsed run log.
-    ``log_path`` is the written run-of-record artifact (or ``None`` — the write is fail-open)."""
+    ``log_path`` is the written run-of-record artifact (or ``None`` — the write is fail-open). ``catch_up``
+    = the pass was a ``--catch-up`` (recorded on the artifact; its freeze page is skipped)."""
 
     results: list[ThesisRunResult]
     asof: date
@@ -268,6 +280,7 @@ class DailyPassOutcome:
     started_at: datetime
     finished_at: datetime
     log_path: Path | None
+    catch_up: bool = False
 
 
 def run_daily_pass(
@@ -275,12 +288,18 @@ def run_daily_pass(
     asof: date | None = None,
     allow_live: bool = True,
     notifier: Notifier | None = None,
+    catch_up: bool = False,
 ) -> DailyPassOutcome:
     """The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the run-of-record
     artifact (R3, fail-open) → emit the health page (R4). Extracted from ``main`` UNCHANGED so the admin
     "Run daily now" trigger fires the exact pass the nightly cron does — a manual run writes the same
     artifact (it shows in the run history) and pages through the same health seam. ``main`` keeps the CLI
-    concerns only (args, the R6 catch-up guard, the printed report + exit code)."""
+    concerns only (args, the R6 catch-up guard, the printed report + exit code).
+
+    ``catch_up`` (the CLI's ``--catch-up``, threaded by ``main``) changes exactly two things: the artifact
+    records it, and the R4 FREEZE predicate is skipped (``assess_health(freeze_check=False)`` — a catch-up
+    runs inside the EDGAR 12h TTL and legitimately fetches ~0; withheld / errored still page). The ingest,
+    the recording gate, and the call-of-record are byte-identical to a scheduled pass."""
     asof = asof or market_today()
     notifier = notifier or get_notifier()
     started_at = datetime.now(timezone.utc)
@@ -342,11 +361,13 @@ def run_daily_pass(
         allow_live=allow_live,
         started_at=started_at,
         finished_at=finished_at,
+        catch_up=catch_up,
     )
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
-    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises).
-    health = assess_health(results, asof=asof, allow_live=allow_live)
+    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises). A catch-up
+    # skips the FREEZE predicate only (it runs inside the EDGAR TTL — ~0 fetches is correct there).
+    health = assess_health(results, asof=asof, allow_live=allow_live, freeze_check=not catch_up)
     if health is not None:
         notifier.notify_health(health)
     # The SPAC shell sweep (facts-only blank-check enrichment) — BEFORE the radar leg, so the same
@@ -399,6 +420,7 @@ def run_daily_pass(
         started_at=started_at,
         finished_at=finished_at,
         log_path=log_path,
+        catch_up=catch_up,
     )
 
 
@@ -456,7 +478,9 @@ def main(argv: list[str] | None = None) -> None:
         "--catch-up",
         action="store_true",
         help="R6: run only if a LIVE pass for this asof hasn't already run (the sidecar's on-start "
-        "catch-up, so a rebuild after RUN_AT self-heals instead of skipping the night); a no-op otherwise",
+        "catch-up, so a rebuild after RUN_AT self-heals instead of skipping the night, and its late-wake "
+        "catch-up of the nights a long sleep skipped); a no-op otherwise. A catch-up runs inside the "
+        "EDGAR cache TTL, so its ~0-fetch freeze page is skipped (withheld / errored still page).",
     )
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else market_today()
@@ -470,7 +494,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"daily-cron: a live pass for {asof} already ran — catch-up is a no-op")
         return
 
-    outcome = run_daily_pass(asof=asof, allow_live=allow_live)
+    outcome = run_daily_pass(asof=asof, allow_live=allow_live, catch_up=args.catch_up)
     if _report(outcome.results):
         raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
 

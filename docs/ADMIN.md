@@ -34,8 +34,10 @@ nights, and containers that don't always restart. Three questions and one safety
 - **Honest loudness (#7).** Staleness is measured against the last **expected** scheduled run (never raw
   `today − edge`), so a weekend never cries wolf; and a bad LAST run (freeze / errors / total ingest failure)
   is its own loud `unhealthy` verdict, **peer to** `stale` — the R1 freeze must never hide behind a green
-  "healthy". Loud styling is reserved for `stale` / `unhealthy`; "current", "never begun", and "never ran"
-  stay quiet.
+  "healthy". A night with **no call-of-record inside the recent window** is its own loud `gappy` verdict too
+  (the wrong-day fire the edge check cannot see). Loud styling is reserved for `stale` / `unhealthy` /
+  `gappy`; "current", "never begun", and "never ran" stay quiet, and the missed-nights list renders only when
+  there is one to show.
 - **Auth stays deferred** project-wide (these routes ride the same tenancy seam as the rest).
 
 ## Record freshness — "is the record current?"
@@ -48,6 +50,20 @@ nights, and containers that don't always restart. Three questions and one safety
   the same edge Monday **night** is `1` behind.
 - `edge is None` → **"the record has never begun"** — the quiet fresh-install state (`days_behind` null,
   `stale` false), never an alarm.
+
+**The hole check (hole-aware freshness, 2026-09-09).** The edge check above sees only `MAX(asof)` — and a
+run that fires on the **wrong day** (the laptop's sleep drift: a 00:24 or 09:09 wake recorded the *next*
+day's as-of) advances the edge right over the night it skipped. MEASURED on prod, 6 of 13 weekdays had no
+`calls` row while the page read "current". So `/admin/status` also scans the last
+**`ALPHADECK_ADMIN_MISSED_WINDOW`** (default **10**; `0` disables) scheduled weekdays ending at the last
+expected run (`schedule.py::scheduled_window` / `missed_asofs`; `calls_repo.recorded_asofs` +
+`record_first`) for nights with **no call-of-record at all**, bounded to the record's own span (a night before
+the record began is pre-history, never a "miss"; a fresh install has no holes). `record.missed` counts them,
+`record.missed_asofs` lists them ascending, `record.window_days` says how many were scanned. `stale` /
+`days_behind` keep their exact edge-check meaning; the expected day itself, when missing, appears in both.
+The page lists the missed dates **only when there are any** (a control that doesn't discriminate doesn't
+render). The cause — the sidecar firing for the day it *woke* rather than the night it was scheduled for — is
+fixed in `FEED_LOOP.md` §the scheduling sidecar (the target as-of is now fixed at schedule time).
 
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
@@ -65,12 +81,19 @@ The one-word `cron.status` verdict, plus the last run's counts and any problems:
 | `never_ran` | no run-of-record artifact yet — run one below, or bring the `cron` sidecar up |
 | `unhealthy` | the last run **froze / errored / totally failed** — as loud as `stale`, so a bad run can't hide behind green |
 | `stale` | the record missed an expected scheduled run (freshness above) |
-| `healthy` | the last run is clean and the record is current |
+| `gappy` | the edge is current and the last run clean, but a night inside the last `ALPHADECK_ADMIN_MISSED_WINDOW` scheduled runs has **no call-of-record** — a run fired on the wrong day (the hole check above); the detail names the dates |
+| `healthy` | the last run is clean, the record is current, and the window has no holes |
+
+Priority: `never_ran` > `unhealthy` > `stale` > `gappy` > `healthy` (a stale edge with a hole reads `stale`
+— the louder, more actionable verdict — while `record.missed_asofs` still lists both).
 
 The verdict re-derives via `assess_health` over the newest **readable** run-of-record artifact
 (`data/cron_runs/`, skip-unreadable fail-open). The **benign** `--no-live` cache-only note is excluded from
-the alarm set, so a hand-run dev pass never paints the cron `unhealthy` (honest loudness). `GET /admin/runs`
-returns the run history — the last N artifacts parsed, newest first.
+the alarm set, so a hand-run dev pass never paints the cron `unhealthy` (honest loudness). A **`--catch-up`**
+pass (the sidecar's boot / late-wake catch-up) is re-read with the freeze check skipped, exactly as the run
+itself was assessed — it runs inside the EDGAR 12h TTL and legitimately fetches ~0 — so the history never
+shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminRunOut.catch_up`).
+`GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
 
 ## Run daily now — the one trigger
 

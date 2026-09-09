@@ -196,10 +196,25 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   pytest, so neither starts it.)* `restart: unless-stopped` — see the missing-sidecar gap in "Known gaps".
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` sleeps until `RUN_AT` in
   the container's `TZ`, skips weekends (markets closed → an idempotent no-op + a needless API hit), fires
-  `python -m pipeline.daily`, and a failed run never kills the loop. It is **not Dagster, not APScheduler, not
-  a cron daemon** — chosen because a sleep-loop **inherits the container env directly** (so the space-bearing
-  `ALPHADECK_USER_AGENT` isn't mangled by a cron-style env snapshot) and honors `TZ` via `date`. Trivially
-  swappable to real cron / supercronic later (the contract is "fire the CLI once a day").
+  `python -m pipeline.daily --asof <target>`, and a failed run never kills the loop. It is **not Dagster, not
+  APScheduler, not a cron daemon** — chosen because a sleep-loop **inherits the container env directly** (so
+  the space-bearing `ALPHADECK_USER_AGENT` isn't mangled by a cron-style env snapshot) and honors `TZ` via
+  `date`. Trivially swappable to real cron / supercronic later (the contract is "fire the CLI once a day").
+- **It fires for the INTENDED night — the target as-of is fixed at schedule time (2026-09-09).** On a laptop
+  the `sleep` overshoots by however long the host was suspended (MEASURED late fires at 23:37 / 23:43 / 23:49
+  ET, one at 00:24 the next day, one at 09:09 the next morning). The loop used to let the CLI default `asof`
+  to the day it *woke*, so a fire past midnight recorded the NEXT day's as-of and the intended night got no
+  call-of-record at all — 6 of 13 weekdays since 2026-08-24 had zero `calls` rows. Now the loop captures
+  `target=$(date -d "@$next" +%F)` when it schedules, gates the weekday check on the **target** (a Friday
+  target that wakes on Saturday still runs), passes `--asof "$target"`, logs the overshoot in minutes when a
+  wake is ≥5 min late, and then **catches up the weekdays the sleep also skipped**: every weekday `d` with
+  `target < d <= last_expected_asof(wake)` gets `python -m pipeline.daily --catch-up --asof "$d"` (a no-op
+  when a live pass for that as-of already ran). Bounded by construction — it walks *forward* from the target
+  it just fired for, never backwards, so a deploy can never silently backfill old holes. The nightly backup
+  still runs once per wake. The shell's `is_weekday` / `next_weekday` / `last_expected_asof` mirror
+  `pipeline/schedule.py` — keep the two in step. A catch-up runs inside the EDGAR cache's 12h TTL and
+  legitimately fetches ~0, so the CLI's `--catch-up` skips the R4 freeze page for that pass only (withheld /
+  errored still page) and the run artifact carries `catch_up: true` (the Admin history tags the row).
 - **Explicit TZ.** `TZ=America/New_York` (overridable) + `RUN_AT=22:30` (after the US close + EOD settle);
   `tzdata` is installed in the image (the slim base ships no zoneinfo, so an explicit TZ would silently fall
   back to UTC). **Never the container's default UTC.** *(The BACKEND container's `TZ` is pinned to match, #202,
@@ -210,7 +225,9 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   (`already_ran_live`, reading the R3 logs). So a crash/redeploy after the scheduled time re-fires the missed
   run instead of waiting a full day. A `--no-live` run never satisfies the guard (mode-filtered), so it can't
   suppress a real catch-up. The CLI's `--asof YYYY-MM-DD` still allows a manual backfill (re-running is safe —
-  idempotent). *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
+  idempotent). The boot catch-up is **today-only, on purpose** — a deploy must never silently backfill old
+  prod holes; the in-loop late-wake catch-up (above) is bounded to the sleep that just ended for the same
+  reason. *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
 ## Backups & restore (Slice 4)  `[BUILT]`
@@ -243,18 +260,37 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
   replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
 
-## Known gaps (as of 2026-07-22)
+## Known gaps (as of 2026-09-09)
 
-Three are recorded here where a builder of the pager/scheduler will hit them; the full account of each is in
+Recorded here where a builder of the pager/scheduler will hit them; the full account of the first three is in
 `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
-- **The R4 freeze page has a false-positive path.** It fires on `edgar_fetches == 0`, but ~0 is *also* what a
-  correct run entirely inside the 12h EDGAR TTL looks like (all cache hits). The **nightly** cron is safe —
-  always ~24h out, always past the TTL, always fetches in the thousands. What's exposed is **catch-ups, manual
-  re-runs, and any second run in a night** — the paths R6 made routine (the 07-17 recovery run recorded
-  `edgar_fetches = 1`, one short of a false page). Two fixes when built: (A, more correct) page on 0 only when
-  the cache was *outside* its TTL for the names touched; (B, simpler) restrict the freeze page to *scheduled*
-  runs (catch-ups/manual stay quiet on fetch count, still page on withheld/errors).
+- **The wrong-day fire — CLOSED (A + C, 2026-09-09), recorded so the shape is recognizable.** The sidecar's
+  `sleep` overshoots by however long the laptop was suspended (MEASURED: fires at 23:37 / 23:43 / 23:49 ET,
+  00:24 and 09:09 the *next* day — the log literally showed `next run Tue Sep 8 22:30` followed by `Wed Sep 9
+  09:09:42 — running pipeline.daily`). The CLI defaulted `asof` to `market_today()` at *fire* time, so a
+  post-midnight fire recorded the NEXT day and the intended night got nothing; a Friday target that woke on
+  Saturday was skipped outright by the wake-day weekday check. MEASURED on prod: **6 of the 13 weekdays since
+  2026-08-24 had zero `calls` rows** (Aug 24, 26, 28, 31, Sep 4, Sep 8) — and the Admin freshness read said
+  `current — no scheduled run is missing` over every hole, because `expected_runs_behind` compares only
+  `MAX(asof)` against the last expected run: a wrong-day fire *advances the edge right over the night it
+  skipped*. R6 could not help (a wake is not a boot) and R4 pages only from inside a run (a wrong-day run is a
+  healthy run). **A** (the sidecar) fixes the cause: the target as-of is fixed at schedule time and passed as
+  `--asof`, the weekday gate is on the target, and the weekdays a long sleep also skipped are caught up
+  forward-only. **C** (the freshness read) makes the shape visible: `/admin/status` scans the last
+  `ALPHADECK_ADMIN_MISSED_WINDOW` (default 10) scheduled weekdays for nights with no call-of-record
+  (`schedule.missed_asofs`, bounded to the record's own span) and reports `gappy` + the dates. The existing
+  prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up stays
+  today-only).
+- **The R4 freeze page's false-positive path is NARROWED, not removed.** It fires on `edgar_fetches == 0`, but
+  ~0 is *also* what a correct run entirely inside the 12h EDGAR TTL looks like (all cache hits). The
+  **nightly** cron is safe — always ~24h out, always past the TTL, always fetches in the thousands. Option B
+  from the original note **shipped for catch-ups** (2026-09-09): a `--catch-up` pass runs with
+  `assess_health(freeze_check=False)` — quiet on fetch count, still paging on withheld / errors — and its
+  artifact carries `catch_up: true` so the Admin history re-derives the same verdict. Still exposed: **manual
+  re-runs and any second scheduled run in a night** (a hand-run `python -m pipeline.daily` or the Admin "Run
+  daily now" right after the nightly). Option A (page on 0 only when the cache was *outside* its TTL for the
+  names touched) remains the more correct fix when built.
 - **`edgar_fetches` counts ATTEMPTS, not successes.** `EdgarClient.get_text` does `live_fetches += 1`
   immediately *before* calling `_fetch`, so a pull that RAISES still increments the counter. A run whose every
   fetch fails therefore reports a large, reassuring number, and `frozen` (which trips only at exactly 0) can
@@ -266,11 +302,14 @@ Three are recorded here where a builder of the pager/scheduler will hit them; th
   built for exactly this. Fix when built: count *completions*, or carry a failure tally beside the attempt
   count, and let the freeze verdict read the former. Note this gap **compounds** with the false-positive above —
   the same number is unreliable in both directions.
-- **A missing run doesn't page (dead-man's switch).** `restart: unless-stopped` restarts the sidecar on
-  crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside* a run, so a
-  run that never happens produces no results → no run log → no page — byte-identical to a healthy silent night.
-  R6 covers the crash/reboot case; a *persistent* absence needs an **external** heartbeat that alerts when
-  today's run log is missing past a deadline (the sidecar can't page about its own absence).
+- **A missing run doesn't page (dead-man's switch) — STILL OPEN.** `restart: unless-stopped` restarts the
+  sidecar on crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside*
+  a run, so a run that never happens produces no results → no run log → no page — byte-identical to a healthy
+  silent night. R6 covers the crash/reboot case and the late-wake catch-up (A) covers a sidecar that sleeps
+  through nights and *eventually wakes*; the hole-aware read (C) at least makes the absence **visible** on the
+  Admin page (`gappy` / `stale`) — but only when someone looks. A *persistent* absence — a sidecar that never
+  boots — needs an **external** heartbeat that alerts when today's run log is missing past a deadline (the
+  sidecar can't page about its own absence).
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 
