@@ -103,7 +103,30 @@ body {
    Letting it take its natural width instead puts those rows back to 54px.
 
    The opaque background is what the sticky identity columns sit on — see below. */
-.basket-scroll { overflow-x: auto; background: var(--bg); }
+.basket-scroll { overflow: auto; max-height: calc(100vh - 120px); background: var(--bg); }
+
+/* --- the column header rides the vertical scroll --------------------------------------------
+   A sticky <thead> can only stick to the box that actually scrolls it, and the horizontal
+   scroller above is that box on BOTH axes: per spec, `overflow-x: auto` computes the other
+   axis from `visible` to `auto`, so the page was never the header's scrollport. Sticking it
+   "to the page" therefore did nothing — MEASURED, the header ran to -555px on a 600px page
+   scroll. Capping the scroller's height gives it a vertical scroll of its own, which is the box
+   the header can hold on to. The cap sits below 100vh so the page can always bring the whole
+   table (and its pinned header) into view, and a short basket never sees a scrollbar at all —
+   max-height only bites when there is more table than room. */
+table.basket thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: var(--bg);
+  /* the divider rides an inset shadow rather than the collapsed border: with border-collapse
+     the border belongs to the TABLE, not the cell, so it does not travel with a sticky cell */
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+/* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
+   body's sticky identity columns (1) */
+table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
 table.basket { width: 100%; min-width: max-content; border-collapse: collapse; font-size: 12px; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }

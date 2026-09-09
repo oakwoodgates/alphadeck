@@ -134,6 +134,14 @@ once per link (each link-row is a real membership).
 **Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
 Ins 30d · Ins 90d · Mkt cap · Entry-by · Exit-by`.
 
+**The table scrolls in its own box** (`.basket-scroll`), because eighteen columns do not fit a laptop's
+main column beside the 380px call rail — before it, the overflow painted *over* the rail and those columns
+were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
+to the left, so scrolling the columns never costs a row its identity; the **column header** sticks to the
+top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left of its full-width row. The
+company name is capped with an ellipsis (the full name is on the hover and in the per-name panel) and the
+call rail collapses from the top bar (`?rail=0`) when the table wants its width back.
+
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
   fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).
