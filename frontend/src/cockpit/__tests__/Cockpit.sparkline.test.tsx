@@ -156,12 +156,12 @@ describe("Cockpit — the close-path sparkline column (Path)", () => {
     expect(within(cell).queryByRole("img")).toBeNull();
   });
 
-  it("keeps the column in the business-type lens and spans the group row across all 17 columns", () => {
+  it("keeps the column in the business-type lens and spans the group row across all 18 columns", () => {
     const { container } = renderCockpit();
     fireEvent.click(screen.getByRole("button", { name: "business type" }));
     expect(screen.getByRole("columnheader", { name: "Path" })).toBeInTheDocument();
     expect(within(rowOf("OKLO")).getByRole("img", { name: "price path, 90 bars" })).toBeInTheDocument();
     const grpCell = container.querySelector("tr.grp > td") as HTMLTableCellElement;
-    expect(grpCell.colSpan).toBe(17);
+    expect(grpCell.colSpan).toBe(18);
   });
 });

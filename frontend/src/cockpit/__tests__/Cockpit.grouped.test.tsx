@@ -191,18 +191,19 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
 
   it("2b: surfaces the entry-window clock for armed-family rows — loud when closing, muted when far", () => {
     const { container } = renderCockpit(); // asof 2026-07-11
-    // Armed J — arm_until Jul 17, 6d out → shown, loud (.closing, ≤7d)
+    // Armed J — arm_until Jul 17, 6d out → shown, loud (.closing, ≤7d). The wording moved to the
+    // Entry-by column header when the two clocks split, so the cell is the date + countdown alone.
     const jWin = container.querySelector("tr.bkt.bkt-armed .entry-window");
-    expect(jWin?.textContent).toContain("entry closes Jul 17");
+    expect(jWin?.textContent).toContain("Jul 17");
     expect(jWin?.textContent).toContain("6d");
     expect(jWin?.className).toContain("closing");
     // Lapsing UUUU — arm_until Jul 13, 2d → shown, loud
     const uWin = container.querySelector("tr.bkt.bkt-lapsing .entry-window");
-    expect(uWin?.textContent).toContain("entry closes Jul 13");
+    expect(uWin?.textContent).toContain("Jul 13");
     expect(uWin?.className).toContain("closing");
     // Theme-armed NNE — arm_until Jul 19, 8d → shown, MUTED (far, >7d)
     const nWin = container.querySelector("tr.bkt.bkt-theme .entry-window");
-    expect(nWin?.textContent).toContain("entry closes Jul 19");
+    expect(nWin?.textContent).toContain("Jul 19");
     expect(nWin?.className).not.toContain("closing");
     // Watch ZTEK carries arm_until (Jul 21) on the wire but must NOT light up — the load-bearing
     // negative (watch-tier calls also carry arm_until; the gate is bucket-based, not presence-based)
@@ -216,7 +217,7 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     // the entry-window is the clock that already elapsed; it says so instead of vanishing
     const { container } = renderCockpit("2026-07-25");
     const jWin = container.querySelector("tr.bkt.bkt-armed .entry-window");
-    expect(jWin?.textContent).toContain("entry closes Jul 17");
+    expect(jWin?.textContent).toContain("Jul 17");
     expect(jWin?.textContent).toContain("lapsed");
     expect(jWin?.textContent).not.toMatch(/\d+d/); // "· lapsed", not a "· Nd" countdown
     expect(jWin?.className).toContain("closing"); // lapsed is ≤7d → loud

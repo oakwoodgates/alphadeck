@@ -186,10 +186,10 @@ table.basket { view-transition-name: cp-basket; }
 tr.bkt-quiet td { color: var(--txt-3); }
 tr.bkt-quiet .tk { color: var(--txt-2); }
 table.basket td.exitby.lapse { color: var(--warm); }
-/* the entry-window (confirmation) clock: a muted second line under the exit-by date — the clock that
-   actually governs how long an armed-family member stays armed (arm_until). Quiet by default; loud
-   (--warm, matching the lapse tint) once the window is within a week or already lapsed. */
-.entry-window { display: block; margin-top: 2px; font-size: 11px; color: var(--txt-3); }
+/* the entry-window (confirmation) clock, its own column beside exit-by — the clock that actually
+   governs how long an armed-family member stays armed (arm_until), and the one that closes first.
+   Quiet by default; loud (--warm, matching the lapse tint) once within a week or already lapsed. */
+.entry-window { color: var(--txt-3); }
 .entry-window.closing { color: var(--warm); }
 
 /* a folded bucket's rows COLLAPSE, never unmount: per CSS tables, a collapsed row still feeds the
@@ -1239,7 +1239,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 tr.sb-row { cursor: pointer; }
 tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent); }
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
-.sb-armed, .sb-ret, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
+.sb-armed, .sb-ret, .entryby, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }
 .sb-dearm { color: var(--txt-3); }

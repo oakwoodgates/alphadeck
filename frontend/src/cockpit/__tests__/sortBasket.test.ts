@@ -29,6 +29,7 @@ function row(
     sid?: string | null;
     scored?: Partial<ScoredMemberOut> | null;
     call?: Partial<MemberCallOut> | null;
+    bucket?: BucketRow["bucket"];
   } = {},
 ): BucketRow {
   const sid = over.sid === undefined ? `s-${over.ticker ?? "x"}` : over.sid;
@@ -42,7 +43,7 @@ function row(
     ordinal: over.ordinal ?? 0,
     call: (over.call ?? null) as MemberCallOut | null,
     scored: (over.scored ?? null) as ScoredMemberOut | null,
-    bucket: "quiet",
+    bucket: over.bucket ?? "quiet",
   };
 }
 
@@ -139,6 +140,23 @@ describe("sortKey — per-column value access (the crux)", () => {
     // energy_utilities leads SUPERSECTOR_ORDER (index 0); the leaf label is the tiebreak
     expect(sortKey("type", ctx(r))).toEqual([0, "utilities"]);
     expect(sortKey("exit_by", ctx(r))).toEqual([Date.parse("2026-12-08T00:00:00Z")]);
+  });
+
+  it("reads entry_by off arm_until — but ONLY for the buckets whose cell shows it", () => {
+    const armUntil = "2026-07-17";
+    const key = [Date.parse(`${armUntil}T00:00:00Z`)];
+    for (const bucket of ["armed", "lapsing", "theme_armed"] as const) {
+      const r = row({ ticker: "J", bucket, call: { arm_until: armUntil } as MemberCallOut });
+      expect(sortKey("entry_by", ctx(r))).toEqual(key);
+    }
+    // The load-bearing negative: a WATCH member carries arm_until on the wire and the cell
+    // deliberately renders "—" for it, so the key must be absent too. A sort that ranked a value
+    // the operator cannot see would be a different table than the one on screen.
+    const watch = row({ ticker: "ZTEK", bucket: "watch", call: { arm_until: armUntil } as MemberCallOut });
+    expect(sortKey("entry_by", ctx(watch))).toBeNull();
+    // armed, but the wire carried no window
+    const noWindow = row({ ticker: "K", bucket: "armed", call: {} as MemberCallOut });
+    expect(sortKey("entry_by", ctx(noWindow))).toBeNull();
   });
 
   it("type/name/exit_by/mktcap are null when the underlying field is absent", () => {

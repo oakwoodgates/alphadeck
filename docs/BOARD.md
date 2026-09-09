@@ -132,7 +132,7 @@ it exactly where it was. Re-computed per group per lens — the value-chain lens
 once per link (each link-row is a real membership).
 
 **Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
-Ins 30d · Ins 90d · Mkt cap · Exit-by`.
+Ins 30d · Ins 90d · Mkt cap · Entry-by · Exit-by`.
 
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
@@ -153,15 +153,21 @@ Ins 30d · Ins 90d · Mkt cap · Exit-by`.
   blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
   path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
   not a path). The one display column that is **not sortable** — a shape with no scalar to rank on.
-- **Mkt cap** — bridged from the scoring read ("—" when un-scored). **Exit-by** — the member's **own**
-  signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
+- **Mkt cap** — bridged from the scoring read ("—" when un-scored).
 
-**Inside that exit-by cell, an armed-family row (Armed / Lapsing / Theme-armed) also carries its
-entry-window (`arm_until`) clock** — "entry closes ‹date› · Nd", loud within a week or once lapsed (Slice
-2, #209). That is the **confirmation** clock, which actually governs how long the member STAYS armed and
-can fall a month before the `exit_by` "lapses" date the cell leads with (the live CRVO/MPLT confusion:
-"Armed · Dec 8" yet de-armed Jul 19). A **Watch**-tier row carries `arm_until` on the wire too but must
-NOT light it up — the gate is bucket-based, not presence-based (the load-bearing negative).
+**The two clocks are two columns — `Entry-by` then `Exit-by`, in the order they run out.** They were
+one stacked cell until the basket-table containment pass; separating them makes each **independently
+sortable**, and "which entry window closes soonest" is the sort the armed bucket actually wants.
+
+- **Entry-by** — the member's entry-window (`arm_until`) clock, "‹date› · Nd", loud within a week or
+  once lapsed (Slice 2, #209). This is the **confirmation** clock, which governs how long the member
+  STAYS armed, and it can fall a month before its `exit_by` (the live CRVO/MPLT confusion: "Armed ·
+  Dec 8" yet de-armed Jul 19). Rendered for the armed family ONLY (`ENTRY_WINDOW_BUCKETS` — Armed /
+  Lapsing / Theme-armed): a **Watch**-tier row carries `arm_until` on the wire too but must NOT light
+  it up, because watch is confirmation without conviction, so its clock is a **decay** rather than an
+  entry the system endorses. The gate is bucket-based, not presence-based (the load-bearing negative),
+  and the SAME set gates the sort key — a sort must rank what the cell shows, never a hidden value.
+- **Exit-by** — the member's **own** signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
 
 **Sorting — within-group, reversible, FE-only.** Clicking a column header ranks the basket by that
 column **inside each group** — the call hierarchy stays put (the biggest mover inside Quiet surfaces

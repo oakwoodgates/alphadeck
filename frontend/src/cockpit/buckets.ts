@@ -43,6 +43,18 @@ export const BUCKETS: BucketDef[] = [
   { key: "quiet", label: "Quiet", hint: "no live signals", cls: "bkt-quiet" },
 ];
 
+/** The buckets whose members show an ENTRY WINDOW (`arm_until`) — the armed family only.
+ *  A WATCH member carries arm_until on the wire too, and deliberately stays dark: watch is
+ *  confirmation without conviction, so its clock is a confirmation DECAY, not an entry the system
+ *  is endorsing — putting a date under "Entry-by" there would be dishonest loudness (#7). The
+ *  NamePanel draws the same line in words ("Entry window" with a verdict, "Confirmation clock ·
+ *  decays in Nd" without). Shared by the cell and its sort key so the two can never drift.  */
+export const ENTRY_WINDOW_BUCKETS: ReadonlySet<BucketKey> = new Set<BucketKey>([
+  "armed",
+  "lapsing",
+  "theme_armed",
+]);
+
 const BUCKET_BY_KEY = new Map(BUCKETS.map((b) => [b.key, b]));
 export function bucketDef(key: BucketKey): BucketDef {
   return BUCKET_BY_KEY.get(key) as BucketDef;

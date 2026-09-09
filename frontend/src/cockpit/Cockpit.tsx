@@ -16,6 +16,7 @@ import { groupMoving } from "./groupAggregate";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
+  ENTRY_WINDOW_BUCKETS,
   dedupeBySecurityId,
   groupBasket,
   groupByBusinessType,
@@ -57,16 +58,20 @@ interface Props {
   onRailChange: (open: boolean) => void;
 }
 
-/** The entry-window (confirmation) clock, rendered inside an armed-family member's exit-by cell.
- *  This is the clock that actually governs how long the member STAYS armed — a member de-arms on
- *  `arm_until`, which can be a month before the exit_by "lapses" date the cell leads with (the live
- *  CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19). Loud (`.closing`) inside a week or
- *  once lapsed; muted otherwise. Mirrors the NamePanel two-clock idiom. */
+/** The Entry-by cell: the entry-window (confirmation) clock. This is the clock that actually
+ *  governs how long a member STAYS armed — it de-arms on `arm_until`, which can be a month before
+ *  the exit_by date beside it (the live CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19),
+ *  which is why the two clocks are separate, separately sortable columns rather than one stacked
+ *  cell. Loud (`.closing`) inside a week or once lapsed; muted otherwise. Mirrors the NamePanel
+ *  two-clock idiom, whose labels carry the full wording. */
 function EntryWindow({ asof, armUntil }: { asof: string; armUntil: string }) {
   const armDays = daysFrom(asof, armUntil);
   return (
-    <span className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}>
-      entry closes {fmtDate(armUntil)}
+    <span
+      className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}
+      title="the entry window — the member de-arms on this date, often well before its exit-by"
+    >
+      {fmtDate(armUntil)}
       {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
     </span>
   );
@@ -533,6 +538,10 @@ export function Cockpit({
                         <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
+                        {/* the two clocks, each its own sortable column (they were one stacked
+                            cell): Entry-by is the CONFIRMATION clock — when the member de-arms —
+                            and it closes weeks before Exit-by, the conviction/hold horizon. */}
+                        <SortableTh col="entry_by" label="Entry-by" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="exit_by" label="Exit-by" align="right" sort={sort} onSort={onSort} />
                       </tr>
                     </thead>
@@ -540,7 +549,7 @@ export function Cockpit({
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
                           <tr className={`grp ${g.cls}`}>
-                            <td colSpan={17}>
+                            <td colSpan={18}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
                                   — the count + the moving line stay visible while closed, so a
@@ -735,21 +744,21 @@ export function Cockpit({
                                     bridged by security_id — "—" when un-scored / no price+shares facts */}
                                 {formatMarketCap(r.scored?.market_cap.value)}
                               </td>
+                              {/* Armed / Lapsing / Theme-armed only (ENTRY_WINDOW_BUCKETS, shared
+                                  with the sort key): a Watch row carries arm_until on the wire too
+                                  but must NOT light up — its clock is a confirmation decay, not an
+                                  entry the system is endorsing (honest loudness). */}
+                              <td className="met entryby">
+                                {ENTRY_WINDOW_BUCKETS.has(def.key) && r.call?.arm_until ? (
+                                  <EntryWindow asof={asof} armUntil={r.call.arm_until} />
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
                               <td className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}>
                                 {r.call?.exit_by
                                   ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
                                   : "—"}
-                                {/* the entry-window (confirmation) clock — the clock that governs how
-                                    long an armed-family member STAYS armed (it de-arms on arm_until,
-                                    often well before exit_by). Armed / Lapsing / Theme-armed only; a
-                                    Watch row also carries arm_until on the wire but must NOT light up
-                                    (honest loudness). */}
-                                {(def.key === "armed" ||
-                                  def.key === "lapsing" ||
-                                  def.key === "theme_armed") &&
-                                  r.call?.arm_until && (
-                                    <EntryWindow asof={asof} armUntil={r.call.arm_until} />
-                                  )}
                               </td>
                             </tr>
                           ))}

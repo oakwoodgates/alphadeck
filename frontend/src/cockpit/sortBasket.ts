@@ -1,6 +1,6 @@
 import type { DisplaySignal } from "../api/hooks";
 import type { BucketRow } from "./buckets";
-import { SUPERSECTOR_ORDER } from "./buckets";
+import { ENTRY_WINDOW_BUCKETS, SUPERSECTOR_ORDER } from "./buckets";
 
 /** Sorting the cockpit basket table — a within-group re-order (never a filter, never a flat list).
  *  Pure + testable: it takes a row's already-resolved display signals (injected by the Cockpit off
@@ -27,6 +27,7 @@ export type SortColId =
   | "ins_30d"
   | "ins_90d"
   | "mktcap"
+  | "entry_by"
   | "exit_by";
 
 export type SortDir = "asc" | "desc";
@@ -126,6 +127,15 @@ export function sortKey(col: SortColId, ctx: RowCtx): SortKey | null {
     case "mktcap": {
       const v = row.scored?.market_cap.value;
       return v == null ? null : [v];
+    }
+    // ranks what the CELL shows: a watch row's arm_until is on the wire but never rendered, so it
+    // must not rank either — the gate is the shared bucket set, not the value's presence
+    case "entry_by": {
+      if (!ENTRY_WINDOW_BUCKETS.has(row.bucket)) return null;
+      const d = row.call?.arm_until;
+      if (!d) return null;
+      const ms = Date.parse(`${d}T00:00:00Z`);
+      return Number.isNaN(ms) ? null : [ms];
     }
     case "exit_by": {
       const d = row.call?.exit_by;
