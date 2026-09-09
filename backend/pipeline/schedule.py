@@ -20,11 +20,21 @@ EARMARK (consultant watch-item): this is still the SECOND home of the Mon-Fri + 
 shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in
 market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
 schedule math belongs HERE; the remaining consolidation is shrinking the shell to a dumb trigger. Until
-then keep the two in step.
+then keep the two in step — concretely, the shell's ``is_weekday`` / ``next_weekday`` /
+``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here.
+
+THE TARGET-AT-SCHEDULE-TIME CONTRACT (shared with the shell): the as-of a scheduled run is FOR is fixed
+when the run is scheduled, never re-read when it fires. On a laptop the sidecar's ``sleep`` overshoots by
+however long the host was suspended (measured fires at 23:37, 00:24 and 09:09 the next morning), and a
+run that derived ``asof`` at fire time recorded the NEXT day, leaving the intended night with no
+call-of-record — a hole the edge check (``expected_runs_behind``, MAX(asof) only) could never see. The
+shell passes ``--asof <target>`` and catches up the weekdays a long sleep also skipped; ``missed_asofs``
+here is the hole-aware read that makes such a night VISIBLE on the admin surface.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date, datetime, time, timedelta
 
 
@@ -67,3 +77,32 @@ def expected_runs_behind(edge: date | None, expected: date) -> int | None:
             behind += 1
         d -= timedelta(days=1)
     return behind
+
+
+def scheduled_window(expected: date, window: int) -> list[date]:
+    """The last ``window`` SCHEDULED days ending at ``expected`` (inclusive when it is itself a scheduled
+    day), ascending — the days a hole-aware freshness read scans. ``window <= 0`` → ``[]``."""
+    out: list[date] = []
+    d = expected
+    while len(out) < window:
+        if is_scheduled_day(d):
+            out.append(d)
+        d -= timedelta(days=1)
+    out.reverse()
+    return out
+
+
+def missed_asofs(
+    recorded: Collection[date], *, expected: date, first: date | None, window: int
+) -> list[date]:
+    """The HOLES: scheduled days in the last ``window`` scheduled days ending at ``expected`` (inclusive)
+    that have NO call-of-record in ``recorded``, restricted to ``d >= first`` (``first`` = the earliest
+    recorded as-of, so a record that began mid-window is not "missing" its pre-history; ``None`` = the
+    record never began → ``[]``, the quiet fresh-install state). Ascending. Weekends are never listed
+    (never scheduled). The edge check (``expected_runs_behind``) sees only MAX(asof) — a run that fired on
+    the wrong day advances the edge right over the night it skipped; this read sees the night. When the
+    expected day itself is missing it appears here AND counts as 1 behind — the caller's verdict priority
+    decides the wording (stale wins)."""
+    if first is None:
+        return []
+    return [d for d in scheduled_window(expected, window) if d >= first and d not in recorded]

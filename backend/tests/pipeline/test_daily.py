@@ -8,7 +8,7 @@ dedups on read, so a duplicate append hides behind a correct read while the tabl
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -333,6 +333,33 @@ def test_a_no_live_run_is_withheld_NOT_flagged_frozen_and_reads_BENIGN():
     assert "not an error" in h.label and "FAILURE" not in h.label
 
 
+def test_assess_health_freeze_check_off_skips_the_FROZEN_page_only():
+    # a --catch-up pass runs inside the EDGAR 12h TTL right after the scheduled run, so ~0 fetches is what a
+    # CORRECT catch-up looks like (the known R4 false-positive). The SAME numbers: a live run with 0 fetches
+    # pages FROZEN by default (the existing contract, unchanged)…
+    results = [_tr(edgar_fetches=0, recorded=False), _tr(edgar_fetches=0, recorded=True)]
+    h = daily.assess_health(results, asof=_ASOF, allow_live=True)
+    assert h is not None and h.frozen is True
+    # …and is a CLEAN run (None — no page) with freeze_check=False
+    assert daily.assess_health(results, asof=_ASOF, allow_live=True, freeze_check=False) is None
+
+
+def test_assess_health_freeze_check_off_STILL_pages_withheld_and_errored():
+    # the skip is narrow: a total ingest failure or a thesis error on a catch-up still pages
+    h = daily.assess_health(
+        [
+            _tr(edgar_fetches=0, withheld_reason="total ingest failure"),
+            _tr(edgar_fetches=0, error="boom"),
+        ],
+        asof=_ASOF,
+        allow_live=True,
+        freeze_check=False,
+    )
+    assert h is not None and h.frozen is False
+    assert h.withheld_failure == 1 and h.errored == 1
+    assert "TOTAL INGEST FAILURE" in h.label and "FROZEN" not in h.label
+
+
 # --- R6: the --catch-up guard in main (no DB — the guard returns before connect) ---
 
 
@@ -368,6 +395,33 @@ def test_the_guard_is_NOT_consulted_without_catch_up(monkeypatch):
     _no_connect(monkeypatch)
     with pytest.raises(RuntimeError, match="reached the run"):
         daily.main(["--asof", "2026-07-17"])
+
+
+def test_main_threads_catch_up_into_the_pass(monkeypatch):
+    # `--catch-up` reaches run_daily_pass as catch_up=True (the sidecar's late-wake catch-up of a skipped
+    # night: `--catch-up --asof <d>`); a plain scheduled run threads False. The pass is stubbed — this pins
+    # the CLI → pass wiring only.
+    monkeypatch.setattr(daily, "already_ran_live", lambda asof: False)
+    seen: dict = {}
+    now = datetime(2026, 9, 9, 3, 0, tzinfo=timezone.utc)
+
+    def _pass(**kw):
+        seen.update(kw)
+        return daily.DailyPassOutcome(
+            results=[],
+            asof=kw["asof"],
+            allow_live=kw["allow_live"],
+            started_at=now,
+            finished_at=now,
+            log_path=None,
+            catch_up=kw["catch_up"],
+        )
+
+    monkeypatch.setattr(daily, "run_daily_pass", _pass)
+    daily.main(["--catch-up", "--asof", "2026-09-08"])
+    assert seen["catch_up"] is True and seen["asof"] == date(2026, 9, 8)
+    daily.main(["--asof", "2026-09-08"])
+    assert seen["catch_up"] is False
 
 
 # --- R2a: the recording gate (a run that didn't refresh must not write the log of record) ---
@@ -592,6 +646,41 @@ def test_pass_refresh_legs_run_BEFORE_run_daily(monkeypatch):
     assert order.index("benchmarks") < order.index("run_daily")
     assert order.index("fundamentals") < order.index("run_daily")
     assert order.index("benchmarks") < order.index("fundamentals")
+
+
+def test_pass_threads_catch_up_to_the_artifact_and_the_freeze_check(monkeypatch):
+    """catch_up=True changes exactly two things in the pass: the run-of-record artifact carries it, and
+    the R4 assessor runs with freeze_check=False (a catch-up's ~0 fetches must not page FROZEN). The
+    default — the scheduled run and the Admin "Run daily now" — keeps freeze_check=True + catch_up False.
+    """
+    _prime_pass(monkeypatch)
+    seen_log: dict = {}
+    seen_health: dict = {}
+
+    def _log(results, **kw):
+        seen_log.clear()
+        seen_log.update(kw)
+        return None  # fail-open shape, no file I/O
+
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen_health.clear()
+        seen_health.update(kw)
+        return real_assess(results, **kw)
+
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent(), catch_up=True)
+    assert out.catch_up is True
+    assert seen_log["catch_up"] is True
+    assert seen_health["freeze_check"] is False
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert out.catch_up is False
+    assert seen_log["catch_up"] is False
+    assert seen_health["freeze_check"] is True
 
 
 def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):

@@ -47,6 +47,7 @@ def build_run_payload(
     allow_live: bool,
     started_at: datetime,
     finished_at: datetime,
+    catch_up: bool = False,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -64,6 +65,10 @@ def build_run_payload(
       freeze**, a healthy night is in the hundreds. Without this the module built to fix "unfalsifiable —
       indistinguishable from we stopped looking" would have reproduced that very blindness.
     - a **total-ingest failure** (`names_errored == names_ingested`, the Source-C shape R2 gates on).
+
+    `catch_up` marks a `--catch-up` pass (the sidecar's boot / late-wake catch-up): the admin history
+    re-derives health from this payload and must NOT page a catch-up's legitimate ~0 fetches as a freeze
+    (it runs inside the EDGAR TTL). An artifact written before the key existed reads as `False`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -73,6 +78,7 @@ def build_run_payload(
         "duration_s": round((finished_at - started_at).total_seconds(), 3),
         "asof": asof.isoformat(),
         "mode": "live" if allow_live else "no-live",  # the R2 recording-gate signal
+        "catch_up": catch_up,  # a --catch-up pass: the freeze page is skipped for it (~0 fetches is correct)
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -116,6 +122,7 @@ def write_cron_run_log(
     started_at: datetime,
     finished_at: datetime,
     base_dir: Path | None = None,
+    catch_up: bool = False,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -128,6 +135,7 @@ def write_cron_run_log(
             allow_live=allow_live,
             started_at=started_at,
             finished_at=finished_at,
+            catch_up=catch_up,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

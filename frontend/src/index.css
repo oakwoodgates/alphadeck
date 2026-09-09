@@ -1549,14 +1549,15 @@ td.evled-n.ov-signal { color: var(--txt-3); }
 .adm-loud { color: var(--armed); font-weight: 600; }
 .adm-sub { font-size: 11px; color: var(--txt-3); }
 .adm-note { font-size: 10.5px; color: var(--txt-4); font-style: italic; }
-/* the dead-man's switch card: LOUD only when stale (the armed accent + tint) */
-.adm-fresh.stale { border-color: color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 7%, var(--panel)); }
+/* the dead-man's switch card: LOUD only when stale (the edge) or gappy (a hole inside the window) — the armed accent + tint */
+.adm-fresh.stale, .adm-fresh.gappy { border-color: color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 7%, var(--panel)); }
 /* the one-word cron verdict chip */
 .adm-chip { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 8px; margin-right: 8px; }
 .adm-chip.s-healthy { color: var(--manage); border: 1px solid color-mix(in srgb, var(--manage) 45%, transparent); }
 .adm-chip.s-never_ran { color: var(--txt-3); border: 1px solid var(--line-2); }
 .adm-chip.s-stale { color: var(--armed); border: 1px solid color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 10%, transparent); }
 .adm-chip.s-unhealthy { color: var(--armed); border: 1px solid color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 10%, transparent); }
+.adm-chip.s-gappy { color: var(--armed); border: 1px solid color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 10%, transparent); }
 .adm-lastrun { font-size: 11.5px; color: var(--txt-2); }
 .adm-runline { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .adm-problems { margin: 5px 0 0; padding-left: 18px; font-size: 11px; color: var(--warm); }
@@ -1583,3 +1584,5 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-input:focus { outline: none; border-color: var(--leader); }
 .adm-input:disabled { opacity: 0.55; }
 .adm-badge.b-labeled { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--leader); border: 1px solid color-mix(in srgb, var(--leader) 40%, transparent); background: color-mix(in srgb, var(--leader) 10%, transparent); }
+/* the run-history catch-up tag (a --catch-up pass: boot / late wake) — informational, deliberately quiet */
+.adm-badge.b-catchup { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--txt-3); border: 1px solid var(--line-2); }

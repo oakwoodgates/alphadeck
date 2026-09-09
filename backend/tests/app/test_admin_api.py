@@ -25,6 +25,13 @@ from repositories import calls_repo
 _FRI = date(2026, 7, 17)
 _MON = date(2026, 7, 20)
 
+# The hole-aware read's week — the MEASURED prod shape (2026-09-08 Tue fired Wed 09:09 and recorded
+# Wednesday, leaving Tuesday with no call-of-record under a CURRENT edge): 09-07 Mon … 09-10 Thu.
+_S_MON = date(2026, 9, 7)
+_S_TUE = date(2026, 9, 8)
+_S_WED = date(2026, 9, 9)
+_S_THU = date(2026, 9, 10)
+
 
 @pytest.fixture(autouse=True)
 def _inline_daily_jobs(monkeypatch):
@@ -69,7 +76,9 @@ def _tr(**kw) -> ThesisRunResult:
     return ThesisRunResult(thesis_id=uuid.uuid4(), name="T", **kw)
 
 
-def _artifact(*, asof: date, at: datetime, allow_live: bool = True, results=None):
+def _artifact(
+    *, asof: date, at: datetime, allow_live: bool = True, results=None, catch_up: bool = False
+):
     """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home)."""
     results = results if results is not None else [_tr(recorded=True, edgar_fetches=88)]
     path = write_cron_run_log(
@@ -78,9 +87,19 @@ def _artifact(*, asof: date, at: datetime, allow_live: bool = True, results=None
         allow_live=allow_live,
         started_at=at,
         finished_at=at + timedelta(minutes=2),
+        catch_up=catch_up,
     )
     assert path is not None
     return path
+
+
+def _seed_nights(db, monkeypatch, *asofs: date) -> None:
+    """Land one call-of-record per as-of through the REAL daily pass (network stubbed) — the record the
+    hole-aware read scans. A night NOT in ``asofs`` has no calls row: a hole."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    for asof in asofs:
+        daily.run_daily(db, asof=asof, allow_live=True)
 
 
 # --- /admin/status: the freshness + health summary ---
@@ -163,6 +182,88 @@ def test_status_a_benign_no_live_dev_run_is_NOT_unhealthy(client, db, monkeypatc
     assert body["last_run"]["healthy"] is False  # the assessor notes it…
     assert any("not an error" in p for p in body["last_run"]["problems"])
     assert body["cron"]["status"] == "healthy"  # …but it is a note, not an alarm
+
+
+# --- the hole-aware read: missed nights under a CURRENT edge (the wrong-day shape) ---
+
+
+def test_status_GAPPY_when_a_weekday_inside_the_window_has_no_record(client, db, monkeypatch):
+    """THE measured shape: Mon, Wed, Thu recorded — Tuesday's run fired Wednesday morning and recorded
+    Wednesday, so Tuesday has NO call-of-record. The edge (Thu) is CURRENT Thursday night and the last run
+    is clean, so every existing check reads green — the hole read must be loud: missed 1, the date listed,
+    the verdict `gappy`."""
+    _seed_nights(db, monkeypatch, _S_MON, _S_WED, _S_THU)
+    _artifact(asof=_S_THU, at=datetime(2026, 9, 10, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 10, 23, 0))  # Thursday night, past RUN_AT
+    body = client.get("/admin/status").json()
+    assert body["record"]["edge"] == "2026-09-10"
+    assert body["record"]["days_behind"] == 0 and body["record"]["stale"] is False  # edge: current
+    assert body["record"]["missed"] == 1
+    assert body["record"]["missed_asofs"] == ["2026-09-08"]
+    assert body["record"]["window_days"] == 10
+    assert (
+        "no call-of-record" in body["record"]["reason"]
+    )  # the reason no longer says "no run is missing"
+    assert body["last_run"]["healthy"] is True
+    assert body["cron"]["status"] == "gappy"
+    assert "2026-09-08" in body["cron"]["detail"] and "hole" in body["cron"]["detail"]
+
+
+def test_status_a_CLEAN_window_is_healthy_with_no_holes_mentioned(client, db, monkeypatch):
+    """Honest loudness: a record with every scheduled night present reads healthy — missed 0, an empty
+    list, and no mention of holes anywhere (a control that doesn't discriminate stays silent)."""
+    _seed_nights(db, monkeypatch, _S_MON, _S_TUE, _S_WED)
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))  # Wednesday night
+    body = client.get("/admin/status").json()
+    assert body["record"]["missed"] == 0 and body["record"]["missed_asofs"] == []
+    assert body["record"]["reason"] == "current — no scheduled run is missing"
+    assert body["cron"]["status"] == "healthy"
+    assert "hole" not in body["cron"]["detail"]
+
+
+def test_status_STALE_wins_over_gappy(client, db, monkeypatch):
+    """Priority: a stale edge AND a hole → `stale` (the louder, more actionable verdict) — but the hole
+    list still carries both the interior hole and the missing expected day (deliberately in both reads).
+    """
+    _seed_nights(db, monkeypatch, _S_MON, _S_WED)  # Tuesday hole; Thursday never recorded
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 10, 23, 0))  # Thursday night: Thursday's run is expected
+    body = client.get("/admin/status").json()
+    assert body["record"]["days_behind"] == 1 and body["record"]["stale"] is True
+    assert body["record"]["missed"] == 2
+    assert body["record"]["missed_asofs"] == ["2026-09-08", "2026-09-10"]
+    assert body["cron"]["status"] == "stale"
+    assert "behind" in body["record"]["reason"]  # the stale wording keeps its exact meaning
+
+
+def test_runs_a_CATCH_UP_row_with_zero_fetches_is_healthy_and_tagged(client, db, monkeypatch):
+    """The Python side of the sidecar's late-wake catch-up: a `--catch-up` pass runs inside the EDGAR TTL
+    and legitimately fetches ~0. Its artifact carries catch_up=true, the history re-derives health WITHOUT
+    the freeze predicate (healthy, tagged), and — as the LAST run — it must not paint the cron unhealthy.
+    The SAME numbers on a scheduled artifact still read FROZEN (the existing contract is untouched).
+    """
+    _seed_nights(db, monkeypatch, _S_TUE, _S_WED)
+    zero = [_tr(recorded=False, edgar_fetches=0)]
+    _artifact(asof=_S_TUE, at=datetime(2026, 9, 9, 3, 0, tzinfo=timezone.utc), results=zero)
+    _artifact(
+        asof=_S_WED,
+        at=datetime(2026, 9, 10, 3, 5, tzinfo=timezone.utc),
+        results=zero,
+        catch_up=True,
+    )
+    runs = client.get("/admin/runs").json()["runs"]
+    assert [r["asof"] for r in runs] == ["2026-09-09", "2026-09-08"]
+    caught_up, scheduled = runs
+    assert caught_up["catch_up"] is True and caught_up["healthy"] is True
+    assert caught_up["problems"] == []
+    assert scheduled["catch_up"] is False and scheduled["healthy"] is False
+    assert any("FROZEN" in p for p in scheduled["problems"])
+
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))  # Wednesday night: edge Wed is current
+    body = client.get("/admin/status").json()
+    assert body["last_run"]["catch_up"] is True
+    assert body["cron"]["status"] == "healthy"  # the catch-up's ~0 fetches are not an alarm
 
 
 # --- /admin/runs: the run history ---

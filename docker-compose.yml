@@ -75,6 +75,10 @@ services:
       # staleness read models the SAME Mon-Fri+RUN_AT schedule the sidecar (below) actually runs — one
       # host var, no drift between the trigger and its readout.
       ALPHADECK_CRON_AT: ${ALPHADECK_CRON_AT:-22:30}
+      # The admin page's HOLE-AWARE freshness read (Settings.admin_missed_window): how many scheduled
+      # weekdays it scans for nights with NO call-of-record — the wrong-day-fire shape the edge check
+      # alone cannot see. The fallback mirrors the code default; 0 disables the scan.
+      ALPHADECK_ADMIN_MISSED_WINDOW: ${ALPHADECK_ADMIN_MISSED_WINDOW:-10}
     depends_on:
       postgres:
         condition: service_healthy

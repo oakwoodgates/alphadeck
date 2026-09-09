@@ -23,6 +23,7 @@ const OK_RUN = {
   edgar_fetches: 88,
   healthy: true,
   problems: [] as string[],
+  catch_up: false,
 };
 
 const FROZEN_RUN = {
@@ -36,6 +37,20 @@ const FROZEN_RUN = {
   problems: ["FROZEN — 0 EDGAR fetches across 2 theses (the cache never refreshed)"],
 };
 
+// a late-wake --catch-up pass: the same 0 fetches as FROZEN_RUN, but healthy (the freeze check is
+// skipped for a catch-up — it runs inside the EDGAR TTL) and tagged
+const CATCHUP_RUN = {
+  ...OK_RUN,
+  ran_at: "2026-09-10T03:05:00+00:00",
+  asof: "2026-09-09",
+  appended: 0,
+  unchanged: 2,
+  edgar_fetches: 0,
+  catch_up: true,
+};
+
+const CLEAN_WINDOW = { missed: 0, missed_asofs: [] as string[], window_days: 10 };
+
 const STATUS_CURRENT = {
   record: {
     edge: "2026-07-17",
@@ -44,6 +59,7 @@ const STATUS_CURRENT = {
     days_behind: 0,
     stale: false,
     reason: "current — no scheduled run is missing",
+    ...CLEAN_WINDOW,
   },
   last_run: OK_RUN,
   cron: { status: "healthy", detail: "last run asof 2026-07-17 (live)" },
@@ -57,9 +73,30 @@ const STATUS_STALE = {
     days_behind: 2,
     stale: true,
     reason: "2 expected run(s) behind — last expected as-of 2026-07-21",
+    ...CLEAN_WINDOW,
   },
   last_run: OK_RUN,
   cron: { status: "stale", detail: "record edge 2026-07-17 is 2 expected run(s) behind" },
+};
+
+// the wrong-day shape: the edge (Thu 09-10) is CURRENT, but Tuesday has no call-of-record
+const STATUS_GAPPY = {
+  record: {
+    edge: "2026-09-10",
+    today: "2026-09-10",
+    expected_asof: "2026-09-10",
+    days_behind: 0,
+    stale: false,
+    reason: "current at the edge — but 1 of the last 10 scheduled run(s) have no call-of-record",
+    missed: 1,
+    missed_asofs: ["2026-09-08"],
+    window_days: 10,
+  },
+  last_run: OK_RUN,
+  cron: {
+    status: "gappy",
+    detail: "record has 1 hole(s) in the last 10 scheduled runs: 2026-09-08 — a run fired on the wrong day",
+  },
 };
 
 const STATUS_NEVER = {
@@ -70,6 +107,7 @@ const STATUS_NEVER = {
     days_behind: null,
     stale: false,
     reason: "the record has never begun — no call-of-record logged yet",
+    ...CLEAN_WINDOW,
   },
   last_run: null,
   cron: { status: "never_ran", detail: "no daily run has been recorded yet" },
@@ -155,9 +193,28 @@ describe("Admin — honest loudness on the freshness widget", () => {
   it("a CURRENT record is quiet (no stale styling, a plain 'current')", () => {
     renderAdmin();
     const fresh = screen.getByTestId("adm-fresh");
-    expect(fresh.className).not.toMatch(/stale/);
+    expect(fresh.className).not.toMatch(/stale|gappy/);
     expect(fresh.textContent).toContain("current");
     expect(fresh.textContent).toContain("2026-07-17");
+    // a clean window renders NO missed-nights list — a control that doesn't discriminate doesn't render
+    expect(screen.queryByTestId("adm-missed")).toBeNull();
+    expect(fresh.textContent).not.toContain("no call-of-record");
+  });
+
+  it("a GAPPY record is loud: gappy styling + the missed nights listed, and the cron chip says so", () => {
+    h.status = { ...h.status, data: STATUS_GAPPY };
+    renderAdmin();
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.className).toMatch(/gappy/);
+    expect(fresh.className).not.toMatch(/stale/); // the edge itself is current — the hole is the alarm
+    const missed = screen.getByTestId("adm-missed");
+    expect(missed.textContent).toContain("1");
+    expect(missed.textContent).toContain("no call-of-record");
+    expect(missed.textContent).toContain("2026-09-08");
+    const cron = screen.getByTestId("adm-cron");
+    expect(cron.textContent).toContain("gappy");
+    expect(cron.textContent).toContain("2026-09-08");
+    expect(cron.querySelector(".adm-chip")?.className).toMatch(/s-gappy/);
   });
 
   it("a STALE record is loud (stale styling + days behind)", () => {
@@ -307,6 +364,16 @@ describe("Admin — run history", () => {
     h.runs = { ...h.runs, data: { runs: [] } };
     renderAdmin();
     expect(screen.getByText("no runs recorded yet")).toBeInTheDocument();
+  });
+
+  it("a catch-up row carries the catch-up tag and reads ok despite 0 fetches; a scheduled row does not", () => {
+    h.runs = { ...h.runs, data: { runs: [CATCHUP_RUN, OK_RUN] } };
+    renderAdmin();
+    const hist = screen.getByTestId("adm-hist");
+    expect(hist.textContent).toContain("2026-09-09");
+    expect(screen.getAllByText("catch-up")).toHaveLength(1); // exactly the one catch-up row is tagged
+    expect(screen.getAllByText("ok")).toHaveLength(2); // both rows healthy — the catch-up's 0 fetches are expected
+    expect(hist.querySelector(".adm-row-bad")).toBeNull();
   });
 });
 

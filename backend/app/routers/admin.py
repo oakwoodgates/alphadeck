@@ -49,7 +49,13 @@ from pipeline.backup_job import get_job as get_backup_job
 from pipeline.cron_run_log import build_run_payload, list_run_logs
 from pipeline.daily import ThesisRunResult, assess_health, run_daily_pass
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
-from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
+from pipeline.schedule import (
+    expected_runs_behind,
+    last_expected_asof,
+    missed_asofs,
+    parse_run_at,
+    scheduled_window,
+)
 from repositories import calls_repo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -95,9 +101,13 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     missing/malformed key raises and the CALLER skips that artifact fail-open (the run-log read
     discipline). ``healthy``/``problems`` re-derive via ``assess_health`` over results RECONSTRUCTED
     from the per-thesis entries (the pure assessor reads only counts the artifact carries — the same
-    verdict the run itself paged on, re-readable forever from the file)."""
+    verdict the run itself paged on, re-readable forever from the file). A ``catch_up`` pass skips the
+    FREEZE predicate exactly as the run itself did (it ran inside the EDGAR TTL — ~0 fetches is correct),
+    so the history never shows a catch-up as unhealthy; an artifact from before the key reads False.
+    """
     asof = date.fromisoformat(payload["asof"])
     allow_live = payload["mode"] == "live"
+    catch_up = bool(payload.get("catch_up", False))
     results = [
         ThesisRunResult(
             thesis_id=UUID(t["id"]),
@@ -110,7 +120,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         )
         for t in payload["theses"]
     ]
-    health = assess_health(results, asof=asof, allow_live=allow_live)
+    health = assess_health(results, asof=asof, allow_live=allow_live, freeze_check=not catch_up)
     summary = payload["summary"]
     return AdminRunOut(
         ran_at=str(payload["started_at"]),
@@ -127,6 +137,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         edgar_fetches=int(payload["edgar_fetches"]),
         healthy=health is None,
         problems=_problems(health),
+        catch_up=catch_up,
     )
 
 
@@ -158,7 +169,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     alarm); ``edge: null`` is the quiet "record has never begun" state. ``last_run`` is the newest
     readable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no
     artifact), ``unhealthy`` (the last run froze / errored / totally failed — as loud as stale, so a
-    bad run can't hide behind green), ``stale`` (the record missed an expected run), else ``healthy``.
+    bad run can't hide behind green), ``stale`` (the record missed an expected run), ``gappy`` (the
+    edge is current but a night inside the last ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO
+    call-of-record — a run that fired on the wrong day; the edge check alone cannot see it), else
+    ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean window).
     """
     run_at = _run_at()
     now = _now()
@@ -167,11 +181,28 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     days_behind = expected_runs_behind(edge, expected)
     stale = bool(days_behind)  # None (never begun) and 0 (current) are both quiet
 
+    # THE HOLE CHECK (hole-aware freshness). The edge check above sees only MAX(asof): a run that fired on
+    # the WRONG day — the laptop's sleep drift; a 00:24 / 09:09 wake recorded the NEXT day's asof — advances
+    # the edge right over the night it skipped, and the edge read "current" over 6 empty nights in 13. So
+    # scan the last N scheduled weekdays for nights with NO call-of-record at all, bounded to the window
+    # AND to the record's own span (never pre-history: a fresh install has no holes). Two more read-only
+    # queries (MIN(asof) + DISTINCT asof since the window's first day) — the surface still writes nothing.
+    window_days = scheduled_window(expected, get_settings().admin_missed_window)
+    first = calls_repo.record_first(conn) if (edge is not None and window_days) else None
+    recorded = calls_repo.recorded_asofs(conn, since=window_days[0]) if first is not None else set()
+    missed = missed_asofs(recorded, expected=expected, first=first, window=len(window_days))
+
     if edge is None:
         reason = "the record has never begun — no call-of-record logged yet"
     elif stale:
         reason = (
             f"{days_behind} expected run(s) behind — last expected as-of {expected.isoformat()}"
+        )
+    elif missed:
+        # the edge is current, but the window is not clean — the reason must not say "no run is missing"
+        reason = (
+            f"current at the edge — but {len(missed)} of the last {len(window_days)} scheduled "
+            "run(s) have no call-of-record"
         )
     else:
         reason = "current — no scheduled run is missing"
@@ -208,6 +239,16 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                 detail=f"record edge {edge.isoformat() if edge else '—'} is {days_behind} expected "
                 f"run(s) behind (last expected as-of {expected.isoformat()})",
             )
+        elif missed:
+            # gappy: the edge is current and the last run clean, yet a recent night has NO record — the
+            # wrong-day shape. As loud as stale (a hole is a missing run the edge check can't see); a
+            # clean window never mentions holes (honest loudness).
+            cron = AdminCronOut(
+                status="gappy",
+                detail=f"record has {len(missed)} hole(s) in the last {len(window_days)} scheduled "
+                "runs: " + ", ".join(d.isoformat() for d in missed) + " — a run fired on the wrong "
+                'day, or never fired (see FEED_LOOP.md "Known gaps")',
+            )
         else:
             cron = AdminCronOut(
                 status="healthy",
@@ -230,6 +271,9 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             days_behind=days_behind,
             stale=stale,
             reason=reason,
+            missed=len(missed),
+            missed_asofs=missed,
+            window_days=len(window_days),
         ),
         last_run=last_run,
         cron=cron,
