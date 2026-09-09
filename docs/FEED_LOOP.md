@@ -208,8 +208,12 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   `target=$(date -d "@$next" +%F)` when it schedules, gates the weekday check on the **target** (a Friday
   target that wakes on Saturday still runs), passes `--asof "$target"`, logs the overshoot in minutes when a
   wake is ≥5 min late, and then **catches up the weekdays the sleep also skipped**: every weekday `d` with
-  `target < d <= last_expected_asof(wake)` gets `python -m pipeline.daily --catch-up --asof "$d"` (a no-op
-  when a live pass for that as-of already ran). Bounded by construction — it walks *forward* from the target
+  `target < d <= last_expected_asof(after)` — `after` being the clock **when the scheduled run finishes**,
+  not the wake — gets `python -m pipeline.daily --catch-up --asof "$d"` (a no-op when a live pass for that
+  as-of already ran). The window closes after the run on purpose: a live run takes 7–15 min, so a wake
+  shortly before the next `RUN_AT` whose run crosses it (target Tue, wake Wed 22:20, run ends 22:35) would
+  otherwise lose Wed outright — a wake-anchored window did not include it yet, and the loop then re-anchored
+  `next` to Thu. Bounded by construction — it walks *forward* from the target
   it just fired for, never backwards, so a deploy can never silently backfill old holes. The nightly backup
   still runs once per wake. The shell's `is_weekday` / `next_weekday` / `last_expected_asof` mirror
   `pipeline/schedule.py` — keep the two in step. A catch-up runs inside the EDGAR cache's 12h TTL and

@@ -17,8 +17,12 @@
 #   had zero `calls` rows, and the Admin edge check read "current" over every hole (a wrong-day run is a
 #   healthy run). The weekday gate is on the TARGET too (a Friday target that wakes on Saturday still runs).
 # - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every weekday strictly after
-#   the target up to the last EXPECTED as-of at the wake instant gets a `--catch-up` pass (a no-op when a
-#   live pass for that as-of is already in the run log). Bounded by construction — it walks FORWARD from
+#   the target up to the last EXPECTED as-of at the instant the scheduled run FINISHES gets a `--catch-up`
+#   pass. The window closes AFTER the run, not at the wake: a live run takes 7-15 min, so a wake shortly
+#   before the next RUN_AT whose run crosses it (case F: target Tue, wake Wed 22:20, run ends 22:35) would
+#   otherwise lose Wed outright — a wake-anchored window did not include it yet, and the loop then
+#   re-anchored `next` to Thu (today's RUN_AT already past). Each pass is a no-op when a live pass for
+#   that as-of is already in the run log. Bounded by construction — it walks FORWARD from
 #   the target the loop just fired for, never backwards, so it can only ever cover the sleep that just
 #   ended (a deploy never silently backfills old holes). Catch-up days run inside the EDGAR cache's 12h TTL
 #   and legitimately make ~0 fetches; the CLI's `--catch-up` skips the freeze page for exactly that reason.
@@ -132,8 +136,12 @@ while :; do
     echo "daily-cron: $(date) — weekend (asof ${target}), no scheduled run"
   fi
   # A long sleep can skip MORE than the target night (a weekend target that wakes on Tuesday skipped Monday):
-  # catch up every weekday strictly after the target up to the last expected as-of at the wake instant.
-  catch_up_between "${target}" "$(last_expected_asof "${woke}")"
+  # catch up every weekday strictly after the target up to the last expected as-of at the instant the run
+  # above FINISHED — the clock NOW, not `woke`. A live run takes 7-15 min; anchored at the wake, a run that
+  # crossed the next RUN_AT (case F in the header) lost that night — the window did not include it yet, and
+  # the loop then re-anchored `next` past it. `woke` stays for the LATE WAKE line only.
+  after=$(date +%s)
+  catch_up_between "${target}" "$(last_expected_asof "${after}")"
   if is_weekday "${target}"; then
     # Slice 4 — a nightly DB snapshot right after the daily pass, ONCE PER WAKE (not per catch-up day),
     # fail-open (a failed backup never kills the loop). Deliberately in the SCHEDULING layer, NOT folded
