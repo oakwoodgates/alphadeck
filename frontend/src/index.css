@@ -78,6 +78,8 @@ body {
 .asof input { font-family: var(--mono); font-size: 12px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 9px; color-scheme: dark; }
 
 .cp-body { flex: 1; display: grid; grid-template-columns: 1fr 380px; }
+/* the rail collapsed: its 380px track goes to the basket table (the toggle lives in .cp-top) */
+.cp-body.rail-closed { grid-template-columns: 1fr; }
 @media (max-width: 880px) { .cp-body { grid-template-columns: 1fr; } }
 .cp-main { padding: 22px 26px 60px; min-width: 0; }
 .cp-rail { border-left: 1px solid var(--line); background: var(--bg-2); padding: 20px 20px 60px; }
@@ -89,7 +91,20 @@ body {
 .narrative { font-size: 14px; line-height: 1.6; color: var(--txt); border-left: 2px solid var(--line-2); padding: 2px 0 2px 15px; font-style: italic; }
 .narrative .by { display: block; font-style: normal; font-size: 10.5px; letter-spacing: 0.08em; color: var(--txt-4); margin-top: 9px; text-transform: uppercase; }
 
-table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
+/* --- the basket scroller ------------------------------------------------------------------
+   The table's 17 columns want 1025px of min-content and 1357px to render nothing wrapped; the
+   main column offers 649px at a 1091px viewport. Every ancestor was overflow-x: visible, so the
+   overflow painted OVER the call rail and the page itself never scrolled — those columns were
+   unreachable. It scrolls in its own box now.
+
+   `min-width: max-content` is the load-bearing half: with width:100% alone the table still
+   crushes to min-content inside the scroller, which is what squeezed the exit-by cell into a
+   50px column and wrapped it onto five lines (MEASURED: armed rows 103px vs a 55px quiet row).
+   Letting it take its natural width instead puts those rows back to 54px.
+
+   The opaque background is what the sticky identity columns sit on — see below. */
+.basket-scroll { overflow-x: auto; background: var(--bg); }
+table.basket { width: 100%; min-width: max-content; border-collapse: collapse; font-size: 12px; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.basket .tk { font-family: var(--mono); font-weight: 700; }
@@ -108,8 +123,10 @@ table.basket .co { color: var(--txt-2); }
 /* --- the per-name buckets (grouped basket): group headers + status dots --------------------
    Each bucket class sets `--gc`, the group accent the swatch/dot/label all read. The weaker-basis
    buckets (theme-armed / warming / quiet) wear a HOLLOW dot — same hue, weaker claim. */
-/* left padding clears the selected row's 2px inset accent bar — the dot must never touch it */
-table.basket th.dotc, table.basket td.dotc { width: 18px; padding-left: 9px; padding-right: 6px; }
+/* left padding clears the selected row's 2px inset accent bar — the dot must never touch it.
+   The width is also the ticker column's sticky offset, so it is a variable, declared once. */
+table.basket { --dotc-w: 23px; }
+table.basket th.dotc, table.basket td.dotc { width: var(--dotc-w); padding-left: 9px; padding-right: 6px; }
 .rowdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--gc); }
 /* bucket headers — the To Review heading idiom (chev · label · hint · count · trailing hairline),
    bucket-colored + click-to-collapse. The 9px inset keeps the chev on the row dots' icon column. */
@@ -176,11 +193,25 @@ table.basket td.exitby.lapse { color: var(--warm); }
    hidden-with-gap; acceptable — the operator surface is Chromium/Firefox on Windows.) */
 tr.bkt.folded { visibility: collapse; }
 
+/* --- the sticky identity columns ----------------------------------------------------------
+   The status dot + ticker stay put while the metrics scroll: a ticker you cannot see is a row
+   you cannot read. They need an OPAQUE base — a sticky cell with a transparent background shows
+   the scrolled columns straight through it — which is why the row tints below ride
+   background-IMAGE: an image layers OVER that base instead of replacing it, so one tint value
+   serves both the sticky cells and the transparent ones. (The company name is deliberately NOT
+   sticky: at its 170px cap it would freeze a third of the viewport.) */
+table.basket th.dotc, table.basket td.dotc { position: sticky; left: 0; z-index: 1; background-color: var(--bg); }
+table.basket th.tk, table.basket td.tk { position: sticky; left: var(--dotc-w); z-index: 1; background-color: var(--bg); }
+
+/* the company name: capped so the longest name in the basket can't set the column (it wanted
+   293px). The cap rides an inner block — `max-width` on a <td> is advisory in table layout. */
+table.basket .co-name { display: block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* rows are clickable (the per-name panel); the selected row wears its bucket accent */
 tr.bkt { cursor: pointer; }
-tr.bkt:hover td { background: rgba(20, 24, 33, 0.7); }
+tr.bkt:hover td { background-image: linear-gradient(rgba(20, 24, 33, 0.7), rgba(20, 24, 33, 0.7)); }
 tr.bkt:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
-tr.bkt.sel td { background: color-mix(in srgb, var(--gc) 7%, transparent); }
+tr.bkt.sel td { background-image: linear-gradient(color-mix(in srgb, var(--gc) 7%, transparent), color-mix(in srgb, var(--gc) 7%, transparent)); }
 tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 
 /* --- the per-name panel: a fixed, NON-MODAL slide-over ------------------------------------
@@ -527,6 +558,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 /* cockpit back-to-board control */
 .back { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--txt-2); cursor: pointer; border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 11px; background: var(--panel); font-family: inherit; }
 .back:hover { border-color: var(--txt-3); color: var(--txt); }
+/* the call-rail collapse — the .back idiom, quieter (a view dial, not a navigation) */
+.rail-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); cursor: pointer; border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 10px; background: var(--panel); font-family: inherit; }
+.rail-toggle:hover { border-color: var(--txt-3); color: var(--txt); }
 
 /* ===========================================================================
    Workbench (Phase-2 front half) — ported from docs/mockups/mockup_workbench_nuclear.html.
