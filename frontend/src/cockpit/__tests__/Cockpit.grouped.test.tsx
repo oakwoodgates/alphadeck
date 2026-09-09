@@ -100,15 +100,28 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
       ct: tr.querySelector(".ct")?.textContent,
     }));
     expect(headers).toEqual([
-      { label: "Armed", hint: "· act now", ct: "· 1" },
-      { label: "Lapsing", hint: "· entry window closing", ct: "· 1" },
-      { label: "Theme-armed", hint: "· theme fallback · starter cap", ct: "· 1" },
-      { label: "Warming", hint: "· conviction in · awaiting confirmation", ct: "· 1" },
-      { label: "Watch", hint: "· moving · no conviction yet", ct: "· 1" },
-      { label: "Quiet", hint: "· no live signals", ct: "· 1" },
+      { label: "Armed", hint: "· act now", ct: "· 1 name" },
+      { label: "Lapsing", hint: "· entry window closing", ct: "· 1 name" },
+      { label: "Theme-armed", hint: "· theme fallback · starter cap", ct: "· 1 name" },
+      { label: "Warming", hint: "· conviction in · awaiting confirmation", ct: "· 1 name" },
+      { label: "Watch", hint: "· moving · no conviction yet", ct: "· 1 name" },
+      { label: "Quiet", hint: "· no live signals", ct: "· 1 name" },
     ]);
     // no member call reads managing in this fixture → no header (render-if-present, not a stub)
     expect(screen.queryByText("Managing", { selector: ".lbl" })).toBeNull();
+  });
+
+  it("renders the moving line on every header — an honest '—' when nothing is priced", () => {
+    // useDisplaySignals → undefined here: no name carries a 7d return, so every header's 7d median
+    // is withheld (never a fabricated 0.0%), while the full count still shows
+    const { container } = renderCockpit();
+    const aggs = [...container.querySelectorAll("tr.grp .agg")];
+    expect(aggs).toHaveLength(6);
+    for (const a of aggs) {
+      expect(a.textContent).toBe("· 7d median —");
+      expect(a.querySelector(".aggv")?.className).toBe("aggv na");
+      expect(a.getAttribute("title")).toBe("no median below 3 priced names (0 of 1 priced)");
+    }
   });
 
   it("collapses a bucket on header click — open by default, count stays visible, reversible", () => {
@@ -124,7 +137,7 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     // column-width algorithm — the fold must never re-flow the columns), never unmounted
     expect(container.querySelector("tr.bkt.bkt-warming")).toBe(warmingRow);
     expect(warmingRow.className).toContain("folded");
-    expect(warmingHeader.querySelector(".ct")?.textContent).toBe("· 1"); // the count never hides
+    expect(warmingHeader.querySelector(".ct")?.textContent).toBe("· 1 name"); // the count never hides
     expect(container.querySelector("tr.bkt.bkt-watch")?.className).not.toContain("folded");
 
     fireEvent.click(warmingHeader); // one click back (reversibility)

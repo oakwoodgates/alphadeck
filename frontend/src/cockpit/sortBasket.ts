@@ -57,8 +57,10 @@ export type SortKey = (number | string)[];
 
 /** One numeric display metric's value by key, or null when the metric is absent OR its value is null
  *  — the SAME predicate the cells use for a "—" (``m.value == null``), so the sort's nulls-last set
- *  is exactly the set of dashes the operator sees. */
-function metricValue(sig: DisplaySignal | null, key: string): number | null {
+ *  is exactly the set of dashes the operator sees. Exported: the group header's moving line
+ *  (``groupAggregate.ts``) reads its 7d values through this one predicate too, so its "priced" set
+ *  is exactly the rows whose 7d cell shows a number. */
+export function metricValue(sig: DisplaySignal | null, key: string): number | null {
   const m = (sig?.metrics ?? []).find((x) => x.key === key);
   return m && m.value != null ? m.value : null;
 }

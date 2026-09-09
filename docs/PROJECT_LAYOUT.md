@@ -54,6 +54,7 @@ alphadeck/
 │       ├── board/{Board,ThesisCard}.tsx          # the Board (lifecycle columns + the Decision Queue + the collapsed Archived section)
 │       ├── cockpit/                              # MONITOR — the per-name Cockpit
 │       │   ├── Cockpit.tsx · buckets.ts          #   the grouped basket (collapsible per-name buckets) · the pure bucket derivation
+│       │   ├── sortBasket.ts · groupAggregate.ts #   the pure within-group sort · the pure header aggregate (the 7d-median moving line)
 │       │   ├── NamePanel.tsx · SpineListEditors.tsx   #   the read-only per-name panel (call + own triggers + operator record) · the spine-list editors
 │       │   └── DisplaySignalsSection.tsx         #   the read-only display-signal chips (posture headline · dated flips · basis fine-print)
 │       ├── scoreboard/                           # SCORE — the episode ledger + the drill-down drawer (SCOREBOARD.md)

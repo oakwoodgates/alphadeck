@@ -119,7 +119,19 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .grp-h .chev { font-size: 12px; letter-spacing: 0; transition: transform 0.15s ease; }
 .grp-h[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
-.grp-h .ct { font-family: var(--mono); font-weight: 400; color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; }
+/* the count now carries a word ("· 6 names") — normal case, so it reads as one figure line with the
+   moving line beside it, not as a second uppercase heading */
+.grp-h .ct { font-family: var(--mono); font-weight: 400; color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; text-transform: none; white-space: nowrap; }
+/* the header's "is this group moving?" line — `· 7d median ±X.X%`, the MEDIAN 7d return over the group's
+   priced rows (client-side, off the 7d cells' own values). Mono like the count, normal case (a figure,
+   not a heading); the value tints MUTED green up / red down — mixed toward the header grey, never the
+   cells' full --pos/--neg: always-present context, not a badge, so no threshold accent and nothing
+   flashes (#7). A flat 0.0% stays the count grey; the "—" (under three priced) is the quietest grey. */
+.grp-h .agg { font-family: var(--mono); font-weight: 400; color: var(--txt-3); font-size: 10px; letter-spacing: 0.02em; text-transform: none; white-space: nowrap; }
+.grp-h .agg .aggv { color: var(--txt-2); }
+.grp-h .agg .aggv.pos { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
+.grp-h .agg .aggv.neg { color: color-mix(in srgb, var(--neg) 55%, var(--txt-3)); }
+.grp-h .agg .aggv.na { color: var(--txt-4); }
 .grp-h:hover .hint { color: var(--txt-3); }
 .bkt-managing { --gc: var(--manage); }
 .bkt-armed { --gc: var(--armed); }

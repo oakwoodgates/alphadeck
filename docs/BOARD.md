@@ -74,8 +74,9 @@ The Cockpit shares the Board's as-of; the call rail beside it recomputes live at
 
 The basket table partitions, **in the default lens**, by each member's **own** call state — the
 Board's column idiom applied in-table, strongest → weakest, one **collapsible header** (chev · label ·
-hint · count — the Workbench's To Review heading idiom, the toggle bucket-colored) per **populated**
-bucket (an empty bucket renders no header — loudness marks the exception) and a status dot per row:
+hint · count · the moving line — the Workbench's To Review heading idiom, the toggle bucket-colored) per
+**populated** bucket (an empty bucket renders no header — loudness marks the exception) and a status dot
+per row:
 
 - **Managing** — `verdict === "managing"`: the held name, when the open position carries its
   `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
@@ -115,6 +116,20 @@ row lands in the keep-visible `Unsegmented` tail. The two non-segment lenses **d
 same `security_id` ⇒ same call bucket + scored join); the value-chain lens keeps them all (that's the
 point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never
 disappears behind a view.
+
+**The header's moving line — "is this group moving?"** Every group header, in every lens, ends with
+`· N names · 7d median ±X.X%` (e.g. `Miner · 41 names · 7d median -6.0%`): the **median** 7d trailing
+return over the group's **priced** rows, computed client-side off the same `ret_7d` the 7d column shows
+(zero wire — nothing fetched, nothing re-derived). **Median, not mean**, so a single blowup can't drag a
+group of −1%s into "moving"; **7d only** (one figure — no other window in v1); **N is the full group
+size** (every row counts, priced or not, #9) while the median is over the priced subset (a thin-history
+"—" is excluded, never counted as 0); **fewer than 3 priced rows reads "—"** (a "median" of one or two
+names is not a group read, and a fabricated 0.0% is worse than none). It tints **muted** green up / red
+down with no threshold accent — always-present context, not a badge (#7 / interaction principle #3) —
+and the population ("5 priced of 6 names", or the why behind a "—") rides the hover. A display
+aggregate, never a call input (#4): it changes no membership, no order, no call; a fold or a sort leaves
+it exactly where it was. Re-computed per group per lens — the value-chain lens counts a multi-link name
+once per link (each link-row is a real membership).
 
 **Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL|8 · RVOL|20 ·
 Ins 30d · Ins 90d · Mkt cap · Exit-by`.
