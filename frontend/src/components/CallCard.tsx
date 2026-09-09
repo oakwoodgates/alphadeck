@@ -10,6 +10,7 @@ import {
   verdictLabel,
 } from "../util/format";
 import { DecisionActions } from "./DecisionActions";
+import { RailPanel } from "./RailPanel";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
 
@@ -110,17 +111,15 @@ export function CallCard({
         )}
 
         {triggers.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Triggers fired</div>
+          <RailPanel label="Triggers fired" count={triggers.length}>
             {triggers.map((t, i) => (
               <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade />
             ))}
-          </div>
+          </RailPanel>
         )}
 
         {missing.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Still missing</div>
+          <RailPanel label="Still missing" count={missing.length}>
             {missing.map((m, i) => {
               // the assembler bundles insider + structural catalyst into ONE conviction line; a foreign
               // filer scopes the note to the INSIDER half only — the key is NOT dead (a structural or theme
@@ -142,16 +141,15 @@ export function CallCard({
                 </div>
               );
             })}
-          </div>
+          </RailPanel>
         )}
 
         {risks.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Risk signals</div>
+          <RailPanel label="Risk signals" count={risks.length}>
             {risks.map((r, i) => (
               <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
             ))}
-          </div>
+          </RailPanel>
         )}
 
         <div className="counter">
