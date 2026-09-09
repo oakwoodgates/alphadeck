@@ -2,10 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // The two RVOL columns on the Cockpit basket table, both off the `rvol` display member (which emits
-// TWO windows off one fetch): RVOL|8 (the as-of bar's volume vs the prior 8-bar average — call-
-// matched) and RVOL|20 (the same idea over 20 bars — the trader "unusually active vs its month?"
+// TWO windows off one fetch): RVOL 8D (the as-of bar's volume vs the prior 8-bar average — call-
+// matched) and RVOL 20D (the same idea over 20 bars — the trader "unusually active vs its month?"
 // read, call-decoupled), the SAME display-signals query the SMA / return cells read, bridged by
-// security_id. The load-bearing checks: both headers render (RVOL|8 renamed + RVOL|20 added), each
+// security_id. The load-bearing checks: both headers render (RVOL 8D renamed + RVOL 20D added), each
 // column accents from its OWN loud threshold on the wire (a volume-backed move gets the WARM 'hot'
 // accent, an ordinary one stays muted) INDEPENDENTLY, a volumeless as-of bar is an HONEST em-dash in
 // both, and the columns survive the business-type lens (they live on the per-name row).
@@ -104,10 +104,10 @@ function renderCockpit() {
 }
 
 describe("Cockpit — RVOL columns (8-bar + 20-bar)", () => {
-  it("renders both headers — RVOL|8 (renamed) and RVOL|20 (added), not a bare RVOL", () => {
+  it("renders both headers — RVOL 8D (renamed) and RVOL 20D (added), not a bare RVOL", () => {
     renderCockpit();
-    expect(screen.getByRole("columnheader", { name: "RVOL|8" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "RVOL|20" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL 8D" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL 20D" })).toBeInTheDocument();
     // the old single "RVOL" header is gone (renamed, not left behind)
     expect(screen.queryByRole("columnheader", { name: "RVOL" })).not.toBeInTheDocument();
   });
@@ -156,7 +156,7 @@ describe("Cockpit — RVOL columns (8-bar + 20-bar)", () => {
     // the lens re-groups the rows by super-sector, but both per-name RVOL cells still render
     expect(screen.getByText("2.40×")).toBeInTheDocument();
     expect(screen.getByText("1.80×")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "RVOL|8" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "RVOL|20" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL 8D" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "RVOL 20D" })).toBeInTheDocument();
   });
 });

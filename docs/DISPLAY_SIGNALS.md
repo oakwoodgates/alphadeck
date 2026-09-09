@@ -144,7 +144,7 @@ mirroring the breakout detector — the call-matched read) and **20 bars** (`rvo
 "unusually active vs its *month*?" convention, deliberately call-decoupled). `volume_regime.vol_ratio`
 is a different shape again — a **20-bar mean ÷ the prior 60-bar mean** — answering "is participation
 *rising* vs its own base?" (its 20 is a trailing MEAN, not `rvol20`'s single anchor bar). All render
-as panel chips (and `rvol` / `rvol20` are the basket table's **RVOL|8 / RVOL|20** columns); none are
+as panel chips (and `rvol` / `rvol20` are the basket table's **RVOL 8D / RVOL 20D** columns); none are
 redundant.
 
 **`rvol` (the 8-bar) mirrors the call; `rvol20` (the 20-bar) is deliberately decoupled.** The 8-bar's
@@ -152,7 +152,7 @@ redundant.
 `CallConfig.breakout_base_window` / `breakout_volume_mult`** — the seam cannot import `CallConfig`
 (`base.py` + the `test_registry` import-ban), so they are hand-kept equal and
 `test_rvol.py::test_dials_mirror_the_call_config_exactly` catches a drift. Because the window and
-threshold match, the **RVOL|8** column and the breakout trigger never **contradict** — but the
+threshold match, the **RVOL 8D** column and the breakout trigger never **contradict** — but the
 breakout computes its `vol_ratio` at the **breakout bar's date** while `rvol` computes at the **as-of
 bar**, so on a non-breakout day the two legitimately differ (a different anchor bar), and an as-of bar
 with no volume reads an honest "—", never a stale bar's ratio. The **20-bar `rvol20` mirrors NO call
@@ -226,7 +226,7 @@ muted dated lines, and the basis as fine print — inverse loudness (#7): indica
 context, never an alert, and an Incubating name's panel must not get louder because a moving
 average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
 the trailing-return ladder (`1d/7d/30d/90d/1Y`), the **`Path`** sparkline (`price_path`'s close
-series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RVOL|8` / `RVOL|20`, and
+series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RVOL 8D` / `RVOL 20D`, and
 `Ins 30d` / `Ins 90d` — each bridged onto its row by `security_id` and holding the same discipline: a
 muted "—" is the default, an accent marks the exception (#7). The columns are individually sortable
 **within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path`, a

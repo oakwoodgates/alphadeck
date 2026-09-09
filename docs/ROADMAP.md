@@ -75,7 +75,7 @@ healing** (#252), **empty-seed** ("∅ no EDGAR hits") visibility (#253), and `m
 INVARIANTS §6 (#250). Then the headline: **Business-type M1** (#255) retired the size-tier archetype for a
 durable two-level **SIC → leaf → super-sector** characterization (operator-editable maps, the operator's
 per-security re-tag winning), and the **cockpit-refinement arc** (#256–#262) turned the basket table into a
-scannable **display-signal instrument** — trailing-return columns (1d/7d/30d/90d/1Y), `RVOL|8`/`RVOL|20`,
+scannable **display-signal instrument** — trailing-return columns (1d/7d/30d/90d/1Y), `RVOL 8D`/`RVOL 20D`,
 insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-chain), and within-group sort
 — **every column and lens off the call path**, riding that business-type characterization.
 

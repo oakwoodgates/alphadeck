@@ -90,7 +90,7 @@ describe("sortKey — per-column value access (the crux)", () => {
     expect(sortKey("ret_1y", ctx(r, { trail: t }))).toEqual([128.4]);
   });
 
-  it("reads SMA off pct_vs_slow, and RVOL|8 / RVOL|20 off rvol / rvol20", () => {
+  it("reads SMA off pct_vs_slow, and RVOL 8D / RVOL 20D off rvol / rvol20", () => {
     const r = row({ ticker: "HIMS" });
     const smaSig = sig("sma_position", [{ key: "pct_vs_slow", value: 4.2 }]);
     const rvolSig = sig("rvol", [

@@ -131,18 +131,18 @@ aggregate, never a call input (#4): it changes no membership, no order, no call;
 it exactly where it was. Re-computed per group per lens — the value-chain lens counts a multi-link name
 once per link (each link-row is a real membership).
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL|8 · RVOL|20 ·
+**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
 Ins 30d · Ins 90d · Mkt cap · Exit-by`.
 
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
   fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).
-- **SMA · 1d/7d/30d/90d/1Y · RVOL|8 · RVOL|20 · Ins 30d · Ins 90d** — the read-only **display-signal**
+- **SMA · 1d/7d/30d/90d/1Y · RVOL 8D · RVOL 20D · Ins 30d · Ins 90d** — the read-only **display-signal**
   columns (the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet per-name tape context bridged onto the row
   by `security_id`, **structurally off the call path**. SMA is the posture glyph + % vs the slow line; the
   ladder is the trailing EOD returns (green up / red down; `1d` = last close vs the prior close, not a
-  24h move; `1Y` = 252 trading bars); RVOL|8 is the as-of bar's volume vs its prior 8-bar mean (mirrors
-  the breakout detector — the **call-matched** read) and RVOL|20 the same over 20 bars (the "vs its month"
+  24h move; `1Y` = 252 trading bars); RVOL 8D is the as-of bar's volume vs its prior 8-bar mean (mirrors
+  the breakout detector — the **call-matched** read) and RVOL 20D the same over 20 bars (the "vs its month"
   trader convention, **call-decoupled**), each warming a 'hot' accent past its **own** loud threshold; the
   insider cells read `{open-market buys}/{distinct buyers}` per trailing window (a ≥2-buyer **cluster**
   takes the leader-blue accent — breadth is the tell). Every display cell is a muted "—" when absent — the
@@ -204,7 +204,7 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   (the four meters — already fetched for the mkt-cap bridge).
 - **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
   the engine doc is `docs/DISPLAY_SIGNALS.md`): every registered member rendered uniformly as quiet
-  metric chips (SMA position + % distances, the trailing-return ladder, RVOL|8 / RVOL|20, insider
+  metric chips (SMA position + % distances, the trailing-return ladder, RVOL 8D / RVOL 20D, insider
   open-market buys, the 52w range, …), muted dated flip lines (price × 50d/200d crosses,
   golden/death), and a fine-print basis line (bars used · through-date — the show-the-work, #6).
   Honest gaps read "—" with the why ("n/a: 140/200 bars"); no data at all reads one muted line.

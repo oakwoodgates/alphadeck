@@ -104,7 +104,7 @@ describe("Cockpit — the close-path sparkline column (Path)", () => {
     );
     expect(headers.indexOf("Path")).toBe(headers.indexOf("1Y") + 1);
     // the existing headers resolve by their EXACT accessible names and stay sortable
-    for (const name of ["30d", "90d", "1Y", "RVOL|8", "RVOL|20", "Ins 30d", "Ins 90d"]) {
+    for (const name of ["30d", "90d", "1Y", "RVOL 8D", "RVOL 20D", "Ins 30d", "Ins 90d"]) {
       const s = screen.getByRole("columnheader", { name });
       expect(s).toHaveAttribute("aria-sort", "none");
       expect(s.querySelector("button.th-sort")).not.toBeNull();

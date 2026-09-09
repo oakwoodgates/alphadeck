@@ -127,10 +127,10 @@ describe("Cockpit — sortable basket columns (within-group)", () => {
   it("keeps every header's accessible name byte-identical while a sort is active", () => {
     renderCockpit();
     clickSort("30d"); // activate a sort — the arrow must not pollute any header name
-    for (const name of ["Ticker", "Type", "1d", "30d", "1Y", "RVOL|8", "RVOL|20", "Ins 30d", "Mkt cap", "Exit-by"]) {
+    for (const name of ["Ticker", "Type", "1d", "30d", "1Y", "RVOL 8D", "RVOL 20D", "Ins 30d", "Mkt cap", "Exit-by"]) {
       expect(screen.getByRole("columnheader", { name })).toBeInTheDocument();
     }
-    // exact-name matching is preserved: "RVOL" must NOT match "RVOL|8"
+    // exact-name matching is preserved: "RVOL" must NOT match "RVOL 8D"
     expect(screen.queryByRole("columnheader", { name: "RVOL" })).not.toBeInTheDocument();
   });
 

@@ -478,13 +478,13 @@ export function Cockpit({
                       >
                         Path
                       </th>
-                      {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
+                      {/* relative volume, two windows off ONE member: RVOL 8D is the as-of bar's volume
                           vs the prior 8-bar average (mirrors the breakout detector — the call-matched
-                          read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
+                          read); RVOL 20D is the same idea over 20 bars (the trader "unusually active vs
                           its month?" convention, deliberately call-decoupled). A warm accent marks the
                           volume-backed exception, #7 — each column off its OWN threshold. */}
-                      <SortableTh col="rvol8" label="RVOL|8" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="rvol20" label="RVOL|20" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="rvol8" label="RVOL 8D" align="right" sort={sort} onSort={onSort} />
+                      <SortableTh col="rvol20" label="RVOL 20D" align="right" sort={sort} onSort={onSort} />
                       {/* insider open-market buys: {buys}/{distinct buyers} per trailing window,
                           short before long (matching the return ladder). A ≥2-buyer cluster accents
                           — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—".
@@ -621,7 +621,7 @@ export function Cockpit({
                               />
                             </td>
                             <td className="met rvolc">
-                              {/* RVOL|8 — the call-matched 8-bar read: a warm 'hot' accent on a
+                              {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a
                                   volume-backed move (>= the wire's loud_mult), "—" on a
                                   volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
                               <RvolCell
@@ -633,7 +633,7 @@ export function Cockpit({
                               />
                             </td>
                             <td className="met rvolc">
-                              {/* RVOL|20 — the 20-bar trader-convention read (call-decoupled), off
+                              {/* RVOL 20D — the 20-bar trader-convention read (call-decoupled), off
                                   the SAME member's second metric, accenting from its OWN threshold
                                   (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
                               <RvolCell
