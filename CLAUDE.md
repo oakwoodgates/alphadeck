@@ -176,7 +176,9 @@ docker compose up -d --scale cron=0                      # ...skip the cron side
 # PROD is the plain `docker compose up` above (project alphadeck · cron ON · auto-loads .env).
 # DEV = base + the dev override under its OWN project name -> Compose namespaces containers/network/volumes,
 # so dev physically cannot reach prod's pgdata; distinct ports let both run at once; cron is OFF in dev.
-# Run from the MAIN checkout — WORKTREES NEVER RUN THE STACK (that's the worktree-.env gap this closes).
+# Run from the MAIN checkout — WORKTREES NEVER RUN THE STACK (that's the worktree-.env gap this closes;
+# the ONE exception is DEPLOY.md Flow C, which previews UNCOMMITTED worktree code on dev by handing
+# Compose the main checkout's .env.dev explicitly — it builds one image, it does not run a stack).
 # Needs .env (prod) + .env.dev (dev) at the main-checkout root (copy .env.example; .env.dev is gitignored).
 #   ports  →  app / api / postgres    PROD = 8080 / 8000 / 5544    DEV = 8081 / 8001 / 5545
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev up -d --build
