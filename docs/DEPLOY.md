@@ -1,7 +1,8 @@
 # Deploy — take code live on the running stack
 
-How to ship a code change to the running **prod** stack (and how to preview an unmerged
-branch on **dev** first). Written to be followed cold by an agent.
+How to ship a code change to the running **prod** stack (Flow A), and how to preview it on
+**dev** first — from a branch's sha (Flow B) or straight from an uncommitted worktree
+(Flow C). Written to be followed cold by an agent.
 
 Pairs with: `docker-compose.yml` (prod) · `docker-compose.dev.yml` (dev override) ·
 `docs/DEV_PROD.md` (the two stacks + the one-way refresh). There is no deploy script —
@@ -27,7 +28,9 @@ stack until you **rebuild its image**:
 
 **Build context = the MAIN checkout** (`C:\Users\funky\sites\oakwoodgates\alphadeck`),
 never a worktree — Compose build contexts (`./frontend`, `./backend`) resolve relative
-to the compose file there, and worktrees never run the stack.
+to the compose file there, and worktrees never run the stack. **Flow C is the one
+exception**, and only because it hands Compose the main checkout's env file explicitly —
+read it before reaching for it.
 
 ---
 
@@ -91,6 +94,34 @@ git checkout main
 
 The built image PERSISTS after you restore `main`. Add `backend` to the rebuild for a
 backend half. Dev: app http://localhost:8081 · API + docs http://localhost:8001/docs.
+
+---
+
+## Flow C — UNCOMMITTED worktree -> DEV (preview while iterating)
+
+Flow B needs a sha. When the loop is **build -> look -> then decide whether to commit**,
+there isn't one yet, and committing just to see something is the thing to avoid. Build
+dev straight from the worktree instead:
+
+```
+docker compose -f <worktree>/docker-compose.yml -f <worktree>/docker-compose.dev.yml \
+  --project-directory <worktree> \
+  --env-file <MAIN-checkout>/.env.dev \
+  -p alphadeck_dev up -d --build --no-deps frontend
+```
+
+**Why this is not the thing the worktree rule forbids.** It does not RUN a stack from a
+worktree; it builds ONE service's image, using the worktree as the build context, into
+the already-running `alphadeck_dev` project. `--project-directory` is what makes the
+compose file's relative contexts (`./frontend`) resolve inside the worktree. The rule
+exists to stop a stack whose env/config comes from a worktree — the worktree-`.env` gap,
+since `.env` / `.env.dev` live only at the main-checkout root — and the absolute
+`--env-file` closes exactly that gap. Nothing is written to the main checkout: no detach,
+no WIP commit; it stays clean and on `main` throughout.
+
+Use Flow B once a sha exists (it leaves a reproducible provenance trail); use Flow C
+while iterating. **Rebuild dev from the main checkout when you are done** — otherwise dev
+keeps serving an image built from code that exists nowhere in git.
 
 ---
 

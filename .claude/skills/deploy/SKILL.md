@@ -1,8 +1,8 @@
 ---
 name: deploy
 description: >-
-  Ship a merged code change to the running PROD stack (or preview an unmerged branch
-  on DEV) by rebuilding the built Docker images — the frontend/backend are baked
+  Ship a merged code change to the running PROD stack (or preview an unmerged branch,
+  or uncommitted worktree work, on DEV) by rebuilding the built Docker images — the frontend/backend are baked
   images, so a change is dormant until rebuilt. Trigger on "deploy", "ship it", "take
   it live", "push to prod", "rebuild prod", "preview on dev". Touches PROD — back up
   first; the prod DB stays read-only.
@@ -56,6 +56,13 @@ on any failed precondition; do NOT guess.
 ## Preview on DEV (unmerged branch)
 Detach the main checkout to the sha, rebuild the dev service, restore main — full form in
 `docs/DEPLOY.md` Flow B. Dev app :8081 / api :8001.
+
+## Preview on DEV (UNCOMMITTED work in a worktree)
+No sha yet — the loop is build -> look -> then decide whether to commit. Build dev from the
+worktree with `--project-directory <worktree>` + `--env-file <MAIN>/.env.dev` (absolute), which
+is what keeps it inside the worktree rule rather than around it — full form in `docs/DEPLOY.md`
+Flow C. **Rebuild dev from the main checkout afterwards**, or dev serves code that is in no
+commit.
 
 ## Guardrails (never violate)
 - **Prod DB is read-only** — deploy rebuilds IMAGES, never data. Never
