@@ -8,12 +8,14 @@
 //   /thesis/:thesisId    the Cockpit (singular, deliberately outside the API's /theses namespace)
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
+//   ?rail=0              Cockpit only; the call rail collapsed (absent = open, the default)
 //
 // App.tsx owns the router wiring; everything here is plain string-building so a router swap (or a
 // test) never touches the scheme itself.
 
 export const ASOF = "asof";
 export const NAME = "name";
+export const RAIL = "rail";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -28,6 +30,14 @@ export function validAsof(raw: string | null): string | null {
   const dt = new Date(Date.UTC(y, m - 1, d));
   const real = dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
   return real ? raw : null;
+}
+
+/** The call rail's open state from ?rail=. Only the exact string "0" collapses it: absent, junk
+ *  and every other value read as OPEN, so a malformed URL can never hide the call — the same
+ *  "absent and malformed are identical" rule ?asof= follows, biased toward showing more. The open
+ *  state is written by DELETING the param, so a default-shaped URL stays clean. */
+export function railOpenFrom(raw: string | null): boolean {
+  return raw !== "0";
 }
 
 function withParams(path: string, params: Record<string, string | null | undefined>): string {

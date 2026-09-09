@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 // The two behaviors behind the basket-table width fix. The scroller itself is pure layout (jsdom
@@ -6,7 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 //
 //   1. The call-rail collapse — a view dial that hands the rail's fixed 380px to the table. It must
 //      be REVERSIBLE in one click (interaction principle #1) and must HIDE, never unmount, so the
-//      control keeps pointing at something real.
+//      control keeps pointing at something real. The state itself is URL-owned (?rail=0, wired in
+//      App's CockpitRoute and covered in App.routes) — here it rides a stand-in owner, so what is
+//      under test is the button's contract with whoever holds the state.
 //   2. The capped company name — the cap is CSS, but the full name must stay reachable on the
 //      element's title (principle #2: pruning hides, it never vanishes).
 const fx = vi.hoisted(() => {
@@ -46,8 +49,10 @@ vi.mock("../../api/hooks", () => ({
 
 import { Cockpit } from "../Cockpit";
 
-function renderCockpit() {
-  return render(
+/** Stands in for App's CockpitRoute, which really holds the rail state in ?rail=. */
+function Harness() {
+  const [railOpen, setRailOpen] = useState(true);
+  return (
     <Cockpit
       thesisId="t-def"
       asof="2026-09-08"
@@ -55,8 +60,14 @@ function renderCockpit() {
       onBack={() => {}}
       selectedName={null}
       onSelectName={() => {}}
-    />,
+      railOpen={railOpen}
+      onRailChange={setRailOpen}
+    />
   );
+}
+
+function renderCockpit() {
+  return render(<Harness />);
 }
 
 const toggle = () => screen.getByRole("button", { name: "Call" });

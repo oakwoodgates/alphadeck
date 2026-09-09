@@ -86,6 +86,8 @@ function renderCockpit() {
       onBack={() => {}}
       selectedName={null}
       onSelectName={() => {}}
+      railOpen
+      onRailChange={() => {}}
     />,
   );
 }

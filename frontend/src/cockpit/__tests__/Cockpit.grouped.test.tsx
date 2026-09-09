@@ -87,6 +87,8 @@ function renderCockpit(asof = "2026-07-11") {
       onBack={() => {}}
       selectedName={null}
       onSelectName={() => {}}
+      railOpen
+      onRailChange={() => {}}
     />,
   );
 }

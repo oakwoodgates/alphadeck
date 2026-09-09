@@ -82,10 +82,13 @@ vi.mock("../cockpit/Cockpit", () => ({
       <span data-testid="cp-thesis">{p.thesisId}</span>
       <span data-testid="cp-asof">{p.asof}</span>
       <span data-testid="cp-name">{p.selectedName ?? ""}</span>
+      <span data-testid="cp-rail">{String(p.railOpen)}</span>
       <button onClick={() => p.onBack()}>cp-back</button>
       <button onClick={() => p.onAsofChange("2026-06-01")}>cp-scrub</button>
       <button onClick={() => p.onSelectName("XE")}>cp-pick-xe</button>
       <button onClick={() => p.onSelectName(null)}>cp-clear-name</button>
+      <button onClick={() => p.onRailChange(false)}>cp-rail-close</button>
+      <button onClick={() => p.onRailChange(true)}>cp-rail-open</button>
     </div>
   ),
 }));
@@ -265,6 +268,37 @@ describe("App routes — the ?name= deep link", () => {
     await user.click(screen.getByText("cp-back"));
     expect(screen.getByText("SCOREBOARD")).toBeInTheDocument();
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
+  });
+});
+
+describe("App routes — the ?rail= dial", () => {
+  it("defaults to open — an ordinary Cockpit URL carries no rail param", () => {
+    renderAt("/thesis/t-42");
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("true");
+  });
+
+  it("?rail=0 in a direct URL (a reload, a shared link) reaches the prop collapsed", () => {
+    renderAt("/thesis/t-42?rail=0");
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("false");
+  });
+
+  it("only the exact \"0\" collapses — junk reads as open, never hiding the call", () => {
+    renderAt("/thesis/t-42?rail=nope");
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("true");
+  });
+
+  it("collapsing round-trips through the URL and reopening drops the param", async () => {
+    const user = userEvent.setup();
+    renderAt("/thesis/t-42?asof=2026-06-01&name=OKLO");
+    await user.click(screen.getByText("cp-rail-close"));
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("false");
+    // the dial rides ALONGSIDE the other params, never replacing them
+    expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("OKLO");
+
+    await user.click(screen.getByText("cp-rail-open"));
+    expect(screen.getByTestId("cp-rail")).toHaveTextContent("true");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("OKLO");
   });
 });
 

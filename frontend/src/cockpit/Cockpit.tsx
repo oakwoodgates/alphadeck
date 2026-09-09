@@ -51,6 +51,10 @@ interface Props {
    *  land with the panel already open. */
   selectedName: string | null;
   onSelectName: (key: string | null) => void;
+  /** The call rail's open state, URL-owned via ?rail= (App's CockpitRoute) alongside the as-of
+   *  dial and the name selection — so a collapse survives a reload without touching storage. */
+  railOpen: boolean;
+  onRailChange: (open: boolean) => void;
 }
 
 /** The entry-window (confirmation) clock, rendered inside an armed-family member's exit-by cell.
@@ -120,6 +124,8 @@ export function Cockpit({
   onBack,
   selectedName,
   onSelectName,
+  railOpen,
+  onRailChange,
 }: Props) {
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
@@ -297,11 +303,6 @@ export function Cockpit({
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
   // keyed per lens (a fold in one lens doesn't leak into the other).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
-  // The call rail is a fixed 380px — a third of a laptop viewport, and the basket table's 17
-  // columns want all of it. Collapsing hands that width back to the table (MEASURED at a 1091px
-  // viewport: 708px of horizontal scroll -> 328px). Local view state, open by default: the rail
-  // is the default reading, the collapse is the operator's explicit, one-click-reversible choice.
-  const [railOpen, setRailOpen] = useState(true);
   const toggleGroup = (key: string) => {
     const apply = () =>
       setClosedGroups((s) => {
@@ -357,9 +358,11 @@ export function Cockpit({
           as-of
           <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
         </label>
-        {/* Collapse the call rail to hand its 380px back to the basket table. A view dial, not a
-            navigation — reversible in one click, and the call itself is never unmounted from the
-            query (the state badge above and the per-name panel read the same card). */}
+        {/* Collapse the call rail to hand its fixed 380px back to the basket table — a third of a
+            laptop viewport, and the table's 17 columns want all of it (MEASURED at 1091px: 610px
+            of horizontal scroll -> 230px). A view dial, not a navigation: it rides ?rail=0,
+            reverses in one click, and never unmounts the call from the query (the state badge
+            above and the per-name panel read the same card). */}
         <button
           type="button"
           className="rail-toggle"
@@ -370,7 +373,7 @@ export function Cockpit({
               ? "Collapse the call rail — gives its width back to the basket table"
               : "Show the call rail"
           }
-          onClick={() => setRailOpen((v) => !v)}
+          onClick={() => onRailChange(!railOpen)}
         >
           {/* the chevron is aria-hidden (the .th-sort idiom): the button's accessible NAME stays
               exactly "Call" through both states — aria-expanded carries the state, not the label */}
@@ -548,19 +551,25 @@ export function Cockpit({
                                 aria-expanded={!closedGroups.has(g.key)}
                                 onClick={() => toggleGroup(g.key)}
                               >
-                                {/* one glyph, rotated closed — the swap read as a flicker */}
-                                <span className="chev">▾</span>
-                                <span className="lbl">{g.label}</span>
-                                {g.hint && <em className="hint">· {g.hint}</em>}
-                                {/* the FULL group size — every row counts, priced or not (#9) */}
-                                <span className="ct">
-                                  · {g.rows.length} {g.rows.length === 1 ? "name" : "names"}
+                                {/* the heading TEXT is one box so it can stick to the left of the scroller: the row
+                                    spans the full table, so without this "Armed · act now · 7 names" slides out of
+                                    view the moment you scroll the columns. The trailing hairline stays outside it,
+                                    still flexing to the right edge. */}
+                                <span className="grp-lbl">
+                                  {/* one glyph, rotated closed — the swap read as a flicker */}
+                                  <span className="chev">▾</span>
+                                  <span className="lbl">{g.label}</span>
+                                  {g.hint && <em className="hint">· {g.hint}</em>}
+                                  {/* the FULL group size — every row counts, priced or not (#9) */}
+                                  <span className="ct">
+                                    · {g.rows.length} {g.rows.length === 1 ? "name" : "names"}
+                                  </span>
+                                  {/* "is this group moving?" — the MEDIAN 7d return over the group's
+                                      priced rows, off the SAME ret_7d the 7d cells show (client-side,
+                                      zero wire); "—" below three priced. Muted, always-present context
+                                      — never a badge, never a call input (#4/#7). Per group, per lens. */}
+                                  <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
                                 </span>
-                                {/* "is this group moving?" — the MEDIAN 7d return over the group's
-                                    priced rows, off the SAME ret_7d the 7d cells show (client-side,
-                                    zero wire); "—" below three priced. Muted, always-present context
-                                    — never a badge, never a call input (#4/#7). Per group, per lens. */}
-                                <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
                               </button>
                             </td>
                           </tr>

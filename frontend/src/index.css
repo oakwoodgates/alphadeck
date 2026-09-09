@@ -133,6 +133,11 @@ table.basket th.dotc, table.basket td.dotc { width: var(--dotc-w); padding-left:
 tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .grp-h { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: transparent; text-align: left; cursor: pointer; padding: 0; font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gc); }
 .grp-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* the heading text sticks to the left of the horizontal scroller — a bucket row spans the whole
+   table, so "Armed · act now · 7 names" would otherwise scroll out of view with the columns. It
+   carries the gap the flex row used to own, and an opaque background so it masks the trailing
+   hairline it slides over. `left` matches the cell's padding, holding the inset when pinned. */
+table.basket .grp-lbl { position: sticky; left: 9px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
 .grp-h .chev { font-size: 12px; letter-spacing: 0; transition: transform 0.15s ease; }
 .grp-h[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }

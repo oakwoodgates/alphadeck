@@ -167,6 +167,8 @@ function Harness() {
       onBack={() => {}}
       selectedName={name}
       onSelectName={setName}
+      railOpen
+      onRailChange={() => {}}
     />
   );
 }

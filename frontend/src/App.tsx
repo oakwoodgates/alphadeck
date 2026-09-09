@@ -13,7 +13,7 @@ import { AppHeader } from "./AppHeader";
 import { useTheses } from "./api/hooks";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import { ASOF, NAME, boardPath, thesisPath, validAsof } from "./nav";
+import { ASOF, NAME, RAIL, boardPath, railOpenFrom, thesisPath, validAsof } from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
@@ -124,6 +124,20 @@ function CockpitRoute() {
       },
       { replace: true },
     );
+  // The call rail's collapse rides ?rail=0 so it survives a reload and a shared link (app state
+  // never goes to browser storage). A view dial like the as-of scrub and the name selection, so it
+  // REPLACES; open is the default and writes by DELETING the param, keeping ordinary URLs clean.
+  const railOpen = railOpenFrom(searchParams.get(RAIL));
+  const onRailChange = (open: boolean) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (open) next.delete(RAIL);
+        else next.set(RAIL, "0");
+        return next;
+      },
+      { replace: true },
+    );
   if (!thesisId) return <Navigate to="/" replace />;
   const from = (location.state as { from?: string } | null)?.from;
   return (
@@ -134,6 +148,8 @@ function CockpitRoute() {
       onBack={() => navigate(from ?? boardPath(asofParam))}
       selectedName={selectedName}
       onSelectName={onSelectName}
+      railOpen={railOpen}
+      onRailChange={onRailChange}
     />
   );
 }
