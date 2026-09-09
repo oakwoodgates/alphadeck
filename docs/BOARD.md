@@ -131,18 +131,26 @@ aggregate, never a call input (#4): it changes no membership, no order, no call;
 it exactly where it was. Re-computed per group per lens — the value-chain lens counts a multi-link name
 once per link (each link-row is a real membership).
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL|8 · RVOL|20 ·
-Ins 30d · Ins 90d · Mkt cap · Exit-by`.
+**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
+Ins 30d · Ins 90d · Mkt cap · Entry-by · Exit-by`.
+
+**The table scrolls in its own box** (`.basket-scroll`), because eighteen columns do not fit a laptop's
+main column beside the 380px call rail — before it, the overflow painted *over* the rail and those columns
+were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
+to the left, so scrolling the columns never costs a row its identity; the **column header** sticks to the
+top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left of its full-width row. The
+company name is capped with an ellipsis (the full name is on the hover and in the per-name panel) and the
+call rail collapses from the top bar (`?rail=0`) when the table wants its width back.
 
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
   fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).
-- **SMA · 1d/7d/30d/90d/1Y · RVOL|8 · RVOL|20 · Ins 30d · Ins 90d** — the read-only **display-signal**
+- **SMA · 1d/7d/30d/90d/1Y · RVOL 8D · RVOL 20D · Ins 30d · Ins 90d** — the read-only **display-signal**
   columns (the engine doc is `docs/DISPLAY_SIGNALS.md`): quiet per-name tape context bridged onto the row
   by `security_id`, **structurally off the call path**. SMA is the posture glyph + % vs the slow line; the
   ladder is the trailing EOD returns (green up / red down; `1d` = last close vs the prior close, not a
-  24h move; `1Y` = 252 trading bars); RVOL|8 is the as-of bar's volume vs its prior 8-bar mean (mirrors
-  the breakout detector — the **call-matched** read) and RVOL|20 the same over 20 bars (the "vs its month"
+  24h move; `1Y` = 252 trading bars); RVOL 8D is the as-of bar's volume vs its prior 8-bar mean (mirrors
+  the breakout detector — the **call-matched** read) and RVOL 20D the same over 20 bars (the "vs its month"
   trader convention, **call-decoupled**), each warming a 'hot' accent past its **own** loud threshold; the
   insider cells read `{open-market buys}/{distinct buyers}` per trailing window (a ≥2-buyer **cluster**
   takes the leader-blue accent — breadth is the tell). Every display cell is a muted "—" when absent — the
@@ -153,15 +161,21 @@ Ins 30d · Ins 90d · Mkt cap · Exit-by`.
   blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
   path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
   not a path). The one display column that is **not sortable** — a shape with no scalar to rank on.
-- **Mkt cap** — bridged from the scoring read ("—" when un-scored). **Exit-by** — the member's **own**
-  signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
+- **Mkt cap** — bridged from the scoring read ("—" when un-scored).
 
-**Inside that exit-by cell, an armed-family row (Armed / Lapsing / Theme-armed) also carries its
-entry-window (`arm_until`) clock** — "entry closes ‹date› · Nd", loud within a week or once lapsed (Slice
-2, #209). That is the **confirmation** clock, which actually governs how long the member STAYS armed and
-can fall a month before the `exit_by` "lapses" date the cell leads with (the live CRVO/MPLT confusion:
-"Armed · Dec 8" yet de-armed Jul 19). A **Watch**-tier row carries `arm_until` on the wire too but must
-NOT light it up — the gate is bucket-based, not presence-based (the load-bearing negative).
+**The two clocks are two columns — `Entry-by` then `Exit-by`, in the order they run out.** They were
+one stacked cell until the basket-table containment pass; separating them makes each **independently
+sortable**, and "which entry window closes soonest" is the sort the armed bucket actually wants.
+
+- **Entry-by** — the member's entry-window (`arm_until`) clock, "‹date› · Nd", loud within a week or
+  once lapsed (Slice 2, #209). This is the **confirmation** clock, which governs how long the member
+  STAYS armed, and it can fall a month before its `exit_by` (the live CRVO/MPLT confusion: "Armed ·
+  Dec 8" yet de-armed Jul 19). Rendered for the armed family ONLY (`ENTRY_WINDOW_BUCKETS` — Armed /
+  Lapsing / Theme-armed): a **Watch**-tier row carries `arm_until` on the wire too but must NOT light
+  it up, because watch is confirmation without conviction, so its clock is a **decay** rather than an
+  entry the system endorses. The gate is bucket-based, not presence-based (the load-bearing negative),
+  and the SAME set gates the sort key — a sort must rank what the cell shows, never a hidden value.
+- **Exit-by** — the member's **own** signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
 
 **Sorting — within-group, reversible, FE-only.** Clicking a column header ranks the basket by that
 column **inside each group** — the call hierarchy stays put (the biggest mover inside Quiet surfaces
@@ -204,7 +218,7 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   (the four meters — already fetched for the mkt-cap bridge).
 - **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
   the engine doc is `docs/DISPLAY_SIGNALS.md`): every registered member rendered uniformly as quiet
-  metric chips (SMA position + % distances, the trailing-return ladder, RVOL|8 / RVOL|20, insider
+  metric chips (SMA position + % distances, the trailing-return ladder, RVOL 8D / RVOL 20D, insider
   open-market buys, the 52w range, …), muted dated flip lines (price × 50d/200d crosses,
   golden/death), and a fine-print basis line (bars used · through-date — the show-the-work, #6).
   Honest gaps read "—" with the why ("n/a: 140/200 bars"); no data at all reads one muted line.

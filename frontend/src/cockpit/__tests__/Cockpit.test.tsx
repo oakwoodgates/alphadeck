@@ -62,6 +62,8 @@ describe("Cockpit — the basket Type cell (Business-Type M1)", () => {
         onBack={() => {}}
         selectedName={null}
         onSelectName={() => {}}
+        railOpen
+        onRailChange={() => {}}
       />,
     );
 
@@ -84,6 +86,8 @@ describe("Cockpit — the basket Type cell (Business-Type M1)", () => {
         onBack={() => {}}
         selectedName={null}
         onSelectName={() => {}}
+        railOpen
+        onRailChange={() => {}}
       />,
     );
     // The chip's DOM text is "ETF sleeve" — the `.btype { text-transform: uppercase }` is visual-only,
@@ -105,6 +109,8 @@ describe("Cockpit — the basket Type cell (Business-Type M1)", () => {
         onBack={() => {}}
         selectedName={null}
         onSelectName={() => {}}
+        railOpen
+        onRailChange={() => {}}
       />,
     );
     expect(screen.getByText("Mkt cap")).toBeInTheDocument(); // the new column header

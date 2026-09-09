@@ -16,6 +16,7 @@ import { groupMoving } from "./groupAggregate";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
+  ENTRY_WINDOW_BUCKETS,
   dedupeBySecurityId,
   groupBasket,
   groupByBusinessType,
@@ -51,18 +52,26 @@ interface Props {
    *  land with the panel already open. */
   selectedName: string | null;
   onSelectName: (key: string | null) => void;
+  /** The call rail's open state, URL-owned via ?rail= (App's CockpitRoute) alongside the as-of
+   *  dial and the name selection — so a collapse survives a reload without touching storage. */
+  railOpen: boolean;
+  onRailChange: (open: boolean) => void;
 }
 
-/** The entry-window (confirmation) clock, rendered inside an armed-family member's exit-by cell.
- *  This is the clock that actually governs how long the member STAYS armed — a member de-arms on
- *  `arm_until`, which can be a month before the exit_by "lapses" date the cell leads with (the live
- *  CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19). Loud (`.closing`) inside a week or
- *  once lapsed; muted otherwise. Mirrors the NamePanel two-clock idiom. */
+/** The Entry-by cell: the entry-window (confirmation) clock. This is the clock that actually
+ *  governs how long a member STAYS armed — it de-arms on `arm_until`, which can be a month before
+ *  the exit_by date beside it (the live CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19),
+ *  which is why the two clocks are separate, separately sortable columns rather than one stacked
+ *  cell. Loud (`.closing`) inside a week or once lapsed; muted otherwise. Mirrors the NamePanel
+ *  two-clock idiom, whose labels carry the full wording. */
 function EntryWindow({ asof, armUntil }: { asof: string; armUntil: string }) {
   const armDays = daysFrom(asof, armUntil);
   return (
-    <span className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}>
-      entry closes {fmtDate(armUntil)}
+    <span
+      className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}
+      title="the entry window — the member de-arms on this date, often well before its exit-by"
+    >
+      {fmtDate(armUntil)}
       {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
     </span>
   );
@@ -76,18 +85,23 @@ function SortableTh({
   col,
   label,
   align = "left",
+  className,
   sort,
   onSort,
 }: {
   col: SortColId;
   label: string;
   align?: "left" | "right";
+  /** Extra class on the <th> — the sticky identity column's hook. Never touches the button, so
+   *  the header's accessible NAME stays exactly the label. */
+  className?: string;
   sort: SortState | null;
   onSort: (col: SortColId) => void;
 }) {
   const dir = sort && sort.col === col ? sort.dir : null;
   return (
     <th
+      className={className}
       aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none"}
       style={{ textAlign: align }}
     >
@@ -115,6 +129,8 @@ export function Cockpit({
   onBack,
   selectedName,
   onSelectName,
+  railOpen,
+  onRailChange,
 }: Props) {
   const thesisQ = useThesis(thesisId);
   const callQ = useCall(thesisId, asof);
@@ -347,9 +363,33 @@ export function Cockpit({
           as-of
           <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
         </label>
+        {/* Collapse the call rail to hand its fixed 380px back to the basket table — a third of a
+            laptop viewport, and the table's 17 columns want all of it (MEASURED at 1091px: 610px
+            of horizontal scroll -> 230px). A view dial, not a navigation: it rides ?rail=0,
+            reverses in one click, and never unmounts the call from the query (the state badge
+            above and the per-name panel read the same card). */}
+        <button
+          type="button"
+          className="rail-toggle"
+          aria-expanded={railOpen}
+          aria-controls="cp-rail"
+          title={
+            railOpen
+              ? "Collapse the call rail — gives its width back to the basket table"
+              : "Show the call rail"
+          }
+          onClick={() => onRailChange(!railOpen)}
+        >
+          {/* the chevron is aria-hidden (the .th-sort idiom): the button's accessible NAME stays
+              exactly "Call" through both states — aria-expanded carries the state, not the label */}
+          <span className="chev" aria-hidden="true">
+            {railOpen ? "›" : "‹"}
+          </span>
+          Call
+        </button>
       </header>
 
-      <div className="cp-body">
+      <div className={`cp-body${railOpen ? "" : " rail-closed"}`}>
         <main className="cp-main">
           {thesisQ.isLoading && <p className="muted">Loading thesis…</p>}
           {thesisQ.error && <p style={{ color: "var(--neg)" }}>Failed to load the thesis.</p>}
@@ -448,258 +488,285 @@ export function Cockpit({
                 {/* every value in this table (the call-state dots, the scored cells, the display
                     columns) is as-of-keyed and keeps its PREVIOUS values through a scrub — dimmed
                     while the new ones compute, never presented as the new date's numbers (C2) */}
-                <table className={`basket${tableRecomputing ? " recomputing" : ""}`}>
-                  <thead>
-                    {/* Click a header to rank the basket by that column — WITHIN each group (the
-                        call hierarchy stays; the biggest mover inside Quiet still surfaces). A "—"
-                        cell is ABSENT and sorts LAST in both directions (#9/#2); the sort re-orders,
-                        never drops. The status-dot column is not sortable. */}
-                    <tr>
-                      <th className="dotc" aria-label="status" />
-                      <SortableTh col="ticker" label="Ticker" sort={sort} onSort={onSort} />
-                      <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
-                      <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
-                      <SortableTh col="sma" label="SMA" align="right" sort={sort} onSort={onSort} />
-                      {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
-                          24h/intraday move; this platform is end-of-day) */}
-                      <SortableTh col="ret_1d" label="1d" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="ret_7d" label="7d" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="ret_30d" label="30d" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="ret_90d" label="90d" align="right" sort={sort} onSort={onSort} />
-                      {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
-                      <SortableTh col="ret_1y" label="1Y" align="right" sort={sort} onSort={onSort} />
-                      {/* the close-PATH sparkline — the shape behind the ladder's endpoint numbers
-                          (the price_path member's fixed-slot series). A plain, NON-sortable header:
-                          a shape is not a number to rank on, so it never joins the sort machinery. */}
-                      <th
-                        className="sparkc"
-                        style={{ textAlign: "right" }}
-                        title="the recent close path, one slot per trading bar (newest at the right) — hover a cell for its exact bars; a shape, not a number, so it is not sortable"
-                      >
-                        Path
-                      </th>
-                      {/* relative volume, two windows off ONE member: RVOL|8 is the as-of bar's volume
-                          vs the prior 8-bar average (mirrors the breakout detector — the call-matched
-                          read); RVOL|20 is the same idea over 20 bars (the trader "unusually active vs
-                          its month?" convention, deliberately call-decoupled). A warm accent marks the
-                          volume-backed exception, #7 — each column off its OWN threshold. */}
-                      <SortableTh col="rvol8" label="RVOL|8" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="rvol20" label="RVOL|20" align="right" sort={sort} onSort={onSort} />
-                      {/* insider open-market buys: {buys}/{distinct buyers} per trailing window,
-                          short before long (matching the return ladder). A ≥2-buyer cluster accents
-                          — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—".
-                          Sort is buyers-primary, buys-secondary (breadth-first, matching the accent). */}
-                      <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
-                      <SortableTh col="exit_by" label="Exit-by" align="right" sort={sort} onSort={onSort} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedGroups.map((g) => (
-                      <Fragment key={g.key}>
-                        <tr className={`grp ${g.cls}`}>
-                          <td colSpan={17}>
-                            {/* the To Review heading idiom (chev · label · hint · count · moving
-                                line · hairline), bucket-colored; click-to-collapse, open by default
-                                — the count + the moving line stay visible while closed, so a
-                                collapsed bucket never reads as dropped */}
-                            <button
-                              type="button"
-                              className="grp-h"
-                              aria-expanded={!closedGroups.has(g.key)}
-                              onClick={() => toggleGroup(g.key)}
-                            >
-                              {/* one glyph, rotated closed — the swap read as a flicker */}
-                              <span className="chev">▾</span>
-                              <span className="lbl">{g.label}</span>
-                              {g.hint && <em className="hint">· {g.hint}</em>}
-                              {/* the FULL group size — every row counts, priced or not (#9) */}
-                              <span className="ct">
-                                · {g.rows.length} {g.rows.length === 1 ? "name" : "names"}
-                              </span>
-                              {/* "is this group moving?" — the MEDIAN 7d return over the group's
-                                  priced rows, off the SAME ret_7d the 7d cells show (client-side,
-                                  zero wire); "—" below three priced. Muted, always-present context
-                                  — never a badge, never a call input (#4/#7). Per group, per lens. */}
-                              <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
-                            </button>
-                          </td>
-                        </tr>
-                        {/* folded rows stay MOUNTED and visibility-COLLAPSE (never unmount):
-                            a collapsed row still feeds the column-width algorithm, so folding
-                            the bucket with the widest cells can't re-flow the columns */}
-                        {g.rows.map(({ row: r, def }) => (
-                          <tr
-                            key={r.ordinal}
-                            className={`bkt ${def.cls}${closedGroups.has(g.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
-                            tabIndex={0}
-                            aria-selected={r.ordinal === selOrdinal}
-                            onClick={() => toggleRow(r)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                toggleRow(r);
-                              }
-                            }}
-                          >
-                            <td className="dotc">
-                              {/* the CALL-STATE dot rides the row's own def in BOTH lenses — the
-                                  type lens re-groups, it never hides the call */}
-                              <span className="rowdot" title={def.label} />
-                            </td>
-                            <td className="tk">
-                              {r.member.ticker}
-                              {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest
-                                  loudness). A data-health mark, never a call input. */}
-                              {r.scored?.thin_price_history && (
-                                <span
-                                  className="thin-mark"
-                                  title="thin price history — history-window signals may be starved"
-                                >
-                                  ⚠
+                {/* The 17 columns do not fit the main column on a laptop (MEASURED: 1025px of
+                    min-content into 649px of room at a 1091px viewport). Before this they simply
+                    painted OVER the rail — the page never scrolled, so those columns were
+                    unreachable. The table now scrolls inside its own box; see .basket-scroll for
+                    why it also carries min-width: max-content. */}
+                <div className="basket-scroll">
+                  <table className={`basket${tableRecomputing ? " recomputing" : ""}`}>
+                    <thead>
+                      {/* Click a header to rank the basket by that column — WITHIN each group (the
+                          call hierarchy stays; the biggest mover inside Quiet still surfaces). A "—"
+                          cell is ABSENT and sorts LAST in both directions (#9/#2); the sort re-orders,
+                          never drops. The status-dot column is not sortable. */}
+                      <tr>
+                        <th className="dotc" aria-label="status" />
+                        <SortableTh col="ticker" label="Ticker" className="tk" sort={sort} onSort={onSort} />
+                        <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
+                        <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
+                        <SortableTh col="sma" label="SMA" align="right" sort={sort} onSort={onSort} />
+                        {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
+                            24h/intraday move; this platform is end-of-day) */}
+                        <SortableTh col="ret_1d" label="1d" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="ret_7d" label="7d" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="ret_30d" label="30d" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="ret_90d" label="90d" align="right" sort={sort} onSort={onSort} />
+                        {/* 1Y = 252 trading bars (the same bar convention as the shorter windows) */}
+                        <SortableTh col="ret_1y" label="1Y" align="right" sort={sort} onSort={onSort} />
+                        {/* the close-PATH sparkline — the shape behind the ladder's endpoint numbers
+                            (the price_path member's fixed-slot series). A plain, NON-sortable header:
+                            a shape is not a number to rank on, so it never joins the sort machinery. */}
+                        <th
+                          className="sparkc"
+                          style={{ textAlign: "right" }}
+                          title="the recent close path, one slot per trading bar (newest at the right) — hover a cell for its exact bars; a shape, not a number, so it is not sortable"
+                        >
+                          Path
+                        </th>
+                        {/* relative volume, two windows off ONE member: RVOL 8D is the as-of bar's volume
+                            vs the prior 8-bar average (mirrors the breakout detector — the call-matched
+                            read); RVOL 20D is the same idea over 20 bars (the trader "unusually active vs
+                            its month?" convention, deliberately call-decoupled). A warm accent marks the
+                            volume-backed exception, #7 — each column off its OWN threshold. */}
+                        <SortableTh col="rvol8" label="RVOL 8D" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="rvol20" label="RVOL 20D" align="right" sort={sort} onSort={onSort} />
+                        {/* insider open-market buys: {buys}/{distinct buyers} per trailing window,
+                            short before long (matching the return ladder). A ≥2-buyer cluster accents
+                            — breadth is the conviction tell; a lone buyer shows un-accented, 0 is "—".
+                            Sort is buyers-primary, buys-secondary (breadth-first, matching the accent). */}
+                        <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
+                        {/* the two clocks, each its own sortable column (they were one stacked
+                            cell): Entry-by is the CONFIRMATION clock — when the member de-arms —
+                            and it closes weeks before Exit-by, the conviction/hold horizon. */}
+                        <SortableTh col="entry_by" label="Entry-by" align="right" sort={sort} onSort={onSort} />
+                        <SortableTh col="exit_by" label="Exit-by" align="right" sort={sort} onSort={onSort} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedGroups.map((g) => (
+                        <Fragment key={g.key}>
+                          <tr className={`grp ${g.cls}`}>
+                            <td colSpan={18}>
+                              {/* the To Review heading idiom (chev · label · hint · count · moving
+                                  line · hairline), bucket-colored; click-to-collapse, open by default
+                                  — the count + the moving line stay visible while closed, so a
+                                  collapsed bucket never reads as dropped */}
+                              <button
+                                type="button"
+                                className="grp-h"
+                                aria-expanded={!closedGroups.has(g.key)}
+                                onClick={() => toggleGroup(g.key)}
+                              >
+                                {/* the heading TEXT is one box so it can stick to the left of the scroller: the row
+                                    spans the full table, so without this "Armed · act now · 7 names" slides out of
+                                    view the moment you scroll the columns. The trailing hairline stays outside it,
+                                    still flexing to the right edge. */}
+                                <span className="grp-lbl">
+                                  {/* one glyph, rotated closed — the swap read as a flicker */}
+                                  <span className="chev">▾</span>
+                                  <span className="lbl">{g.label}</span>
+                                  {g.hint && <em className="hint">· {g.hint}</em>}
+                                  {/* the FULL group size — every row counts, priced or not (#9) */}
+                                  <span className="ct">
+                                    · {g.rows.length} {g.rows.length === 1 ? "name" : "names"}
+                                  </span>
+                                  {/* "is this group moving?" — the MEDIAN 7d return over the group's
+                                      priced rows, off the SAME ret_7d the 7d cells show (client-side,
+                                      zero wire); "—" below three priced. Muted, always-present context
+                                      — never a badge, never a call input (#4/#7). Per group, per lens. */}
+                                  <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
                                 </span>
-                              )}
-                            </td>
-                            <td className="co">
-                              {r.scored?.name ?? <span className="muted">—</span>}
-                            </td>
-                            <td>
-                              {/* the business-type LEAF (Business-Type M1) — derived from the SIC
-                                  maps server-side, joined off the scored read; the super rides the
-                                  hover, ◈ marks the royalty overlay (honest loudness — 32 names
-                                  live). An ETF keys on instrument_kind (a fund has no SIC); an
-                                  un-enriched name reads a quiet "—", never a guess. */}
-                              {r.scored?.instrument_kind === "etf" ? (
-                                <span className="btype bt-etf">ETF sleeve</span>
-                              ) : r.scored?.business_type ? (
-                                <span
-                                  className={`btype bt-${r.scored.business_supersector ?? "other"}`}
-                                  title={`${supersectorLabel(r.scored.business_supersector)}${
-                                    r.scored.business_type_override ? " · your tag" : " · from SIC"
-                                  }${r.scored.royalty ? " · royalty/streaming" : ""}`}
-                                >
-                                  {businessTypeLabel(r.scored.business_type)}
-                                  {r.scored.royalty && <span className="bt-royalty">◈</span>}
-                                </span>
-                              ) : (
-                                <span className="muted">—</span>
-                              )}
-                            </td>
-                            <td className="met smac">
-                              {/* the tape posture at table grain: the panel headline's glyph + the
-                                  distance vs the slow line; the literal statement rides the hover */}
-                              <PostureCell
-                                sig={
-                                  r.member.security_id
-                                    ? (smaBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                              />
-                            </td>
-                            {/* trailing returns (1d/7d/30d/90d/1Y) — five cells from the trailing_returns
-                                display member, bridged by security_id; green up / red down, "—" on a
-                                thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
-                            <ReturnCells
-                              sig={
-                                r.member.security_id
-                                  ? (trailBySid.get(r.member.security_id) ?? null)
-                                  : null
-                              }
-                            />
-                            <td className="met sparkc">
-                              {/* the close-path sparkline off the price_path member's fixed-slot
-                                  series: a neutral hairline that BREAKS on a gap (a young name draws
-                                  a shorter, right-aligned path), "—" below two closes. On the
-                                  per-name row, so it renders in BOTH lenses. */}
-                              <SparklineCell
-                                sig={
-                                  r.member.security_id
-                                    ? (pathBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                              />
-                            </td>
-                            <td className="met rvolc">
-                              {/* RVOL|8 — the call-matched 8-bar read: a warm 'hot' accent on a
-                                  volume-backed move (>= the wire's loud_mult), "—" on a
-                                  volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
-                              <RvolCell
-                                sig={
-                                  r.member.security_id
-                                    ? (rvolBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                              />
-                            </td>
-                            <td className="met rvolc">
-                              {/* RVOL|20 — the 20-bar trader-convention read (call-decoupled), off
-                                  the SAME member's second metric, accenting from its OWN threshold
-                                  (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
-                              <RvolCell
-                                sig={
-                                  r.member.security_id
-                                    ? (rvolBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                                metricKey="rvol20"
-                                loudKey="loud_mult_20"
-                              />
-                            </td>
-                            {/* insider open-market buys — {buys}/{distinct buyers} off the
-                                insider_flow_90d member's 30d / 90d metrics, bridged by security_id.
-                                Renders in BOTH lenses (per-name row); a ≥2-buyer cluster accents. */}
-                            <td className="met insc">
-                              <InsiderCell
-                                sig={
-                                  r.member.security_id
-                                    ? (insiderBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                                countKey="buy_count_30d"
-                                buyersKey="distinct_buyers_30d"
-                                window="30d"
-                              />
-                            </td>
-                            <td className="met insc">
-                              <InsiderCell
-                                sig={
-                                  r.member.security_id
-                                    ? (insiderBySid.get(r.member.security_id) ?? null)
-                                    : null
-                                }
-                                countKey="buy_count"
-                                buyersKey="distinct_buyers"
-                                window="90d"
-                              />
-                            </td>
-                            <td className="met">
-                              {/* computed market cap (the scoring engine, re-derived on read),
-                                  bridged by security_id — "—" when un-scored / no price+shares facts */}
-                              {formatMarketCap(r.scored?.market_cap.value)}
-                            </td>
-                            <td className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}>
-                              {r.call?.exit_by
-                                ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
-                                : "—"}
-                              {/* the entry-window (confirmation) clock — the clock that governs how
-                                  long an armed-family member STAYS armed (it de-arms on arm_until,
-                                  often well before exit_by). Armed / Lapsing / Theme-armed only; a
-                                  Watch row also carries arm_until on the wire but must NOT light up
-                                  (honest loudness). */}
-                              {(def.key === "armed" ||
-                                def.key === "lapsing" ||
-                                def.key === "theme_armed") &&
-                                r.call?.arm_until && (
-                                  <EntryWindow asof={asof} armUntil={r.call.arm_until} />
-                                )}
+                              </button>
                             </td>
                           </tr>
-                        ))}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
+                          {/* folded rows stay MOUNTED and visibility-COLLAPSE (never unmount):
+                              a collapsed row still feeds the column-width algorithm, so folding
+                              the bucket with the widest cells can't re-flow the columns */}
+                          {g.rows.map(({ row: r, def }) => (
+                            <tr
+                              key={r.ordinal}
+                              className={`bkt ${def.cls}${closedGroups.has(g.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
+                              tabIndex={0}
+                              aria-selected={r.ordinal === selOrdinal}
+                              onClick={() => toggleRow(r)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  toggleRow(r);
+                                }
+                              }}
+                            >
+                              <td className="dotc">
+                                {/* the CALL-STATE dot rides the row's own def in BOTH lenses — the
+                                    type lens re-groups, it never hides the call */}
+                                <span className="rowdot" title={def.label} />
+                              </td>
+                              <td className="tk">
+                                {r.member.ticker}
+                                {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest
+                                    loudness). A data-health mark, never a call input. */}
+                                {r.scored?.thin_price_history && (
+                                  <span
+                                    className="thin-mark"
+                                    title="thin price history — history-window signals may be starved"
+                                  >
+                                    ⚠
+                                  </span>
+                                )}
+                              </td>
+                              <td className="co">
+                                {/* the hungriest column in the table — the longest company name in a
+                                    196-row basket wanted 293px. Capped with an ellipsis; the full
+                                    name rides the hover and the per-name panel (it hides, it never
+                                    vanishes). */}
+                                {r.scored?.name ? (
+                                  <span className="co-name" title={r.scored.name}>
+                                    {r.scored.name}
+                                  </span>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td>
+                                {/* the business-type LEAF (Business-Type M1) — derived from the SIC
+                                    maps server-side, joined off the scored read; the super rides the
+                                    hover, ◈ marks the royalty overlay (honest loudness — 32 names
+                                    live). An ETF keys on instrument_kind (a fund has no SIC); an
+                                    un-enriched name reads a quiet "—", never a guess. */}
+                                {r.scored?.instrument_kind === "etf" ? (
+                                  <span className="btype bt-etf">ETF sleeve</span>
+                                ) : r.scored?.business_type ? (
+                                  <span
+                                    className={`btype bt-${r.scored.business_supersector ?? "other"}`}
+                                    title={`${supersectorLabel(r.scored.business_supersector)}${
+                                      r.scored.business_type_override ? " · your tag" : " · from SIC"
+                                    }${r.scored.royalty ? " · royalty/streaming" : ""}`}
+                                  >
+                                    {businessTypeLabel(r.scored.business_type)}
+                                    {r.scored.royalty && <span className="bt-royalty">◈</span>}
+                                  </span>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td className="met smac">
+                                {/* the tape posture at table grain: the panel headline's glyph + the
+                                    distance vs the slow line; the literal statement rides the hover */}
+                                <PostureCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (smaBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                />
+                              </td>
+                              {/* trailing returns (1d/7d/30d/90d/1Y) — five cells from the trailing_returns
+                                  display member, bridged by security_id; green up / red down, "—" on a
+                                  thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
+                              <ReturnCells
+                                sig={
+                                  r.member.security_id
+                                    ? (trailBySid.get(r.member.security_id) ?? null)
+                                    : null
+                                }
+                              />
+                              <td className="met sparkc">
+                                {/* the close-path sparkline off the price_path member's fixed-slot
+                                    series: a neutral hairline that BREAKS on a gap (a young name draws
+                                    a shorter, right-aligned path), "—" below two closes. On the
+                                    per-name row, so it renders in BOTH lenses. */}
+                                <SparklineCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (pathBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                />
+                              </td>
+                              <td className="met rvolc">
+                                {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a
+                                    volume-backed move (>= the wire's loud_mult), "—" on a
+                                    volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
+                                <RvolCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (rvolBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                />
+                              </td>
+                              <td className="met rvolc">
+                                {/* RVOL 20D — the 20-bar trader-convention read (call-decoupled), off
+                                    the SAME member's second metric, accenting from its OWN threshold
+                                    (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
+                                <RvolCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (rvolBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                  metricKey="rvol20"
+                                  loudKey="loud_mult_20"
+                                />
+                              </td>
+                              {/* insider open-market buys — {buys}/{distinct buyers} off the
+                                  insider_flow_90d member's 30d / 90d metrics, bridged by security_id.
+                                  Renders in BOTH lenses (per-name row); a ≥2-buyer cluster accents. */}
+                              <td className="met insc">
+                                <InsiderCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (insiderBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                  countKey="buy_count_30d"
+                                  buyersKey="distinct_buyers_30d"
+                                  window="30d"
+                                />
+                              </td>
+                              <td className="met insc">
+                                <InsiderCell
+                                  sig={
+                                    r.member.security_id
+                                      ? (insiderBySid.get(r.member.security_id) ?? null)
+                                      : null
+                                  }
+                                  countKey="buy_count"
+                                  buyersKey="distinct_buyers"
+                                  window="90d"
+                                />
+                              </td>
+                              <td className="met">
+                                {/* computed market cap (the scoring engine, re-derived on read),
+                                    bridged by security_id — "—" when un-scored / no price+shares facts */}
+                                {formatMarketCap(r.scored?.market_cap.value)}
+                              </td>
+                              {/* Armed / Lapsing / Theme-armed only (ENTRY_WINDOW_BUCKETS, shared
+                                  with the sort key): a Watch row carries arm_until on the wire too
+                                  but must NOT light up — its clock is a confirmation decay, not an
+                                  entry the system is endorsing (honest loudness). */}
+                              <td className="met entryby">
+                                {ENTRY_WINDOW_BUCKETS.has(def.key) && r.call?.arm_until ? (
+                                  <EntryWindow asof={asof} armUntil={r.call.arm_until} />
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}>
+                                {r.call?.exit_by
+                                  ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </section>
 
               {evidence.length > 0 && (
@@ -757,6 +824,8 @@ export function Cockpit({
             (keepPreviousData) instead of blanking — so it is dimmed and says so, and the card's own
             "as-of" line stays the authority on which date it answers. */}
         <aside
+          id="cp-rail"
+          hidden={!railOpen}
           className={`cp-rail${selected ? " dimmed" : ""}${callQ.isPlaceholderData ? " recomputing" : ""}`}
         >
           {callQ.isPlaceholderData && (

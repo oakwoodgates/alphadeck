@@ -86,6 +86,8 @@ function renderCockpit() {
       onBack={() => {}}
       selectedName={null}
       onSelectName={() => {}}
+      railOpen
+      onRailChange={() => {}}
     />,
   );
 }
@@ -104,7 +106,7 @@ describe("Cockpit — the close-path sparkline column (Path)", () => {
     );
     expect(headers.indexOf("Path")).toBe(headers.indexOf("1Y") + 1);
     // the existing headers resolve by their EXACT accessible names and stay sortable
-    for (const name of ["30d", "90d", "1Y", "RVOL|8", "RVOL|20", "Ins 30d", "Ins 90d"]) {
+    for (const name of ["30d", "90d", "1Y", "RVOL 8D", "RVOL 20D", "Ins 30d", "Ins 90d"]) {
       const s = screen.getByRole("columnheader", { name });
       expect(s).toHaveAttribute("aria-sort", "none");
       expect(s.querySelector("button.th-sort")).not.toBeNull();
@@ -154,12 +156,12 @@ describe("Cockpit — the close-path sparkline column (Path)", () => {
     expect(within(cell).queryByRole("img")).toBeNull();
   });
 
-  it("keeps the column in the business-type lens and spans the group row across all 17 columns", () => {
+  it("keeps the column in the business-type lens and spans the group row across all 18 columns", () => {
     const { container } = renderCockpit();
     fireEvent.click(screen.getByRole("button", { name: "business type" }));
     expect(screen.getByRole("columnheader", { name: "Path" })).toBeInTheDocument();
     expect(within(rowOf("OKLO")).getByRole("img", { name: "price path, 90 bars" })).toBeInTheDocument();
     const grpCell = container.querySelector("tr.grp > td") as HTMLTableCellElement;
-    expect(grpCell.colSpan).toBe(17);
+    expect(grpCell.colSpan).toBe(18);
   });
 });

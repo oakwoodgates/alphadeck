@@ -10,8 +10,33 @@ import {
   verdictLabel,
 } from "../util/format";
 import { DecisionActions } from "./DecisionActions";
+import { RailPanel } from "./RailPanel";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
+
+/** The counter-case, as a COUNT of the two lists rendered above it rather than a restatement of
+ *  them. The wire's `counter_case` string is deliberately NOT read: it is assembled server-side as
+ *  `"Active risk signals: " + join(labels)` + kill criteria + `"Still missing: " + join(missing)`
+ *  off the SAME `active_risk` list that becomes `card.risk_signals`, so it carries nothing the card
+ *  is not already showing. Measured across all 12 live theses: 8 rebuild byte-for-byte from
+ *  `risk_signals` + `missing`, and the other four's remainder is a kill-criteria restatement (its
+ *  own Cockpit section) plus one caveat sentence already on the Confirmation key tile above. The
+ *  prose also DROPS what the rows keep — ticker, kind, event date, sources — so it was the same
+ *  content, degraded, at ~7,900px of rail.
+ *
+ *  Phrased off the two section headings ("Risk signals", "Still missing") so it reads as a summary
+ *  OF them, not a separate claim. Display arithmetic over the card's own lists — never a new fact. */
+export function counterCaseSummary(risks: TriggerLike[], missing: string[]): string {
+  const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const names = new Set(risks.map((r) => r.ticker).filter(Boolean));
+  const parts: string[] = [];
+  if (risks.length) {
+    const across = names.size ? ` across ${n(names.size, "name")}` : "";
+    parts.push(`${n(risks.length, "active risk signal")}${across}`);
+  }
+  if (missing.length) parts.push(`${missing.length} still missing`);
+  return parts.length ? parts.join(" · ") : "No active risk signals, nothing still missing.";
+}
 
 // The rail: the opinionated, auditable call. Recomputed live at `card.asof` (the read path).
 // With `thesisId` the action row wires to the operator-decisions log (the Cockpit); without it the
@@ -86,17 +111,15 @@ export function CallCard({
         )}
 
         {triggers.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Triggers fired</div>
+          <RailPanel label="Triggers fired" count={triggers.length}>
             {triggers.map((t, i) => (
               <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade />
             ))}
-          </div>
+          </RailPanel>
         )}
 
         {missing.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Still missing</div>
+          <RailPanel label="Still missing" count={missing.length}>
             {missing.map((m, i) => {
               // the assembler bundles insider + structural catalyst into ONE conviction line; a foreign
               // filer scopes the note to the INSIDER half only — the key is NOT dead (a structural or theme
@@ -118,24 +141,21 @@ export function CallCard({
                 </div>
               );
             })}
-          </div>
+          </RailPanel>
         )}
 
         {risks.length > 0 && (
-          <div className="trg">
-            <div className="trg-h">Risk signals</div>
+          <RailPanel label="Risk signals" count={risks.length}>
             {risks.map((r, i) => (
               <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
             ))}
-          </div>
+          </RailPanel>
         )}
 
-        {card.counter_case && (
-          <div className="counter">
-            <b>Counter-case</b>
-            {card.counter_case}
-          </div>
-        )}
+        <div className="counter">
+          <b>Counter-case</b>
+          {counterCaseSummary(risks, missing)}
+        </div>
 
         {(card.arm_until || card.exit_by) && (
           <div className="clocks">
