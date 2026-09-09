@@ -80,9 +80,14 @@ body {
 .cp-body { flex: 1; display: grid; grid-template-columns: 1fr 380px; }
 /* the rail collapsed: its 380px track goes to the basket table (the toggle lives in .cp-top) */
 .cp-body.rail-closed { grid-template-columns: 1fr; }
-@media (max-width: 880px) { .cp-body { grid-template-columns: 1fr; } }
 .cp-main { padding: 22px 26px 60px; min-width: 0; }
-.cp-rail { border-left: 1px solid var(--line); background: var(--bg-2); padding: 20px 20px 60px; }
+/* The rail scrolls itself and stays put. MEASURED, it is what makes this page long: a 222-trigger
+   call card ran the rail to 25,438px and the document to 25,491px — 94% of the page's scroll —
+   against a main column of 1,483px. That is also what could carry the basket table (and its
+   sticky header) off the top of the screen. Bounded and pinned, the page collapses to the main
+   column's own height, the table can no longer be scrolled out of view, and the call stays
+   readable beside the basket instead of being somewhere 20,000px down. */
+.cp-rail { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; border-left: 1px solid var(--line); background: var(--bg-2); padding: 20px 20px 60px; }
 
 /* ===== main column sections ===== */
 .sect { margin-bottom: 26px; }
@@ -127,6 +132,17 @@ table.basket thead th {
 /* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
    body's sticky identity columns (1) */
 table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
+
+/* Stacked (the rail drops BELOW the table): neither box owns a vertical scroll — the page does.
+   A pinned rail here would cover the table it now follows, and a capped table would strand the
+   rail under a scrollbar. Horizontal scroll stays; the columns are still wider than the column.
+   (The Workbench drops .wb-body's own overflow at this same breakpoint, for the same reason.)
+   This block sits AFTER the rules it overrides on purpose — a media query adds no specificity. */
+@media (max-width: 880px) {
+  .cp-body { grid-template-columns: 1fr; }
+  .cp-rail { position: static; max-height: none; overflow-y: visible; }
+  .basket-scroll { max-height: none; }
+}
 table.basket { width: 100%; min-width: max-content; border-collapse: collapse; font-size: 12px; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
