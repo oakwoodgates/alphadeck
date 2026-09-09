@@ -230,7 +230,10 @@ series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RV
 `Ins 30d` / `Ins 90d` — each bridged onto its row by `security_id` and holding the same discipline: a
 muted "—" is the default, an accent marks the exception (#7). The columns are individually sortable
 **within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path`, a
-shape with no scalar to rank on — the surface detail lives in `docs/BOARD.md`.
+shape with no scalar to rank on. Each **group header** (all three lenses) also carries a client-side
+**7d median** over its priced rows — `· N names · 7d median ±X.X%`, the same `ret_7d` the column
+shows; "—" under three priced; N the full group — a display AGGREGATE that reads the column and
+feeds nothing (#4). The surface detail lives in `docs/BOARD.md`.
 
 **Perf note (built — Board/Cockpit perf PR-1b).** Each member still does its own PIT read, but the
 display route builds ONE `PointInTimeData` per request with the resolved basket as its **prefetch scope**

@@ -6,6 +6,7 @@ import type {
 } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import { insiderNaLabel } from "../workbench/format";
+import { AGG_MIN_PRICED, AGG_RETURN_KEY, type GroupMoving } from "./groupAggregate";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
  *  backend member renders with ZERO frontend change (the framework's whole point). */
@@ -98,6 +99,33 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
         );
       })}
     </>
+  );
+}
+
+/** The group header's "is this group moving?" line (every grouped lens): `· 7d median ±X.X%` off the
+ *  `groupMoving` aggregate — the MEDIAN 7d return over the group's PRICED rows (the same `ret_7d` the
+ *  7d cells show, computed client-side), or a muted "—" below `AGG_MIN_PRICED` priced rows. Renders
+ *  in the cells' own pct format (fmtMetricValue: signed, 1dp) and tints MUTED green up / red down —
+ *  always-present context, not a badge, so no threshold accent and nothing flashes (#7 / interaction
+ *  principle #3); a flat 0.0% stays neutral. The population ("5 priced of 6 names") rides the hover
+ *  title (show the work, #6). A display aggregate, never a call input (#4). */
+export function GroupMovingLine({ stat }: { stat: GroupMoving }) {
+  const { n, priced, median } = stat;
+  const names = n === 1 ? "name" : "names";
+  const title =
+    median == null
+      ? `no median below ${AGG_MIN_PRICED} priced names (${priced} of ${n} priced)`
+      : `median 7d return over the ${priced} priced of ${n} ${names}`;
+  const tone = median == null ? "na" : median > 0 ? "pos" : median < 0 ? "neg" : "";
+  return (
+    <span className="agg" title={title}>
+      · 7d median{" "}
+      <span className={`aggv${tone ? ` ${tone}` : ""}`}>
+        {median == null
+          ? "—"
+          : fmtMetricValue({ key: AGG_RETURN_KEY, label: "7d median", value: median, unit: "pct" })}
+      </span>
+    </span>
   );
 }
 

@@ -5,12 +5,14 @@ import type { DisplaySignal } from "../api/hooks";
 import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import {
+  GroupMovingLine,
   InsiderCell,
   PostureCell,
   ReturnCells,
   RvolCell,
   SparklineCell,
 } from "./DisplaySignalsSection";
+import { groupMoving } from "./groupAggregate";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -281,6 +283,10 @@ export function Cockpit({
   const sortedGroups = sort
     ? renderGroups.map((g) => ({ ...g, rows: sortRenderRows(g.rows, sort, signalsFor) }))
     : renderGroups;
+  // The group header's moving line reads ONLY the trail signal (the 7d column's own member), over
+  // the SAME sid bridge as the cells and the sort — so the header's "priced" set is exactly the
+  // rows whose 7d cell shows a number. Computed per group at render, in every lens.
+  const trailFor = (r: BucketRow) => signalsFor(r).trail;
 
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
@@ -494,9 +500,10 @@ export function Cockpit({
                       <Fragment key={g.key}>
                         <tr className={`grp ${g.cls}`}>
                           <td colSpan={17}>
-                            {/* the To Review heading idiom (chev · label · hint · count · hairline),
-                                bucket-colored; click-to-collapse, open by default — the count stays
-                                visible while closed, so a collapsed bucket never reads as dropped */}
+                            {/* the To Review heading idiom (chev · label · hint · count · moving
+                                line · hairline), bucket-colored; click-to-collapse, open by default
+                                — the count + the moving line stay visible while closed, so a
+                                collapsed bucket never reads as dropped */}
                             <button
                               type="button"
                               className="grp-h"
@@ -507,7 +514,15 @@ export function Cockpit({
                               <span className="chev">▾</span>
                               <span className="lbl">{g.label}</span>
                               {g.hint && <em className="hint">· {g.hint}</em>}
-                              <span className="ct">· {g.rows.length}</span>
+                              {/* the FULL group size — every row counts, priced or not (#9) */}
+                              <span className="ct">
+                                · {g.rows.length} {g.rows.length === 1 ? "name" : "names"}
+                              </span>
+                              {/* "is this group moving?" — the MEDIAN 7d return over the group's
+                                  priced rows, off the SAME ret_7d the 7d cells show (client-side,
+                                  zero wire); "—" below three priced. Muted, always-present context
+                                  — never a badge, never a call input (#4/#7). Per group, per lens. */}
+                              <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
                             </button>
                           </td>
                         </tr>
