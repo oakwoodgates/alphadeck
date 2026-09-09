@@ -366,6 +366,17 @@ risk signals, and the `missing[]` triggers. It cites existing evidence IDs only 
 state/verdict/grade/triggers. If the LLM is unavailable, fall back to a deterministic template listing
 kill-criteria + missing triggers.
 
+**The Cockpit rail does not render that string.** The `counter_case_fn` hook is unwired, so every
+counter-case today is the deterministic template — and the template joins the SAME `active_risk` list
+that becomes `card.risk_signals`, plus `missing[]`, both of which the rail already renders as their own
+sections with the ticker, kind, event date and sources the prose drops. Measured across the 12 live
+theses: 8 rebuild byte-for-byte from `risk_signals` + `missing`, and the remaining four's difference is
+a kill-criteria restatement (its own Cockpit section) plus one caveat sentence already carried on the
+Confirmation key tile. So the rail shows a COUNT of those sections ("123 active risk signals across 92
+names · 4 still missing") rather than a ~7,900px restatement of them. The wire field is untouched — it
+stays on the recorded CallCard as part of the accountability record, and wiring the LLM path later is
+the point at which the rail should render prose again.
+
 ---
 
 ## 9. Worked example — the shape of a correct Armed call (the real HIMS case)

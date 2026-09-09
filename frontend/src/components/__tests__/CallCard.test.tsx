@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
-import { CallCard } from "../CallCard";
+import { CallCard, counterCaseSummary } from "../CallCard";
 
 // A minimal armed card: one graded trigger (shows its grade + source link, hit/◉) and one risk signal that
 // CARRIES a grade which must NOT render (the TriggerRow showGrade=false path, warn/▲). conviction_grade is
@@ -137,5 +137,53 @@ describe("CallCard — foreign-filer conviction annotation (single-name)", () =>
     expect(container.querySelector(".miss-note")).toBeNull();
     // the missing lines themselves are unchanged
     expect(screen.getByText(/Conviction trigger/)).toBeInTheDocument();
+  });
+});
+
+// --- the counter-case summary ------------------------------------------------------------------
+// The block used to print the wire's `counter_case` string, which the assembler builds by joining
+// the SAME `active_risk` list that becomes `card.risk_signals` (plus kill criteria and `missing`).
+// Measured on the live theses it carried nothing the card was not already rendering — and it
+// dropped what the rows keep (ticker, kind, date, sources) — at ~7,900px of rail. It is a COUNT of
+// those sections now. The load-bearing test is the last one: the prose must never come back.
+describe("counterCaseSummary — counts the sections, never restates them", () => {
+  const risk = (ticker: string | null) =>
+    ({ label: "x", kind: "breakdown", grade: null, ticker, sources: [] }) as never;
+
+  it("counts signals and DISTINCT names, and the still-missing list", () => {
+    expect(counterCaseSummary([risk("A"), risk("B"), risk("A")], ["m1", "m2"])).toBe(
+      "3 active risk signals across 2 names · 2 still missing",
+    );
+  });
+
+  it("says it in the singular when there is one of each", () => {
+    expect(counterCaseSummary([risk("A")], ["m1"])).toBe(
+      "1 active risk signal across 1 name · 1 still missing",
+    );
+  });
+
+  it("drops the clause that has nothing in it, rather than printing a zero", () => {
+    expect(counterCaseSummary([risk("A"), risk("B")], [])).toBe(
+      "2 active risk signals across 2 names",
+    );
+    expect(counterCaseSummary([], ["m1"])).toBe("1 still missing");
+  });
+
+  it("omits the name clause when no signal carries a ticker (a thesis-level risk)", () => {
+    expect(counterCaseSummary([risk(null), risk(null)], [])).toBe("2 active risk signals");
+  });
+
+  it("is honest when there is no counter-case at all", () => {
+    expect(counterCaseSummary([], [])).toBe("No active risk signals, nothing still missing.");
+  });
+
+  it("renders the count and NOT the wire's prose, however long that prose is", () => {
+    const prose =
+      "Active risk signals: Dilution risk; Structural break: close 32.47 closed below the " +
+      "200-day base 34.93 — the core hold's entry signal is no longer valid (a de-arm, not a sell).";
+    render(<CallCard card={{ ...card, counter_case: prose, missing: ["Volume confirmation"] }} />);
+    expect(screen.getByText("1 active risk signal across 1 name · 1 still missing")).toBeInTheDocument();
+    expect(screen.queryByText(/Active risk signals:/)).toBeNull();
+    expect(screen.queryByText(/200-day base/)).toBeNull();
   });
 });
