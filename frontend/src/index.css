@@ -1300,7 +1300,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-horizon { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
 .sb-empty { font-size: 12px; color: var(--txt-3); padding: 10px 2px; }
 
-.sb-ledger { width: 100%; }
+/* table-layout: fixed is what makes every row one line tall — the column widths below stop
+   negotiating with the content, so no cell can set the row's height. See the block further down. */
+.sb-ledger { width: 100%; table-layout: fixed; }
 .sb-ledger th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 8px 4px; border-bottom: 1px solid var(--line); }
 .sb-ledger td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 12px; vertical-align: baseline; }
 .sb-ledger tr.grp td { padding: 14px 8px 4px; border-bottom: none; }
@@ -1312,26 +1314,44 @@ tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
 .sb-armed, .sb-ret, .entryby, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
 
-/* --- the bounded cells hold ONE line -------------------------------------------------------
-   The ledger is a fluid table, and it was the SHORT columns that wrapped in it: a date range broke
-   after the arrow ("Aug 7 →" / "Aug 18"), "awaiting forward bar" took two lines in a 118px return
-   column, "no decision logged" took two in a 97px operator column — and one wrapped cell sets the
-   whole row's height. MEASURED at a 1390px viewport: 177 of 252 rows fall 55px -> 39px and the page
-   goes 14,890px -> 11,980px, with no horizontal scroll and no extra machinery.
+/* --- every ledger row is ONE line tall ------------------------------------------------------
+   A ledger you scan for outcomes has to have rows you can scan: one wrapped cell sets the whole
+   row's height, and 252 rows of ragged 39/55/58px is unreadable. The rule is structural, not a
+   matter of the content staying short.
 
-   Only these columns, because only their content is structurally bounded — a date, a formatted
-   return, one of a fixed set of labels — so nowrap can never blow the column out. The operator's
-   REASON is free text and is not bounded, so it is handed its wrap back inside the nowrap cell.
+   Making cells `nowrap` is not enough on its own, and neither is width. In AUTO table layout the
+   column widths come from the content, so nowrap everywhere just moves the problem: the table's
+   min-content becomes its max-content (1557px here), which overflows a 1236px container instead of
+   wrapping inside it. And leaving the wide cells wrapping doesn't work either — MEASURED, nowrap on
+   the bounded columns alone got 177 of 252 rows to one line and left 75 (Status drove 64 of them),
+   and forcing Status onto one line in auto layout took it to 369px, squeezed Why to 319px and
+   wrapped 181 rows instead. Inside a fixed width, auto layout only ever moves the wrap around.
 
-   Deliberately NOT Why or Status. Those are multi-item cells (trigger chips; badges + the de-arm
-   reason) that legitimately want two lines at this width, and there is no width to give them:
-   forcing Status onto one line takes it to 369px, which squeezes Why to 319px and wraps 181 rows
-   instead of 75 (MEASURED — strictly worse). Getting THOSE onto one line needs the table's natural
-   width, which needs a scroll container; see BOARD.md for what that costs. Scoped to .sb-ledger:
-   .entryby / .exitby are the Cockpit's cells too, and this is a ledger-layout decision. */
-.sb-ledger .sb-armed, .sb-ledger .entryby, .sb-ledger .exitby, .sb-ledger .sb-pp,
-.sb-ledger .sb-ret, .sb-ledger .sb-op { white-space: nowrap; }
-.sb-ledger .sb-op .sb-reason { white-space: normal; }
+   `table-layout: fixed` is what breaks that loop: the columns stop negotiating with the content,
+   so the content can no longer set a height. Then the only question is who absorbs the deficit.
+   The bounded columns take PX widths a little above what their content actually needs (a clipped
+   date or return is useless, and they can never want more — they hold a date, a formatted return,
+   one of a fixed set of labels). Why and Status are given NO width on purpose: they split whatever
+   is left, so the two multi-item columns are the ones that give ground as the window narrows.
+
+   MEASURED on the built dev image — all 252 rows land at 38-39px with NO horizontal scroll:
+     1390px viewport  table 1236px · Why/Status 313px each · 15 clipped cells · page 10,645px
+     1091px viewport  table 1037px · Why/Status 214px each · 204 clipped cells · every px column
+                      intact (Name 72 · Armed 132 · Exit-by 66 · Return 150 · Peak 66 · Op 124)
+     Timing @1091     all 252 rows at exactly 38px, Status 545px, nothing clipped at all
+   Clipping hides, it never vanishes (WB #2): the row's drawer carries the full scorecard, and the
+   Why cell wears a title listing every trigger, because a fully-clipped chip has no hover of its
+   own. The narrow-window clip counts are the honest cost, and the argument for cutting what these
+   two cells say rather than for giving them more room. */
+.sb-ledger .c-tk { width: 72px; }
+.sb-ledger .c-armed { width: 132px; }
+.sb-ledger .c-exit { width: 66px; }
+.sb-ledger .c-ret { width: 150px; }
+.sb-ledger .c-peak { width: 66px; }
+.sb-ledger .c-pp { width: 72px; }
+.sb-ledger .c-op { width: 124px; }
+/* .c-why and .c-status deliberately have none — they share the remainder */
+.sb-ledger td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }

@@ -130,7 +130,18 @@ export function EpisodeRow({
         </>
       ) : (
         <>
-          <td className="sb-why">
+          {/* the cell carries the whole trigger list in its own title: the row is one line tall, so
+              a chip past the column's width is CLIPPED, and a clipped chip has no hover of its own
+              left to explain it. Hiding is fine, vanishing is not (WB #2) — and the row's drawer
+              still carries the full scorecard. A chip that IS visible keeps its own, finer title. */}
+          <td
+            className="sb-why"
+            title={
+              ep.triggers_at_arm.length
+                ? ep.triggers_at_arm.map((t) => `${t.kind} — ${t.label}`).join("\n")
+                : undefined
+            }
+          >
             {ep.triggers_at_arm.length ? (
               ep.triggers_at_arm.map((t, i) => (
                 <span key={i} className="sb-trig" title={t.label}>
