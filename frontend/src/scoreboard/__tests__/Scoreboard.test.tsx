@@ -493,6 +493,22 @@ describe("Scoreboard", () => {
     expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
 
+  // The row carries tabIndex=0 + onClick and nothing else, so a keyboard user could FOCUS a row and
+  // then find that Enter did nothing — a drill-down reachable only with a mouse. Enter and Space now
+  // do what the click does; an unrelated key still must not open anything.
+  it.each([
+    ["Enter", true],
+    [" ", true],
+    ["a", false],
+  ] as const)("a focused ledger row opens the scorecard on %s", (key, opens) => {
+    const { container } = renderBoard({ data: TIMING_PAYLOAD });
+    const row = screen.getByText("MATR").closest("tr")!;
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(container.querySelector(".drawer-panel")).toBeNull();
+    fireEvent.keyDown(row, { key });
+    expect(container.querySelector(".drawer-panel") != null).toBe(opens);
+  });
+
   // A column added to LedgerHead but not to EVERY row body shifts that row's cells one column off
   // their headers — silently, because a short <tr> just renders narrow. That is exactly how the Peak
   // column landed: the head, the episode row and `ledgerColCount` gained it; `SpanRow` did not, so an

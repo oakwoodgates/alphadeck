@@ -76,6 +76,15 @@ export function EpisodeRow({
       className="sb-row"
       onClick={() => onOpenScorecard?.(ep)}
       tabIndex={0}
+      // the row was focusable but not activatable — Tab landed on it and Enter did nothing. Same
+      // idiom as the Cockpit's basket rows: Enter/Space do what the click does, and preventDefault
+      // stops Space from paging the ledger out from under the drawer it just opened.
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenScorecard?.(ep);
+        }
+      }}
     >
       <td className="tk">
         <button
