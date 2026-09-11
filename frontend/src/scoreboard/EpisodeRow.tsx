@@ -2,7 +2,7 @@ import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import {
   awaitingForwardBar,
-  closeReasonLabel,
+  closeReasonBadge,
   episodeBadges,
   fmtPastPeak,
   fmtReturn,
@@ -56,19 +56,17 @@ export function EpisodeRow({
 
   // The Status cell is a SHARED column — identical content in both views, only its position differs
   // (mid-row in Summary, last in Timing). Build it once so the two views never drift.
+  // the de-arm reason joins the badge row rather than trailing it as a sentence — one scannable
+  // chip, muted because every closed row has one. Its hover carries the composed detail AND the raw
+  // wire token, so the short label defers nothing (see closeReasonBadge).
+  const reason = closeReasonBadge(ep);
   const statusCell = (
     <td className="sb-status">
-      {episodeBadges(ep).map((b) => (
+      {[...episodeBadges(ep), ...(reason ? [reason] : [])].map((b) => (
         <span key={b.label} className={`sb-badge ${b.cls}`} title={b.title}>
           {b.label}
         </span>
       ))}
-      {/* the de-arm reason in English; the raw wire token stays one hover away (never hidden) */}
-      {ep.status === "closed" && (
-        <span className="sb-reason" title={ep.close_reason}>
-          {closeReasonLabel(ep.close_reason)}
-        </span>
-      )}
     </td>
   );
 

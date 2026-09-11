@@ -1366,6 +1366,9 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .sb-badge.b-trunc { color: var(--txt-3); border: 1px solid var(--line); }
 .sb-badge.b-ovr { color: var(--warm); border: 1px solid color-mix(in srgb, var(--warm) 55%, transparent); background: color-mix(in srgb, var(--warm) 12%, transparent); }
 .sb-badge.b-lvl { color: var(--txt-3); border: 1px solid var(--line); }
+/* the de-arm reason: a badge for SHAPE, not for volume. Every closed row carries one, so it stays
+   the quietest chip in the cell — borderless, so the genuine flags beside it keep their outline. */
+.sb-badge.b-dearm { color: var(--txt-4); border: 1px solid transparent; padding-left: 0; }
 .sb-badge.b-arch { color: var(--txt-4); border: 1px solid var(--line); margin-left: 6px; }
 .sb-reason { color: var(--txt-3); font-size: 10.5px; margin-left: 5px; }
 .sb-ret .ret.pos { color: var(--pos); }

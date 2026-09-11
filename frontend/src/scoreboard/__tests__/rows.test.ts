@@ -8,6 +8,7 @@ import type {
 } from "../../api/hooks";
 import {
   awaitingForwardBar,
+  closeReasonBadge,
   closeReasonLabel,
   closeReasonLine,
   episodeBadges,
@@ -138,6 +139,51 @@ describe("awaitingForwardBar — the single-bar signal", () => {
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-10" }))).toBe(true); // == arm_date
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-13" }))).toBe(false); // a forward bar landed
     expect(awaitingForwardBar(ep({ exit_date: null }))).toBe(false); // no bar at all
+  });
+});
+
+describe("closeReasonBadge — the row's short form, deferring nothing", () => {
+  const ep = (over: Record<string, unknown>) =>
+    ({ status: "closed", close_reason: "dearmed_other", dearm_detail: null, ...over }) as never;
+
+  it("is null while the episode is still open", () => {
+    // the reason only describes how an episode LEFT the armed set; an open one hasn't
+    expect(closeReasonBadge(ep({ status: "open", close_reason: "window_end" }))).toBeNull();
+  });
+
+  it("gives each token a short scannable label", () => {
+    const label = (t: string) => closeReasonBadge(ep({ close_reason: t }))!.label;
+    expect(label("dearmed_other")).toBe("DE-ARMED");
+    expect(label("arm_until_lapsed")).toBe("WINDOW LAPSED");
+    expect(label("conviction_aged_out")).toBe("AGED OUT");
+    expect(label("managing")).toBe("MANAGING");
+  });
+
+  it("surfaces the composed detail the row used to defer — the whole point of the change", () => {
+    // "(see de-arm day)" was written when the row had no answer. The backend composes one now, and
+    // it never reached this cell: the row called closeReasonLabel, so the placeholder always won.
+    const b = closeReasonBadge(
+      ep({ dearm_detail: "thesis fell back to Warming" }),
+    )!;
+    expect(b.label).toBe("DE-ARMED");
+    expect(b.title).toContain("de-armed — thesis fell back to Warming");
+    expect(b.title).not.toContain("see de-arm day"); // the deferral is gone, not relabelled
+  });
+
+  it("keeps the raw wire token reachable, translated or not", () => {
+    // the closeReasonLabel discipline: the English must never hide what the record actually says
+    expect(closeReasonBadge(ep({ close_reason: "arm_until_lapsed" }))!.title).toContain(
+      "wire: arm_until_lapsed",
+    );
+    // an unknown future token renders RAW rather than "unknown", and still says so on the wire (#9)
+    const future = closeReasonBadge(ep({ close_reason: "some_future_reason" }))!;
+    expect(future.label).toBe("some_future_reason");
+    expect(future.title).toContain("wire: some_future_reason");
+  });
+
+  it("stays muted — it marks the rule, not an exception", () => {
+    // 208 of 252 rows are closed; an alert-toned chip there would make two thirds of the ledger shout
+    expect(closeReasonBadge(ep({}))!.cls).toBe("b-dearm");
   });
 });
 

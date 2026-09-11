@@ -132,6 +132,39 @@ export function closeReasonLine(token: string, detail: string | null | undefined
   return closeReasonLabel(token);
 }
 
+/** The LEDGER ROW's short form of the same tokens. The prose above is right for the drawer, the
+ *  event ledger and the chart tooltip — places you READ. A ledger row is SCANNED, and there
+ *  "de-armed (see de-arm day)" spent a third of the Status column deferring to somewhere else. */
+const CLOSE_REASON_BADGE: Record<string, string> = {
+  arm_until_lapsed: "WINDOW LAPSED",
+  conviction_aged_out: "AGED OUT",
+  managing: "MANAGING",
+  window_end: "AT RECORD EDGE",
+  dearmed_other: "DE-ARMED",
+};
+
+/** How the episode left the armed set, as a compact badge — null while it is still open.
+ *
+ *  It wears the MUTED tone deliberately. Every closed row has a close reason (208 of 252 on the
+ *  current record), so this states a fact about the rule rather than flagging an exception; giving
+ *  it an alert colour would make two thirds of the ledger shout (#7). It is a badge for SHAPE — one
+ *  scannable chip instead of a trailing sentence — not for volume.
+ *
+ *  The full story rides the title: the backend's composed `dearm_detail` where one exists, then the
+ *  raw wire token, so the English never hides what the record actually says (the `closeReasonLabel`
+ *  discipline). That detail is why the short label costs nothing — "(see de-arm day)" was written
+ *  when the row had no answer to give, and the backend has composed one ever since (MEASURED: all
+ *  142 `dearmed_other` episodes on the current record carry a `dearm_detail`). The de-arm DAY it
+ *  pointed at is on the row already — the `→ date` in the Armed column. */
+export function closeReasonBadge(e: ScoreboardEpisodeOut): Badge | null {
+  if (e.status !== "closed") return null;
+  return {
+    label: CLOSE_REASON_BADGE[e.close_reason] ?? e.close_reason,
+    cls: "b-dearm",
+    title: `${closeReasonLine(e.close_reason, e.dearm_detail)}\nwire: ${e.close_reason}`,
+  };
+}
+
 /** The drawer's ONE ingest-provenance line — null (render nothing at all) when the arm's ingest was
  *  healthy. Loudness marks the exception (#7): a line under every episode saying "ingest fine" would
  *  carry no information, so the healthy case is silence. Flagged means any of the three wire signals:
