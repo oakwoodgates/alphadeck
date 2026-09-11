@@ -202,7 +202,7 @@ _NOTE_REF_PREFIX_RE = re.compile(r"^[\s:$]{0,4}\(\s*Note\s*\d{1,3}\s*\)", re.IGN
 def _value_window(text: str, label_end: int) -> str:
     """The row's VALUE AREA: from the label to the next row's label word (or the window cap). Cutting at
     the first >=3-letter non-currency word keeps the next row's numbers out — a fixed-width window read
-    neighbouring rows into the columns on tightly-packed statements. A leading "(Note N)" reference is
+    neighboring rows into the columns on tightly-packed statements. A leading "(Note N)" reference is
     stripped first (it would otherwise BE the cut word and empty the window)."""
     raw = text[label_end : label_end + _ROW_VALUE_CHARS]
     raw = _NOTE_REF_PREFIX_RE.sub(" ", raw, count=1)

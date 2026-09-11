@@ -80,7 +80,7 @@ class CallConfig(DomainModel):
     # "what overhang counts as severe" knob (STARTING calibration). HIMS's ~6% lands well below it.
     dilution_overhang_severe_pct: float = 25.0
     # The SEVERITY SCALE a severe (>= dilution_overhang_severe_pct) overhang scores to — the "how loud is
-    # a severe dilution" knob. DECOUPLED from two neighbours it must not be confused with: risk_block_severity
+    # a severe dilution" knob. DECOUPLED from two neighbors it must not be confused with: risk_block_severity
     # (the UNIVERSAL veto threshold — a score >= it withholds the Armed call) and dilution_overhang_severe_pct
     # (the "what overhang counts as severe" knob). Before this dial the severity math multiplied by
     # risk_block_severity, so retuning the veto dial silently rescaled EVERY dilution score AND a >= severe

@@ -14,18 +14,18 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
   NamePanel's open-market definition composes), so the chart's dots reconcile with the panel's
   net-flow figure. Band 03 S2c (operator option (a)): the set-aside rows (primary-market /
   implausible) now RIDE the wire too, tagged by ``character``, instead of being ``continue``-d past —
-  the FE greys + labels them (WB #2: pruning hides, it never vanishes; #9: more visible, never
+  the FE grays + labels them (WB #2: pruning hides, it never vanishes; #9: more visible, never
   dropped). Only the non-set-aside subset is what the panel's open-market figure counts.
 - ``episode_insider_sells`` (Slice B) — the code-S mirror: every stored sale in-window, each labeled
   with the CALL side's screen bucket (``signals.insider_sell._screen``) so the ledger shows why a sale
   did or didn't count toward the sell cluster. Labels only — this read never touches the detector's
-  cluster/score math, and everything except ``kept`` renders greyed-not-hidden on the FE (WB #2).
+  cluster/score math, and everything except ``kept`` renders grayed-not-hidden on the FE (WB #2).
 - ``episode_corporate_events`` (Slice B) — every stored 8-K in-window (``fact_corporate_event``),
   items unresolved shipping honestly as ``None``. NO item cut here: loudness is a display concern; a
   server-side cut would be a silent filter (#9).
 - ``episode_activist_stakes`` (Slice B) — every stored 13D/G-family filing in-window
   (``fact_activist_stake``), unresolved filer identity shipping as ``None`` (kept, never dropped, #9);
-  13G rows ride too — the fire policy lives in the detector, the passive-grey lives in the FE.
+  13G rows ride too — the fire policy lives in the detector, the passive-gray lives in the FE.
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have
@@ -157,7 +157,7 @@ def episode_insider_buys(
     exit_by is in the past), and CLASSIFY each buy via the display rail's ``_screen`` (Band 03 S2c) —
     the issuer name (``security_issuer_name``) feeds its self-filing identity check. Set-aside rows
     (``primary_market`` / ``implausible``) are KEPT on the wire, tagged, instead of dropped — the FE
-    greys + labels them (option (a); WB #2 / #9) — so the panel's open-market figure equals the
+    grays + labels them (option (a); WB #2 / #9) — so the panel's open-market figure equals the
     NON-set-aside subset, and the ledger now shows WHY a buy did or didn't count (#6). The input rows
     are never mutated (new dicts out, #9).
 
@@ -202,7 +202,7 @@ def episode_insider_buys(
                 "disclosed": r["accepted"].date() if r.get("accepted") else None,
                 "ingested": r["recorded_at"].date(),
                 # the buy's server-classified character (deterministic field predicates, #3);
-                # set-asides ride greyed-and-labeled instead of hidden (option (a) — WB #2)
+                # set-asides ride grayed-and-labeled instead of hidden (option (a) — WB #2)
                 "character": _screen(r, day_lows, issuer_name),
             }
         )
@@ -245,7 +245,7 @@ def episode_insider_sells(
     sort. Each sale is bucketed by the CALL side's screen (``signals.insider_sell._screen`` — the same
     predicates the risk detector's cluster composes: implausible $, foreign/ordinary mis-filing,
     issuer self-filing, below-day-low secondary, 10b5-1 planned), the bucket translated to the wire
-    vocabulary via ``sell_character_wire``. EVERY row rides — a screened sale is greyed + labeled on
+    vocabulary via ``sell_character_wire``. EVERY row rides — a screened sale is grayed + labeled on
     the FE, never hidden (WB #2 / #9); only ``kept`` rows are what the detector's cluster counts.
 
     DIAL-MIRROR CAVEAT: the screen runs with ``DEFAULT_CONFIG`` pinned (this display read has no
@@ -281,7 +281,7 @@ def episode_insider_sells(
                 "disclosed": r["accepted"].date() if r.get("accepted") else None,
                 "ingested": r["recorded_at"].date(),
                 # the CALL-side screen bucket (deterministic field predicates, #3), wire-mapped;
-                # screened rows ride greyed-and-labeled instead of hidden (WB #2)
+                # screened rows ride grayed-and-labeled instead of hidden (WB #2)
                 "character": sell_character_wire(
                     _sell_screen(r, day_lows, issuer_name, DEFAULT_CONFIG)
                 ),
@@ -358,7 +358,7 @@ def episode_activist_stakes(
     event date, gold-doc trap #4). Unresolved identity ships as ``None`` — ``filer_name`` /
     ``filer_cik`` / ``pct_owned`` null, the row KEPT (#9, never dropped). NO fire-policy filtering:
     13G rows and amendments ride too — the fire policy (13D-family originals only) lives in the
-    detector; the FE mirrors it as display weight (13G-family greyed-passive), never as an omission.
+    detector; the FE mirrors it as display weight (13G-family grayed-passive), never as an omission.
     ``url`` is the row's ``source_ref`` (the EDGAR filing-index URL, #6).
     """
     rows = as_of(

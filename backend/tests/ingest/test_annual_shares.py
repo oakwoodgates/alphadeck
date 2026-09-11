@@ -105,7 +105,7 @@ def test_space_separated_thousands_parsed():
 
 def test_tag_split_word_tolerated():
     """IMOS's cover renders `699,983,126 Comm on Shares` after tag-stripping — "Common" is split across
-    an HTML boundary (``clean_filing_text`` replaces every tag with a SPACE; production behaviour, not a
+    an HTML boundary (``clean_filing_text`` replaces every tag with a SPACE; production behavior, not a
     probe artifact). The instruction cue itself must survive the same treatment. RAW-HTML fixture: the
     cleaning step runs in-test, exactly as in production."""
     cleaned = clean_filing_text(_text("IMOS-20f-raw.htm"))
@@ -115,7 +115,7 @@ def test_tag_split_word_tolerated():
 
 
 def test_rsquo_possessive_is_matched():
-    """EHVVF renders ``issuer&rsquo;s`` — only ``clean_filing_text``'s html.unescape normalises the
+    """EHVVF renders ``issuer&rsquo;s`` — only ``clean_filing_text``'s html.unescape normalizes the
     possessive, so the cue regex can match it. A hand-rolled tag-strip WITHOUT the unescape misses
     EHVVF (and CMND) invisibly — pinned here as the counterfactual."""
     raw = _text("EHVVF-20f-raw.htm")
@@ -259,7 +259,7 @@ def test_wrapper_stamps_cover_not_located_when_no_instruction_matches():
     companyfacts is deliberately NOT served alone (no passage -> no fact — the Option-B contract). No
     real dark name currently trips this (PBM is recovered by the secondary pattern), so the empty state
     is proven with a synthetic cover that uses neither instruction — the case still guards future
-    filings with unrecognised cover phrasing."""
+    filings with unrecognized cover phrasing."""
     subs = {
         "filings": {
             "recent": {
@@ -272,7 +272,7 @@ def test_wrapper_stamps_cover_not_located_when_no_instruction_matches():
         }
     }
     unreadable = (
-        "Cover Page. This annual report states no share count in any recognised instruction."
+        "Cover Page. This annual report states no share count in any recognized instruction."
     )
     client = _FakeClient(subs=subs, texts={"synthetic-20f.htm": unreadable})
     res = annual_shares_for_security(client, 1234, today=_TODAY)

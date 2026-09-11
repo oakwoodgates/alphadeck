@@ -77,7 +77,7 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
     literature (Lakonishok-Lee) is about. The cleanest false positive is the company filing on its own stock
     — KYOCERA-on-KYOCERA ($690M @ $21.75), Roivant-on-Roivant ($350M @ $21): a buyback / treasury / ADR
     mechanic priced AT the market (so the price screen keeps it), never personal insider conviction (#3). We
-    recognise it two ways, most-robust first:
+    recognize it two ways, most-robust first:
 
     - **CIK equality** — ``rpt_owner_cik == issuer_cik`` (both captured from the filing; migration 0024). The
       canonical match; present on rows ingested after the capture, and it flows into replay via ``SELECT *``.

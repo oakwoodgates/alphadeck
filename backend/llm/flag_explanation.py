@@ -52,7 +52,7 @@ EXPLAIN_TOOL: dict[str, Any] = {
 
 
 def _flagged_figure(c: ExtractedFact) -> str:
-    """The figure under review, labelled by fact type (context for the model — the passage is the ground
+    """The figure under review, labeled by fact type (context for the model — the passage is the ground
     truth for any number it cites)."""
     if c.fact_type == "cash_burn" and c.quarterly_burn_usd is not None:
         return f"quarterly operating cash use = {c.quarterly_burn_usd:,.0f}"

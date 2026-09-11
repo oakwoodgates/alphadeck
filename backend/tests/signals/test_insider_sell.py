@@ -297,7 +297,7 @@ def test_excludes_issuer_self_by_cik_ignoring_zero_padding():
 
 def test_excludes_issuer_self_by_name_fallback_via_param():
     """The already-ingested path: no CIKs, no row issuer_name — the security-master name passed in
-    (casefolded) still recognises the self-filing."""
+    (casefolded) still recognizes the self-filing."""
     txn = _self_sell("KYOCERA CORP")  # no identity fields on the row at all
     assert insider_sell.score([txn], SID, ASOF, issuer_name="Kyocera Corp") is None
 

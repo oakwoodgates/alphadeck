@@ -118,7 +118,7 @@ def test_the_pin_EXCLUDES_knowledge_recorded_after_it(db, security_id):
     assert pinned_view.state is State.WARMING
     assert pinned_view.key_confirmation.turned and not pinned_view.key_conviction.turned
     # today's knowledge includes the Wells buy recorded 06-20 → both keys → ARMED. That is exactly the
-    # wrong row for a missed night (the MEASURED Modern Defense shape: ARMED between quieter neighbours).
+    # wrong row for a missed night (the MEASURED Modern Defense shape: ARMED between quieter neighbors).
     assert now_view.state is State.ARMED
     assert now_view.key_conviction.turned
 

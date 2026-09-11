@@ -61,7 +61,7 @@ class EdgarClient:
 
     def _is_stale(self, path: Path, cache_key: str) -> bool:
         """Is this cached key past its TTL? Immutable prefixes are NEVER stale (cache forever); every other
-        prefix is mutable and expires after ``cache_ttl_s``. Default-refresh: an unrecognised prefix is
+        prefix is mutable and expires after ``cache_ttl_s``. Default-refresh: an unrecognized prefix is
         treated as mutable, so a future endpoint is safe-by-default (staleness never silent)."""
         if cache_key.startswith(_IMMUTABLE_PREFIXES):
             return False

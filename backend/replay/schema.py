@@ -146,7 +146,7 @@ class Outcome(BaseModel):
     # --- the excursion pair, on TWO bases. Descriptive only: nothing in replay.metrics reads them, so
     # they move no metric.
     #
-    # CLOSE-based (peak/trough) — the maximum favourable / adverse excursion (MFE / MAE) on the SAME
+    # CLOSE-based (peak/trough) — the maximum favorable / adverse excursion (MFE / MAE) on the SAME
     # basis `forward_return` and `exit_vs_peak_days` already use. `trough_return` reads a real 0.0 for a
     # name that never closed below entry (24% of the measured record); 0.0 is the measurement, not a
     # missing value, and it is available exactly whenever `peak_return` is.
@@ -177,7 +177,7 @@ class Outcome(BaseModel):
     )
     # ONE condition: the episode's horizon extends past the end of this NAME'S price tape
     # (`exit_by > tape_edge`, the tape edge read within the reader's own as-of cap). It is a fact
-    # about the data, not a judgement about whether to say so: an immature episode is truncated by
+    # about the data, not a judgment about whether to say so: an immature episode is truncated by
     # construction (the asof caps the tape edge too) and the phrasing sites rely on that, while the
     # ledger badge gates additionally on `matured` — a running return falling short of its horizon IS
     # running; a realized one falling short is a caveat on a number presented as final.

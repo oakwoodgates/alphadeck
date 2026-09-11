@@ -7,7 +7,7 @@
 --
 --   ingest_fresh  — TRUE  = every name's back-half ingest for this run succeeded (a clean call)
 --                   FALSE = at least one name errored (a PARTIAL ingest — the call still recorded, marked)
---                   NULL  = legacy (recorded before this column) / unknown — never coerced to a judgement
+--                   NULL  = legacy (recorded before this column) / unknown — never coerced to a judgment
 --   ingest_errors — how many names errored on the run that produced this call (0 on a clean call)
 --
 -- CRITICAL — PROVENANCE, NOT a scoring input. Like `vouched` and `ratified_by`, the as-of/scoring reads never

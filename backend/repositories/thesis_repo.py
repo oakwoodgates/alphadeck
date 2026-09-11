@@ -115,7 +115,7 @@ def set_exclusions(
     term_set structural guard, fourth application: a promote can't wipe the operator's pruning).
     Full-list replace: the editor sends the CURRENT set (its session decisions ∪ the carried-forward
     prior exclusions it didn't re-decide). Discovery NEVER reads this table (#9 — recall sacred; the
-    editor applies it as visible, reversible greyed state). The caller owns the transaction."""
+    editor applies it as visible, reversible grayed state). The caller owns the transaction."""
     with conn.cursor() as cur:
         cur.execute("DELETE FROM thesis_exclusion WHERE thesis_id = %s", (thesis_id,))
         for e in exclusions:

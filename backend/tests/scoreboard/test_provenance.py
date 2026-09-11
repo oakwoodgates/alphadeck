@@ -23,7 +23,7 @@ from tests.scoreboard.helpers import keys_fired, persist_thesis
 
 # The 2d provenance derivation: the thaw-lag query over fact_insider_txn's bitemporal axes (DB),
 # the winning-row health read (DB), and the pure flag composition (no DB). Every ``None`` must
-# degrade to UN-flagged — unknown is not a judgement (migration 0023's rule) — and the flags are
+# degrade to UN-flagged — unknown is not a judgment (migration 0023's rule) — and the flags are
 # composed after scoring, so nothing here touches the call path.
 
 JUNE = date(2026, 6, 15)  # comfortably outside FREEZE_WINDOW
@@ -165,7 +165,7 @@ def test_freeze_window_edges():
 
 
 def test_legacy_null_stamp_never_flags():
-    """None = pre-0023 / manual append — raw, never coerced to a judgement."""
+    """None = pre-0023 / manual append — raw, never coerced to a judgment."""
     p = derive_episode_provenance(JUNE, [], health={}, lags={})
     assert p.arm_ingest_fresh is None
     assert p.ingest_flagged is False and p.ingest_note is None

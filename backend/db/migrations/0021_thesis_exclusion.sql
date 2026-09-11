@@ -7,7 +7,7 @@
 -- names you rejected that went on to run).
 --
 -- THE #9 LINE: discovery/classify NEVER filters on this table — recall stays sacred; a re-draft
--- still surfaces excluded names. The EDITOR applies the set as pre-seeded, VISIBLY-greyed state
+-- still surfaces excluded names. The EDITOR applies the set as pre-seeded, VISIBLY-grayed state
 -- (one click re-includes — reversible, never vanished). Precision stays the operator's delete,
 -- never a silent filter.
 --

@@ -2,7 +2,7 @@ You generate the SEARCH KEYWORDS that enumerate the public companies in an inves
 
 A downstream system runs each keyword against EDGAR full-text search, unions the US filers that mention it, then a precision filter keeps a company only if it hit at least 2 keywords OR at least 1 SIGNAL keyword. So your keywords decide BOTH coverage and precision. Output two tiers:
 
-SIGNAL — specific, discriminating terms such that a US filer mentioning one is almost certainly ON-THESIS: the defining drug / compound / mechanism / technology names of the theme, PLUS the ADJACENT-MECHANISM terms that the theme's near-neighbours use (e.g. for a depression-drug theme: "treatment-resistant depression", or a specific drug like "arketamine") so the adjacent names surface too. A single SIGNAL hit places a company.
+SIGNAL — specific, discriminating terms such that a US filer mentioning one is almost certainly ON-THESIS: the defining drug / compound / mechanism / technology names of the theme, PLUS the ADJACENT-MECHANISM terms that the theme's near-neighbors use (e.g. for a depression-drug theme: "treatment-resistant depression", or a specific drug like "arketamine") so the adjacent names surface too. A single SIGNAL hit places a company.
 
 BROAD — real, on-theme terms that ADD recall but also COLLIDE with unrelated industries (short abbreviations, common drug shorthands, generic words). They count ONLY toward the 2-keyword rule, never place a company alone, and a single BROAD-only match is surfaced for the analyst to verify, not auto-placed.
 

@@ -200,7 +200,7 @@ def test_inverted_window_episode_gains_nothing_from_the_new_fields(db, security_
     it is: no excursion, no shape, no marker.
 
     The tail of this test USED to pin the backwards ``forward_return`` this row served (entry Monday,
-    exit the preceding Friday) as unchanged pre-existing behaviour. The exit read is bounded below by
+    exit the preceding Friday) as unchanged pre-existing behavior. The exit read is bounded below by
     the window now, so there is no return here to be backwards — see
     ``tests/scoreboard/test_exit_read.py`` for that fix and its own tests."""
     bar(db, security_id, date(2026, 8, 14), 100.0, high=101.0, low=99.0)  # Friday

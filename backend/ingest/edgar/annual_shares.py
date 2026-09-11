@@ -46,7 +46,7 @@ from ingest.edgar.submissions import fetch_submissions, filings_of
 #   three real names, invisibly (#9).
 # - `each of` is OPTIONAL: OGI and DRUG omit it; CRLBF and the 20-Fs include it.
 # - `\W{0,3}s` for the possessive: the apostrophe survives tag-stripping as `'`, `’`, or a space, and
-#   EHVVF renders `issuer&rsquo;s` — only ``clean_filing_text``'s html.unescape normalises it.
+#   EHVVF renders `issuer&rsquo;s` — only ``clean_filing_text``'s html.unescape normalizes it.
 # Run it against ``clean_filing_text`` output ONLY, and do not narrow it: a "simplified" version
 # silently dropped four real names during validation.
 _COVER_INSTRUCTION_RE = re.compile(
@@ -264,7 +264,7 @@ def extract_annual_shares(
     (spec §10; its absence proves nothing and is never used as a negative).
     """
     # primary (class-enumeration) instruction, then the secondary (direct-count) phrasing. The primary
-    # short-circuits, so the 43 primary names keep their exact behaviour; PBM is read by the secondary.
+    # short-circuits, so the 43 primary names keep their exact behavior; PBM is read by the secondary.
     m = _COVER_INSTRUCTION_RE.search(annual_text) or _COVER_INSTRUCTION_ALT_RE.search(annual_text)
     if m is None:
         return (
@@ -279,7 +279,7 @@ def extract_annual_shares(
     # FIRST number, NEVER a sum: CAJPY's second number is an ADS *subset* of the first ("1,015,513,368
     # shares of common stock, including 17,371,450 ADSs"), so summing overstates; CRLBF's four are real
     # classes but composition is the operator's ratify, guided by the passage. (Deliberately NOT the
-    # 10-Q ``_cover_class_sum`` behaviour — a different form with a different cover convention.)
+    # 10-Q ``_cover_class_sum`` behavior — a different form with a different cover convention.)
     cover_value = float(re.sub(r"[,\s]", "", nums[0].group(0)))
     cover_asof = report_date
 
@@ -470,7 +470,7 @@ def annual_shares_for_security(
     - ``cover-not-located`` — an annual filing exists but NEITHER cover instruction matched, or one
       matched with no parseable count: the name is UNREAD, not empty. companyfacts is deliberately NOT
       served alone here (no passage -> no fact). No current dark name trips this — PBM, once the sole
-      case, is now read by the secondary instruction — but a future unrecognised cover still can.
+      case, is now read by the secondary instruction — but a future unrecognized cover still can.
 
     An EXPLICIT operator action via the extract endpoint, never fired on a render (the cost thread).
     """

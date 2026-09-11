@@ -77,7 +77,7 @@ def list_for_thesis(
     conn: psycopg.Connection, thesis_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> list[dict[str, Any]]:
     """Every decision row for a thesis, newest first (the card's history strip + inspection).
-    Raw rows (dicts) — the wire layer shapes them; voided rows ride along VISIBLY (the strip greys
+    Raw rows (dicts) — the wire layer shapes them; voided rows ride along VISIBLY (the strip grays
     them; hiding a voided row would un-tell the story the log exists to tell)."""
     with conn.cursor() as cur:
         cur.execute(
