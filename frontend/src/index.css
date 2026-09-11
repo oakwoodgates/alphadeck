@@ -1311,6 +1311,28 @@ tr.sb-row { cursor: pointer; }
 tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent); }
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
 .sb-armed, .sb-ret, .entryby, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
+
+/* --- the bounded cells hold ONE line -------------------------------------------------------
+   The ledger is a fluid table, and it was the SHORT columns that wrapped in it: a date range broke
+   after the arrow ("Aug 7 →" / "Aug 18"), "awaiting forward bar" took two lines in a 118px return
+   column, "no decision logged" took two in a 97px operator column — and one wrapped cell sets the
+   whole row's height. MEASURED at a 1390px viewport: 177 of 252 rows fall 55px -> 39px and the page
+   goes 14,890px -> 11,980px, with no horizontal scroll and no extra machinery.
+
+   Only these columns, because only their content is structurally bounded — a date, a formatted
+   return, one of a fixed set of labels — so nowrap can never blow the column out. The operator's
+   REASON is free text and is not bounded, so it is handed its wrap back inside the nowrap cell.
+
+   Deliberately NOT Why or Status. Those are multi-item cells (trigger chips; badges + the de-arm
+   reason) that legitimately want two lines at this width, and there is no width to give them:
+   forcing Status onto one line takes it to 369px, which squeezes Why to 319px and wraps 181 rows
+   instead of 75 (MEASURED — strictly worse). Getting THOSE onto one line needs the table's natural
+   width, which needs a scroll container; see BOARD.md for what that costs. Scoped to .sb-ledger:
+   .entryby / .exitby are the Cockpit's cells too, and this is a ledger-layout decision. */
+.sb-ledger .sb-armed, .sb-ledger .entryby, .sb-ledger .exitby, .sb-ledger .sb-pp,
+.sb-ledger .sb-ret, .sb-ledger .sb-op { white-space: nowrap; }
+.sb-ledger .sb-op .sb-reason { white-space: normal; }
+
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }
 .sb-dearm { color: var(--txt-3); }
