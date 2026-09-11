@@ -90,6 +90,13 @@ describe("moveNote — the honest price state (Lens 1)", () => {
       "awaiting the first forward bar — nothing to score yet",
     );
   });
+  it("a MATURED empty window is not awaiting — the drawer twin of returnLabel's split", () => {
+    // arm_date and exit_by the same non-trading day: the window closed holding no bars, so no
+    // later bar can enter it and "awaiting" would promise one that can never arrive.
+    expect(moveNote(ep({ insufficient_prices: true, matured: true, status: "closed" }))).toBe(
+      "no bars in the scored window — the horizon closed without one",
+    );
+  });
   it("truncated says it's measured short of the horizon (a bar HAS landed)", () => {
     expect(moveNote(ep({ truncated: true, exit_date: "2026-07-13" }))).toBe(
       "measured to the last bar ≤ as-of — the horizon isn't reached yet",

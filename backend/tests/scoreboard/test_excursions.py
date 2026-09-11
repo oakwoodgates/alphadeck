@@ -196,9 +196,13 @@ def test_inverted_window_episode_gains_nothing_from_the_new_fields(db, security_
     """The two real episodes that arm on a Sunday with ``exit_by`` the SAME Sunday: the scored window
     ``[arm_date, exit_by]`` contains no trading day at all, so there is nothing to describe. Every new
     field must stay empty — an empty path (the sparkline reads "—" below two closes) and four null
-    excursions. This row is already known-bad (its ``forward_return`` is measured backwards — the exit
-    read is unbounded below, deliberately NOT fixed in this change), and the point of the assertion is
-    that nothing added here makes it LOOK better than it is: no excursion, no shape, no marker."""
+    excursions. The point of the assertion is that nothing added here makes the row LOOK better than
+    it is: no excursion, no shape, no marker.
+
+    The tail of this test USED to pin the backwards ``forward_return`` this row served (entry Monday,
+    exit the preceding Friday) as unchanged pre-existing behaviour. The exit read is bounded below by
+    the window now, so there is no return here to be backwards — see
+    ``tests/scoreboard/test_exit_read.py`` for that fix and its own tests."""
     bar(db, security_id, date(2026, 8, 14), 100.0, high=101.0, low=99.0)  # Friday
     bar(db, security_id, date(2026, 8, 17), 96.0, high=97.0, low=95.0)  # Monday
 
@@ -212,9 +216,7 @@ def test_inverted_window_episode_gains_nothing_from_the_new_fields(db, security_
     assert out.peak_return is None and out.trough_return is None
     assert out.intraday_high_return is None and out.intraday_low_return is None
     assert out.peak_date is None and out.trough_date is None
-    # unchanged pre-existing behaviour, pinned so this change is visibly not the place it gets fixed:
-    # the entry is Monday's close and the exit is Friday's, so the return runs backwards in time.
-    assert (
-        out.entry_close == 96.0 and out.exit_close == 100.0 and out.exit_date == date(2026, 8, 14)
-    )
-    assert out.forward_return is not None and out.forward_return > 0
+    # and neither does the endpoint pair: an empty window has no exit, so it reports none
+    assert out.entry_close == 96.0
+    assert out.exit_close is None and out.exit_date is None
+    assert out.forward_return is None and out.insufficient_prices is True

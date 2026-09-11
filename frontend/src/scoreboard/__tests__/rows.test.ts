@@ -223,6 +223,18 @@ describe("returnLabel — a return is labeled for what it IS", () => {
   it("a day-1 arm with no bar yet says so", () => {
     expect(returnLabel(ep({ insufficient_prices: true }))).toBe("awaiting first bar");
   });
+  it("a MATURED empty window is not 'awaiting' — no later bar can enter a closed window", () => {
+    // The real instance (test_exit_read.py's Sunday pair): arm_date and exit_by are the same
+    // non-trading day, so the scored window closed holding nothing. "awaiting first bar" promises a
+    // bar that can never arrive.
+    expect(returnLabel(ep({ insufficient_prices: true, matured: true, status: "closed" }))).toBe(
+      "no bars in the scored window",
+    );
+    // ...and the immature side keeps its promise, because there a bar really is still coming
+    expect(returnLabel(ep({ insufficient_prices: true, matured: false }))).toBe(
+      "awaiting first bar",
+    );
+  });
   it("a single-bar arm (only the arm-day bar) awaits a forward bar, not a flat 0.0%", () => {
     // exit_date === arm_date: the last bar ≤ asof IS the arm bar → one bar, no forward move yet
     expect(returnLabel(ep({ status: "open", exit_date: "2026-07-10" }))).toBe(

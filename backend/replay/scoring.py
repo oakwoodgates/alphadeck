@@ -124,7 +124,7 @@ def _base_outcome(ep: Episode) -> Outcome:
 def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
     """Score one arm episode over its OWN hold horizon ``[arm_date, exit_by]`` on realized closes. The exit
     is the system's own ``exit_by`` (the honest yardstick); if it runs past the data, the return is measured
-    to the last bar and ``truncated`` is set. ``warm_return`` (from the warm date) feeds the
+    to the last bar IN THAT WINDOW and ``truncated`` is set. ``warm_return`` (from the warm date) feeds the
     edge-preservation metric; ``peak_*`` feed the exit-by-vs-rollover metric.
 
     The window is read ONCE as full OHLCV bars, which serves five things off one query: the close-based
@@ -137,15 +137,25 @@ def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
     if entry is None or ep.exit_by is None:
         return out.model_copy(update={"insufficient_prices": True})
     _, entry_close = entry
-    exit_pt = realized.last_close_through(sid, ep.exit_by)
-    if exit_pt is None or entry_close == 0:
-        return out.model_copy(update={"entry_close": entry_close, "insufficient_prices": True})
-    exit_date, exit_close = exit_pt
 
     # ONE OHLC read over the scored window, replacing the close-only ``closes_between``: the same rows,
     # the same query count, four more columns. The window list IS the sparkline's path — the two are the
     # same read, not two reads that happen to agree.
+    #
+    # It is ALSO the EXIT. The exit is the last bar OF THE SCORED WINDOW, never (as it was) the last bar
+    # anywhere <= exit_by — a read unbounded BELOW. The two are identical whenever the window holds a bar;
+    # they diverge only when the last bar <= exit_by PRECEDES arm_date, and there the old read paired a
+    # LATER entry with an EARLIER exit and measured the return backwards in time. That is not theoretical:
+    # two episodes on the record arm on a Sunday with exit_by the SAME Sunday (market_today() does no
+    # weekend skip by design, so a Sunday backfill records a Sunday as-of), so the entry read Monday's
+    # close and the exit read the preceding Friday's — -4.33% and +3.32%, the negation of a real move,
+    # one of them inside the live metrics. Taking the exit from the window makes that impossible by
+    # construction, and an empty window then has no exit to report: insufficient_prices is the honest
+    # answer, not a signed number (the render sites label a MATURED empty window for what it is).
     window = realized.bars_between(sid, ep.arm_date, ep.exit_by)
+    if not window or entry_close == 0:
+        return out.model_copy(update={"entry_close": entry_close, "insufficient_prices": True})
+    exit_date, exit_close = window[-1]["d"], window[-1]["close"]
     peak_date, peak_close = _extreme(window, "close", max)
     trough_date, trough_close = _extreme(window, "close", min)
     high_date, high_px = _extreme(window, "high", max)

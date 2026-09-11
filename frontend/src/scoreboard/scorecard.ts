@@ -24,8 +24,15 @@ export function noForwardBar(e: ScoreboardEpisodeOut): boolean {
 
 /** Lens 1 (The move): the honest one-liner when the prices don't yet support a realized move.
  *  No forward bar (nothing to score) takes priority over truncated (a bar, but short of the
- *  horizon); null when the move stands on its own. */
+ *  horizon); null when the move stands on its own.
+ *
+ *  The drawer's twin of `returnLabel`'s split, and for the same reason: a MATURED episode whose
+ *  scored window held no bars is not awaiting anything — the window closed empty and no later bar
+ *  can enter it. Saying "awaiting" there would promise a bar that can never arrive. */
 export function moveNote(e: ScoreboardEpisodeOut): string | null {
+  if (e.insufficient_prices && e.matured) {
+    return "no bars in the scored window — the horizon closed without one";
+  }
   if (noForwardBar(e)) return "awaiting the first forward bar — nothing to score yet";
   if (e.truncated) return "measured to the last bar ≤ as-of — the horizon isn't reached yet";
   return null;
