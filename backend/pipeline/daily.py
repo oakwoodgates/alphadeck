@@ -25,7 +25,8 @@ Discipline:
     python -m pipeline.daily                 # asof=today, live ingest
     python -m pipeline.daily --asof 2026-06-10 --no-live
     python -m pipeline.daily --catch-up --asof 2026-09-08   # the sidecar's late-wake / boot catch-up:
-                                                            # a no-op if a LIVE pass for that asof ran
+                                                            # a no-op if a LIVE pass for that asof already
+                                                            # ran at/after that night's RUN_AT
 """
 
 from __future__ import annotations
@@ -41,12 +42,14 @@ import psycopg
 
 from db.session import connect
 from domain.enums import State
-from domain.market_time import market_today
+from domain.market_time import market_today, market_tz
+from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import already_ran_live, write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
+from pipeline.schedule import parse_run_at
 from repositories import calls_repo, thesis_repo
 from securities import master
 
@@ -477,22 +480,34 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--catch-up",
         action="store_true",
-        help="R6: run only if a LIVE pass for this asof hasn't already run (the sidecar's on-start "
-        "catch-up, so a rebuild after RUN_AT self-heals instead of skipping the night, and its late-wake "
-        "catch-up of the nights a long sleep skipped); a no-op otherwise. A catch-up runs inside the "
-        "EDGAR cache TTL, so its ~0-fetch freeze page is skipped (withheld / errored still page).",
+        help="R6: run only if a LIVE pass for this asof that STARTED at/after that night's RUN_AT hasn't "
+        "already run (the sidecar's boot catch-up of the last expected night, so a host that was off at "
+        "RUN_AT self-heals when it comes back, and its late-wake catch-up of the nights a long sleep "
+        "skipped); a no-op otherwise. A pre-open manual pass for the same asof does NOT count (it lacks "
+        "the night's close). A catch-up runs inside the EDGAR cache TTL, so its ~0-fetch freeze page is "
+        "skipped (withheld / errored still page).",
     )
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else market_today()
     allow_live = not args.no_live
 
-    # R6 — catch-up guard: if a LIVE pass already ran for this asof, this invocation is a no-op. The sidecar
-    # calls `--catch-up` on start ONLY when it booted past RUN_AT (Flag 6: a rebuild at 23:00 re-anchored to
-    # tomorrow and silently skipped tonight). The mode-filtered run log (R3) is the memory that answers "did
-    # it run"; a --no-live dev run never satisfies it, so a hand-run can't suppress the real catch-up.
-    if args.catch_up and already_ran_live(asof):
-        print(f"daily-cron: a live pass for {asof} already ran — catch-up is a no-op")
-        return
+    # R6 — catch-up guard: a `--catch-up` invocation is a no-op when a LIVE pass for this asof that STARTED
+    # at/after that night's RUN_AT already ran. The sidecar fires `--catch-up` on boot for the last expected
+    # night (Flag 6: a rebuild at 23:00 re-anchored to tomorrow and silently skipped tonight; the Sep 9 2026
+    # host-off-at-22:30 case, back at 13:47 the next day) and on a late wake for the nights a long sleep
+    # skipped. The mode-filtered run log (R3) is the memory that answers "did the night run"; a --no-live dev
+    # run never satisfies it, and neither does a pre-open Admin "Run daily now" for the same asof (it ran on
+    # the prior session's bars — it lacks the night's close), so neither can suppress the real catch-up. The
+    # guard is pure; the config it needs (RUN_AT + the market zone) is supplied HERE, never read inside it.
+    if args.catch_up:
+        run_at = parse_run_at(get_settings().cron_run_at)
+        tz = market_tz()
+        if already_ran_live(asof, run_at=run_at, tz=tz):
+            print(
+                f"daily-cron: a live pass for {asof} started at/after {run_at:%H:%M} {tz.key} "
+                "already ran — catch-up is a no-op"
+            )
+            return
 
     outcome = run_daily_pass(asof=asof, allow_live=allow_live, catch_up=args.catch_up)
     if _report(outcome.results):

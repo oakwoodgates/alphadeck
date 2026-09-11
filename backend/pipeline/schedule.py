@@ -21,7 +21,9 @@ shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it 
 market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
 schedule math belongs HERE; the remaining consolidation is shrinking the shell to a dumb trigger. Until
 then keep the two in step — concretely, the shell's ``is_weekday`` / ``next_weekday`` /
-``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here.
+``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here, and since 2026-09-10 the
+shell's BOOT path targets ``last_expected_asof(now)`` too (the last expected night — exactly one, never
+older), the same function its late-wake catch-up window closes on.
 
 THE TARGET-AT-SCHEDULE-TIME CONTRACT (shared with the shell): the as-of a scheduled run is FOR is fixed
 when the run is scheduled, never re-read when it fires. On a laptop the sidecar's ``sleep`` overshoots by

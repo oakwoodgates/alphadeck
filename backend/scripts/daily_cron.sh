@@ -26,6 +26,14 @@
 #   the target the loop just fired for, never backwards, so it can only ever cover the sleep that just
 #   ended (a deploy never silently backfills old holes). Catch-up days run inside the EDGAR cache's 12h TTL
 #   and legitimately make ~0 fetches; the CLI's `--catch-up` skips the freeze page for exactly that reason.
+# - CATCHES UP THE LAST EXPECTED NIGHT ON BOOT (R6, widened 2026-09-10). A boot fires ONE `--catch-up` for
+#   `last_expected_asof(now)` — the most recent as-of whose scheduled run should ALREADY have fired — so a
+#   host that was OFF at RUN_AT catches last night up whenever it comes back, not only when it boots later the
+#   SAME evening. MEASURED: prod was off at Wed 2026-09-09 22:30, rebooted 03:34, Docker (this sidecar) back
+#   at 13:47 on Thu Sep 10 — the old today-only block ("booted past TODAY's RUN_AT?") did nothing at 13:47 and
+#   re-anchored to Thu 22:30; Sep 9 was never attempted. Still exactly ONE night by construction (never older
+#   holes — a deploy must never silently backfill history); the CLI's guard makes it a no-op when the night
+#   genuinely ran, and a pre-open manual pass for that as-of does NOT count as the night (see the CLI).
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -97,19 +105,23 @@ catch_up_between() {
 
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
 
-# R6 — CATCH-UP ON START. A rebuild/restart AFTER today's RUN_AT re-anchors the loop to TOMORROW and silently
-# skips tonight (Flag 6 — every `docker compose up` after the close dropped a night, invisibly). So on boot, if
-# we are already PAST today's RUN_AT on a weekday, attempt a catch-up. `--catch-up` is a NO-OP unless a LIVE
-# pass for today is genuinely missing (the CLI checks the run log — R3's memory), so a boot BEFORE RUN_AT, or a
-# night that already ran, does nothing. Idempotent + fail-open: it never blocks the loop. TODAY-ONLY, on
-# purpose: a deploy must never silently backfill old holes (the in-loop catch-up above is bounded to the
-# sleep that just ended for the same reason).
-_boot_now=$(date +%s)
-_boot_today=$(date +%F)
-if [ "$(date -d "today ${RUN_AT}" +%s)" -le "${_boot_now}" ] && is_weekday "${_boot_today}"; then
-  echo "daily-cron: booted past today's ${RUN_AT} — attempting catch-up for ${_boot_today} (no-op if it already ran live)"
-  python -m pipeline.daily --catch-up --asof "${_boot_today}" || echo "daily-cron: catch-up FAILED (continuing to the schedule)"
-fi
+# R6 — CATCH-UP ON BOOT, for the LAST EXPECTED night. A rebuild/restart AFTER today's RUN_AT re-anchors the
+# loop to TOMORROW and would silently skip tonight (Flag 6 — every `docker compose up` after the close dropped
+# a night, invisibly). `last_expected_asof(now)` is the most recent as-of whose scheduled run should ALREADY
+# have fired: today once RUN_AT has passed on a weekday, else the most recent prior weekday (always a weekday
+# — no separate gate). The old block was TODAY-ONLY ("booted past today's RUN_AT?"), which covered a rebuild
+# after the close but NOT a host that was OFF at RUN_AT and came back the next day: on 2026-09-09 prod was off
+# at 22:30, rebooted 03:34, and Docker (this sidecar) came back at 13:47 on Sep 10 — before Sep 10's RUN_AT, so
+# nothing fired, the loop re-anchored to Sep 10 22:30, and Sep 9 was never attempted. UNCONDITIONAL on boot,
+# on purpose: `--catch-up` is the guard — a NO-OP unless a LIVE pass for that as-of that STARTED at/after its
+# RUN_AT is genuinely missing (the CLI reads the run log — R3's memory; a pre-open "Run daily now" for the same
+# as-of does NOT count — it lacks the night's close — so it can no longer mask a missed post-close pass).
+# Idempotent + fail-open: it never blocks the loop. Exactly ONE night by construction — never older holes (a
+# deploy must never silently backfill history; the in-loop catch-up above is bounded to the sleep that just
+# ended for the same reason).
+_boot_target=$(last_expected_asof "$(date +%s)")
+echo "daily-cron: booted $(date) — catch-up for the last expected night ${_boot_target} (no-op if its post-${RUN_AT} live pass already ran)"
+python -m pipeline.daily --catch-up --asof "${_boot_target}" || echo "daily-cron: boot catch-up ${_boot_target} FAILED (continuing to the schedule)"
 
 while :; do
   now=$(date +%s)

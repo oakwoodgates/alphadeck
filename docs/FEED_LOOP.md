@@ -155,8 +155,9 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   (`pipeline/cron_run_log.py`, write-only, fail-open) — timing, `asof`, `mode`, per-thesis
   `withheld_reason`/`edgar_fetches`/counts. `edgar_fetches` is the **freeze detector**: it counts network
   *attempts* (a frozen cache reaches out 0 times; a healthy run, thousands), so a freeze is visible in the log
-  instead of hiding behind a plausible quiet night. `already_ran_live(asof)` reads these logs (mode==`live`)
-  to decide whether a day already ran — the basis of R6 catch-up.
+  instead of hiding behind a plausible quiet night. `already_ran_live(asof, run_at, tz)` reads these logs
+  (mode==`live`, **started at/after that night's `RUN_AT`** in market time) to decide whether the night
+  already ran — the basis of R6 catch-up.
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, or has **thesis
@@ -225,14 +226,27 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   back to UTC). **Never the container's default UTC.** *(The BACKEND container's `TZ` is pinned to match, #202,
   so a manual `docker exec … pipeline.daily` agrees on "today" — a container-scoped stopgap; the durable fix,
   a shared trading-day helper, is an open item — see `INVARIANTS.md`.)*
-- **Catch-up on boot (R6, #200).** When the sidecar boots **past** today's `RUN_AT` on a weekday it fires
-  `python -m pipeline.daily --catch-up`, which is a **no-op if a live pass already ran** for that `asof`
-  (`already_ran_live`, reading the R3 logs). So a crash/redeploy after the scheduled time re-fires the missed
-  run instead of waiting a full day. A `--no-live` run never satisfies the guard (mode-filtered), so it can't
-  suppress a real catch-up. The CLI's `--asof YYYY-MM-DD` still allows a manual backfill (re-running is safe —
-  idempotent). The boot catch-up is **today-only, on purpose** — a deploy must never silently backfill old
-  prod holes; the in-loop late-wake catch-up (above) is bounded to the sleep that just ended for the same
-  reason. *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
+- **Catch-up on boot (R6, #200 — widened to the LAST EXPECTED night, 2026-09-10).** On boot the sidecar
+  fires **one** `python -m pipeline.daily --catch-up --asof <last_expected_asof(now)>` — the most recent
+  as-of whose scheduled run should *already* have fired (today once `RUN_AT` has passed on a weekday, else
+  the most recent prior weekday; the shell's `last_expected_asof` mirrors `schedule.last_expected_asof`).
+  Unconditional on boot; the CLI's guard is what makes it a no-op: `already_ran_live(asof, run_at, tz)` reads
+  the R3 logs and counts a live pass **only if it started at/after that night's `RUN_AT` in market time**
+  (`datetime.combine(asof, run_at, tz)`, compared as aware datetimes; `main` supplies `RUN_AT` + the market
+  zone from config, the guard itself is pure). Both rules come from one measured night. On **2026-09-09** the
+  prod host was OFF at the 22:30 run, rebooted 03:34, and Docker (the sidecar) came back at **13:47 on Sep
+  10**: the old block fired only when a boot was *past today's* `RUN_AT`, so a 13:47 boot did nothing and the
+  loop re-anchored to Sep 10 — Sep 9 was never attempted; and two pre-open "Run daily now" passes for as-of
+  Sep 9 (09:09 / 09:15 ET, on Sep 8's bars) satisfied the old any-live-pass guard, so even a wider catch-up
+  would have been a no-op — Sep 9's record stayed a pre-open call. Now a next-day boot catches last night up,
+  and a pre-close manual pass never masks the missed post-close pass (a late-wake or boot catch-up the next
+  morning started *after* the cutoff and does count — a `--catch-up` pass is a live pass). A `--no-live` run
+  never satisfies the guard (mode-filtered), and an artifact with a missing / unparseable / naive
+  `started_at` is skipped — fail-open toward *running*, never toward a silent skip. The CLI's
+  `--asof YYYY-MM-DD` still allows a manual re-run (idempotent). Bounded to **exactly one night** by
+  construction — never older holes; a deploy must never silently backfill history (the operator's tool for a
+  hole is `pipeline.backfill`, below; the in-loop late-wake catch-up above is bounded to the sleep that just
+  ended for the same reason). *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
@@ -300,7 +314,7 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
   replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
 
-## Known gaps (as of 2026-09-09)
+## Known gaps (as of 2026-09-10)
 
 Recorded here where a builder of the pager/scheduler will hit them; the full account of the first three is in
 `POSTMORTEM_CRON_FREEZE_2026-07.md`.
@@ -320,9 +334,10 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   forward-only. **C** (the freshness read) makes the shape visible: `/admin/status` scans the last
   `ALPHADECK_ADMIN_MISSED_WINDOW` (default 10) scheduled weekdays for nights with no call-of-record
   (`schedule.missed_asofs`, bounded to the record's own span) and reports `gappy` + the dates. The existing
-  prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up stays
-  today-only); the operator's tool for a hole is `pipeline.backfill` with a PINNED `known_at` ("Backfilling
-  a missed night", above) — never `pipeline.daily --asof <past>`, which records today's knowledge.
+  prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up is
+  bounded to the *last expected* night, never older); the operator's tool for a hole is `pipeline.backfill`
+  with a PINNED `known_at` ("Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
+  which records today's knowledge.
 - **The R4 freeze page's false-positive path is NARROWED, not removed.** It fires on `edgar_fetches == 0`, but
   ~0 is *also* what a correct run entirely inside the 12h EDGAR TTL looks like (all cache hits). The
   **nightly** cron is safe — always ~24h out, always past the TTL, always fetches in the thousands. Option B
@@ -348,9 +363,13 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   a run, so a run that never happens produces no results → no run log → no page — byte-identical to a healthy
   silent night. R6 covers the crash/reboot case and the late-wake catch-up (A) covers a sidecar that sleeps
   through nights and *eventually wakes*; the hole-aware read (C) at least makes the absence **visible** on the
-  Admin page (`gappy` / `stale`) — but only when someone looks. A *persistent* absence — a sidecar that never
-  boots — needs an **external** heartbeat that alerts when today's run log is missing past a deadline (the
-  sidecar can't page about its own absence).
+  Admin page (`gappy` / `stale`) — but only when someone looks. **Narrowed 2026-09-10:** the boot catch-up
+  now targets the *last expected* night and the guard only credits a pass started at/after that night's
+  `RUN_AT`, so a sidecar that boots the *next day* (the Sep 9 case: host off at 22:30, Docker back at 13:47)
+  catches last night up even when a pre-open manual pass ran. A *persistent* absence — a host that stays off,
+  a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
+  that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
+  absence). Unchanged, still open.
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

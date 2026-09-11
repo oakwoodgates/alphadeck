@@ -104,7 +104,10 @@ history like the nightly one**. A **409** single-slot guard means a double-click
 pass. It does a **LIVE EDGAR pull** (~2 min warm, up to ~65 min on a cold cache) and is safe to re-click once
 finished — the pass is idempotent (`record_if_changed` appends nothing on unchanged facts). The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
-an infinite spinner — the run history + record edge are the durable authority.
+an infinite spinner — the run history + record edge are the durable authority. A manual pass that starts
+**before** that night's `RUN_AT` (a pre-open click, on the prior session's bars) does **not** satisfy the
+sidecar's `--catch-up` guard — the night's post-close pass still runs (2026-09-10; on Sep 9 two 09:09 / 09:15
+ET passes had masked a missed post-close pass, and the record stayed a pre-open call).
 
 ## Backups — the DB-snapshot safety net (Slice 4)
 
