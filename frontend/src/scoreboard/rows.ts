@@ -277,54 +277,77 @@ export function groupCount(t: ScoreboardThesisOut): number {
 export type LedgerView = "summary" | "timing";
 
 /** The ledger's column count for the current view — the group-row/note-row `colSpan` tracks it so a
- *  full-width group header spans exactly the rendered columns (Summary = 8, Timing = 8: Name · Armed ·
- *  Path · Return · Peak · Worst · Past peak · Status). A Timing column has to be added in FOUR places
- *  — `LedgerHead`, `EpisodeRow`, `SpanRow` and here — and the whole-table span test is the net. */
+ *  full-width group header spans exactly the rendered columns. A column has to be added in FOUR
+ *  places — `LedgerHead`, `EpisodeRow`, `SpanRow` and here — and the whole-table span test is the
+ *  net. */
 const LEDGER_COLS: Record<LedgerView, number> = {
-  summary: 8, // Name · Armed · Why · Exit-by · Status · Return · Peak · Operator
-  timing: 8, // Name · Armed · Path · Return · Peak · Worst · Past peak · Status
+  summary: 9, // Name · Armed · De-armed · Why · Exit-by · Status · Return · Peak · Operator
+  // 11: the excursion pair was promoted OUT of the hovers into four columns (Peak · Peak high ·
+  // Worst · Worst low), each close figure adjacent to its own wick so the pair reads together.
+  timing: 11, // Name · Armed · De-armed · Path · Return · Peak · Peak high · Worst · Worst low · Past peak · Status
 };
 
 export function ledgerColCount(view: LedgerView): number {
   return LEDGER_COLS[view];
 }
 
-// -------- the excursion pair: the close figure on the row, the wick figure in its hover -------------
+// -------- the excursion quartet: four figures, four columns, four single-purpose hovers -------------
 
-/** The Peak / Worst cell's hover. The CELL carries the CLOSE-based figure — the same basis
- *  `forward_return` and `exit_vs_peak_days` use, so Return · Peak · Worst read as three numbers on one
- *  tape. The wick figure is a ~2pp correction (measured median +2.0pp favourable / +2.1pp adverse), and
- *  a correction is something you CHECK rather than scan, so it lives here.
+/** Which of the four excursion cells a hover is for: the side (favorable / adverse) × the basis
+ *  (the CLOSE the return is measured on, or the WICK that actually traded). */
+export type ExcursionSide = "peak" | "worst";
+export type ExcursionBasis = "close" | "wick";
+
+/** One excursion cell's hover. The wick figures used to ride the CLOSE cell's hover, because they
+ *  were a ~2pp correction with no column of their own; now all four have columns, so each hover
+ *  describes ONLY its own figure. A hover that restated its neighbour would be the repetition the
+ *  columns were promoted to remove — and it is the neighbour's cell that answers for the neighbour.
  *
- *  When a wick is unavailable the line says so in as many words. It never falls back to the close and
- *  it never silently omits the line — an absent line would read as "the intraday extreme equals the
- *  close", which is the one thing that is certainly not true (#6). */
-export function excursionTitle(e: ScoreboardEpisodeOut, side: "peak" | "worst"): string {
+ *  Two degradations, and the distinction between them is the point (#6):
+ *
+ *  - **No close excursion at all** means the scored window held no bars — for EITHER basis. Say
+ *    that, rather than blaming a missing wick for an empty window. (The real instance: the two
+ *    episodes whose arm and exit_by both land on the same Sunday.)
+ *  - **A missing wick with bars present** says so in as many words. It never falls back to the
+ *    close and it never silently omits the line — an absent line would read as "the intraday
+ *    extreme equals the close", which is the one thing that is certainly not true. */
+export function excursionTitle(
+  e: ScoreboardEpisodeOut,
+  side: ExcursionSide,
+  basis: ExcursionBasis,
+): string {
   const isPeak = side === "peak";
-  const lines = [
-    isPeak
-      ? "maximum favourable excursion (MFE) — the best CLOSE in the scored window"
-      : "maximum adverse excursion (MAE) — the worst CLOSE in the scored window",
-  ];
-  // No close excursion at all means the scored window held no bars — say THAT, rather than falling
-  // through to the wick line and blaming a missing wick for an empty window. (The real instance: the
-  // two episodes whose arm and exit_by both land on the same Sunday.)
+  // The close excursion is present whenever the window held a bar, so it is the EMPTY-WINDOW probe
+  // for both bases — a wick column asks it first, then its own field.
   const closeRet = isPeak ? e.peak_return : e.trough_return;
-  if (closeRet == null) {
-    lines.push("no bars in the scored window — nothing to measure");
+  if (closeRet == null) return "no bars in the scored window — nothing to measure";
+
+  if (basis === "close") {
+    const lines = [
+      isPeak
+        ? "maximum favorable excursion (MFE) — the best CLOSE in the scored window"
+        : "maximum adverse excursion (MAE) — the worst CLOSE in the scored window",
+    ];
+    const closeDate = isPeak ? e.peak_date : e.trough_date;
+    if (closeDate) lines.push(`on ${fmtDate(closeDate)}`);
     return lines.join("\n");
   }
-  const closeDate = isPeak ? e.peak_date : e.trough_date;
-  if (closeDate) lines.push(`on ${fmtDate(closeDate)}`);
+
   const wick = isPeak ? e.intraday_high_return : e.intraday_low_return;
   const wickDate = isPeak ? e.intraday_high_date : e.intraday_low_date;
   const name = isPeak ? "intraday high" : "intraday low";
-  lines.push(
-    wick != null
-      ? `${name} ${fmtReturn(wick).text}${wickDate ? ` on ${fmtDate(wickDate)}` : ""}`
-      : `${name} unavailable — not every bar in this window carries a wick, and the close is never ` +
-        `substituted for one`,
-  );
+  if (wick == null) {
+    return (
+      `${name} unavailable — not every bar in this window carries a wick, and the close is never ` +
+      `substituted for one`
+    );
+  }
+  const lines = [
+    isPeak
+      ? "the BEST price that actually traded — the intraday high"
+      : "the WORST price that actually traded — the intraday low",
+  ];
+  if (wickDate) lines.push(`on ${fmtDate(wickDate)}`);
   return lines.join("\n");
 }
 

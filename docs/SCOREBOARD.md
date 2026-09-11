@@ -191,18 +191,53 @@ stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet
 
 ## The ledger table itself
 
-Two structural notes for anyone editing it.
+Three structural notes for anyone editing it.
 
-**It wears the `.basket` skin but is NOT a contained table.** The ledger is laid out in a flowing
-document, so it stays fluid and wraps — it has no `.basket-scroll` box, and the Cockpit's containment
-machinery (`min-width: max-content`, the sticky header, the sticky identity columns) is scoped to that
-box precisely so it cannot reach here. See `BOARD.md`; unscoped, it overflowed this page by 498px.
+**It wears the `.basket` skin but it is NOT the Cockpit's contained table.** The Cockpit's containment
+machinery (`min-width: max-content`, its sticky header, its sticky identity columns) is scoped to
+`.basket-scroll` precisely so it cannot reach here — unscoped, it overflowed this page by 498px (see
+`BOARD.md`). The ledger has its own box, `.sb-scroll`, with its own rules; the two are deliberately
+separate even where they agree.
+
+**Both headers stick, and the height cap is the price.** `.sb-scroll` caps its height at
+`--sb-scroll-max` (**the one knob** — set it to `none` and everything below reverts). That cap is what
+gives the box a vertical scroll of its own, and a sticky `<thead>` can only stick to the box that
+actually scrolls it: per spec `overflow-x: auto` computes the other axis to `auto`, so `.sb-scroll`
+was already a scroll container on both axes and the page was never the header's scrollport. The cost
+is real and was accepted knowingly — a nested vertical scroll inside a flowing document, with the
+metrics strip above it and the replay panel below — because the alternative on a ~10,000px record is a
+column header that is off-screen for all of it. The thesis heading sticks **below** the column header
+(`top: var(--sb-head-h)`, z-index 2 vs the header's 3), so a heading scrolling up slides *under* the
+header rather than over it. `position: sticky` on a `<tr>` is unreliable — both rules target the
+**cells**.
 
 **Every column must be added in four places**: `LedgerHead` (the `<colgroup>` + `<th>`s), `EpisodeRow`,
 `SpanRow` (in `Scoreboard.tsx` — the off-record operator spans, the one most easily missed), and
 `ledgerColCount` (which the group/note rows' `colSpan` tracks). Miss one and that row's cells sit a
 column off their headers, silently — a short `<tr>` just renders narrow. Pinned by a test that walks
 every body row in both views and compares its colSpan-weighted cell count to the head's.
+
+### Sorting — a within-group re-order, never a flattening
+
+`sortLedger.ts` (pure, unit-tested, beside `rows.ts` the way `cockpit/sortBasket.ts` sits beside
+`buckets.ts`) holds the comparators; the two hosts — `Scoreboard` and `ReplayPanel` — each hold their
+**own** sort state, because the replay set is a recompute and the two are never pooled.
+
+Sortable: **Name · Armed · De-armed · Return · Peak · Peak high · Worst · Worst low · Past peak**.
+Not sortable, deliberately: **Path** (a shape has no honest scalar), **Status** (a badge set has no
+ordering the record gives it), and the Summary-only **Why** / **Operator** / **Exit-by**.
+
+Three rules, inherited from the Cockpit's sort because they are the same rules:
+
+1. The group is the **spine** — rows re-rank *inside* their thesis heading and the headings never move.
+   Operator spans re-rank among themselves, never interleaved with the arm episodes above them (a
+   logged take is not an episode).
+2. A key is read off the **same access path and the same dash guard** as the cell, so the ranking always
+   matches what the operator sees — `noForwardBar` dashes the whole timing lens, a wick is
+   independently absent under the all-or-nothing rule, and a real `0.0` still ranks.
+3. **Nulls last in both directions** (a missing measurement is not a small one) and the cycle is
+   reversible: desc → asc → off, back to the record's own order. A sort is a re-order, never a filter —
+   no row can be sorted off the ledger (#9).
 
 ## The episode drill-down: drawer, chart, ledger
 
@@ -217,8 +252,14 @@ more of what is computed; it changes no computation): *The move* (entry/exit clo
 well-timed? hidden without a peak), *Edge preservation* (`warm_return` vs `forward_return` — armed in time or
 missed the early move?), *Entry window + setup* (`arm_until_return` + grades + setup strength). A
 **Summary | Timing** column toggle (`LedgerHead.tsx`) swaps the ledger's middle columns so one timing lens
-can be scanned down the whole universe (#228). Timing is **8 columns** —
-`Name · Armed · Path · Return · Peak · Worst · Past peak · Status`.
+can be scanned down the whole universe (#228). Summary is **9 columns** —
+`Name · Armed · De-armed · Why · Exit-by · Status · Return · Peak · Operator`. Timing is **11** —
+`Name · Armed · De-armed · Path · Return · Peak · Peak high · Worst · Worst low · Past peak · Status`.
+
+**Armed and De-armed are two columns**, not one cell reading `Aug 7 → Aug 11`: they are two
+measurements, and packed together they could be neither scanned down nor sorted on. The censored-start
+`*` stays with the **arm** date — it is the arm that is unknowable. A still-open episode's De-armed
+cell reads `—`; so does a `SpanRow`'s, because an operator span is a logged take, not an arm.
 
 ### The excursion pair — how far it went each way, not just where it ended
 
@@ -233,17 +274,23 @@ Two bases, six `Outcome` fields, **one read**:
 
 | field | basis | meaning |
 |---|---|---|
-| `peak_return` / `peak_date` | close | **MFE** — maximum favourable excursion |
+| `peak_return` / `peak_date` | close | **MFE** — maximum favorable excursion |
 | `trough_return` / `trough_date` | close | **MAE** — maximum adverse excursion |
 | `intraday_high_return` / `intraday_high_date` | wick | the best price that actually traded |
 | `intraday_low_return` / `intraday_low_date` | wick | the worst price that actually traded |
 
-The **close pair are the columns** (`Peak` · `Worst`), because `forward_return` is close-based and
-`exit_vs_peak_days` is anchored on the close-based `peak_date` — Return · Peak · Worst then read as three
-numbers on one tape. The **wick pair ride the cell hovers**: MEASURED, the wick differs from the close on
-96–97% of episodes but by a median of only **+2.0pp / +2.1pp**, and a 2pp correction is something you
-*check*, not something you *scan*. The wire carries all four regardless, so promoting them to columns later
-is a pure FE change.
+**All four are columns**, each close figure adjacent to its own wick so the pair reads together:
+`Peak · Peak high · Worst · Worst low`. The close pair anchors the row — `forward_return` is close-based
+and `exit_vs_peak_days` is anchored on the close-based `peak_date`, so Return · Peak · Worst read as three
+numbers on one tape — and the wick sits beside each, set one tone quieter (`.sb-wick`) because the close
+is the basis and the wick is the check against it.
+
+The wick pair used to ride the close cells' hovers, on the grounds that MEASURED it differs from the close
+on 96–97% of episodes but by a median of only **+2.0pp / +2.1pp**, and a 2pp correction is something you
+*check*, not *scan*. **The operator overruled that** and asked for all four visible. Promoting them was a
+pure FE change (the wire already carried all four). It came with a second half: each of the four hovers now
+describes **only its own figure** — a hover that restated its neighbour would be exactly the repetition the
+columns were promoted to remove, and the neighbour's own cell answers for the neighbour.
 
 Three honesty rules:
 

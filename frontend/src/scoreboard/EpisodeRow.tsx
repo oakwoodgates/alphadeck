@@ -19,12 +19,12 @@ import { noForwardBar } from "./scorecard";
 // `historical` swaps the operator cell: history predates decision capture, so it says so
 // (structurally absent) instead of faking a "no decision logged" capture gap.
 // `view` (Slice 2) swaps the middle cells: Summary keeps today's Why · Exit-by · Status · Return ·
-// Operator; Timing shows the timing-calibration lens Path · Return · Peak · Worst · Past peak ·
-// Status — one basis (closes) across Return, Peak and Worst, with the wick corrections in the
-// hovers, so the four numbers on the row can be read against each other. Name (with
-// the ↗ cockpit jump) + Armed lead both; the Status cell is identical in both (built once, placed per
-// view). The ROW opens the episode scorecard (the scoreboard's own drill-down); the ↗ jumps to the
-// fuller per-name Cockpit.
+// Peak · Operator; Timing shows the timing-calibration lens Path · Return · Peak · Peak high ·
+// Worst · Worst low · Past peak · Status — the CLOSE basis (Return · Peak · Worst) and the WICK
+// basis (Peak high · Worst low) side by side, each close figure adjacent to its own wick. Name
+// (with the ↗ cockpit jump) + Armed + De-armed lead both; the Status cell is identical in both
+// (built once, placed per view). The ROW opens the episode scorecard (the scoreboard's own
+// drill-down); the ↗ jumps to the fuller per-name Cockpit.
 
 export function EpisodeRow({
   ep,
@@ -59,6 +59,12 @@ export function EpisodeRow({
   // the adverse twin of Peak, on the same CLOSE basis and behind the same guard: with no forward bar
   // a degenerate 0.0% would read as "it never went against you", which is the opposite of unknown.
   const worst = fmtReturn(ep.trough_return);
+  // the WICK twins — the best/worst price that actually traded. Independently null when the window's
+  // bars don't all carry a wick (all-or-nothing, per column), so one of these can dash on a row whose
+  // close figures are present; `fmtReturn` already renders that null as "—" and never substitutes
+  // the close for it.
+  const peakHigh = fmtReturn(ep.intraday_high_return);
+  const worstLow = fmtReturn(ep.intraday_low_return);
   const op = operatorLine(ep);
 
   // The Status cell is a SHARED column — identical content in both views, only its position differs
@@ -109,6 +115,9 @@ export function EpisodeRow({
         </button>
         {ep.ticker ?? "—"}
       </td>
+      {/* Armed and De-armed are two measurements, so they are two columns — one cell reading
+          "Aug 7 → Aug 11" could be neither scanned down nor sorted on. The censored-start marker
+          belongs to the ARM date (it is the arm that is unknowable), so it stays here. */}
       <td className="sb-armed">
         {fmtDate(ep.arm_date)}
         {ep.censored_start && (
@@ -116,8 +125,9 @@ export function EpisodeRow({
             *
           </span>
         )}
-        {ep.dearm_date && <span className="sb-dearm"> → {fmtDate(ep.dearm_date)}</span>}
       </td>
+      {/* a still-open episode has no de-arm — "—", never an empty cell or a guessed date */}
+      <td className="sb-armed sb-dearm">{ep.dearm_date ? fmtDate(ep.dearm_date) : "—"}</td>
 
       {view === "timing" ? (
         <>
@@ -129,16 +139,37 @@ export function EpisodeRow({
           <td className="sb-ret">
             <span className={`ret ${ret.cls}`}>{awaiting ? "—" : ret.text}</span>
           </td>
-          {/* Peak — the realized high; "—" until a forward bar lands (honest loudness, no false 0.0%).
-              The intraday high rides the hover: a ~2pp correction is checked, not scanned. */}
-          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "peak")}>
+          {/* The excursion quartet — close, then its wick, on each side. "—" until a forward bar
+              lands (honest loudness, no false 0.0%); each cell's hover answers only for itself. */}
+          {/* Peak — the best CLOSE, the same basis Return and Past peak are measured on. */}
+          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "peak", "close")}>
             <span className={`ret ${noBar ? "" : peak.cls}`}>{noBar ? "—" : peak.text}</span>
           </td>
-          {/* Worst — the realized low on the SAME close basis. A real 0.0% here is a measurement (the
-              name never closed below entry — 24% of the record), so it renders as 0.0%, not a dash;
-              only the no-forward-bar case dashes. The intraday low rides the hover. */}
-          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "worst")}>
+          {/* Peak high — the best price that actually TRADED. Quieter than the close beside it: the
+              close is the figure the rest of the row is measured on, the wick is the check. */}
+          <td
+            className="sb-ret sb-wick"
+            title={noBar ? undefined : excursionTitle(ep, "peak", "wick")}
+          >
+            <span className={`ret ${noBar ? "" : peakHigh.cls}`}>
+              {noBar ? "—" : peakHigh.text}
+            </span>
+          </td>
+          {/* Worst — the worst CLOSE. A real 0.0% here is a measurement (the name never closed below
+              entry — 24% of the record), so it renders as 0.0%, not a dash; only the no-forward-bar
+              case dashes. */}
+          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "worst", "close")}>
             <span className={`ret ${noBar ? "" : worst.cls}`}>{noBar ? "—" : worst.text}</span>
+          </td>
+          {/* Worst low — the worst price that actually TRADED. MEASURED: this reads 0 on 0 of 250
+              episodes, so unlike Worst it can never say "it never went against you". */}
+          <td
+            className="sb-ret sb-wick"
+            title={noBar ? undefined : excursionTitle(ep, "worst", "wick")}
+          >
+            <span className={`ret ${noBar ? "" : worstLow.cls}`}>
+              {noBar ? "—" : worstLow.text}
+            </span>
           </td>
           {/* Past peak — trading days from the peak to the exit; "—" with no forward bar (a degenerate
               0d would read as "exited at the peak" — a real 0d, WITH a bar, is kept and meaningful). */}
