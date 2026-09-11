@@ -1385,21 +1385,37 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
   max-height: var(--sb-scroll-max);
   background: var(--bg);
 }
-/* the height of the sticky column header — what the thesis heading sticks BELOW. MEASURED at
-   22.25px (a single 9px uppercase line in 6px/4px padding plus its 1px rule); rounded UP to 23 on
-   purpose, so the heading always lands just under the header rather than half a pixel inside it.
-   Re-measure if the header's type or padding changes. */
+/* The height of the sticky column header — what the thesis heading sticks BELOW. One variable
+   drives BOTH, and it is applied as the header's height rather than only as the heading's offset,
+   which is what makes the seam gap-proof instead of merely well-measured.
+
+   The two can only ever disagree in one of two directions, and they are not symmetric: the header
+   is z 3 and the heading z 2, so an OVERLAP slides under the header and is invisible, while a
+   SHORTFALL is a slit that the scrolling rows show through. This is the operator-reported bug —
+   the header measured 22px, the heading was offset 23px, and one pixel of daylight ran the width
+   of the table. Rounding the measurement UP is what caused it; the safe direction is always down.
+
+   So the variable does not merely DESCRIBE the header's height — it SETS it. `height` on a table
+   cell acts as a floor (MEASURED in the live page: 23px renders 23, 40px renders 40, against a
+   ~22.25px natural box — one 9px uppercase line in 6px/4px padding plus its 1px rule). Pinning the
+   header to the same value the heading offsets from makes the seam exact by construction rather
+   than by a measurement that silently rots: below the floor the header is held at `--sb-head-h` and
+   the heading lands flush on it; above it — a larger zoom or type size — the header grows past the
+   heading's offset and the extra slides UNDER it. Both cases are gap-free, which is the property
+   worth having, since only one of the two failures is visible. */
 .sb-scroll { --sb-head-h: 23px; }
 .sb-scroll .sb-ledger thead th {
   position: sticky;
   top: 0;
   z-index: 3;
+  height: var(--sb-head-h);
   background-color: var(--bg);
   border-bottom: none;
   box-shadow: inset 0 -1px 0 var(--line);
 }
 .sb-scroll .sb-ledger tr.grp td {
   position: sticky;
+  /* the SAME variable the header's height is pinned to — that shared value is the whole fix. */
   top: var(--sb-head-h);
   z-index: 2;
   background-color: var(--bg);
