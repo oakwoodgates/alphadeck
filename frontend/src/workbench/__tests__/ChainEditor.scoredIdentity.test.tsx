@@ -244,8 +244,8 @@ describe("ChainEditor — identity from the scored join alone (the identity-life
 });
 
 // The discovery business-type chip (Business-Type M1): the cockpit's SIC-derived "Type" read, rendered on
-// the discovery workbench as a MUTED chip (the `.idchip` class its neighbours use — NOT the cockpit's
-// coloured `.btype`), riding right after the raw SIC chip. Display identity, never a call input (#3/#4).
+// the discovery workbench as a MUTED chip (the `.idchip` class its neighbors use — NOT the cockpit's
+// colored `.btype`), riding right after the raw SIC chip. Display identity, never a call input (#3/#4).
 describe("ChainEditor — the discovery business-type chip (muted)", () => {
   it("renders the MUTED leaf chip on placed rows off the scored join, with the ◈ royalty overlay", () => {
     // s-us: a plain leaf (no overlay); s-cn: a royalty/streaming house (the company-NAME tell → overlay).

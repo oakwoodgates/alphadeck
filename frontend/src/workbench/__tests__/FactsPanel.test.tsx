@@ -292,9 +292,9 @@ describe("FactsPanel — extract → ratify", () => {
     });
   });
 
-  it("missing-data flags render grey (∅), judgment flags warm (⚠) — honest loudness", () => {
+  it("missing-data flags render gray (∅), judgment flags warm (⚠) — honest loudness", () => {
     // one candidate can carry both: a derived burn with an anomalous line (judgment) + no cash
-    // instant (a data gap). The gap is an authoring state, not an alarm — grey, never warm.
+    // instant (a data gap). The gap is an authoring state, not an alarm — gray, never warm.
     h.extract.data = env([{ ...FLAG_BURN, flags: ["possible-one-time", "no-cash-instant"] }]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText("⚠ possible-one-time").className).toBe("rflag");

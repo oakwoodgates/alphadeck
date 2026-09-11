@@ -265,7 +265,7 @@ export function sparkGeometry(
 
 /** One basket-table sparkline cell from the `price_path` display member's fixed-slot `close`
  *  series — the SHAPE behind the return ladder's endpoint numbers. A NEUTRAL hairline in the muted
- *  text grey, no accent: it must never conflate with the return green/red, the RVOL warm, or the
+ *  text gray, no accent: it must never conflate with the return green/red, the RVOL warm, or the
  *  insider blue (#7). A null slot is an honest gap the line BREAKS on — never interpolated — so a
  *  young name draws a shorter, right-aligned path; fewer than two real closes (or no series at all)
  *  reads a muted "—" with the why on hover (a point is not a path, #6/#9). Not sortable: a shape,

@@ -52,7 +52,7 @@ export function EventLedger({
             {events.map((e) => {
               const r = ledgerRow(e);
               // A set-aside row (screened buy/sell, passive 13G) is MUTED, never removed (WB #2) —
-              // the type cell keeps its family label; the grey + the detail's screen line carry the
+              // the type cell keeps its family label; the gray + the detail's screen line carry the
               // exception (#7). Same `eventSetAside` the chart chip reads — the two never disagree.
               const setAside = eventSetAside(e);
               return (

@@ -327,7 +327,7 @@ export function useEpisodePriceWindow(
 export type DecisionIn = components["schemas"]["DecisionIn"];
 export type DecisionOut = components["schemas"]["DecisionOut"];
 
-// The thesis's decision log, newest first (voided rows ride along flagged — greyed, never hidden).
+// The thesis's decision log, newest first (voided rows ride along flagged — grayed, never hidden).
 export function useDecisions(thesisId: string) {
   return useQuery({
     queryKey: ["decisions", thesisId] as const,

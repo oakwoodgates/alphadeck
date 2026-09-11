@@ -36,7 +36,7 @@ function snapshot(thesis: ThesisDetail): ChainDraft {
 // THE PLACED MODE (Research ⇄ Pick) — HOW the operator decides the PLACED section: one of two gestures over
 // the SAME working list.
 //   research (today's prune, the default): every name starts checked + open; unchecking is the DURABLE NO
-//     (`excluded`, persisted on Save — a rejected name returns pre-greyed next time).
+//     (`excluded`, persisted on Save — a rejected name returns pre-grayed next time).
 //   pick (the additive SELECT): every name starts un-picked + open/available; checking PICKS it into the
 //     basket (`selected`) and collapses it. Pick NEVER writes a durable exclusion — an un-picked name is
 //     AVAILABLE, not rejected (silence is never a NO).
@@ -111,10 +111,10 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   // TRIAGE (the prune) — include is the CONFIDENCE LADDER's gate (Excluded → Included → Signed off;
   // excluded wins). A member starts INCLUDED (#9: nothing silently dropped — the operator UNCHECKS to
   // exclude); `excluded` holds the keys chosen to leave OUT of the saved basket. #7 made the NO durable:
-  // the set SEEDS from the thesis's persisted exclusions (previously-rejected names arrive pre-greyed,
+  // the set SEEDS from the thesis's persisted exclusions (previously-rejected names arrive pre-grayed,
   // visible, one click back — never a filter), and Save persists the current set (with the optional
   // reasons) through PUT /theses/{id}/exclusions alongside the promote. Include NEVER touches
-  // `authored_by` or `signed_off` — greying a name out neither un-endorses it nor un-writes anything.
+  // `authored_by` or `signed_off` — graying a name out neither un-endorses it nor un-writes anything.
   const [baseExcluded] = useState<Set<string>>(
     () => new Set((thesis.exclusions ?? []).map((e) => e.security_id)),
   );
@@ -191,7 +191,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     return next;
   };
   // Entering RESEARCH: the fresh-research-mount state — every working name checked EXCEPT the persisted
-  // NOs, which return pre-greyed (NOT a literal all-check: that would silently withdraw every durable NO on
+  // NOs, which return pre-grayed (NOT a literal all-check: that would silently withdraw every durable NO on
   // the next research Save); a signed-off name is checked regardless. `selected` is left dormant.
   const exclusionForResearch = (): Set<string> => {
     const next = new Set(baseExcluded);
@@ -237,7 +237,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     });
   // Bulk-exclude a specific set of names — the group-level "exclude all" on a display lens (the low-quality
   // cluster). Same contract as excludeNotSignedOff: ADDITIVE, exclude-only, never touches authorship or
-  // the sign-off flag; every row stays visible (greyed) and re-includable in one click (#9).
+  // the sign-off flag; every row stays visible (grayed) and re-includable in one click (#9).
   const excludeKeys = (keys: string[]) =>
     setExcluded((prev) => {
       const next = new Set(prev);

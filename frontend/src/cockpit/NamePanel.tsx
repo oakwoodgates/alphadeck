@@ -334,7 +334,7 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       {myDecisions.length > 0 && (
         <>
           <div className="np-h">Decision log · this name</div>
-          {/* voided rows grey with a tag — visible, never vanished (the rail's rule, kept here) */}
+          {/* voided rows gray with a tag — visible, never vanished (the rail's rule, kept here) */}
           {myDecisions.slice(0, 6).map((d) => (
             <div className={`np-dlog${d.voided ? " voided" : ""}`} key={d.id}>
               <b className="act">{d.action}</b>

@@ -15,7 +15,7 @@ import { fmtDate, todayISO } from "../util/format";
  *  nothing blocks. State-appropriate (inverse loudness): Armed offers the loud "log the fill";
  *  Managing offers "log exit"; a not-yet state shows the GATE — friction copy + a logged override,
  *  never a wall. "Pass" is quiet and available at any state. A mistake is corrected by void (an
- *  append that greys the row — visible, never deleted). The take → Managing flip is visible: the
+ *  append that grays the row — visible, never deleted). The take → Managing flip is visible: the
  *  mutation invalidates the call, and the card re-derives with the logged position.
  */
 export function DecisionActions({
@@ -195,7 +195,7 @@ export function DecisionActions({
         </div>
       )}
 
-      {/* the decision history — the record itself, quiet; voided rows grey, never vanish */}
+      {/* the decision history — the record itself, quiet; voided rows gray, never vanish */}
       {(decisions.data ?? []).length > 0 && (
         <div className="dc-log">
           <div className="dc-log-h">Decision log</div>
@@ -239,7 +239,7 @@ function DecisionRow({
           disabled={busy}
           aria-label={`void this ${d.action}`}
           onClick={() => onVoid(d.id)}
-          title="append a void — un-does this row on read; the row stays visible, greyed"
+          title="append a void — un-does this row on read; the row stays visible, grayed"
         >
           undo
         </button>

@@ -521,7 +521,7 @@ describe("Scoreboard", () => {
   });
 
   // Four columns mean four hovers, and the whole point of promoting the wicks out of the close
-  // cells' titles is that no column restates its neighbour any more.
+  // cells' titles is that no column restates its neighbor any more.
   it("each excursion cell's hover describes only its OWN figure", () => {
     renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));

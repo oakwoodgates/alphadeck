@@ -131,7 +131,7 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
 }
 
 // The de-arm tokens replay stamps on an episode (`backend/replay/episodes.py::_close_reason`) in the
-// operator's English. A CLASSIFICATION, never a judgement — "aged out" says the horizon elapsed, not that
+// operator's English. A CLASSIFICATION, never a judgment — "aged out" says the horizon elapsed, not that
 // the call was wrong. Additive-safe: a token this map doesn't know renders RAW rather than "unknown", so
 // a new backend reason surfaces as itself instead of vanishing (#9) — and every render site keeps the raw
 // token reachable in a `title=`, so the translation never hides what the record actually says.
@@ -174,7 +174,7 @@ const CLOSE_REASON_BADGE: Record<string, string> = {
  *
  *  It wears the MUTED tone deliberately. Every closed row has a close reason (208 of 252 on the
  *  current record), so this states a fact about the rule rather than flagging an exception; giving
- *  it an alert colour would make two thirds of the ledger shout (#7). It is a badge for SHAPE — one
+ *  it an alert color would make two thirds of the ledger shout (#7). It is a badge for SHAPE — one
  *  scannable chip instead of a trailing sentence — not for volume.
  *
  *  The full story rides the title: the backend's composed `dearm_detail` where one exists, then the
@@ -196,7 +196,7 @@ export function closeReasonBadge(e: ScoreboardEpisodeOut): Badge | null {
  *  healthy. Loudness marks the exception (#7): a line under every episode saying "ingest fine" would
  *  carry no information, so the healthy case is silence. Flagged means any of the three wire signals:
  *  the rollup `ingest_flagged`, the 2026-07 EDGAR freeze window, or an explicitly stale arm-date run
- *  (`arm_ingest_fresh === false` — a null is UNKNOWN, and unknown is not a judgement). The server's
+ *  (`arm_ingest_fresh === false` — a null is UNKNOWN, and unknown is not a judgment). The server's
  *  composed `ingest_note` is the "why" verbatim where it exists; the thaw lag rides beside it as the
  *  measured number (#6 — the flag always shows its work). */
 export function ingestProvenanceLine(e: ScoreboardEpisodeOut): string | null {
@@ -326,8 +326,8 @@ export type ExcursionBasis = "close" | "wick";
 
 /** One excursion cell's hover. The wick figures used to ride the CLOSE cell's hover, because they
  *  were a ~2pp correction with no column of their own; now all four have columns, so each hover
- *  describes ONLY its own figure. A hover that restated its neighbour would be the repetition the
- *  columns were promoted to remove — and it is the neighbour's cell that answers for the neighbour.
+ *  describes ONLY its own figure. A hover that restated its neighbor would be the repetition the
+ *  columns were promoted to remove — and it is the neighbor's cell that answers for the neighbor.
  *
  *  Two degradations, and the distinction between them is the point (#6):
  *

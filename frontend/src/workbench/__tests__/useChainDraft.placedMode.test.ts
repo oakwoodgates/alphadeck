@@ -166,7 +166,7 @@ describe("useChainDraft — the toggle is a WORKING-SCOPED RESET (restore ≠ re
     expect([...result.current.selected].sort()).toEqual(["sid-a", "sid-e"]);
     expect(result.current.isIncluded("sid-a")).toBe(true); // the saved Basket's kept name — never emptied
     expect(result.current.isIncluded("sid-b")).toBe(false); // the demoted established name stays down
-    expect(result.current.isIncluded("sid-c")).toBe(false); // the persisted NO → available, not pre-greyed
+    expect(result.current.isIncluded("sid-c")).toBe(false); // the persisted NO → available, not pre-grayed
     expect(result.current.isIncluded("sid-d")).toBe(false); // undecided
     expect(result.current.isIncluded("sid-e")).toBe(true); // signed off ⇒ checked
     // dormant, untouched — it comes back on research entry
@@ -176,14 +176,14 @@ describe("useChainDraft — the toggle is a WORKING-SCOPED RESET (restore ≠ re
     expect(result.current.draft.basket.filter((m) => m.security_id !== "sid-e").every((m) => !m.signed_off)).toBe(true);
   });
 
-  it("entering research: excluded ← persisted NOs − signed-off (a fresh mount, NOT an all-check); a picked persisted-NO returns greyed; `selected` untouched", () => {
+  it("entering research: excluded ← persisted NOs − signed-off (a fresh mount, NOT an all-check); a picked persisted-NO returns grayed; `selected` untouched", () => {
     const { result } = setup();
     act(() => result.current.setPlacedMode("pick"));
     act(() => result.current.toggleInclude("sid-c")); // pick the persisted-NO name
     act(() => result.current.toggleInclude("sid-d")); // and an undecided one
     act(() => result.current.toggleInclude("sid-a")); // un-pick an established name (RULING 1 — allowed)
     expect([...result.current.selected].sort()).toEqual(["sid-c", "sid-d", "sid-e"]);
-    // A (un-picked → included), B (the in-session demote → included again) and C (picked → greyed)
+    // A (un-picked → included), B (the in-session demote → included again) and C (picked → grayed)
     // would flip; D (picked → included) and E (signed → included) read the same either way
     expect(result.current.placedModeResetCount("research")).toBe(3);
 
@@ -191,7 +191,7 @@ describe("useChainDraft — the toggle is a WORKING-SCOPED RESET (restore ≠ re
     expect([...result.current.excluded]).toEqual(["sid-c"]); // the persisted NO restored — never withdrawn silently
     expect(result.current.isIncluded("sid-a")).toBe(true);
     expect(result.current.isIncluded("sid-b")).toBe(true); // the in-session demote does NOT survive the reset
-    expect(result.current.isIncluded("sid-c")).toBe(false); // pre-greyed, one click back (#9)
+    expect(result.current.isIncluded("sid-c")).toBe(false); // pre-grayed, one click back (#9)
     expect(result.current.isIncluded("sid-d")).toBe(true);
     expect(result.current.isIncluded("sid-e")).toBe(true);
     expect([...result.current.selected].sort()).toEqual(["sid-c", "sid-d", "sid-e"]); // dormant, untouched

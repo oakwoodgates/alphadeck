@@ -73,7 +73,7 @@ export function ReplayPanel({
           <div className="sb-banner rp-banner">{data.banner}</div>
           <MetricsStrip metrics={data.metrics} minN={data.min_n} />
           {/* the same scroller the live ledger uses — the two tables share LedgerHead, so they
-              have to share the width behaviour too or they drift apart on screen */}
+              have to share the width behavior too or they drift apart on screen */}
           <div className="sb-scroll">
           <table className="basket sb-ledger">
             <LedgerHead view={view} returnHeader="Replayed return" sort={sort} onSort={onSort} />

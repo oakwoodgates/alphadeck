@@ -30,7 +30,7 @@ export function dearmX(pathLength: number, dearmIndex: number | null | undefined
   return Math.round(((dearmIndex / (pathLength - 1)) * SPARK_W) * 10) / 10;
 }
 
-/** One Timing-row Path cell. A NEUTRAL hairline in the muted text grey — no accent, because it must
+/** One Timing-row Path cell. A NEUTRAL hairline in the muted text gray — no accent, because it must
  *  never conflate with the return green/red two cells to its right (#7). Below two closes the cell
  *  reads a muted "—" with the why on hover (a point is not a path). Not sortable: a shape, never a
  *  number the sort could read. */

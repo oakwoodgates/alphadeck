@@ -44,7 +44,7 @@ describe("Board — archive (hygiene, never delete)", () => {
     render(<Board asof="2026-07-11" onAsofChange={noop} onSelect={noop} onOpenWorkbench={noop} />);
     expect(screen.getByText("live one")).toBeInTheDocument(); // a column card
     expect(screen.getByText("Archived (1)")).toBeInTheDocument(); // the quiet section
-    expect(screen.getByText("parked one")).toBeInTheDocument(); // greyed row inside it, NOT a card
+    expect(screen.getByText("parked one")).toBeInTheDocument(); // grayed row inside it, NOT a card
     expect(screen.queryByLabelText("archive parked one")).toBeNull(); // no ✕ on an archived row
   });
 

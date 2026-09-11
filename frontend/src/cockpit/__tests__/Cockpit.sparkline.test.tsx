@@ -96,7 +96,7 @@ const rowOf = (ticker: string) => screen.getByText(ticker).closest("tr") as HTML
 const sparkCell = (ticker: string) => rowOf(ticker).querySelector("td.sparkc") as HTMLElement;
 
 describe("Cockpit — the close-path sparkline column (Path)", () => {
-  it("renders a plain NON-sortable Path header right after 1Y; the sortable neighbours keep their exact names", () => {
+  it("renders a plain NON-sortable Path header right after 1Y; the sortable neighbors keep their exact names", () => {
     renderCockpit();
     const th = screen.getByRole("columnheader", { name: "Path" });
     expect(th.querySelector("button")).toBeNull(); // no sort control…

@@ -300,7 +300,7 @@ describe("Workbench — S3: the ⟳ Re-scope action", () => {
     confirmSpy.mockRestore();
   });
 
-  it("a cancelled confirm changes NOTHING — no delete, no remount, no draft", async () => {
+  it("a canceled confirm changes NOTHING — no delete, no remount, no draft", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     s.sessionData = envelope(daysAgo(1), [smem("OKLO", "s-oklo"), smem("ZZZ", "s-zzz")]);

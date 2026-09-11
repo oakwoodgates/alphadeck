@@ -338,7 +338,7 @@ export function PriceSparkline({
             <button
               key={c.event.n}
               type="button"
-              // A set-aside chip (screened buy/sell, passive 13G) renders GREYED, never hidden (WB
+              // A set-aside chip (screened buy/sell, passive 13G) renders GRAYED, never hidden (WB
               // #2) — `eventSetAside` is the one helper the chip and its ledger row both read.
               className={`ov-chip ${familyCls(c.event.family)}${
                 eventSetAside(c.event) ? " ov-setaside" : ""
