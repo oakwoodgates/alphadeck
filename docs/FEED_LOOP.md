@@ -196,15 +196,17 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
   `docker compose up -d --scale cron=0`. *(Local dev uses `infra/docker-compose.yml` — DB only — and tests use
   pytest, so neither starts it.)* `restart: unless-stopped` — see the missing-sidecar gap in "Known gaps".
-- **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` sleeps until `RUN_AT` in
-  the container's `TZ`, skips weekends (markets closed → an idempotent no-op + a needless API hit), fires
-  `python -m pipeline.daily --asof <target>`, and a failed run never kills the loop. It is **not Dagster, not
+- **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
+  the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
+  them** rather than one long `sleep` (why: two bullets down) — skips weekends (markets closed → an
+  idempotent no-op + a needless API hit), fires `python -m pipeline.daily --asof <target>`, and a failed run
+  never kills the loop. It is **not Dagster, not
   APScheduler, not a cron daemon** — chosen because a sleep-loop **inherits the container env directly** (so
   the space-bearing `ALPHADECK_USER_AGENT` isn't mangled by a cron-style env snapshot) and honors `TZ` via
   `date`. Trivially swappable to real cron / supercronic later (the contract is "fire the CLI once a day").
 - **It fires for the INTENDED night — the target as-of is fixed at schedule time (2026-09-09).** On a laptop
-  the `sleep` overshoots by however long the host was suspended (MEASURED late fires at 23:37 / 23:43 / 23:49
-  ET, one at 00:24 the next day, one at 09:09 the next morning). The loop used to let the CLI default `asof`
+  a single long `sleep` overshot by however long the host was suspended (MEASURED late fires at 23:37 / 23:43
+  / 23:49 ET, one at 00:24 the next day, one at 09:09 the next morning). The loop used to let the CLI default `asof`
   to the day it *woke*, so a fire past midnight recorded the NEXT day's as-of and the intended night got no
   call-of-record at all — 6 of 13 weekdays since 2026-08-24 had zero `calls` rows. Now the loop captures
   `target=$(date -d "@$next" +%F)` when it schedules, gates the weekday check on the **target** (a Friday
@@ -221,6 +223,17 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   `pipeline/schedule.py` — keep the two in step. A catch-up runs inside the EDGAR cache's 12h TTL and
   legitimately fetches ~0, so the CLI's `--catch-up` skips the R4 freeze page for that pass only (withheld /
   errored still page) and the run artifact carries `catch_up: true` (the Admin history tags the row).
+- **It waits in slices and re-checks the WALL clock — the lateness itself (2026-09-10).** `sleep` counts the
+  monotonic clock, and on Docker Desktop / WSL2 the VM's monotonic clock does not advance while the host is
+  suspended, so one long `sleep "$((next - now))"` overshot by exactly the suspended interval — even on a host
+  wide awake at `RUN_AT`. MEASURED on prod 2026-09-10: the sidecar booted 13:47 ET and computed `sleep 31376`
+  for 22:30; at 22:33 ET the wall clock had advanced 31,569 s since boot, the container's monotonic clock
+  28,688 s, and the sleep still had 2,707 s left (~48 min of daytime suspend) — the pass fired ~23:18. Now
+  `wait_until "$next"` sleeps at most `SLICE_S` (default 60 s, env-tunable) at a time and re-reads `date +%s`
+  between slices (a remaining time ≤ 0 breaks out, so a clock jump can never produce a negative sleep; no
+  per-slice log line): a host awake at `RUN_AT` fires at `RUN_AT`, and a host suspended *across* `RUN_AT`
+  fires within a minute of resuming. The fixed target, the ≥5-min LATE WAKE line (which now measures the
+  suspend itself) and the forward-only late-wake catch-up above all still apply to that spanning-suspend case.
 - **Explicit TZ.** `TZ=America/New_York` (overridable) + `RUN_AT=22:30` (after the US close + EOD settle);
   `tzdata` is installed in the image (the slim base ships no zoneinfo, so an explicit TZ would silently fall
   back to UTC). **Never the container's default UTC.** *(The BACKEND container's `TZ` is pinned to match, #202,

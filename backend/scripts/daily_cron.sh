@@ -9,13 +9,24 @@
 #   default UTC), Mon-Fri only (markets closed on weekends -> no new EOD bars; a run would be an idempotent
 #   no-op + a needless API hit).
 # - FIRES FOR THE INTENDED NIGHT. The target as-of is fixed at SCHEDULE time (`target`, below) and passed
-#   as `--asof`; it is never re-read after the sleep. On a laptop `sleep` overshoots by however long the
-#   host was suspended — MEASURED late fires at 23:37 / 23:43 / 23:49 ET, one at 00:24 the next day, and
+#   as `--asof`; it is never re-read after the wait. A single long `sleep` used to overshoot by however long
+#   the host was suspended — MEASURED late fires at 23:37 / 23:43 / 23:49 ET, one at 00:24 the next day, and
 #   one at 09:09 the next morning (`next run Tue Sep 8 22:30` followed by `Wed Sep 9 09:09:42 — running`).
 #   The old loop let the CLI default `asof` to the day it WOKE, so a fire past midnight recorded the NEXT
 #   day's as-of and the intended night got no call-of-record at all — 6 of 13 weekdays since 2026-08-24
 #   had zero `calls` rows, and the Admin edge check read "current" over every hole (a wrong-day run is a
 #   healthy run). The weekday gate is on the TARGET too (a Friday target that wakes on Saturday still runs).
+#   The fixed target still matters with the sliced wait below: a suspend that SPANS RUN_AT still lands late.
+# - WAITS IN SHORT SLICES, RE-CHECKING THE WALL CLOCK (`wait_until`, below; 2026-09-10). `sleep` counts the
+#   MONOTONIC clock, and on Docker Desktop / WSL2 the VM's monotonic clock does not advance while the host is
+#   suspended — so one long `sleep` overshoots by exactly the suspended interval even when the host is wide
+#   awake at RUN_AT. MEASURED on prod 2026-09-10: booted 13:47 ET, `sleep 31376` for 22:30; at 22:33 ET the
+#   wall clock had advanced 31,569 s since boot, the container's monotonic clock 28,688 s, and the sleep had
+#   2,707 s left (~48 min of daytime suspend) — the pass fired ~23:18. Now the wait sleeps at most SLICE_S
+#   (60 s) at a time and re-reads `date +%s` between slices: a host awake at RUN_AT fires AT RUN_AT, and a
+#   host suspended across RUN_AT fires within one slice of resuming (the LATE WAKE line then measures the
+#   suspend itself, and the catch-up below covers any nights it spanned). Quiet — no per-slice log line
+#   (~1,440 wakeups a day would drown the log).
 # - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every weekday strictly after
 #   the target up to the last EXPECTED as-of at the instant the scheduled run FINISHES gets a `--catch-up`
 #   pass. The window closes AFTER the run, not at the wake: a live run takes 7-15 min, so a wake shortly
@@ -46,6 +57,10 @@
 set -u
 
 RUN_AT="${RUN_AT:-22:30}"
+# the wait_until slice (seconds) — how late a fire can be once the host is awake; see the header. A
+# non-numeric or non-positive value would spin `sleep 0` in a hot loop, so it falls back to the default.
+SLICE_S="${SLICE_S:-60}"
+[ "${SLICE_S}" -ge 1 ] 2>/dev/null || SLICE_S=60
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -101,6 +116,22 @@ catch_up_between() {
   done
 }
 
+# --- the wait (the one helper that reads the ambient clock) ----------------------------------------------
+
+# wait_until EPOCH -> returns once the WALL clock (`date +%s`) is >= EPOCH. Sleeps in slices of at most
+# SLICE_S seconds and re-reads the wall clock after each: a suspended host does not advance the monotonic
+# clock `sleep` counts on, so one long sleep overshoots by the whole suspend (measured 48 min on
+# 2026-09-10); sliced, the loop returns within one slice of EPOCH once the host is awake. A remaining time
+# <= 0 (already past, or a clock jump) breaks out — it can never issue `sleep -5`. Quiet: no per-slice log.
+wait_until() {
+  while :; do
+    _rem=$(( $1 - $(date +%s) ))
+    [ "${_rem}" -le 0 ] && break
+    [ "${_rem}" -gt "${SLICE_S}" ] && _rem="${SLICE_S}"
+    sleep "${_rem}"
+  done
+}
+
 # --- the trigger ------------------------------------------------------------------------------------------
 
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
@@ -133,7 +164,7 @@ while :; do
   # (the sleep can overshoot by a whole suspend; see the header).
   target=$(date -d "@${next}" +%F)
   echo "daily-cron: next run $(date -d "@${next}") — asof ${target}"
-  sleep "$((next - now))"
+  wait_until "${next}"
   woke=$(date +%s)
   late_min=$(( (woke - next) / 60 ))
   if [ "${late_min}" -ge 5 ]; then
