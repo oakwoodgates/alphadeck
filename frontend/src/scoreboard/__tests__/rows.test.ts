@@ -103,15 +103,17 @@ describe("fmtPastPeak — the Timing view's past-peak gap cell (Slice 2)", () =>
 });
 
 describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", () => {
-  it("both views span 8 columns", () => {
-    // Timing went 6 -> 8 with Path and Worst. The whole-table span test in Scoreboard.test.tsx is
-    // what catches a column added here but not in all four places; this only pins the number.
-    expect(ledgerColCount("summary")).toBe(8);
-    expect(ledgerColCount("timing")).toBe(8);
+  it("Summary spans 9 columns, Timing 11", () => {
+    // Timing went 6 -> 8 (Path + Worst) -> 11: De-armed split out of Armed, and the excursion pair
+    // was promoted out of the hovers into four columns. Summary went 8 -> 9 with De-armed alone.
+    // The whole-table span test in Scoreboard.test.tsx is what catches a column added here but not
+    // in all four places; this only pins the number.
+    expect(ledgerColCount("summary")).toBe(9);
+    expect(ledgerColCount("timing")).toBe(11);
   });
 });
 
-describe("excursionTitle — the close figure is the cell, the wick figure is the hover", () => {
+describe("excursionTitle — four columns, four hovers, none restating its neighbour", () => {
   const full = ep({
     peak_return: 0.204,
     peak_date: "2026-08-10",
@@ -123,36 +125,61 @@ describe("excursionTitle — the close figure is the cell, the wick figure is th
     intraday_low_date: "2026-07-27",
   });
 
-  it("names the excursion, its close date, and the intraday counterpart", () => {
-    const peak = excursionTitle(full, "peak");
-    expect(peak).toContain("maximum favourable excursion (MFE)");
-    expect(peak).toContain("intraday high +23.1%");
-    const worst = excursionTitle(full, "worst");
+  it("a CLOSE hover names its excursion and its own date — and nothing about the wick", () => {
+    const peak = excursionTitle(full, "peak", "close");
+    expect(peak).toContain("maximum favorable excursion (MFE)");
+    expect(peak).toContain("on Aug 10");
+    const worst = excursionTitle(full, "worst", "close");
     expect(worst).toContain("maximum adverse excursion (MAE)");
-    expect(worst).toContain("intraday low -8.4%");
-    // each side reads its OWN wick — a crossed pair would be silently wrong on every row
-    expect(peak).not.toContain("-8.4%");
-    expect(worst).not.toContain("+23.1%");
+    expect(worst).toContain("on Jul 28");
+    // the repetition the columns were promoted to remove: the wick has its own cell now, so the
+    // close cell must not restate it
+    for (const t of [peak, worst]) {
+      expect(t).not.toContain("intraday");
+      expect(t).not.toContain("+23.1%");
+      expect(t).not.toContain("-8.4%");
+    }
+  });
+
+  it("a WICK hover names the traded extreme and its own date — and not the close", () => {
+    const peak = excursionTitle(full, "peak", "wick");
+    expect(peak).toContain("intraday high");
+    expect(peak).toContain("on Aug 11");
+    const worst = excursionTitle(full, "worst", "wick");
+    expect(worst).toContain("intraday low");
+    expect(worst).toContain("on Jul 27");
+    // each side reads its OWN date — a crossed pair would be silently wrong on every row
+    expect(peak).not.toContain("Jul 27");
+    expect(worst).not.toContain("Aug 11");
+    // no MFE/MAE restatement, and no close figure leaking into the wick cell
+    for (const t of [peak, worst]) {
+      expect(t).not.toContain("excursion");
+      expect(t).not.toContain("+20.4%");
+      expect(t).not.toContain("-5.6%");
+    }
   });
 
   it("says the intraday figure is unavailable rather than omitting the line", () => {
     // the close is NEVER substituted for a missing wick, and an absent line would read as "the
     // intraday extreme equals the close" — the one thing that is certainly not true
     const noWick = ep({ peak_return: 0.204, intraday_high_return: null, intraday_high_date: null });
-    const t = excursionTitle(noWick, "peak");
+    const t = excursionTitle(noWick, "peak", "wick");
     expect(t).toContain("intraday high unavailable");
     expect(t).not.toContain("+20.4%");
   });
 
-  it("an EMPTY scored window says so, instead of blaming a missing wick", () => {
+  it("an EMPTY scored window says so on BOTH bases, instead of blaming a missing wick", () => {
     // the two real episodes whose arm and exit_by both land on the same Sunday: no bar exists in
     // [arm_date, exit_by] at all. "not every bar carries a wick" would be a vacuous truth pointing
-    // at the wrong cause — there are no bars to carry anything.
+    // at the wrong cause — there are no bars to carry anything. The wick columns ask the CLOSE
+    // excursion first, precisely so they degrade to the right reason.
     const empty = ep({ peak_return: null, trough_return: null, path: [] });
     for (const side of ["peak", "worst"] as const) {
-      const t = excursionTitle(empty, side);
-      expect(t).toContain("no bars in the scored window");
-      expect(t).not.toContain("unavailable");
+      for (const basis of ["close", "wick"] as const) {
+        const t = excursionTitle(empty, side, basis);
+        expect(t).toContain("no bars in the scored window");
+        expect(t).not.toContain("unavailable");
+      }
     }
   });
 });
