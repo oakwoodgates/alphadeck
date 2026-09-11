@@ -114,7 +114,7 @@ describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", (
   });
 });
 
-describe("excursionTitle — four columns, four hovers, none restating its neighbour", () => {
+describe("excursionTitle — four columns, four hovers, none restating its neighbor", () => {
   const full = ep({
     peak_return: 0.204,
     peak_date: "2026-08-10",
@@ -285,7 +285,7 @@ describe("closeReasonBadge — the row's short form, deferring nothing", () => {
     )!;
     expect(b.label).toBe("DE-ARMED");
     expect(b.title).toContain("de-armed — thesis fell back to Warming");
-    expect(b.title).not.toContain("see de-arm day"); // the deferral is gone, not relabelled
+    expect(b.title).not.toContain("see de-arm day"); // the deferral is gone, not relabeled
   });
 
   it("keeps the raw wire token reachable, translated or not", () => {
@@ -466,7 +466,7 @@ describe("closeReasonLine — a composed detail answers dearmed_other; everythin
 
 // A1: the drawer's one ingest line — the healthy arm renders NOTHING (loudness marks the exception, #7).
 describe("ingestProvenanceLine — silence when healthy, the composed why when flagged", () => {
-  it("is null on a clean arm, and on an UNKNOWN (null) freshness stamp — unknown is not a judgement", () => {
+  it("is null on a clean arm, and on an UNKNOWN (null) freshness stamp — unknown is not a judgment", () => {
     expect(ingestProvenanceLine(ep())).toBeNull();
     expect(ingestProvenanceLine(ep({ arm_ingest_fresh: null }))).toBeNull();
     expect(ingestProvenanceLine(ep({ arm_ingest_fresh: true, thaw_lag_days: 2 }))).toBeNull();

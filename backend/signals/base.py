@@ -294,7 +294,7 @@ class PointInTimeData:
 
         The master is identity (CIK ↔ ticker ↔ name), read directly (never as-of): the name is stable, so a
         direct read leaks no future EVENT — the no-lookahead boundary is about facts, not identity (migration
-        0001: "nothing reads the master as-of"). The insider detector uses this to recognise a self-filing —
+        0001: "nothing reads the master as-of"). The insider detector uses this to recognize a self-filing —
         the reporting owner IS the issuer — on rows ingested before ``rpt_owner_cik``/``issuer_cik`` were
         captured (those newer rows carry the CIKs and match canonically instead). ``None`` if unknown → the
         name screen simply keeps the row (recall-safe, #9)."""
@@ -303,7 +303,7 @@ class PointInTimeData:
     def security_cik(self, security_id: UUID) -> str | None:
         """The security's SEC CIK from ``security_master`` — an IDENTITY read, NOT a bitemporal fact (the
         ``security_name`` precedent: the master is identity, read directly, never as-of — a CIK is stable,
-        so a direct read leaks no future EVENT). The activist-stake detector uses this to recognise a
+        so a direct read leaks no future EVENT). The activist-stake detector uses this to recognize a
         MIS-ATTRIBUTED 13D — the filer IS the subject company (``filer_cik`` == the subject's CIK, a
         self-filed schedule the ingest fanned onto the wrong subject). ``None`` if unknown → the screen
         simply keeps the row (recall-safe, #9)."""

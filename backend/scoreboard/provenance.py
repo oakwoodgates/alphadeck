@@ -13,7 +13,7 @@ from domain.call import TriggerRef
 #
 #   A  — the run stamp. The arm-date call row's ``ingest_fresh``/``ingest_errors`` (migration 0023,
 #        stamped by the cron since R2b): an explicit False = the arm rested on a PARTIAL ingest.
-#        ``None`` = legacy/manual append — never coerced to a judgement (0023's own rule).
+#        ``None`` = legacy/manual append — never coerced to a judgment (0023's own rule).
 #   B1 — the freeze-era window. Arms made inside the 2026-07 EDGAR cache freeze
 #        (``docs/POSTMORTEM_CRON_FREEZE_2026-07.md``): the harm B2 cannot see — an arm resting on
 #        promptly-ingested OLDER facts while the frozen ``submissions`` index hid the newer filings.
@@ -54,7 +54,7 @@ FREEZE_WINDOW = (date(2026, 7, 10), date(2026, 7, 17))
 class EpisodeProvenance:
     """The five per-episode provenance fields (additive on ``ScoredEpisode``)."""
 
-    arm_ingest_fresh: bool | None  # A, raw stamp — None = legacy/unknown, never a judgement
+    arm_ingest_fresh: bool | None  # A, raw stamp — None = legacy/unknown, never a judgment
     freeze_era: bool  # B1 — arm_date inside FREEZE_WINDOW
     thaw_lag_days: int | None  # B2 — None = no form4 sources / no fact rows (unknown)
     ingest_flagged: bool  # the rollup the badge + the metric-exclusion read
@@ -113,7 +113,7 @@ def derive_episode_provenance(
 ) -> EpisodeProvenance:
     """Compose one episode's five provenance fields from the arm-date run stamp (A), the freeze
     window (B1), and the batched thaw-lag map (B2). Pure over its inputs — called AFTER scoring,
-    never inside it. Each ``None`` degrades to un-flagged (unknown is not a judgement)."""
+    never inside it. Each ``None`` degrades to un-flagged (unknown is not a judgment)."""
     fresh, errors = health.get(arm_date, (None, None))
     freeze_era = FREEZE_WINDOW[0] <= arm_date <= FREEZE_WINDOW[1]
     ep_lags = [lags[a] for a in form4_accessions(triggers_at_arm) if a in lags]

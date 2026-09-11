@@ -154,7 +154,7 @@ def test_void_restores_the_prior_state_and_the_table_only_grows(client, db):
     rows = client.get(f"/theses/{t.id}/decisions").json()
     assert len(rows) == 2  # COUNT the table: the correction APPENDED — nothing was deleted
     by_action = {x["action"]: x for x in rows}
-    assert by_action["take"]["voided"] is True  # greyed, not hidden
+    assert by_action["take"]["voided"] is True  # grayed, not hidden
     assert by_action["void"]["voided"] is False
     assert by_action["void"]["voids"] == take_id
 

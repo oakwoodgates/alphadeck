@@ -102,7 +102,7 @@ def parse_form4(xml: str) -> list[dict]:
 
     Each row carries the filing's ``aff_10b5_1`` (the Rule 10b5-1 checkbox, tri-state — see ``_aff_10b5_1``;
     read by the SELL-side risk detector, not the buy side) and the issuer + reporting-owner IDENTITY
-    (``issuer_cik``, ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognise a
+    (``issuer_cik``, ``issuer_name``, ``rpt_owner_cik``). The identity is what lets the insider detector recognize a
     self-filing (reporting owner IS the issuer — a buyback/treasury/ADR mechanic, never personal insider
     conviction) and screen it out of the open-market conviction total; see ``signals/insider_conviction.py``.
 

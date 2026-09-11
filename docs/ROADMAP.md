@@ -134,7 +134,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing thesis-monitoring state reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
-| Excluded-name permanence (#7): the durable NO + optional reason, seeded greyed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
+| Excluded-name permanence (#7): the durable NO + optional reason, seeded grayed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
 | Re-version restated bars (source-strategy A): a split self-heals in one cron tick; replay stays honest | #152 | `DATA_SOURCES.md` |
 | Cockpit per-name build: grouped per-member buckets + the read-only NamePanel + per-member Managing attribution | #153–#157 | `BOARD.md` |
 | **Scoreboard v1 (SCORE)**: the episode ledger over the call-of-record + the operator track + gated metrics + replay-history-alongside | #158–#164 | `SCOREBOARD.md`, `REPLAY.md` |

@@ -1,7 +1,7 @@
 -- Fundamentals fact family (§2.2) — the quarterly financial series behind the revenue/earnings
 -- ACCELERATION inflection detector (the structural conviction behind the 5–10x breakout).
 --
--- A provenance-carrying, bitemporal, append-only fact family modelled on fact_catalyst (0005) /
+-- A provenance-carrying, bitemporal, append-only fact family modeled on fact_catalyst (0005) /
 -- 0009's scoring facts: a correction/restatement is a NEW row (never an UPDATE — the no_update trigger),
 -- and the as-of / replay reads stay honest. NEVER a model number — the value is a DETERMINISTIC
 -- companyfacts (XBRL) parse (invariant #3); the LLM never sources it.

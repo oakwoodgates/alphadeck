@@ -161,7 +161,7 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     expect(within(riskRow).getByText("risk signal")).toBeInTheDocument();
     expect(riskRow.querySelector(".evled-n")).toHaveClass("ov-risk");
     expect(riskRow.textContent).toContain("Share count creeping");
-    expect(riskRow).not.toHaveClass("evled-setaside"); // quiet family hue, not the excluded grey
+    expect(riskRow).not.toHaveClass("evled-setaside"); // quiet family hue, not the excluded gray
   });
 
   it("a SET-ASIDE buy's row renders muted-but-present with its label; type stays 'insider buy' (S2c)", () => {

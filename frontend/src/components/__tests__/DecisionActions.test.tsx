@@ -108,7 +108,7 @@ describe("DecisionActions — decision capture on the CallCard", () => {
     });
   });
 
-  it("the log renders newest-first with the platform stance; voided rows grey but never vanish", () => {
+  it("the log renders newest-first with the platform stance; voided rows gray but never vanish", () => {
     h.decisions = {
       data: [
         {
@@ -134,7 +134,7 @@ describe("DecisionActions — decision capture on the CallCard", () => {
     };
     render(<DecisionActions thesisId="t1" card={base} />);
     expect(screen.getByText("Decision log")).toBeInTheDocument();
-    expect(screen.getByText("voided")).toBeInTheDocument(); // greyed tag — visible, not hidden
+    expect(screen.getByText("voided")).toBeInTheDocument(); // grayed tag — visible, not hidden
     expect(screen.getByText(/platform: not-yet/)).toBeInTheDocument(); // the gate's record, readable
     // the voided take offers no undo; the void row itself never does
     expect(screen.queryByRole("button", { name: /void this/ })).toBeNull();

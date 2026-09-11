@@ -221,7 +221,7 @@ def put_exclusions(
     optional "rejected because X". Full-list replace via the sole writer (the term_set structural
     guard, fourth application: a promote never touches the table, so a narrative edit can't wipe
     the pruning). THE #9 LINE: discovery never filters on this — a re-draft still surfaces every
-    name; the EDITOR seeds these as visibly-greyed, one-click-reversible state."""
+    name; the EDITOR seeds these as visibly-grayed, one-click-reversible state."""
     # bound #2, fail-closed (the promote route's own guard): a caller-supplied security_id must be
     # an exact member of this tenant's master — never a junk row behind an FK error
     for e in body:
@@ -327,7 +327,7 @@ def list_decisions(
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> list[DecisionOut]:
     """The thesis's decision log, newest first. Voided rows ride along FLAGGED (``voided: true``) —
-    the strip greys them, never hides them (pruning hides, it never vanishes)."""
+    the strip grays them, never hides them (pruning hides, it never vanishes)."""
     rows = decisions_repo.list_for_thesis(conn, thesis.id, tenant_id=thesis.tenant_id)
     voided = {r["voids"] for r in rows if r["action"] == "void" and r["voids"] is not None}
     return [_decision_out(r, voided=r["id"] in voided) for r in rows]

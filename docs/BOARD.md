@@ -91,7 +91,7 @@ per row:
   duplicate-ticker rows both light — visible over-inclusion, never a silent drop.
 - **Watch** — `watch_members` ("moving, no conviction yet").
 - **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
-  (keep-it-visible), greyed rather than gone.
+  (keep-it-visible), grayed rather than gone.
 
 **The fold** is an explicit, reversible view filter — open by default, one click back, the count
 stays on a closed header (a folded bucket never reads as dropped). Folded rows stay **mounted** with
@@ -211,7 +211,7 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   `risk_signals`, ticker-filtered.
 - **The operator record · this name** — the open **position** when it's attributed to this name
   (`Position.security_id`), and the **decision rows logged on this name** (`DecisionOut.security_id`)
-  with voided rows greyed, never hidden. Display-only slices of the rail's log (the same query, no
+  with voided rows grayed, never hidden. Display-only slices of the rail's log (the same query, no
   new fetch): thesis-level rows — and acting / passing / undo — stay on the rail, the one write
   surface. *(This block only renders on real data because `GET /theses/{id}` now threads the
   decisions-log-derived position (`effective_position`, the SAME source the call path uses) onto the
@@ -266,7 +266,7 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   "Override — log an early entry", and the take is logged with the platform's stance riding the row
   (*"the platform's verdict is not-yet — logging this take as an override"*). **"Pass (logged)"** is
   quiet and available at every state. The **decision log strip** lists recent rows (action · date ·
-  size/price · reason · `platform: <stance>`); voided rows grey with a tag — visible, never vanished —
+  size/price · reason · `platform: <stance>`); voided rows gray with a tag — visible, never vanished —
   and **undo** appends a `void` (reversibility: the inverse is an append, nothing is deleted). Note: the
   stance on a row is read from the **latest call-of-record at logging time**, which can lag the live
   card until the next cron tick — the record, not the recompute, is attribution's source. A logged take

@@ -53,7 +53,7 @@ and on the evidence-backed strength of the setup (the operator's weak spot).
 
 1. "Picks and shovels" plays.
 2. Obvious next plays / laggards (leader runs on a catalyst; correlated names lag then catch up).
-3. Being early to emerging industries — previously high-risk, grey-area, or unloved by Wall St, where sentiment is starting to shift.
+3. Being early to emerging industries — previously high-risk, gray-area, or unloved by Wall St, where sentiment is starting to shift.
 4. Alpha from SEC filings — insider buys before earnings, material events, dilution, timeline news.
 5. Short-squeeze opportunities.
 6. Sector tracking tools.

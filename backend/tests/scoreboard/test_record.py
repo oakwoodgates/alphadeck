@@ -240,7 +240,7 @@ def test_freeze_era_arm_is_flagged_visible_and_counted(db, security_id):
     by_id = {t.thesis_id: t for t in result.theses}
     (flagged,) = by_id[frozen.id].episodes
     assert flagged.freeze_era is True and flagged.ingest_flagged is True
-    assert flagged.arm_ingest_fresh is None  # legacy append: raw, never coerced to a judgement
+    assert flagged.arm_ingest_fresh is None  # legacy append: raw, never coerced to a judgment
     assert "freeze window" in (flagged.ingest_note or "")
     (ok,) = by_id[clean.id].episodes
     assert ok.freeze_era is False and ok.ingest_flagged is False and ok.ingest_note is None

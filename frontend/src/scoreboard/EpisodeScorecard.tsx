@@ -95,7 +95,7 @@ export function EpisodeScorecard({
     useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
     ) ?? null;
-  // A3: the display-signal events join the numbered universe as the greyest family. Only the allow-listed
+  // A3: the display-signal events join the numbered universe as the grayest family. Only the allow-listed
   // kinds contribute (`tapeSignals` — sma_position + relative_strength; `insider_flow_90d` is excluded by
   // construction, its buys/sells already ARE the insider family). The `asof` rides in because these are
   // compute-on-read, not recorded history: the tooltip/ledger date the read rather than implying the call
@@ -108,7 +108,7 @@ export function EpisodeScorecard({
         windowQ.data?.bars ?? [],
         asof ? { signals: tapeSignals(memberSignals), asof } : undefined,
         // Slice B: the widened recorded families off the SAME price-window response — sells, 8-Ks,
-        // 13D/G stakes — through the same numbering (screened/passive rows grey via eventSetAside).
+        // 13D/G stakes — through the same numbering (screened/passive rows gray via eventSetAside).
         {
           sells: windowQ.data?.insider_sells ?? [],
           filings: windowQ.data?.corporate_events ?? [],

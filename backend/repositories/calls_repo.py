@@ -167,7 +167,7 @@ def ingest_health_for_thesis(
     ingest_errors)`` (migration 0023). The IDENTICAL dedup as ``latest_for_thesis`` (latest append
     per as-of wins), so the stamp read here belongs to the same row as the scored card — the health
     of the run that FIRST recorded that card version. ``(None, None)`` = a legacy/manual append,
-    never coerced to a judgement. The stamps live deliberately OFF the card (a freshness field IN it
+    never coerced to a judgment. The stamps live deliberately OFF the card (a freshness field IN it
     would fake a change in ``_canonical``), which is why this is a separate, narrow peer read — its
     only consumer is the Scoreboard's provenance layer; the as-of/scoring reads never branch on it.
     """

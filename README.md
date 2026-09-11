@@ -33,7 +33,7 @@ Maps the operator's six hunts onto capabilities:
 |---|---|
 | Picks-and-shovels | Value-chain decomposition; supply/manufacturing/distribution/downstream layers |
 | Obvious next plays | Laggard scanner (beta-adjusted residual vs a theme leader) |
-| Early to emerging / grey-area sectors | Emergence detector (regulatory + personnel + attention rate-of-change + first institutional footprint) |
+| Early to emerging / gray-area sectors | Emergence detector (regulatory + personnel + attention rate-of-change + first institutional footprint) |
 | SEC filing / insider alpha | EDGAR firehose, insider-conviction scoring, dilution clock |
 | Short squeezes | Squeeze radar (SI / DTC / borrow / gamma, gated on a catalyst) |
 | Sector tracking | Sector dashboard with "section headline" lenses |

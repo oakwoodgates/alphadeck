@@ -103,7 +103,7 @@ class KillCriterion(DomainModel):
 
 class ExcludedName(DomainModel):
     """One durably-excluded name (#7): the operator's NO, with the optional why. Applied by the
-    EDITOR as pre-seeded greyed state — discovery never filters on it (#9, recall sacred)."""
+    EDITOR as pre-seeded grayed state — discovery never filters on it (#9, recall sacred)."""
 
     security_id: UUID
     ticker: str | None = None  # denormalized display convenience

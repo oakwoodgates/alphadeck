@@ -33,7 +33,7 @@
   through-line in CALL_LOGIC.)
 - **Verdict keyed on horizon, not kind (CALL_LOGIC §4).** A provisional (`flip`) conviction with a *long*
   signal-validity horizon → `starter_entry`; *short* horizon → `flip_only`. These are call-strength/readiness
-  labels, not sizing or exit instructions; the next kind inherits correct behaviour from its own horizon
+  labels, not sizing or exit instructions; the next kind inherits correct behavior from its own horizon
   (no `if-kind` branch).
 - **Invariant #3:** firing + grade are deterministic-parse or operator-ratified — **never** the model.
 - **Append-only / bitemporal storage:** `fact_catalyst` (+ `horizon_end`); a correction is a new row;

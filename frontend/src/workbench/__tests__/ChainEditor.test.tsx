@@ -963,7 +963,7 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     expect(screen.getByText("· 0 of 2 included")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(h.mutate).not.toHaveBeenCalled(); // cancelled → nothing persisted
+    expect(h.mutate).not.toHaveBeenCalled(); // canceled → nothing persisted
 
     // include-all-new restores the working set — the demoted OKLO sits in working now, so it returns too
     await user.click(screen.getByRole("button", { name: "include all new" }));
@@ -1140,7 +1140,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     expect(zero.compareDocumentPosition(one) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("a keeper's ✕ sets it aside (greyed stub) and toggles back on a second click (#1/#2)", async () => {
+  it("a keeper's ✕ sets it aside (grayed stub) and toggles back on a second click (#1/#2)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([VKEEP], [{ label: "memory", descriptor: null }]));
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
@@ -1151,7 +1151,7 @@ describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
     const setAside = screen.getByRole("button", { name: "set aside MU" });
     expect(screen.getByRole("checkbox", { name: "add MU" })).toBeEnabled();
 
-    // click ✕ → the row greys to a stub: the "set aside" tag appears, add is disabled, the row stays VISIBLE
+    // click ✕ → the row grays to a stub: the "set aside" tag appears, add is disabled, the row stays VISIBLE
     await user.click(setAside);
     expect(screen.getByText("set aside")).toBeInTheDocument();
     expect(screen.getByText("Micron")).toBeInTheDocument(); // #2 keep-it-visible: never vanishes
@@ -1596,7 +1596,7 @@ describe("ChainEditor — the placed board partitions (C-B + G)", () => {
     await user.click(screen.getByLabelText("toggle Placed, low quality"));
     expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument();
 
-    // exclude-all: greyed in place (visible + re-includable, #9); Save never sees it
+    // exclude-all: grayed in place (visible + re-includable, #9); Save never sees it
     await user.click(screen.getByRole("button", { name: /exclude all 1/ }));
     expect(screen.getByLabelText("include HBM")).not.toBeChecked();
     expect(screen.getByText("Hudbay Minerals")).toBeInTheDocument(); // set aside ≠ vanished
@@ -1995,7 +1995,7 @@ describe("ChainEditor — term set produce + edit", () => {
     render(<ChainEditor asof="2026-06-08" thesis={oneTerm} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "×" }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(h.edit).not.toHaveBeenCalled(); // cancelled → no save, the set is preserved
+    expect(h.edit).not.toHaveBeenCalled(); // canceled → no save, the set is preserved
     confirmSpy.mockRestore();
   });
 });
@@ -2239,7 +2239,7 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
   });
   const saveBody = () => h.mutate.mock.calls[0][0] as { basket: { ticker: string }[] };
 
-  it("seeds from the persisted set: a rejected name arrives pre-greyed with its reason — and NOT dirty", () => {
+  it("seeds from the persisted set: a rejected name arrives pre-grayed with its reason — and NOT dirty", () => {
     const t = {
       ...flatThesis,
       basket: [member("SMR", "s-smr")],
@@ -2247,7 +2247,7 @@ describe("ChainEditor — #7 excluded-name permanence (the durable NO)", () => {
     };
     render(<ChainEditor asof="2026-06-08" thesis={t as never} onDone={vi.fn()} />);
     expect(screen.getByText("excluded", { selector: ".wb-exc-tag" })).toBeInTheDocument();
-    expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // pre-greyed, one click back (#9)
+    expect(screen.getByLabelText("include SMR")).not.toBeChecked(); // pre-grayed, one click back (#9)
     expect(screen.getByLabelText("why excluded SMR")).toHaveValue("junk acronym");
     expect(screen.queryByText("unsaved")).toBeNull(); // a clean load is NOT a dirty edit
   });

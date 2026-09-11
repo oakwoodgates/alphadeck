@@ -5,9 +5,9 @@ The cron sidecar missed nights (a laptop-sleep drift, closed by the target-at-sc
 ``scripts/daily_cron.sh``). The ``calls`` log is immutable and bitemporal: a row's ``recorded_at`` is
 always now. A naive backfill — ``python -m pipeline.daily --asof <past>`` — computes the past night with
 ``known_at = now``, i.e. TODAY's knowledge: MEASURED on dev, a thesis backfilled as ARMED on nights whose
-real nightly neighbours recorded INCUBATING, because its facts arrived AFTER those nights. This module is
+real nightly neighbors recorded INCUBATING, because its facts arrived AFTER those nights. This module is
 the faithful option: it computes the missed night with ``known_at`` PINNED to a past instant, so the row
-shows what the cron WOULD have logged, consistent with its recorded neighbours. The as-of gate is two-axis
+shows what the cron WOULD have logged, consistent with its recorded neighbors. The as-of gate is two-axis
 (``valid_from <= asof`` AND ``recorded_at <= known_at`` — ``docs/INVARIANTS.md`` #4), and ``known_at`` is
 already a parameter of ``call_for_thesis``; this CLI adds nothing to the assembly, it only pins the clock.
 

@@ -626,11 +626,11 @@ describe("triggerLinks — the clickable subset of a trigger's provenance (A1)",
   });
 });
 
-describe("insiderSetAside — the greyed-class helper (S2c option (a))", () => {
+describe("insiderSetAside — the grayed-class helper (S2c option (a))", () => {
   it("is true ONLY for the set-aside characters; a self-filing is labeled but NOT set aside", () => {
     expect(insiderSetAside(buy({ character: "primary_market" }))).toBe(true);
     expect(insiderSetAside(buy({ character: "implausible" }))).toBe(true);
-    // self-filing still counts in the panel's 90d net-flow (the re-base is deferred) — not greyed
+    // self-filing still counts in the panel's 90d net-flow (the re-base is deferred) — not grayed
     expect(insiderSetAside(buy({ character: "self_filing" }))).toBe(false);
     expect(insiderSetAside(buy({ character: "open_market" }))).toBe(false);
   });
@@ -1254,7 +1254,7 @@ describe("overlayTooltip — the 13D/G stake chip", () => {
   });
 });
 
-describe("is13DFamily + eventSetAside — the one grey-state helper (WB #2)", () => {
+describe("is13DFamily + eventSetAside — the one gray-state helper (WB #2)", () => {
   it("groups both naming eras and amendments as the 13D family; 13G/unknown fail toward quiet", () => {
     for (const f of ["SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"]) {
       expect(is13DFamily(f)).toBe(true);
@@ -1264,7 +1264,7 @@ describe("is13DFamily + eventSetAside — the one grey-state helper (WB #2)", ()
     }
   });
 
-  it("greys a screened sell (anything but kept), a passive 13G, and the insider set-asides — nothing else", () => {
+  it("grays a screened sell (anything but kept), a passive 13G, and the insider set-asides — nothing else", () => {
     const bars2 = [bar("2026-06-01", 100), bar("2026-06-10", 110)];
     const events = buildOverlayEvents(
       ep({ arm_date: "2026-06-01" }),
@@ -1284,9 +1284,9 @@ describe("is13DFamily + eventSetAside — the one grey-state helper (WB #2)", ()
       ["insider", false], // open_market
       ["sell", false], // kept
       ["sell", true], // planned → screened
-      ["filing", false], // filings never grey (the family hue is already quiet)
+      ["filing", false], // filings never gray (the family hue is already quiet)
       ["activist", false], // 13D — family weight
-      ["activist", true], // 13G — passive grey
+      ["activist", true], // 13G — passive gray
     ]);
   });
 });

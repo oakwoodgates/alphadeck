@@ -250,7 +250,7 @@ describe("sparkGeometry — the pure sparkline geometry (a null slot BREAKS the 
     expect(g.dots).toEqual([]);
   });
 
-  it("an isolated bar between gaps is a dot — shown, never joined to a neighbour across a gap", () => {
+  it("an isolated bar between gaps is a dot — shown, never joined to a neighbor across a gap", () => {
     const g = sparkGeometry([1, null, 3, null, 2], 72, 16)!;
     expect(g.paths).toEqual([]);
     expect(g.dots).toEqual([

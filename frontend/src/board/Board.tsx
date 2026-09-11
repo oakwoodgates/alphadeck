@@ -193,7 +193,7 @@ export function Board({ header, asof, onSelect }: Props) {
       )}
 
       {/* archived — visible + restorable, never vanished (an explicit, reversible filter; their
-          calls are not computed). Quiet by design: collapsed, grey, out of the columns. */}
+          calls are not computed). Quiet by design: collapsed, gray, out of the columns. */}
       {archived.length > 0 && (
         <details className="arch-sect">
           <summary>Archived ({archived.length})</summary>

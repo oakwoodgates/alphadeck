@@ -67,7 +67,7 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(row("primary_market").detail).toContain("primary-market (offer-price, set aside)");
     expect(row("implausible").detail).toContain("implausible $ (bad source data, set aside)");
     expect(row("self_filing").detail).toContain("issuer self-filing (not a personal buy)");
-    // the type cell stays "insider buy" — the grey + the detail label carry the exception
+    // the type cell stays "insider buy" — the gray + the detail label carry the exception
     expect(row("primary_market").type).toBe("insider buy");
   });
 

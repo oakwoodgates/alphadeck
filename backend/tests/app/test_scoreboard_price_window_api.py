@@ -442,7 +442,7 @@ def test_price_window_insider_superseded_row_no_double_count(client, db, securit
 
 def test_price_window_insider_open_market_screen_reconciles_with_the_panel(client, db, security_id):
     """S2c option (a): a below-the-day's-low code-P subscription is now PRESENT-and-labeled
-    (``character="primary_market"``) instead of hidden — greyed on the FE, never dropped (WB #2 / #9).
+    (``character="primary_market"``) instead of hidden — grayed on the FE, never dropped (WB #2 / #9).
     The COUNTED set (the non-set-aside subset) still matches the NamePanel's open-market definition, so
     a counted dot on the chart is a dot in the panel's net-flow. A code-S sell never appears, and a
     set-aside row transacted after the as-of never leaks (the axis caps bind every character)."""
@@ -555,7 +555,7 @@ def test_price_window_insider_self_filing_labeled_by_cik_and_by_name(client, db,
     assert len(buys) == 3  # the self-filings are labeled, still visible, never dropped
 
 
-def test_price_window_insider_implausible_row_surfaces_greyed_not_hidden(client, db, security_id):
+def test_price_window_insider_implausible_row_surfaces_grayed_not_hidden(client, db, security_id):
     """S2c option (a): the physically-impossible row (the CNBX $2T shape) used to vanish from the
     overlay; now it rides labeled ``implausible`` (set aside on the FE) — more visible, never dropped.
     """
@@ -703,7 +703,7 @@ def test_price_window_sell_characters_ride_the_wire(client, db, security_id):
 
     body = _get(client, thesis.id, security_id, "2026-07-15").json()
     sells = body["insider_sells"]
-    assert len(sells) == 6  # every screened sale rides — greyed on the FE, never dropped
+    assert len(sells) == 6  # every screened sale rides — grayed on the FE, never dropped
     by_name = {s["insider_name"]: s["character"] for s in sells}
     assert by_name == {
         "Jane Doe": "kept",
@@ -894,7 +894,7 @@ def test_price_window_activist_gate_keys_on_recorded_at(client, db, security_id)
 def test_price_window_activist_unresolved_identity_ships_null_not_dropped(client, db, security_id):
     """Invariant #9 on the wire: an old-era ``SC 13G`` whose filer identity / pct never resolved
     ships with nulls — the row RIDES, never dropped — beside a fully-resolved structured-era 13D.
-    Both era form strings ride verbatim; the FE (not the server) greys the passive family."""
+    Both era form strings ride verbatim; the FE (not the server) grays the passive family."""
     thesis = persist_thesis(db, security_id)
     rec = datetime(2026, 6, 20, tzinfo=timezone.utc)
     activist(  # old-era passive row: identity fetch out of the bounded depth → all nulls

@@ -155,7 +155,7 @@ body {
 table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
 /* the natural-width half of the containment fix — scoped, because a table that takes its
    max-content width with nothing to scroll it overflows the page instead. A .basket table outside
-   a scroller stays fluid and wraps, which is the right behaviour for one laid out in a flowing
+   a scroller stays fluid and wraps, which is the right behavior for one laid out in a flowing
    document (the Scoreboard ledger, the Admin history tables). */
 .basket-scroll table.basket { min-width: max-content; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
@@ -199,9 +199,9 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .grp-h .ct { font-family: var(--mono); font-weight: 400; color: var(--txt-2); font-size: 10px; letter-spacing: 0.02em; text-transform: none; white-space: nowrap; }
 /* the header's "is this group moving?" line — `· 7d median ±X.X%`, the MEDIAN 7d return over the group's
    priced rows (client-side, off the 7d cells' own values). Mono like the count, normal case (a figure,
-   not a heading); the value tints MUTED green up / red down — mixed toward the header grey, never the
+   not a heading); the value tints MUTED green up / red down — mixed toward the header gray, never the
    cells' full --pos/--neg: always-present context, not a badge, so no threshold accent and nothing
-   flashes (#7). A flat 0.0% stays the count grey; the "—" (under three priced) is the quietest grey. */
+   flashes (#7). A flat 0.0% stays the count gray; the "—" (under three priced) is the quietest gray. */
 .grp-h .agg { font-family: var(--mono); font-weight: 400; color: var(--txt-3); font-size: 10px; letter-spacing: 0.02em; text-transform: none; white-space: nowrap; }
 .grp-h .agg .aggv { color: var(--txt-2); }
 .grp-h .agg .aggv.pos { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
@@ -349,7 +349,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
 /* the close-path sparkline (the price_path member's fixed-slot series, after the return ladder): a
-   NEUTRAL hairline in the muted text grey — no accent, so the shape never conflates with the return
+   NEUTRAL hairline in the muted text gray — no accent, so the shape never conflates with the return
    green/red, the RVOL warm, or the insider blue (#7). A null slot BREAKS the line (never interpolated):
    a young name draws a shorter, right-aligned path; below two closes the cell is "—". Not sortable. */
 .basket td.sparkc { white-space: nowrap; }
@@ -1024,7 +1024,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 
 /* S1 — the draft's recommended value-chain link(s): READ-ONLY chips, one per membership row. Styled as
    an LLM RECOMMENDATION (the leader-blue tint), deliberately DISTINCT from the machine-fact .idchip
-   (muted grey): a recommendation reads differently from parsed identity. `.pen` = the Discovered
+   (muted gray): a recommendation reads differently from parsed identity. `.pen` = the Discovered
    holding pen (not a link) — dashed + muted. */
 .wb-results .recchip { font-family: var(--mono); font-size: 9px; color: var(--leader); background: rgba(138, 180, 255, 0.07); border: 1px solid rgba(138, 180, 255, 0.28); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
 .wb-results .recchip.pen { color: var(--txt-3); background: transparent; border-style: dashed; border-color: var(--line-2); }
@@ -1051,7 +1051,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-results .flag { font-size: 10px; color: var(--warm); margin-top: 7px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.02em; }
 .wb-results .rm { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warm); border: 1px solid rgba(224, 162, 60, 0.4); background: var(--panel); border-radius: 5px; padding: 3px 8px; cursor: pointer; }
 
-/* TRIAGE (the prune) — the include checkbox, the excluded (greyed) row, the bulk-action bar, the fundamentals
+/* TRIAGE (the prune) — the include checkbox, the excluded (grayed) row, the bulk-action bar, the fundamentals
    badge. Include is orthogonal to accept; an excluded name stays visible (#9), one click from re-inclusion. */
 .wb-results .wb-inc { accent-color: var(--leader); width: 14px; height: 14px; cursor: pointer; flex: none; }
 .wb-results .nmrow.excluded { opacity: 0.42; }
@@ -1069,7 +1069,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-placed-mode .wb-mini:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
 .wb-results .nmrow.picked { opacity: 0.62; }
 .wb-results .wb-pick-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; color: var(--pos); background: rgba(70, 208, 127, 0.1); border: 1px solid rgba(70, 208, 127, 0.3); border-radius: 5px; padding: 2px 7px; }
-/* the keeper set-aside ✕ (To-Review) — a top-right VIEW toggle: grey the row to a stub, click again to restore.
+/* the keeper set-aside ✕ (To-Review) — a top-right VIEW toggle: gray the row to a stub, click again to restore.
    Sits far right (margin-left:auto); the tag + ✕ group together on a set-aside row (both auto-margined). */
 .wb-results .wb-setaside { margin-left: auto; flex: none; font-size: 12px; line-height: 1; color: var(--txt-4); background: none; border: 1px solid transparent; border-radius: 5px; padding: 2px 7px; cursor: pointer; }
 .wb-results .wb-exc-tag + .wb-setaside { margin-left: 6px; }
@@ -1099,7 +1099,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 /* the blank-check shell tell — a quiet warm tint on the sector chip (an identity nuance, not a ⚑ warning) */
 .wb-results .idchip.spac, .ddcard .idchip.spac { color: var(--warm); border-color: rgba(224, 162, 60, 0.3); background: rgba(224, 162, 60, 0.07); }
 /* the royalty/streaming ◈ overlay on the MUTED discovery business-type chip (.btype .bt-royalty above is
-   the cockpit's COLOURED chip; this is its quiet twin — inherits the idchip's --txt-3, just a small nudge) */
+   the cockpit's COLORED chip; this is its quiet twin — inherits the idchip's --txt-3, just a small nudge) */
 .wb-results .idchip .bt-royalty { margin-left: 4px; opacity: 0.85; }
 
 /* --- the SPAC Radar tape (/radar) — quiet, Admin-toned; loudness only on the state that matters --- */
@@ -1123,7 +1123,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .radar-match .rm-th { font-size: 11px; font-weight: 600; color: var(--txt-2); }
 .radar-match .rm-terms { font-family: var(--mono); font-size: 10px; color: var(--txt-4); flex: 1; min-width: 120px; }
 /* To-Review "add" reuses the Placed include checkbox (.wb-inc), sitting LEFT of the name — check to promote
-   (the row moves up to Placed). Disabled (greyed) for un-addable names (no filer id / no listed ticker). */
+   (the row moves up to Placed). Disabled (grayed) for un-addable names (no filer id / no listed ticker). */
 .wb-results .wb-inc:disabled { opacity: 0.4; cursor: default; }
 .wb-results .showmore { text-align: center; margin: 2px 0 4px; }
 
@@ -1146,7 +1146,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-results .rpill { margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; }
 .wb-results .rpill.amb { color: var(--txt-3); background: rgba(90, 100, 116, 0.12); border: 1px solid var(--line-2); }
 .wb-results .rpill.abs { color: var(--txt-4); background: rgba(90, 100, 116, 0.07); border: 1px solid var(--line); }
-/* a name gated for no current listing (Slice 2): a hedged warm marker, never the grey "ambiguous" */
+/* a name gated for no current listing (Slice 2): a hedged warm marker, never the gray "ambiguous" */
 .wb-results .rpill.unlisted { color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.3); }
 .wb-results .rnote { font-size: 10.5px; color: var(--txt-4); line-height: 1.5; margin: -2px 0 6px; padding-left: 1px; }
 .wb-results .rbtn { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 9px; background: transparent; cursor: pointer; }
@@ -1179,7 +1179,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .rtier.flag { color: var(--warm); background: rgba(224, 162, 60, 0.1); border-color: rgba(224, 162, 60, 0.32); }
 .rtier.human { color: var(--leader); background: rgba(138, 180, 255, 0.08); border-color: rgba(138, 180, 255, 0.28); }
 .rflag { font-size: 9.5px; color: var(--warm); }
-/* missing-data flags (no-companyfacts / no-cashflow-column / no-cash-instant) — a grey authoring state,
+/* missing-data flags (no-companyfacts / no-cashflow-column / no-cash-instant) — a gray authoring state,
    never a warm alarm: the loud ⚠ is reserved for judgment exceptions (honest loudness) */
 .rflag.missing { color: var(--txt-4); }
 /* the grounded purity ESTIMATE tag (SURFACE 1b) — a quiet, UNVERIFIED pre-fill the operator confirms/overrides */
@@ -1201,7 +1201,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-exc-why::placeholder { color: var(--txt-4); font-style: italic; }
 
 /* --- kept-through-a-scrub data (PR-1a / C2): the previous as-of's values, still on screen while
-   the new ones compute. Dimmed + labelled so it can never read as the answer for the date in the
+   the new ones compute. Dimmed + labeled so it can never read as the answer for the date in the
    dial; the Decision Queue drops these rows entirely (it is the one loud, act-now element). --- */
 .recomputing { opacity: 0.45; transition: opacity 0.15s; }
 .stale-tag { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--txt-4); font-style: italic; }
@@ -1441,7 +1441,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    de-arm is on the path at all — lives in its title. */
 .sb-path { color: var(--txt-4); line-height: 0; cursor: help; }
 .sb-path .muted { line-height: normal; }
-/* the de-arm tick: a hairline in the MUTED grey, deliberately quieter than the path it crosses. It
+/* the de-arm tick: a hairline in the MUTED gray, deliberately quieter than the path it crosses. It
    marks where the run ended inside the window — context for the shape, not a flag (#7), so it never
    borrows the armed/warm accents. Drawn first so the price line sits on top of it. */
 .sb-spark .sb-spark-dearm { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; }
@@ -1582,27 +1582,27 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
   color: var(--neg);
 }
 /* Slice B: the 13D/G stake — its own accent at family weight (a 13D is a capital-committed act);
-   the 13G/passive family greys via .ov-setaside below, mirroring "13G fires nothing". */
+   the 13G/passive family grays via .ov-setaside below, mirroring "13G fires nothing". */
 .ov-chip.ov-activist { background: var(--activist); }
-/* Slice B: the 8-K filing — quiet neutral grey (the COMMON tape family; loudness marks the
-   exception, and most 8-Ks are routine): the operator chip's treatment in a plain grey. */
+/* Slice B: the 8-K filing — quiet neutral gray (the COMMON tape family; loudness marks the
+   exception, and most 8-Ks are routine): the operator chip's treatment in a plain gray. */
 .ov-chip.ov-filing { background: var(--txt-3); color: #e8ebf0; }
 .ov-chip.ov-lifecycle { background: var(--txt-2); }
 /* A2: the operator decision chip — a recorded row like any other family, in the MUTED --incub hue (#7:
    the operator's own action needs no loudness); light text — the near-black default is unreadable on it. */
 .ov-chip.ov-operator { background: var(--incub); color: #e8ebf0; }
-/* A SET-ASIDE chip stays visible but GREYED — WB #2 (pruning hides, it never vanishes): a screened
+/* A SET-ASIDE chip stays visible but GRAYED — WB #2 (pruning hides, it never vanishes): a screened
    insider buy (primary-market / implausible), a screened sell (anything but `kept`), or a passive
-   13G-family stake. The grey says "didn't count toward the flow / the cluster / the fire" —
+   13G-family stake. The gray says "didn't count toward the flow / the cluster / the fire" —
    `eventSetAside` (overlay.ts) is the one helper that decides it, chip and ledger row alike. */
 .ov-chip.ov-setaside { background: var(--panel-2); border-color: var(--line-2); color: var(--txt-3); }
 /* A3: the display-signal (tape) chip — the QUIETEST family on the board, below even the operator's muted
    --incub: a compute-on-read tape context that can't arm, veto, or grade anything must never out-shout a
-   recorded call fact (#7, inverse loudness). A flat --line-2 ground (the deck's hairline grey — no hue at
+   recorded call fact (#7, inverse loudness). A flat --line-2 ground (the deck's hairline gray — no hue at
    all, where every other family carries one) reads as a footnote at a glance. The numerals are --txt-2,
    NOT the quieter --txt-3: on this ground --txt-3 lands near 2.2:1, unreadable at 9.5px — quietness is
    the chip's job, illegibility isn't (a number nobody can read is a dead cross-reference to its ledger
-   row). Deliberately NOT the set-aside grey below either: that grey means "excluded", this means
+   row). Deliberately NOT the set-aside gray below either: that gray means "excluded", this means
    "context", and the two must not blur mid-scan. */
 .ov-chip.ov-signal { background: var(--line-2); color: var(--txt-2); }
 .ov-more {
@@ -1672,7 +1672,7 @@ td.evled-n.ov-filing { color: var(--txt-3); } /* the quiet common-tape family (#
 td.evled-n.ov-lifecycle { color: var(--txt-2); }
 td.evled-n.ov-operator { color: var(--incub); }
 /* A3: the tape row's number, quieter than every recorded family's (#7) — --txt-3, one step under the
-   lifecycle's --txt-2 and deliberately NOT the set-aside --txt-4 below (that grey means "excluded"). */
+   lifecycle's --txt-2 and deliberately NOT the set-aside --txt-4 below (that gray means "excluded"). */
 td.evled-n.ov-signal { color: var(--txt-3); }
 /* A set-aside row (screened buy/sell, passive 13G) is muted end-to-end (the number included) —
    visible, never removed (WB #2; `eventSetAside` decides, same as the chip) */
@@ -1703,7 +1703,7 @@ td.evled-n.ov-signal { color: var(--txt-3); }
 
 /* ================= The Operator Admin (ops surface) — honest loudness by construction ================
    Quiet cards by default; the armed red is RESERVED for stale/unhealthy, the warm amber for problems.
-   "Current", "never begun", and "never ran" all stay grey — loudness marks the exception. */
+   "Current", "never begun", and "never ran" all stay gray — loudness marks the exception. */
 .adm-body { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 1100px; margin: 0 auto; width: 100%; }
 .adm-card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 13px 15px; display: flex; flex-direction: column; gap: 8px; }
 .adm-h { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; gap: 8px; }

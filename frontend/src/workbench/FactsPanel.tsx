@@ -10,7 +10,7 @@ const METER_LABEL: Record<string, string> = {
   cash_burn: "runway · cash + burn",
 };
 
-/** Missing-data flags — "can't compute" is a grey AUTHORING state (the value is None by design; the
+/** Missing-data flags — "can't compute" is a gray AUTHORING state (the value is None by design; the
  *  operator writes it from the located statements), not a warm alarm. The loud ⚠ is reserved for the
  *  judgment exceptions (one-time, stale, raw-YTD, dual-class) — honest loudness: a flag that alarms
  *  on a mere data gap drowns the flags that mark real composition risk. */
@@ -18,7 +18,7 @@ const MISSING_FLAGS = new Set(["no-companyfacts", "no-cashflow-column", "no-cash
 
 /** The cash/burn LABEL currency (Retrieval Slice A follow-up). The IFRS annual-statements runway path
  *  reports in the filer's NATIVE currency (TWD/EUR/CAD/…), so the raw value is New Taiwan Dollars, not
- *  USD — labelling it a bare `$` read `$2.77T` for what is really ~US$88B. The value is NEVER converted
+ *  USD — labeling it a bare `$` read `$2.77T` for what is really ~US$88B. The value is NEVER converted
  *  (runway is a ratio — the months are currency-correct as-is); only the LABEL names the currency. A
  *  small static ISO→symbol map, falling back to the raw ISO code (honest, never an invented symbol). */
 const CURRENCY_SYMBOL: Record<string, string> = {

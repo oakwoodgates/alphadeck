@@ -252,7 +252,7 @@ def get_price_window(
 
     Each insider buy carries its server-classified ``character`` (Band 03 S2c — deterministic field
     predicates, #3): ``open_market`` / ``self_filing`` / ``primary_market`` / ``implausible``. Set-aside
-    rows (the last two) ride the wire greyed-and-labeled on the FE instead of being dropped (WB #2 / #9),
+    rows (the last two) ride the wire grayed-and-labeled on the FE instead of being dropped (WB #2 / #9),
     so the event ledger shows why a buy did or didn't count toward the panel's open-market flow (#6).
 
     Slice B widens the overlay with three more families through the SAME window + knowability gate:

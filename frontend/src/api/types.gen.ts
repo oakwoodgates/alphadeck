@@ -193,7 +193,7 @@ export interface paths {
          *     optional "rejected because X". Full-list replace via the sole writer (the term_set structural
          *     guard, fourth application: a promote never touches the table, so a narrative edit can't wipe
          *     the pruning). THE #9 LINE: discovery never filters on this — a re-draft still surfaces every
-         *     name; the EDITOR seeds these as visibly-greyed, one-click-reversible state.
+         *     name; the EDITOR seeds these as visibly-grayed, one-click-reversible state.
          */
         put: operations["put_exclusions_theses__thesis_id__exclusions_put"];
         post?: never;
@@ -213,7 +213,7 @@ export interface paths {
         /**
          * List Decisions
          * @description The thesis's decision log, newest first. Voided rows ride along FLAGGED (``voided: true``) —
-         *     the strip greys them, never hides them (pruning hides, it never vanishes).
+         *     the strip grays them, never hides them (pruning hides, it never vanishes).
          */
         get: operations["list_decisions_theses__thesis_id__decisions_get"];
         put?: never;
@@ -935,7 +935,7 @@ export interface paths {
          *
          *     Each insider buy carries its server-classified ``character`` (Band 03 S2c — deterministic field
          *     predicates, #3): ``open_market`` / ``self_filing`` / ``primary_market`` / ``implausible``. Set-aside
-         *     rows (the last two) ride the wire greyed-and-labeled on the FE instead of being dropped (WB #2 / #9),
+         *     rows (the last two) ride the wire grayed-and-labeled on the FE instead of being dropped (WB #2 / #9),
          *     so the event ledger shows why a buy did or didn't count toward the panel's open-market flow (#6).
          *
          *     Slice B widens the overlay with three more families through the SAME window + knowability gate:
@@ -1260,7 +1260,7 @@ export interface components {
          *     Unresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``
          *     = identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too —
          *     the fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display
-         *     weight (13G-family greyed-passive), never as an omission. ``url`` is the EDGAR filing-index URL
+         *     weight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL
          *     (#6). Both time axes are asof-capped (no-lookahead #1).
          */
         ActivistStakeOut: {
@@ -1843,7 +1843,7 @@ export interface components {
          * DecisionOut
          * @description One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was
          *     logged (display denormalization — attribution re-derives from the calls-log join); ``voided``
-         *     marks a row a later ``void`` points at (the strip greys it — visible, never hidden).
+         *     marks a row a later ``void`` points at (the strip grays it — visible, never hidden).
          */
         DecisionOut: {
             /**
@@ -2299,7 +2299,7 @@ export interface components {
         /**
          * ExcludedName
          * @description One durably-excluded name (#7): the operator's NO, with the optional why. Applied by the
-         *     EDITOR as pre-seeded greyed state — discovery never filters on it (#9, recall sacred).
+         *     EDITOR as pre-seeded grayed state — discovery never filters on it (#9, recall sacred).
          */
         ExcludedName: {
             /**
@@ -2315,7 +2315,7 @@ export interface components {
         /**
          * ExclusionIn
          * @description One durably-excluded name (#7): the operator's NO with the optional why. Full-list replaced
-         *     via the sole writer; discovery never filters on it (#9) — the editor greys, visibly.
+         *     via the sole writer; discovery never filters on it (#9) — the editor grays, visibly.
          */
         ExclusionIn: {
             /**
@@ -2532,7 +2532,7 @@ export interface components {
          *     ``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's
          *     90d net-flow — that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement
          *     subscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure
-         *     excludes — surfaced greyed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or
+         *     excludes — surfaced grayed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or
          *     didn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow.
          */
         InsiderBuyOut: {
@@ -2580,7 +2580,7 @@ export interface components {
          *     detector's cluster counts; ``planned`` (an explicit 10b5-1 True — near-noise), ``self_filing``
          *     (the issuer transacting its own stock), ``below_low`` (a discounted secondary — a different risk
          *     family), ``implausible`` (bad source data), and ``foreign_ordinary`` (a home-market ordinary line
-         *     mis-filed on the ADR's tape) are SCREENED rows — surfaced greyed + labeled instead of hidden
+         *     mis-filed on the ADR's tape) are SCREENED rows — surfaced grayed + labeled instead of hidden
          *     (WB #2), so the ledger shows why a sale did or didn't count (#6).
          *
          *     DIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned — a deployment
@@ -3514,7 +3514,7 @@ export interface components {
          *     Each bar also carries ``sma50``/``sma200`` context, and four dated event families ride beside the
          *     bars, ALL under the identical two-axis no-lookahead discipline (valid_from window + the
          *     ``recorded_at`` knowability gate): ``insider_buys`` (code-P purchases, each carrying its
-         *     server-classified ``character``, set-aside rows riding greyed-and-labeled rather than hidden — Band
+         *     server-classified ``character``, set-aside rows riding grayed-and-labeled rather than hidden — Band
          *     03 S2c), ``insider_sells`` (the code-S mirror, Slice B), ``corporate_events`` (every stored 8-K —
          *     no server-side item cut), and ``activist_stakes`` (the 13D/G tape, unresolved identity shipped as
          *     null, never dropped). Invariant #1: no bar with ``d > asof`` and no event recorded after the as-of

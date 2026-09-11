@@ -401,7 +401,7 @@ export function Workbench({ header, asof }: Props) {
   // mount ChainEditor until we know what to seed it with.
   // Clear: wipe the saved prune session and re-seed the editor with an EMPTY value chain + companies, KEEPING
   // the term-set seeds (a blank canvas to re-draft). `deleteSession` nulls the restore cache; we flip `cleared`
-  // and bump the nonce — the nonce in the key force-remounts ChainEditor (cancelling the old instance's pending
+  // and bump the nonce — the nonce in the key force-remounts ChainEditor (canceling the old instance's pending
   // autosave so it can't re-create the session), and `cleared` makes the remount seed from `clearedRestore`.
   const startOver = () => {
     if (

@@ -40,7 +40,7 @@ excluded names simply aren't sent) and a **sign-off toggle** rides the row, reac
 (the excluded stub hides its controls).
 
 - **Default-INCLUDED (#9):** a discovered name starts IN; the operator *unchecks* to exclude. Nothing is silently
-  dropped — an excluded row stays **visible** (greyed), one click from re-inclusion.
+  dropped — an excluded row stays **visible** (grayed), one click from re-inclusion.
 - **Sign-off endorses the NAME, nothing else.** `BasketMember.signed_off` is a per-NAME marker ("this
   company belongs in the thesis"): it **never sets authorship** (the description stays a model draft
   until the operator edits it — the honest-authorship rule below), **never gates Save** (include gates;
@@ -58,11 +58,11 @@ excluded names simply aren't sent) and a **sign-off toggle** rides the row, reac
   hasn't endorsed — the fast path to just-my-endorsed names — keyed on the flag, touching neither
   authorship nor the flag itself; working-scoped, the frozen Basket is never swept).
 - **The exclusion is DURABLE (#7).** Save also persists the current exclusion set — with the optional
-  **"rejected because X"** reason (a quiet inline input on the greyed row; skippable, editable) — through the
+  **"rejected because X"** reason (a quiet inline input on the grayed row; skippable, editable) — through the
   sole-writer `PUT /theses/{id}/exclusions` (`thesis_exclusion`; the term_set structural wipe-guard, so a
   promote can never blank the pruning). On the next session or re-draft the editor **seeds** its excluded
   state (and the To-Review keeper set-asides, for resolved names) from the persisted set: a rejected name
-  arrives **pre-greyed, visible, one click back**. **THE #9 LINE: discovery never filters on exclusions** —
+  arrives **pre-grayed, visible, one click back**. **THE #9 LINE: discovery never filters on exclusions** —
   a re-draft still surfaces every name; the NO is an editor default, never a recall cut. Prior NOs the
   session never re-surfaced are carried forward on Save; re-including a name withdraws its NO. (v1 scope:
   keyed by `security_id` — unresolved names' set-asides stay session-local.)
@@ -89,7 +89,7 @@ forward verbatim minus any name picked this session (a persisted NO renders open
 (`selected` vs `excluded`); the reads keep their names (`isIncluded` / `includedBasket`) so Save is mode-blind.
 Switching is a **working-scoped reset, never a restore** — entering Pick keeps the saved Basket's kept names and
 every signed-off name checked (mode entry never empties the saved basket) and un-picks the rest; entering Research
-returns to the fresh-mount state (persisted NOs pre-greyed, signed-off names checked, all else included) — never a
+returns to the fresh-mount state (persisted NOs pre-grayed, signed-off names checked, all else included) — never a
 literal all-check, which would silently withdraw every durable NO on the next Save. Sign-off is untouched by either
 reset; a sign-off in Pick also picks the name (endorsed ⇒ in), a withdraw never un-picks. Explicit arrivals (a
 To-Review add, a pile pick, a hand-add, an ETF sleeve) enter picked; a bulk draft arrival enters undecided. The
@@ -209,7 +209,7 @@ independently-collapsible **display groups** (same first word = same membership;
   **Placed**; flag-only → **Placed, flagged**). Seed tells: sole SIGNAL acronym match (`isAcronymTerm` in
   `workbench/format.ts` — HBM ✓, DRAM ✓, "high-bandwidth memory" ✗) and name token co-occurrence pairs
   (BlackRock+Trust, Royce+Trust). Add a tell = one registry line in `JUNK_TELLS`. Starts **collapsed** (a cluster
-  to visit, not a wall), with a group-level **"exclude all N"** (visible bulk; every row stays greyed-in-place and
+  to visit, not a wall), with a group-level **"exclude all N"** (visible bulk; every row stays grayed-in-place and
   re-includable — `excludeKeys`, the same additive contract as clear-not-signed-off).
 - **Precedence:** low quality > flagged > clean (the To-Review precedence idiom). Grouping renders **only when it
   discriminates** — everything-in-one-group is just the flat list (a partition that doesn't discriminate is

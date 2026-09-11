@@ -198,7 +198,7 @@ const IdentityChips = ({
       </span>
     )}
     {/* BUSINESS TYPE — the normalized two-level bucket derived server-side from the SIC (Business-Type M1):
-        the cockpit's "Type" read, shown here MUTED (matching its neighbours, NOT the cockpit's coloured
+        the cockpit's "Type" read, shown here MUTED (matching its neighbors, NOT the cockpit's colored
         `bt-` chip). Rides right after the raw SIC so the two read as a pair. Display identity like the rest;
         a no-sector name has no `businessType` → renders NOTHING (honest abstain). `other` (a SIC the maps
         don't cover) DOES show — the visible tail (#9), not a guess. ◈ marks the royalty/streaming overlay
@@ -652,9 +652,9 @@ export function ChainEditor({
   const [noTickerOpen, setNoTickerOpen] = useState(false); // the ticker-less names sub-drawer (collapsed)
   const [spacOpen, setSpacOpen] = useState(false); // the blank-check shells sub-drawer (collapsed — #7)
   const [pickOpen, setPickOpen] = useState<Set<string>>(new Set()); // which ambiguous rows show the CIK picker
-  // Keeper set-aside (#1 reversible / #2 keep-it-visible): a keeper the operator waves off greys to a
+  // Keeper set-aside (#1 reversible / #2 keep-it-visible): a keeper the operator waves off grays to a
   // stub and stays on screen, one ✕-click from restore. #7 made it durable for RESOLVED keepers: the
-  // set seeds from the thesis's persisted exclusions (a rejected keeper arrives pre-greyed on the next
+  // set seeds from the thesis's persisted exclusions (a rejected keeper arrives pre-grayed on the next
   // draft) and Save persists the UUID-keyed entries with the exclusion set. Ticker/name-keyed set-asides
   // (unresolved names) stay session-local — the flagged v1 scope cut.
   const [setAside, setSetAside] = useState<Set<string>>(
@@ -1239,7 +1239,7 @@ export function ChainEditor({
       const ok = window.confirm(
         mode === "pick"
           ? `Switch to Pick? ${names} in the working list will become un-picked (available — not excluded). Your saved Basket and signed-off names stay checked.`
-          : `Switch to Research? ${names} will change: every working name is included again, except persisted exclusions (they return greyed). Signed-off names stay checked.`,
+          : `Switch to Research? ${names} will change: every working name is included again, except persisted exclusions (they return grayed). Signed-off names stay checked.`,
       );
       if (!ok) return;
     }
@@ -1393,7 +1393,7 @@ export function ChainEditor({
       : !p.ticker
         ? "no listed ticker — not directly investable (add via the name search below if you need it)"
         : "check to add — moves it up to Placed (the basket)";
-    // VIEW-only set-aside (#2 keep-it-visible): the ✕ greys the keeper to a stub, reversible in one click.
+    // VIEW-only set-aside (#2 keep-it-visible): the ✕ grays the keeper to a stub, reversible in one click.
     const asideId = verifyAsideId(p, key);
     const aside = setAside.has(asideId);
     return (
@@ -1430,7 +1430,7 @@ export function ChainEditor({
               {p.discovery_source === "off_universe" && <OffUniversePill />}
             </>
           )}
-          {/* the ✕ set-aside toggle, top-right (reversibility #1): click to grey the keeper out, click again to
+          {/* the ✕ set-aside toggle, top-right (reversibility #1): click to gray the keeper out, click again to
               restore. Local view state only — nothing added, removed, or sent to the backend. */}
           <button
             type="button"
@@ -1440,7 +1440,7 @@ export function ChainEditor({
             title={
               aside
                 ? "restore — bring this keeper back"
-                : "set aside — grey this keeper out (reversible; click again to restore)"
+                : "set aside — gray this keeper out (reversible; click again to restore)"
             }
             onClick={() => toggleSetAside(asideId)}
           >
@@ -1552,12 +1552,12 @@ export function ChainEditor({
     // placed (#9); the reason is its prose in the fit note below. Absent → not flagged (fail-open).
     const offThesis = m.security_id ? offThesisSet.has(m.security_id) : false;
     const included = d.isIncluded(k);
-    // THE PLACED-MODE POLARITY: research collapses the EXCLUDED row (the decided-OUT stub, greyed +
+    // THE PLACED-MODE POLARITY: research collapses the EXCLUDED row (the decided-OUT stub, grayed +
     // struck); pick collapses the PICKED row (the decided-IN stub, quiet, never struck). The open row is
     // today's included row in both modes.
     const collapsed = d.isCollapsed(k);
     // the cross-mode tag (pick only): a name with a PERSISTED research NO renders open + un-picked, tagged
-    // — keep-visible (#2), never pre-greyed into a mode that has no exclusions; picking it withdraws the
+    // — keep-visible (#2), never pre-grayed into a mode that has no exclusions; picking it withdraws the
     // NO on Save, leaving it un-picked carries the NO forward verbatim.
     const durablyExcluded = pick && !included && d.isDurablyExcluded(k);
     const loaded = hasFundamentals(m.security_id, scoredById);
@@ -1615,7 +1615,7 @@ export function ChainEditor({
       >
         <div className="top">
           {/* the LADDER's gate (default-on, #9): unchecking EXCLUDES the name from Save (excluded wins);
-              the row stays visible (greyed), one click from re-including. Include never touches
+              the row stays visible (grayed), one click from re-including. Include never touches
               authorship or the sign-off flag. PICK: the same box PICKS the name in (default-off; an
               un-picked name is available, never excluded). */}
           <input
@@ -1694,7 +1694,7 @@ export function ChainEditor({
                   </span>
                 ))}
               {/* the cross-mode tag: this name carries a persisted research NO — shown, never hidden or
-                  pre-greyed (#2); picking it withdraws the NO on Save */}
+                  pre-grayed (#2); picking it withdraws the NO on Save */}
               {durablyExcluded && (
                 <span
                   className="wb-exc-tag"
@@ -2707,7 +2707,7 @@ export function ChainEditor({
                       <button
                         type="button"
                         className="wb-mini ghost"
-                        title="exclude every name in this group from Save — each stays visible (greyed) and re-includable in one click"
+                        title="exclude every name in this group from Save — each stays visible (grayed) and re-includable in one click"
                         onClick={() => d.excludeKeys(gLowQuality.map((g) => g.key))}
                       >
                         exclude all {gLowQuality.length}

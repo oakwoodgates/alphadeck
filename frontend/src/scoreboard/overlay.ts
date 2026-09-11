@@ -192,21 +192,21 @@ export interface InsiderChipEvent extends ChipBase {
   pctVsNow: number | null; // return from closeThatDay to the last drawn bar (the "−12% vs now" context)
 }
 /** Slice B: a code-S insider sale — the recorded mirror of the buy chip. `character` (server-side,
- *  the CALL screen's bucket wire-mapped) drives the set-aside grey: everything except `kept` is
- *  screened out of the detector's cluster and renders greyed + labeled, never hidden (WB #2). */
+ *  the CALL screen's bucket wire-mapped) drives the set-aside gray: everything except `kept` is
+ *  screened out of the detector's cluster and renders grayed + labeled, never hidden (WB #2). */
 export interface SellChipEvent extends ChipBase {
   family: "sell";
   sell: InsiderSellOut;
   pctVsNow: number | null; // same market-context read as the buy chip
 }
 /** Slice B: one stored 8-K (every one in-window rides — the server never item-cuts; loudness is
- *  this layer's concern, expressed as the family's quiet grey, never as an omission). */
+ *  this layer's concern, expressed as the family's quiet gray, never as an omission). */
 export interface FilingChipEvent extends ChipBase {
   family: "filing";
   event: CorporateEventOut;
 }
 /** Slice B: one stored 13D/G-family filing. The 13D family carries the family weight; the 13G
- *  family renders greyed-passive — mirroring the fire policy (13G fires nothing) as display weight,
+ *  family renders grayed-passive — mirroring the fire policy (13G fires nothing) as display weight,
  *  never as an omission. Unresolved filer identity reads "filer unresolved", never dropped (#9). */
 export interface ActivistChipEvent extends ChipBase {
   family: "activist";
@@ -342,7 +342,7 @@ export function buildOverlayEvents(
   // Slice B: the three widened recorded families, in insertion order sells → filings → stakes so a
   // same-day tie reads buys before sells before the corporate/ownership tape (all recorded SEC facts,
   // all ahead of the operator's decision). Every row the server sent gets a chip — screened sells and
-  // the passive 13G family render greyed via `eventSetAside`, never hidden (WB #2).
+  // the passive 13G family render grayed via `eventSetAside`, never hidden (WB #2).
   for (const s of wire?.sells ?? []) {
     const c = closeAt(s.d);
     raw.push({
@@ -449,7 +449,7 @@ const CHARACTER_LINE: Partial<Record<InsiderBuyOut["character"], string>> = {
 
 /** Is this buy SET ASIDE (excluded from the panel's open-market flow)? Only `primary_market` /
  *  `implausible` — a `self_filing` is labeled but still counted today (the net-flow re-base is
- *  deferred). Set-aside buys render greyed + labeled, never hidden (WB #2: pruning hides, it never
+ *  deferred). Set-aside buys render grayed + labeled, never hidden (WB #2: pruning hides, it never
  *  vanishes) — the chip and its ledger row both read this one helper. */
 export function insiderSetAside(b: InsiderBuyOut): boolean {
   return b.character === "primary_market" || b.character === "implausible";
@@ -509,15 +509,15 @@ const SELL_CHARACTER_LINE: Partial<Record<InsiderSellOut["character"], string>> 
 
 /** Loose display-grouping mirror of the backend's exact `_13D_FORMS` frozenset
  *  (backend/signals/activist_stake.py — both naming eras + amendments; re-sync by eye if the fire
- *  policy's set ever changes). Substring ON PURPOSE: this drives only the passive-grey display
- *  weight, so an unknown future form string fails toward QUIET (greyed), never toward loud — while
+ *  policy's set ever changes). Substring ON PURPOSE: this drives only the passive-gray display
+ *  weight, so an unknown future form string fails toward QUIET (grayed), never toward loud — while
  *  the fire policy itself stays backend-exact. */
 export function is13DFamily(form: string): boolean {
   return form.toUpperCase().includes("13D");
 }
 
-/** Is this chip SET ASIDE (greyed, never hidden — WB #2)? The ONE helper the chart chip and its
- *  ledger row both read, across every family that has a grey state: an insider buy via
+/** Is this chip SET ASIDE (grayed, never hidden — WB #2)? The ONE helper the chart chip and its
+ *  ledger row both read, across every family that has a gray state: an insider buy via
  *  `insiderSetAside` (primary-market / implausible); a sell whose character is anything but `kept`
  *  (screened out of the detector's cluster); an activist filing outside the 13D family (passive —
  *  mirrors "13G fires nothing" as display weight). Everything else carries its family weight. */
@@ -744,11 +744,11 @@ const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   // Slice C — the call's own risk tape: muted negative like the sell family but HOLLOW (outline vs
   // fill), so "the record flagged risk" never blurs with "an insider sold" mid-scan (#7 quiet).
   risk: { label: "risk signal", cls: "ov-risk" },
-  activist: { label: "activist stake", cls: "ov-activist" }, // Slice B — 13D at weight; 13G greys
-  filing: { label: "8-K filing", cls: "ov-filing" }, // Slice B — grey, the common-tape family (#7)
+  activist: { label: "activist stake", cls: "ov-activist" }, // Slice B — 13D at weight; 13G grays
+  filing: { label: "8-K filing", cls: "ov-filing" }, // Slice B — gray, the common-tape family (#7)
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
   operator: { label: "operator", cls: "ov-operator" }, // A2 — muted --incub, the quiet family (#7)
-  // A3 — the GREYEST family on the board, quieter even than the operator's muted --incub: a computed
+  // A3 — the GRAYEST family on the board, quieter even than the operator's muted --incub: a computed
   // tape read is context beside the call, never the call (#7's inverse loudness, read as hue).
   signal: { label: "tape signal", cls: "ov-signal" },
 };

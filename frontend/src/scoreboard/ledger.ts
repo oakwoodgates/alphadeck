@@ -77,7 +77,7 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     };
   }
   if (e.family === "activist") {
-    // Slice B: type = the verbatim form, both naming eras (a 13G names itself — the grey row + the
+    // Slice B: type = the verbatim form, both naming eras (a 13G names itself — the gray row + the
     // form say "passive family" together); detail = filer (or "filer unresolved") + pct + ingest lag.
     const tip = overlayTooltip(e);
     const lines = tip.lines.filter((l) => !l.startsWith("filed "));

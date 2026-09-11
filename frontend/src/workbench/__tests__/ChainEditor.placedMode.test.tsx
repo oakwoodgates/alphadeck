@@ -143,7 +143,7 @@ beforeEach(() => {
 afterEach(() => confirmSpy.mockRestore());
 
 describe("ChainEditor — placed mode: the polarity", () => {
-  it("research (the default): checked + open; unchecking collapses to the excluded stub (greyed + struck, why-input)", async () => {
+  it("research (the default): checked + open; unchecking collapses to the excluded stub (grayed + struck, why-input)", async () => {
     const user = userEvent.setup();
     mockDraft(draft([placed("SMR", "s-smr"), placed("GEV", "s-gev")]));
     render(<ChainEditor asof="2026-06-08" thesis={emptyThesis} onDone={vi.fn()} />);
@@ -274,21 +274,21 @@ describe("ChainEditor — placed mode: THE ROUND-TRIP", () => {
 });
 
 describe("ChainEditor — placed mode: the toggle is a reset (sign-off preserved)", () => {
-  it("→ Research: every working name is re-checked, a persisted NO returns pre-greyed (with its why), sign-off preserved", async () => {
+  it("→ Research: every working name is re-checked, a persisted NO returns pre-grayed (with its why), sign-off preserved", async () => {
     const user = userEvent.setup();
     const t = { ...emptyThesis, exclusions: [{ security_id: "s-ccj", ticker: "CCJ", reason: "old no" }] };
     mockDraft(draft([placed("SMR", "s-smr"), placed("GEV", "s-gev"), placed("CCJ", "s-ccj")]));
     render(<ChainEditor asof="2026-06-08" thesis={t} onDone={vi.fn()} />);
     await draftAndWait(user, "SMR");
-    expect(box("CCJ")).not.toBeChecked(); // research: the persisted NO arrives pre-greyed
+    expect(box("CCJ")).not.toBeChecked(); // research: the persisted NO arrives pre-grayed
 
-    await user.click(modeBtn("Pick")); // SMR + GEV flip (CCJ: greyed → un-picked reads the same)
+    await user.click(modeBtn("Pick")); // SMR + GEV flip (CCJ: grayed → un-picked reads the same)
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "sign off GEV" })); // endorse on the open row ⇒ picked
     expect(box("GEV")).toBeChecked();
     expect(rowOf("GEV")).toHaveClass("picked");
 
-    await user.click(modeBtn("Research")); // SMR flips back (GEV signed → checked either way; CCJ greyed either way)
+    await user.click(modeBtn("Research")); // SMR flips back (GEV signed → checked either way; CCJ grayed either way)
     expect(confirmSpy).toHaveBeenCalledTimes(2);
     expect(modeBtn("Research")).toHaveAttribute("aria-pressed", "true");
     expect(box("SMR")).toBeChecked();
@@ -414,11 +414,11 @@ describe("ChainEditor — placed mode: the cross-mode tag", () => {
     mockDraft(draft([placed("SMR", "s-smr"), placed("GEV", "s-gev")]));
     render(<ChainEditor asof="2026-06-08" thesis={withNo} onDone={vi.fn()} />);
     await draftAndWait(user, "SMR");
-    expect(rowOf("SMR")).toHaveClass("excluded"); // research: pre-greyed
+    expect(rowOf("SMR")).toHaveClass("excluded"); // research: pre-grayed
 
-    await user.click(modeBtn("Pick")); // only GEV flips (SMR: greyed → un-picked reads the same)
+    await user.click(modeBtn("Pick")); // only GEV flips (SMR: grayed → un-picked reads the same)
     expect(box("SMR")).not.toBeChecked();
-    expect(rowOf("SMR")).not.toHaveClass("excluded"); // never pre-greyed into a mode that has no exclusions
+    expect(rowOf("SMR")).not.toHaveClass("excluded"); // never pre-grayed into a mode that has no exclusions
     expect(rowOf("SMR")).not.toHaveClass("picked");
     expect(within(rowOf("SMR")).getByText("excluded in research")).toBeInTheDocument(); // keep-visible (#2)
     expect(screen.getByLabelText("thesis-fit for SMR")).toBeInTheDocument(); // open

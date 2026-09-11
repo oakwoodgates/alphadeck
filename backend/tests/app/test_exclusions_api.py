@@ -1,8 +1,8 @@
 """Excluded-name permanence (#7). The operator's NO is durable: the exclusion set (with the optional
 "rejected because X") persists per thesis, survives a narrative-edit promote STRUCTURALLY (upsert
 never names the table — the term_set guard's fourth application), and rides ThesisDetail so the
-editor can seed its greyed state on the next session/re-draft. THE #9 LINE, stated as a test-adjacent
-fact: nothing in discovery/classify reads this table — the editor greys; nothing filters."""
+editor can seed its grayed state on the next session/re-draft. THE #9 LINE, stated as a test-adjacent
+fact: nothing in discovery/classify reads this table — the editor grays; nothing filters."""
 
 from __future__ import annotations
 

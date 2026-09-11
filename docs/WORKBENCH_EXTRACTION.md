@@ -127,7 +127,7 @@ most needs to make:
   $0 / "Clean quarter" — a confirmable fake zero). Cash without an OCF column → `no-cashflow-column` (burn
   stays None; a $0 burn used to ratify into a fake "cash-generative"). An OCF column without a cash
   instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0) and renders
-  the missing-data labels **grey (∅), not warm (⚠)** — a data gap is an authoring state, not an alarm; the
+  the missing-data labels **gray (∅), not warm (⚠)** — a data gap is an authoring state, not an alarm; the
   warm glyph is reserved for the judgment exceptions (one-time / stale / raw-YTD / dual-class).
 - **Every input's as-of date rides the note** ("cash as of … · burn over … → …"), and a cash balance sheet
   older than the filing's period end flags `stale-cash` (the shares `stale-cover` rule, applied here).
@@ -217,7 +217,7 @@ source-scan asserting the token `AUTO` never appears in it.
   *"of the issuer's classes"*. Matching only `issuer` silently drops every 40-F filer.
 - **`each of` is optional** — some covers omit it.
 - **possessive as `\W{0,3}s`** — the apostrophe survives as `'`, a space, or `&rsquo;` depending on filer.
-  Only `clean_filing_text`'s `html.unescape` normalises it; a hand-rolled entity strip misses those names.
+  Only `clean_filing_text`'s `html.unescape` normalizes it; a hand-rolled entity strip misses those names.
 
 A **secondary** strict instruction catches the direct-count phrasing some filers use instead of enumerating
 classes — *"The number of the issuer's outstanding common shares … was 2,293,277"* — tried only when the
