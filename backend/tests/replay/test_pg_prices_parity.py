@@ -19,12 +19,14 @@ from tests.scoreboard.helpers import bar
 
 def _seed(db, sid):
     t1 = datetime(2026, 6, 2, 12, tzinfo=timezone.utc)
-    bar(db, sid, date(2026, 6, 1), 100.0, recorded_at=t1)
-    bar(db, sid, date(2026, 6, 1), 102.0, recorded_at=t1 + timedelta(hours=1))  # restated
+    bar(db, sid, date(2026, 6, 1), 100.0, recorded_at=t1, high=101.0, low=99.0)
+    bar(db, sid, date(2026, 6, 1), 102.0, recorded_at=t1 + timedelta(hours=1), high=103.0, low=98.0)
     bar(db, sid, date(2026, 6, 3), None)  # no close — both readers must skip it
-    bar(db, sid, date(2026, 6, 5), 111.0)
-    bar(db, sid, date(2026, 6, 9), 108.0)
-    bar(db, sid, date(2026, 6, 12), 120.0)
+    bar(db, sid, date(2026, 6, 5), 111.0, high=114.0, low=110.0)
+    bar(
+        db, sid, date(2026, 6, 9), 108.0
+    )  # a close-only bar: the wick columns must abstain, in BOTH
+    bar(db, sid, date(2026, 6, 12), 120.0, high=121.0, low=119.0)
 
 
 def test_pg_reader_matches_duckdb_reader_and_outcomes(db, security_id, tmp_path):
@@ -46,6 +48,20 @@ def test_pg_reader_matches_duckdb_reader_and_outcomes(db, security_id, tmp_path)
         assert pg.closes_between(security_id, date(2026, 6, 1), date(2026, 6, 12)) == (
             duck.closes_between(security_id, date(2026, 6, 1), date(2026, 6, 12))
         )
+        # the OHLC read the excursions and the sparkline path ride: the twins must agree column for
+        # column, including the null-CLOSE skip, the restated-bar tiebreak and the per-column NULLs a
+        # close-only bar leaves. A divergence here would give the live ledger different excursions from
+        # the replay lab on identical bars — which is exactly what this file exists to prevent.
+        pg_bars = pg.bars_between(security_id, date(2026, 6, 1), date(2026, 6, 12))
+        assert pg_bars == duck.bars_between(security_id, date(2026, 6, 1), date(2026, 6, 12))
+        assert [b["d"] for b in pg_bars] == [
+            date(2026, 6, 1),
+            date(2026, 6, 5),
+            date(2026, 6, 9),
+            date(2026, 6, 12),
+        ]
+        assert pg_bars[0]["close"] == 102.0 and pg_bars[0]["high"] == 103.0  # the restated version
+        assert pg_bars[2]["high"] is None and pg_bars[2]["low"] is None  # the close-only bar
 
         ep = Episode(
             thesis_id=uuid.uuid4(),

@@ -143,8 +143,35 @@ class Outcome(BaseModel):
     forward_return: float | None = None  # arm_date -> exit_by (the hold window) — the timing metric
     arm_until_return: float | None = None  # arm_date -> the arm_until (entry-window) checkpoint
     warm_return: float | None = None  # warm_date -> exit_by (the edge-preservation comparison)
-    peak_return: float | None = None  # arm_date -> the realized peak within the hold window
+    # --- the excursion pair, on TWO bases. Descriptive only: nothing in replay.metrics reads them, so
+    # they move no metric.
+    #
+    # CLOSE-based (peak/trough) — the maximum favourable / adverse excursion (MFE / MAE) on the SAME
+    # basis `forward_return` and `exit_vs_peak_days` already use. `trough_return` reads a real 0.0 for a
+    # name that never closed below entry (24% of the measured record); 0.0 is the measurement, not a
+    # missing value, and it is available exactly whenever `peak_return` is.
+    peak_return: float | None = None
     peak_date: date | None = None
+    trough_return: float | None = None
+    trough_date: date | None = None
+    # WICK-based (the intraday extremes — the worst/best price that actually traded). Null unless EVERY
+    # bar in the window carries the column: a partial extreme is not conservative, it is wrong (the true
+    # extreme could sit inside the unknown bar), so these NEVER fall back to the close. NB the adverse
+    # wick essentially never reads a clean 0 — on the measured record every name traded below its entry
+    # close at some point intraday (max -0.2%), so the two adverse fields never agree on "untouched".
+    intraday_high_return: float | None = None
+    intraday_high_date: date | None = None
+    intraday_low_return: float | None = None
+    intraday_low_date: date | None = None
+    # The scored window's own closes, ascending — the ledger sparkline's tape, VARIABLE length (each
+    # episode spans its own [arm_date, exit_date], so these paths share no time axis and a steeper line
+    # does NOT mean a faster move). Empty when the window is; the >=2-closes render floor is the
+    # display layer's, so the data never pretends a shorter tape is longer.
+    path: list[float] = []
+    # index into `path` of the last bar <= dearm_date. None when the de-arm fell OUTSIDE the scored
+    # window (the run outlived its own horizon) or the episode is still open — which means "no marker",
+    # never "never de-armed"; the render site's copy is what keeps the two apart.
+    dearm_index: int | None = None
     exit_vs_peak_days: int | None = (
         None  # exit_date - peak_date (>0 = held past the peak; rollover fit)
     )

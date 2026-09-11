@@ -63,12 +63,19 @@ def bar(
     close: float | None,
     *,
     recorded_at: datetime | None = None,
+    high: float | None = None,
+    low: float | None = None,
 ) -> None:
+    """One bitemporal price bar. ``high``/``low`` default to NULL — the honest close-only free-EOD
+    shape, which is what the wick-excursion fields must degrade on (they never fall back to the
+    close). Pass them to write a full-wick bar."""
     values = {
         "tenant_id": DEFAULT_TENANT_ID,
         "security_id": security_id,
         "d": d,
         "close": close,
+        "high": high,
+        "low": low,
         "valid_from": d,
     }
     if recorded_at is not None:
