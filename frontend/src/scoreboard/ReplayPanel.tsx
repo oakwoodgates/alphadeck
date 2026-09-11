@@ -62,6 +62,9 @@ export function ReplayPanel({
         <>
           <div className="sb-banner rp-banner">{data.banner}</div>
           <MetricsStrip metrics={data.metrics} minN={data.min_n} />
+          {/* the same scroller the live ledger uses — the two tables share LedgerHead, so they
+              have to share the width behaviour too or they drift apart on screen */}
+          <div className="sb-scroll">
           <table className="basket sb-ledger">
             <LedgerHead view={view} returnHeader="Replayed return" />
             <tbody>
@@ -70,9 +73,13 @@ export function ReplayPanel({
                   <tr className="grp rp-grp">
                     <td colSpan={ledgerColCount(view)}>
                       <div className="grp-h rp-grp-h">
-                        <span className="lbl">{t.name}</span>
-                        <em className="hint">· replayed</em>
-                        <span className="ct">· {t.episodes.length}</span>
+                        {/* sticky-left like the live ledger's heading, so a sideways scroll can't
+                            carry the thesis name off the row it labels */}
+                        <span className="grp-lbl">
+                          <span className="lbl">{t.name}</span>
+                          <em className="hint">· replayed</em>
+                          <span className="ct">· {t.episodes.length}</span>
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -91,6 +98,7 @@ export function ReplayPanel({
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>

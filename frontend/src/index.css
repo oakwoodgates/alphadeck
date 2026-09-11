@@ -1272,7 +1272,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 
 /* ================= The Scoreboard (SCORE) — the episode ledger over the forward record ================
    Ledger-first; every mark is an exception (honest loudness). Group tone rides the --gc idiom. */
-.sb-body { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 1280px; margin: 0 auto; width: 100%; }
+/* THE width knob for this page. It was 1280px, which threw away every pixel of a wider window and
+   made the ledger scroll (or, worse, truncate) on a monitor that had room to spare — the table's
+   natural width is 1480px, so 1280 could never show it. 1760 clears that with headroom for the
+   record growing wider (longer names, more trigger chips) and still keeps the banner and the
+   metrics strip to a readable line on an ultrawide. Raise it if the ledger starts scrolling. */
+.sb-body { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 1760px; margin: 0 auto; width: 100%; }
 .sb-banner { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; }
 .sb-counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
 .sb-counts .sb-sep { color: var(--txt-4); }
@@ -1300,9 +1305,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-horizon { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
 .sb-empty { font-size: 12px; color: var(--txt-3); padding: 10px 2px; }
 
-/* table-layout: fixed is what makes every row one line tall — the column widths below stop
-   negotiating with the content, so no cell can set the row's height. See the block further down. */
-.sb-ledger { width: 100%; table-layout: fixed; }
+/* `min-width: max-content` is what lets the ledger show everything: with cells set `nowrap` it is
+   the width at which no column has to give anything up. See the block further down. */
+.sb-ledger { width: 100%; min-width: max-content; }
 .sb-ledger th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 8px 4px; border-bottom: 1px solid var(--line); }
 .sb-ledger td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 12px; vertical-align: baseline; }
 .sb-ledger tr.grp td { padding: 14px 8px 4px; border-bottom: none; }
@@ -1314,44 +1319,34 @@ tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
 .sb-armed, .sb-ret, .entryby, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
 
-/* --- every ledger row is ONE line tall ------------------------------------------------------
-   A ledger you scan for outcomes has to have rows you can scan: one wrapped cell sets the whole
-   row's height, and 252 rows of ragged 39/55/58px is unreadable. The rule is structural, not a
-   matter of the content staying short.
+/* --- every ledger row is ONE line tall, and nothing is hidden to get there -------------------
+   Two rules the ledger has to satisfy at once: no row wraps (252 rows of ragged 39/55/58px cannot
+   be scanned), and no cell is truncated (this is the record — hiding part of it is not a layout
+   decision to make on the reader's behalf). Only one arrangement gives both.
 
-   Making cells `nowrap` is not enough on its own, and neither is width. In AUTO table layout the
-   column widths come from the content, so nowrap everywhere just moves the problem: the table's
-   min-content becomes its max-content (1557px here), which overflows a 1236px container instead of
-   wrapping inside it. And leaving the wide cells wrapping doesn't work either — MEASURED, nowrap on
-   the bounded columns alone got 177 of 252 rows to one line and left 75 (Status drove 64 of them),
-   and forcing Status onto one line in auto layout took it to 369px, squeezed Why to 319px and
-   wrapped 181 rows instead. Inside a fixed width, auto layout only ever moves the wrap around.
+   Cells are `nowrap`, so nothing can wrap. The table then takes its NATURAL width — with nothing
+   wrapping, min-content equals max-content, and each column is exactly as wide as its widest cell
+   (MEASURED: 1480px total, 0 cells clipped, every row 37-39px). The page, not the table, is what
+   has to make room: `.sb-body`'s max-width is the knob, and at 1480 + 44px of body padding the
+   ledger wants a 1524px window to show everything with no scrolling at all.
 
-   `table-layout: fixed` is what breaks that loop: the columns stop negotiating with the content,
-   so the content can no longer set a height. Then the only question is who absorbs the deficit.
-   The bounded columns take PX widths a little above what their content actually needs (a clipped
-   date or return is useless, and they can never want more — they hold a date, a formatted return,
-   one of a fixed set of labels). Why and Status are given NO width on purpose: they split whatever
-   is left, so the two multi-item columns are the ones that give ground as the window narrows.
+   Below that the table scrolls sideways in `.sb-scroll` — it degrades by SCROLLING, never by
+   wrapping or truncating. The scroller has no height cap on purpose: the page keeps the vertical
+   scroll, so the ledger is never a box you scroll inside a page you also scroll.
 
-   MEASURED on the built dev image — all 252 rows land at 38-39px with NO horizontal scroll:
-     1390px viewport  table 1236px · Why/Status 313px each · 15 clipped cells · page 10,645px
-     1091px viewport  table 1037px · Why/Status 214px each · 204 clipped cells · every px column
-                      intact (Name 72 · Armed 132 · Exit-by 66 · Return 150 · Peak 66 · Op 124)
-     Timing @1091     all 252 rows at exactly 38px, Status 545px, nothing clipped at all
-   Clipping hides, it never vanishes (WB #2): the row's drawer carries the full scorecard, and the
-   Why cell wears a title listing every trigger, because a fully-clipped chip has no hover of its
-   own. The narrow-window clip counts are the honest cost, and the argument for cutting what these
-   two cells say rather than for giving them more room. */
-.sb-ledger .c-tk { width: 72px; }
-.sb-ledger .c-armed { width: 132px; }
-.sb-ledger .c-exit { width: 66px; }
-.sb-ledger .c-ret { width: 150px; }
-.sb-ledger .c-peak { width: 66px; }
-.sb-ledger .c-pp { width: 72px; }
-.sb-ledger .c-op { width: 124px; }
-/* .c-why and .c-status deliberately have none — they share the remainder */
-.sb-ledger td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+   What did NOT work, so it isn't tried again: nowrap on the bounded columns alone left 75 of 252
+   rows wrapped (Status drove 64); forcing Status onto one line in auto layout at a fixed width
+   took it to 369px, squeezed Why to 319px and wrapped 181 rows instead — inside a fixed width,
+   auto layout only relocates the wrap. `table-layout: fixed` did stop every row at one line, but
+   only by clipping what didn't fit (15 cells at 1310px, 204 at 1091px), which trades the wrap for
+   hidden evidence. Width is the only thing that buys both. */
+.sb-scroll { overflow-x: auto; }
+.sb-ledger td { white-space: nowrap; }
+/* the thesis heading holds the left edge while the columns scroll under it — a full-width group
+   row would otherwise carry its name off-screen the moment the table moves. `left` matches the
+   group cell's own padding, so the heading keeps its inset when pinned; the opaque background
+   masks the trailing hairline it slides over. Same idiom as the Cockpit's bucket headings. */
+.sb-scroll .grp-lbl { position: sticky; left: 8px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
 
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }

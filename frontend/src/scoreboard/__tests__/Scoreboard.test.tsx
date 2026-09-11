@@ -493,22 +493,6 @@ describe("Scoreboard", () => {
     expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
 
-  // Every ledger row is one line tall (table-layout: fixed — see index.css), so a trigger chip past
-  // the Why column's width is CLIPPED and loses the hover that explained it. The cell carries the
-  // whole list in its own title so the content is hidden, never vanished (WB #2). Layout itself
-  // can't be asserted here — jsdom does no layout, and the single-line guarantee is verified by
-  // live measurement — but the recoverability that JUSTIFIES the clipping is plain DOM, so pin it.
-  it("the Why cell titles every trigger, so a clipped chip stays readable", () => {
-    const { container } = renderBoard();
-    const why = container.querySelector("tr.sb-row td.sb-why") as HTMLElement;
-    const eps = (PAYLOAD.theses[0].episodes as { triggers_at_arm: { kind: string; label: string }[] }[])[0];
-    expect(eps.triggers_at_arm.length).toBeGreaterThan(0); // fixture actually exercises it
-    for (const t of eps.triggers_at_arm) {
-      expect(why.title).toContain(t.kind); // what the chip shows
-      expect(why.title).toContain(t.label); // ...and what its own hover would have said
-    }
-  });
-
   // The row carries tabIndex=0 + onClick and nothing else, so a keyboard user could FOCUS a row and
   // then find that Enter did nothing — a drill-down reachable only with a mouse. Enter and Space now
   // do what the click does; an unrelated key still must not open anything.

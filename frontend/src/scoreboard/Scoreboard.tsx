@@ -240,6 +240,10 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
             </div>
           )}
 
+          {/* the ledger takes its natural width and scrolls sideways only when the window is
+              narrower than that — it never wraps a row or truncates a cell to fit. No height cap:
+              the page keeps the vertical scroll. See .sb-scroll. */}
+          <div className="sb-scroll">
           <table className="basket sb-ledger">
             <LedgerHead view={view} returnHeader="Record return" />
             <tbody>
@@ -253,11 +257,16 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                         aria-expanded={isOpen(t)}
                         onClick={() => toggle(t.thesis_id)}
                       >
-                        <span className="chev">▾</span>
-                        <span className="lbl">{t.name}</span>
-                        {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
-                        <em className="hint">· {groupHint(t)}</em>
-                        <span className="ct">· {groupCount(t)}</span>
+                        {/* the heading rides its own span so it can stick to the left of the
+                            horizontal scroller — a group row spans the whole table, so the thesis
+                            name would otherwise scroll out of view with the columns. */}
+                        <span className="grp-lbl">
+                          <span className="chev">▾</span>
+                          <span className="lbl">{t.name}</span>
+                          {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
+                          <em className="hint">· {groupHint(t)}</em>
+                          <span className="ct">· {groupCount(t)}</span>
+                        </span>
                       </button>
                     </td>
                   </tr>
@@ -300,6 +309,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
 
           <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} view={view} />
         </div>
