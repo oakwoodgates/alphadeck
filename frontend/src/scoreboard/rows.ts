@@ -306,6 +306,14 @@ export function excursionTitle(e: ScoreboardEpisodeOut, side: "peak" | "worst"):
       ? "maximum favourable excursion (MFE) — the best CLOSE in the scored window"
       : "maximum adverse excursion (MAE) — the worst CLOSE in the scored window",
   ];
+  // No close excursion at all means the scored window held no bars — say THAT, rather than falling
+  // through to the wick line and blaming a missing wick for an empty window. (The real instance: the
+  // two episodes whose arm and exit_by both land on the same Sunday.)
+  const closeRet = isPeak ? e.peak_return : e.trough_return;
+  if (closeRet == null) {
+    lines.push("no bars in the scored window — nothing to measure");
+    return lines.join("\n");
+  }
   const closeDate = isPeak ? e.peak_date : e.trough_date;
   if (closeDate) lines.push(`on ${fmtDate(closeDate)}`);
   const wick = isPeak ? e.intraday_high_return : e.intraday_low_return;

@@ -143,6 +143,18 @@ describe("excursionTitle — the close figure is the cell, the wick figure is th
     expect(t).toContain("intraday high unavailable");
     expect(t).not.toContain("+20.4%");
   });
+
+  it("an EMPTY scored window says so, instead of blaming a missing wick", () => {
+    // the two real episodes whose arm and exit_by both land on the same Sunday: no bar exists in
+    // [arm_date, exit_by] at all. "not every bar carries a wick" would be a vacuous truth pointing
+    // at the wrong cause — there are no bars to carry anything.
+    const empty = ep({ peak_return: null, trough_return: null, path: [] });
+    for (const side of ["peak", "worst"] as const) {
+      const t = excursionTitle(empty, side);
+      expect(t).toContain("no bars in the scored window");
+      expect(t).not.toContain("unavailable");
+    }
+  });
 });
 
 describe("pathTitle — the span, the axis caveat, and where the de-arm actually is", () => {
