@@ -189,6 +189,21 @@ never raw `today − edge`). The FE shows it **only on the live view** (`asof >=
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
 (honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.
 
+## The ledger table itself
+
+Two structural notes for anyone editing it.
+
+**It wears the `.basket` skin but is NOT a contained table.** The ledger is laid out in a flowing
+document, so it stays fluid and wraps — it has no `.basket-scroll` box, and the Cockpit's containment
+machinery (`min-width: max-content`, the sticky header, the sticky identity columns) is scoped to that
+box precisely so it cannot reach here. See `BOARD.md`; unscoped, it overflowed this page by 498px.
+
+**Every column must be added in four places**: `LedgerHead` (the `<colgroup>` + `<th>`s), `EpisodeRow`,
+`SpanRow` (in `Scoreboard.tsx` — the off-record operator spans, the one most easily missed), and
+`ledgerColCount` (which the group/note rows' `colSpan` tracks). Miss one and that row's cells sit a
+column off their headers, silently — a short `<tr>` just renders narrow. Pinned by a test that walks
+every body row in both views and compares its colSpan-weighted cell count to the head's.
+
 ## The episode drill-down: drawer, chart, ledger
 
 Every ledger row opens a **drill-down drawer** (`components/Drawer.tsx` — a reusable slide-out, ~600px with

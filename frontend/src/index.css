@@ -118,8 +118,17 @@ body {
    scroll. Capping the scroller's height gives it a vertical scroll of its own, which is the box
    the header can hold on to. The cap sits below 100vh so the page can always bring the whole
    table (and its pinned header) into view, and a short basket never sees a scrollbar at all —
-   max-height only bites when there is more table than room. */
-table.basket thead th {
+   max-height only bites when there is more table than room.
+
+   Every rule below is written `.basket-scroll table.basket`, not `table.basket`: `.basket` is a
+   shared table SKIN (the Scoreboard's ledger and the Admin history tables wear it too), and these
+   rules are not skin — they are the containment machinery, and they only make sense inside the box
+   that provides it. Unscoped, they escaped onto every other .basket table on the page: MEASURED on
+   prod, the Scoreboard's ledger took `min-width: max-content` with no scroller to absorb it and
+   overflowed the PAGE by 498px at 1091px wide, its <thead> pinned itself to the viewport (its
+   scrollport being the document), and its Name column froze 23px in — an offset that only means
+   anything beside a dot column the Scoreboard does not have. The scoping is the fix. */
+.basket-scroll table.basket thead th {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -131,7 +140,7 @@ table.basket thead th {
 }
 /* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
    body's sticky identity columns (1) */
-table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
+.basket-scroll table.basket thead th.dotc, .basket-scroll table.basket thead th.tk { z-index: 4; }
 
 /* Stacked (the rail drops BELOW the table): neither box owns a vertical scroll — the page does.
    A pinned rail here would cover the table it now follows, and a capped table would strand the
@@ -143,7 +152,12 @@ table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
   .cp-rail { position: static; max-height: none; overflow-y: visible; }
   .basket-scroll { max-height: none; }
 }
-table.basket { width: 100%; min-width: max-content; border-collapse: collapse; font-size: 12px; }
+table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
+/* the natural-width half of the containment fix — scoped, because a table that takes its
+   max-content width with nothing to scroll it overflows the page instead. A .basket table outside
+   a scroller stays fluid and wraps, which is the right behaviour for one laid out in a flowing
+   document (the Scoreboard ledger, the Admin history tables). */
+.basket-scroll table.basket { min-width: max-content; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.basket .tk { font-family: var(--mono); font-weight: 700; }
@@ -176,7 +190,7 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
    table, so "Armed · act now · 7 names" would otherwise scroll out of view with the columns. It
    carries the gap the flex row used to own, and an opaque background so it masks the trailing
    hairline it slides over. `left` matches the cell's padding, holding the inset when pinned. */
-table.basket .grp-lbl { position: sticky; left: 9px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
+.basket-scroll table.basket .grp-lbl { position: sticky; left: 9px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
 .grp-h .chev { font-size: 12px; letter-spacing: 0; transition: transform 0.15s ease; }
 .grp-h[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
@@ -244,8 +258,8 @@ tr.bkt.folded { visibility: collapse; }
    background-IMAGE: an image layers OVER that base instead of replacing it, so one tint value
    serves both the sticky cells and the transparent ones. (The company name is deliberately NOT
    sticky: at its 170px cap it would freeze a third of the viewport.) */
-table.basket th.dotc, table.basket td.dotc { position: sticky; left: 0; z-index: 1; background-color: var(--bg); }
-table.basket th.tk, table.basket td.tk { position: sticky; left: var(--dotc-w); z-index: 1; background-color: var(--bg); }
+.basket-scroll table.basket th.dotc, .basket-scroll table.basket td.dotc { position: sticky; left: 0; z-index: 1; background-color: var(--bg); }
+.basket-scroll table.basket th.tk, .basket-scroll table.basket td.tk { position: sticky; left: var(--dotc-w); z-index: 1; background-color: var(--bg); }
 
 /* the company name: capped so the longest name in the basket can't set the column (it wanted
    293px). The cap rides an inner block — `max-width` on a <td> is advisory in table layout. */
