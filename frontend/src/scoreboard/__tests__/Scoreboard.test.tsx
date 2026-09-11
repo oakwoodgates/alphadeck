@@ -185,10 +185,21 @@ const SCORED_EP = {
   matured: true,
   censored_start: false,
   insufficient_prices: false,
+  dearm_date: "2026-08-18",
   exit_date: "2026-08-20",
   forward_return: 0.123,
   peak_return: 0.204,
   peak_date: "2026-08-10",
+  // the adverse side: this episode was 5.6% underwater on closes (8.4% intraday) before it finished
+  // +12.3% — the shape the ledger could not previously distinguish from a straight-line winner
+  trough_return: -0.056,
+  trough_date: "2026-07-28",
+  intraday_high_return: 0.231,
+  intraday_high_date: "2026-08-11",
+  intraday_low_return: -0.084,
+  intraday_low_date: "2026-07-27",
+  path: [10, 12, 11, 14, 13],
+  dearm_index: 3,
   exit_vs_peak_days: 7,
   triggers_at_arm: [
     { label: "50d breakout", kind: "technical_breakout", grade: "flip", ticker: "MATR", sources: [] },
@@ -435,11 +446,15 @@ describe("Scoreboard", () => {
     expect(screen.getByText("Operator")).toBeInTheDocument();
     expect(screen.getByText("Peak")).toBeInTheDocument();
     expect(screen.queryByText("Past peak")).not.toBeInTheDocument();
+    expect(screen.queryByText("Worst")).not.toBeInTheDocument();
+    expect(screen.queryByText("Path")).not.toBeInTheDocument();
 
     // flip to Timing → the timing headers appear, the summary-only ones are gone
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
     expect(screen.getByText("Peak")).toBeInTheDocument();
     expect(screen.getByText("Past peak")).toBeInTheDocument();
+    expect(screen.getByText("Worst")).toBeInTheDocument();
+    expect(screen.getByText("Path")).toBeInTheDocument();
     expect(screen.queryByText("Why")).not.toBeInTheDocument();
     expect(screen.queryByText("Exit-by")).not.toBeInTheDocument();
     expect(screen.queryByText("Operator")).not.toBeInTheDocument();
@@ -450,13 +465,23 @@ describe("Scoreboard", () => {
     expect(screen.getByText("Peak")).toBeInTheDocument();
   });
 
-  it("Slice 2: Timing view renders a scored episode's Return / Peak / Past peak", () => {
+  it("Slice 2: Timing view renders a scored episode's Path / Return / Peak / Worst / Past peak", () => {
     renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
     const row = screen.getByText("MATR").closest("tr")!;
     expect(within(row).getByText("+12.3%")).toBeInTheDocument(); // forward_return
     expect(within(row).getByText("+20.4%")).toBeInTheDocument(); // peak_return
+    // the adverse side: this row finished +12.3% but was 5.6% underwater on the way — the thing the
+    // ledger could not previously say, and the whole reason the Worst column exists
+    expect(within(row).getByText("-5.6%")).toBeInTheDocument(); // trough_return
     expect(within(row).getByText("7d")).toBeInTheDocument(); // exit_vs_peak_days
+    // the shape behind those numbers, with its de-arm marked
+    expect(row.querySelector(".sb-path svg")).not.toBeNull();
+    expect(row.querySelector(".sb-path line.sb-spark-dearm")).not.toBeNull();
+    // the wick corrections ride the hovers, not columns (a ~2pp correction is checked, not scanned)
+    const cells = [...row.querySelectorAll("td")].map((td) => td.getAttribute("title") ?? "");
+    expect(cells.some((t) => t.includes("intraday high +23.1%"))).toBe(true);
+    expect(cells.some((t) => t.includes("intraday low -8.4%"))).toBe(true);
     // Summary shows the Why chip + the operator cell for the same episode
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     const srow = screen.getByText("MATR").closest("tr")!;
@@ -465,14 +490,18 @@ describe("Scoreboard", () => {
     expect(within(srow).getByText("no decision logged")).toBeInTheDocument(); // Operator
   });
 
-  it("Slice 2: honest loudness — an awaiting episode dashes Peak / Past peak (never a false 0)", () => {
+  it("Slice 2: honest loudness — an awaiting episode dashes Peak / Worst / Past peak (never a false 0)", () => {
     renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
-    // HIMS is still-awaiting (insufficient_prices) — its timing cells read "—", not "0.0%" / "0d"
+    // HIMS is still-awaiting (insufficient_prices) — its timing cells read "—", not "0.0%" / "0d".
+    // Worst matters most here: a degenerate 0.0% would read as "it never went against you", which is
+    // the OPPOSITE of unknown. (A real 0.0% WITH a forward bar is kept — 24% of the record.)
     const row = screen.getByText("HIMS").closest("tr")!;
-    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2); // Peak + Past peak (+ Return)
+    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(3); // Peak + Worst + Past peak
     expect(within(row).queryByText("0.0%")).not.toBeInTheDocument();
     expect(within(row).queryByText("0d")).not.toBeInTheDocument();
+    // and with no bars there is no path to draw — the cell dashes rather than inventing a line
+    expect(row.querySelector(".sb-path svg")).toBeNull();
   });
 
   it("Slice 2: a row click still opens the scorecard drawer in Timing view (Slice 1 intact)", () => {

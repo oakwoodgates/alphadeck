@@ -1,9 +1,11 @@
 import type { ScoreboardEpisodeOut } from "../api/hooks";
 import { fmtDate } from "../util/format";
+import { EpisodeSparkline } from "./EpisodeSparkline";
 import {
   awaitingForwardBar,
   closeReasonBadge,
   episodeBadges,
+  excursionTitle,
   fmtPastPeak,
   fmtReturn,
   operatorLine,
@@ -17,7 +19,9 @@ import { noForwardBar } from "./scorecard";
 // `historical` swaps the operator cell: history predates decision capture, so it says so
 // (structurally absent) instead of faking a "no decision logged" capture gap.
 // `view` (Slice 2) swaps the middle cells: Summary keeps today's Why · Exit-by · Status · Return ·
-// Operator; Timing shows the timing-calibration lens Return · Peak · Past peak · Status. Name (with
+// Operator; Timing shows the timing-calibration lens Path · Return · Peak · Worst · Past peak ·
+// Status — one basis (closes) across Return, Peak and Worst, with the wick corrections in the
+// hovers, so the four numbers on the row can be read against each other. Name (with
 // the ↗ cockpit jump) + Armed lead both; the Status cell is identical in both (built once, placed per
 // view). The ROW opens the episode scorecard (the scoreboard's own drill-down); the ↗ jumps to the
 // fuller per-name Cockpit.
@@ -52,6 +56,9 @@ export function EpisodeRow({
   // scorecard uses to hide its horizon lens (never a false-flat peak). See scorecard.ts.
   const noBar = noForwardBar(ep);
   const peak = fmtReturn(ep.peak_return);
+  // the adverse twin of Peak, on the same CLOSE basis and behind the same guard: with no forward bar
+  // a degenerate 0.0% would read as "it never went against you", which is the opposite of unknown.
+  const worst = fmtReturn(ep.trough_return);
   const op = operatorLine(ep);
 
   // The Status cell is a SHARED column — identical content in both views, only its position differs
@@ -114,13 +121,24 @@ export function EpisodeRow({
 
       {view === "timing" ? (
         <>
+          {/* Path — the episode's own closes, the shape behind the three numbers to its right. */}
+          <td className="sb-path">
+            <EpisodeSparkline ep={ep} />
+          </td>
           {/* Return — forward_return, dashed before a forward bar exactly as the Summary row does. */}
           <td className="sb-ret">
             <span className={`ret ${ret.cls}`}>{awaiting ? "—" : ret.text}</span>
           </td>
-          {/* Peak — the realized high; "—" until a forward bar lands (honest loudness, no false 0.0%). */}
-          <td className="sb-ret">
+          {/* Peak — the realized high; "—" until a forward bar lands (honest loudness, no false 0.0%).
+              The intraday high rides the hover: a ~2pp correction is checked, not scanned. */}
+          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "peak")}>
             <span className={`ret ${noBar ? "" : peak.cls}`}>{noBar ? "—" : peak.text}</span>
+          </td>
+          {/* Worst — the realized low on the SAME close basis. A real 0.0% here is a measurement (the
+              name never closed below entry — 24% of the record), so it renders as 0.0%, not a dash;
+              only the no-forward-bar case dashes. The intraday low rides the hover. */}
+          <td className="sb-ret" title={noBar ? undefined : excursionTitle(ep, "worst")}>
+            <span className={`ret ${noBar ? "" : worst.cls}`}>{noBar ? "—" : worst.text}</span>
           </td>
           {/* Past peak — trading days from the peak to the exit; "—" with no forward bar (a degenerate
               0d would read as "exited at the peak" — a real 0d, WITH a bar, is kept and meaningful). */}

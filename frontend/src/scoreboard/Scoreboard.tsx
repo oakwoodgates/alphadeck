@@ -74,9 +74,16 @@ function SpanRow({
             <td className="sb-armed">{fmtDate(s.take_date)}</td>
             {view === "timing" ? (
               <>
-                {/* an operator span carries NO platform timing lens (forward / peak / past-peak are
-                    episode-level, not a logged take) — dash the timing columns, keep the row visible
-                    (interaction principle #2 — pruning hides, it never vanishes). */}
+                {/* an operator span carries NO platform timing lens (path / forward / peak / worst /
+                    past-peak are episode-level, not a logged take) — dash the timing columns, keep
+                    the row visible (interaction principle #2 — pruning hides, it never vanishes).
+                    This branch is the FOURTH place a Timing column has to land, after LedgerHead,
+                    EpisodeRow and `ledgerColCount`; miss it and every span cell sits one column left
+                    of its header, silently, because a short <tr> just renders narrow. */}
+                <td className="sb-path">—</td>
+                <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
                 <td className="sb-ret">
                   <span className="ret">—</span>
                 </td>

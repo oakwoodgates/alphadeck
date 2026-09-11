@@ -1350,6 +1350,16 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }
+/* the Timing view's Path cell — the episode's own closes. `line-height: 0` keeps the 16px svg from
+   adding a row's worth of leading (the ledger is one line tall and stays that way); the cell is
+   `cursor: help` because everything the shape can't say — the span, the axis caveat, whether the
+   de-arm is on the path at all — lives in its title. */
+.sb-path { color: var(--txt-4); line-height: 0; cursor: help; }
+.sb-path .muted { line-height: normal; }
+/* the de-arm tick: a hairline in the MUTED grey, deliberately quieter than the path it crosses. It
+   marks where the run ended inside the window — context for the shape, not a flag (#7), so it never
+   borrows the armed/warm accents. Drawn first so the price line sits on top of it. */
+.sb-spark .sb-spark-dearm { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; }
 .sb-dearm { color: var(--txt-3); }
 .sb-cen { color: var(--warm); font-weight: 700; margin-left: 1px; cursor: help; }
 .sb-why .sb-trig { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin-right: 4px; cursor: help; }

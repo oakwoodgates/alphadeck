@@ -12,6 +12,7 @@ import {
   closeReasonLabel,
   closeReasonLine,
   episodeBadges,
+  excursionTitle,
   fmtPastPeak,
   fmtReturn,
   gateMetrics,
@@ -23,6 +24,7 @@ import {
   maturityHorizon,
   metricHeadline,
   operatorLine,
+  pathTitle,
   returnLabel,
   triggerChips,
 } from "../rows";
@@ -101,9 +103,73 @@ describe("fmtPastPeak — the Timing view's past-peak gap cell (Slice 2)", () =>
 });
 
 describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", () => {
-  it("summary spans 8 columns, timing 6", () => {
+  it("both views span 8 columns", () => {
+    // Timing went 6 -> 8 with Path and Worst. The whole-table span test in Scoreboard.test.tsx is
+    // what catches a column added here but not in all four places; this only pins the number.
     expect(ledgerColCount("summary")).toBe(8);
-    expect(ledgerColCount("timing")).toBe(6);
+    expect(ledgerColCount("timing")).toBe(8);
+  });
+});
+
+describe("excursionTitle — the close figure is the cell, the wick figure is the hover", () => {
+  const full = ep({
+    peak_return: 0.204,
+    peak_date: "2026-08-10",
+    trough_return: -0.056,
+    trough_date: "2026-07-28",
+    intraday_high_return: 0.231,
+    intraday_high_date: "2026-08-11",
+    intraday_low_return: -0.084,
+    intraday_low_date: "2026-07-27",
+  });
+
+  it("names the excursion, its close date, and the intraday counterpart", () => {
+    const peak = excursionTitle(full, "peak");
+    expect(peak).toContain("maximum favourable excursion (MFE)");
+    expect(peak).toContain("intraday high +23.1%");
+    const worst = excursionTitle(full, "worst");
+    expect(worst).toContain("maximum adverse excursion (MAE)");
+    expect(worst).toContain("intraday low -8.4%");
+    // each side reads its OWN wick — a crossed pair would be silently wrong on every row
+    expect(peak).not.toContain("-8.4%");
+    expect(worst).not.toContain("+23.1%");
+  });
+
+  it("says the intraday figure is unavailable rather than omitting the line", () => {
+    // the close is NEVER substituted for a missing wick, and an absent line would read as "the
+    // intraday extreme equals the close" — the one thing that is certainly not true
+    const noWick = ep({ peak_return: 0.204, intraday_high_return: null, intraday_high_date: null });
+    const t = excursionTitle(noWick, "peak");
+    expect(t).toContain("intraday high unavailable");
+    expect(t).not.toContain("+20.4%");
+  });
+});
+
+describe("pathTitle — the span, the axis caveat, and where the de-arm actually is", () => {
+  const base = { arm_date: "2026-08-03", exit_date: "2026-08-21" } as Partial<ScoreboardEpisodeOut>;
+
+  it("states the bar count, the span and the non-comparable axis", () => {
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3] }));
+    expect(t).toContain("3 bars · Aug 3 → Aug 21");
+    expect(t).toContain("not comparable between rows");
+  });
+
+  it("a de-arm ON the path is marked", () => {
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3], dearm_date: "2026-08-14", dearm_index: 1 }));
+    expect(t).toContain("de-armed Aug 14 (marked)");
+  });
+
+  it("a de-arm PAST the scored window says so — never silence that reads as 'never de-armed'", () => {
+    // the real 8-episode case: the horizon elapsed while the record kept the member armed
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3], dearm_date: "2026-09-02", dearm_index: null }));
+    expect(t).toContain("after the scored window");
+    expect(t).toContain("Sep 2");
+  });
+
+  it("an open episode says nothing about a de-arm, and a short path says why it can't draw", () => {
+    expect(pathTitle(ep({ ...base, path: [1, 2, 3] }))).not.toContain("de-armed");
+    expect(pathTitle(ep({ ...base, path: [1] }))).toContain("a point is not a path");
+    expect(pathTitle(ep({ ...base, path: [] }))).toContain("no bars in the scored window");
   });
 });
 

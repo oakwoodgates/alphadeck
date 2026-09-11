@@ -4,6 +4,7 @@ import type {
   ScoreboardSummaryOut,
   ScoreboardThesisOut,
 } from "../api/hooks";
+import { fmtDate } from "../util/format";
 
 // Pure display logic for the Scoreboard ledger (the buckets.ts model: unit-tested, no React).
 // Honest loudness throughout: a running return is labeled running, an inferred price is marked,
@@ -276,7 +277,79 @@ export function groupCount(t: ScoreboardThesisOut): number {
 export type LedgerView = "summary" | "timing";
 
 /** The ledger's column count for the current view — the group-row/note-row `colSpan` tracks it so a
- *  full-width group header spans exactly the rendered columns (Summary = 8, Timing = 6). */
+ *  full-width group header spans exactly the rendered columns (Summary = 8, Timing = 8: Name · Armed ·
+ *  Path · Return · Peak · Worst · Past peak · Status). A Timing column has to be added in FOUR places
+ *  — `LedgerHead`, `EpisodeRow`, `SpanRow` and here — and the whole-table span test is the net. */
+const LEDGER_COLS: Record<LedgerView, number> = {
+  summary: 8, // Name · Armed · Why · Exit-by · Status · Return · Peak · Operator
+  timing: 8, // Name · Armed · Path · Return · Peak · Worst · Past peak · Status
+};
+
 export function ledgerColCount(view: LedgerView): number {
-  return view === "timing" ? 6 : 8;
+  return LEDGER_COLS[view];
+}
+
+// -------- the excursion pair: the close figure on the row, the wick figure in its hover -------------
+
+/** The Peak / Worst cell's hover. The CELL carries the CLOSE-based figure — the same basis
+ *  `forward_return` and `exit_vs_peak_days` use, so Return · Peak · Worst read as three numbers on one
+ *  tape. The wick figure is a ~2pp correction (measured median +2.0pp favourable / +2.1pp adverse), and
+ *  a correction is something you CHECK rather than scan, so it lives here.
+ *
+ *  When a wick is unavailable the line says so in as many words. It never falls back to the close and
+ *  it never silently omits the line — an absent line would read as "the intraday extreme equals the
+ *  close", which is the one thing that is certainly not true (#6). */
+export function excursionTitle(e: ScoreboardEpisodeOut, side: "peak" | "worst"): string {
+  const isPeak = side === "peak";
+  const lines = [
+    isPeak
+      ? "maximum favourable excursion (MFE) — the best CLOSE in the scored window"
+      : "maximum adverse excursion (MAE) — the worst CLOSE in the scored window",
+  ];
+  const closeDate = isPeak ? e.peak_date : e.trough_date;
+  if (closeDate) lines.push(`on ${fmtDate(closeDate)}`);
+  const wick = isPeak ? e.intraday_high_return : e.intraday_low_return;
+  const wickDate = isPeak ? e.intraday_high_date : e.intraday_low_date;
+  const name = isPeak ? "intraday high" : "intraday low";
+  lines.push(
+    wick != null
+      ? `${name} ${fmtReturn(wick).text}${wickDate ? ` on ${fmtDate(wickDate)}` : ""}`
+      : `${name} unavailable — not every bar in this window carries a wick, and the close is never ` +
+        `substituted for one`,
+  );
+  return lines.join("\n");
+}
+
+// -------- the episode path: the SHAPE behind the endpoint numbers ------------------------------------
+
+/** The Path cell's hover. Three things, in the order they matter:
+ *
+ *  1. The span, in bars and dates — because the paths are VARIABLE length (each episode covers its own
+ *     `[arm_date, exit_date]`), the caveat that a steeper line does not mean a faster move has to be
+ *     stated, not assumed. Fixed-slot padding would have implied a shared time axis these rows do not
+ *     have; this is the honest cost of the alternative.
+ *  2. The de-arm, when there is one. A de-arm that fell AFTER the scored window has no place on the
+ *     path — and silently drawing nothing there would read as "never de-armed", which is false for the
+ *     8 real episodes whose run outlived its own horizon. The line says which it is.
+ *  3. Nothing else. */
+export function pathTitle(e: ScoreboardEpisodeOut): string {
+  const n = e.path?.length ?? 0;
+  const lines: string[] =
+    n === 0
+      ? ["no bars in the scored window"]
+      : n === 1
+        ? [`1 bar in the scored window — a point is not a path`]
+        : [
+            `${n} bars · ${fmtDate(e.arm_date)} → ${fmtDate(e.exit_date)}`,
+            "this episode's own span — the x-axis is not comparable between rows",
+          ];
+  if (e.dearm_date) {
+    lines.push(
+      e.dearm_index != null
+        ? `de-armed ${fmtDate(e.dearm_date)} (marked)`
+        : `de-armed ${fmtDate(e.dearm_date)} — after the scored window, so the mark has no place on ` +
+          `this path`,
+    );
+  }
+  return lines.join("\n");
 }
