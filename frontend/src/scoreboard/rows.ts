@@ -107,14 +107,21 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
         " — excluded from metrics",
     });
   // The FIELD says the horizon outran this name's tape; the BADGE decides that is worth telling the
-  // operator, and those are different questions. On a running episode falling short of the horizon is
-  // the definition of running — the row already says so, in this same cell, via the absent MATURED
-  // mark. Only on a MATURED episode is it a caveat: a number presented as final, measured on a tape
-  // that stopped before the horizon it claims. Ungated it fired on 91% of the ledger, which is the
-  // shape of a mark true of nearly every row (#7) — and every matured fire was a weekend or a market
-  // holiday, where nothing had been missed at all. The field's own correction removed those; this
-  // gate removes the running rows, and what is left is the exception the badge was always for.
-  if (e.matured && e.truncated && !e.insufficient_prices)
+  // operator, and those are different questions. Three conditions, each removing a class where the
+  // fact is true but says nothing:
+  //
+  //   - `matured` — on a running episode, falling short of the horizon is the definition of
+  //     running, and the row already says so in this same cell via the absent MATURED mark.
+  //   - `tape_behind_market` — the backend's second leg: the market printed past this horizon
+  //     anyway. Without it the badge flickers on every episode maturing TODAY (no close exists
+  //     until after the bell) and shouts on all 200 rows whenever the whole feed stalls, which is
+  //     a freshness alarm wearing a per-name badge.
+  //   - `!insufficient_prices` — no measurement to caveat.
+  //
+  // Ungated the predicate fired on 91% of the ledger: a mark true of nearly every row carries no
+  // information (#7). What survives all three is one thing — a realized number measured on a tape
+  // that stopped before a horizon the rest of the market has already printed past.
+  if (e.matured && e.tape_behind_market && !e.insufficient_prices)
     out.push({
       label: "TAPE ENDS",
       cls: "b-trunc",

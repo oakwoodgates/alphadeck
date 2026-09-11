@@ -795,6 +795,7 @@ describe("episodeMarkers — entry/exit/peak trace to wire fields, gated on the 
     exit_date: "2026-06-20",
     peak_date: "2026-06-10",
     truncated: false,
+    tape_behind_market: false,
     insufficient_prices: false,
   };
 

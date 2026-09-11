@@ -182,4 +182,11 @@ class Outcome(BaseModel):
     # ledger badge gates additionally on `matured` — a running return falling short of its horizon IS
     # running; a realized one falling short is a caveat on a number presented as final.
     truncated: bool = False
+    # The LOUDNESS half of the same question: `truncated` AND the market printed past this horizon
+    # anyway (`exit_by < tape_edge(market)`). Strictly narrower than `truncated` — it is that flag
+    # minus the two cases where falling short is not this name's fault: an episode maturing TODAY
+    # (no close exists until after the bell — a daily transient on a healthy feed) and a globally
+    # stalled tape (nobody is starved; that is the record-freshness alarm). What is left is a name
+    # genuinely behind the market, and it is what the ledger badge gates on.
+    tape_behind_market: bool = False
     insufficient_prices: bool = False

@@ -114,12 +114,53 @@ stalled name's edge sits *before* its horizon and reads true, which is the flag 
 Immature episodes stay `true` — load-bearing, because `moveNote`, `peakTimingPhrase` and the chart's
 "last bar" exit marker all anchor their phrasing on it.
 
-The **badge is a separate question from the field**. The field answers *"did the measurement reach the
-horizon?"* — a fact. The badge answers *"is that worth telling the operator?"* — a judgement. It gates
-additionally on `matured` and reads **`TAPE ENDS`**: a running return short of its horizon is the
-definition of running, while a *realized* one short of its horizon is a caveat on a number presented
-as final. On the current record it fires **zero** times, which is the honest count — 99 securities in
-the master have tapes that stop before 2026-08-01, none of them carrying an episode yet.
+### `tape_behind_market` — the loudness half
+
+```
+tape_behind_market  =  truncated  AND  exit_by < tape_edge(market)
+```
+
+`tape_edge(market)` is the latest bar date **anywhere in the tenant's tape**, under the same
+as-of/known-at caps. One sentence: *the market has printed past this horizon, and this name's tape
+still has not reached it.*
+
+It is a **second field, not a narrowing of `truncated`**, and the distinction is load-bearing.
+`truncated` answers *"did the measurement reach the horizon?"* — on a running episode the honest
+answer is no, and three sites read it precisely to phrase that honestly (`moveNote`'s "measured to
+the last bar ≤ as-of", `peakTimingPhrase`'s "last bar Nd after the peak" rather than the false
+"horizon closed Nd after", and the chart's exit marker reading "last bar" rather than "exit"). The
+market leg is false for every running episode by construction (`market_edge ≤ asof < exit_by`), so
+folding it into `truncated` would silence all of them and flip those three phrasings to statements
+that are not true. It was tried: it turns `test_asof_cap_no_future_leak` red.
+
+What the market leg removes, once a row is matured, are two classes where falling short is not this
+name's fault:
+
+- **an episode maturing today** — today's close does not exist until after the bell, so *every*
+  same-day maturity is momentarily short of its horizon on a perfectly healthy feed. Un-suppressed,
+  the badge would flicker for part of every day, which is how the old rule lost its credibility.
+- **a globally stalled feed** — a frozen cron, or a dev stack with the cron off. When the whole tape
+  is behind, no single name is starved; that alarm belongs to the record-freshness line, not to 200
+  individual rows.
+
+`tape_edge(market)` costs a scan (`fact_price_eod` has no `(tenant_id, d)` index — MEASURED at ~33 ms
+over 350k rows), so it is resolved **once per tenant per request** in `scoreboard_records` and
+threaded into the per-thesis readers. A reader resolving its own would put that scan on every thesis.
+
+### The badge
+
+The field states the fact; the badge decides it is worth saying. **`TAPE ENDS`** gates on
+`matured && tape_behind_market && !insufficient_prices` and reads *"the horizon elapsed, but this
+name's price tape stops at ‹exit_date›"*. On the current record it fires **zero** times, which is
+the honest count — 99 securities in the master have tapes that stop before 2026-08-01, none of them
+carrying an episode yet.
+
+**One deliberate conservatism.** The market leg is strict (`exit_by < market_edge`), so an episode
+whose `exit_by` lands exactly on the market's latest bar date is suppressed for that day even if the
+name genuinely missed that bar. It fires the next trading day, once the market edge advances past the
+horizon. That is a one-day latency on a true positive, bought in exchange for immunity to the
+same-day flicker; `test_market_edge_equal_to_exit_by_is_suppressed` pins it so the choice stays
+visible rather than accidental.
 
 `truncated` is **not** a metric input. Eligibility is `matured & !censored_start & !ingest_flagged`
 and the metric filter is `!insufficient_prices & forward_return is not None`; neither mentions it, and

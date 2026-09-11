@@ -69,6 +69,7 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
     peak_date: null,
     exit_vs_peak_days: null,
     truncated: false,
+    tape_behind_market: false,
     insufficient_prices: false,
     operator: null,
     ...over,

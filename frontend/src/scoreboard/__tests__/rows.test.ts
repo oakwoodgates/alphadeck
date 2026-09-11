@@ -65,6 +65,7 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
     peak_date: null,
     exit_vs_peak_days: null,
     truncated: false,
+    tape_behind_market: false,
     insufficient_prices: false,
     operator: null,
     ...over,
@@ -389,26 +390,43 @@ describe("episodeBadges — marks are exceptions, not constants", () => {
   it("does not fire on a RUNNING episode — short of the horizon is what running MEANS", () => {
     // 208 of 252 rows on the record were this: the badge said nothing the absent MATURED mark in the
     // same cell did not already say.
-    const labels = episodeBadges(ep({ truncated: true, matured: false, status: "open" })).map(
-      (b) => b.label,
-    );
+    const labels = episodeBadges(
+      ep({ truncated: true, tape_behind_market: false, matured: false, status: "open" }),
+    ).map((b) => b.label);
     expect(labels).not.toContain("TAPE ENDS");
     expect(labels).toContain("OPEN");
   });
   it("fires on a MATURED episode whose tape stopped short, and dates the stop", () => {
     const badge = episodeBadges(
-      ep({ truncated: true, matured: true, status: "closed", exit_date: "2026-07-20" }),
+      ep({
+        truncated: true,
+        tape_behind_market: true,
+        matured: true,
+        status: "closed",
+        exit_date: "2026-07-20",
+      }),
     ).find((b) => b.label === "TAPE ENDS");
     expect(badge?.cls).toBe("b-trunc");
-    expect(badge?.title).toBe(
-      "the horizon elapsed, but this name's price tape stops at Jul 20",
-    );
+    expect(badge?.title).toBe("the horizon elapsed, but this name's price tape stops at Jul 20");
   });
   it("stays silent on a matured episode whose tape covered its horizon", () => {
     // the 20 corrected rows: exit_by on a weekend or a market holiday, tape alive either side
     expect(
-      episodeBadges(ep({ truncated: false, matured: true, status: "closed" })).map((b) => b.label),
+      episodeBadges(
+        ep({ truncated: false, tape_behind_market: false, matured: true, status: "closed" }),
+      ).map((b) => b.label),
     ).toEqual(["MATURED"]);
+  });
+  it("gates on tape_behind_market, not truncated — the same-day / stalled-feed suppression", () => {
+    // The backend's second leg. `truncated` alone is true of a matured episode whose horizon is
+    // TODAY (no close until after the bell) and of every row when the whole feed has stalled —
+    // neither is a starved name, and the badge must not shout on either. The row still carries its
+    // MATURED mark; only the caveat is withheld.
+    const labels = episodeBadges(
+      ep({ truncated: true, tape_behind_market: false, matured: true, status: "closed" }),
+    ).map((b) => b.label);
+    expect(labels).not.toContain("TAPE ENDS");
+    expect(labels).toEqual(["MATURED"]);
   });
 });
 

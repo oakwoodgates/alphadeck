@@ -74,6 +74,13 @@ def test_pg_reader_matches_duckdb_reader_and_outcomes(db, security_id, tmp_path)
         assert pg.tape_edge(security_id, date(2026, 6, 1)) == date(2026, 6, 12)
         assert pg.tape_edge(security_id, date(2026, 6, 13)) is None  # nothing after the last bar
 
+        # the MARKET edge (``tape_behind_market``'s second leg): a max over the whole tenant rather
+        # than one name, computed independently on each side, so the twins must agree there too. One
+        # security in this fixture, so it IS the market — which is itself the property worth pinning:
+        # a lone name can never be "behind the market", because it is the market.
+        assert pg.market_tape_edge(security_id) == duck.market_tape_edge(security_id)
+        assert pg.market_tape_edge(security_id) == date(2026, 6, 12)
+
         ep = Episode(
             thesis_id=uuid.uuid4(),
             security_id=security_id,
