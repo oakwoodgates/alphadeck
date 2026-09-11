@@ -210,6 +210,7 @@ python -m uvicorn app.main:app --reload                 # serve the API (127.0.0
 python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from the CLI
 python -m pipeline.ingest_thesis --thesis <id>          # ingest a thesis's back-half facts (Form 4 + EOD)
 python -m pipeline.daily                                 # the cron's unit: refresh facts + log each thesis's call-of-record
+python -m pipeline.backfill --asof 2026-09-08 --known-at next-run --dry-run  # reconstruct a MISSED night's call-of-record with known_at PINNED (no ingest/notify; drop --dry-run to write)
 python -m pipeline.dedup_identical_versions --apply --verify-asof 2026-09-03  # repair (B2): delete byte-identical fact re-versions from the seed pile-up
 pytest -n 6                                              # full suite (~6 min here; xdist per-worker DBs; `-n` needs the dev extra = ensure-venv) — scoped: pytest tests/<area> -n 6 -m "not slow"
 ruff check . ; black --check .                          # lint + format

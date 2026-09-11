@@ -8,7 +8,8 @@
 > `DATA_FLOW.md` (where data lives), `INVARIANTS.md` (#1 no-lookahead, #2 exact membership, the calls log).
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
-> `docker-compose.yml` + `backend/scripts/daily_cron.sh`.
+> `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
+> reconstructed with a PINNED `known_at`).
 >
 > **Status: BUILT** — the per-thesis ingest (PR #70), the daily cron + `record_if_changed` (#71), the
 > fresh-data fix + the price-source seam (#72), the scheduling sidecar (#73), and the **cron-freeze
@@ -234,6 +235,41 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   reason. *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
+### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
+
+When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.missed_asofs` lists it),
+`python -m pipeline.backfill --asof <night> --known-at <pin>` reconstructs it: the SAME `call_for_thesis`
+assembly the cron runs, with the transaction clock PINNED, then `record_if_changed`. `--dry-run` first.
+
+- **Why a pin, not `pipeline.daily --asof <past>`.** The `calls` log is immutable and bitemporal — a row's
+  `recorded_at` is always now — and the as-of gate is two-axis (`valid_from <= asof` AND `recorded_at <=
+  known_at`, `INVARIANTS.md` #4). A naive re-run computes the past night with `known_at = now`: TODAY's
+  knowledge, "what the platform says now about that night", not what it would have logged. MEASURED on dev:
+  Modern Defense backfilled as ARMED on Aug 24–31 while the real nightly runs around those nights recorded
+  INCUBATING, because that thesis's facts arrived after them. The pinned backfill records what the cron WOULD
+  have logged, consistent with its recorded neighbours.
+- **The pin — `--known-at next-run`** resolves to the `finished_at` of the FIRST live run after the night
+  (`resolve_next_run_known_at`, pure over the R3 run artifacts; `no-live` runs and runs started ON the as-of
+  day do not count, a `--catch-up` pass does). That run ingested the night's own EOD bar and its filings and
+  nothing that arrived later — a pin at 22:30 THAT night would MISS the night's bar, because the next
+  morning's run is what ingested it. An explicit ISO instant WITH an offset or `Z` is accepted instead; a
+  naive one is refused (a wrong zone shifts real answers invisibly), as is a pin before the as-of day begins
+  and an `--asof` that is not in the past (tonight is the cron's job). The resolved pin prints in UTC and
+  market time before anything runs.
+- **It never ingests or notifies.** No refresh legs, no SPAC legs, no `EdgarClient` / `PriceSource`, no
+  `TransitionEvent` (a reconstructed row is a RECORD, never a nag — a Slack "ARMED" for a night two weeks ago
+  is exactly the wrong loudness, #7). A pure recompute-and-record over facts already in the store, pinned
+  structurally by an import-guard test. Per-thesis isolation is `run_daily`'s (own try, commit / rollback).
+- **The NULL ingest stamp.** The row's `ingest_fresh` / `ingest_errors` stay NULL — there was no ingest, so
+  NULL is the honest stamp, and it distinguishes a reconstructed row from a nightly one (always True/False
+  since R2b).
+- **Provenance + idempotency.** One write-only, fail-open JSON per invocation under
+  `data/backfills/<utc-ts>.json` (`pipeline/backfill_log.py`: `asof`, `known_at`, `known_at_policy`
+  `explicit` | `next-run`, per-thesis state / verdict / recorded / error). NOT a cron run artifact —
+  `already_ran_live` stays False for the night. A `--dry-run` writes NOTHING (no row, no artifact). A
+  re-run with the same `asof` + `known_at` appends zero rows (count the table); a different pin that sees
+  different facts is a genuine change and appends one versioned row.
+
 ## Backups & restore (Slice 4)  `[BUILT]`
 
 The 2026-07-21 truncation cost the whole demo DB; recovery only worked because an **ad-hoc** `pg_dump`
@@ -285,7 +321,8 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   `ALPHADECK_ADMIN_MISSED_WINDOW` (default 10) scheduled weekdays for nights with no call-of-record
   (`schedule.missed_asofs`, bounded to the record's own span) and reports `gappy` + the dates. The existing
   prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up stays
-  today-only).
+  today-only); the operator's tool for a hole is `pipeline.backfill` with a PINNED `known_at` ("Backfilling
+  a missed night", above) — never `pipeline.daily --asof <past>`, which records today's knowledge.
 - **The R4 freeze page's false-positive path is NARROWED, not removed.** It fires on `edgar_fetches == 0`, but
   ~0 is *also* what a correct run entirely inside the 12h EDGAR TTL looks like (all cache hits). The
   **nightly** cron is safe — always ~24h out, always past the TTL, always fetches in the thousands. Option B
