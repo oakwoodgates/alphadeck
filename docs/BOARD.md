@@ -142,6 +142,14 @@ top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left
 company name is capped with an ellipsis (the full name is on the hover and in the per-name panel) and the
 call rail collapses from the top bar (`?rail=0`) when the table wants its width back.
 
+**That machinery is scoped `.basket-scroll table.basket`, never bare `table.basket`.** `.basket` is a
+shared table *skin* — the Scoreboard ledger and the Admin history tables wear it too — and the containment
+rules are not skin: a table that takes its `max-content` width with no scroller to absorb it overflows the
+*page*, and a `<thead>` told to stick with nothing scrolling it pins itself to the viewport. Both happened:
+written unscoped, these rules escaped onto the Scoreboard, which overflowed by 498px at a 1091px viewport
+until the scoping landed. A `.basket` table outside a scroller stays fluid and wraps, which is right for
+one laid out in a flowing document.
+
 - **Type** — the business-type **leaf** (Business-Type M1, the retired *archetype*'s replacement),
   colored by super-sector with a ◈ **royalty/streaming** overlay; an ETF sleeve reads "ETF sleeve" (a
   fund has no SIC), an un-enriched name a quiet "—" (never a guessed default).

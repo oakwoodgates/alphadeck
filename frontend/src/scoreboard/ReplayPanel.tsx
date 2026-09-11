@@ -6,6 +6,12 @@ import { EpisodeRow } from "./EpisodeRow";
 import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
 import { ledgerColCount, type LedgerView } from "./rows";
+import {
+  nextLedgerSort,
+  sortEpisodes,
+  type LedgerSort,
+  type LedgerSortColId,
+} from "./sortLedger";
 
 // The HISTORICAL (replayed) section — replayed history below the live ledger, clearly separated
 // and QUIET: a RECOMPUTE (today's code + dials over historical facts), never the record. Collapsed
@@ -29,6 +35,10 @@ export function ReplayPanel({
 }) {
   const { data } = useScoreboardReplay();
   const [open, setOpen] = useState(false); // collapsed by default: context, not action
+  // its OWN column sort, like its own open state. The replay set is a recompute, never pooled with
+  // the record above it, so ranking one must not silently re-rank the other.
+  const [sort, setSort] = useState<LedgerSort | null>(null);
+  const onSort = (col: LedgerSortColId) => setSort((cur) => nextLedgerSort(cur, col));
 
   if (!data || !data.available) return null;
 
@@ -62,23 +72,31 @@ export function ReplayPanel({
         <>
           <div className="sb-banner rp-banner">{data.banner}</div>
           <MetricsStrip metrics={data.metrics} minN={data.min_n} />
+          {/* the same scroller the live ledger uses — the two tables share LedgerHead, so they
+              have to share the width behaviour too or they drift apart on screen */}
+          <div className="sb-scroll">
           <table className="basket sb-ledger">
-            <LedgerHead view={view} returnHeader="Replayed return" />
+            <LedgerHead view={view} returnHeader="Replayed return" sort={sort} onSort={onSort} />
             <tbody>
               {data.theses.map((t) => (
                 <Fragment key={t.thesis_id}>
                   <tr className="grp rp-grp">
                     <td colSpan={ledgerColCount(view)}>
                       <div className="grp-h rp-grp-h">
-                        <span className="lbl">{t.name}</span>
-                        <em className="hint">· replayed</em>
-                        <span className="ct">· {t.episodes.length}</span>
+                        {/* sticky-left like the live ledger's heading, so a sideways scroll can't
+                            carry the thesis name off the row it labels */}
+                        <span className="grp-lbl">
+                          <span className="lbl">{t.name}</span>
+                          <em className="hint">· replayed</em>
+                          <span className="ct">· {t.episodes.length}</span>
+                        </span>
                       </div>
                     </td>
                   </tr>
-                  {t.episodes.map((ep, i) => (
+                  {/* sorted within the replayed thesis group, same as the live ledger */}
+                  {sortEpisodes(t.episodes, sort).map((ep) => (
                     <EpisodeRow
-                      key={i}
+                      key={`${ep.security_id}-${ep.arm_date}-${ep.dearm_date ?? "open"}`}
                       ep={ep}
                       thesisId={t.thesis_id}
                       onSelect={onSelect}
@@ -91,6 +109,7 @@ export function ReplayPanel({
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>

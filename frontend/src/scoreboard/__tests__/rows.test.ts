@@ -8,9 +8,11 @@ import type {
 } from "../../api/hooks";
 import {
   awaitingForwardBar,
+  closeReasonBadge,
   closeReasonLabel,
   closeReasonLine,
   episodeBadges,
+  excursionTitle,
   fmtPastPeak,
   fmtReturn,
   gateMetrics,
@@ -22,7 +24,9 @@ import {
   maturityHorizon,
   metricHeadline,
   operatorLine,
+  pathTitle,
   returnLabel,
+  triggerChips,
 } from "../rows";
 
 function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
@@ -99,9 +103,112 @@ describe("fmtPastPeak — the Timing view's past-peak gap cell (Slice 2)", () =>
 });
 
 describe("ledgerColCount — the group-row colSpan tracks the view (Slice 2)", () => {
-  it("summary spans 8 columns, timing 6", () => {
-    expect(ledgerColCount("summary")).toBe(8);
-    expect(ledgerColCount("timing")).toBe(6);
+  it("Summary spans 9 columns, Timing 11", () => {
+    // Timing went 6 -> 8 (Path + Worst) -> 11: De-armed split out of Armed, and the excursion pair
+    // was promoted out of the hovers into four columns. Summary went 8 -> 9 with De-armed alone.
+    // The whole-table span test in Scoreboard.test.tsx is what catches a column added here but not
+    // in all four places; this only pins the number.
+    expect(ledgerColCount("summary")).toBe(9);
+    expect(ledgerColCount("timing")).toBe(11);
+  });
+});
+
+describe("excursionTitle — four columns, four hovers, none restating its neighbour", () => {
+  const full = ep({
+    peak_return: 0.204,
+    peak_date: "2026-08-10",
+    trough_return: -0.056,
+    trough_date: "2026-07-28",
+    intraday_high_return: 0.231,
+    intraday_high_date: "2026-08-11",
+    intraday_low_return: -0.084,
+    intraday_low_date: "2026-07-27",
+  });
+
+  it("a CLOSE hover names its excursion and its own date — and nothing about the wick", () => {
+    const peak = excursionTitle(full, "peak", "close");
+    expect(peak).toContain("maximum favorable excursion (MFE)");
+    expect(peak).toContain("on Aug 10");
+    const worst = excursionTitle(full, "worst", "close");
+    expect(worst).toContain("maximum adverse excursion (MAE)");
+    expect(worst).toContain("on Jul 28");
+    // the repetition the columns were promoted to remove: the wick has its own cell now, so the
+    // close cell must not restate it
+    for (const t of [peak, worst]) {
+      expect(t).not.toContain("intraday");
+      expect(t).not.toContain("+23.1%");
+      expect(t).not.toContain("-8.4%");
+    }
+  });
+
+  it("a WICK hover names the traded extreme and its own date — and not the close", () => {
+    const peak = excursionTitle(full, "peak", "wick");
+    expect(peak).toContain("intraday high");
+    expect(peak).toContain("on Aug 11");
+    const worst = excursionTitle(full, "worst", "wick");
+    expect(worst).toContain("intraday low");
+    expect(worst).toContain("on Jul 27");
+    // each side reads its OWN date — a crossed pair would be silently wrong on every row
+    expect(peak).not.toContain("Jul 27");
+    expect(worst).not.toContain("Aug 11");
+    // no MFE/MAE restatement, and no close figure leaking into the wick cell
+    for (const t of [peak, worst]) {
+      expect(t).not.toContain("excursion");
+      expect(t).not.toContain("+20.4%");
+      expect(t).not.toContain("-5.6%");
+    }
+  });
+
+  it("says the intraday figure is unavailable rather than omitting the line", () => {
+    // the close is NEVER substituted for a missing wick, and an absent line would read as "the
+    // intraday extreme equals the close" — the one thing that is certainly not true
+    const noWick = ep({ peak_return: 0.204, intraday_high_return: null, intraday_high_date: null });
+    const t = excursionTitle(noWick, "peak", "wick");
+    expect(t).toContain("intraday high unavailable");
+    expect(t).not.toContain("+20.4%");
+  });
+
+  it("an EMPTY scored window says so on BOTH bases, instead of blaming a missing wick", () => {
+    // the two real episodes whose arm and exit_by both land on the same Sunday: no bar exists in
+    // [arm_date, exit_by] at all. "not every bar carries a wick" would be a vacuous truth pointing
+    // at the wrong cause — there are no bars to carry anything. The wick columns ask the CLOSE
+    // excursion first, precisely so they degrade to the right reason.
+    const empty = ep({ peak_return: null, trough_return: null, path: [] });
+    for (const side of ["peak", "worst"] as const) {
+      for (const basis of ["close", "wick"] as const) {
+        const t = excursionTitle(empty, side, basis);
+        expect(t).toContain("no bars in the scored window");
+        expect(t).not.toContain("unavailable");
+      }
+    }
+  });
+});
+
+describe("pathTitle — the span, the axis caveat, and where the de-arm actually is", () => {
+  const base = { arm_date: "2026-08-03", exit_date: "2026-08-21" } as Partial<ScoreboardEpisodeOut>;
+
+  it("states the bar count, the span and the non-comparable axis", () => {
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3] }));
+    expect(t).toContain("3 bars · Aug 3 → Aug 21");
+    expect(t).toContain("not comparable between rows");
+  });
+
+  it("a de-arm ON the path is marked", () => {
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3], dearm_date: "2026-08-14", dearm_index: 1 }));
+    expect(t).toContain("de-armed Aug 14 (marked)");
+  });
+
+  it("a de-arm PAST the scored window says so — never silence that reads as 'never de-armed'", () => {
+    // the real 8-episode case: the horizon elapsed while the record kept the member armed
+    const t = pathTitle(ep({ ...base, path: [1, 2, 3], dearm_date: "2026-09-02", dearm_index: null }));
+    expect(t).toContain("after the scored window");
+    expect(t).toContain("Sep 2");
+  });
+
+  it("an open episode says nothing about a de-arm, and a short path says why it can't draw", () => {
+    expect(pathTitle(ep({ ...base, path: [1, 2, 3] }))).not.toContain("de-armed");
+    expect(pathTitle(ep({ ...base, path: [1] }))).toContain("a point is not a path");
+    expect(pathTitle(ep({ ...base, path: [] }))).toContain("no bars in the scored window");
   });
 });
 
@@ -137,6 +244,101 @@ describe("awaitingForwardBar — the single-bar signal", () => {
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-10" }))).toBe(true); // == arm_date
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-13" }))).toBe(false); // a forward bar landed
     expect(awaitingForwardBar(ep({ exit_date: null }))).toBe(false); // no bar at all
+  });
+});
+
+describe("closeReasonBadge — the row's short form, deferring nothing", () => {
+  const ep = (over: Record<string, unknown>) =>
+    ({ status: "closed", close_reason: "dearmed_other", dearm_detail: null, ...over }) as never;
+
+  it("is null while the episode is still open", () => {
+    // the reason only describes how an episode LEFT the armed set; an open one hasn't
+    expect(closeReasonBadge(ep({ status: "open", close_reason: "window_end" }))).toBeNull();
+  });
+
+  it("gives each token a short scannable label", () => {
+    const label = (t: string) => closeReasonBadge(ep({ close_reason: t }))!.label;
+    expect(label("dearmed_other")).toBe("DE-ARMED");
+    expect(label("arm_until_lapsed")).toBe("WINDOW LAPSED");
+    expect(label("conviction_aged_out")).toBe("AGED OUT");
+    expect(label("managing")).toBe("MANAGING");
+  });
+
+  it("surfaces the composed detail the row used to defer — the whole point of the change", () => {
+    // "(see de-arm day)" was written when the row had no answer. The backend composes one now, and
+    // it never reached this cell: the row called closeReasonLabel, so the placeholder always won.
+    const b = closeReasonBadge(
+      ep({ dearm_detail: "thesis fell back to Warming" }),
+    )!;
+    expect(b.label).toBe("DE-ARMED");
+    expect(b.title).toContain("de-armed — thesis fell back to Warming");
+    expect(b.title).not.toContain("see de-arm day"); // the deferral is gone, not relabelled
+  });
+
+  it("keeps the raw wire token reachable, translated or not", () => {
+    // the closeReasonLabel discipline: the English must never hide what the record actually says
+    expect(closeReasonBadge(ep({ close_reason: "arm_until_lapsed" }))!.title).toContain(
+      "wire: arm_until_lapsed",
+    );
+    // an unknown future token renders RAW rather than "unknown", and still says so on the wire (#9)
+    const future = closeReasonBadge(ep({ close_reason: "some_future_reason" }))!;
+    expect(future.label).toBe("some_future_reason");
+    expect(future.title).toContain("wire: some_future_reason");
+  });
+
+  it("stays muted — it marks the rule, not an exception", () => {
+    // 208 of 252 rows are closed; an alert-toned chip there would make two thirds of the ledger shout
+    expect(closeReasonBadge(ep({}))!.cls).toBe("b-dearm");
+  });
+});
+
+describe("triggerChips — a kind is named once and counted, never repeated", () => {
+  const t = (kind: string, label: string) => ({ kind, label });
+
+  it("collapses repeats of a kind into one counted chip", () => {
+    // the real FLR arm: 6 fires, 2 kinds — it rendered 6 chips saying 2 things
+    const chips = triggerChips([
+      t("catalyst", "a"),
+      t("catalyst", "b"),
+      t("technical_breakout", "c"),
+      t("technical_breakout", "d"),
+      t("technical_breakout", "e"),
+      t("technical_breakout", "f"),
+    ]);
+    expect(chips).toEqual([
+      { kind: "catalyst", n: 2, labels: ["a", "b"] },
+      { kind: "technical_breakout", n: 4, labels: ["c", "d", "e", "f"] },
+    ]);
+  });
+
+  it("keeps the record's own order and never re-sorts by count", () => {
+    // technical_breakout is the more frequent kind but insider fired FIRST — order is the record's
+    const chips = triggerChips([
+      t("insider", "i"),
+      t("technical_breakout", "x"),
+      t("technical_breakout", "y"),
+      t("insider", "j"),
+    ]);
+    expect(chips.map((c) => c.kind)).toEqual(["insider", "technical_breakout"]);
+    expect(chips.map((c) => c.n)).toEqual([2, 2]);
+    // a kind seen again after another kind joins its FIRST chip — it does not open a second one
+    expect(chips).toHaveLength(2);
+    expect(chips[0].labels).toEqual(["i", "j"]);
+  });
+
+  it("leaves a single fire uncounted, and an empty list empty", () => {
+    // n===1 is what the render gates the "xN" suffix on: one fire must not wear a count
+    expect(triggerChips([t("laggard", "only")])).toEqual([
+      { kind: "laggard", n: 1, labels: ["only"] },
+    ]);
+    expect(triggerChips([])).toEqual([]);
+  });
+
+  it("loses no label — every fire is still reachable through the chip it collapsed into", () => {
+    const fires = [t("catalyst", "one"), t("catalyst", "two"), t("insider", "three")];
+    const chips = triggerChips(fires);
+    expect(chips.flatMap((c) => c.labels).sort()).toEqual(["one", "three", "two"]);
+    expect(chips.reduce((n, c) => n + c.n, 0)).toBe(fires.length); // counts sum to the fires
   });
 });
 

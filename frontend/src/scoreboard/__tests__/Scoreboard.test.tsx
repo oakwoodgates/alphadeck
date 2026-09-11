@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ledgerColCount } from "../rows";
 import { Scoreboard } from "../Scoreboard";
 
 // The ledger view over a fixture payload: groups + rows render, the marks are exceptions, the
@@ -184,10 +185,21 @@ const SCORED_EP = {
   matured: true,
   censored_start: false,
   insufficient_prices: false,
+  dearm_date: "2026-08-18",
   exit_date: "2026-08-20",
   forward_return: 0.123,
   peak_return: 0.204,
   peak_date: "2026-08-10",
+  // the adverse side: this episode was 5.6% underwater on closes (8.4% intraday) before it finished
+  // +12.3% — the shape the ledger could not previously distinguish from a straight-line winner
+  trough_return: -0.056,
+  trough_date: "2026-07-28",
+  intraday_high_return: 0.231,
+  intraday_high_date: "2026-08-11",
+  intraday_low_return: -0.084,
+  intraday_low_date: "2026-07-27",
+  path: [10, 12, 11, 14, 13],
+  dearm_index: 3,
   exit_vs_peak_days: 7,
   triggers_at_arm: [
     { label: "50d breakout", kind: "technical_breakout", grade: "flip", ticker: "MATR", sources: [] },
@@ -434,11 +446,25 @@ describe("Scoreboard", () => {
     expect(screen.getByText("Operator")).toBeInTheDocument();
     expect(screen.getByText("Peak")).toBeInTheDocument();
     expect(screen.queryByText("Past peak")).not.toBeInTheDocument();
+    expect(screen.queryByText("Worst")).not.toBeInTheDocument();
+    expect(screen.queryByText("Path")).not.toBeInTheDocument();
+    // the wick columns are a TIMING lens — Summary keeps the close figure alone
+    expect(screen.queryByText("Peak high")).not.toBeInTheDocument();
+    expect(screen.queryByText("Worst low")).not.toBeInTheDocument();
+    // Armed / De-armed are SHARED — the split rides both views, so it is asserted in both
+    expect(screen.getByText("Armed")).toBeInTheDocument();
+    expect(screen.getByText("De-armed")).toBeInTheDocument();
 
     // flip to Timing → the timing headers appear, the summary-only ones are gone
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
     expect(screen.getByText("Peak")).toBeInTheDocument();
+    expect(screen.getByText("Peak high")).toBeInTheDocument();
+    expect(screen.getByText("Worst")).toBeInTheDocument();
+    expect(screen.getByText("Worst low")).toBeInTheDocument();
     expect(screen.getByText("Past peak")).toBeInTheDocument();
+    expect(screen.getByText("Path")).toBeInTheDocument();
+    expect(screen.getByText("Armed")).toBeInTheDocument();
+    expect(screen.getByText("De-armed")).toBeInTheDocument();
     expect(screen.queryByText("Why")).not.toBeInTheDocument();
     expect(screen.queryByText("Exit-by")).not.toBeInTheDocument();
     expect(screen.queryByText("Operator")).not.toBeInTheDocument();
@@ -447,15 +473,44 @@ describe("Scoreboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     expect(screen.getByText("Why")).toBeInTheDocument();
     expect(screen.getByText("Peak")).toBeInTheDocument();
+    expect(screen.queryByText("Peak high")).not.toBeInTheDocument();
   });
 
-  it("Slice 2: Timing view renders a scored episode's Return / Peak / Past peak", () => {
+  // The Armed cell used to read "Aug 7 → Aug 11" — two dates, two meanings, one cell that could be
+  // neither scanned down nor sorted on. They are two measurements, so they are two columns, and the
+  // censored marker stays with the ARM date because it is the arm that is unknowable.
+  it("the arm and the de-arm are two columns — an open episode dashes the de-arm", () => {
+    renderBoard({ data: TIMING_PAYLOAD });
+    const closed = screen.getByText("MATR").closest("tr")!;
+    const closedCells = [...closed.querySelectorAll("td")];
+    expect(closedCells[1].textContent).toBe("Jul 10"); // the arm, alone — no "→" tail
+    expect(closedCells[2].textContent).toBe("Aug 18"); // the de-arm, its own column
+    expect(closed.textContent).not.toContain("→");
+
+    // HIMS is still armed: no de-arm exists, so the cell says "—" rather than guessing a date
+    const open = screen.getByText("HIMS").closest("tr")!;
+    const openCells = [...open.querySelectorAll("td")];
+    expect(openCells[1].textContent).toBe("Jul 10*"); // censored marker rides the ARM
+    expect(openCells[2].textContent).toBe("—");
+    expect(openCells[1].querySelector(".sb-cen")).not.toBeNull();
+  });
+
+  it("Slice 2: Timing renders the scored episode's path, return and all four excursions", () => {
     renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
     const row = screen.getByText("MATR").closest("tr")!;
     expect(within(row).getByText("+12.3%")).toBeInTheDocument(); // forward_return
-    expect(within(row).getByText("+20.4%")).toBeInTheDocument(); // peak_return
+    expect(within(row).getByText("+20.4%")).toBeInTheDocument(); // peak_return (close)
+    // the adverse side: this row finished +12.3% but was 5.6% underwater on the way — the thing the
+    // ledger could not previously say, and the whole reason the Worst column exists
+    expect(within(row).getByText("-5.6%")).toBeInTheDocument(); // trough_return (close)
+    // the wick pair now has COLUMNS of its own rather than riding the close cells' hovers
+    expect(within(row).getByText("+23.1%")).toBeInTheDocument(); // intraday_high_return
+    expect(within(row).getByText("-8.4%")).toBeInTheDocument(); // intraday_low_return
     expect(within(row).getByText("7d")).toBeInTheDocument(); // exit_vs_peak_days
+    // the shape behind those numbers, with its de-arm marked
+    expect(row.querySelector(".sb-path svg")).not.toBeNull();
+    expect(row.querySelector(".sb-path line.sb-spark-dearm")).not.toBeNull();
     // Summary shows the Why chip + the operator cell for the same episode
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     const srow = screen.getByText("MATR").closest("tr")!;
@@ -464,14 +519,40 @@ describe("Scoreboard", () => {
     expect(within(srow).getByText("no decision logged")).toBeInTheDocument(); // Operator
   });
 
-  it("Slice 2: honest loudness — an awaiting episode dashes Peak / Past peak (never a false 0)", () => {
+  // Four columns mean four hovers, and the whole point of promoting the wicks out of the close
+  // cells' titles is that no column restates its neighbour any more.
+  it("each excursion cell's hover describes only its OWN figure", () => {
     renderBoard({ data: TIMING_PAYLOAD });
     fireEvent.click(screen.getByRole("button", { name: "Timing" }));
-    // HIMS is still-awaiting (insufficient_prices) — its timing cells read "—", not "0.0%" / "0d"
+    const row = screen.getByText("MATR").closest("tr")!;
+    const cells = [...row.querySelectorAll("td")];
+    // Timing order: Name · Armed · De-armed · Path · Return · Peak · Peak high · Worst · Worst low · …
+    const [peak, peakHigh, worst, worstLow] = [cells[5], cells[6], cells[7], cells[8]].map(
+      (td) => td.getAttribute("title") ?? "",
+    );
+    expect(peak).toContain("maximum favorable excursion (MFE)");
+    expect(worst).toContain("maximum adverse excursion (MAE)");
+    expect(peakHigh).toContain("intraday high");
+    expect(worstLow).toContain("intraday low");
+    // no close hover mentions a wick, and no wick hover mentions an excursion
+    expect(peak).not.toContain("intraday");
+    expect(worst).not.toContain("intraday");
+    expect(peakHigh).not.toContain("excursion");
+    expect(worstLow).not.toContain("excursion");
+  });
+
+  it("Slice 2: honest loudness — an awaiting episode dashes Peak / Worst / Past peak (never a false 0)", () => {
+    renderBoard({ data: TIMING_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    // HIMS is still-awaiting (insufficient_prices) — its timing cells read "—", not "0.0%" / "0d".
+    // Worst matters most here: a degenerate 0.0% would read as "it never went against you", which is
+    // the OPPOSITE of unknown. (A real 0.0% WITH a forward bar is kept — 24% of the record.)
     const row = screen.getByText("HIMS").closest("tr")!;
-    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2); // Peak + Past peak (+ Return)
+    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(3); // Peak + Worst + Past peak
     expect(within(row).queryByText("0.0%")).not.toBeInTheDocument();
     expect(within(row).queryByText("0d")).not.toBeInTheDocument();
+    // and with no bars there is no path to draw — the cell dashes rather than inventing a line
+    expect(row.querySelector(".sb-path svg")).toBeNull();
   });
 
   it("Slice 2: a row click still opens the scorecard drawer in Timing view (Slice 1 intact)", () => {
@@ -491,4 +572,150 @@ describe("Scoreboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "open MATR in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
+
+  // The row carries tabIndex=0 + onClick and nothing else, so a keyboard user could FOCUS a row and
+  // then find that Enter did nothing — a drill-down reachable only with a mouse. Enter and Space now
+  // do what the click does; an unrelated key still must not open anything.
+  it.each([
+    ["Enter", true],
+    [" ", true],
+    ["a", false],
+  ] as const)("a focused ledger row opens the scorecard on %s", (key, opens) => {
+    const { container } = renderBoard({ data: TIMING_PAYLOAD });
+    const row = screen.getByText("MATR").closest("tr")!;
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(container.querySelector(".drawer-panel")).toBeNull();
+    fireEvent.keyDown(row, { key });
+    expect(container.querySelector(".drawer-panel") != null).toBe(opens);
+  });
+
+  // -------- sortable columns: a within-group re-order, never a flattening ------------------------
+
+  /** The ledger's rows in DOM order, as `group:<name>` / `row:<ticker>` — enough to see both the
+   *  ranking and the grouping in one assertion. */
+  function ledgerShape(container: HTMLElement): string[] {
+    const table = container.querySelector("table.sb-ledger")!;
+    return [...table.querySelectorAll("tbody tr")].flatMap((tr) => {
+      if (tr.classList.contains("grp")) return [`group:${tr.querySelector(".lbl")?.textContent}`];
+      if (tr.classList.contains("sb-row")) {
+        return [`row:${(tr.querySelector("td.tk") as HTMLElement).textContent?.replace("↗", "")}`];
+      }
+      return [];
+    });
+  }
+
+  // Two episodes in ONE group, ranked opposite ways round by Peak vs Name — so a real re-order is
+  // distinguishable from "the fixture happened to be in that order already".
+  const SORT_PAYLOAD = {
+    ...PAYLOAD,
+    theses: [
+      {
+        ...PAYLOAD.theses[0],
+        name: "Group one",
+        episodes: [
+          { ...SCORED_EP, security_id: "s-a", ticker: "AAA", peak_return: 0.05 },
+          { ...SCORED_EP, security_id: "s-b", ticker: "BBB", peak_return: 0.9 },
+        ],
+        operator_spans: [],
+      },
+      { ...PAYLOAD.theses[2], name: "Group two", archived: false },
+    ],
+  };
+
+  it("a header sort re-orders rows WITHIN each group and never moves the groups", () => {
+    const { container } = renderBoard({ data: SORT_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    const before = ledgerShape(container);
+    expect(before).toEqual(["group:Group one", "row:AAA", "row:BBB", "group:Group two", "row:J"]);
+
+    // desc on Peak: BBB (+90.0%) outranks AAA (+5.0%) — inside its own group, the spine intact
+    fireEvent.click(screen.getByRole("button", { name: "Peak" }));
+    expect(ledgerShape(container)).toEqual([
+      "group:Group one",
+      "row:BBB",
+      "row:AAA",
+      "group:Group two",
+      "row:J",
+    ]);
+
+    // the cycle is reversible: asc flips the pair, a third click restores the record's own order
+    fireEvent.click(screen.getByRole("button", { name: "Peak" }));
+    expect(ledgerShape(container).slice(1, 3)).toEqual(["row:AAA", "row:BBB"]);
+    fireEvent.click(screen.getByRole("button", { name: "Peak" }));
+    expect(ledgerShape(container)).toEqual(before);
+  });
+
+  it("the sorted header announces itself, with the arrow hidden from the accessible name", () => {
+    const { container } = renderBoard({ data: SORT_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    const th = () => screen.getByRole("button", { name: "Peak" }).closest("th")!;
+    expect(th()).toHaveAttribute("aria-sort", "none");
+    fireEvent.click(screen.getByRole("button", { name: "Peak" }));
+    expect(th()).toHaveAttribute("aria-sort", "descending");
+    // the direction arrow rendered, and the header's accessible NAME is still exactly the label
+    expect(container.querySelector("th .th-arrow")).not.toBeNull();
+    expect(container.querySelector("th .th-arrow")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("button", { name: "Peak" })).toBeInTheDocument();
+  });
+
+  it("Path and Status are not sortable — a shape and a badge set have nothing to rank on", () => {
+    renderBoard({ data: SORT_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    expect(screen.queryByRole("button", { name: "Path" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Status" })).toBeNull();
+    expect(screen.getByText("Path").tagName).toBe("TH");
+    expect(screen.getByText("Status").tagName).toBe("TH");
+  });
+
+  it("a sort is a re-order, never a filter: an unmeasurable row sinks but stays on the ledger", () => {
+    // HIMS has no forward bar, so every timing cell is "—" — absent, not small. It must end up last
+    // in BOTH directions and must never disappear (#9 / interaction principle #2).
+    const { container } = renderBoard({
+      data: {
+        ...PAYLOAD,
+        theses: [
+          {
+            ...PAYLOAD.theses[0],
+            episodes: [EP, { ...SCORED_EP, security_id: "s-b", ticker: "BBB" }],
+            operator_spans: [],
+          },
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Peak" })); // desc
+    expect(ledgerShape(container)).toEqual(["group:HIMS — insider conviction", "row:BBB", "row:HIMS"]);
+    fireEvent.click(screen.getByRole("button", { name: "Peak" })); // asc — the dash is STILL last
+    expect(ledgerShape(container)).toEqual(["group:HIMS — insider conviction", "row:BBB", "row:HIMS"]);
+  });
+
+  // A column added to LedgerHead but not to EVERY row body shifts that row's cells one column off
+  // their headers — silently, because a short <tr> just renders narrow. That is exactly how the Peak
+  // column landed: the head, the episode row and `ledgerColCount` gained it; `SpanRow` did not, so an
+  // override's "took …" text sat under the Peak header for three commits. Pin the whole table rather
+  // than one row, so the next column has to be added everywhere: every body row must account for
+  // exactly as many columns as the head declares, with colSpan doing the accounting for the
+  // full-width group / note rows. The fixture carries all four row kinds.
+  it.each(["Summary", "Timing"] as const)(
+    "every %s body row spans exactly the columns the head declares",
+    (viewName) => {
+      const { container } = renderBoard();
+      fireEvent.click(screen.getByRole("button", { name: viewName }));
+      const table = container.querySelector("table.sb-ledger")!;
+      const cols = table.querySelectorAll("thead th").length;
+      expect(cols).toBe(ledgerColCount(viewName === "Timing" ? "timing" : "summary"));
+      // the row kinds this fixture must actually exercise (an empty ledger would pass vacuously)
+      expect(container.querySelector("tr.sb-row")).not.toBeNull();
+      expect(container.querySelector("tr.sb-span")).not.toBeNull();
+      expect(container.querySelector("tr.grp")).not.toBeNull();
+      for (const tr of table.querySelectorAll("tbody tr")) {
+        const spanned = [...tr.children].reduce(
+          (n, td) => n + ((td as HTMLTableCellElement).colSpan || 1),
+          0,
+        );
+        // compare as an object so a failure names the offending row instead of just "7 !== 8"
+        expect({ row: tr.className, spanned }).toEqual({ row: tr.className, spanned: cols });
+      }
+    },
+  );
 });

@@ -966,7 +966,15 @@ class ScoreboardEpisodeOut(BaseModel):
     """One arm episode from the record, scored — a ledger row. Outcome fields keep replay's
     canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
     ``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING
-    return, not a verdict; metrics judge only matured + non-censored episodes."""
+    return, not a verdict; metrics judge only matured + non-censored episodes.
+
+    The excursion pair reports how far the episode ran each way before its exit, on two bases:
+    ``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE — the
+    same basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK
+    extremes, null unless every bar in the window carries the column (they never fall back to the
+    close). ``path`` is the window's closes, ascending — variable length, one episode's own span, so
+    two rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm
+    fell outside the scored window. All descriptive: no metric reads them."""
 
     thesis_id: UUID
     security_id: UUID
@@ -1013,6 +1021,17 @@ class ScoreboardEpisodeOut(BaseModel):
     warm_return: float | None = None
     peak_return: float | None = None
     peak_date: date | None = None
+    # close-based MAE — a real 0.0 when the name never closed below entry, never a missing value
+    trough_return: float | None = None
+    trough_date: date | None = None
+    intraday_high_return: float | None = None  # wick MFE — null unless every bar carries `high`
+    intraday_high_date: date | None = None
+    intraday_low_return: float | None = None  # wick MAE — null unless every bar carries `low`
+    intraday_low_date: date | None = None
+    path: list[float] = []  # the scored window's closes, ascending — the ledger sparkline's tape
+    dearm_index: int | None = (
+        None  # the de-arm's slot in `path`; null when it fell outside the window
+    )
     exit_vs_peak_days: int | None = None
     truncated: bool = False  # the hold horizon ran past the available (asof-capped) bars
     insufficient_prices: bool = False  # e.g. a day-1 arm: no bar on/after the arm yet
@@ -1068,6 +1087,14 @@ def _scoreboard_episode_out(
         warm_return=out.warm_return,
         peak_return=out.peak_return,
         peak_date=out.peak_date,
+        trough_return=out.trough_return,
+        trough_date=out.trough_date,
+        intraday_high_return=out.intraday_high_return,
+        intraday_high_date=out.intraday_high_date,
+        intraday_low_return=out.intraday_low_return,
+        intraday_low_date=out.intraday_low_date,
+        path=list(out.path),
+        dearm_index=out.dearm_index,
         exit_vs_peak_days=out.exit_vs_peak_days,
         truncated=out.truncated,
         insufficient_prices=out.insufficient_prices,

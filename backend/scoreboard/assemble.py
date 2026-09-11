@@ -58,6 +58,12 @@ class _RoutedPrices:
     def closes_between(self, security_id: UUID, start: date, end: date):
         return self._for(security_id).closes_between(security_id, start, end)
 
+    def bars_between(self, security_id: UUID, start: date, end: date):
+        # Protocol completeness only: this shim serves the WITHHELD-arm metric, which never calls
+        # ``score_episode``. Present so the routed reader stays a full duck-typed peer of both
+        # ``RealizedPrices`` twins rather than a partial double that fails the day it is passed one.
+        return self._for(security_id).bars_between(security_id, start, end)
+
 
 def _censor_leading_warming(snaps: list[CallSnapshot]) -> list[CallSnapshot]:
     """Drop a warming-with-conviction run that is already OPEN on the record's first card — its

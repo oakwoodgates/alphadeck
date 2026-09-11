@@ -118,8 +118,17 @@ body {
    scroll. Capping the scroller's height gives it a vertical scroll of its own, which is the box
    the header can hold on to. The cap sits below 100vh so the page can always bring the whole
    table (and its pinned header) into view, and a short basket never sees a scrollbar at all —
-   max-height only bites when there is more table than room. */
-table.basket thead th {
+   max-height only bites when there is more table than room.
+
+   Every rule below is written `.basket-scroll table.basket`, not `table.basket`: `.basket` is a
+   shared table SKIN (the Scoreboard's ledger and the Admin history tables wear it too), and these
+   rules are not skin — they are the containment machinery, and they only make sense inside the box
+   that provides it. Unscoped, they escaped onto every other .basket table on the page: MEASURED on
+   prod, the Scoreboard's ledger took `min-width: max-content` with no scroller to absorb it and
+   overflowed the PAGE by 498px at 1091px wide, its <thead> pinned itself to the viewport (its
+   scrollport being the document), and its Name column froze 23px in — an offset that only means
+   anything beside a dot column the Scoreboard does not have. The scoping is the fix. */
+.basket-scroll table.basket thead th {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -131,7 +140,7 @@ table.basket thead th {
 }
 /* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
    body's sticky identity columns (1) */
-table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
+.basket-scroll table.basket thead th.dotc, .basket-scroll table.basket thead th.tk { z-index: 4; }
 
 /* Stacked (the rail drops BELOW the table): neither box owns a vertical scroll — the page does.
    A pinned rail here would cover the table it now follows, and a capped table would strand the
@@ -143,7 +152,12 @@ table.basket thead th.dotc, table.basket thead th.tk { z-index: 4; }
   .cp-rail { position: static; max-height: none; overflow-y: visible; }
   .basket-scroll { max-height: none; }
 }
-table.basket { width: 100%; min-width: max-content; border-collapse: collapse; font-size: 12px; }
+table.basket { width: 100%; border-collapse: collapse; font-size: 12px; }
+/* the natural-width half of the containment fix — scoped, because a table that takes its
+   max-content width with nothing to scroll it overflows the page instead. A .basket table outside
+   a scroller stays fluid and wraps, which is the right behaviour for one laid out in a flowing
+   document (the Scoreboard ledger, the Admin history tables). */
+.basket-scroll table.basket { min-width: max-content; }
 table.basket th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
 table.basket td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.basket .tk { font-family: var(--mono); font-weight: 700; }
@@ -176,7 +190,7 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
    table, so "Armed · act now · 7 names" would otherwise scroll out of view with the columns. It
    carries the gap the flex row used to own, and an opaque background so it masks the trailing
    hairline it slides over. `left` matches the cell's padding, holding the inset when pinned. */
-table.basket .grp-lbl { position: sticky; left: 9px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
+.basket-scroll table.basket .grp-lbl { position: sticky; left: 9px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
 .grp-h .chev { font-size: 12px; letter-spacing: 0; transition: transform 0.15s ease; }
 .grp-h[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .grp-h .hint { font-style: normal; font-weight: 400; color: var(--txt-4); letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; }
@@ -244,8 +258,8 @@ tr.bkt.folded { visibility: collapse; }
    background-IMAGE: an image layers OVER that base instead of replacing it, so one tint value
    serves both the sticky cells and the transparent ones. (The company name is deliberately NOT
    sticky: at its 170px cap it would freeze a third of the viewport.) */
-table.basket th.dotc, table.basket td.dotc { position: sticky; left: 0; z-index: 1; background-color: var(--bg); }
-table.basket th.tk, table.basket td.tk { position: sticky; left: var(--dotc-w); z-index: 1; background-color: var(--bg); }
+.basket-scroll table.basket th.dotc, .basket-scroll table.basket td.dotc { position: sticky; left: 0; z-index: 1; background-color: var(--bg); }
+.basket-scroll table.basket th.tk, .basket-scroll table.basket td.tk { position: sticky; left: var(--dotc-w); z-index: 1; background-color: var(--bg); }
 
 /* the company name: capped so the longest name in the basket can't set the column (it wanted
    293px). The cap rides an inner block — `max-width` on a <td> is advisory in table layout. */
@@ -1258,7 +1272,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 
 /* ================= The Scoreboard (SCORE) — the episode ledger over the forward record ================
    Ledger-first; every mark is an exception (honest loudness). Group tone rides the --gc idiom. */
-.sb-body { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 1280px; margin: 0 auto; width: 100%; }
+/* THE width knob for this page. It was 1280px, which threw away every pixel of a wider window and
+   made the ledger scroll (or, worse, truncate) on a monitor that had room to spare — the table's
+   natural width is 1480px, so 1280 could never show it. 1760 clears that with headroom for the
+   record growing wider (longer names, more trigger chips) and still keeps the banner and the
+   metrics strip to a readable line on an ultrawide. Raise it if the ledger starts scrolling. */
+.sb-body { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 1760px; margin: 0 auto; width: 100%; }
 .sb-banner { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; }
 .sb-counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
 .sb-counts .sb-sep { color: var(--txt-4); }
@@ -1286,7 +1305,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-horizon { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
 .sb-empty { font-size: 12px; color: var(--txt-3); padding: 10px 2px; }
 
-.sb-ledger { width: 100%; }
+/* `min-width: max-content` is what lets the ledger show everything: with cells set `nowrap` it is
+   the width at which no column has to give anything up. See the block further down. */
+.sb-ledger { width: 100%; min-width: max-content; }
 .sb-ledger th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 8px 4px; border-bottom: 1px solid var(--line); }
 .sb-ledger td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 12px; vertical-align: baseline; }
 .sb-ledger tr.grp td { padding: 14px 8px 4px; border-bottom: none; }
@@ -1297,11 +1318,147 @@ tr.sb-row { cursor: pointer; }
 tr.sb-row:hover td { background: color-mix(in srgb, var(--txt-4) 6%, transparent); }
 tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
 .sb-armed, .sb-ret, .entryby, .exitby, .sb-pp { font-family: var(--mono); font-size: 11px; }
+
+/* --- every ledger row is ONE line tall, and nothing is hidden to get there -------------------
+   Two rules the ledger has to satisfy at once: no row wraps (252 rows of ragged 39/55/58px cannot
+   be scanned), and no cell is truncated (this is the record — hiding part of it is not a layout
+   decision to make on the reader's behalf). Only one arrangement gives both.
+
+   Cells are `nowrap`, so nothing can wrap. The table then takes its NATURAL width — with nothing
+   wrapping, min-content equals max-content, and each column is exactly as wide as its widest cell.
+   The page, not the table, is what has to make room: `.sb-body`'s max-width is the knob.
+
+   RE-MEASURED on dev after the De-armed split and the four excursion columns (252 episodes, 208
+   de-arm chips, probed by squeezing the scroller so `min-width: max-content` is what answers):
+   **Summary 1172px · Timing 977px**, both well under `.sb-body`'s 1716px content box (1760 − 44 of
+   padding), 0 cells clipped, every row 36-39px. Summary is the wider of the two — the Why chips and
+   the Operator sentence cost more than four numeric columns. So the ledger wants a 1216px window to
+   show Summary with no horizontal scrolling at all, and 1021px for Timing. (The 1480px figure this
+   comment carried was measured before the Why column collapsed its repeated chips; three columns
+   were added since and it still came DOWN.)
+
+   Below that the table scrolls sideways in `.sb-scroll` — it degrades by SCROLLING, never by
+   wrapping or truncating.
+
+   What did NOT work, so it isn't tried again: nowrap on the bounded columns alone left 75 of 252
+   rows wrapped (Status drove 64); forcing Status onto one line in auto layout at a fixed width
+   took it to 369px, squeezed Why to 319px and wrapped 181 rows instead — inside a fixed width,
+   auto layout only relocates the wrap. `table-layout: fixed` did stop every row at one line, but
+   only by clipping what didn't fit (15 cells at 1310px, 204 at 1091px), which trades the wrap for
+   hidden evidence. Width is the only thing that buys both. */
+
+/* --- the two sticky headers, and the trade they cost -----------------------------------------
+   THE KNOB: `--sb-scroll-max` is the whole of it. Set it to `none` and the ledger goes back to
+   what it was — a table in a flowing document with no vertical scroll of its own.
+
+   The trade, stated plainly, because it is a real one: a height cap puts a NESTED vertical scroll
+   inside a page that also scrolls, with the metrics strip above it and the replay panel below. On
+   a ~10,000px record that is the price of a column header that stays put, and there is no third
+   option — per spec, `overflow-x: auto` computes the other axis from `visible` to `auto`, so
+   `.sb-scroll` was ALREADY a scroll container on both axes and the page was never the header's
+   scrollport. A sticky <thead> can only stick to the box that actually scrolls it (MEASURED on the
+   Cockpit: sticking it "to the page" ran the header to -555px on a 600px scroll). Capping the
+   height is what gives this box a vertical scroll for the header to hold on to. It is the
+   Cockpit's solution, on the surface beside it.
+
+   The cap sits below 100vh so the page can always bring the whole table into view, and a short
+   ledger never sees a scrollbar at all — max-height only bites when there is more table than room.
+   The subtrahend clears the topbar plus the strip the ledger sits under (banner, freshness line,
+   counts, view toggle, metrics, horizon). MEASURED with that whole strip present: the scroller
+   starts 325px down and overshoots the window bottom by 85px, and the page's remaining ~125px of
+   scroll tucks the strip away so the ledger then fills the window — the intended balance, and the
+   reason the subtrahend is smaller than the strip it clears.
+
+   Z-ORDER, deliberately: the column header sticks at top:0 (z 3) and the thesis heading sticks
+   BELOW it at top:var(--sb-head-h) (z 2), so a heading scrolling up slides UNDER the column header
+   rather than over it — the column header is the one that must never be covered, because it is what
+   makes the row beneath it readable. Body cells stay unpositioned (z auto, below both) and
+   `.grp-lbl`'s own sticky-left rides inside the heading cell it belongs to.
+
+   `position: sticky` on a <tr> is unreliable across engines — the CELLS are what stick, so both
+   rules target `th` / `td`, never the row. And with `border-collapse: collapse` a border belongs to
+   the TABLE, not the cell, so it does not travel with a sticky cell: the column header's divider
+   rides an inset shadow instead. */
+.sb-scroll {
+  --sb-scroll-max: calc(100vh - 240px);
+  overflow: auto;
+  max-height: var(--sb-scroll-max);
+  background: var(--bg);
+}
+/* The height of the sticky column header — what the thesis heading sticks BELOW. One variable
+   drives BOTH, and it is applied as the header's height rather than only as the heading's offset,
+   which is what makes the seam gap-proof instead of merely well-measured.
+
+   The two can only ever disagree in one of two directions, and they are not symmetric: the header
+   is z 3 and the heading z 2, so an OVERLAP slides under the header and is invisible, while a
+   SHORTFALL is a slit that the scrolling rows show through. This is the operator-reported bug —
+   the header measured 22px, the heading was offset 23px, and one pixel of daylight ran the width
+   of the table. Rounding the measurement UP is what caused it; the safe direction is always down.
+
+   So the variable does not merely DESCRIBE the header's height — it SETS it. `height` on a table
+   cell acts as a floor (MEASURED in the live page: 23px renders 23, 40px renders 40, against a
+   ~22.25px natural box — one 9px uppercase line in 6px/4px padding plus its 1px rule). Pinning the
+   header to the same value the heading offsets from makes the seam exact by construction rather
+   than by a measurement that silently rots: below the floor the header is held at `--sb-head-h` and
+   the heading lands flush on it; above it — a larger zoom or type size — the header grows past the
+   heading's offset and the extra slides UNDER it. Both cases are gap-free, which is the property
+   worth having, since only one of the two failures is visible. */
+.sb-scroll { --sb-head-h: 23px; }
+.sb-scroll .sb-ledger thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: var(--sb-head-h);
+  background-color: var(--bg);
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.sb-scroll .sb-ledger tr.grp td {
+  position: sticky;
+  /* the SAME variable the header's height is pinned to — that shared value is the whole fix. */
+  top: var(--sb-head-h);
+  z-index: 2;
+  background-color: var(--bg);
+}
+/* Narrow: the rail/table stacking breakpoint the Cockpit uses, for the same reason — on a short or
+   narrow window a nested vertical scroll is worse than the page's own, so the cap lets go and the
+   headers stop sticking with it. */
+@media (max-width: 880px) {
+  .sb-scroll { --sb-scroll-max: none; }
+}
+.sb-ledger td { white-space: nowrap; }
+/* the thesis heading holds the left edge while the columns scroll under it — a full-width group
+   row would otherwise carry its name off-screen the moment the table moves. `left` matches the
+   group cell's own padding, so the heading keeps its inset when pinned; the opaque background
+   masks the trailing hairline it slides over. Same idiom as the Cockpit's bucket headings. */
+.sb-scroll .grp-lbl { position: sticky; left: 8px; display: inline-flex; align-items: center; gap: 8px; background: var(--bg); }
+
 /* the Timing view's "Past peak" cell (Slice 2) — a quiet mono day-gap; "—" when uncomputed */
 .sb-pp { color: var(--txt-3); }
+/* the Timing view's Path cell — the episode's own closes. `line-height: 0` keeps the 16px svg from
+   adding a row's worth of leading (the ledger is one line tall and stays that way); the cell is
+   `cursor: help` because everything the shape can't say — the span, the axis caveat, whether the
+   de-arm is on the path at all — lives in its title. */
+.sb-path { color: var(--txt-4); line-height: 0; cursor: help; }
+.sb-path .muted { line-height: normal; }
+/* the de-arm tick: a hairline in the MUTED grey, deliberately quieter than the path it crosses. It
+   marks where the run ended inside the window — context for the shape, not a flag (#7), so it never
+   borrows the armed/warm accents. Drawn first so the price line sits on top of it. */
+.sb-spark .sb-spark-dearm { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; }
+/* the De-armed column — its own column now, not a "→ date" tail on the Armed cell. Quieter than the
+   arm date it follows: the arm is the event the row is about, the de-arm is how it ended. */
 .sb-dearm { color: var(--txt-3); }
+/* the WICK columns (Peak high / Worst low) — the price that actually traded, set one step quieter
+   than the CLOSE figure it sits beside. The close is the basis Return and Past peak are measured
+   on; the wick is the check against it, and the pair has to read as a pair rather than as two
+   equally-weighted numbers. The pos/neg tone still comes through on the `.ret` span. */
+.sb-wick { color: var(--txt-3); }
+.sb-wick .ret { opacity: 0.78; }
 .sb-cen { color: var(--warm); font-weight: 700; margin-left: 1px; cursor: help; }
 .sb-why .sb-trig { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin-right: 4px; cursor: help; }
+/* the repeat count on a collapsed chip — quieter than the kind it counts, because the kind is
+   what the operator reads and the count is the qualifier (it only renders above 1, #7) */
+.sb-why .sb-trig .sb-trign { margin-left: 4px; color: var(--txt-4); letter-spacing: 0; }
 .sb-stance { font-size: 11px; color: var(--txt-3); font-style: italic; }
 .sb-badge { display: inline-block; font-family: var(--mono); font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; border-radius: 5px; padding: 1.5px 6px; margin-right: 5px; cursor: help; }
 .sb-badge.b-open { color: var(--armed); border: 1px solid color-mix(in srgb, var(--armed) 45%, transparent); background: color-mix(in srgb, var(--armed) 10%, transparent); }
@@ -1312,6 +1469,13 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .sb-badge.b-trunc { color: var(--txt-3); border: 1px solid var(--line); }
 .sb-badge.b-ovr { color: var(--warm); border: 1px solid color-mix(in srgb, var(--warm) 55%, transparent); background: color-mix(in srgb, var(--warm) 12%, transparent); }
 .sb-badge.b-lvl { color: var(--txt-3); border: 1px solid var(--line); }
+/* the de-arm reason: a badge for SHAPE, not for volume. It used to be borderless and zero-inset,
+   which read as plain TEXT sitting beside the real chips rather than as a tag at all. It wears the
+   muted-chip idiom now — `b-trunc`'s shape, a hairline outline and the badge's own padding — so it
+   is unmistakably a chip. It keeps the DIMMEST text of the set (--txt-4, one step under b-trunc's
+   --txt-3): every closed row carries one (208 of 252), so it states the rule, and the genuine
+   exceptions beside it must still win the eye (#7). */
+.sb-badge.b-dearm { color: var(--txt-4); border: 1px solid var(--line); }
 .sb-badge.b-arch { color: var(--txt-4); border: 1px solid var(--line); margin-left: 6px; }
 .sb-reason { color: var(--txt-3); font-size: 10.5px; margin-left: 5px; }
 .sb-ret .ret.pos { color: var(--pos); }

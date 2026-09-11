@@ -18,6 +18,13 @@ import {
   maturityHorizon,
   type LedgerView,
 } from "./rows";
+import {
+  nextLedgerSort,
+  sortEpisodes,
+  sortSpans,
+  type LedgerSort,
+  type LedgerSortColId,
+} from "./sortLedger";
 
 // The Scoreboard (SCORE) — the episode ledger over the forward record: what the platform said,
 // what the operator did, what happened. Ledger-first (the aggregate strip stays quiet until n
@@ -35,15 +42,19 @@ function SpanRow({
   t,
   onSelect,
   view,
+  sort,
 }: {
   t: ScoreboardThesisOut;
   onSelect: (id: string, nameKey?: string) => void;
   view: LedgerView;
+  /** the active column sort — spans re-rank among THEMSELVES, never interleaved with the episodes
+   *  above them (a logged take is not an arm episode). See `sortLedger.ts`. */
+  sort: LedgerSort | null;
 }) {
   // off-record spans (overrides live here) — rendered per span under the thesis group
   return (
     <>
-      {t.operator_spans.map((s) => {
+      {sortSpans(t.operator_spans, sort).map((s) => {
         const ret = fmtReturn(s.operator_return);
         // the OVERRIDE / THESIS-LEVEL marks are the span's status — identical in both views
         const statusCell = (
@@ -72,15 +83,33 @@ function SpanRow({
           >
             <td className="tk">{s.ticker ?? (s.thesis_level ? "◇" : "—")}</td>
             <td className="sb-armed">{fmtDate(s.take_date)}</td>
+            {/* a span is a logged TAKE, not an arm — so it has no de-arm either. Dash it, the same
+                way the platform-lens columns below are dashed, rather than leaving the cell short
+                and shifting every following cell one column left of its header. */}
+            <td className="sb-armed sb-dearm">—</td>
             {view === "timing" ? (
               <>
-                {/* an operator span carries NO platform timing lens (forward / peak / past-peak are
-                    episode-level, not a logged take) — dash the timing columns, keep the row visible
-                    (interaction principle #2 — pruning hides, it never vanishes). */}
+                {/* an operator span carries NO platform timing lens (path / forward / the four
+                    excursions / past-peak are episode-level, not a logged take) — dash the timing
+                    columns, keep the row visible (interaction principle #2 — pruning hides, it
+                    never vanishes). This branch is the FOURTH place a Timing column has to land,
+                    after LedgerHead, EpisodeRow and `ledgerColCount`; miss it and every span cell
+                    sits one column left of its header, silently, because a short <tr> just renders
+                    narrow. */}
+                <td className="sb-path">—</td>
                 <td className="sb-ret">
                   <span className="ret">—</span>
                 </td>
                 <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
+                <td className="sb-ret sb-wick">
+                  <span className="ret">—</span>
+                </td>
+                <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
+                <td className="sb-ret sb-wick">
                   <span className="ret">—</span>
                 </td>
                 <td className="sb-pp">—</td>
@@ -100,6 +129,15 @@ function SpanRow({
                   {s.operator_return != null && (
                     <span className="sb-retlabel"> {s.running ? "running" : "realized"}</span>
                   )}
+                </td>
+                {/* Peak is an EPISODE lens — the platform's realized high over an arm window. A span
+                    is a logged take, not an arm, so it has none: dash it, exactly as the Timing
+                    branch above dashes the platform timing columns. It is also what keeps this row's
+                    cell count equal to LedgerHead's (`ledgerColCount`) — the Peak column was added to
+                    the Summary head and the episode row but not here, which shifted every span cell
+                    one column left of its header. */}
+                <td className="sb-ret">
+                  <span className="ret">—</span>
                 </td>
                 <td className="sb-op sb-op-took">
                   took {s.take_date}
@@ -128,6 +166,11 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
   // the Summary | Timing ledger view (Slice 2) — local component state, no URL param this slice; a
   // pure VIEW control that swaps the ledger's middle columns (never the rows or the data).
   const [view, setView] = useState<LedgerView>("summary");
+  // the ledger's column sort — null is the record's own order, and the 3-state header cycle
+  // (desc → asc → off) always gets back to it. A WITHIN-GROUP re-order: the thesis groups never
+  // move and no row is ever filtered out (see `sortLedger.ts`).
+  const [sort, setSort] = useState<LedgerSort | null>(null);
+  const onSort = (col: LedgerSortColId) => setSort((cur) => nextLedgerSort(cur, col));
   const cols = ledgerColCount(view); // the group/note-row colSpan tracks the rendered column count
   // fold state per thesis (archived groups START folded — present, quiet, never dropped)
   const [toggled, setToggled] = useState<Set<string>>(new Set());
@@ -231,8 +274,12 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
             </div>
           )}
 
+          {/* the ledger takes its natural width and scrolls sideways only when the window is
+              narrower than that — it never wraps a row or truncates a cell to fit. No height cap:
+              the page keeps the vertical scroll. See .sb-scroll. */}
+          <div className="sb-scroll">
           <table className="basket sb-ledger">
-            <LedgerHead view={view} returnHeader="Record return" />
+            <LedgerHead view={view} returnHeader="Record return" sort={sort} onSort={onSort} />
             <tbody>
               {data.theses.map((t) => (
                 <Fragment key={t.thesis_id}>
@@ -244,11 +291,16 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                         aria-expanded={isOpen(t)}
                         onClick={() => toggle(t.thesis_id)}
                       >
-                        <span className="chev">▾</span>
-                        <span className="lbl">{t.name}</span>
-                        {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
-                        <em className="hint">· {groupHint(t)}</em>
-                        <span className="ct">· {groupCount(t)}</span>
+                        {/* the heading rides its own span so it can stick to the left of the
+                            horizontal scroller — a group row spans the whole table, so the thesis
+                            name would otherwise scroll out of view with the columns. */}
+                        <span className="grp-lbl">
+                          <span className="chev">▾</span>
+                          <span className="lbl">{t.name}</span>
+                          {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
+                          <em className="hint">· {groupHint(t)}</em>
+                          <span className="ct">· {groupCount(t)}</span>
+                        </span>
                       </button>
                     </td>
                   </tr>
@@ -266,10 +318,15 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                       </td>
                     </tr>
                   )}
+                  {/* sorted WITHIN the group — the group is the ledger's spine, so the rows re-rank
+                      under their own thesis heading and the headings never move. A re-order, never
+                      a filter: `sortEpisodes` returns the same length it was given. The key is the
+                      episode's own identity rather than its index, or a re-sort would hand React
+                      the same key for a different episode. */}
                   {isOpen(t) &&
-                    t.episodes.map((ep, i) => (
+                    sortEpisodes(t.episodes, sort).map((ep) => (
                       <EpisodeRow
-                        key={i}
+                        key={`${ep.security_id}-${ep.arm_date}-${ep.dearm_date ?? "open"}`}
                         ep={ep}
                         thesisId={t.thesis_id}
                         onSelect={onSelect}
@@ -277,7 +334,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                         view={view}
                       />
                     ))}
-                  {isOpen(t) && <SpanRow t={t} onSelect={onSelect} view={view} />}
+                  {isOpen(t) && <SpanRow t={t} onSelect={onSelect} view={view} sort={sort} />}
                   {isOpen(t) && !groupCount(t) && !t.record_error && (
                     <tr className="sb-note-row">
                       <td colSpan={cols} className="sb-quietline">
@@ -291,6 +348,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
 
           <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} view={view} />
         </div>

@@ -189,6 +189,56 @@ never raw `today − edge`). The FE shows it **only on the live view** (`asof >=
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
 (honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.
 
+## The ledger table itself
+
+Three structural notes for anyone editing it.
+
+**It wears the `.basket` skin but it is NOT the Cockpit's contained table.** The Cockpit's containment
+machinery (`min-width: max-content`, its sticky header, its sticky identity columns) is scoped to
+`.basket-scroll` precisely so it cannot reach here — unscoped, it overflowed this page by 498px (see
+`BOARD.md`). The ledger has its own box, `.sb-scroll`, with its own rules; the two are deliberately
+separate even where they agree.
+
+**Both headers stick, and the height cap is the price.** `.sb-scroll` caps its height at
+`--sb-scroll-max` (**the one knob** — set it to `none` and everything below reverts). That cap is what
+gives the box a vertical scroll of its own, and a sticky `<thead>` can only stick to the box that
+actually scrolls it: per spec `overflow-x: auto` computes the other axis to `auto`, so `.sb-scroll`
+was already a scroll container on both axes and the page was never the header's scrollport. The cost
+is real and was accepted knowingly — a nested vertical scroll inside a flowing document, with the
+metrics strip above it and the replay panel below — because the alternative on a ~10,000px record is a
+column header that is off-screen for all of it. The thesis heading sticks **below** the column header
+(`top: var(--sb-head-h)`, z-index 2 vs the header's 3), so a heading scrolling up slides *under* the
+header rather than over it. `position: sticky` on a `<tr>` is unreliable — both rules target the
+**cells**.
+
+**Every column must be added in four places**: `LedgerHead` (the `<colgroup>` + `<th>`s), `EpisodeRow`,
+`SpanRow` (in `Scoreboard.tsx` — the off-record operator spans, the one most easily missed), and
+`ledgerColCount` (which the group/note rows' `colSpan` tracks). Miss one and that row's cells sit a
+column off their headers, silently — a short `<tr>` just renders narrow. Pinned by a test that walks
+every body row in both views and compares its colSpan-weighted cell count to the head's.
+
+### Sorting — a within-group re-order, never a flattening
+
+`sortLedger.ts` (pure, unit-tested, beside `rows.ts` the way `cockpit/sortBasket.ts` sits beside
+`buckets.ts`) holds the comparators; the two hosts — `Scoreboard` and `ReplayPanel` — each hold their
+**own** sort state, because the replay set is a recompute and the two are never pooled.
+
+Sortable: **Name · Armed · De-armed · Return · Peak · Peak high · Worst · Worst low · Past peak**.
+Not sortable, deliberately: **Path** (a shape has no honest scalar), **Status** (a badge set has no
+ordering the record gives it), and the Summary-only **Why** / **Operator** / **Exit-by**.
+
+Three rules, inherited from the Cockpit's sort because they are the same rules:
+
+1. The group is the **spine** — rows re-rank *inside* their thesis heading and the headings never move.
+   Operator spans re-rank among themselves, never interleaved with the arm episodes above them (a
+   logged take is not an episode).
+2. A key is read off the **same access path and the same dash guard** as the cell, so the ranking always
+   matches what the operator sees — `noForwardBar` dashes the whole timing lens, a wick is
+   independently absent under the all-or-nothing rule, and a real `0.0` still ranks.
+3. **Nulls last in both directions** (a missing measurement is not a small one) and the cycle is
+   reversible: desc → asc → off, back to the record's own order. A sort is a re-order, never a filter —
+   no row can be sorted off the ledger (#9).
+
 ## The episode drill-down: drawer, chart, ledger
 
 Every ledger row opens a **drill-down drawer** (`components/Drawer.tsx` — a reusable slide-out, ~600px with
@@ -202,7 +252,93 @@ more of what is computed; it changes no computation): *The move* (entry/exit clo
 well-timed? hidden without a peak), *Edge preservation* (`warm_return` vs `forward_return` — armed in time or
 missed the early move?), *Entry window + setup* (`arm_until_return` + grades + setup strength). A
 **Summary | Timing** column toggle (`LedgerHead.tsx`) swaps the ledger's middle columns so one timing lens
-(Return · Peak · Past-peak) can be scanned down the whole universe (#228).
+can be scanned down the whole universe (#228). Summary is **9 columns** —
+`Name · Armed · De-armed · Why · Exit-by · Status · Return · Peak · Operator`. Timing is **11** —
+`Name · Armed · De-armed · Path · Return · Peak · Peak high · Worst · Worst low · Past peak · Status`.
+
+**Armed and De-armed are two columns**, not one cell reading `Aug 7 → Aug 11`: they are two
+measurements, and packed together they could be neither scanned down nor sorted on. The censored-start
+`*` stays with the **arm** date — it is the arm that is unknowable. A still-open episode's De-armed
+cell reads `—`; so does a `SpanRow`'s, because an operator span is a logged take, not an arm.
+
+### The excursion pair — how far it went each way, not just where it ended
+
+A row used to say where an episode ENDED and how high it got, so a name that went straight up and a name
+that was 12% underwater before recovering rendered **identically**. MEASURED on the record: of 98 episodes
+that ended positive, **22% first drew down worse than −5% on closes** and **58% dipped worse than −5%
+intraday**. The ledger could not tell "the call was right and easy" from "the call was right and would have
+stopped you out" — which is the operator's stated weakness (timing), and something `false_arm_rate` cannot
+see because it only looks at the endpoint.
+
+Two bases, six `Outcome` fields, **one read**:
+
+| field | basis | meaning |
+|---|---|---|
+| `peak_return` / `peak_date` | close | **MFE** — maximum favorable excursion |
+| `trough_return` / `trough_date` | close | **MAE** — maximum adverse excursion |
+| `intraday_high_return` / `intraday_high_date` | wick | the best price that actually traded |
+| `intraday_low_return` / `intraday_low_date` | wick | the worst price that actually traded |
+
+**All four are columns**, each close figure adjacent to its own wick so the pair reads together:
+`Peak · Peak high · Worst · Worst low`. The close pair anchors the row — `forward_return` is close-based
+and `exit_vs_peak_days` is anchored on the close-based `peak_date`, so Return · Peak · Worst read as three
+numbers on one tape — and the wick sits beside each, set one tone quieter (`.sb-wick`) because the close
+is the basis and the wick is the check against it.
+
+The wick pair used to ride the close cells' hovers, on the grounds that MEASURED it differs from the close
+on 96–97% of episodes but by a median of only **+2.0pp / +2.1pp**, and a 2pp correction is something you
+*check*, not *scan*. **The operator overruled that** and asked for all four visible. Promoting them was a
+pure FE change (the wire already carried all four). It came with a second half: each of the four hovers now
+describes **only its own figure** — a hover that restated its neighbour would be exactly the repetition the
+columns were promoted to remove, and the neighbour's own cell answers for the neighbour.
+
+Three honesty rules:
+
+- **Wick fields are all-or-nothing, per column.** One bar missing `high` nulls `intraday_high_*` entirely.
+  The field asks *"what is the most extreme price this actually traded at?"* — if one bar's extremes are
+  unknown, the true extreme could be **inside** that bar, so an extreme over the remaining bars is not
+  conservative, it is **wrong**, and silently so (#6). A wick field **never** falls back to the close.
+- **`trough_return` reads a real `0.0`**, not null, for a name that never closed below entry — **24% of the
+  record**. `0.0` is the measurement; null would claim ignorance about a number we know exactly.
+- **The two adverse figures never agree on "untouched".** MEASURED: `intraday_low_return` reads 0 on
+  **0 of 250** episodes (its maximum across the whole record is **−0.2%**) — every name traded below its
+  entry close at some point intraday. Only the *close* MAE can ever say "it never went against you".
+
+### The episode path — the shape behind the endpoints
+
+`path` is the scored window's closes, ascending; `dearm_index` is the de-arm's slot in it. Both come off the
+**same `bars_between` read** as the excursions — the excursion window and the sparkline path are the *same
+list*, not two reads that agree. `score_episode`'s window read swapped `closes_between` → `bars_between`:
+same rows, same query count, four more columns.
+
+The ledger cell (`EpisodeSparkline.tsx`) reuses the Cockpit's `sparkGeometry` (pure, unit-tested, breaks on
+a gap rather than bridging it, floors at two real values). It is **variable-length**, which deliberately
+**inverts** the Cockpit's fixed-slot choice: the Cockpit pads every name to one shared 90-bar window so
+shapes are comparable down the column, but Scoreboard episodes share **no** window (median **13** bars, max
+**42**, and 75 of 131 securities carry more than one episode). Padding them to a common width would draw a
+13-bar episode as a stub beside a 42-bar one and **imply a shared time axis that does not exist**. The cost
+is real and goes in the hover: **a steeper line does not mean a faster move.**
+
+`dearm_index` is **null when the de-arm fell outside the scored window** — the real **8-episode** case where
+the horizon elapsed while the record kept the member armed (see the de-arm note below). The marker is simply
+not drawn there, and the hover says *why*: a silently absent tick would read as "never de-armed", which is
+false.
+
+**A de-arm can postdate the scored exit, by design.** MEASURED: **7 episodes** have `exit_by < dearm_date`.
+`score_episode` scores `[arm_date, exit_by]`, so `exit_date ≤ exit_by < dearm_date` follows by construction —
+that is the open-but-matured shape `test_maturity_judged_only_at_exit_by` already pins, not a defect.
+
+**None of these fields moves a metric.** `compute_metrics` reads `forward_return`, `warm_return`,
+`peak_return`, `exit_vs_peak_days`, `entry_grade`, `is_headline`, `close_reason` and `insufficient_prices`;
+the excursion and path fields are descriptive. `Outcome` is computed on read and never persisted, so this is
+nowhere near `record_if_changed`.
+
+**The reader asymmetry is preserved, not harmonised.** `PgRealizedPrices.bars_between` keeps its double cap
+(`d <= cap` on the valid axis, `recorded_at <= known_at` on the transaction axis); the DuckDB
+`RealizedPrices.bars_between` stays deliberately **forward-unbounded**, as the scoring pass requires and as
+`_closes` already is on that side. No as-of read is widened — the new read sees exactly the universe
+`closes_between` already saw, and `test_ohlc_window_and_path_respect_the_asof_cap` pins that a bar past the
+cap reaches neither the excursions nor the path.
 
 ### The episode chart — a numbered event overlay (Slice A)
 
