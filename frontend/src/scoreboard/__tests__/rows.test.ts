@@ -23,6 +23,7 @@ import {
   metricHeadline,
   operatorLine,
   returnLabel,
+  triggerChips,
 } from "../rows";
 
 function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
@@ -137,6 +138,56 @@ describe("awaitingForwardBar — the single-bar signal", () => {
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-10" }))).toBe(true); // == arm_date
     expect(awaitingForwardBar(ep({ exit_date: "2026-07-13" }))).toBe(false); // a forward bar landed
     expect(awaitingForwardBar(ep({ exit_date: null }))).toBe(false); // no bar at all
+  });
+});
+
+describe("triggerChips — a kind is named once and counted, never repeated", () => {
+  const t = (kind: string, label: string) => ({ kind, label });
+
+  it("collapses repeats of a kind into one counted chip", () => {
+    // the real FLR arm: 6 fires, 2 kinds — it rendered 6 chips saying 2 things
+    const chips = triggerChips([
+      t("catalyst", "a"),
+      t("catalyst", "b"),
+      t("technical_breakout", "c"),
+      t("technical_breakout", "d"),
+      t("technical_breakout", "e"),
+      t("technical_breakout", "f"),
+    ]);
+    expect(chips).toEqual([
+      { kind: "catalyst", n: 2, labels: ["a", "b"] },
+      { kind: "technical_breakout", n: 4, labels: ["c", "d", "e", "f"] },
+    ]);
+  });
+
+  it("keeps the record's own order and never re-sorts by count", () => {
+    // technical_breakout is the more frequent kind but insider fired FIRST — order is the record's
+    const chips = triggerChips([
+      t("insider", "i"),
+      t("technical_breakout", "x"),
+      t("technical_breakout", "y"),
+      t("insider", "j"),
+    ]);
+    expect(chips.map((c) => c.kind)).toEqual(["insider", "technical_breakout"]);
+    expect(chips.map((c) => c.n)).toEqual([2, 2]);
+    // a kind seen again after another kind joins its FIRST chip — it does not open a second one
+    expect(chips).toHaveLength(2);
+    expect(chips[0].labels).toEqual(["i", "j"]);
+  });
+
+  it("leaves a single fire uncounted, and an empty list empty", () => {
+    // n===1 is what the render gates the "xN" suffix on: one fire must not wear a count
+    expect(triggerChips([t("laggard", "only")])).toEqual([
+      { kind: "laggard", n: 1, labels: ["only"] },
+    ]);
+    expect(triggerChips([])).toEqual([]);
+  });
+
+  it("loses no label — every fire is still reachable through the chip it collapsed into", () => {
+    const fires = [t("catalyst", "one"), t("catalyst", "two"), t("insider", "three")];
+    const chips = triggerChips(fires);
+    expect(chips.flatMap((c) => c.labels).sort()).toEqual(["one", "three", "two"]);
+    expect(chips.reduce((n, c) => n + c.n, 0)).toBe(fires.length); // counts sum to the fires
   });
 });
 

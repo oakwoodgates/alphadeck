@@ -8,6 +8,7 @@ import {
   fmtReturn,
   operatorLine,
   returnLabel,
+  triggerChips,
   type LedgerView,
 } from "./rows";
 import { noForwardBar } from "./scorecard";
@@ -132,9 +133,13 @@ export function EpisodeRow({
         <>
           <td className="sb-why">
             {ep.triggers_at_arm.length ? (
-              ep.triggers_at_arm.map((t, i) => (
-                <span key={i} className="sb-trig" title={t.label}>
-                  {t.kind}
+              // one chip per KIND, counted — repeating a kind's name said nothing the first chip
+              // hadn't. Every collapsed label still rides the title, so the fires behind the count
+              // stay one hover away (see triggerChips).
+              triggerChips(ep.triggers_at_arm).map((c) => (
+                <span key={c.kind} className="sb-trig" title={c.labels.join("\n")}>
+                  {c.kind}
+                  {c.n > 1 && <span className="sb-trign">×{c.n}</span>}
                 </span>
               ))
             ) : (

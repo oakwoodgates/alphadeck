@@ -45,6 +45,38 @@ export function returnLabel(e: ScoreboardEpisodeOut): string {
   return "running";
 }
 
+/** One Why-cell chip: a trigger KIND, how many of that kind fired, and every one of their labels. */
+export type TriggerChip = { kind: string; n: number; labels: string[] };
+
+/** The Why cell's chips — one per DISTINCT kind, in first-appearance order (the record's own
+ *  order, never re-sorted), carrying the count and every collapsed label.
+ *
+ *  An arm that fired `technical_breakout` four times said one thing four times; four identical
+ *  chips rendered that as four words and spent four chips' width saying nothing new (#7 — a mark
+ *  true of every item in a list carries no information). The count says the same thing in one
+ *  chip. Nothing is dropped: the number is on the chip and every label rides its title, so the
+ *  evidence behind each individual fire is still one hover away (#6).
+ *
+ *  Deliberately keyed on kind ALONE. Two fires of a kind can differ in grade or date, but neither
+ *  was ever on the chip — only the kind was — so collapsing on kind hides nothing that was
+ *  visible, and the labels preserve the difference for the hover. */
+export function triggerChips(triggers: readonly { kind: string; label: string }[]): TriggerChip[] {
+  const out: TriggerChip[] = [];
+  const byKind = new Map<string, TriggerChip>();
+  for (const t of triggers) {
+    const seen = byKind.get(t.kind);
+    if (seen) {
+      seen.n += 1;
+      seen.labels.push(t.label);
+      continue;
+    }
+    const chip: TriggerChip = { kind: t.kind, n: 1, labels: [t.label] };
+    byKind.set(t.kind, chip);
+    out.push(chip);
+  }
+  return out;
+}
+
 export type Badge = { label: string; cls: string; title?: string };
 
 /** The episode row's badges — each marks an exception, never a constant (honest loudness). */
