@@ -6978,6 +6978,94 @@
             ],
             "title": "Peak Date"
           },
+          "trough_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trough Return"
+          },
+          "trough_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trough Date"
+          },
+          "intraday_high_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intraday High Return"
+          },
+          "intraday_high_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intraday High Date"
+          },
+          "intraday_low_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intraday Low Return"
+          },
+          "intraday_low_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intraday Low Date"
+          },
+          "path": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Path",
+            "default": []
+          },
+          "dearm_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dearm Index"
+          },
           "exit_vs_peak_days": {
             "anyOf": [
               {
@@ -7021,7 +7109,7 @@
           "censored_start"
         ],
         "title": "ScoreboardEpisodeOut",
-        "description": "One arm episode from the record, scored \u2014 a ledger row. Outcome fields keep replay's\ncanonical names (``forward_return`` = arm\u2192exit_by on realized closes \u2264 the request asof).\n``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING\nreturn, not a verdict; metrics judge only matured + non-censored episodes."
+        "description": "One arm episode from the record, scored \u2014 a ledger row. Outcome fields keep replay's\ncanonical names (``forward_return`` = arm\u2192exit_by on realized closes \u2264 the request asof).\n``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING\nreturn, not a verdict; metrics judge only matured + non-censored episodes.\n\nThe excursion pair reports how far the episode ran each way before its exit, on two bases:\n``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE \u2014 the\nsame basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK\nextremes, null unless every bar in the window carries the column (they never fall back to the\nclose). ``path`` is the window's closes, ascending \u2014 variable length, one episode's own span, so\ntwo rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm\nfell outside the scored window. All descriptive: no metric reads them."
       },
       "ScoreboardMetricOut": {
         "properties": {

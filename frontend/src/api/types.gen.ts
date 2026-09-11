@@ -3305,6 +3305,14 @@ export interface components {
          *     canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
          *     ``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING
          *     return, not a verdict; metrics judge only matured + non-censored episodes.
+         *
+         *     The excursion pair reports how far the episode ran each way before its exit, on two bases:
+         *     ``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE — the
+         *     same basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK
+         *     extremes, null unless every bar in the window carries the column (they never fall back to the
+         *     close). ``path`` is the window's closes, ascending — variable length, one episode's own span, so
+         *     two rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm
+         *     fell outside the scored window. All descriptive: no metric reads them.
          */
         ScoreboardEpisodeOut: {
             /**
@@ -3409,6 +3417,25 @@ export interface components {
             peak_return?: number | null;
             /** Peak Date */
             peak_date?: string | null;
+            /** Trough Return */
+            trough_return?: number | null;
+            /** Trough Date */
+            trough_date?: string | null;
+            /** Intraday High Return */
+            intraday_high_return?: number | null;
+            /** Intraday High Date */
+            intraday_high_date?: string | null;
+            /** Intraday Low Return */
+            intraday_low_return?: number | null;
+            /** Intraday Low Date */
+            intraday_low_date?: string | null;
+            /**
+             * Path
+             * @default []
+             */
+            path: number[];
+            /** Dearm Index */
+            dearm_index?: number | null;
             /** Exit Vs Peak Days */
             exit_vs_peak_days?: number | null;
             /**
