@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ledgerColCount } from "../rows";
 import { Scoreboard } from "../Scoreboard";
 
 // The ledger view over a fixture payload: groups + rows render, the marks are exceptions, the
@@ -491,4 +492,34 @@ describe("Scoreboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "open MATR in the cockpit" }));
     expect(onSelect).toHaveBeenCalledWith("t-hims", "MATR");
   });
+
+  // A column added to LedgerHead but not to EVERY row body shifts that row's cells one column off
+  // their headers — silently, because a short <tr> just renders narrow. That is exactly how the Peak
+  // column landed: the head, the episode row and `ledgerColCount` gained it; `SpanRow` did not, so an
+  // override's "took …" text sat under the Peak header for three commits. Pin the whole table rather
+  // than one row, so the next column has to be added everywhere: every body row must account for
+  // exactly as many columns as the head declares, with colSpan doing the accounting for the
+  // full-width group / note rows. The fixture carries all four row kinds.
+  it.each(["Summary", "Timing"] as const)(
+    "every %s body row spans exactly the columns the head declares",
+    (viewName) => {
+      const { container } = renderBoard();
+      fireEvent.click(screen.getByRole("button", { name: viewName }));
+      const table = container.querySelector("table.sb-ledger")!;
+      const cols = table.querySelectorAll("thead th").length;
+      expect(cols).toBe(ledgerColCount(viewName === "Timing" ? "timing" : "summary"));
+      // the row kinds this fixture must actually exercise (an empty ledger would pass vacuously)
+      expect(container.querySelector("tr.sb-row")).not.toBeNull();
+      expect(container.querySelector("tr.sb-span")).not.toBeNull();
+      expect(container.querySelector("tr.grp")).not.toBeNull();
+      for (const tr of table.querySelectorAll("tbody tr")) {
+        const spanned = [...tr.children].reduce(
+          (n, td) => n + ((td as HTMLTableCellElement).colSpan || 1),
+          0,
+        );
+        // compare as an object so a failure names the offending row instead of just "7 !== 8"
+        expect({ row: tr.className, spanned }).toEqual({ row: tr.className, spanned: cols });
+      }
+    },
+  );
 });

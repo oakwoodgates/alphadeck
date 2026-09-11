@@ -101,6 +101,15 @@ function SpanRow({
                     <span className="sb-retlabel"> {s.running ? "running" : "realized"}</span>
                   )}
                 </td>
+                {/* Peak is an EPISODE lens — the platform's realized high over an arm window. A span
+                    is a logged take, not an arm, so it has none: dash it, exactly as the Timing
+                    branch above dashes the platform timing columns. It is also what keeps this row's
+                    cell count equal to LedgerHead's (`ledgerColCount`) — the Peak column was added to
+                    the Summary head and the episode row but not here, which shifted every span cell
+                    one column left of its header. */}
+                <td className="sb-ret">
+                  <span className="ret">—</span>
+                </td>
                 <td className="sb-op sb-op-took">
                   took {s.take_date}
                   {s.entry_price != null && ` @ ${s.entry_price}`}
