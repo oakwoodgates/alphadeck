@@ -393,7 +393,7 @@ log, the fetch counter, the recording gate): they pay off outside their brief.
 amendments are not reconciled: `accession` is part of the `fact_insider_txn` natural key (`db/bitemporal.py`),
 so a 4/A is a *distinct* surviving row rather than a supersession; the `supersedes` column exists but has zero
 writers/readers (vestigial); and `signals/insider_conviction.py` filters on `txn_code == "P"` with no
-amendment check. So a cancelled/amended-away code-P buy remains a live open-market buy to the conviction
+amendment check. So a canceled/amended-away code-P buy remains a live open-market buy to the conviction
 detector and can turn Key-1 on its own. The fix is **non-trivial** (dropping `accession` from the key or
 naively ingesting the 4/A both *double-count*), so it is **measure-first, MARK-don't-correct**, and it is
 **held behind the operator's signal-change hold** — no change to signal/call logic until the operator lifts it.

@@ -274,7 +274,7 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   knowledge, "what the platform says now about that night", not what it would have logged. MEASURED on dev:
   Modern Defense backfilled as ARMED on Aug 24–31 while the real nightly runs around those nights recorded
   INCUBATING, because that thesis's facts arrived after them. The pinned backfill records what the cron WOULD
-  have logged, consistent with its recorded neighbours.
+  have logged, consistent with its recorded neighbors.
 - **The pin — `--known-at next-run`** resolves to the `finished_at` of the FIRST live run after the night
   (`resolve_next_run_known_at`, pure over the R3 run artifacts; `no-live` runs and runs started ON the as-of
   day do not count, a `--catch-up` pass does). That run ingested the night's own EOD bar and its filings and

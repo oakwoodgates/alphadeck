@@ -44,7 +44,7 @@ relevant sections during the review, don't work from memory of them) + `CLAUDE.m
 
 ## Checks — frontend / workflow
 - **Reversibility:** every new operator action has a visible inverse.
-- **Hide, never vanish:** pruning greys and keeps the row; hiding is an explicit,
+- **Hide, never vanish:** pruning grays and keeps the row; hiding is an explicit,
   reversible filter, never a delete or a default.
 - **Honest loudness:** a badge true of every row is noise; loudness marks the
   exception. A control that doesn't discriminate shouldn't render.

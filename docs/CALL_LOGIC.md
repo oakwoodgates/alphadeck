@@ -174,7 +174,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   officers/directors the open-market-purchase literature is about. The detector screens out a **self-filing** —
   the issuer filing a Form 4 on its own stock (reporting owner **==** issuer: KYOCERA-on-KYOCERA $690M @
   $21.75, Roivant-on-Roivant $350M @ $21 — a buyback/treasury/ADR mechanic, priced *at* the market so no
-  price screen catches it), which is never personal insider conviction (#3). It recognises the self-filing by
+  price screen catches it), which is never personal insider conviction (#3). It recognizes the self-filing by
   **identity**, most-robust first: `rpt_owner_cik == issuer_cik` (both captured from the filing, migration
   0024; the CIKs also flow into replay via `SELECT *`), else the **filer name == the issuer name** (the row's
   captured `issuer_name`, or the security's `security_master` name for a row ingested before the capture — so
@@ -440,4 +440,4 @@ operator tunes against real outcomes once the MVP has run. Those are consolidate
 **`docs/RECALIBRATION.md`** (liveness windows, grade boundaries + the $10M DOE threshold, the cap values, the
 momentum-only-vs-starter split, and the filed refinements). The deferred build items (age-decay of setup
 strength (`confidence` in code), the loans query group) live there too. Nothing here is a guessed number
-presented as decided — the dials are labelled as dials.
+presented as decided — the dials are labeled as dials.

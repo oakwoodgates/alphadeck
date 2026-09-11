@@ -166,7 +166,7 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid data tier
 > arrives; the `PriceSource` seam deliberately doesn't box it out.
 
-> **Cancelled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
+> **Canceled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
 > + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
 

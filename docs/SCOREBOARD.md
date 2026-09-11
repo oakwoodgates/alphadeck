@@ -59,7 +59,7 @@ record, per episode:
 | `status` open/closed | open = still armed at the record edge ≤ asof (replay's `window_end`, read live); its return is a RUNNING return, not a verdict |
 | `matured` | the episode's own `exit_by` signal-validity endpoint has elapsed (≤ asof). **Metrics judge only matured, non-censored, clean-ingest episodes** — a running return must never drift inside `false_arm_rate` before the scoring window ends |
 | `censored_start` | armed since before the record began (above) |
-| `arm_ingest_fresh` | **provenance A (run stamp):** the arm-date row's ingest health (migration 0023, cron R2b), read raw off the same winning row the scored card comes from — `false` = the arm rested on a PARTIAL ingest; `NULL` (legacy/manual append) is never coerced to a judgement |
+| `arm_ingest_fresh` | **provenance A (run stamp):** the arm-date row's ingest health (migration 0023, cron R2b), read raw off the same winning row the scored card comes from — `false` = the arm rested on a PARTIAL ingest; `NULL` (legacy/manual append) is never coerced to a judgment |
 | `freeze_era` | **provenance B1 (freeze window):** the arm falls inside the 2026-07 EDGAR cache freeze `[2026-07-10, 2026-07-17]` (`provenance.FREEZE_WINDOW`, dates per the postmortem) — the cohort-level marker B2 cannot see: an arm inside the window may rest on promptly-ingested older facts while the frozen index hid newer filings |
 | `thaw_lag_days` | **provenance B2 (derived thaw marker):** max calendar-day ingest lag — first `recorded_at` vs latest `valid_from` — across the arm triggers' cited form4 accessions (`fact_insider_txn`'s bitemporal axes; the derivation the 0023 comment promises). Beyond `THAW_LAG_DAYS = 7` marks a thawed-late arm; `NULL` = no form4 sources or no fact rows (unknown, un-flagged). Deliberately also flags arms resting on facts backfilled at basket-add time — same semantics |
 | `triggers_at_arm` | the arm-date card's member trigger evidence — the WHY rides every row (invariant #6) |
@@ -381,8 +381,8 @@ The wick pair used to ride the close cells' hovers, on the grounds that MEASURED
 on 96–97% of episodes but by a median of only **+2.0pp / +2.1pp**, and a 2pp correction is something you
 *check*, not *scan*. **The operator overruled that** and asked for all four visible. Promoting them was a
 pure FE change (the wire already carried all four). It came with a second half: each of the four hovers now
-describes **only its own figure** — a hover that restated its neighbour would be exactly the repetition the
-columns were promoted to remove, and the neighbour's own cell answers for the neighbour.
+describes **only its own figure** — a hover that restated its neighbor would be exactly the repetition the
+columns were promoted to remove, and the neighbor's own cell answers for the neighbor.
 
 Three honesty rules:
 
@@ -444,7 +444,7 @@ events** as **colored numbered chips**:
   (Band 03 S2c — the display rail's `_screen`, the same predicates the NamePanel's `_is_open_market_buy`
   composes): `open_market` (the unbadged norm — "passed the available screens", never "proven
   discretionary") · `self_filing` (labeled — still counted in the panel's net-flow; that re-base is
-  deferred) · `primary_market` / `implausible` (**set aside** — greyed chips + muted ledger rows, present
+  deferred) · `primary_market` / `implausible` (**set aside** — grayed chips + muted ledger rows, present
   and labeled instead of hidden, WB #2/#9). The **counted** (non-set-aside) dots reconcile with the
   NamePanel's net-flow figure.
 - **The relevance floor** — the loaded universe is `[max(thesis.created_at − 365d, first_bar), now]`: a thesis

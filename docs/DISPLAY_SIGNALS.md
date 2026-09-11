@@ -129,7 +129,7 @@ day's low) → **`open_market`**. `open_market` means "passed the AVAILABLE scre
 discretionary" — a no-day-low buy stays `open_market`; the tri-state `aff_10b5_1` flag is **not**
 read by `_screen` (a planned buy is still open-market; the flag rides beside the character and
 renders only on an explicit `true`). Set-aside characters (`primary_market`/`implausible`) surface
-**greyed + labeled, never hidden** (WB #2 / #9). The panel's net-flow screen
+**grayed + labeled, never hidden** (WB #2 / #9). The panel's net-flow screen
 (`_is_open_market_buy`) composes the SAME predicates but is **deliberately identity-blind**: a
 `self_filing` is labeled yet still counts in the 90d net-flow — that re-base is DEFERRED (operator
 decision 3, 2026-08-18), the one place the tape and the call knowingly disagree.
