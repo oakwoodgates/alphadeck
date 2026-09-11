@@ -12,6 +12,34 @@ def _f(x: Any) -> float | None:
     return float(x) if x is not None else None
 
 
+def market_tape_edge(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    cap: date,
+    known_at: datetime | None = None,
+) -> date | None:
+    """The latest bar date ANYWHERE in this tenant's tape, under the same double cap every other read
+    here applies (``d <= cap`` on the valid axis, ``recorded_at <= known_at`` on the transaction
+    axis, null closes skipped). ``None`` when the tenant has no priced bar at all.
+
+    A REQUEST-level fact, deliberately exposed as a module function as well as a reader method: it is
+    the same answer for every episode and every thesis in one tenant, and it costs a scan
+    (``fact_price_eod`` has no ``(tenant_id, d)`` index, so this is a parallel seq scan — MEASURED at
+    ~33 ms over 350k rows). Resolve it ONCE per tenant per request and thread it into the readers;
+    letting each of them compute its own would put that scan on every thesis, which is the
+    Board/Cockpit per-row-query mistake in miniature.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT max(d) AS edge FROM fact_price_eod "
+            "WHERE tenant_id = %s AND d <= %s AND recorded_at <= %s AND close IS NOT NULL",
+            [tenant_id, cap, known_at or datetime.now(timezone.utc)],
+        )
+        row = cur.fetchone()
+    return row["edge"] if row else None
+
+
 # The Postgres twin of ``replay.scoring.RealizedPrices`` — the same three-method surface
 # ``score_episode`` duck-types against, but over the live SoR and CAPPED at the request asof
 # (``d <= cap``): the Scoreboard reads realized closes only up to the day it is asked about, so a
@@ -34,11 +62,19 @@ class PgRealizedPrices:
         tenant_id: UUID,
         cap: date,
         known_at: datetime | None = None,
+        market_edge: date | None = None,
     ) -> None:
         self.conn = conn
         self.tenant_id = tenant_id
         self.cap = cap
         self.known_at = known_at or datetime.now(timezone.utc)
+        # The request-level market edge, threaded in by the caller that already resolved it once for
+        # this tenant. ``None`` means "not supplied" and this reader resolves (and caches) its own on
+        # first use — which is the standalone / replay / test path, never the hot one. Conflating
+        # "not supplied" with "the tenant has no bars" is harmless and unreachable on the live path:
+        # the scorer only asks for the market edge once a non-empty window exists, and a non-empty
+        # window means the tape is non-empty.
+        self._market_edge = market_edge
 
     def _closes(self, security_id: UUID, extra: str, params: list) -> list[tuple[date, float]]:
         # ``extra`` is a trusted range literal from the three methods below, never caller input
@@ -100,3 +136,33 @@ class PgRealizedPrices:
         as ``closes_between``, so the no-lookahead property is identical (never a forked as-of path).
         """
         return self._bars(security_id, " AND d >= %s AND d <= %s", [start, end])
+
+    def tape_edge(self, security_id: UUID, on_or_after: date) -> date | None:
+        """The date of this name's LAST available bar at or after ``on_or_after`` — where its price
+        tape ends, as this reader can see it. ``None`` when the tape holds no such bar.
+
+        Built on ``_closes``, so it inherits THIS reader's double cap unchanged: ``d <= cap`` on the
+        valid axis, ``recorded_at <= known_at`` on the transaction axis. That is load-bearing, not
+        incidental. The scorer asks this method whether a horizon was covered by the tape; a read that
+        reached past the cap would let a bar the operator could not have seen at the request as-of
+        answer yes, which is invariant #1 broken in the one place it would look like a display fix.
+        (The DuckDB twin's version is forward-unbounded, copying THAT side's existing shape — the two
+        readers are duck-typed peers, never a harmonized pair.)"""
+        rows = self._closes(security_id, " AND d >= %s", [on_or_after])
+        return rows[-1][0] if rows else None
+
+    def market_tape_edge(self, security_id: UUID) -> date | None:
+        """The latest bar date anywhere in this tenant's tape — the ``truncated`` rule's second leg
+        ("the market has printed past this horizon"). Uses the value threaded in at construction when
+        there is one, else resolves once and caches it on this instance.
+
+        ``security_id`` is unused here and taken deliberately: this reader is already scoped to one
+        tenant, but the method is part of a duck-typed protocol whose other implementation
+        (``_RoutedPrices``) routes per security, and it must be able to pick the owning tenant. The
+        argument is what keeps the two peers the same shape.
+        """
+        if self._market_edge is None:
+            self._market_edge = market_tape_edge(
+                self.conn, tenant_id=self.tenant_id, cap=self.cap, known_at=self.known_at
+            )
+        return self._market_edge

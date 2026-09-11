@@ -38,9 +38,16 @@ export function awaitingForwardBar(e: ScoreboardEpisodeOut): boolean {
  *  (to the last bar ≤ asof) otherwise; "awaiting first bar" for a day-1 arm with no bar yet;
  *  "awaiting forward bar" for a single-bar arm (only the arm-day bar — 0.0% is not a flat move).
  *  The single-bar check runs AFTER the realized check, so a degenerate matured single-bar episode
- *  still reads "realized" (it overrides only the "running" outcome). */
+ *  still reads "realized" (it overrides only the "running" outcome).
+ *
+ *  `insufficient_prices` covers TWO shapes and they get different words, because "awaiting" is a
+ *  promise the second one cannot keep. On an immature episode a bar really is still coming. On a
+ *  MATURED one the window has closed holding no bars at all, and nothing further will ever land in
+ *  it — the real instance is an episode whose arm and exit-by are the same non-trading day. Telling
+ *  the operator to await a bar that can no longer arrive is the wrong sentence, not a softer one. */
 export function returnLabel(e: ScoreboardEpisodeOut): string {
-  if (e.insufficient_prices) return "awaiting first bar";
+  if (e.insufficient_prices)
+    return e.matured ? "no bars in the scored window" : "awaiting first bar";
   if (e.status === "closed" && e.matured) return "realized";
   if (awaitingForwardBar(e)) return "awaiting forward bar";
   return "running";
@@ -99,8 +106,27 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
         (e.ingest_note ?? "the arm rested on partial or late-ingested data") +
         " — excluded from metrics",
     });
-  if (e.truncated && !e.insufficient_prices)
-    out.push({ label: "to last bar", cls: "b-trunc", title: "measured to the last bar ≤ as-of" });
+  // The FIELD says the horizon outran this name's tape; the BADGE decides that is worth telling the
+  // operator, and those are different questions. Three conditions, each removing a class where the
+  // fact is true but says nothing:
+  //
+  //   - `matured` — on a running episode, falling short of the horizon is the definition of
+  //     running, and the row already says so in this same cell via the absent MATURED mark.
+  //   - `tape_behind_market` — the backend's second leg: the market printed past this horizon
+  //     anyway. Without it the badge flickers on every episode maturing TODAY (no close exists
+  //     until after the bell) and shouts on all 200 rows whenever the whole feed stalls, which is
+  //     a freshness alarm wearing a per-name badge.
+  //   - `!insufficient_prices` — no measurement to caveat.
+  //
+  // Ungated the predicate fired on 91% of the ledger: a mark true of nearly every row carries no
+  // information (#7). What survives all three is one thing — a realized number measured on a tape
+  // that stopped before a horizon the rest of the market has already printed past.
+  if (e.matured && e.tape_behind_market && !e.insufficient_prices)
+    out.push({
+      label: "TAPE ENDS",
+      cls: "b-trunc",
+      title: `the horizon elapsed, but this name's price tape stops at ${fmtDate(e.exit_date)}`,
+    });
   return out;
 }
 

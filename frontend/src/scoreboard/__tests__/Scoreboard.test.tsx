@@ -63,6 +63,7 @@ const EP = {
   peak_date: null,
   exit_vs_peak_days: null,
   truncated: false,
+  tape_behind_market: false,
   insufficient_prices: true,
   operator: null,
 };

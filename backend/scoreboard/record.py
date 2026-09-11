@@ -15,7 +15,7 @@ from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, thesis_repo
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
-from scoreboard.prices import PgRealizedPrices
+from scoreboard.prices import PgRealizedPrices, market_tape_edge
 from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Transition
 
 # The record read + episode derivation. The scoring source is the CALLS LOG (what the platform
@@ -157,6 +157,7 @@ def derive_thesis_record(
     asof: date,
     *,
     known_at: datetime | None = None,
+    market_edge: date | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
     """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
@@ -180,8 +181,18 @@ def derive_thesis_record(
         current_verdict=snaps[-1].verdict.value if snaps else None,
         warming_since=_warming_since(snaps),
     )
-    # tenant threading: the thesis's own tenant scopes every price read (never the default here)
-    prices = PgRealizedPrices(conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at)
+    # tenant threading: the thesis's own tenant scopes every price read (never the default here).
+    # ``market_edge`` is the REQUEST-level market tape edge, resolved once per tenant by the caller
+    # and threaded through: it is the same answer for every thesis in a tenant and it costs a scan,
+    # so a reader resolving its own would put that scan on all 12 theses. None = resolve lazily
+    # (the single-thesis / standalone path).
+    prices = PgRealizedPrices(
+        conn,
+        tenant_id=thesis.tenant_id,
+        cap=asof,
+        known_at=known_at,
+        market_edge=market_edge,
+    )
     if snaps:
         first_recorded = snaps[0].asof
         episodes = list(derive_episodes(snaps))
@@ -263,12 +274,23 @@ def scoreboard_records(
     result = ScoreboardResult(asof=asof)
     timelines: dict[UUID, list[CallSnapshot]] = {}
     single_name: dict[UUID, UUID] = {}
+    # The market tape edge (``truncated``'s second leg) is per TENANT, not per thesis or per episode,
+    # and it costs a seq scan. Resolve it at most once per tenant for the whole request and hand it
+    # down; recomputing it per thesis would multiply that scan by the thesis count for an answer that
+    # cannot differ between them.
+    market_edges: dict[UUID, date | None] = {}
     for thesis in thesis_repo.list_all(conn, include_archived=include_archived):
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         if len(sids) == 1:
             single_name[thesis.id] = sids[0]
+        if thesis.tenant_id not in market_edges:
+            market_edges[thesis.tenant_id] = market_tape_edge(
+                conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at
+            )
         try:
-            record, snaps = derive_thesis_record(conn, thesis, asof, known_at=known_at)
+            record, snaps = derive_thesis_record(
+                conn, thesis, asof, known_at=known_at, market_edge=market_edges[thesis.tenant_id]
+            )
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard
             record = ThesisRecord(

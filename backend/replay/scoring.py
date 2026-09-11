@@ -31,6 +31,7 @@ class RealizedPrices:
     ) -> None:
         self.con = con
         self.tenant_id = tenant_id
+        self._market_edge: date | None = None  # lazily resolved once; see market_tape_edge
 
     def _closes(self, security_id: UUID, where: str, params: list) -> list[tuple[date, float]]:
         rows = self.con.execute(
@@ -86,6 +87,35 @@ class RealizedPrices:
         pair (peak/trough), wick pair (intraday high/low) and sparkline path."""
         return self._bars(security_id, "AND d >= ? AND d <= ?", [start, end])
 
+    def tape_edge(self, security_id: UUID, on_or_after: date) -> date | None:
+        """The date of this name's LAST available bar at or after ``on_or_after`` — where its price
+        tape ends, as this reader can see it. ``None`` when the tape holds no such bar.
+
+        Built on ``_closes``, so it inherits THIS reader's shape unchanged: forward-unbounded, no
+        asof/known_at cap, because the scoring reader is deliberately so. The Postgres twin's version
+        keeps that side's double cap for the same reason. Deriving both from each side's existing
+        ``_closes`` is what keeps them from being harmonized by accident — an ``ORDER BY d DESC LIMIT 1``
+        hand-written here is precisely where a cap gets forgotten, and a forgotten cap would let a bar
+        past the as-of prove that a horizon was covered (invariant #1)."""
+        rows = self._closes(security_id, "AND d >= ?", [on_or_after])
+        return rows[-1][0] if rows else None
+
+    def market_tape_edge(self, security_id: UUID) -> date | None:
+        """The latest bar date anywhere in this tenant's mirror — the ``truncated`` rule's second leg
+        ("the market has printed past this horizon"). Forward-unbounded and uncapped, copying THIS
+        side's shape (the Postgres twin applies its own double cap); resolved once and cached, since
+        the scoring reader is built once per replay run rather than per thesis.
+
+        ``security_id`` is unused — this reader is tenant-scoped — and taken only to keep the method
+        the same shape as the routed peer's, which does need it to pick a tenant."""
+        if self._market_edge is None:
+            rows = self.con.execute(
+                "SELECT max(d) FROM fact_price_eod WHERE tenant_id = ? AND close IS NOT NULL",
+                [str(self.tenant_id)],
+            ).fetchone()
+            self._market_edge = rows[0] if rows else None
+        return self._market_edge
+
 
 def _extreme(
     window: list[dict], key: str, pick: Callable[..., dict]
@@ -124,8 +154,9 @@ def _base_outcome(ep: Episode) -> Outcome:
 def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
     """Score one arm episode over its OWN hold horizon ``[arm_date, exit_by]`` on realized closes. The exit
     is the system's own ``exit_by`` (the honest yardstick); if it runs past the data, the return is measured
-    to the last bar and ``truncated`` is set. ``warm_return`` (from the warm date) feeds the
-    edge-preservation metric; ``peak_*`` feed the exit-by-vs-rollover metric.
+    to the last bar IN THAT WINDOW and ``truncated`` says the horizon outran the name's tape.
+    ``warm_return`` (from the warm date) feeds the edge-preservation metric; ``peak_*`` feed the
+    exit-by-vs-rollover metric.
 
     The window is read ONCE as full OHLCV bars, which serves five things off one query: the close-based
     excursion pair (``peak_*`` MFE / ``trough_*`` MAE), the wick-based pair (``intraday_high_*`` /
@@ -137,15 +168,25 @@ def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
     if entry is None or ep.exit_by is None:
         return out.model_copy(update={"insufficient_prices": True})
     _, entry_close = entry
-    exit_pt = realized.last_close_through(sid, ep.exit_by)
-    if exit_pt is None or entry_close == 0:
-        return out.model_copy(update={"entry_close": entry_close, "insufficient_prices": True})
-    exit_date, exit_close = exit_pt
 
     # ONE OHLC read over the scored window, replacing the close-only ``closes_between``: the same rows,
     # the same query count, four more columns. The window list IS the sparkline's path — the two are the
     # same read, not two reads that happen to agree.
+    #
+    # It is ALSO the EXIT. The exit is the last bar OF THE SCORED WINDOW, never (as it was) the last bar
+    # anywhere <= exit_by — a read unbounded BELOW. The two are identical whenever the window holds a bar;
+    # they diverge only when the last bar <= exit_by PRECEDES arm_date, and there the old read paired a
+    # LATER entry with an EARLIER exit and measured the return backwards in time. That is not theoretical:
+    # two episodes on the record arm on a Sunday with exit_by the SAME Sunday (market_today() does no
+    # weekend skip by design, so a Sunday backfill records a Sunday as-of), so the entry read Monday's
+    # close and the exit read the preceding Friday's — -4.33% and +3.32%, the negation of a real move,
+    # one of them inside the live metrics. Taking the exit from the window makes that impossible by
+    # construction, and an empty window then has no exit to report: insufficient_prices is the honest
+    # answer, not a signed number (the render sites label a MATURED empty window for what it is).
     window = realized.bars_between(sid, ep.arm_date, ep.exit_by)
+    if not window or entry_close == 0:
+        return out.model_copy(update={"entry_close": entry_close, "insufficient_prices": True})
+    exit_date, exit_close = window[-1]["d"], window[-1]["close"]
     peak_date, peak_close = _extreme(window, "close", max)
     trough_date, trough_close = _extreme(window, "close", min)
     high_date, high_px = _extreme(window, "high", max)
@@ -170,6 +211,60 @@ def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
         au = realized.last_close_through(sid, ep.arm_until)
         arm_until_close = au[1] if au else None
 
+    # ``truncated`` asks the TAPE, not the calendar: does this name's price series end before the
+    # horizon the return claims to measure? It used to be `exit_date < exit_by`, which collapsed four
+    # unrelated situations into one flag — still running (structural: an immature episode's window is
+    # capped at the asof, so it is ALWAYS true and says nothing `matured == false` did not); exit_by on
+    # a Saturday, Sunday or market holiday (nothing missed, and no later bar will ever exist); a dead
+    # tape (the one case worth acting on); and a stale per-name ingest, which it could not see at all.
+    # On the measured record it fired on 91% of episodes and every one of the matured fires was a
+    # weekend or Labor Day: never once for the reason its own docstring gave.
+    #
+    # One condition now: the horizon extends past the end of the tape. That answers the trading-day
+    # question WITHOUT a calendar — a Sunday exit_by in the past sits before a live name's tape edge,
+    # so nothing was missed; a holiday resolves identically with no holiday table to rot; and a
+    # delisted name's edge sits before its horizon, which is the flag doing its actual job. Immature
+    # episodes stay true (the asof caps the tape edge too), which is load-bearing: `moveNote`,
+    # `peakTimingPhrase` and the chart's "last bar" marker all anchor their phrasing on it.
+    #
+    # A missing edge means no tape at all on or after the arm — unreachable here (the window is
+    # non-empty) but read as "the tape does not cover it" rather than silently as "covered".
+    #
+    edge = realized.tape_edge(sid, ep.arm_date)
+    truncated = edge is None or ep.exit_by > edge
+
+    # ``tape_behind_market`` adds the SECOND leg, and it is a separate field rather than a narrowing
+    # of ``truncated`` on purpose. It reads as one sentence: the market has printed PAST this
+    # horizon, and this name's tape still has not reached it.
+    #
+    #     tape_behind_market = exit_by > tape_edge(name)  AND  exit_by < tape_edge(market)
+    #
+    # It exists because the first leg alone, once a row is MATURED, is true of two situations that
+    # are not a starved name. (1) An episode maturing TODAY: today's close does not exist until
+    # after the bell, so every same-day maturity is momentarily "short of its horizon" on a
+    # perfectly healthy feed — a transient that would flicker for part of every day and cost the
+    # badge its credibility, which is exactly how the old rule died. (2) A globally stalled feed
+    # (a frozen cron, a dev stack with the cron off): when the WHOLE tape is behind, no single name
+    # is starved, and that alarm belongs to the record-freshness line rather than to 200 individual
+    # rows. The market's own last bar separates both from a name that is genuinely behind — still
+    # asking the data, never a schedule, so there is no calendar anywhere in this.
+    #
+    # Why the two are NOT merged: ``truncated`` answers "did the measurement reach the horizon?",
+    # and on a RUNNING episode the honest answer is no — it is measured to the last bar <= asof.
+    # The market leg is false for every running episode by construction (market_edge <= asof <
+    # exit_by), so folding it in would silence them all, and three sites read that field precisely
+    # to phrase a running episode honestly: ``moveNote`` ("measured to the last bar <= as-of"),
+    # ``peakTimingPhrase`` ("last bar Nd after the peak" vs the false "horizon closed Nd after"),
+    # and the chart's exit marker ("last bar" vs "exit"). The field states the fact; this field
+    # states whether the fact is worth shouting about. (MEASURED: merging them turned
+    # ``test_asof_cap_no_future_leak`` red — a running episode must stay truncated.)
+    #
+    # Degradation: an unknown market edge cannot establish that the horizon was printed past, so it
+    # suppresses rather than fires — the conservative direction for a mark whose job is to caveat a
+    # number. Unreachable on the live path: a non-empty window implies a non-empty tape.
+    market_edge = realized.market_tape_edge(sid)
+    tape_behind_market = truncated and market_edge is not None and ep.exit_by < market_edge
+
     return out.model_copy(
         update={
             "entry_close": entry_close,
@@ -189,7 +284,8 @@ def score_episode(ep: Episode, realized: RealizedPrices) -> Outcome:
             "path": [b["close"] for b in window],
             "dearm_index": dearm_index,
             "exit_vs_peak_days": (exit_date - peak_date).days if peak_date else None,
-            "truncated": exit_date < ep.exit_by,  # the hold horizon ran past the available data
+            "truncated": truncated,  # the horizon extends past the end of this name's tape
+            "tape_behind_market": tape_behind_market,  # ...and the market printed past it anyway
         }
     )
 

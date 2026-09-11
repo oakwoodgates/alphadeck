@@ -7082,6 +7082,11 @@
             "title": "Truncated",
             "default": false
           },
+          "tape_behind_market": {
+            "type": "boolean",
+            "title": "Tape Behind Market",
+            "default": false
+          },
           "insufficient_prices": {
             "type": "boolean",
             "title": "Insufficient Prices",
@@ -7109,7 +7114,7 @@
           "censored_start"
         ],
         "title": "ScoreboardEpisodeOut",
-        "description": "One arm episode from the record, scored \u2014 a ledger row. Outcome fields keep replay's\ncanonical names (``forward_return`` = arm\u2192exit_by on realized closes \u2264 the request asof).\n``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING\nreturn, not a verdict; metrics judge only matured + non-censored episodes.\n\nThe excursion pair reports how far the episode ran each way before its exit, on two bases:\n``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE \u2014 the\nsame basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK\nextremes, null unless every bar in the window carries the column (they never fall back to the\nclose). ``path`` is the window's closes, ascending \u2014 variable length, one episode's own span, so\ntwo rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm\nfell outside the scored window. All descriptive: no metric reads them."
+        "description": "One arm episode from the record, scored \u2014 a ledger row. Outcome fields keep replay's\ncanonical names (``forward_return`` = arm\u2192exit_by on realized closes \u2264 the request asof).\n``status``/``matured``/``censored_start`` are the record-honesty flags: open = a RUNNING\nreturn, not a verdict; metrics judge only matured + non-censored episodes.\n\nThe excursion pair reports how far the episode ran each way before its exit, on two bases:\n``peak_*``/``trough_*`` are CLOSE-based (maximum favorable / adverse excursion, MFE / MAE \u2014 the\nsame basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK\nextremes, null unless every bar in the window carries the column (they never fall back to the\nclose). ``path`` is the window's closes, ascending \u2014 variable length, one episode's own span, so\ntwo rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm\nfell outside the scored window. All descriptive: no metric reads them.\n\n``truncated`` = the episode's horizon extends past the end of THIS NAME'S price tape\n(``exit_by > tape_edge(name)``, read within the request as-of). It asks the tape, never the\ncalendar: an ``exit_by`` that fell on a weekend or a market holiday sits before a live name's\ntape edge, so nothing was missed and the flag is false. A still-running episode is truncated by\nconstruction (the as-of caps the tape edge too) and several render sites depend on that to\nphrase a running return honestly.\n\n``tape_behind_market`` is the LOUDNESS half \u2014 ``truncated`` and the market printed past this\nhorizon anyway (``exit_by < tape_edge(market)``, the latest bar anywhere in the tenant's tape\nunder the same caps). Strictly narrower: it drops the two cases where falling short is not this\nname's fault \u2014 an episode maturing today (no close exists until after the bell) and a globally\nstalled feed (nobody is starved; that is the record-freshness alarm). What is left is a name\ngenuinely behind the market, and it is what the ledger badge gates on, together with\n``matured``. The field states the fact; this states whether the fact is worth shouting."
       },
       "ScoreboardMetricOut": {
         "properties": {

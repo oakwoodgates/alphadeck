@@ -49,6 +49,7 @@ const EP = {
   peak_date: "2026-07-02",
   exit_vs_peak_days: 7,
   truncated: true,
+  tape_behind_market: false,
   insufficient_prices: false,
   operator: null,
 };

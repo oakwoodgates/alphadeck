@@ -52,6 +52,7 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
     peak_date: null,
     exit_vs_peak_days: null,
     truncated: false,
+    tape_behind_market: false,
     insufficient_prices: false,
     operator: null,
     ...over,
@@ -88,6 +89,13 @@ describe("moveNote — the honest price state (Lens 1)", () => {
   it("a single-bar arm gets the same note (degenerate 0.0%, not a move)", () => {
     expect(moveNote(ep({ exit_date: "2026-07-10" }))).toBe(
       "awaiting the first forward bar — nothing to score yet",
+    );
+  });
+  it("a MATURED empty window is not awaiting — the drawer twin of returnLabel's split", () => {
+    // arm_date and exit_by the same non-trading day: the window closed holding no bars, so no
+    // later bar can enter it and "awaiting" would promise one that can never arrive.
+    expect(moveNote(ep({ insufficient_prices: true, matured: true, status: "closed" }))).toBe(
+      "no bars in the scored window — the horizon closed without one",
     );
   });
   it("truncated says it's measured short of the horizon (a bar HAS landed)", () => {

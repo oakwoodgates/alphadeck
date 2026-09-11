@@ -3307,12 +3307,27 @@ export interface components {
          *     return, not a verdict; metrics judge only matured + non-censored episodes.
          *
          *     The excursion pair reports how far the episode ran each way before its exit, on two bases:
-         *     ``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE — the
+         *     ``peak_*``/``trough_*`` are CLOSE-based (maximum favorable / adverse excursion, MFE / MAE — the
          *     same basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK
          *     extremes, null unless every bar in the window carries the column (they never fall back to the
          *     close). ``path`` is the window's closes, ascending — variable length, one episode's own span, so
          *     two rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm
          *     fell outside the scored window. All descriptive: no metric reads them.
+         *
+         *     ``truncated`` = the episode's horizon extends past the end of THIS NAME'S price tape
+         *     (``exit_by > tape_edge(name)``, read within the request as-of). It asks the tape, never the
+         *     calendar: an ``exit_by`` that fell on a weekend or a market holiday sits before a live name's
+         *     tape edge, so nothing was missed and the flag is false. A still-running episode is truncated by
+         *     construction (the as-of caps the tape edge too) and several render sites depend on that to
+         *     phrase a running return honestly.
+         *
+         *     ``tape_behind_market`` is the LOUDNESS half — ``truncated`` and the market printed past this
+         *     horizon anyway (``exit_by < tape_edge(market)``, the latest bar anywhere in the tenant's tape
+         *     under the same caps). Strictly narrower: it drops the two cases where falling short is not this
+         *     name's fault — an episode maturing today (no close exists until after the bell) and a globally
+         *     stalled feed (nobody is starved; that is the record-freshness alarm). What is left is a name
+         *     genuinely behind the market, and it is what the ledger badge gates on, together with
+         *     ``matured``. The field states the fact; this states whether the fact is worth shouting.
          */
         ScoreboardEpisodeOut: {
             /**
@@ -3443,6 +3458,11 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+            /**
+             * Tape Behind Market
+             * @default false
+             */
+            tape_behind_market: boolean;
             /**
              * Insufficient Prices
              * @default false

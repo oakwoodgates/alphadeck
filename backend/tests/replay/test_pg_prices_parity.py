@@ -63,6 +63,24 @@ def test_pg_reader_matches_duckdb_reader_and_outcomes(db, security_id, tmp_path)
         assert pg_bars[0]["close"] == 102.0 and pg_bars[0]["high"] == 103.0  # the restated version
         assert pg_bars[2]["high"] is None and pg_bars[2]["low"] is None  # the close-only bar
 
+        # the tape-edge read behind ``truncated``. Each twin derives it from its OWN ``_closes``, so
+        # this probes that the two agree on where a tape ENDS — including the null-close skip (06-03
+        # carries no close and must never be anyone's edge). The readers are deliberately NOT
+        # harmonized on caps (this Pg reader is double-capped, the DuckDB one forward-unbounded); the
+        # cap here is 2099 so the two are comparable, and each side's cap discipline is pinned in its
+        # own file (tests/scoreboard/test_truncated.py).
+        for d in probes:
+            assert pg.tape_edge(security_id, d) == duck.tape_edge(security_id, d), d
+        assert pg.tape_edge(security_id, date(2026, 6, 1)) == date(2026, 6, 12)
+        assert pg.tape_edge(security_id, date(2026, 6, 13)) is None  # nothing after the last bar
+
+        # the MARKET edge (``tape_behind_market``'s second leg): a max over the whole tenant rather
+        # than one name, computed independently on each side, so the twins must agree there too. One
+        # security in this fixture, so it IS the market — which is itself the property worth pinning:
+        # a lone name can never be "behind the market", because it is the market.
+        assert pg.market_tape_edge(security_id) == duck.market_tape_edge(security_id)
+        assert pg.market_tape_edge(security_id) == date(2026, 6, 12)
+
         ep = Episode(
             thesis_id=uuid.uuid4(),
             security_id=security_id,

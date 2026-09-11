@@ -52,6 +52,7 @@ function ep(over: Partial<ScoreboardEpisodeOut> = {}): ScoreboardEpisodeOut {
     exit_by: "2026-06-20",
     peak_date: null,
     truncated: false,
+    tape_behind_market: false,
     insufficient_prices: false,
     exit_date: "2026-06-15",
     triggers_at_arm: [] as TriggerRefOut[],
