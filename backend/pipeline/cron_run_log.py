@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -148,20 +148,35 @@ def write_cron_run_log(
         return None
 
 
-def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
-    """Did a LIVE cron pass already run for ``asof``? The catch-up-on-start guard (R6): a sidecar restarted
-    AFTER the scheduled time must catch the missed run up — but ONLY if it truly hasn't run, or every rebuild
+def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | None = None) -> bool:
+    """Did a LIVE cron pass for ``asof`` already run **for the night** — one that STARTED at or after
+    ``asof``'s ``run_at`` in market time? The catch-up guard (R6): a sidecar that boots after the scheduled
+    time, or wakes late, must catch the missed run up — but ONLY if it truly hasn't run, or every rebuild
     would re-fire the whole job (and R3 said the run log is the memory that answers this).
 
     ``mode == "live"`` is load-bearing: a ``--no-live`` dev run writes a run log too, but it must NOT count as
-    "today ran" — otherwise a hand-run ``--no-live`` (like the R4 page test) would suppress the real nightly
-    catch-up, and the real run would silently never happen. Fail-open: an unreadable artifact is skipped, so a
-    corrupt file can never make the guard falsely report "ran" and cancel a needed catch-up (it errs toward
-    running, which the write-side idempotency — ``record_if_changed`` — makes safe to repeat).
+    "the night ran" — otherwise a hand-run ``--no-live`` (like the R4 page test) would suppress the real
+    nightly catch-up, and the real run would silently never happen.
+
+    **Started at/after ``run_at`` is load-bearing too (2026-09-10).** A live pass that started BEFORE that
+    night's ``run_at`` — a pre-open Admin "Run daily now" at 09:15 — ran on the PRIOR session's bars: it lacks
+    the night's close and is not the night's pass, so it must not satisfy the guard. MEASURED on prod: two
+    manual passes for as-of 2026-09-09 at 09:09 / 09:15 ET (the host was then OFF at the 22:30 run) made the
+    old any-live-pass rule report "already ran", so even a wider boot catch-up would have been a no-op, and
+    Sep 9's record stayed a pre-open call. A late-wake or boot catch-up the NEXT morning started AFTER the
+    cutoff and does count (a ``--catch-up`` pass is a live pass). The cutoff is
+    ``datetime.combine(asof, run_at, tzinfo=tz)``, compared as AWARE datetimes (the artifact's ``started_at``
+    is an aware UTC ISO stamp). PURE over its arguments — no settings read, no ambient clock (the
+    ``schedule.py`` discipline); ``daily.main`` supplies ``run_at`` / ``tz`` from config.
+
+    Fail-open = **err toward running**: an unreadable artifact, or a live one whose ``started_at`` is missing /
+    unparseable / NAIVE (a naive stamp cannot be compared honestly against a market-time cutoff), is skipped,
+    so a bad artifact can never make the guard falsely report "ran" and cancel a needed catch-up (a repeated
+    run is safe — ``record_if_changed`` — a skipped one is the silent gap R6 exists to close).
 
     KNOWN INTERACTION (accepted, not a bug): the run-log write itself (``write_cron_run_log``) is **fail-open**
     by contract — a cron pass runs fine but its log write fails (disk full / permissions). Then this guard sees
-    no entry for today and a post-``RUN_AT`` restart **re-fires the ~65-min ingest**. Not corrupting —
+    no entry for the night and a post-``run_at`` restart **re-fires the ~65-min ingest**. Not corrupting —
     ``record_if_changed`` suppresses the duplicate call-of-record — just wasteful. We accept it: a re-run beats a
     silent skip, and the failure mode is bounded to a disk problem that would page anyway.
     """
@@ -169,6 +184,8 @@ def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
     if not run_dir.exists():
         return False
     target = asof.isoformat()
+    # the night's scheduled instant in market time — the bar a live pass must have STARTED at/after
+    cutoff = datetime.combine(asof, run_at, tzinfo=tz)
     for p in run_dir.glob("*.json"):
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
@@ -176,7 +193,15 @@ def already_ran_live(asof: date, *, base_dir: Path | None = None) -> bool:
             Exception
         ):  # noqa: BLE001 — a bad artifact never suppresses a catch-up (err toward running)
             continue
-        if doc.get("asof") == target and doc.get("mode") == "live":
+        if not isinstance(doc, dict) or doc.get("asof") != target or doc.get("mode") != "live":
+            continue
+        try:
+            started = datetime.fromisoformat(doc["started_at"])
+        except (KeyError, TypeError, ValueError):
+            continue  # no honest start instant -> not evidence the night ran
+        if started.tzinfo is None or started.utcoffset() is None:
+            continue  # a naive stamp cannot be compared against a market-time cutoff
+        if started >= cutoff:
             return True
     return False
 

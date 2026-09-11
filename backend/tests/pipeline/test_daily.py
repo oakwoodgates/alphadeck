@@ -11,6 +11,7 @@ import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -19,7 +20,8 @@ from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
 from ingest.edgar.form4 import ingest_form4
 from notify import ArmedName
-from pipeline import daily
+from pipeline import cron_run_log, daily
+from pipeline.cron_run_log import write_cron_run_log
 from repositories import calls_repo
 
 # form4_sample.xml is a senior (CEO) open-market P-buy dated 2026-06-01; this asof is within its flip
@@ -361,6 +363,13 @@ def test_assess_health_freeze_check_off_STILL_pages_withheld_and_errored():
 
 
 # --- R6: the --catch-up guard in main (no DB — the guard returns before connect) ---
+# The guard reads REAL run-of-record artifacts (written by `write_cron_run_log` into a redirected run dir)
+# under the 2026-09-10 rule: a live pass for the as-of counts only if it STARTED at/after that night's RUN_AT
+# in market time. `main` supplies RUN_AT + the zone from config; the tests pin the prod defaults (22:30,
+# America/New_York) explicitly so an ambient ALPHADECK_CRON_AT / ALPHADECK_MARKET_TZ cannot move the cutoff.
+# July + September 2026 are EDT: 22:30 ET == 02:30Z the next day; the writer stamps aware UTC.
+
+_NY = ZoneInfo("America/New_York")
 
 
 def _no_connect(monkeypatch):
@@ -372,23 +381,63 @@ def _no_connect(monkeypatch):
     monkeypatch.setattr(daily, "connect", boom)
 
 
-def test_catch_up_is_a_NOOP_when_a_live_pass_already_ran(monkeypatch, capsys):
-    monkeypatch.setattr(daily, "already_ran_live", lambda asof: True)
+def _pin_schedule(monkeypatch, tmp_path):
+    """The prod schedule (22:30 America/New_York) + an EMPTY run dir the guard reads from."""
+    monkeypatch.setattr(daily, "get_settings", lambda: SimpleNamespace(cron_run_at="22:30"))
+    monkeypatch.setattr(daily, "market_tz", lambda: _NY)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+
+
+def _seed_live_pass(tmp_path, *, asof: date, at_market: datetime):
+    """A real live artifact for `asof`; `at_market` is the market-time wall clock the pass started at."""
+    write_cron_run_log(
+        [daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=True)],
+        asof=asof,
+        allow_live=True,
+        started_at=at_market.astimezone(timezone.utc),
+        finished_at=at_market.astimezone(timezone.utc),
+        base_dir=tmp_path,
+    )
+
+
+def test_catch_up_is_a_NOOP_when_a_live_pass_already_ran(monkeypatch, tmp_path, capsys):
+    _pin_schedule(monkeypatch, tmp_path)
+    # the night's own pass: started 5 s after 22:30 ET on the as-of (post-RUN_AT)
+    _seed_live_pass(
+        tmp_path, asof=date(2026, 7, 17), at_market=datetime(2026, 7, 17, 22, 30, 5, tzinfo=_NY)
+    )
     _no_connect(monkeypatch)  # if the guard fails, main() would connect and RuntimeError
     daily.main(["--catch-up", "--asof", "2026-07-17"])  # returns early, never connects
-    assert "already ran" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "already ran" in out
+    # the no-op message says what it checked
+    assert "started at/after 22:30 America/New_York" in out
 
 
-def test_catch_up_RUNS_when_no_live_pass_yet(monkeypatch):
-    monkeypatch.setattr(daily, "already_ran_live", lambda asof: False)
+def test_catch_up_RUNS_when_no_live_pass_yet(monkeypatch, tmp_path):
+    _pin_schedule(monkeypatch, tmp_path)  # an empty run dir: nothing ran
     _no_connect(monkeypatch)  # proves it proceeded past the guard into the run
     with pytest.raises(RuntimeError, match="reached the run"):
         daily.main(["--catch-up", "--asof", "2026-07-17"])
 
 
+def test_a_pre_RUN_AT_live_pass_does_NOT_make_catch_up_a_noop(monkeypatch, tmp_path):
+    """The Sep 9 2026 case: a pre-open Admin "Run daily now" for as-of Sep 9 at 09:15 ET ran on Sep 8's bars,
+    and the host was then OFF at the 22:30 run. The boot catch-up the next day must still RUN — a pass that
+    started before the night's RUN_AT is not the night's pass (the old any-live-pass guard called it a no-op,
+    and Sep 9's record stayed a pre-open call)."""
+    _pin_schedule(monkeypatch, tmp_path)
+    _seed_live_pass(
+        tmp_path, asof=date(2026, 9, 9), at_market=datetime(2026, 9, 9, 9, 15, tzinfo=_NY)
+    )
+    _no_connect(monkeypatch)
+    with pytest.raises(RuntimeError, match="reached the run"):
+        daily.main(["--catch-up", "--asof", "2026-09-09"])
+
+
 def test_the_guard_is_NOT_consulted_without_catch_up(monkeypatch):
     # a normal cron run always runs — `--catch-up` absent must short-circuit before already_ran_live
-    def guard(_asof):
+    def guard(_asof, **_kw):
         raise AssertionError("already_ran_live consulted without --catch-up")
 
     monkeypatch.setattr(daily, "already_ran_live", guard)
@@ -401,7 +450,7 @@ def test_main_threads_catch_up_into_the_pass(monkeypatch):
     # `--catch-up` reaches run_daily_pass as catch_up=True (the sidecar's late-wake catch-up of a skipped
     # night: `--catch-up --asof <d>`); a plain scheduled run threads False. The pass is stubbed — this pins
     # the CLI → pass wiring only.
-    monkeypatch.setattr(daily, "already_ran_live", lambda asof: False)
+    monkeypatch.setattr(daily, "already_ran_live", lambda asof, **kw: False)
     seen: dict = {}
     now = datetime(2026, 9, 9, 3, 0, tzinfo=timezone.utc)
 

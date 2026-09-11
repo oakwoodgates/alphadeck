@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from pipeline.cron_run_log import already_ran_live, list_run_logs, write_cron_run_log
 from pipeline.daily import ThesisRunResult
@@ -10,6 +11,23 @@ from pipeline.ingest_thesis import NameResult
 
 _START = datetime(2026, 7, 17, 22, 30, 1, tzinfo=timezone.utc)
 _END = datetime(2026, 7, 17, 23, 35, 12, tzinfo=timezone.utc)
+
+# The R6 guard reads the night in MARKET time: a live artifact for an as-of counts only if it STARTED at/after
+# that night's RUN_AT (2026-09-10). Its fixtures are authored as a market-time wall clock and converted to the
+# UTC-aware instant `write_cron_run_log` stamps (`run_daily_pass` records `datetime.now(timezone.utc)`, so a
+# real artifact's `started_at` is an aware UTC ISO string — exactly what `_utc` produces). July/September 2026
+# are EDT: 22:30 ET == 02:30Z the next day, 09:15 ET == 13:15Z.
+_NY = ZoneInfo("America/New_York")
+_RUN_AT = time(22, 30)
+
+
+def _utc(y: int, m: int, d: int, hh: int, mm: int, ss: int = 0) -> datetime:
+    """A market-time wall clock as the UTC-aware instant the writer stamps."""
+    return datetime(y, m, d, hh, mm, ss, tzinfo=_NY).astimezone(timezone.utc)
+
+
+_JUL17 = date(2026, 7, 17)
+_NIGHT_JUL17 = _utc(2026, 7, 17, 22, 30, 1)  # the scheduled pass, 1 s after RUN_AT
 
 
 def _name(**kw) -> NameResult:
@@ -169,9 +187,9 @@ def test_an_artifact_WITHOUT_the_catch_up_key_still_parses(tmp_path):
     # fail-open per artifact, never strict over new keys) and the guard still counts it as ran-live
     path = write_cron_run_log(
         [_thesis_result(recorded=True)],
-        asof=date(2026, 7, 17),
+        asof=_JUL17,
         allow_live=True,
-        started_at=_START,
+        started_at=_NIGHT_JUL17,  # the night's own pass (post-RUN_AT), so the guard's other rule holds
         finished_at=_END,
         base_dir=tmp_path,
     )
@@ -181,7 +199,7 @@ def test_an_artifact_WITHOUT_the_catch_up_key_still_parses(tmp_path):
     logs = list_run_logs(base_dir=tmp_path)
     assert len(logs) == 1 and "catch_up" not in logs[0]
     assert logs[0].get("catch_up", False) is False  # the admin reconstruction's read
-    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is True
+    assert already_ran_live(_JUL17, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is True
 
 
 def test_records_thesis_level_error_and_transition(tmp_path):
@@ -204,10 +222,13 @@ def test_records_thesis_level_error_and_transition(tmp_path):
     assert next(t for t in doc["theses"] if t["name"] == "Armed")["transition"] == "Warming → Armed"
 
 
-# --- R6: already_ran_live — the catch-up-on-start guard ---
+# --- R6: already_ran_live — the catch-up guard (boot + late-wake) ---
+# Every artifact below is written by the REAL writer (`write_cron_run_log`); the stamps are the UTC-aware
+# instants it records (see `_utc` at the top). The guard is pure over (asof, run_at, tz) — the tests pass
+# the prod defaults explicitly (22:30, America/New_York).
 
 
-def _log_for(tmp_path, *, asof: date, allow_live: bool, at: datetime):
+def _log_for(tmp_path, *, asof: date, allow_live: bool, at: datetime, catch_up: bool = False):
     write_cron_run_log(
         [_thesis_result(recorded=True)],
         asof=asof,
@@ -215,35 +236,88 @@ def _log_for(tmp_path, *, asof: date, allow_live: bool, at: datetime):
         started_at=at,
         finished_at=at,
         base_dir=tmp_path,
+        catch_up=catch_up,
     )
 
 
-def test_already_ran_live_true_after_a_live_pass(tmp_path):
-    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=True, at=_START)
-    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is True
+def _ran(tmp_path, asof: date) -> bool:
+    return already_ran_live(asof, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path)
+
+
+def test_already_ran_live_true_after_the_nights_live_pass(tmp_path):
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, _JUL17) is True
 
 
 def test_already_ran_live_false_for_a_different_day(tmp_path):
-    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=True, at=_START)
-    assert already_ran_live(date(2026, 7, 18), base_dir=tmp_path) is False
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, date(2026, 7, 18)) is False
 
 
 def test_a_NO_LIVE_run_does_NOT_count_as_ran(tmp_path):
-    # THE load-bearing filter: a --no-live dev run (like the R4 page test) writes a log too, but must NOT
-    # suppress the real nightly catch-up — else the real run silently never happens.
-    _log_for(tmp_path, asof=date(2026, 7, 17), allow_live=False, at=_START)
-    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is False
+    # THE load-bearing filter (the unchanged rule): a --no-live dev run (like the R4 page test) writes a log
+    # too — even one started after RUN_AT — but must NOT suppress the real nightly catch-up, else the real run
+    # silently never happens.
+    _log_for(tmp_path, asof=_JUL17, allow_live=False, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_a_live_pass_started_BEFORE_that_nights_RUN_AT_does_NOT_count(tmp_path):
+    """THE Sep 9 2026 case (MEASURED on prod): two pre-open "Run daily now" passes for as-of Sep 9, at 09:09
+    and 09:15 ET, ran on Sep 8's bars; the host was then OFF at the 22:30 run. Under the old any-live-pass
+    rule they reported "already ran" and masked the missed post-close pass — Sep 9's record stayed a pre-open
+    call. A pass started before the night's RUN_AT is not the night's pass, so the boot catch-up RUNS.
+    """
+    sep9 = date(2026, 9, 9)
+    _log_for(tmp_path, asof=sep9, allow_live=True, at=_utc(2026, 9, 9, 9, 9))
+    _log_for(tmp_path, asof=sep9, allow_live=True, at=_utc(2026, 9, 9, 9, 15))
+    assert _ran(tmp_path, sep9) is False
+
+
+def test_a_live_pass_started_AT_RUN_AT_counts(tmp_path):
+    # the boundary is inclusive: the scheduled fire itself starts at RUN_AT
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_utc(2026, 7, 17, 22, 30, 0))
+    assert _ran(tmp_path, _JUL17) is True
+
+
+def test_a_next_morning_catch_up_pass_counts(tmp_path):
+    # a late-wake / boot catch-up fires the NEXT morning (the measured 09:09 wake) with --catch-up: it started
+    # after the night's RUN_AT, so it IS the night's pass — a second catch-up for that night is a no-op
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_utc(2026, 7, 18, 9, 9), catch_up=True)
+    assert _ran(tmp_path, _JUL17) is True
+
+
+def test_a_NAIVE_started_at_never_reports_ran(tmp_path):
+    # fail-open toward RUNNING: a naive stamp cannot be compared honestly against a market-time cutoff, so it
+    # is no evidence the night ran. The writer stamps whatever it is handed — this is the artifact a caller
+    # that passed a naive datetime leaves behind (22:30:01 ET as a naive UTC wall clock).
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=datetime(2026, 7, 18, 2, 30, 1))
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_a_missing_or_unparseable_started_at_never_reports_ran(tmp_path):
+    # the same fail-open for an artifact whose stamp was lost or mangled: written by the real writer, then
+    # damaged in place (the pattern of the catch_up-key test above)
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_NIGHT_JUL17)
+    (path,) = tmp_path.glob("*.json")
+    doc = _read(path)
+    doc["started_at"] = "not a timestamp"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+    del doc["started_at"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
 
 
 def test_already_ran_live_false_when_no_logs_dir(tmp_path):
-    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path / "nope") is False
+    assert _ran(tmp_path / "nope", _JUL17) is False
 
 
 def test_a_corrupt_artifact_never_reports_ran(tmp_path):
     # err toward RUNNING: a bad file must not make the guard falsely say "ran" and cancel a needed catch-up
     # (the write side is idempotent, so a repeated run is safe; a skipped one is the silent gap R6 fixes).
     (tmp_path / "20260717T000000Z.json").write_text("{ not json", encoding="utf-8")
-    assert already_ran_live(date(2026, 7, 17), base_dir=tmp_path) is False
+    assert _ran(tmp_path, _JUL17) is False
 
 
 def test_fail_open_returns_none_never_raises(tmp_path):
