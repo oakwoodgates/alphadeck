@@ -100,3 +100,17 @@ class PgRealizedPrices:
         as ``closes_between``, so the no-lookahead property is identical (never a forked as-of path).
         """
         return self._bars(security_id, " AND d >= %s AND d <= %s", [start, end])
+
+    def tape_edge(self, security_id: UUID, on_or_after: date) -> date | None:
+        """The date of this name's LAST available bar at or after ``on_or_after`` — where its price
+        tape ends, as this reader can see it. ``None`` when the tape holds no such bar.
+
+        Built on ``_closes``, so it inherits THIS reader's double cap unchanged: ``d <= cap`` on the
+        valid axis, ``recorded_at <= known_at`` on the transaction axis. That is load-bearing, not
+        incidental. The scorer asks this method whether a horizon was covered by the tape; a read that
+        reached past the cap would let a bar the operator could not have seen at the request as-of
+        answer yes, which is invariant #1 broken in the one place it would look like a display fix.
+        (The DuckDB twin's version is forward-unbounded, copying THAT side's existing shape — the two
+        readers are duck-typed peers, never a harmonized pair.)"""
+        rows = self._closes(security_id, " AND d >= %s", [on_or_after])
+        return rows[-1][0] if rows else None

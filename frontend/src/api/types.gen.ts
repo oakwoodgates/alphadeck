@@ -3307,12 +3307,20 @@ export interface components {
          *     return, not a verdict; metrics judge only matured + non-censored episodes.
          *
          *     The excursion pair reports how far the episode ran each way before its exit, on two bases:
-         *     ``peak_*``/``trough_*`` are CLOSE-based (maximum favourable / adverse excursion, MFE / MAE — the
+         *     ``peak_*``/``trough_*`` are CLOSE-based (maximum favorable / adverse excursion, MFE / MAE — the
          *     same basis as ``forward_return``), and ``intraday_high_*``/``intraday_low_*`` are the WICK
          *     extremes, null unless every bar in the window carries the column (they never fall back to the
          *     close). ``path`` is the window's closes, ascending — variable length, one episode's own span, so
          *     two rows' paths share no time axis; ``dearm_index`` marks the de-arm on it, null when the de-arm
          *     fell outside the scored window. All descriptive: no metric reads them.
+         *
+         *     ``truncated`` = the episode's horizon extends past the end of THIS NAME'S price tape, read
+         *     within the request as-of. It asks the tape, never the calendar: an ``exit_by`` that fell on a
+         *     weekend or a market holiday sits before a live name's tape edge, so nothing was missed and the
+         *     flag is false; a name whose tape stopped before its horizon reads true. A still-running episode
+         *     is truncated by construction (the as-of caps the tape edge too), which is why the ledger's badge
+         *     gates additionally on ``matured`` — the field states the fact, the badge decides it is worth
+         *     saying.
          */
         ScoreboardEpisodeOut: {
             /**

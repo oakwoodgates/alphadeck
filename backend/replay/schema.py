@@ -175,5 +175,11 @@ class Outcome(BaseModel):
     exit_vs_peak_days: int | None = (
         None  # exit_date - peak_date (>0 = held past the peak; rollover fit)
     )
-    truncated: bool = False  # exit_by ran past the available data (return measured to the last bar)
+    # ONE condition: the episode's horizon extends past the end of this NAME'S price tape
+    # (`exit_by > tape_edge`, the tape edge read within the reader's own as-of cap). It is a fact
+    # about the data, not a judgement about whether to say so: an immature episode is truncated by
+    # construction (the asof caps the tape edge too) and the phrasing sites rely on that, while the
+    # ledger badge gates additionally on `matured` — a running return falling short of its horizon IS
+    # running; a realized one falling short is a caveat on a number presented as final.
+    truncated: bool = False
     insufficient_prices: bool = False

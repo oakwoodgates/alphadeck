@@ -64,6 +64,11 @@ class _RoutedPrices:
         # ``RealizedPrices`` twins rather than a partial double that fails the day it is passed one.
         return self._for(security_id).bars_between(security_id, start, end)
 
+    def tape_edge(self, security_id: UUID, on_or_after: date):
+        # Protocol completeness, as above — and it routes by tenant like every other read, so it can
+        # never answer from the wrong tenant's tape if a future caller does reach it.
+        return self._for(security_id).tape_edge(security_id, on_or_after)
+
 
 def _censor_leading_warming(snaps: list[CallSnapshot]) -> list[CallSnapshot]:
     """Drop a warming-with-conviction run that is already OPEN on the record's first card — its

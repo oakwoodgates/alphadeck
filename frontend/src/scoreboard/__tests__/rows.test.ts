@@ -383,6 +383,33 @@ describe("episodeBadges — marks are exceptions, not constants", () => {
       "the arm rested on partial or late-ingested data — excluded from metrics",
     );
   });
+
+  // TAPE ENDS: the field says the horizon outran this name's tape; the badge decides that is worth
+  // saying, and only a MATURED row makes it a caveat rather than a restatement of "still running".
+  it("does not fire on a RUNNING episode — short of the horizon is what running MEANS", () => {
+    // 208 of 252 rows on the record were this: the badge said nothing the absent MATURED mark in the
+    // same cell did not already say.
+    const labels = episodeBadges(ep({ truncated: true, matured: false, status: "open" })).map(
+      (b) => b.label,
+    );
+    expect(labels).not.toContain("TAPE ENDS");
+    expect(labels).toContain("OPEN");
+  });
+  it("fires on a MATURED episode whose tape stopped short, and dates the stop", () => {
+    const badge = episodeBadges(
+      ep({ truncated: true, matured: true, status: "closed", exit_date: "2026-07-20" }),
+    ).find((b) => b.label === "TAPE ENDS");
+    expect(badge?.cls).toBe("b-trunc");
+    expect(badge?.title).toBe(
+      "the horizon elapsed, but this name's price tape stops at Jul 20",
+    );
+  });
+  it("stays silent on a matured episode whose tape covered its horizon", () => {
+    // the 20 corrected rows: exit_by on a weekend or a market holiday, tape alive either side
+    expect(
+      episodeBadges(ep({ truncated: false, matured: true, status: "closed" })).map((b) => b.label),
+    ).toEqual(["MATURED"]);
+  });
 });
 
 // A1: the de-arm tokens replay stamps (backend/replay/episodes.py::_close_reason) → the operator's English.

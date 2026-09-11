@@ -87,8 +87,59 @@ episodes, never a promise** (new arms or de-arms shift it). The FE renders it as
 beside the metrics gate.
 
 `Outcome.insufficient_prices` on a fresh arm means "no bar on/after the arm yet" (an arm recorded
-Friday has no entry bar until the next trading close lands) — awaiting data, not an error.
-`truncated` = the signal-validity horizon ran past the available (asof-capped) bars: the running-return shape.
+Friday has no entry bar until the next trading close lands) — awaiting data, not an error. It ALSO
+covers a scored window that held no bar at all: an episode whose `arm_date` and `exit_by` fall on the
+same non-trading day has nothing between them to measure, so it reports no return rather than one
+built out of an entry and an exit that are not in the same window (see "the exit read" below). On a
+MATURED episode the ledger says **"no bars in the scored window"** rather than "awaiting first bar" —
+the window has closed and no later bar can enter it, so there is nothing to await.
+
+**`truncated` = the episode's horizon extends past the end of THIS NAME's price tape**
+(`exit_by > tape_edge`, where `tape_edge` is the last bar for that name within the reader's own as-of
+cap). One condition, and it asks the tape rather than a calendar.
+
+It used to be `exit_date < exit_by`, which collapsed four unrelated situations into one flag: a
+still-running episode (structural — an immature episode's window is capped at the as-of, so it was
+*always* true and carried nothing `matured == false` did not already say); an `exit_by` that landed
+on a Saturday, Sunday or market holiday (nothing missed — there is no Sunday close and no later bar
+will ever change the number); a genuinely dead tape (the one case worth acting on); and a stale
+per-name ingest, which it could not detect at all because it never asked about the tape. It fired on
+**91% of episodes**, and every matured fire was a weekend or Labor Day — it had never once fired for
+the reason it was documented for.
+
+The tape-edge rule answers the trading-day question **without a calendar**: a Sunday `exit_by` in the
+past sits *before* a live name's tape edge, so the tape itself proves the horizon was covered; a
+market holiday resolves identically, with no holiday table to rot every January; a delisted or
+stalled name's edge sits *before* its horizon and reads true, which is the flag doing its actual job.
+Immature episodes stay `true` — load-bearing, because `moveNote`, `peakTimingPhrase` and the chart's
+"last bar" exit marker all anchor their phrasing on it.
+
+The **badge is a separate question from the field**. The field answers *"did the measurement reach the
+horizon?"* — a fact. The badge answers *"is that worth telling the operator?"* — a judgement. It gates
+additionally on `matured` and reads **`TAPE ENDS`**: a running return short of its horizon is the
+definition of running, while a *realized* one short of its horizon is a caveat on a number presented
+as final. On the current record it fires **zero** times, which is the honest count — 99 securities in
+the master have tapes that stop before 2026-08-01, none of them carrying an episode yet.
+
+`truncated` is **not** a metric input. Eligibility is `matured & !censored_start & !ingest_flagged`
+and the metric filter is `!insufficient_prices & forward_return is not None`; neither mentions it, and
+nothing in `replay/metrics.py`, `scoreboard/assemble.py`, `domain/` or `calls/` reads it. `Outcome` is
+computed on read and never persisted, so none of this is near the cron's `record_if_changed`.
+
+**The exit read.** An episode's exit is the last bar of its own scored window `[arm_date, exit_by]`,
+never the last bar anywhere `<= exit_by`. The two agree whenever the window holds a bar and diverge in
+exactly one shape — when the last bar `<= exit_by` *precedes* `arm_date` — where the unbounded-below
+read paired a later entry with an earlier exit and served a return measured **backwards in time**. Two
+episodes on the record hit it (armed on a Sunday with `exit_by` the same Sunday: `market_today()` does
+no weekend skip by design, so a Sunday backfill records a Sunday as-of and `derive_episodes` takes
+card as-ofs as episode boundaries), one of them inside the live metrics as an adverse arm.
+
+**A de-arm can postdate the scored exit, and that is the horizon working.** Seven episodes have
+`exit_by < dearm_date` — the signal-validity horizon elapsed while the record kept the member armed.
+`score_episode` scores `[arm_date, exit_by]` by design, so `exit_date <= exit_by < dearm_date` follows
+by construction and `exit_vs_peak_days` can read negative. It is the documented "open-but-matured"
+shape (`test_maturity_judged_only_at_exit_by` pins it), not a bug; those are also the episodes whose
+de-arm marker has no place on the sparkline path (`dearm_index` is null, and the hover says so).
 
 A related **single-bar** case gets its own honest label (Slice 2, #209): when the ONLY bar on/after the arm
 is the arm-day bar itself (`exit_date === arm_date`), `forward_return` is a degenerate `0.0%` over one bar —
