@@ -565,3 +565,28 @@ def test_reconstructed_nights_ride_the_summary_and_never_the_ledger(client, db, 
     # scrubbed to before the reconstructed night: the list is asof-capped
     before = client.get("/scoreboard", params={"asof": "2026-07-11"}).json()["summary"]
     assert before["reconstructed_nights"] == []
+
+
+def test_a_night_with_an_honest_row_beside_a_reconstruction_is_scored_NOT_listed(
+    client, db, security_id
+):
+    """The prod shape (2026-09-09: 8 reconstructed + 17 honest rows across the ledger, 13 episodes
+    arming honestly): a night is listed only when the record has NOTHING honest for it, ledger-wide.
+    Thesis A's nightly row on 07-12 makes 07-12 a scored night even though thesis B's row that night
+    is a reconstruction; 07-11, reconstructed on B alone, is listed."""
+    a = _seed_one_open_censored(db, security_id)  # A: an honest armed row on 07-10
+    b_sid = _second_security(db)
+    b = persist_thesis(db, b_sid, thesis_id=uuid.uuid4())
+    conv_a, conf_a = keys_fired(security_id, date(2026, 7, 1), conv_liveness=120, conf_liveness=120)
+    conv_b, conf_b = keys_fired(b_sid, date(2026, 7, 1), conv_liveness=120, conf_liveness=120)
+    record_day(db, b, [conv_b], date(2026, 7, 11), reconstructed=True)  # B alone, reconstructed
+    record_day(
+        db, b, [conv_b, conf_b], date(2026, 7, 12), reconstructed=True
+    )  # B: reconstructed...
+    record_day(db, a, [conv_a, conf_a], date(2026, 7, 12))  # ...beside A's NIGHTLY row: scored
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["reconstructed_nights"] == ["2026-07-11"]  # the mixed 07-12 is NOT listed
+    assert (
+        s["n_episodes"] == 1 and s["n_open"] == 1
+    )  # A's honest run; B's reconstructions score nothing

@@ -57,8 +57,12 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   trigger enrichment, and the de-arm detail all see ONE honest list, and a night carrying both a
   nightly row and a later reconstruction scores the nightly row. A gap left by the exclusion reads
   exactly like a cron gap — the record last spoke on the prior honest row. The rows stay in the log
-  (reversible; the evidence the backfill happened) and the summary names the excluded nights once
-  (`reconstructed_nights`, asof-capped; the ledger banner's one quiet line) — never a per-row chip,
+  (reversible; the evidence the backfill happened) and the summary names, once, the nights the record
+  has NOTHING honest for — every row on the night reconstructed (`reconstructed_nights`, asof-capped;
+  the ledger banner's one quiet line). A night that carries an honest row beside a reconstruction is
+  scored from the honest row and is NOT listed (MEASURED on prod: 2026-09-09 had 8 reconstructed and 17
+  honest rows and 13 episodes arming honestly — the first cut wrongly named it "not scored"). Never a
+  per-row chip,
   because with the filter in place a reconstructed row produces no ledger row. This is the treatment
   the historical panel already gets: a recompute is never the record, never pooled. MEASURED when the
   rule landed (dev copy, 2026-09-12): of the 106 episode starts that sat on a reconstructed night, 48

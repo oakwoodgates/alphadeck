@@ -158,8 +158,9 @@ def assemble_scoreboard(
         next_maturity=future[0] if future else None,
         n_maturing_30d=sum(1 for d in future if d <= asof + timedelta(days=30)),
         projected_min_n_date=candidates[need - 1] if 0 < need <= len(candidates) else None,
-        # the nights the record walk EXCLUDED (honest rows only — the rule in scoreboard/record.py):
-        # one ledger-wide read, capped at asof, so a scrubbed view names only nights it can see
+        # the nights the record walk had NOTHING honest for (every row reconstructed — the rule in
+        # scoreboard/record.py): one ledger-wide read, capped at asof, so a scrubbed view names only
+        # nights it can see; a night with an honest row beside a reconstruction is scored, not listed
         reconstructed_nights=calls_repo.reconstructed_asofs(conn, upto=asof),
     )
     return result

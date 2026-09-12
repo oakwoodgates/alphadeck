@@ -33,7 +33,8 @@ from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Tra
 # ``score_episode``, the metrics, the arm-day trigger enrichment, ``_dearm_detail``, the provenance
 # stamp) sees ONE honest list, and a night that carries both a nightly row and a later reconstruction
 # scores the nightly row. Reconstructed rows stay in the log (reversible; the evidence the backfill
-# happened) and are REPORTED — the summary names the excluded nights — not scored. MEASURED when the
+# happened) and are REPORTED — the summary names the nights it has nothing honest for (every row on
+# the night reconstructed; a mixed night is scored from its honest rows) — not scored. MEASURED when the
 # rule landed (dev copy, 2026-09-12): of 106 episode starts that sat on a reconstructed night, 48
 # survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
 # thesis did not exist). A gap left by the exclusion reads exactly like a cron gap: the record last

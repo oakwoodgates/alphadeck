@@ -201,15 +201,19 @@ def latest_for_thesis(
 
 
 def reconstructed_asofs(conn: psycopg.Connection, *, upto: date) -> list[date]:
-    """Every DISTINCT as-of on or before ``upto`` that carries at least one reconstructed row
-    (``pipeline.backfill``, 0042) — ledger-wide (all tenants, every thesis: the same scope as
-    ``record_edge`` / ``recorded_asofs``), ascending. The Scoreboard banner's list: the nights the record
-    path excluded, said once and quietly, never per row (with the filter in place a reconstructed row
-    produces no ledger row). Capped at ``upto`` so a scrubbed-back view names only nights it can see.
-    Read-only."""
+    """Every as-of on or before ``upto`` for which EVERY row is reconstructed (``pipeline.backfill``,
+    0042) — no honest (nightly / manual) row shares the night — ledger-wide (all tenants, every thesis:
+    the same scope as ``record_edge`` / ``recorded_asofs``), ascending. The Scoreboard banner's list:
+    the nights the record path has NOTHING honest for. A night that carries both a reconstruction and
+    an honest row is NOT listed — the record path scored it from the honest row(s) (MEASURED on prod,
+    2026-09-09: 8 reconstructed + 17 honest rows, 13 episodes arming honestly, yet the first cut named
+    it "not scored"). Said once and quietly, never per row (with the filter in place a reconstructed
+    row produces no ledger row). Capped at ``upto`` so a scrubbed-back view names only nights it can
+    see. Read-only."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT asof FROM calls WHERE reconstructed AND asof <= %s ORDER BY asof",
+            "SELECT asof FROM calls WHERE asof <= %s "
+            "GROUP BY asof HAVING bool_and(reconstructed) ORDER BY asof",
             (upto,),
         )
         return [r["asof"] for r in cur.fetchall()]
