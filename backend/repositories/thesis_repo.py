@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from datetime import datetime
 from uuid import UUID
 
 import psycopg
@@ -139,6 +141,21 @@ def list_all(conn: psycopg.Connection, *, include_archived: bool = False) -> lis
         cur.execute(f"SELECT id FROM thesis {where} ORDER BY name")
         ids = [r["id"] for r in cur.fetchall()]
     return [thesis for thesis in (get(conn, i) for i in ids) if thesis is not None]
+
+
+def created_at_for(conn: psycopg.Connection, thesis_ids: Iterable[UUID]) -> dict[UUID, datetime]:
+    """``thesis_id -> created_at`` (an aware instant — the column is ``timestamptz``) for the ids given;
+    an unknown id is simply absent. The domain ``Thesis`` deliberately does not carry ``created_at``
+    (it is a row fact, not part of the spine the promote payload owns — ``upsert`` never names it, so
+    it is stable for the life of the row). This narrow read exists for the ONE question that needs it:
+    did the thesis EXIST on a past night (``pipeline.backfill``'s existence gate, and the repair script
+    that shares its rule)? Read-only."""
+    ids = list(thesis_ids)
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, created_at FROM thesis WHERE id = ANY(%s)", (ids,))
+        return {r["id"]: r["created_at"] for r in cur.fetchall()}
 
 
 def set_archived(conn: psycopg.Connection, thesis_id: UUID, archived: bool) -> None:

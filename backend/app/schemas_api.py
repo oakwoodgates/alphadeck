@@ -1204,6 +1204,11 @@ class ScoreboardSummaryOut(BaseModel):
     next_maturity: date | None = None  # min FUTURE exit_by, ledger-wide
     n_maturing_30d: int = 0
     projected_min_n_date: date | None = None  # None = already cleared, or not reachable
+    # The nights a backfill RECONSTRUCTED (``pipeline.backfill``; ``calls.reconstructed``): distinct
+    # as-ofs <= asof, ledger-wide, ascending. The record path scores honest (nightly) rows only — a
+    # reconstructed row never opens or closes an episode — so these nights are named here, once and
+    # quietly, and never as a per-row chip. Empty = nothing excluded.
+    reconstructed_nights: list[date] = []
     # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
     # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
     # exactly like AdminRecordOut. Asof-INDEPENDENT (the record edge + the clock drive it, not the

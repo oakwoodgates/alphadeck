@@ -9,6 +9,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot
+from repositories import calls_repo
 from scoreboard.prices import PgRealizedPrices
 from scoreboard.record import scoreboard_records
 from scoreboard.schema import ScoreboardResult, ScoreboardSummary
@@ -157,5 +158,8 @@ def assemble_scoreboard(
         next_maturity=future[0] if future else None,
         n_maturing_30d=sum(1 for d in future if d <= asof + timedelta(days=30)),
         projected_min_n_date=candidates[need - 1] if 0 < need <= len(candidates) else None,
+        # the nights the record walk EXCLUDED (honest rows only — the rule in scoreboard/record.py):
+        # one ledger-wide read, capped at asof, so a scrubbed view names only nights it can see
+        reconstructed_nights=calls_repo.reconstructed_asofs(conn, upto=asof),
     )
     return result

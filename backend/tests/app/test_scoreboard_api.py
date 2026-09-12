@@ -546,3 +546,22 @@ def test_scoreboard_get_writes_nothing(client, db, security_id, monkeypatch):
     # the compute-on-read freshness fields were traversed (record_edge is a pure SELECT) …
     assert "stale" in resp.json()["summary"] and "record_edge" in resp.json()["summary"]
     assert counts() == before  # … and the read wrote NOTHING
+
+
+def test_reconstructed_nights_ride_the_summary_and_never_the_ledger(client, db, security_id):
+    """0042: a backfill-reconstructed row is REPORTED (the summary names its night, capped at asof) and
+    never SCORED (it neither opens nor closes an episode). The quiet default is an empty list."""
+    thesis = _seed_one_open_censored(db, security_id)  # one censored open episode, armed from 07-10
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["reconstructed_nights"] == []  # nothing reconstructed anywhere: the quiet default
+
+    conv, conf = keys_fired(security_id, date(2026, 7, 1), conv_liveness=120, conf_liveness=120)
+    record_day(db, thesis, [conv], date(2026, 7, 12), reconstructed=True)  # a backfill: "de-armed"
+    record_day(db, thesis, [conv, conf], date(2026, 7, 13))  # nightly: still armed
+
+    s = client.get("/scoreboard", params={"asof": ASOF}).json()["summary"]
+    assert s["reconstructed_nights"] == ["2026-07-12"]
+    assert s["n_episodes"] == 1 and s["n_open"] == 1  # the reconstruction closed nothing
+    # scrubbed to before the reconstructed night: the list is asof-capped
+    before = client.get("/scoreboard", params={"asof": "2026-07-11"}).json()["summary"]
+    assert before["reconstructed_nights"] == []

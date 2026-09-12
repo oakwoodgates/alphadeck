@@ -88,6 +88,8 @@ const PAYLOAD = {
     next_maturity: "2026-11-22",
     n_maturing_30d: 0,
     projected_min_n_date: null,
+    // no backfill-reconstructed nights on this ledger (the quiet default)
+    reconstructed_nights: [],
     record_began: "2026-07-10",
     banner: "FORWARD RECORD, NOT A CLAIM — record began 2026-07-10; 0 episodes eligible…",
     min_n: 5,
@@ -390,6 +392,24 @@ describe("Scoreboard", () => {
       data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, n_ingest_flagged: 1 } },
     });
     expect(screen.getByText("1 ingest-flagged")).toBeInTheDocument();
+  });
+
+  it("the reconstructed-nights line renders ONCE, only when non-empty, with the dates on hover", () => {
+    renderBoard(); // the fixture has no reconstructed nights
+    expect(screen.queryByText(/reconstructed by a backfill/)).not.toBeInTheDocument();
+    renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: { ...PAYLOAD.summary, reconstructed_nights: ["2026-07-08", "2026-07-09"] },
+      },
+    });
+    const lines = screen.getAllByText(/2 nights reconstructed by a backfill · not scored/);
+    expect(lines).toHaveLength(1); // one quiet line for the whole ledger, never a per-row chip
+    expect(lines[0]).toHaveAttribute("title", expect.stringContaining("2026-07-08, 2026-07-09"));
+    renderBoard({
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, reconstructed_nights: ["2026-07-08"] } },
+    });
+    expect(screen.getByText(/1 night reconstructed by a backfill · not scored/)).toBeInTheDocument();
   });
 
   it("a row click opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {

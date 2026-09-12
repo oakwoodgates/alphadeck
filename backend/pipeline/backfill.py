@@ -1,15 +1,34 @@
-"""``pipeline.backfill`` — record a MISSED night's call-of-record with a PINNED ``known_at`` (the faithful
-reconstruction).
+"""``pipeline.backfill`` — record a MISSED night's call-of-record with a PINNED ``known_at``: a
+reconstruction that is faithful on ONE axis (the clock), enforced on a second (thesis existence), and
+NOT reconstructable on a third (basket composition). Read the honesty note before trusting a row.
 
 The cron sidecar missed nights (a laptop-sleep drift, closed by the target-at-schedule-time fix in
 ``scripts/daily_cron.sh``). The ``calls`` log is immutable and bitemporal: a row's ``recorded_at`` is
 always now. A naive backfill — ``python -m pipeline.daily --asof <past>`` — computes the past night with
 ``known_at = now``, i.e. TODAY's knowledge: MEASURED on dev, a thesis backfilled as ARMED on nights whose
-real nightly neighbors recorded INCUBATING, because its facts arrived AFTER those nights. This module is
-the faithful option: it computes the missed night with ``known_at`` PINNED to a past instant, so the row
-shows what the cron WOULD have logged, consistent with its recorded neighbors. The as-of gate is two-axis
+real nightly neighbors recorded INCUBATING, because its facts arrived AFTER those nights. This module
+pins the clock instead: it computes the missed night with ``known_at`` PINNED to a past instant, so the
+row shows what the cron WOULD have logged as far as the FACTS go. The as-of gate is two-axis
 (``valid_from <= asof`` AND ``recorded_at <= known_at`` — ``docs/INVARIANTS.md`` #4), and ``known_at`` is
 already a parameter of ``call_for_thesis``; this CLI adds nothing to the assembly, it only pins the clock.
+
+**The three axes of a reconstruction — what a reconstructed row IS and IS NOT (the honesty note).**
+
+1. **The clock — pinned, faithful.** Every fact read honors the pin; nothing learned after it leaks in.
+2. **Thesis existence — ENFORCED here.** A thesis created AFTER the night was not in that night's cron,
+   so it gets NO row: ``run_backfill`` skips it (``thesis_existed_on``: ``thesis.created_at`` in market
+   time vs the as-of day — a thesis created during the day of ``asof`` WAS in that night's run) and
+   reports the skip LOUDLY, in the per-run summary, in ``--dry-run``, and in the provenance artifact —
+   never silently (recall is sacred; a dropped thesis is visible, not vanished). MEASURED before this gate
+   existed: 37 of 144 reconstructed rows on dev were dated before their thesis's creation, 20 of them
+   warming/armed, two of them arm episodes for a thesis that did not exist.
+3. **Basket composition — NOT reconstructable.** ``basket_member`` is full-replace with no timestamps, so
+   every reconstruction runs on TODAY's roster; which names were in the basket on a past night is
+   unknowable. A reconstructed row therefore can never be shown honest, and the Scoreboard's record path
+   scores NONE of them: every row this module writes carries ``calls.reconstructed = true`` (migration
+   0042), and ``scoreboard/record.py`` reads with ``include_reconstructed=False`` — a reconstructed row
+   never opens or closes an arm episode; it is reported (the ledger banner names the nights), not
+   scored. Until baskets are point-in-time, that stays true for every row this tool writes.
 
 The recommended pin is ``finished_at`` of the FIRST live cron run after the missed night (``--known-at
 next-run``): that run ingested the night's own EOD bar and its filings and excludes everything that arrived
@@ -28,12 +47,12 @@ Discipline (``daily.run_daily``'s, minus everything that is not a recompute):
   captured and the rest still record.
 - **Idempotent** — ``record_if_changed``'s canonical compare: a re-run with the same ``asof`` + ``known_at``
   appends ZERO rows. A DIFFERENT pin that sees different facts is a genuine change and appends one.
-- **The NULL ingest stamp.** ``ingest_fresh`` / ``ingest_errors`` stay ``None``: there is no ingest in a
-  backfill, NULL is the honest stamp, and it distinguishes a reconstructed row from a nightly one (which
-  always carries True/False since R2b).
+- **The markers.** ``reconstructed = true`` on every row written here — the explicit provenance the
+  Scoreboard filters on (the cron never sets it). ``ingest_fresh`` / ``ingest_errors`` stay ``None``: there
+  is no ingest in a backfill, NULL is the honest stamp.
 - **Provenance, write-only, fail-open** — one JSON per invocation under ``data/backfills/``
-  (``pipeline/backfill_log.py``). It is NOT a cron run artifact: ``already_ran_live`` stays False for the
-  night. A ``--dry-run`` writes NOTHING — neither a row nor an artifact.
+  (``pipeline/backfill_log.py``), skips included. It is NOT a cron run artifact: ``already_ran_live`` stays
+  False for the night. A ``--dry-run`` writes NOTHING — neither a row nor an artifact.
 - **Refusals, all loud (exit 2), all BEFORE a connection is opened:** ``asof >= market_today()`` (tonight is
   the cron's job); a naive ``--known-at`` (a wrong zone shifts real answers invisibly); a ``known_at``
   earlier than the as-of day begins (a pin before the night cannot see the night); ``next-run`` with no
@@ -64,9 +83,10 @@ NEXT_RUN = "next-run"  # the --known-at literal that resolves the pin from the c
 @dataclass
 class BackfillResult:
     """Per-thesis outcome. ``recorded``: True = a reconstructed call-of-record was appended, False = an
-    identical row was already logged for this as-of (no row), None = dry-run or the call step failed (see
-    ``error``). ``prior_state`` / ``prior_verdict``: the row already logged for this as-of before the run
-    (None = the night had no row — the missed-night case)."""
+    identical row was already logged for this as-of (no row), None = dry-run, skipped, or the call step
+    failed (see ``skipped`` / ``error``). ``skipped``: the reason the thesis got NO row (it did not exist
+    on the night) — reported, never silent. ``prior_state`` / ``prior_verdict``: the row already logged
+    for this as-of before the run (None = the night had no row — the missed-night case)."""
 
     thesis_id: UUID
     name: str
@@ -76,6 +96,7 @@ class BackfillResult:
     prior_state: str | None = None
     prior_verdict: str | None = None
     recorded: bool | None = None
+    skipped: str | None = None
     error: str | None = None
 
 
@@ -106,6 +127,18 @@ def night_start(asof: date, tz: tzinfo) -> datetime:
 def night_end(asof: date, tz: tzinfo) -> datetime:
     """``asof`` 23:59:59 in market time — a run started at or before this is ON the night, not after it."""
     return datetime.combine(asof, time(23, 59, 59), tzinfo=tz)
+
+
+def thesis_existed_on(created_at: datetime, asof: date, tz: tzinfo) -> bool:
+    """Did a thesis created at ``created_at`` exist on the night of ``asof``? PURE, and the ONE rule both
+    the backfill's existence gate and ``pipeline.repair_reconstructed_precreation`` apply, so the two
+    tools cannot disagree. Market time, by the calendar day: a thesis created at any point DURING the
+    as-of day was in that night's cron (the cron fires at 22:30 market time, after the day's work), so
+    it existed; one created 00:00:00 the next market day did not. ``created_at`` must be aware (the
+    column is ``timestamptz``); a naive instant is refused — the same discipline as the pin."""
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise ValueError("created_at must be timezone-aware — an instant, never a wall time")
+    return created_at.astimezone(tz).date() <= asof
 
 
 def resolve_next_run_known_at(payloads: Iterable[dict], asof: date, tz: tzinfo) -> datetime | None:
@@ -151,8 +184,11 @@ def run_backfill(
     """Reconstruct the call-of-record for ``asof`` under a PINNED ``known_at`` for every non-archived thesis
     (``thesis_repo.list_all``, the cron's set) or the one named — exactly ``daily.run_daily``'s per-thesis
     isolation: each thesis in its own try, commit on success, rollback on failure, never fatal to the run.
-    ``dry_run`` assembles and reports but writes NOTHING (the read transaction is rolled back). Raises
-    ``LookupError`` for an unknown ``thesis_id`` (before any thesis runs)."""
+    A thesis that did NOT exist on the night (``thesis_existed_on``) is SKIPPED before any assembly — no
+    row, no compare — and the skip is carried on its result (``skipped``), so the report and the
+    provenance artifact both say so. ``dry_run`` assembles and reports (skips included) but writes
+    NOTHING (the read transaction is rolled back). Raises ``LookupError`` for an unknown ``thesis_id``
+    (before any thesis runs)."""
     if known_at.tzinfo is None or known_at.utcoffset() is None:
         raise ValueError(
             "known_at must be timezone-aware — the pin is an instant, never a wall time"
@@ -164,9 +200,22 @@ def run_backfill(
         theses = [one]
     else:
         theses = thesis_repo.list_all(conn)
+    tz = market_tz()
+    created = thesis_repo.created_at_for(conn, [t.id for t in theses])
     out: list[BackfillResult] = []
     for thesis in theses:
         res = BackfillResult(thesis_id=thesis.id, name=thesis.name)
+        # THE EXISTENCE GATE (axis 2): a thesis created after the night was not in that night's cron.
+        # Decided before any read of the night, reported loudly, never silent. A missing created_at
+        # (impossible for a loaded row — the column is NOT NULL) is treated as "existed" so the gate can
+        # never drop a thesis on a data surprise (recall over precision).
+        born = created.get(thesis.id)
+        if born is not None and not thesis_existed_on(born, asof, tz):
+            res.skipped = (
+                f"did not exist on {asof} — created {born.astimezone(tz).date()} (market time)"
+            )
+            out.append(res)
+            continue
         try:
             # the row this night already has (the missed-night case has none) — reported, never a gate:
             # record_if_changed does its own canonical compare against exactly this row
@@ -183,8 +232,11 @@ def run_backfill(
             if dry_run:
                 conn.rollback()  # nothing to keep — end the read transaction cleanly
             else:
+                # reconstructed=True: the explicit marker the Scoreboard's record path filters on (0042).
                 # ingest_fresh / ingest_errors stay None ON PURPOSE: there was no ingest (the NULL stamp)
-                res.recorded = calls_repo.record_if_changed(conn, card, thesis.tenant_id)
+                res.recorded = calls_repo.record_if_changed(
+                    conn, card, thesis.tenant_id, reconstructed=True
+                )
                 conn.commit()
         except Exception as e:  # noqa: BLE001 — one thesis's failure never aborts the backfill
             conn.rollback()
@@ -259,13 +311,18 @@ def run_backfill_pass(
 
 def _report(results: list[BackfillResult], *, dry_run: bool) -> int:
     """Print a per-thesis summary (``daily._report``'s shape); return the number that errored (the process
-    exit signal)."""
+    exit signal). A skip prints its own loud line and its own count — it is neither an error nor an
+    "unchanged"."""
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
+    skipped = [r for r in results if r.skipped]
     errored = [r for r in results if r.error]
     for r in results:
         if r.error:
             print(f"  {r.name}: ERROR: {r.error}")
+            continue
+        if r.skipped:
+            print(f"  {r.name}: SKIPPED — {r.skipped} (no row written)")
             continue
         if dry_run:
             mark = "DRY-RUN (nothing written)"
@@ -282,7 +339,7 @@ def _report(results: list[BackfillResult], *, dry_run: bool) -> int:
     dr = " · DRY-RUN (nothing written)" if dry_run else ""
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged · "
-        f"{len(errored)} errored{dr}"
+        f"{len(skipped)} skipped (did not exist on the night) · {len(errored)} errored{dr}"
     )
     return len(errored)
 
@@ -290,7 +347,9 @@ def _report(results: list[BackfillResult], *, dry_run: bool) -> int:
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="Backfill a MISSED night's call-of-record with known_at PINNED to a past instant "
-        "(a pure recompute-and-record over facts already in the store: no ingest, no notify)."
+        "(a pure recompute-and-record over facts already in the store: no ingest, no notify). Every row "
+        "it writes is marked reconstructed (the Scoreboard reports, never scores, such rows); a thesis "
+        "that did not exist on the night is skipped and reported."
     )
     p.add_argument(
         "--asof", required=True, help="the missed night, YYYY-MM-DD (must be in the past)"
@@ -308,7 +367,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="assemble and print; write NOTHING (no row, no artifact)",
+        help="assemble and print (skips included); write NOTHING (no row, no artifact)",
     )
     args = p.parse_args(argv)
 

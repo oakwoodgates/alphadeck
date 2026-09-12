@@ -3749,6 +3749,11 @@ export interface components {
             n_maturing_30d: number;
             /** Projected Min N Date */
             projected_min_n_date?: string | null;
+            /**
+             * Reconstructed Nights
+             * @default []
+             */
+            reconstructed_nights: string[];
             /** Record Edge */
             record_edge: string | null;
             /**

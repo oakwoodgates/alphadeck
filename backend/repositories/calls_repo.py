@@ -20,6 +20,7 @@ def append(
     *,
     ingest_fresh: bool | None = None,
     ingest_errors: int | None = None,
+    reconstructed: bool = False,
 ) -> UUID:
     """Append an assembled CallCard to the write-only accountability log, under ``tenant_id`` (the call of
     record lands in the thesis's tenant). NOT the read path — the API recomputes the card live from facts.
@@ -33,20 +34,28 @@ def append(
     was every name's back-half ingest clean, and how many errored. PROVENANCE only — the scoring reads never
     branch on them; they are stamped SEPARATELY from the card (never inside it, or a stale->fresh flip would
     fake a change in ``_canonical``). ``None`` = not supplied (a manual/legacy append).
+
+    ``reconstructed`` (migration 0042) marks a row written by ``pipeline.backfill`` — a reconstruction of a
+    missed night, never the nightly record. Provenance too, off the card for the same reason; the cron and
+    every manual append leave the default ``False``. Its ONE reader is the Scoreboard's record path, which
+    EXCLUDES such rows (``latest_for_thesis(include_reconstructed=False)``) — a reconstructed row never
+    defines an episode boundary.
     """
     row = call_to_row(card, tenant_id)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO calls
-                   (tenant_id, thesis_id, asof, state, verdict, card, ingest_fresh, ingest_errors)
+                   (tenant_id, thesis_id, asof, state, verdict, card, ingest_fresh, ingest_errors,
+                    reconstructed)
                VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s,
-                       %(ingest_fresh)s, %(ingest_errors)s)
+                       %(ingest_fresh)s, %(ingest_errors)s, %(reconstructed)s)
                RETURNING id""",
             {
                 **row,
                 "card": Json(row["card"]),
                 "ingest_fresh": ingest_fresh,
                 "ingest_errors": ingest_errors,
+                "reconstructed": reconstructed,
             },
         )
         return cur.fetchone()["id"]
@@ -83,6 +92,7 @@ def record_if_changed(
     *,
     ingest_fresh: bool | None = None,
     ingest_errors: int | None = None,
+    reconstructed: bool = False,
 ) -> bool:
     """Append the call-of-record for ``(thesis, card.asof)`` ONLY if none exists for that as-of yet, or the
     latest logged one differs in substance (a canonical, order-independent compare). Returns ``True`` iff it
@@ -98,11 +108,23 @@ def record_if_changed(
     stale->fresh flip on an otherwise-identical card does NOT append a spurious row (freshness is provenance
     of the run, not a change in the call). The stamp is the ingest health of the run that FIRST recorded this
     card version; a later re-run producing the identical card doesn't re-stamp (there's no new row).
+
+    ``reconstructed`` rides the write the same way (off the card, out of the compare): the backfill passes
+    ``True``; the compare still runs against the latest row for the as-of WHATEVER its marker, so a
+    backfill re-run with the same pin appends zero rows, and a nightly row already on the night keeps a
+    faithful reconstruction from appending a duplicate.
     """
     prior = next((c for c in latest_for_thesis(conn, card.thesis_id) if c.asof == card.asof), None)
     if prior is not None and _canonical(prior) == _canonical(card):
         return False
-    append(conn, card, tenant_id, ingest_fresh=ingest_fresh, ingest_errors=ingest_errors)
+    append(
+        conn,
+        card,
+        tenant_id,
+        ingest_fresh=ingest_fresh,
+        ingest_errors=ingest_errors,
+        reconstructed=reconstructed,
+    )
     return True
 
 
@@ -146,22 +168,55 @@ def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]
         return [row_to_call(r) for r in cur.fetchall()]
 
 
-def latest_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
+def _reconstructed_clause(include_reconstructed: bool) -> str:
+    """The one honest filter (migration 0042): with ``include_reconstructed=False`` a row written by
+    ``pipeline.backfill`` is dropped BEFORE the per-as-of dedup, so on a night that carries both a
+    nightly row and a later reconstruction the NIGHTLY row wins — never a silent swap to the
+    reconstruction. Applied inside the WHERE, so DISTINCT ON never sees the excluded rows."""
+    return "" if include_reconstructed else " AND NOT reconstructed"
+
+
+def latest_for_thesis(
+    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
+) -> list[CallCard]:
     """The call of record at each ``asof`` — one row per as-of, the latest append wins (a re-run after
     a fact correction supersedes the earlier row), newest as-of first. This is the deduped read a
     scoreboard wants; ``list_for_thesis`` keeps the full history. Never the serve path.
+
+    ``include_reconstructed`` (default ``True``: every row, the behavior every existing caller relies
+    on — the cron's transition compare, the backfill's prior-row report, ``record_if_changed``'s
+    idempotency compare, the decision log's stance-at-logging). The Scoreboard's record path passes
+    ``False``: a reconstructed row (``pipeline.backfill``, 0042) ran on today's basket for a thesis
+    that may not have existed, so it never defines an episode boundary — it is reported, not scored.
+    The filter runs BEFORE the dedup (see ``_reconstructed_clause``).
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s "
-            "ORDER BY asof DESC, seq DESC",
+            "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s"
+            + _reconstructed_clause(include_reconstructed)
+            + " ORDER BY asof DESC, seq DESC",
             (thesis_id,),
         )
         return [row_to_call(r) for r in cur.fetchall()]
 
 
+def reconstructed_asofs(conn: psycopg.Connection, *, upto: date) -> list[date]:
+    """Every DISTINCT as-of on or before ``upto`` that carries at least one reconstructed row
+    (``pipeline.backfill``, 0042) — ledger-wide (all tenants, every thesis: the same scope as
+    ``record_edge`` / ``recorded_asofs``), ascending. The Scoreboard banner's list: the nights the record
+    path excluded, said once and quietly, never per row (with the filter in place a reconstructed row
+    produces no ledger row). Capped at ``upto`` so a scrubbed-back view names only nights it can see.
+    Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT asof FROM calls WHERE reconstructed AND asof <= %s ORDER BY asof",
+            (upto,),
+        )
+        return [r["asof"] for r in cur.fetchall()]
+
+
 def ingest_health_for_thesis(
-    conn: psycopg.Connection, thesis_id: UUID
+    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
 ) -> dict[date, tuple[bool | None, int | None]]:
     """The R2b ingest-health stamp of the WINNING row per as-of: asof -> ``(ingest_fresh,
     ingest_errors)`` (migration 0023). The IDENTICAL dedup as ``latest_for_thesis`` (latest append
@@ -170,11 +225,16 @@ def ingest_health_for_thesis(
     never coerced to a judgment. The stamps live deliberately OFF the card (a freshness field IN it
     would fake a change in ``_canonical``), which is why this is a separate, narrow peer read — its
     only consumer is the Scoreboard's provenance layer; the as-of/scoring reads never branch on it.
+    ``include_reconstructed`` mirrors ``latest_for_thesis`` exactly, and the Scoreboard passes the SAME
+    value to both — so the stamp read here is the stamp of the row that was actually scored, never
+    a reconstruction's NULL stamp standing in for a nightly row's.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) asof, ingest_fresh, ingest_errors FROM calls "
-            "WHERE thesis_id = %s ORDER BY asof DESC, seq DESC",
+            "WHERE thesis_id = %s"
+            + _reconstructed_clause(include_reconstructed)
+            + " ORDER BY asof DESC, seq DESC",
             (thesis_id,),
         )
         return {r["asof"]: (r["ingest_fresh"], r["ingest_errors"]) for r in cur.fetchall()}

@@ -8,8 +8,10 @@ by <policy>" is this artifact. It mirrors ``cron_run_log.py`` exactly and inheri
 - **Write-only, no DB.** It writes a file and opens no connection; it is called by the pass AFTER the run
   completes, from the already-collected results.
 - **Fail-open, logged.** A write that fails is a logged exception and ``None``, NEVER a failed backfill.
-- **Value-free.** It records what the run already produced (state / verdict / recorded / error per thesis);
-  it computes no number and reads no fact (#3).
+- **Value-free.** It records what the run already produced (state / verdict / recorded / skipped / error per
+  thesis); it computes no number and reads no fact (#3). A SKIP (the thesis did not exist on the night —
+  the existence gate) is carried per thesis and counted in the summary, so the artifact says which theses
+  got no row and why, never just which got one.
 - **NOT a cron run artifact.** It lives in its OWN directory (``data/backfills/``, never ``data/cron_runs/``),
   so ``already_ran_live`` stays False for the night and a later ``--catch-up`` is not suppressed by a
   reconstruction, and the Admin run history never mistakes a backfill for a nightly pass.
@@ -63,6 +65,7 @@ def build_backfill_payload(
             "theses": len(results),
             "appended": sum(1 for r in results if r.recorded),
             "unchanged": sum(1 for r in results if r.recorded is False),
+            "skipped": sum(1 for r in results if r.skipped),
             "errored": sum(1 for r in results if r.error),
         },
         "theses": [
@@ -73,6 +76,7 @@ def build_backfill_payload(
                 "verdict": r.verdict,
                 "armed": r.armed,
                 "recorded": r.recorded,
+                "skipped": r.skipped,
                 "error": r.error,
             }
             for r in results

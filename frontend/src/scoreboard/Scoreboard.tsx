@@ -214,6 +214,21 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                 record current · last advanced <b>{summary.record_edge}</b>
               </div>
             ))}
+          {/* the reconstructed-nights line: the record path scores honest (nightly) rows only — a row
+              a backfill reconstructed never opens or closes an episode — so the nights it set aside
+              are named ONCE, quietly, here; never as a per-row chip (with the filter in place a
+              reconstructed row produces no ledger row). Asof-capped by the backend, so a scrubbed
+              view names only nights it can see. Rendered only when non-empty (honest loudness). */}
+          {summary.reconstructed_nights.length > 0 && (
+            <div
+              className="sb-freshline sb-fresh"
+              title={`reconstructed by a backfill with the clock pinned, on today's basket — not scored: ${summary.reconstructed_nights.join(", ")}`}
+            >
+              {summary.reconstructed_nights.length}{" "}
+              {summary.reconstructed_nights.length === 1 ? "night" : "nights"} reconstructed by a
+              backfill · not scored
+            </div>
+          )}
           <div className="sb-counts">
             <span>{summary.n_episodes} episodes</span>
             <span>{summary.n_open} open</span>
