@@ -298,7 +298,7 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   `basket_member` is full-replace with no timestamps, so every reconstruction ran on TODAY's roster. A
   reconstructed row therefore can never be shown honest, and the Scoreboard scores none of them
   (`docs/SCOREBOARD.md` §"The one rule" — a reconstructed row never defines an episode boundary; the
-  ledger names the excluded nights once). Until baskets are point-in-time, that holds for every row this
+  ledger names, once, the nights it has nothing honest for). Until baskets are point-in-time, that holds for every row this
   tool writes.
 - **The markers.** Every row the backfill writes carries `calls.reconstructed = true` (migration 0042; the
   cron never sets it) — the explicit provenance the Scoreboard's record path filters on, threaded to

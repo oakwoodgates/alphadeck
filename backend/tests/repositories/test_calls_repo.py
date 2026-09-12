@@ -140,9 +140,11 @@ def test_include_reconstructed_filters_BEFORE_the_dedup_and_the_marker_rides_the
     assert calls_repo.ingest_health_for_thesis(db, thesis.id, include_reconstructed=False) == {
         d1: (True, 0)
     }
+    # the banner's list names only nights with NOTHING honest: d1 (a nightly row beside the later
+    # reconstruction — scored from the nightly row) is NOT listed; d2 (reconstruction only) is
     assert calls_repo.reconstructed_asofs(db, upto=date(2026, 5, 31)) == []
-    assert calls_repo.reconstructed_asofs(db, upto=d1) == [d1]
-    assert calls_repo.reconstructed_asofs(db, upto=d2) == [d1, d2]
+    assert calls_repo.reconstructed_asofs(db, upto=d1) == []
+    assert calls_repo.reconstructed_asofs(db, upto=d2) == [d2]
 
     # idempotency is marker-blind: the identical card appends nothing, with or without the flag
     assert calls_repo.record_if_changed(db, recon_d2, reconstructed=True) is False

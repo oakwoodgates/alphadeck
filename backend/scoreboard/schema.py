@@ -201,9 +201,10 @@ class ScoreboardSummary(BaseModel):
     n_maturing_30d: int = 0  # future maturities within asof + 30d
     # when the ELIGIBLE pool could reach min_n — None = already cleared, or not reachable
     projected_min_n_date: date | None = None
-    # the nights the record path EXCLUDED (``calls.reconstructed``, 0042): distinct as-ofs <= asof
-    # carrying a reconstructed row, ledger-wide, ascending. Reported once, quietly — never per row
-    # (with the filter in place a reconstructed row produces no ledger row). Empty = nothing excluded.
+    # the nights the record path has NOTHING honest for (``calls.reconstructed``, 0042): as-ofs <= asof
+    # whose EVERY row is reconstructed, ledger-wide, ascending. A night that also carries an honest
+    # row is scored from it and is NOT listed. Reported once, quietly — never per row (with the filter
+    # in place a reconstructed row produces no ledger row). Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
 
 
