@@ -130,6 +130,24 @@ replay stays honest.
   backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
   is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,
   the no-lookahead test). See `FEED_LOOP.md`.
+- *Also honored by (the SERVE path — the scrub-back cap):* the gate COLUMN being right is not enough; the
+  PIN must move. `GET /theses/{id}/call`, `/display-signals`, and `/workbench/…/scored` recompute through
+  a `PointInTimeData` whose `known_at` defaults to `now`, so for a past `asof` the `recorded_at` half of the
+  gate never bit and a Board/Cockpit scrub-back read TODAY's knowledge of that date (MEASURED 2026-09-09:
+  Modern Defense at `asof=2026-08-25` recomputed ARMED on TPCS bars ingested 2026-09-01 while the record
+  said watching — `docs/temp/serve-path-lookahead-audit-2026-09-09.md`). The three routes now thread
+  `domain.market_time.serve_known_at(asof)`: `None` for a live `asof` (the unchanged live read — the PIT's
+  own UTC `now` for facts, the DATABASE clock for the decisions log, `decisions_repo`'s one-clock rule) and
+  `known_at_for_asof(asof)` = the end of that **market** day for a past one (the cron's own convention —
+  `RUN_AT` 22:30 ET with `asof = market_today()` — so the recompute's data view is a superset of the
+  record's by at most the hours to midnight ET, never a subset; a UTC day-end would have sat before the
+  cron and read one bar short). What this does NOT make identical to the record: the recompute runs
+  today's CODE and today's BASKET (`basket_member` is full-replace on promote, not bitemporal) over
+  then-knowable facts — PIT-honest on data, not a replay of the row. *Enforced by:* the per-site leak +
+  template tests in `tests/app/test_theses_api.py`, `test_display_signals_api.py`,
+  `test_workbench_api.py` (a fact dated before but recorded after the as-of is invisible; a live `asof`
+  threads `None`), and `tests/domain/test_market_time.py` (the market-day cap, the post-20:00-ET live
+  identity, the configured zone).
 - *Also honored by (Board/Cockpit perf PR-1b — the PIT memo rule + the horizon registry):* one
   `PointInTimeData` per request / per cron assemble **memoizes** each `(table, security_id)` as-of result
   and **prefetches** a whole basket per table in ONE `db.bitemporal.as_of_many` query — the SAME

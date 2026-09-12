@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date
 from typing import get_args
 
 from app.schemas_api import InsiderSellOut
-from scoreboard.overlays import annotate_sma, known_at_for_asof, sell_character_wire
+from scoreboard.overlays import annotate_sma, sell_character_wire
 from signals.insider_sell import _FOREIGN, _KEPT, _PLANNED, _SELF, SELL_SCREEN_BUCKETS
 
-# Pure overlay helpers (no DB): the SMA rolling mean + its honest left-edge gap, the insider read's
-# transaction-axis cap (min(now, asof-EOD)), and the Slice B sell-character wire map's drift pin. The
+# Pure overlay helpers (no DB): the SMA rolling mean + its honest left-edge gap, and the Slice B
+# sell-character wire map's drift pin. The transaction-axis cap the drawer's event reads thread
+# (``known_at_for_asof`` — min(now, end of the asof MARKET day)) moved to ``domain.market_time`` when the
+# serve-path recomputes started sharing it; its tests live in tests/domain/test_market_time.py. The
 # DB-backed event paths (no-lookahead event twins, superseded no-double-count, the screens) are
 # exercised through the API in tests/app/test_scoreboard_price_window_api.py.
 
@@ -41,27 +43,6 @@ def test_annotate_sma_does_not_mutate_the_input():
     bars = _bars([1.0, 2.0, 3.0])
     annotate_sma(bars, windows=(2,))
     assert all("sma2" not in b for b in bars)  # new dicts returned; input untouched
-
-
-def test_known_at_caps_at_asof_end_of_day_for_a_past_view():
-    """A scrubbed-back as-of caps the transaction axis at that day's end — a buy disclosed the next day
-    is beyond known_at (hidden), the whole no-lookahead-on-disclosure point."""
-    asof = date(2026, 6, 10)
-    now = datetime(
-        2026, 7, 24, 12, 0, tzinfo=timezone.utc
-    )  # real 'now' is well after the past asof
-    assert known_at_for_asof(asof, now=now) == datetime.combine(asof, time.max, tzinfo=timezone.utc)
-
-
-def test_known_at_is_now_for_a_live_view():
-    """A live/future as-of reads at now (everything disclosed by this moment), never a future EOD."""
-    now = datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc)
-    assert (
-        known_at_for_asof(date(2026, 8, 1), now=now) == now
-    )  # asof-EOD is in the future → now wins
-    assert (
-        known_at_for_asof(date(2026, 7, 24), now=now) == now
-    )  # same day, now is before EOD → now wins
 
 
 def test_sell_character_wire_map_covers_every_screen_bucket():

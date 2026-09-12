@@ -43,7 +43,7 @@ it is no longer the mechanism.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from domain.settings import get_settings
@@ -88,3 +88,55 @@ def market_today(tz: ZoneInfo | None = None) -> date:
     NOT a trading-calendar read: no weekend skip, no holidays — see the module docstring.
     """
     return market_now(tz).date()
+
+
+def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
+    """The transaction-axis cap for a scrubbed-back read: ``min(now, end of asof's MARKET day)``, as UTC.
+
+    The two-axis no-lookahead a forward reader owes (invariant #1 / ``INVARIANTS.md`` §4). The as-of gate
+    is ``valid_from <= asof AND recorded_at <= known_at``, and with ``known_at = now`` the second half never
+    bites for a past ``asof`` — a scrub-back reads TODAY's knowledge of that date (the serve-path leak:
+    TPCS bars dated August, ingested 09-01, arming an 08-25 recompute the record had logged as watching).
+    Capping ``known_at`` at the as-of day's end hides every fact RECORDED after that day, not just every
+    fact dated after it. Shared by the Scoreboard drawer's dated overlays and, via ``serve_known_at``, the
+    Board/Cockpit/Workbench recomputes — one definition of "what was knowable by the end of that day".
+
+    **The day ends in MARKET time, not UTC** — this module's whole point. The daily cron runs at ``RUN_AT``
+    22:30 ET with ``asof = market_today()`` and ``known_at = now``, so the record for day X was computed at
+    X 22:30 ET = X+1 02:30 UTC. A UTC-midnight cap sits BEFORE the cron's own run and blinds a past-asof
+    recompute to the night's ingest (day X's bar, that evening's Form 4s) that the record for X saw — a
+    systematic one-bar-short disagreement with the record, on every past date. The market-day cap is the
+    tightest bound that is >= every nightly run's ``known_at`` for that asof, so the recompute's data view
+    is a superset of the record's (by at most the hours between the run and midnight ET), never a subset.
+    It also makes the live identity exact: for ``asof == market_today()`` the cap is always in the future,
+    so ``min(now, cap) == now`` at every hour (the UTC cap broke this after 20:00 ET — the same time-of-day
+    window ``market_today`` exists for). ``pipeline.backfill``'s ``next-run`` pin is deliberately LATER
+    (the first live run after the night, to reconstruct a MISSED record consistent with its neighbors);
+    this cap serves the recompute, not the record, and stays inside the day.
+
+    ``now`` is injectable for tests; the default is the UTC instant (transaction time, correctly UTC — #4).
+    Returns an aware UTC datetime either way.
+    """
+    now = now or datetime.now(timezone.utc)
+    asof_eod = datetime.combine(asof, time.max, tzinfo=market_tz()).astimezone(timezone.utc)
+    return min(now, asof_eod)
+
+
+def serve_known_at(asof: date, today: date | None = None) -> datetime | None:
+    """The ``known_at`` a SERVE-path recompute (``/call``, ``/display-signals``, ``/scored``) threads into
+    its ``PointInTimeData`` for ``asof``: ``None`` for a live view, the market-day cap for a scrubbed-back one.
+
+    ``None`` — not ``now`` — for ``asof >= market_today()``, on purpose: the live path stays the exact code
+    it was. ``None`` lets the PIT default to the host's UTC instant for the fact reads (unchanged) and lets
+    ``decisions_repo`` bound the operator log with the DATABASE clock (``clock_timestamp()``) — the
+    one-clock rule that closed the two-clock flake (a take appended a millisecond ago reading as
+    not-yet-recorded when the DB clock ran fractionally ahead of the host). Passing a host-clock ``now``
+    here would reopen it. A future ``asof`` is a live read too (nothing recorded after now exists to hide).
+
+    A past ``asof`` gets ``known_at_for_asof(asof)`` — the cap that makes the scrub-back honest to the
+    as-of. ``today`` is injectable for tests; the default is ``market_today()``.
+    """
+    today = today or market_today()
+    if asof >= today:
+        return None
+    return known_at_for_asof(asof)

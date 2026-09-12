@@ -25,7 +25,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from domain import market_time
-from domain.market_time import market_now, market_today, market_tz
+from domain.market_time import (
+    known_at_for_asof,
+    market_now,
+    market_today,
+    market_tz,
+    serve_known_at,
+)
 from domain.settings import get_settings
 
 # 2026-07-18 01:30 UTC IS 2026-07-17 21:30 in New York — the exact shape of the production mislabel
@@ -297,3 +303,88 @@ def test_the_test_scan_actually_walks_the_tests_tree():
     for anchor in ("tests/app/test_decisions_api.py", "tests/domain/test_market_time.py"):
         assert anchor in rel
     assert all(r.startswith("tests/") for r in rel)
+
+
+# --- known_at_for_asof + serve_known_at: the transaction-axis cap the serve path threads (invariant #1) ---
+#
+# The as-of gate is ``valid_from <= asof AND recorded_at <= known_at``. With ``known_at = now`` the second
+# half never bites for a past asof, so a scrubbed-back /call read TODAY's knowledge of that date (the
+# serve-path leak: TPCS bars dated August, ingested 09-01, arming an 08-25 recompute the record had logged
+# as watching). These pin the cap that closes it — and that the day ends in MARKET time, the cron's own
+# convention (RUN_AT 22:30 ET, asof = market_today()), never UTC. ``now=`` / ``today=`` are the injection
+# seams; ``_pin`` is not used for the past branch because its ``_Frozen`` clock has no ``combine``.
+
+_NOW_LATE_JULY = datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc)
+
+
+def test_known_at_caps_a_past_asof_at_the_end_of_its_MARKET_day(monkeypatch):
+    """A scrubbed-back as-of caps the transaction axis at that day's end IN MARKET TIME, rendered in UTC:
+    2026-06-10 ends at 23:59:59.999999 EDT = 2026-06-11 03:59:59.999999Z. A UTC end-of-day
+    (2026-06-10 23:59:59Z = 19:59 EDT) would sit BEFORE the 22:30 ET cron run that records the 10th, so a
+    fact the record for 06-10 saw (that night's bar, that evening's Form 4) would be invisible to a 06-10
+    recompute — a systematic one-bar-short disagreement with the record on every past date."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    got = known_at_for_asof(date(2026, 6, 10), now=_NOW_LATE_JULY)
+    assert got == datetime(2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc)
+    assert got.tzinfo is timezone.utc  # an instant, normalized — never a wall time
+    # a winter date is -5h (EST): the zone is real, not a fixed offset
+    assert known_at_for_asof(date(2026, 1, 10), now=_NOW_LATE_JULY) == datetime(
+        2026, 1, 11, 4, 59, 59, 999999, tzinfo=timezone.utc
+    )
+
+
+def test_known_at_is_now_for_a_live_or_future_asof(monkeypatch):
+    """A live/future as-of reads at now (everything recorded by this moment), never a future EOD."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    now = _NOW_LATE_JULY
+    assert known_at_for_asof(date(2026, 8, 1), now=now) == now  # future EOD -> now wins
+    assert known_at_for_asof(date(2026, 7, 24), now=now) == now  # today, before EOD -> now wins
+
+
+def test_known_at_is_STILL_now_for_today_after_20_00_ET(monkeypatch):
+    """The live identity holds at every hour of the day: at 01:30Z (21:30 EDT on the 17th) the market day
+    is the 17th and its end (03:59:59Z on the 18th) is still ahead of now, so min(now, cap) == now. Under
+    a UTC end-of-day the cap (2026-07-17 23:59:59Z) had ALREADY passed and a live Board after 20:00 ET
+    would have read up to four hours stale — the same time-of-day window market_today() exists for.
+    """
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    assert known_at_for_asof(date(2026, 7, 17), now=_UTC_EVENING) == _UTC_EVENING
+
+
+def test_the_cap_follows_the_configured_zone(monkeypatch):
+    """The day's end is the CONFIGURED market zone's — never the process's, and not New York's by fiat."""
+    monkeypatch.setenv("ALPHADECK_MARKET_TZ", "Asia/Tokyo")
+    get_settings.cache_clear()
+    # Tokyo is +9 (no DST): 2026-06-10 ends at 2026-06-10 14:59:59.999999Z
+    assert known_at_for_asof(date(2026, 6, 10), now=_NOW_LATE_JULY) == datetime(
+        2026, 6, 10, 14, 59, 59, 999999, tzinfo=timezone.utc
+    )
+
+
+def test_serve_known_at_is_None_for_a_live_or_future_asof_and_the_cap_for_a_past_one(monkeypatch):
+    """The serve seam: a live view threads None — the UNCHANGED live read (the PIT's own UTC now for the
+    fact reads, the DATABASE clock for the decisions log: the one-clock rule in decisions_repo) — and a
+    past view threads the market-day cap. None, not now: a host-clock now on the live path would reopen
+    the two-clock flake the decisions read closed."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    today = date(2026, 7, 24)
+    assert serve_known_at(today, today=today) is None
+    assert serve_known_at(date(2026, 8, 1), today=today) is None  # a future asof is live too
+    assert serve_known_at(date(2026, 6, 10), today=today) == datetime(
+        2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc
+    )
+
+
+def test_serve_known_at_defaults_today_to_market_today_not_the_ambient_date(monkeypatch):
+    """At 01:30Z on the 18th an ambient-UTC 'today' is the 18th, so asof=07-17 would look PAST and get
+    capped — but the market is still on the 17th, so the 17th is LIVE (None). The seam must decide
+    live-vs-past with market_today(): the same evening window that once mislabeled the cron's asof.
+    """
+    _pin(monkeypatch, _UTC_EVENING)
+    assert market_today() == date(2026, 7, 17)
+    assert serve_known_at(date(2026, 7, 17)) is None
+    assert serve_known_at(date(2026, 7, 18)) is None  # tomorrow in market time: future = live

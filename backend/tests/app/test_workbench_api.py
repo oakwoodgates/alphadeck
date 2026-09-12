@@ -1,20 +1,37 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, time, timezone
 
 import pytest
 
 from app.main import app
+from app.routers import workbench as workbench_router
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
+from domain.market_time import known_at_for_asof, market_today
 from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
+from signals.base import PointInTimeData
+
+# The measured serve-path leak's shape (docs/temp/serve-path-lookahead-audit-2026-09-09.md): facts dated
+# in the past, INGESTED long after (the 2026-09-01 thaw). Any instant after the June as-of's day-end works.
+_THAW = datetime(2026, 9, 1, 18, 13, 31, tzinfo=timezone.utc)
 
 
-def _scored_thesis(db, security_id) -> uuid.UUID:
+def _knowable_on(d: date) -> datetime:
+    """A scoring fact's honest ``recorded_at``: its own event date (a filed 10-K/10-Q figure is knowable
+    from its filing; the fixture dates the fact at the period end, so that is the earliest honest stamp).
+    Leaving the column at the DB default ``now()`` would make a 2025 figure "learned today", and a
+    2026-06-02 scored view must NOT see that — the serve-path leak the router now closes."""
+    return datetime.combine(d, time.min, tzinfo=timezone.utc)
+
+
+def _scored_thesis(db, security_id, *, recorded_at: datetime | None = None) -> uuid.UUID:
+    """The scored fixture. Each fact is knowable on its own event date unless ``recorded_at`` stamps them
+    all at one instant (the leak test's thaw shape)."""
     ingest_revenue_mix(
         db,
         security_id,
@@ -23,6 +40,7 @@ def _scored_thesis(db, security_id) -> uuid.UUID:
         source="10-k-business-description",
         source_ref="10-K-biz",
         event_date=date(2025, 12, 31),
+        recorded_at=recorded_at or _knowable_on(date(2025, 12, 31)),
     )
     ingest_cash_burn(
         db,
@@ -32,6 +50,7 @@ def _scored_thesis(db, security_id) -> uuid.UUID:
         source="10-q",
         source_ref="10-Q",
         event_date=date(2026, 3, 31),
+        recorded_at=recorded_at or _knowable_on(date(2026, 3, 31)),
     )
     thesis = Thesis(
         id=uuid.uuid4(),
@@ -1463,11 +1482,12 @@ def _thesis_with(db, security_id) -> uuid.UUID:
 def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
     """The loop: ratifying the RECURRING burn (the operator's composition, not the raw) writes the fact and
     the runway meter re-derives. cash 1B / (50.483M/3) ~ 59 months -> 4 pips; the raw 314.678M would be 1.
+    Re-derived on the LIVE view (asof = today): the ratification is recorded NOW, so a past as-of
+    honestly cannot see it (invariant #1, the transaction axis) — the operator's Workbench dial is today.
     """
     tid = _thesis_with(db, security_id)
-    m0 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-        "members"
-    ][0]
+    asof = market_today().isoformat()
+    m0 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": asof}).json()["members"][0]
     assert m0["runway"]["pips"] is None  # no cash_burn fact yet -> "—"
     r = client.post(
         "/workbench/facts",
@@ -1483,9 +1503,7 @@ def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
         },
     )
     assert r.status_code == 200 and r.json()["fact_type"] == "cash_burn"
-    m1 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-        "members"
-    ][0]
+    m1 = client.get(f"/workbench/theses/{tid}/scored", params={"asof": asof}).json()["members"][0]
     assert m1["runway"]["pips"] == 4  # the recurring burn -> a comfortable runway
     with db.cursor() as cur:
         cur.execute(
@@ -1512,11 +1530,64 @@ def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
             "mix_pct": 100,
         },
     )
-    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
-        "members"
-    ][0]
+    # the LIVE view: the ratification is recorded NOW, so only asof = today can honestly see it (#1)
+    m = client.get(
+        f"/workbench/theses/{tid}/scored", params={"asof": market_today().isoformat()}
+    ).json()["members"][0]
     assert m["purity"]["pips"] == 4  # 100% -> 4 pips
     assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
+
+
+# --- invariant #1 on the SERVE path: a scored scrub-back reads the facts as knowable THEN ---
+#
+# The measured leak (docs/temp/serve-path-lookahead-audit-2026-09-09.md) was on /call; this route builds
+# the SAME PointInTimeData with the SAME default pin (known_at = now), so a past-asof scored view rendered
+# meters from facts ratified/ingested after the as-of. Same cap, same seam, own test.
+
+
+def test_scored_scrub_back_hides_facts_recorded_after_the_asof(client, db, security_id):
+    """THE LEAK, on the measured shape: both scoring facts dated 2025-12-31 / 2026-03-31 but recorded at
+    the 2026-09-01 thaw. A 2026-06-02 read sees NEITHER — purity and runway are the honest "—" (None),
+    never meters computed with hindsight — while the LIVE read holds them (the thaw is in the past
+    relative to today). Before the fix the 06-02 view scored 4 / 4 pips off facts not on file that day
+    (the positive control is ``test_scored_endpoint_serves_meters_on_real_data``, same facts stamped when
+    they were actually knowable)."""
+    tid = _scored_thesis(db, security_id, recorded_at=_THAW)
+    past = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()
+    (m,) = past["members"]
+    assert m["ticker"] == "DEVCO"  # the row stays (#9); only its facts aren't on file yet
+    assert m["purity"]["pips"] is None and m["runway"]["pips"] is None
+    live = client.get(
+        f"/workbench/theses/{tid}/scored", params={"asof": market_today().isoformat()}
+    ).json()
+    (lm,) = live["members"]
+    assert lm["purity"]["pips"] == 4 and lm["runway"]["pips"] == 4
+
+
+def test_scored_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
+    client, db, security_id, monkeypatch
+):
+    """The per-site TEMPLATE (a future serve site that forgets ``known_at`` fails a copy of this): the
+    scored PIT is built with ``known_at = known_at_for_asof(asof)`` — the end of that MARKET day — for a
+    past asof and ``None`` for a live one (the unchanged live read; None, not a host-clock now — the
+    one-clock rule in ``decisions_repo``). The same seam the call and the display view thread."""
+    tid = _scored_thesis(db, security_id)
+    seen: list[datetime | None] = []
+
+    class SpyPIT(PointInTimeData):
+        def __init__(self, conn, **kw):
+            seen.append(kw.get("known_at"))
+            super().__init__(conn, **kw)
+
+    monkeypatch.setattr(workbench_router, "PointInTimeData", SpyPIT)
+    r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"})
+    assert r.status_code == 200
+    r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": market_today().isoformat()})
+    assert r.status_code == 200
+    assert seen == [known_at_for_asof(date(2026, 6, 2)), None]
+    assert seen[0] == datetime(
+        2026, 6, 3, 3, 59, 59, 999999, tzinfo=timezone.utc
+    )  # 06-02 23:59 EDT
 
 
 def test_ratify_stamps_vouched_confirmed_overridden_or_null(client, db, security_id):

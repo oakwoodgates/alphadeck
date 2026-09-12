@@ -29,14 +29,16 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have
-KNOWN by ``known_at``. ``known_at_for_asof`` caps that at the request's as-of so a scrubbed-back
-Scoreboard hides not just later bars but later-RECORDED events (the IBM "ingested 166d after its event
-date" case), exactly the honesty a forward reader owes.
+KNOWN by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router threads it in) caps that at
+the request's as-of — the end of that MARKET day — so a scrubbed-back Scoreboard hides not just later
+bars but later-RECORDED events (the IBM "ingested 166d after its event date" case), exactly the honesty a
+forward reader owes. It lives in ``domain/`` because the serve-path recomputes (``/call``,
+``/display-signals``, ``/scored``) now share the same cap via ``serve_known_at``.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -120,21 +122,6 @@ def annotate_sma(bars: list[dict[str, Any]], windows: tuple[int, ...] = SMA_WIND
             row[f"sma{w}"] = sum(closes[i + 1 - w : i + 1]) / w if i + 1 >= w else None
         out.append(row)
     return out
-
-
-def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
-    """The transaction-axis cap for the insider read: ``min(now, end-of-asof-day)``.
-
-    A LIVE view (``asof`` today / future) reads at ``now`` — everything disclosed by this moment. A
-    scrubbed-back ``asof`` caps ``known_at`` at that day's end, so a buy DISCLOSED (``recorded_at``) after
-    the as-of is absent — the two-axis no-lookahead a forward reader owes (invariant #1). Distinct from the
-    price read, which stays at ``now`` (a price bar's ``valid_from == d``, so its valid-axis cap already
-    carries the honesty; an insider filing lags its transaction by days-to-months, so its transaction axis
-    must cap too).
-    """
-    now = now or datetime.now(timezone.utc)
-    asof_eod = datetime.combine(asof, time.max, tzinfo=timezone.utc)
-    return min(now, asof_eod)
 
 
 def episode_insider_buys(
