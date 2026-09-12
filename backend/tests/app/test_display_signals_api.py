@@ -1,19 +1,40 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
+from app.routers import theses as theses_router
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.market_time import known_at_for_asof, market_today
 from domain.thesis import BasketMember, Thesis
 from repositories import thesis_repo
+from signals.base import PointInTimeData
 
 _ASOF = date(2026, 6, 1)
+# The measured serve-path leak's shape: bars dated in the past, INGESTED long after (the 2026-09-01 thaw
+# stamped TPCS's August bars). Any instant after _ASOF's day-end works; this is the real one.
+_THAW = datetime(2026, 9, 1, 18, 13, 31, tzinfo=timezone.utc)
 
 
-def _price(db, security_id, d: date, close: float, volume: float | None = None) -> None:
+def _knowable_on(d: date) -> datetime:
+    """A bar's honest ``recorded_at``: its own date (the ``ingest_prices_backfill`` contract — an EOD bar
+    is knowable that day). Leaving the column at the DB default ``now()`` would make every June bar
+    "learned today", and a 06-01 read must NOT see that — the serve-path leak the router now closes.
+    """
+    return datetime.combine(d, time.min, tzinfo=timezone.utc)
+
+
+def _price(
+    db,
+    security_id,
+    d: date,
+    close: float,
+    volume: float | None = None,
+    recorded_at: datetime | None = None,
+) -> None:
     append_fact(
         db,
         "fact_price_eod",
@@ -24,16 +45,27 @@ def _price(db, security_id, d: date, close: float, volume: float | None = None) 
             "close": close,
             "volume": volume,
             "valid_from": d,
+            "recorded_at": recorded_at or _knowable_on(d),
         },
     )
 
 
-def _seed_bars(db, security_id, n: int, end: date = _ASOF) -> None:
+def _seed_bars(
+    db, security_id, n: int, end: date = _ASOF, recorded_at: datetime | None = None
+) -> None:
     """n consecutive-day bars ending at ``end``: closes 10.0, 10.1, … + a flat volume (ascending,
-    deterministic — enough for every price-fed member to compute)."""
+    deterministic — enough for every price-fed member to compute). Each bar is knowable on its own date
+    unless ``recorded_at`` stamps them all at one instant (the leak test's thaw shape)."""
     start = end - timedelta(days=n - 1)
     for i in range(n):
-        _price(db, security_id, start + timedelta(days=i), 10.0 + i * 0.1, volume=1000.0)
+        _price(
+            db,
+            security_id,
+            start + timedelta(days=i),
+            10.0 + i * 0.1,
+            volume=1000.0,
+            recorded_at=recorded_at,
+        )
     db.commit()
 
 
@@ -257,9 +289,12 @@ def test_unresolved_member_is_omitted_and_dupes_collapse(client, db, security_id
 
 
 def test_no_lookahead_a_post_asof_bar_is_invisible(client, db, security_id):
+    """The VALID axis alone: the future bar is stamped as recorded BEFORE the as-of (a bar recorded early,
+    dated late — the price-window suite's idiom), so only ``valid_from <= asof`` can hide it. Stamping it
+    on its own date would hide it on BOTH axes and prove nothing about this one."""
     _seed_bars(db, security_id, 60)
     _price(
-        db, security_id, _ASOF + timedelta(days=1), 999.0
+        db, security_id, _ASOF + timedelta(days=1), 999.0, recorded_at=_knowable_on(_ASOF)
     )  # the future bar a backtest must not see
     db.commit()
     tid = _seed_thesis(db, [_member(security_id)])
@@ -305,6 +340,7 @@ def _fund_sample(db, security_id, d: date, shares: float) -> None:
             "source": "globalx",
             "source_ref": "https://www.globalxetfs.com/funds/ura",
             "valid_from": d,
+            "recorded_at": _knowable_on(d),  # a sampled shares-out print is knowable on its date
         },
     )
 
@@ -350,3 +386,79 @@ def test_call_response_is_unchanged_by_the_display_feature(client, db, security_
     r = client.get(f"/theses/{tid}/call", params={"asof": _ASOF.isoformat()})
     assert r.status_code == 200
     assert not [k for k in r.json() if "display" in k or "indicator" in k]
+
+
+# --- invariant #1 on the SERVE path: the tape beside a past card is the tape as knowable THEN ---
+#
+# The measured leak (docs/temp/serve-path-lookahead-audit-2026-09-09.md) was on /call, but this route
+# builds the SAME PointInTimeData with the SAME default pin (known_at = now), so a Cockpit scrub-back
+# showed an SMA posture computed from bars ingested after the as-of. Same cap, same seam, own test.
+
+
+def test_display_scrub_back_hides_bars_recorded_after_the_asof(client, db, security_id):
+    """THE LEAK, on the measured shape (TPCS: bars dated August, ingested 09-01): 220 bars ending _ASOF,
+    every one stamped at the thaw. A _ASOF read — the Cockpit scrub-back — sees NONE of them: the member
+    still shows, with ``signals: []`` (the honest empty), never a posture computed with hindsight. The
+    same bars ARE knowable to a LIVE read (the thaw is in the past relative to today), so asof = today
+    holds them — hidden by the as-of's clock, not gone. Before the fix the _ASOF read computed the full
+    ``sma_position`` … ``price_path`` list from bars that were not on file that night."""
+    _seed_bars(db, security_id, 220, recorded_at=_THAW)
+    tid = _seed_thesis(db, [_member(security_id)])
+    past = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    (m,) = past["members"]
+    assert (
+        m["ticker"] == "DEVCO" and m["signals"] == []
+    )  # the row stays; its tape wasn't on file yet
+    # the thesis-level breadth reads the member as THIN (no knowable bars), so its headline is the honest
+    # "n/a" — never a fabricated 0% and never the ascending fixture's 100% computed with hindsight
+    breadth = past["breadth"]
+    assert breadth["headline"]["key"] == "unknown"
+    by_key = {mt["key"]: mt["value"] for mt in breadth["metrics"]}
+    assert by_key["members_thin"] == 1.0 and by_key["members_counted"] == 0.0
+    live = client.get(
+        f"/theses/{tid}/display-signals", params={"asof": market_today().isoformat()}
+    ).json()
+    (lm,) = live["members"]
+    kinds = [s["kind"] for s in lm["signals"]]
+    assert "sma_position" in kinds  # the live read holds the (now stale-but-knowable) tape
+    assert lm["signals"][0]["basis"]["window_end"] == _ASOF.isoformat()  # the tape's last bar
+
+
+def test_display_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
+    client, db, security_id, monkeypatch
+):
+    """The per-site TEMPLATE (a future serve site that forgets ``known_at`` fails a copy of this): the
+    display PIT is built with ``known_at = known_at_for_asof(asof)`` — the end of that MARKET day — for a
+    past asof and ``None`` for a live one (the unchanged live read; None, not a host-clock now — the
+    one-clock rule in ``decisions_repo``). The same seam the call and the scored view thread."""
+    _seed_bars(db, security_id, 60)
+    tid = _seed_thesis(db, [_member(security_id)])
+    seen: list[datetime | None] = []
+
+    class SpyPIT(PointInTimeData):
+        def __init__(self, conn, **kw):
+            seen.append(kw.get("known_at"))
+            super().__init__(conn, **kw)
+
+    monkeypatch.setattr(theses_router, "PointInTimeData", SpyPIT)
+    r = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()})
+    assert r.status_code == 200
+    today = market_today()
+    r = client.get(f"/theses/{tid}/display-signals", params={"asof": today.isoformat()})
+    assert r.status_code == 200
+    assert seen == [known_at_for_asof(_ASOF), None]
+    assert seen[0] == datetime(
+        2026, 6, 2, 3, 59, 59, 999999, tzinfo=timezone.utc
+    )  # 06-01 23:59 EDT
+
+
+def test_display_live_view_holds_a_bar_recorded_a_moment_ago(client, db, security_id):
+    """The live guard: bars ingested just now (the live ingest's ``now()``-class stamp) at asof = today are
+    as visible as before — the fix capped the PAST view only. The live PIT is the pre-fix one byte for
+    byte (``known_at=None``, the spy test above), so nothing here can differ from the old read."""
+    today = market_today()
+    _seed_bars(db, security_id, 60, end=today, recorded_at=datetime.now(timezone.utc))
+    tid = _seed_thesis(db, [_member(security_id)])
+    body = client.get(f"/theses/{tid}/display-signals", params={"asof": today.isoformat()}).json()
+    (m,) = body["members"]
+    assert m["signals"] and m["signals"][0]["basis"]["window_end"] == today.isoformat()

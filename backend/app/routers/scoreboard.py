@@ -23,7 +23,7 @@ from app.schemas_api import (
     _scoreboard_thesis_out,
 )
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_now
+from domain.market_time import known_at_for_asof, market_now
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
@@ -39,7 +39,6 @@ from scoreboard.overlays import (
     episode_corporate_events,
     episode_insider_buys,
     episode_insider_sells,
-    known_at_for_asof,
     thesis_created_at,
     universe_floor,
 )
