@@ -7575,6 +7575,15 @@
             ],
             "title": "Projected Min N Date"
           },
+          "reconstructed_nights": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Reconstructed Nights",
+            "default": []
+          },
           "record_edge": {
             "anyOf": [
               {

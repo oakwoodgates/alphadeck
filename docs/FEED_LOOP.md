@@ -287,9 +287,35 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   `TransitionEvent` (a reconstructed row is a RECORD, never a nag — a Slack "ARMED" for a night two weeks ago
   is exactly the wrong loudness, #7). A pure recompute-and-record over facts already in the store, pinned
   structurally by an import-guard test. Per-thesis isolation is `run_daily`'s (own try, commit / rollback).
-- **The NULL ingest stamp.** The row's `ingest_fresh` / `ingest_errors` stay NULL — there was no ingest, so
-  NULL is the honest stamp, and it distinguishes a reconstructed row from a nightly one (always True/False
-  since R2b).
+- **The three axes of a reconstruction — only one is faithful.** (1) *The clock* — pinned, faithful. (2)
+  *Thesis existence* — ENFORCED: a thesis created after the night was not in that night's cron, so it
+  gets NO row. `run_backfill` skips it (`thesis_existed_on`: `thesis.created_at` in market time vs the
+  as-of day — a thesis created during the day of `asof` WAS in that night's run) and reports the skip
+  loudly: its own line + count in the summary, in `--dry-run`, and in the provenance artifact (`skipped`
+  per thesis + a summary count). MEASURED before the gate existed (dev copy of the 2026-09-09 backfill):
+  37 of the 144 reconstructed rows predate their thesis, 20 of them warming/armed, two of them arm
+  episodes for a thesis that did not exist. (3) *Basket composition* — NOT reconstructable:
+  `basket_member` is full-replace with no timestamps, so every reconstruction ran on TODAY's roster. A
+  reconstructed row therefore can never be shown honest, and the Scoreboard scores none of them
+  (`docs/SCOREBOARD.md` §"The one rule" — a reconstructed row never defines an episode boundary; the
+  ledger names the excluded nights once). Until baskets are point-in-time, that holds for every row this
+  tool writes.
+- **The markers.** Every row the backfill writes carries `calls.reconstructed = true` (migration 0042; the
+  cron never sets it) — the explicit provenance the Scoreboard's record path filters on, threaded to
+  `record_if_changed` OFF the card (so it never fakes a change in the idempotency compare). `ingest_fresh`
+  / `ingest_errors` stay NULL — there was no ingest, so NULL is the honest stamp. 0042 stamped the legacy
+  rows by the exact derived rule (`ingest_fresh IS NULL AND (recorded_at AT TIME ZONE 'UTC')::date - asof
+  > 1`: MEASURED on dev, every backfill row landed >= 5 days late and every honest NULL-stamp row at lag
+  <= 1) with a count assertion, the `no_update` trigger disabled for that ONE statement inside the
+  migration's single transaction (the flag is provenance; nothing the call says is rewritten).
+- **Repairing the pre-creation rows — `pipeline.repair_reconstructed_precreation`.** Deletes the
+  reconstructed rows dated before their thesis existed — the SAME `thesis_existed_on` rule, imported, so
+  the two tools cannot disagree. Dry-run is the DEFAULT and prints every row (thesis, asof, state /
+  verdict, the creation date in market time); `--apply` deletes and prints per-thesis counts;
+  `DATABASE_URL` must be explicit (no dev-default for a destructive tool). The operator runs it on prod
+  after a backup and after re-running the classification query there (the pins differ per stack) — never
+  an agent. Reconstructed rows for theses that DID exist are left alone: reported-not-scored, and the
+  evidence the backfill happened.
 - **Provenance + idempotency.** One write-only, fail-open JSON per invocation under
   `data/backfills/<utc-ts>.json` (`pipeline/backfill_log.py`: `asof`, `known_at`, `known_at_policy`
   `explicit` | `next-run`, per-thesis state / verdict / recorded / error). NOT a cron run artifact —

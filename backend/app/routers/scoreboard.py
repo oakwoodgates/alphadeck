@@ -137,6 +137,7 @@ def get_scoreboard(
             next_maturity=summary.next_maturity if summary else None,
             n_maturing_30d=summary.n_maturing_30d if summary else 0,
             projected_min_n_date=summary.projected_min_n_date if summary else None,
+            reconstructed_nights=summary.reconstructed_nights if summary else [],
             metrics=[
                 ScoreboardMetricOut(
                     name=m.name,

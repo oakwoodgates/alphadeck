@@ -107,3 +107,45 @@ def test_record_if_changed_ignores_a_pure_list_reorder(db):
     db.commit()
 
     assert len(calls_repo.list_for_thesis(db, thesis.id)) == 1
+
+
+def test_include_reconstructed_filters_BEFORE_the_dedup_and_the_marker_rides_the_write(db):
+    """0042: the default read sees every row (latest per as-of, marker-blind); the honest read drops
+    reconstructed rows BEFORE ``DISTINCT ON``, so a night with a nightly row AND a later reconstruction
+    yields the NIGHTLY row, and a reconstruction-only night yields nothing. The marker rides the write,
+    never the compare: an identical card is refused whichever marker the prior carries."""
+    thesis = _persist_minimal_thesis(db)
+    d1, d2 = date(2026, 6, 1), date(2026, 6, 2)
+    nightly = assemble_call(thesis, [], d1, DEFAULT_CONFIG)
+    recon_d1 = nightly.model_copy(update={"verdict": Verdict.NOT_YET})  # a later re-run, marked
+    recon_d2 = assemble_call(thesis, [], d2, DEFAULT_CONFIG)
+    calls_repo.append(db, nightly, ingest_fresh=True, ingest_errors=0)  # the cron's shape
+    assert calls_repo.record_if_changed(db, recon_d1, reconstructed=True) is True
+    assert calls_repo.record_if_changed(db, recon_d2, reconstructed=True) is True
+    db.commit()
+    assert len(calls_repo.list_for_thesis(db, thesis.id)) == 3  # COUNT THE TABLE
+
+    every = {c.asof: c for c in calls_repo.latest_for_thesis(db, thesis.id)}
+    assert (
+        set(every) == {d1, d2} and every[d1].verdict is Verdict.NOT_YET
+    )  # latest wins, marker-blind
+    honest = {
+        c.asof: c for c in calls_repo.latest_for_thesis(db, thesis.id, include_reconstructed=False)
+    }
+    assert set(honest) == {d1} and honest[d1].verdict is nightly.verdict  # the nightly row survives
+    assert calls_repo.ingest_health_for_thesis(db, thesis.id) == {
+        d1: (None, None),
+        d2: (None, None),
+    }
+    assert calls_repo.ingest_health_for_thesis(db, thesis.id, include_reconstructed=False) == {
+        d1: (True, 0)
+    }
+    assert calls_repo.reconstructed_asofs(db, upto=date(2026, 5, 31)) == []
+    assert calls_repo.reconstructed_asofs(db, upto=d1) == [d1]
+    assert calls_repo.reconstructed_asofs(db, upto=d2) == [d1, d2]
+
+    # idempotency is marker-blind: the identical card appends nothing, with or without the flag
+    assert calls_repo.record_if_changed(db, recon_d2, reconstructed=True) is False
+    assert calls_repo.record_if_changed(db, recon_d2) is False
+    db.commit()
+    assert len(calls_repo.list_for_thesis(db, thesis.id)) == 3

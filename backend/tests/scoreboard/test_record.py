@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
+from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow
-from repositories import thesis_repo
+from repositories import calls_repo, thesis_repo
 from scoreboard.record import (
     _dearm_detail,
     _risk_events,
@@ -576,3 +577,133 @@ def test_zero_episode_thesis_reports_coverage_and_warming(db, security_id):
     assert record.last_call_asof == date(2026, 6, 2)
     assert record.current_state == "warming"
     assert record.warming_since == date(2026, 6, 1)
+
+
+# --- honest rows only: a reconstructed row never defines an episode boundary (0042) ---------------------
+#
+# The three MEASURED cases of the 2026-09-12 re-derivation (dev copy: of the 106 episode starts sitting
+# on a reconstructed night, 48 survive with a later arm date, 56 drop, 2 drop because the thesis did not
+# exist), each proved on a controlled log with honest and reconstructed rows INTERLEAVED — plus the
+# mirror case (a reconstruction never CLOSES a run) and the same-as-of case (the honest row wins the
+# dedup, stamp included). Every case also states the counterfactual honestly — what the UNFILTERED read
+# (every row, the default) would have said — so it is the filter that moves the answer, not the fixture.
+
+
+def _unfiltered_episodes(db, thesis_id):
+    """What the record would say if reconstructed rows counted: the default read (every row, latest
+    per as-of), replay's ``derive_episodes`` as-is."""
+    cards = list(reversed(calls_repo.latest_for_thesis(db, thesis_id)))
+    return list(derive_episodes([CallSnapshot.from_card(c) for c in cards]))
+
+
+def _born(db, thesis, when: datetime) -> None:
+    with db.cursor() as cur:
+        cur.execute("UPDATE thesis SET created_at = %s WHERE id = %s", (when, thesis.id))
+    db.commit()
+
+
+def test_reconstructed_arm_SURVIVES_with_the_later_honest_arm_date(db, security_id):
+    thesis = _thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
+    _record_day(db, thesis, [conv], date(2026, 6, 1))  # honest: warming
+    _record_day(
+        db, thesis, [conv, conf], date(2026, 6, 3), reconstructed=True
+    )  # a backfill: "armed"
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 8))  # honest: armed — the first HONEST arm
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 9))  # honest: still armed
+
+    record, snaps = derive_thesis_record(db, thesis, date(2026, 6, 12))
+    assert [s.asof for s in snaps] == [date(2026, 6, 1), date(2026, 6, 8), date(2026, 6, 9)]
+    assert len(record.episodes) == 1
+    ep = record.episodes[0]
+    assert ep.episode.arm_date == date(
+        2026, 6, 8
+    )  # the later honest arm, never the reconstructed 06-03
+    assert ep.episode.warm_date == date(2026, 6, 1)
+    assert ep.status == "open" and ep.censored_start is False
+    # the counterfactual: unfiltered, the record would arm on the reconstructed night
+    assert [e.arm_date for e in _unfiltered_episodes(db, thesis.id)] == [date(2026, 6, 3)]
+
+
+def test_reconstructed_only_arm_DROPS(db, security_id):
+    thesis = _thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
+    _record_day(db, thesis, [conv], date(2026, 6, 1))  # honest: warming
+    _record_day(
+        db, thesis, [conv, conf], date(2026, 6, 3), reconstructed=True
+    )  # "armed" — a backfill
+    _record_day(
+        db, thesis, [conv, conf], date(2026, 6, 4), reconstructed=True
+    )  # "armed" — a backfill
+    _record_day(db, thesis, [conv], date(2026, 6, 8))  # honest: warming — the arm never happened
+
+    record, snaps = derive_thesis_record(db, thesis, date(2026, 6, 12))
+    assert [s.asof for s in snaps] == [date(2026, 6, 1), date(2026, 6, 8)]
+    assert record.episodes == []
+    assert record.current_state == "warming"
+    assert [(e.arm_date, e.dearm_date) for e in _unfiltered_episodes(db, thesis.id)] == [
+        (date(2026, 6, 3), date(2026, 6, 8))
+    ]
+
+
+def test_rows_for_a_thesis_that_did_not_exist_DROP_and_the_record_begins_at_the_first_honest_row(
+    db, security_id
+):
+    thesis = _thesis(db, security_id)
+    _born(db, thesis, datetime(2026, 6, 5, 14, 0, tzinfo=timezone.utc))  # created 06-05
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
+    # the old backfill ran every thesis for every night — these two rows predate the thesis itself
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 1), reconstructed=True)
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 2), reconstructed=True)
+    _record_day(db, thesis, [conv], date(2026, 6, 5))  # the first HONEST row: warming
+
+    record, snaps = derive_thesis_record(db, thesis, date(2026, 6, 12))
+    assert [s.asof for s in snaps] == [date(2026, 6, 5)]
+    assert record.first_call_asof == date(2026, 6, 5)  # the record BEGINS at the first honest row
+    assert record.episodes == []
+    assert [e.arm_date for e in _unfiltered_episodes(db, thesis.id)] == [date(2026, 6, 1)]
+
+
+def test_a_reconstructed_row_never_CLOSES_an_episode_either(db, security_id):
+    thesis = _thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
+    _record_day(db, thesis, [conv], date(2026, 5, 29))  # honest: warming (the arm is not censored)
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 1))  # honest: armed
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 2))  # honest: armed
+    _record_day(db, thesis, [conv], date(2026, 6, 3), reconstructed=True)  # a backfill: "de-armed"
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 8))  # honest: still armed
+
+    record, _ = derive_thesis_record(db, thesis, date(2026, 6, 12))
+    assert len(record.episodes) == 1
+    ep = record.episodes[0]
+    assert ep.episode.arm_date == date(2026, 6, 1)
+    assert ep.episode.dearm_date is None and ep.status == "open"  # ONE continuous run
+    assert ep.episode.last_armed_date == date(2026, 6, 8)
+    # the counterfactual: unfiltered, the run closes on 06-03 and a SECOND episode opens on 06-08
+    assert [(e.arm_date, e.dearm_date) for e in _unfiltered_episodes(db, thesis.id)] == [
+        (date(2026, 6, 1), date(2026, 6, 3)),
+        (date(2026, 6, 8), None),
+    ]
+
+
+def test_same_asof_the_honest_row_wins_over_a_later_reconstruction_stamp_included(db, security_id):
+    """The filter runs BEFORE the per-as-of dedup: a night that has a nightly row AND a later
+    reconstruction scores the nightly row — and the provenance stamp read beside it is the NIGHTLY
+    row's (a partial ingest here), never the reconstruction's NULL."""
+    thesis = _thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
+    _record_day(db, thesis, [conv], date(2026, 5, 29))
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 1), ingest_fresh=False, ingest_errors=1)
+    _record_day(
+        db, thesis, [conv], date(2026, 6, 1), reconstructed=True
+    )  # a later re-run: "warming"
+    _record_day(db, thesis, [conv, conf], date(2026, 6, 2))
+
+    record, _ = derive_thesis_record(db, thesis, date(2026, 6, 5))
+    assert len(record.episodes) == 1
+    ep = record.episodes[0]
+    assert ep.episode.arm_date == date(2026, 6, 1)
+    assert ep.arm_ingest_fresh is False  # the nightly row's stamp, not the reconstruction's None
+    assert ep.ingest_flagged is True
+    # latest-wins without the filter would take the reconstruction's "warming" and arm a day late
+    assert _unfiltered_episodes(db, thesis.id)[0].arm_date == date(2026, 6, 2)

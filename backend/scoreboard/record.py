@@ -23,15 +23,35 @@ from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Tra
 # ``derive_episodes`` (replay's, as-is) -> ``score_episode`` against asof-capped realized closes.
 # A day with no row means the record last spoke on the prior row (weekends / cron gaps) — episode
 # boundaries stay exact because a membership change always recorded a row that day.
+#
+# HONEST ROWS ONLY. That assumption holds for the NIGHTLY record; it is exactly what a reconstructed
+# row (``pipeline.backfill``, ``calls.reconstructed``, migration 0042) breaks: a reconstruction ran on
+# TODAY's basket (``basket_member`` is full-replace — the roster on a past night is unknowable) for a
+# thesis that may not have existed yet, so it can never be shown honest. THE RULE: a reconstructed row
+# never defines an episode boundary. ``thesis_timeline`` reads with ``include_reconstructed=False`` —
+# the filter runs BEFORE the per-as-of dedup, so every downstream consumer (``derive_episodes``,
+# ``score_episode``, the metrics, the arm-day trigger enrichment, ``_dearm_detail``, the provenance
+# stamp) sees ONE honest list, and a night that carries both a nightly row and a later reconstruction
+# scores the nightly row. Reconstructed rows stay in the log (reversible; the evidence the backfill
+# happened) and are REPORTED — the summary names the excluded nights — not scored. MEASURED when the
+# rule landed (dev copy, 2026-09-12): of 106 episode starts that sat on a reconstructed night, 48
+# survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
+# thesis did not exist). A gap left by the exclusion reads exactly like a cron gap: the record last
+# spoke on the prior HONEST row.
 
 
 def thesis_timeline(
     conn: psycopg.Connection, thesis_id: UUID, asof: date
 ) -> tuple[list[CallSnapshot], dict[date, CallCard]]:
-    """The thesis's call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
+    """The thesis's HONEST call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
     (for trigger enrichment). ``latest_for_thesis`` dedups to the final card per as-of — its own
-    docstring: the read a scoreboard wants."""
-    cards = [c for c in calls_repo.latest_for_thesis(conn, thesis_id) if c.asof <= asof]
+    docstring: the read a scoreboard wants — with reconstructed rows EXCLUDED before that dedup (the
+    header rule: a reconstructed row never defines an episode boundary)."""
+    cards = [
+        c
+        for c in calls_repo.latest_for_thesis(conn, thesis_id, include_reconstructed=False)
+        if c.asof <= asof
+    ]
     cards.reverse()  # newest-first -> ascending
     return [CallSnapshot.from_card(c) for c in cards], {c.asof: c for c in cards}
 
@@ -202,7 +222,12 @@ def derive_thesis_record(
         # Record-provenance (2d) — composed AFTER scoring, from reads the scoring path never sees:
         # the winning arm-date rows' R2b stamps + ONE batched thaw-lag query over every cited form4
         # accession. The flags segment/annotate only; ``score_episode``'s inputs are untouched.
-        health = calls_repo.ingest_health_for_thesis(conn, thesis.id) if episodes else {}
+        # the SAME honest filter as thesis_timeline, so the stamp belongs to the row that was scored
+        health = (
+            calls_repo.ingest_health_for_thesis(conn, thesis.id, include_reconstructed=False)
+            if episodes
+            else {}
+        )
         lags = (
             provenance.thaw_lags(
                 conn,

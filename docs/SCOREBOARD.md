@@ -35,8 +35,10 @@ final card per as-of), and scores those cards. Re-deriving past calls with today
 replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is the record
 (`docs/BOARD.md`). Consequences, all deliberate:
 
-- **No backfill.** The record began when the daily cron first wrote (2026-07-10 in production);
-  earlier history is replay's domain. An empty early Scoreboard is the honest launch state.
+- **No backfill into the score.** The record began when the daily cron first wrote (2026-07-10 in
+  production); earlier history is replay's domain. An empty early Scoreboard is the honest launch
+  state. A missed night CAN be reconstructed (`pipeline.backfill`, `docs/FEED_LOOP.md`) — but a
+  reconstructed row is reported, never scored (next bullet but one).
 - **Censored starts.** An episode already armed on its thesis's *first recorded card* has an
   unknowable true arm date (`censored_start`) — shown in the ledger ("record began mid-arm"),
   **excluded from arm-anchored metrics**, never reconstructed.
@@ -44,6 +46,26 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   dedups same-as-of only); weekends/downtime leave gaps, but episode boundaries stay exact because a
   membership change always recorded a row that day. `derive_episodes` consumes the gapped timeline
   as-is.
+- **Reconstructed nights are reported, not scored.** `pipeline.backfill` reconstructs a missed night
+  with `known_at` pinned — faithful on the clock, but every reconstruction runs on TODAY's basket
+  (`basket_member` is full-replace, no timestamps: the roster on a past night is unknowable), and until
+  the existence gate landed it also ran theses that did not exist yet. So a reconstructed row can never
+  be shown honest, and **a reconstructed row never defines an episode boundary**: the record read
+  (`thesis_timeline` → `calls_repo.latest_for_thesis(include_reconstructed=False)`, paired with
+  `ingest_health_for_thesis` under the same filter) drops rows marked `calls.reconstructed` (migration
+  0042) BEFORE the per-as-of dedup, so `derive_episodes`, `score_episode`, the metrics, the arm-day
+  trigger enrichment, and the de-arm detail all see ONE honest list, and a night carrying both a
+  nightly row and a later reconstruction scores the nightly row. A gap left by the exclusion reads
+  exactly like a cron gap — the record last spoke on the prior honest row. The rows stay in the log
+  (reversible; the evidence the backfill happened) and the summary names the excluded nights once
+  (`reconstructed_nights`, asof-capped; the ledger banner's one quiet line) — never a per-row chip,
+  because with the filter in place a reconstructed row produces no ledger row. This is the treatment
+  the historical panel already gets: a recompute is never the record, never pooled. MEASURED when the
+  rule landed (dev copy, 2026-09-12): of the 106 episode starts that sat on a reconstructed night, 48
+  survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
+  thesis did not exist); August 7, a reconstructed night, had been the single largest arm date on the
+  whole ledger. Pre-creation rows are additionally deletable by the operator
+  (`pipeline.repair_reconstructed_precreation`, dry-run by default; `docs/FEED_LOOP.md`).
 
 ## The scoring unit and its flags
 
