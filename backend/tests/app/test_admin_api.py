@@ -77,7 +77,14 @@ def _tr(**kw) -> ThesisRunResult:
 
 
 def _artifact(
-    *, asof: date, at: datetime, allow_live: bool = True, results=None, catch_up: bool = False
+    *,
+    asof: date,
+    at: datetime,
+    allow_live: bool = True,
+    results=None,
+    catch_up: bool = False,
+    benchmark_errors: int = 0,
+    benchmark_leg_failed: bool = False,
 ):
     """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home)."""
     results = results if results is not None else [_tr(recorded=True, edgar_fetches=88)]
@@ -88,6 +95,8 @@ def _artifact(
         started_at=at,
         finished_at=at + timedelta(minutes=2),
         catch_up=catch_up,
+        benchmark_errors=benchmark_errors,
+        benchmark_leg_failed=benchmark_leg_failed,
     )
     assert path is not None
     return path
@@ -182,6 +191,55 @@ def test_status_a_benign_no_live_dev_run_is_NOT_unhealthy(client, db, monkeypatc
     assert body["last_run"]["healthy"] is False  # the assessor notes it…
     assert any("not an error" in p for p in body["last_run"]["problems"])
     assert body["cron"]["status"] == "healthy"  # …but it is a note, not an alarm
+
+
+def test_status_unhealthy_when_the_BENCHMARK_refresh_failed(client, db, monkeypatch):
+    """G4 — the shared-input alarm: the per-thesis counts are spotless (calls recorded, fetches healthy)
+    and the record edge is current, yet the SPY/IWM tape did not refresh — so every call that night read a
+    stale benchmark_rs input. That must be LOUD, not a line on a stdout nobody kept."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    daily.run_daily(db, asof=_MON, allow_live=True)  # edge = Monday (current)
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[_tr(recorded=True, edgar_fetches=88)],  # the per-thesis run is CLEAN
+        benchmark_errors=2,
+    )
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
+    body = client.get("/admin/status").json()
+    assert body["record"]["stale"] is False  # nothing else looks wrong…
+    assert body["last_run"]["healthy"] is False
+    assert any("benchmark refresh error" in p for p in body["last_run"]["problems"])
+    assert body["cron"]["status"] == "unhealthy"  # …a real alarm, not a benign note
+    assert "benchmark" in body["cron"]["detail"]
+
+
+def test_runs_history_re_derives_the_BENCHMARK_verdict_and_tolerates_an_old_artifact(
+    client, cron_runs_dir
+):
+    """Two properties of the artifact-sourced history in one read: a night whose benchmark LEG died
+    re-reads as unhealthy forever (the verdict the run itself paged), and an artifact written BEFORE the
+    keys existed still parses clean — a strict read would raise, the caller would skip it fail-open, and
+    the history would silently blank after the deploy."""
+    import json as _json
+
+    _artifact(
+        asof=_FRI,
+        at=datetime(2026, 7, 17, 22, 30, tzinfo=timezone.utc),
+        benchmark_leg_failed=True,
+    )
+    legacy = _artifact(asof=_FRI, at=datetime(2026, 7, 17, 22, 40, tzinfo=timezone.utc))
+    doc = _json.loads(legacy.read_text(encoding="utf-8"))
+    del doc["benchmark_errors"], doc["benchmark_leg_failed"]  # the pre-deploy artifact shape
+    legacy.write_text(_json.dumps(doc), encoding="utf-8")
+
+    runs = client.get("/admin/runs").json()["runs"]
+    assert len(runs) == 2  # BOTH rows rendered — the old one was not skipped
+    newest, older = runs[0], runs[1]  # newest-first (22:40 then 22:30)
+    assert newest["healthy"] is True and newest["problems"] == []  # the legacy artifact reads clean
+    assert older["healthy"] is False
+    assert any("BENCHMARK REFRESH LEG FAILED" in p for p in older["problems"])
 
 
 # --- the hole-aware read: missed nights under a CURRENT edge (the wrong-day shape) ---

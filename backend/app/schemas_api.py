@@ -1578,8 +1578,11 @@ class AdminRunOut(BaseModel):
     """One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
     field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
     ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
-    (``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row — a
-    bad run can never hide behind a green history. ``mode`` is ``"live" | "no-live"`` (the R2
+    (``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK
+    refresh (the shared SPY/IWM tape ``benchmark_rs`` reads — a fail-open passenger leg whose faults
+    used to reach stdout only) surface on every row — a bad run can never hide behind a green
+    history. The benchmark counts live on the artifact for exactly that reason; a row written before
+    they existed reads clean, never broken. ``mode`` is ``"live" | "no-live"`` (the R2
     recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a
     ``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected
     (it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written
@@ -1627,7 +1630,8 @@ class AdminRecordOut(BaseModel):
 
 class AdminCronOut(BaseModel):
     """The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
-    withheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` — a bad run
+    withheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own
+    LOUD state, peer to ``stale`` — a bad run
     must read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign
     ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =
     the edge is current and the last run clean, but the recent window has a night with NO call-of-record

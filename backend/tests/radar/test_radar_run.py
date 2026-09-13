@@ -15,7 +15,8 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
 from domain.thesis import TermSetEntry, Thesis
-from ingest.edgar.client import EdgarClient
+from ingest import CacheMiss
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from radar.spac import run_spac_radar
 from repositories import thesis_repo
 
@@ -191,3 +192,41 @@ def test_no_index_day_classifier_takes_403_and_404():
     assert _is_no_index_day(_HttpErr(404))
     assert not _is_no_index_day(_HttpErr(500))
     assert not _is_no_index_day(RuntimeError("boom"))
+
+
+# --- G1: the nightly radar leg builds its EDGAR client with the RECURRING TTL ------------------------
+
+
+class _RecordingEdgar:
+    """Constructor-compatible fake that RECORDS its kwargs; every fetch misses, so the radar skips the
+    days quietly (its documented cache-miss path) and the run completes without network."""
+
+    seen: list[dict] = []
+
+    def __init__(self, **kw) -> None:
+        self.live_fetches = 0
+        _RecordingEdgar.seen.append(kw)
+
+    def get_text(self, url, cache_key):
+        raise CacheMiss(cache_key)
+
+    def get_json(self, url, cache_key):
+        raise CacheMiss(cache_key)
+
+
+def test_radar_builds_its_edgar_client_with_the_RECURRING_TTL(db, monkeypatch):
+    """G1 — no exceptions on the nightly path. BOTH keys this leg reads are mutable: TODAY's
+    daily-index master file GROWS through the day as filings are accepted (a daytime scan cached an
+    incomplete index that the 22:30 pass then served — the radar silently missed that evening's deal
+    announcements), and submissions/CIK<10>.json is the same mutable index the call path enumerates from.
+    Asserted against the CONSTANT (five minutes, not zero — measured in tests/ingest/test_edgar_client.py);
+    this leg also memoizes submissions per CIK in-memory, so it never re-reads a key within a pass anyway.
+    Only the INJECTED-client path (the tests above) keeps its own dial."""
+    _RecordingEdgar.seen = []
+    monkeypatch.setattr("radar.spac.EdgarClient", _RecordingEdgar)
+
+    run_spac_radar(db, until=D, days=1, allow_live=True)
+
+    assert len(_RecordingEdgar.seen) == 1
+    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == RECURRING_CACHE_TTL_S
+    assert _RecordingEdgar.seen[0]["allow_live"] is True  # the other kwargs are unchanged

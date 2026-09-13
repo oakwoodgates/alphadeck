@@ -48,6 +48,8 @@ def build_run_payload(
     started_at: datetime,
     finished_at: datetime,
     catch_up: bool = False,
+    benchmark_errors: int = 0,
+    benchmark_leg_failed: bool = False,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -69,6 +71,13 @@ def build_run_payload(
     `catch_up` marks a `--catch-up` pass (the sidecar's boot / late-wake catch-up): the admin history
     re-derives health from this payload and must NOT page a catch-up's legitimate ~0 fetches as a freeze
     (it runs inside the EDGAR TTL). An artifact written before the key existed reads as `False`.
+
+    `benchmark_errors` / `benchmark_leg_failed` (G4) record the SHARED-INPUT refresh leg's outcome. They are
+    here, not only in the live page, for the same reason `catch_up` is: **the admin history re-derives health
+    from this file** (`app/routers/admin.py::_admin_run_out` → `assess_health`), so a count that reaches only
+    the notifier would make the night the platform PAGED about re-read forever as a green row. An artifact
+    written before the keys existed reads as `0` / `False` (the reader uses `.get` — a new key must never
+    make an old artifact unparseable, which would blank the whole history).
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -83,6 +92,11 @@ def build_run_payload(
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
         "edgar_fetches": edgar_fetches,
+        # G4 — the shared-input refresh leg (SPY/IWM, feeding benchmark_rs): individual pulls that failed,
+        # and whether the leg itself died before producing any result. Run-LEVEL, like edgar_fetches: the
+        # leg runs once per pass on its own connection, outside the per-thesis loop.
+        "benchmark_errors": benchmark_errors,
+        "benchmark_leg_failed": benchmark_leg_failed,
         "summary": {
             "theses": len(results),
             "appended": recorded,
@@ -123,6 +137,8 @@ def write_cron_run_log(
     finished_at: datetime,
     base_dir: Path | None = None,
     catch_up: bool = False,
+    benchmark_errors: int = 0,
+    benchmark_leg_failed: bool = False,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -136,6 +152,8 @@ def write_cron_run_log(
             started_at=started_at,
             finished_at=finished_at,
             catch_up=catch_up,
+            benchmark_errors=benchmark_errors,
+            benchmark_leg_failed=benchmark_leg_failed,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

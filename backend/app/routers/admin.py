@@ -88,6 +88,14 @@ def _problems(health: HealthEvent | None) -> list[str]:
         out.append(f"{health.withheld_failure} call(s) WITHHELD — TOTAL INGEST FAILURE")
     if health.errored:
         out.append(f"{health.errored} thesis error(s)")
+    # G4 — the shared-input alarms (a stale SPY/IWM tape silently degrades benchmark_rs for every call
+    # that night). NOT benign: these sit above the no-live note and DO make the cron verdict unhealthy.
+    if health.benchmark_leg_failed:
+        out.append("BENCHMARK REFRESH LEG FAILED — the SPY/IWM tape did not refresh tonight")
+    if health.benchmark_errors:
+        out.append(
+            f"{health.benchmark_errors} benchmark refresh error(s) — benchmark_rs read a stale tape"
+        )
     if health.withheld_no_live:
         out.append(
             f"{health.withheld_no_live} call(s) withheld — no-live "
@@ -104,10 +112,19 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     verdict the run itself paged on, re-readable forever from the file). A ``catch_up`` pass skips the
     FREEZE predicate exactly as the run itself did (it ran inside the EDGAR TTL — ~0 fetches is correct),
     so the history never shows a catch-up as unhealthy; an artifact from before the key reads False.
+
+    The RUN-LEVEL keys added after the original schema (``catch_up``, and G4's benchmark counts) are read
+    with ``.get`` ON PURPOSE, unlike the strict ``payload[...]`` above: this function is strict by design and
+    its callers skip a RAISING artifact fail-open, so reading a new key strictly would make every artifact
+    written before the deploy unparseable — silently blanking the entire run history and ``last_run``.
     """
     asof = date.fromisoformat(payload["asof"])
     allow_live = payload["mode"] == "live"
     catch_up = bool(payload.get("catch_up", False))
+    # G4 — re-derive the benchmark alarm from the artifact, so the history's verdict matches what the run
+    # paged (see the note on .get above: an artifact from before these keys reads clean, not broken).
+    benchmark_errors = int(payload.get("benchmark_errors") or 0)
+    benchmark_leg_failed = bool(payload.get("benchmark_leg_failed", False))
     results = [
         ThesisRunResult(
             thesis_id=UUID(t["id"]),
@@ -120,7 +137,14 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         )
         for t in payload["theses"]
     ]
-    health = assess_health(results, asof=asof, allow_live=allow_live, freeze_check=not catch_up)
+    health = assess_health(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        freeze_check=not catch_up,
+        benchmark_errors=benchmark_errors,
+        benchmark_leg_failed=benchmark_leg_failed,
+    )
     summary = payload["summary"]
     return AdminRunOut(
         ran_at=str(payload["started_at"]),
@@ -168,11 +192,12 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     (container-local clock; a Friday edge on a Monday morning is CURRENT — never a weekend false
     alarm); ``edge: null`` is the quiet "record has never begun" state. ``last_run`` is the newest
     readable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no
-    artifact), ``unhealthy`` (the last run froze / errored / totally failed — as loud as stale, so a
-    bad run can't hide behind green), ``stale`` (the record missed an expected run), ``gappy`` (the
-    edge is current but a night inside the last ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO
-    call-of-record — a run that fired on the wrong day; the edge check alone cannot see it), else
-    ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean window).
+    artifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the
+    shared benchmark tape — as loud as stale, so a bad run can't hide behind green), ``stale`` (the
+    record missed an expected run), ``gappy`` (the edge is current but a night inside the last
+    ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record — a run that fired on the
+    wrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists
+    the holes (empty on a clean window).
     """
     run_at = _run_at()
     now = _now()
@@ -318,6 +343,10 @@ def start_run_daily() -> AdminRunJobRef:
             allow_live=outcome.allow_live,
             started_at=outcome.started_at,
             finished_at=outcome.finished_at,
+            # G4 — carried off the outcome, or this poll payload would report a healthy run over the
+            # benchmark fault the SAME pass wrote into its artifact and paged about.
+            benchmark_errors=outcome.benchmark_errors,
+            benchmark_leg_failed=outcome.benchmark_leg_failed,
         )
         return _admin_run_out(payload)
 
