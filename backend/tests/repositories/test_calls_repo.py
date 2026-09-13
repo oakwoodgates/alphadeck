@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import psycopg
 import pytest
+from psycopg.types.json import Json
 
 from calls.assembler import assemble_call
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State, Verdict
 from repositories import calls_repo, thesis_repo
+from repositories.mappers import call_to_row
 from tests.calls.factories import make_thesis
 
 
@@ -151,3 +154,64 @@ def test_include_reconstructed_filters_BEFORE_the_dedup_and_the_marker_rides_the
     assert calls_repo.record_if_changed(db, recon_d2) is False
     db.commit()
     assert len(calls_repo.list_for_thesis(db, thesis.id)) == 3
+
+
+# --- G2c: recorded_asof_stamps — the hole check's input, value-free ------------------------------------
+
+
+def _insert_call_at(db, thesis, *, asof: date, recorded_at: datetime):
+    """Append a call-of-record for ``asof`` with an EXPLICIT ``recorded_at``.
+
+    Why an explicit INSERT rather than ``calls_repo.append`` followed by an UPDATE: the ``calls`` log is
+    immutable — a real ``no_update`` trigger (migration 0003) blocks rewriting a recorded call — so the
+    transaction stamp has to be supplied at insert time. It is otherwise exactly the row ``append`` writes:
+    a genuinely assembled card through the repo's own ``call_to_row`` mapper, only with the stamp pinned
+    instead of defaulted to ``now()``."""
+    card = assemble_call(thesis, [], asof, DEFAULT_CONFIG)
+    row = call_to_row(card, DEFAULT_TENANT_ID)
+    with db.cursor() as cur:
+        cur.execute(
+            """INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card, recorded_at)
+               VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s,
+                       %(recorded_at)s)""",
+            {**row, "card": Json(row["card"]), "recorded_at": recorded_at},
+        )
+    db.commit()
+
+
+def test_recorded_asof_stamps_returns_the_LATEST_recorded_at_per_asof(db):
+    """MAX is the load-bearing aggregate: the caller asks "was SOME row for this night recorded at/after the
+    cutoff", so a night carrying BOTH a daytime row and a proper post-close row must report the later stamp —
+    otherwise a night that WAS properly recorded would read as daytime-only."""
+    thesis = _persist_minimal_thesis(db)
+    asof = date(2026, 9, 8)
+    morning = datetime(2026, 9, 8, 13, 15, tzinfo=timezone.utc)  # 09:15 ET
+    night = datetime(2026, 9, 9, 2, 35, tzinfo=timezone.utc)  # 22:35 ET that evening
+    _insert_call_at(db, thesis, asof=asof, recorded_at=morning)
+    _insert_call_at(db, thesis, asof=asof, recorded_at=night)
+
+    stamps = calls_repo.recorded_asof_stamps(db, since=date(2026, 9, 1))
+
+    assert set(stamps) == {asof}
+    assert stamps[asof] == night  # the LATER of the two, not the first
+
+
+def test_recorded_asof_stamps_is_bounded_by_since(db):
+    """Bounded like its predecessor: the hole check scans a window, so the read must not drag in the whole
+    history."""
+    thesis = _persist_minimal_thesis(db)
+    old, recent = date(2026, 8, 3), date(2026, 9, 8)
+    _insert_call_at(
+        db, thesis, asof=old, recorded_at=datetime(2026, 8, 4, 2, 35, tzinfo=timezone.utc)
+    )
+    _insert_call_at(
+        db, thesis, asof=recent, recorded_at=datetime(2026, 9, 9, 2, 35, tzinfo=timezone.utc)
+    )
+
+    assert set(calls_repo.recorded_asof_stamps(db, since=date(2026, 9, 1))) == {recent}
+    assert set(calls_repo.recorded_asof_stamps(db, since=date(2026, 8, 1))) == {old, recent}
+
+
+def test_recorded_asof_stamps_is_EMPTY_on_a_fresh_log(db):
+    """The quiet fresh-install shape — the caller reads "no nights recorded", never a crash."""
+    assert calls_repo.recorded_asof_stamps(db, since=date(2026, 9, 1)) == {}

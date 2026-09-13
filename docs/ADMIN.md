@@ -56,17 +56,37 @@ run that fires on the **wrong day** (the laptop's sleep drift: a 00:24 or 09:09 
 day's as-of) advances the edge right over the night it skipped. MEASURED on prod, 6 of 13 weekdays had no
 `calls` row while the page read "current". So `/admin/status` also scans the last
 **`ALPHADECK_ADMIN_MISSED_WINDOW`** (default **10**; `0` disables) scheduled weekdays ending at the last
-expected run (`schedule.py::scheduled_window` / `missed_asofs`; `calls_repo.recorded_asofs` +
-`record_first`) for nights with **no call-of-record at all**, bounded to the record's own span (a night before
-the record began is pre-history, never a "miss"; a fresh install has no holes). `record.missed` counts them,
-`record.missed_asofs` lists them ascending, `record.window_days` says how many were scanned. `stale` /
+expected run (`schedule.py::scheduled_window` / `missed_asofs`; `calls_repo.recorded_asof_stamps` +
+`record_first`) for nights with **no covering call-of-record**, bounded to the record's own span (a night
+before the record began is pre-history, never a "miss"; a fresh install has no holes). `record.missed` counts
+them, `record.missed_asofs` lists them ascending, `record.window_days` says how many were scanned. `stale` /
 `days_behind` keep their exact edge-check meaning; the expected day itself, when missing, appears in both.
 The page lists the missed dates **only when there are any** (a control that doesn't discriminate doesn't
 render). The cause — the sidecar firing for the day it *woke* rather than the night it was scheduled for — is
 fixed in `FEED_LOOP.md` §the scheduling sidecar (the target as-of is now fixed at schedule time).
 
+**What "covered" means — a POST-`RUN_AT` row (G2c).** A weekday counts as recorded only if some
+call-of-record for that as-of was **`recorded_at` at or after that night's `RUN_AT` in market time**
+(`datetime.combine(asof, RUN_AT, market_tz())`). Mere existence of a row was too weak a test: a pre-open
+**"Run daily now"** writes a row for *today's* as-of off the **prior** session's bars, so a night whose 22:30
+pass then failed still had a row and read as **covered** — the hole was invisible, which is exactly the
+shape G2 exists to close (MEASURED on prod for 2026-09-09: two pre-open passes at 09:09 / 09:15 ET, the host
+then off at 22:30).
+
+- `record.daytime_only_asofs` names the as-ofs whose **only** row is such a daytime one. Every one of them
+  also appears in `missed_asofs`, and both the page and the `gappy` detail mark them
+  (`2026-09-08 (daytime row only)`) — because "nothing fired" and "something ran, but not after the close"
+  call for different responses: the first wants a catch-up, the second wants to know *why the night's pass
+  failed*.
+- A **next-morning catch-up** row is recorded after the cutoff and correctly covers the night — which is why
+  the comparison is against the cutoff rather than against the as-of's own calendar day.
+- A night carrying **both** a daytime row and a proper post-close row is covered: the read takes
+  `MAX(recorded_at)` per as-of, so the later row wins.
+- The cutoff uses `Settings.cron_run_at` (`ALPHADECK_CRON_AT`), the same host var the sidecar fires on —
+  mirrored into both services by compose so the trigger and its readout cannot drift.
+
 **A reconstructed night reads as recorded here — on purpose.** `record_edge` / `record_first` /
-`recorded_asofs` count EVERY `calls` row, including the rows `pipeline.backfill` wrote (`calls.reconstructed`,
+`recorded_asof_stamps` count EVERY `calls` row, including the rows `pipeline.backfill` wrote (`calls.reconstructed`,
 migration 0042): after a backfill the night is no longer a hole, `gappy` clears, and the edge can advance.
 Freshness asks whether the log advanced, not whether a row is scoreable — the Scoreboard's record path is the
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights

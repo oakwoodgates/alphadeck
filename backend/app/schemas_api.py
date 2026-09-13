@@ -1613,9 +1613,19 @@ class AdminRecordOut(BaseModel):
 
     ``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly
     that meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last
-    ``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with NO
+    ``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no
     call-of-record — a run that fired on the wrong day advances the edge right over the night it skipped,
-    invisible to the edge check. ``[]`` / ``0`` on a clean window."""
+    invisible to the edge check. ``[]`` / ``0`` on a clean window.
+
+    **COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record
+    for that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence
+    was too weak: a pre-open "Run daily now" writes a row for today's as-of off the PRIOR session's bars,
+    so a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the
+    as-ofs whose ONLY row is such a daytime one — every one of them also appears in ``missed_asofs``, and
+    the detail marks them, because "nothing ran" and "something ran, but not after the close" call for
+    different responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the
+    night; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.
+    """
 
     edge: date | None
     today: date
@@ -1625,6 +1635,7 @@ class AdminRecordOut(BaseModel):
     reason: str
     missed: int
     missed_asofs: list[date]
+    daytime_only_asofs: list[date] = []
     window_days: int
 
 

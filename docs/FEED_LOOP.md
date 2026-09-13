@@ -193,8 +193,15 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   `withheld_reason`/`edgar_fetches`/counts. `edgar_fetches` is the **freeze detector**: it counts network
   *attempts* (a frozen cache reaches out 0 times; a healthy run, thousands), so a freeze is visible in the log
   instead of hiding behind a plausible quiet night. `already_ran_live(asof, run_at, tz)` reads these logs
-  (mode==`live`, **started at/after that night's `RUN_AT`** in market time) to decide whether the night
-  already ran — the basis of R6 catch-up.
+  (mode==`live`, **started at/after that night's `RUN_AT`** in market time, **and the call step RECORDED for
+  at least one thesis** — G2b) to decide whether the night already ran — the basis of R6 catch-up and of the
+  failed-run retry above. **Why the recorded test (G2b):** the guard used to credit any live post-`RUN_AT`
+  artifact *regardless of health*, so a pass that COMPLETED with every thesis withheld or errored (the DB
+  gone after connect; an empty User-Agent erroring every name) left an artifact that blocked both the retry
+  and any later boot catch-up — the night kept no honest post-close row and nothing ever tried again. The
+  test is deliberately generous: `recorded is False` (unchanged, so no row appended) is the common
+  healthy-quiet night and counts; only `None` everywhere means nothing recorded. Fail-open toward RUNNING as
+  ever — a damaged or pre-schema `theses` list is no evidence, so a needed catch-up still fires.
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
@@ -264,6 +271,20 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
   `docker compose up -d --scale cron=0`. *(Local dev uses `infra/docker-compose.yml` — DB only — and tests use
   pytest, so neither starts it.)* `restart: unless-stopped` — see the missing-sidecar gap in "Known gaps".
+- **A failed scheduled run is RETRIED ONCE (G2a)** `[BUILT]`. A non-zero exit used to end the night: the loop
+  logged `run FAILED (continuing to the next day)` and waited for tomorrow, so a transient fault (a DB
+  restart mid-run, a vendor 5xx, a network blip) cost that night's call-of-record outright — and with a
+  daytime row on the same day the Admin page could still read "healthy" right over the hole. Now the loop
+  waits **`RETRY_DELAY_S`** (env, default **1200 s**; compose passes `ALPHADECK_CRON_RETRY_DELAY_S`) through
+  the same sliced `wait_until` the schedule uses (a raw `sleep` would overshoot by a whole host suspend) and
+  fires ONE `python -m pipeline.daily --catch-up --asof "$target"`. **`--catch-up` is the guard**, which is
+  what makes retrying on a bare exit code safe — the shell never has to know which failure it hit:
+  a pass that **crashed before writing its artifact** leaves no evidence, so the retry runs the night in
+  full; a pass that **completed but exited 1 because some thesis errored** has an artifact showing the call
+  step ran, so the guard no-ops and the retry costs one CLI start rather than a ~65-minute re-ingest; a pass
+  that completed with **every** thesis withheld or errored recorded nothing, so the retry runs (that is G2b,
+  below). The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
+  still run after it. Exactly ONE retry — a second failure is logged and the loop moves on.
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
   the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
   them** rather than one long `sleep` (why: two bullets down) — skips weekends (markets closed → an
@@ -490,7 +511,21 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   catches last night up even when a pre-open manual pass ran. A *persistent* absence — a host that stays off,
   a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
   that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
-  absence). Unchanged, still open.
+  absence). Unchanged, still open. **Narrowed again by G2:** a pass that FIRED and failed is now retried
+  once, and a night whose only row is a pre-`RUN_AT` one is listed as a hole instead of reading covered — so
+  the remaining uncovered case is precisely "nothing fired at all", which is the heartbeat's job.
+- **A failed scheduled run, and a daytime row hiding the failed night — CLOSED (G2).** Two halves of one
+  blind spot. (a) The sidecar caught the CLI's non-zero exit, logged it, and waited for tomorrow, so a
+  transient fault cost the night outright; it now retries once after `RETRY_DELAY_S` via `--catch-up` (see
+  the sidecar section). (b) The `--catch-up` guard credited any live post-`RUN_AT` artifact regardless of
+  health, so a pass that completed with everything withheld blocked both the retry and a later boot
+  catch-up; it now requires that the call step RECORDED for some thesis. (c) The Admin hole check counted any
+  row for the as-of, so a pre-open "Run daily now" row covered a night whose post-close pass failed; a night
+  is now covered only by a row recorded at/after that night's `RUN_AT` in market time, and a daytime-only
+  night is listed with a distinct mark (`ADMIN.md` §what "covered" means). **Still open, by design:** the
+  retry is ONE attempt, and a multi-night host-off outage still reruns only the last expected night on boot
+  (never older holes — a deploy must not silently backfill history); `pipeline.backfill` with a pinned
+  `known_at` remains the operator's tool for an older hole.
 - **A price tape that silently ENDED — MONITORED (G5a), the repair still manual.** Zero bars appended with no
   error is what a dead tape and a market holiday both look like, so a rename-starved name could sit dark
   indefinitely: no breakout, no SMA flip, no RVOL, and no price-based de-arm, while its filing feeds kept it

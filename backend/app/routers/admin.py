@@ -42,7 +42,7 @@ from app.schemas_api import (
     BackupOut,
     BackupsOut,
 )
-from domain.market_time import market_now
+from domain.market_time import market_now, market_tz
 from domain.settings import get_settings
 from notify import HealthEvent
 from pipeline.backup import BackupInfo, list_backups, run_backup
@@ -252,9 +252,11 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     artifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the
     shared benchmark tape — as loud as stale, so a bad run can't hide behind green), ``stale`` (the
     record missed an expected run), ``gappy`` (the edge is current but a night inside the last
-    ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record — a run that fired on the
-    wrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists
-    the holes (empty on a clean window). ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
+    ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's
+    ``RUN_AT`` — a run that fired on the wrong day, or failed after a daytime pass; the edge check alone
+    cannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean
+    window) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.
+    ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
     name whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency —
     ``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes
     ``cron.status``.
@@ -274,8 +276,21 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     # queries (MIN(asof) + DISTINCT asof since the window's first day) — the surface still writes nothing.
     window_days = scheduled_window(expected, get_settings().admin_missed_window)
     first = calls_repo.record_first(conn) if (edge is not None and window_days) else None
-    recorded = calls_repo.recorded_asofs(conn, since=window_days[0]) if first is not None else set()
-    missed = missed_asofs(recorded, expected=expected, first=first, window=len(window_days))
+    stamps = (
+        calls_repo.recorded_asof_stamps(conn, since=window_days[0]) if first is not None else {}
+    )
+    # G2c — A NIGHT IS COVERED ONLY BY A POST-RUN_AT ROW. Existence of a row for the as-of was too weak:
+    # a pre-open "Run daily now" at 09:15 writes a row for TODAY's as-of off the PRIOR session's bars, and
+    # the old membership test counted it — so a night whose 22:30 pass then FAILED read as covered and the
+    # hole was invisible (MEASURED on prod for 2026-09-09: two pre-open passes, the host off at 22:30).
+    # The cutoff is that night's RUN_AT in MARKET time, so the comparison is made where the deploy config
+    # lives (the repo read stays value-free); a next-morning catch-up row is recorded AFTER the cutoff and
+    # correctly qualifies, and a `reconstructed` row's stamp is its reconstruction instant, so a backfilled
+    # night still counts as covered (unchanged, deliberate).
+    tz = market_tz()
+    covered = {d for d, rec in stamps.items() if rec >= datetime.combine(d, run_at, tzinfo=tz)}
+    daytime_only = sorted(set(stamps) - covered)
+    missed = missed_asofs(covered, expected=expected, first=first, window=len(window_days))
 
     if edge is None:
         reason = "the record has never begun — no call-of-record logged yet"
@@ -285,9 +300,11 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         )
     elif missed:
         # the edge is current, but the window is not clean — the reason must not say "no run is missing"
+        daytime_in_window = [d for d in missed if d in set(daytime_only)]
+        tail = f" ({len(daytime_in_window)} with a daytime row only)" if daytime_in_window else ""
         reason = (
             f"current at the edge — but {len(missed)} of the last {len(window_days)} scheduled "
-            "run(s) have no call-of-record"
+            f"run(s) have no post-{run_at:%H:%M} call-of-record{tail}"
         )
     else:
         reason = "current — no scheduled run is missing"
@@ -326,14 +343,23 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                 f"run(s) behind (last expected as-of {expected.isoformat()})",
             )
         elif missed:
-            # gappy: the edge is current and the last run clean, yet a recent night has NO record — the
-            # wrong-day shape. As loud as stale (a hole is a missing run the edge check can't see); a
-            # clean window never mentions holes (honest loudness).
+            # gappy: the edge is current and the last run clean, yet a recent night has no post-RUN_AT
+            # record — the wrong-day shape. As loud as stale (a hole is a missing run the edge check can't
+            # see); a clean window never mentions holes (honest loudness). G2c — the two shapes are named
+            # DISTINCTLY, because they call for different things: a night with NOTHING at all is a run that
+            # never fired, while a night whose only row is a DAYTIME one had a pass that ran on the prior
+            # session's bars and then a post-close pass that failed or never happened. Marking the second is
+            # the whole point of the cutoff: it used to read as covered.
+            daytime_set = set(daytime_only)
+            marked = ", ".join(
+                f"{d.isoformat()} (daytime row only)" if d in daytime_set else d.isoformat()
+                for d in missed
+            )
             cron = AdminCronOut(
                 status="gappy",
                 detail=f"record has {len(missed)} hole(s) in the last {len(window_days)} scheduled "
-                "runs: " + ", ".join(d.isoformat() for d in missed) + " — a run fired on the wrong "
-                'day, or never fired (see FEED_LOOP.md "Known gaps")',
+                f"runs: {marked} — a run fired on the wrong day, failed after a daytime pass, or never "
+                'fired (see FEED_LOOP.md "Known gaps")',
             )
         else:
             cron = AdminCronOut(
@@ -363,6 +389,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             reason=reason,
             missed=len(missed),
             missed_asofs=missed,
+            daytime_only_asofs=daytime_only,
             window_days=len(window_days),
         ),
         last_run=last_run,

@@ -299,6 +299,21 @@ def _log_for(tmp_path, *, asof: date, allow_live: bool, at: datetime, catch_up: 
     )
 
 
+def _log_for_results(tmp_path, results, *, asof: date, at: datetime, allow_live: bool = True):
+    """``_log_for``'s sibling for the G2b guard tests: the same REAL writer, but the caller supplies the
+    per-thesis results, because what the guard now reads is whether any thesis RECORDED."""
+    path = write_cron_run_log(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=at,
+        finished_at=at,
+        base_dir=tmp_path,
+    )
+    assert path is not None
+    return path
+
+
 def _ran(tmp_path, asof: date) -> bool:
     return already_ran_live(asof, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path)
 
@@ -561,3 +576,96 @@ def test_an_artifact_WITHOUT_the_TAPE_keys_still_parses(tmp_path):
     assert tuple(logs[0].get("tape_stale_new") or ()) == ()
     assert previous_stale_tapes(base_dir=tmp_path) is None  # and it is no baseline
     assert already_ran_live(_JUL17, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is True  # unaffected
+
+
+# --- G2b: the guard credits only a pass that RECORDED for some thesis --------------------------------
+#
+# `already_ran_live` used to credit any live post-RUN_AT artifact REGARDLESS of health, so a pass that
+# COMPLETED with every thesis withheld or errored left an artifact that blocked both the sidecar's retry and
+# any later boot catch-up — the night kept no honest post-close row and nothing ever tried again.
+
+
+def test_a_COMPLETED_pass_that_recorded_NOTHING_is_not_evidence(tmp_path):
+    """THE G2b CASE: the pass ran to completion and wrote its artifact, but every thesis was WITHHELD (the
+    DB went away after connect, or the User-Agent was empty so every name errored). Nothing was recorded, so
+    the night did not happen — the guard must let the retry run."""
+    _log_for_results(
+        tmp_path,
+        [_thesis_result(withheld_reason="total ingest failure")],
+        asof=_JUL17,
+        at=_NIGHT_JUL17,
+    )
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_a_pass_whose_every_thesis_ERRORED_in_the_call_step_is_not_evidence(tmp_path):
+    """The other nothing-recorded shape: the ingest was fine but the call step raised for every thesis, so
+    `recorded` is None everywhere. Same verdict — no honest row for the night."""
+    _log_for_results(
+        tmp_path,
+        [_thesis_result(recorded=None, error="call: boom")],
+        asof=_JUL17,
+        at=_NIGHT_JUL17,
+    )
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_a_PARTIAL_pass_with_one_recorded_thesis_IS_evidence(tmp_path):
+    """The retry must NOT re-run a pass that already recorded. `python -m pipeline.daily` exits non-zero when
+    ANY thesis errors, so a single bad thesis out of several trips the shell's retry — and this is what keeps
+    that retry cheap: one recorded thesis means the night happened, so the `--catch-up` guard no-ops and the
+    ~65-minute ingest is not repeated."""
+    _log_for_results(
+        tmp_path,
+        [_thesis_result(recorded=True), _thesis_result(recorded=None, error="call: boom")],
+        asof=_JUL17,
+        at=_NIGHT_JUL17,
+    )
+    assert _ran(tmp_path, _JUL17) is True
+
+
+def test_an_UNCHANGED_only_pass_IS_evidence(tmp_path):
+    """`recorded is False` = the call was assembled and compared and matched the prior row, so no row was
+    appended. That is the COMMON healthy-quiet night and absolutely counts as "the night ran" — reading it as
+    nothing-recorded would re-run the whole ingest after every uneventful evening."""
+    _log_for_results(tmp_path, [_thesis_result(recorded=False)], asof=_JUL17, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, _JUL17) is True
+
+
+def test_an_artifact_with_NO_theses_list_is_not_evidence(tmp_path):
+    """Fail-open toward RUNNING, like every other branch of the guard: an artifact damaged or written before
+    the per-thesis schema existed is no evidence, so a needed catch-up still fires. A repeated run is safe
+    (`record_if_changed`); a skipped one is the silent gap the guard exists to close."""
+    path = _log_for_results(tmp_path, [_thesis_result(recorded=True)], asof=_JUL17, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, _JUL17) is True  # ...before the damage
+    doc = _read(path)
+    del doc["theses"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_an_artifact_with_ZERO_theses_is_not_evidence(tmp_path):
+    """A fresh install with no theses: the pass recorded nothing because there was nothing to record. The
+    guard credits nothing, so a catch-up re-fires — correct, and instant over an empty universe."""
+    _log_for_results(tmp_path, [], asof=_JUL17, at=_NIGHT_JUL17)
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_a_NON_BOOL_recorded_value_is_not_mistaken_for_an_outcome(tmp_path):
+    """`isinstance(..., bool)`, not `in (True, False)`: in Python `1 in (True, False)` is True, so an integer
+    that wandered into the field would otherwise read as "recorded"."""
+    path = _log_for_results(tmp_path, [_thesis_result(recorded=True)], asof=_JUL17, at=_NIGHT_JUL17)
+    doc = _read(path)
+    doc["theses"][0]["recorded"] = 1
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_the_recorded_test_is_ANDed_with_the_RUN_AT_cutoff_not_a_replacement(tmp_path):
+    """Both rules still apply: a pass that recorded but started BEFORE the night's RUN_AT (a pre-open "Run
+    daily now") is still not the night's pass."""
+    sep9 = date(2026, 9, 9)
+    _log_for_results(
+        tmp_path, [_thesis_result(recorded=True)], asof=sep9, at=_utc(2026, 9, 9, 9, 15)
+    )
+    assert already_ran_live(sep9, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is False

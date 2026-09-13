@@ -164,7 +164,17 @@ export function Admin({ header }: Props) {
             {status.record.missed > 0 && (
               <div className="adm-line adm-loud" data-testid="adm-missed">
                 <b>{status.record.missed}</b> of the last {status.record.window_days} scheduled
-                night(s) have no call-of-record: {status.record.missed_asofs.join(", ")}
+                night(s) have no post-close call-of-record:{" "}
+                {status.record.missed_asofs
+                  .map((d) =>
+                    // G2c: a night whose ONLY row is a pre-RUN_AT one had a pass that ran on the prior
+                    // session's bars and then a post-close pass that failed or never fired. Marked
+                    // distinctly from "nothing ran at all" — the two call for different responses.
+                    (status.record.daytime_only_asofs ?? []).includes(d)
+                      ? `${d} (daytime row only)`
+                      : d,
+                  )
+                  .join(", ")}
               </div>
             )}
             <div className="adm-sub">
