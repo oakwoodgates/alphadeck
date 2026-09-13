@@ -61,16 +61,27 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      # The process wall-clock TIMEZONE — now DEFENSE-IN-DEPTH, no longer the mechanism. The trading day
-      # is resolved IN CODE by `domain/market_time.market_today()` on an EXPLICIT ZoneInfo
-      # (ALPHADECK_MARKET_TZ, default America/New_York), so a UTC container — or a CLI run outside a
-      # container, which this pin never reached — computes the right day regardless of TZ. That was the
-      # #202 bug: an ambient `date.today()` after ~20:00 ET recorded TOMORROW's asof, a materially different
-      # call (asof is a LIVENESS PARAMETER, so a signal whose window closed that day drops out and the
-      # derived countdowns shift a day). Keep this pin anyway — it is what everything still reading a WALL
-      # CLOCK uses: log timestamps and the cron sidecar's shell `sleep`-to-RUN_AT loop, neither of which
-      # goes through Python's zoneinfo.
-      TZ: ${ALPHADECK_TZ:-America/New_York}
+      # THE TIMEZONE — ONE host variable, ALPHADECK_MARKET_TZ, feeds every consumer in both services (F3,
+      # 2026-09-13). There used to be three names for one answer: ALPHADECK_TZ pinned this container's
+      # wall clock, ALPHADECK_CRON_TZ pinned the sidecar's, and ALPHADECK_MARKET_TZ — the one the DOMAIN
+      # clock actually reads (Settings.market_tz -> domain/market_time.market_today/market_tz) — was
+      # injected by NEITHER service, so it silently fell back to its code default. Consistent only
+      # because all three defaults were America/New_York; set one and not the others and the trading day,
+      # the schedule and the guard cutoffs would disagree with nothing to warn you. ALPHADECK_TZ and
+      # ALPHADECK_CRON_TZ are RETIRED and no longer read anywhere (see .env.example).
+      #   TZ (below)          = the wall clock: log timestamps + the sidecar's shell `sleep`-to-RUN_AT
+      #                         loop and its `date` math, neither of which goes through Python zoneinfo.
+      #   ALPHADECK_MARKET_TZ = the DOMAIN clock: `market_today()`'s trading day, the --catch-up guard's
+      #                         cutoff, the Admin covered-day rule. This is the mechanism; TZ is
+      #                         defense-in-depth. It was the #202 bug that split them: an ambient
+      #                         `date.today()` after ~20:00 ET recorded TOMORROW's asof — a materially
+      #                         different call (asof is a LIVENESS PARAMETER, so a signal whose window
+      #                         closed that day drops out and the derived countdowns shift a day).
+      # The fallback here MUST EQUAL Settings.market_tz's default (backend/domain/settings.py): compose
+      # ALWAYS injects this var now, so a drifted fallback would silently override the code default —
+      # the same rule the discovery hit caps above carry. A bad zone name fails LOUD in market_tz().
+      TZ: ${ALPHADECK_MARKET_TZ:-America/New_York}
+      ALPHADECK_MARKET_TZ: ${ALPHADECK_MARKET_TZ:-America/New_York}
       # The cron's RUN_AT wall time, mirrored to the backend (Settings.cron_run_at) so the admin page's
       # staleness read models the SAME Mon-Fri+RUN_AT schedule the sidecar (below) actually runs — one
       # host var, no drift between the trigger and its readout.
@@ -125,7 +136,13 @@ services:
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Polygon key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}
-      TZ: ${ALPHADECK_CRON_TZ:-America/New_York} # explicit TZ — schedule at US market close, never UTC
+      # The SAME one host variable the backend reads (see its block above) — the sidecar's shell fires
+      # RUN_AT on this container's TZ while `pipeline.daily` derives the as-of and the guard's cutoff from
+      # ALPHADECK_MARKET_TZ, so the two MUST come from one name or the night the shell fires for and the
+      # day the CLI records can differ. Explicit either way — schedule at US market close, never UTC.
+      # (ALPHADECK_CRON_TZ is RETIRED and no longer read; the fallback must equal Settings.market_tz.)
+      TZ: ${ALPHADECK_MARKET_TZ:-America/New_York}
+      ALPHADECK_MARKET_TZ: ${ALPHADECK_MARKET_TZ:-America/New_York}
       RUN_AT: ${ALPHADECK_CRON_AT:-22:30} # HH:MM in TZ — after the US close + EOD settle
       # The SAME wall time under the name Settings.cron_run_at reads (ALPHADECK_CRON_AT). The shell fires on
       # RUN_AT above, but `pipeline.daily --catch-up`'s guard resolves the night's cutoff through Settings

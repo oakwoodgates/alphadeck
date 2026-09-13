@@ -168,6 +168,12 @@ A **newly stale price tape** (G5a) also appears in `problems`, but carries the s
 `--no-live` note, so it never makes the verdict `unhealthy` — it is a feed gap, not a cron fault (see
 "Stale price tapes" above).
 
+**A night that errored on some theses but still recorded is no longer a failed run to the scheduler**
+(F4, 2026-09-13). Nothing on this page changes — the errors still show in `problems` and the run row, and
+the page still pages — but `pipeline.daily` now exits non-zero only when the night has **no**
+call-of-record at all, so the sidecar stops pausing 20 minutes to retry a night that recorded 11 of 12.
+A "Run daily now" that errors on a thesis reports exactly as before.
+
 A **failed benchmark refresh** is one of the alarms (G4). The SPY/IWM tape is a *shared* call-logic input
 (`benchmark_rs`), refreshed by a fail-open passenger leg before the per-thesis loop; its faults used to reach
 stdout only, so a night could produce calls against a **stale** tape and still read green. Two problem lines,

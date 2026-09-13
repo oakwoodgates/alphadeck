@@ -155,12 +155,21 @@ backend, a bind mount) built from code that exists nowhere in git.
 - **A cron ENV change needs the container RECREATED, not just rebuilt.** Compose applies a changed
   `environment:` block on recreate, which `up -d --build --no-deps cron` does — but a bare `docker
   restart alphadeck-cron-1` does not. After changing any of the cron service's vars, confirm with
-  `docker exec alphadeck-cron-1 printenv RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S`.
-  The cron service's vars today: `RUN_AT` (the shell's schedule time),
+  `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S`
+  and `docker exec alphadeck-backend-1 printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT`.
+  The cron service's vars today: `TZ` (the shell's wall clock), **`ALPHADECK_MARKET_TZ`** (the trading-day
+  clock — see the timezone note below), `RUN_AT` (the shell's schedule time),
   **`ALPHADECK_CRON_AT`** (the SAME wall time under the name `Settings.cron_run_at` reads, so the
   `--catch-up` guard's cutoff inside that container matches the time the shell fires on — both from the
   one host var `ALPHADECK_CRON_AT`), and **`RETRY_DELAY_S`** (`ALPHADECK_CRON_RETRY_DELAY_S`, default
   1200 s — the wait before the one retry of a failed scheduled run).
+- **All four timezone readings must print the SAME zone, and they come from ONE host variable.**
+  `ALPHADECK_MARKET_TZ` (default `America/New_York`) now feeds both services' container `TZ` *and* the
+  `Settings.market_tz` the domain clock reads; `ALPHADECK_TZ` and `ALPHADECK_CRON_TZ` are **retired and
+  read nowhere** — delete them from `.env` if they are still there. The `printenv` lines above are the
+  test, because a bad zone fails **asymmetrically**: `market_tz()` raises a loud `RuntimeError` on the
+  next Admin status read or daily run (it is called lazily, so boot is unaffected), while the sidecar's
+  shell `date` would silently fall back to UTC and fire `RUN_AT` at the wrong hour.
 - Prefer the targeted `--no-deps <service>` over a bare `docker compose up --build`
   (which rebuilds + restarts the whole stack — still safe, just slower).
 - The prod stack is `restart: unless-stopped` — it self-recovers after a daemon/laptop
