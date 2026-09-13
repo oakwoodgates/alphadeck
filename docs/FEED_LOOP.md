@@ -9,7 +9,8 @@
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
-> reconstructed with a PINNED `known_at`).
+> reconstructed with a PINNED `known_at`) · `backend/pipeline/tape_health.py` (the price-tape recency
+> monitor — a monitor, never a signal).
 >
 > **Status: BUILT** — the per-thesis ingest (PR #70), the daily cron + `record_if_changed` (#71), the
 > fresh-data fix + the price-source seam (#72), the scheduling sidecar (#73), and the **cron-freeze
@@ -129,6 +130,39 @@ other prefix (`submissions`/`companyfacts`/`efts`) refreshes on a **12h TTL** wh
 new mutable endpoint is safe-by-default; no caller threads anything. Full detail + the "works when you test it"
 trap: `DATA_SOURCES.md:45–58`; the whole episode: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
+**…and the 12h TTL is an INTERACTIVE default: the recurring pass takes the RECURRING TTL, five minutes
+(G1)** `[BUILT]`. The TTL
+closed the forever-cache, but left a narrower version of the same hole, and this one was *silent and common*.
+The clock starts when a given company's index was **last fetched**, so **any daytime read warms that company
+for up to 12h**: the Admin "Run daily now", a sidecar boot catch-up, the on-promote ingest of new members, a
+Workbench identity/extraction pull. The 22:30 pass then served that file off disk and was structurally blind
+to everything filed after the daytime fetch — the day's call-of-record missed those Form 4s / 8-Ks / 13Ds, and
+an arm or risk veto they caused was dated **a night late**. "Just run the daytime pass before 10:30" is not a
+rule to live by: the stamp is **per company** and a full pass takes up to an hour, so a run *started* early
+still warms the companies it reaches late. So every **recurring** EDGAR client is now built with
+`cache_ttl_s=RECURRING_CACHE_TTL_S` — the per-CLIENT dial, the exact parallel of `force_refresh=True` for
+prices, with no flag threaded through callers: `pipeline/daily.py`'s per-thesis client, `radar/spac.py`,
+`radar/shell_sweep.py` (whose whole job is reading a CIK's *current* SIC — a warm index made the night's
+enrichment a no-op). Immutable `forms/*` documents still cache forever, so the cost is **one index fetch per
+company per pass**, which the nightly run already paid whenever it ran outside the TTL.
+
+**Five minutes, not zero — and the difference was MEASURED.** `ingest_thesis` runs three filing legs per
+company back to back, and each reads the SAME `submissions/CIK<10>.json` key (that shared read is why the
+8-K and 13D/G legs cost "zero extra enumeration fetches"). `_is_stale` is `now - mtime > ttl`, so at **zero**
+a file written milliseconds ago is already stale and those three reads cost **3 live fetches instead of 1** —
+tripling the per-company index cost (≈1,500 SEC requests a night on a 500-name universe) for no freshness
+gain, against an API whose politeness this repo treats as a **correctness** requirement. Five minutes keeps
+the same-pass re-reads free and still closes the daytime gap: EDGAR accepts filings **06:00–22:00 ET**, so
+nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
+(measured: a 20-minute-old key refetches). **Accepted residual:** a second pass started *within* five minutes
+of another reads the first's cache for the companies it reached last — which is exactly why the R4 freeze
+page keeps its `--catch-up` exemption (see "Known gaps").
+
+**`ingest_fundamentals` keeps the 12h TTL deliberately** (companyfacts is a large document feeding a
+*quarterly* series — a day's staleness cannot change a call), and the interactive paths (the Workbench, a
+standalone `python -m pipeline.ingest_thesis`) keep it too. Consequence for the operator: **"Run daily now"
+is safe at any hour**.
+
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
 `run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.
@@ -163,9 +197,40 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   already ran — the basis of R6 catch-up.
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
-  (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, or has **thesis
-  errors**. A healthy run returns `None` — silent (loudness marks the exception). This is the page R1 lacked:
-  the platform now notices its own blindness. *(Known false-positive path — see "Known gaps".)*
+  (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
+  errors**, **failed to refresh the benchmark tape** (below), or found a **newly stale price tape** (G5a,
+  below — pageable but not a cron alarm). A healthy run returns `None` — silent
+  (loudness marks the exception). This is the page R1 lacked: the platform now notices its own blindness.
+- **A failed BENCHMARK refresh pages too (G4)** `[BUILT]`. The shared-input legs that run *before* the
+  per-thesis loop (the SPY/IWM tape feeding `benchmark_rs`; each basket's quarterly revenue) are
+  **fail-open passengers** — a fault must never fail the call cron. But fail-open had meant *silent*: the
+  fault printed to stdout, stdout dies on the next `docker compose up`, and the night still produced calls
+  computed against a **stale** shared input with nothing saying so. The benchmarks leg's outcome is now
+  carried on the pass: `benchmark_errors` (individual pulls that failed — a partly stale tape) and
+  `benchmark_leg_failed` (the leg raised before producing any result — no refresh at all), reported
+  **distinctly** because they are different news. Both go into the **run-of-record artifact** as well as the
+  page, so the Admin history re-derives the verdict the run actually paged (a count that reached only the
+  notifier would make that night re-read forever as a green row), and both make the Admin cron verdict
+  `unhealthy` — a real alarm, not a benign note. The fundamentals leg keeps stdout-only reporting: a
+  quarterly series tolerates a day.
+- **A price tape that STOPPED pages too (G5a)** `[BUILT]`. The price leg appends bars after the latest stored
+  one, so a name whose vendor series simply **ends** — the SEC ticker stays canonical but the vendor prices it
+  under a new symbol after a rename, or it delisted — appends **zero bars with no error**, which is
+  byte-identical to a market holiday. Nothing read the tape's edge, so for that name every price-driven
+  detector went dark from the stop date (no breakout, no SMA flip, no RVOL — and no price-based de-arm
+  either) while the CIK-keyed filing legs kept flowing, so it could still WARM on a filing and never confirm
+  on price. Now `ingest_thesis` reports each name's **tape edge** (`NameResult.tape_edge` — a FACT), `run_daily`
+  judges it against the run's `asof` (`pipeline/tape_health.py` — pure; `Settings.tape_stale_days`, default 5
+  CALENDAR days, `0` disables), the stale set lands per-thesis on the run-of-record artifact, and **newly**
+  stale names page. Newly only, diffed against the previous evaluated pass and keyed on `security_id` (never
+  the ticker — a ticker-less name must still page, and a ticker changing under a name is half the point): a
+  handful of known-dead tapes must not re-page nightly, while the FIRST evaluated pass hands over the whole
+  inventory once. A `--no-live` pass evaluates nothing and records `tape_evaluated: false`, so it can never
+  become the baseline and silence the next real page. It is a **MONITOR**: it touches no detector, no
+  `calls/` module, and nothing on the CallCard — a day-varying card field would flap `record_if_changed`'s
+  substance compare and break the cron's idempotency. And it is NOT a cron alarm: the run worked, the FEED has
+  a gap, so the Admin verdict stays `healthy` while the panel lists it (`ADMIN.md` §stale price tapes). The
+  repair is the operator's and is data, not code (`DATA_SOURCES.md` §when the symbol drifts).
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).
 - **No-lookahead.** `asof = today`, `known_at = now` (`PointInTimeData` defaults `None → now`); never backdated.
@@ -390,15 +455,19 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   bounded to the *last expected* night, never older); the operator's tool for a hole is `pipeline.backfill`
   with a PINNED `known_at` ("Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
   which records today's knowledge.
-- **The R4 freeze page's false-positive path is NARROWED, not removed.** It fires on `edgar_fetches == 0`, but
-  ~0 is *also* what a correct run entirely inside the 12h EDGAR TTL looks like (all cache hits). The
-  **nightly** cron is safe — always ~24h out, always past the TTL, always fetches in the thousands. Option B
-  from the original note **shipped for catch-ups** (2026-09-09): a `--catch-up` pass runs with
-  `assess_health(freeze_check=False)` — quiet on fetch count, still paging on withheld / errors — and its
-  artifact carries `catch_up: true` so the Admin history re-derives the same verdict. Still exposed: **manual
-  re-runs and any second scheduled run in a night** (a hand-run `python -m pipeline.daily` or the Admin "Run
-  daily now" right after the nightly). Option A (page on 0 only when the cache was *outside* its TTL for the
-  names touched) remains the more correct fix when built.
+- **The R4 freeze page's false-positive path is NARROWED again by G1 — closed for the scheduled pass and
+  the Admin "Run daily now", NOT for a second pass five minutes behind another.** It fires on
+  `edgar_fetches == 0`, which used to be *also* what a correct run entirely inside the 12h EDGAR TTL looked
+  like (all cache hits) — so the page was unreliable in the benign direction, and a reader learned to shrug
+  at it. With the recurring client now on the five-minute **RECURRING TTL**, a live pass re-fetches every
+  company's index whenever the previous read is older than five minutes, so for the **nightly scheduled
+  pass** and the **Admin trigger** `0 fetches` means the cache genuinely never reached out — a **true**
+  freeze. Still exposed, by design: **a SECOND pass started within five minutes of another** (a hand-run
+  `python -m pipeline.daily` right after the nightly, the retry/catch-up sequence) legitimately reads the
+  first pass's cache for the companies it reached last, and can report ~0. That is precisely why the
+  `--catch-up` exemption — `assess_health(freeze_check=False)`, artifact `catch_up: true` — **stays**. Option
+  A (page on 0 only when the cache was outside its TTL for the names touched) remains the more correct fix
+  for that residual when built. The other unreliability is the ATTEMPTS-not-successes gap below.
 - **`edgar_fetches` counts ATTEMPTS, not successes.** `EdgarClient.get_text` does `live_fetches += 1`
   immediately *before* calling `_fetch`, so a pull that RAISES still increments the counter. A run whose every
   fetch fails therefore reports a large, reassuring number, and `frozen` (which trips only at exactly 0) can
@@ -422,6 +491,16 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
   that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
   absence). Unchanged, still open.
+- **A price tape that silently ENDED — MONITORED (G5a), the repair still manual.** Zero bars appended with no
+  error is what a dead tape and a market holiday both look like, so a rename-starved name could sit dark
+  indefinitely: no breakout, no SMA flip, no RVOL, and no price-based de-arm, while its filing feeds kept it
+  warming. The nightly pass now reads each name's tape edge, flags a tape `tape_stale_days` (default 5
+  calendar days) or more behind the as-of, pages the **newly** stale ones, and the Admin panel lists the
+  current inventory — so the gap is visible and attributable. **Still open by design:** the repair is the
+  operator's (set the vendor symbol override; the next pass heals the tape), because an automatic
+  rename-follower could file another company's tape under a member — worse than a visible gap (#4/#6). Also
+  still open: the monitor cannot distinguish a rename from a genuine delisting (it reports the fact, not the
+  diagnosis), and the fund-shares leg for an ETF sleeve has no equivalent recency check yet — price bars only.
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

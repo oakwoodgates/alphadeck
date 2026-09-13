@@ -994,11 +994,15 @@ export interface paths {
          *     (container-local clock; a Friday edge on a Monday morning is CURRENT — never a weekend false
          *     alarm); ``edge: null`` is the quiet "record has never begun" state. ``last_run`` is the newest
          *     readable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no
-         *     artifact), ``unhealthy`` (the last run froze / errored / totally failed — as loud as stale, so a
-         *     bad run can't hide behind green), ``stale`` (the record missed an expected run), ``gappy`` (the
-         *     edge is current but a night inside the last ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO
-         *     call-of-record — a run that fired on the wrong day; the edge check alone cannot see it), else
-         *     ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean window).
+         *     artifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the
+         *     shared benchmark tape — as loud as stale, so a bad run can't hide behind green), ``stale`` (the
+         *     record missed an expected run), ``gappy`` (the edge is current but a night inside the last
+         *     ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record — a run that fired on the
+         *     wrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists
+         *     the holes (empty on a clean window). ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
+         *     name whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency —
+         *     ``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes
+         *     ``cron.status``.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1288,7 +1292,8 @@ export interface components {
         /**
          * AdminCronOut
          * @description The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
-         *     withheld on total ingest failure) is deliberately its own LOUD state, peer to ``stale`` — a bad run
+         *     withheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own
+         *     LOUD state, peer to ``stale`` — a bad run
          *     must read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign
          *     ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =
          *     the edge is current and the last run clean, but the recent window has a night with NO call-of-record
@@ -1380,8 +1385,11 @@ export interface components {
          * @description One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
          *     field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
          *     ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
-         *     (``edgar_fetches == 0`` on a live run), withheld calls, and thesis errors surface on every row — a
-         *     bad run can never hide behind a green history. ``mode`` is ``"live" | "no-live"`` (the R2
+         *     (``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK
+         *     refresh (the shared SPY/IWM tape ``benchmark_rs`` reads — a fail-open passenger leg whose faults
+         *     used to reach stdout only) surface on every row — a bad run can never hide behind a green
+         *     history. The benchmark counts live on the artifact for exactly that reason; a row written before
+         *     they existed reads clean, never broken. ``mode`` is ``"live" | "no-live"`` (the R2
          *     recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a
          *     ``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected
          *     (it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written
@@ -1438,17 +1446,73 @@ export interface components {
             runs: components["schemas"]["AdminRunOut"][];
         };
         /**
+         * AdminStaleTapeOut
+         * @description One basket name whose PRICE TAPE has stopped (G5a): ``edge`` is the latest stored EOD bar date
+         *     (``null`` = no bars at all), ``thesis`` the thesis it was seen under. A tape that silently ENDS — the
+         *     vendor prices the name under a new symbol after a rename, or it delisted — appends zero bars with NO
+         *     error, indistinguishable from a holiday, and every price-driven detector for that name goes dark
+         *     (no breakout, no SMA flip, no RVOL — and no price-based de-arm either). ``ticker`` may be ``null``;
+         *     the row still renders by ``security_id`` and is never dropped (#9).
+         */
+        AdminStaleTapeOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Edge */
+            edge?: string | null;
+            /** Thesis */
+            thesis: string;
+        };
+        /**
          * AdminStatusOut
          * @description The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
-         *     newest DB snapshot. READ-ONLY — the endpoint owns no tables and writes nothing (test-proved; the
-         *     ``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet "no
-         *     snapshots yet" state.
+         *     newest DB snapshot + the price-tape panel. READ-ONLY — the endpoint owns no tables and writes
+         *     nothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from
+         *     the run artifacts). ``last_backup`` is ``None`` = the quiet "no snapshots yet" state; ``tape`` is
+         *     ``None`` until a pass has evaluated tape recency (the quiet "not looked yet" state).
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
             last_run?: components["schemas"]["AdminRunOut"] | null;
             cron: components["schemas"]["AdminCronOut"];
             last_backup?: components["schemas"]["BackupOut"] | null;
+            tape?: components["schemas"]["AdminTapeOut"] | null;
+        };
+        /**
+         * AdminTapeOut
+         * @description The price-tape freshness panel (G5a), read from the newest run artifact that actually EVALUATED
+         *     recency — not a fresh DB scan, so this surface still owns no tables. ``asof`` / ``ran_at`` say which
+         *     pass produced it (the answer is "as of last night", which is the right granularity for a nightly
+         *     feed); ``stale_days`` is the threshold that pass used. ``stale`` is the full current inventory, one
+         *     row per security (a name placed in several value-chain links appears once); ``newly_stale`` are the
+         *     display labels that PAGED that night — the diff against the previous evaluated pass, so a known-dead
+         *     tape does not re-page forever. The repair is the operator's: point the price leg at the vendor's
+         *     current symbol (``security_master.price_symbol``) and the next nightly pass heals the tape.
+         */
+        AdminTapeOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Ran At */
+            ran_at: string;
+            /** Stale Days */
+            stale_days: number;
+            /**
+             * Stale
+             * @default []
+             */
+            stale: components["schemas"]["AdminStaleTapeOut"][];
+            /**
+             * Newly Stale
+             * @default []
+             */
+            newly_stale: string[];
         };
         /**
          * Authorship

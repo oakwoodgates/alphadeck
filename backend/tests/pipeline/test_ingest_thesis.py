@@ -546,3 +546,115 @@ def test_report_omits_backfill_segment_when_zero(capsys):
     out = capsys.readouterr().out
     assert "+3 bars" in out and "backfilled" not in out
     assert "+3 price bars" in out  # total = 3 + 0
+
+
+# --- G1: the three filing legs share ONE submissions fetch per company (the recurring TTL) ------------
+
+
+def test_the_three_filing_legs_cost_ONE_submissions_fetch_per_company(
+    db, security_id, monkeypatch, tmp_path
+):
+    """THE PROMISE THE RECURRING TTL MUST NOT BREAK. ``_form8k_leg`` and ``_schedule13_leg`` document that
+    they "read the SAME submissions document the Form 4 leg fetches (the client's cache makes the second
+    read free), so the whole tape costs zero extra enumeration fetches". That promise is a property of the
+    CLIENT's cache, and a recurring TTL of zero would quietly break it — ``_is_stale`` is
+    ``now - mtime > ttl``, so a file written milliseconds earlier is already stale and each leg refetches.
+
+    So this runs the REAL ``EdgarClient`` (real cache + real TTL logic) with only its ``_fetch`` stubbed,
+    injected the way the cron injects it — deliberately NOT ``_patch``'s ``fetch_submissions`` stub, which
+    would bypass the cache and make the test unable to see the regression. One member with a CIK, three
+    legs, exactly ONE network pull of ``submissions/``."""
+    import json as _json
+
+    from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+
+    urls: list[str] = []
+
+    def _fetch(url: str) -> str:
+        urls.append(url)
+        if "submissions" in url:
+            return _json.dumps(_subs(("ACC-1",)))
+        return _XML  # the Form 4 document (immutable forms/* key)
+
+    client = EdgarClient(
+        cache_dir=tmp_path,
+        allow_live=True,
+        user_agent="test ua",
+        cache_ttl_s=RECURRING_CACHE_TTL_S,
+    )
+    client._fetch = _fetch  # type: ignore[method-assign]
+    monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars(())))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=True, edgar_client=client)
+
+    assert len(results) == 1 and results[0].error is None
+    submissions_pulls = [u for u in urls if "submissions" in u]
+    assert len(submissions_pulls) == 1  # ONE index fetch across the form4 + 8-K + 13D/G legs
+    assert results[0].form4_appended == _F4_PER_ACCESSION  # ...and the legs really ran
+    assert client.live_fetches == len(urls)  # the freeze counter agrees with the network
+
+
+# --- G5a: the TAPE EDGE — the fact the recency monitor judges -----------------------------------------
+
+
+def test_name_result_carries_the_tape_edge_AFTER_the_price_leg(db, security_id, monkeypatch):
+    """The edge must be read AFTER the append, not before: `ingest_bars_for_security` computes its own
+    `last` BEFORE appending, and reporting that would be one pass stale every single night — a name whose
+    tape resumed today would still read as ending yesterday. Two bars land; the edge is the LATER one.
+    """
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15), date(2026, 6, 16)))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].price_bars_appended == 2
+    assert results[0].tape_edge == date(2026, 6, 16)  # the appended tail, not the pre-append edge
+
+
+def test_a_STOPPED_tape_reports_its_real_edge_with_zero_bars_and_no_error(
+    db, security_id, monkeypatch
+):
+    """THE GAP, reproduced: a second pass over a series that has not moved appends ZERO bars and reports NO
+    error — byte-identical to a market holiday. Before `tape_edge` existed that was the whole signal, so a
+    dead tape was invisible; now the pass still says nothing is wrong, but it reports WHERE the tape ends,
+    which is what makes the judgment possible."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    IT.ingest_thesis(db, tid, allow_live=False)
+
+    again = IT.ingest_thesis(db, tid, allow_live=False)  # the vendor series has not moved
+
+    assert (
+        again[0].price_bars_appended == 0 and again[0].error is None
+    )  # indistinguishable from quiet
+    assert again[0].tape_edge == date(2026, 6, 15)  # ...but the edge is now visible
+
+
+def test_a_name_with_NO_bars_reports_a_NULL_edge(db, security_id, monkeypatch):
+    """A security that never priced: the edge is None (not today, not an exception), which the monitor reads
+    as the most complete form of a stopped tape."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=())
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].price_bars_appended == 0 and results[0].tape_edge is None
+
+
+def test_a_FAILED_price_leg_still_reports_the_stored_edge(db, security_id, monkeypatch):
+    """The edge read sits OUTSIDE the price leg's try/except on purpose: a name whose fetch is failing AND
+    whose stored tape is dead are different facts, and the monitor must see the second even while the first
+    is true (otherwise a persistently-failing name would also go silently dark)."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    IT.ingest_thesis(db, tid, allow_live=False)  # land one bar
+
+    def _boom(ticker):
+        raise RuntimeError("vendor 500")
+
+    _patch(monkeypatch, accessions=("ACC-1",), eod_fn=_boom)
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].error is not None and "price" in results[0].error  # the leg DID fail…
+    assert results[0].tape_edge == date(2026, 6, 15)  # …and the stored edge is still reported

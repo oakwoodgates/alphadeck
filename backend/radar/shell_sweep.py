@@ -31,7 +31,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from radar import repo
 from securities import master
 from workbench.enrichment import enrich_for_ciks
@@ -153,7 +153,17 @@ def run_shell_sweep(
     caller may pass its own ``edgar_client`` (tests: a fixture-cache client with
     ``allow_live=False``). Idempotent: ``master.enrich`` UPDATEs in place, so a re-run grows no
     table (count-the-table safe)."""
-    client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    # G1 — THE RECURRING TTL (five minutes): a RECURRING pass never reads a DAYTIME-warm mutable key (no
+    # exceptions on the nightly path; the full rationale, including why five minutes rather than zero — the
+    # same-pass re-read of one key must stay free — lives at ``ingest.edgar.client.RECURRING_CACHE_TTL_S``).
+    # This leg's whole job is to read a CIK's CURRENT ``submissions/CIK<10>.json`` identity — that is
+    # where the SEC ``sicDescription`` lives — so a warm index is precisely the failure: a daytime read
+    # made the night's enrichment a silent no-op, and a de-SPAC'd shell's SIC flip stayed invisible for
+    # another day. The selector already bounds the cost (``cap``; enriched CIKs drop out), this leg reads
+    # each candidate's index once, and the re-pull is the fetch this pass intended to make.
+    client = edgar_client or EdgarClient(
+        allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
+    )
     result = ShellSweepResult()
 
     unenriched = select_unenriched_candidates(conn, tenant_id=tenant_id)

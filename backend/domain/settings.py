@@ -156,6 +156,21 @@ class Settings(BaseSettings):
     # the night it skipped. 10 = two trading weeks, enough to see a laptop's suspend drift pattern without
     # dragging in old history; 0 disables the scan. Read via the env_prefix (ALPHADECK_ADMIN_MISSED_WINDOW).
     admin_missed_window: int = 10
+    # G5a — the PRICE-TAPE RECENCY threshold: how many CALENDAR days a name's latest stored EOD bar may be
+    # behind the run's as-of before the nightly pass calls that tape STALE (pipeline/tape_health.py). A tape
+    # that silently ENDED — the vendor prices the name under a new symbol after a rename, or it delisted —
+    # appends zero bars with NO error, which is byte-identical to a market holiday, so nothing noticed and
+    # every price-driven detector for that name went dark. CALENDAR days because domain/market_time.py
+    # deliberately has no trading calendar. A LIVE tape gets that session's bar appended nightly, so its edge
+    # sits at 0-1 days and this number never comes near it — it only matters once bars STOP arriving: 5 means
+    # a tape may lag up to FOUR calendar days (room for a vendor delay stretched across a weekend) before it
+    # reads stale, while a genuinely dead tape surfaces within a week. Counted out: a Friday close is fresh
+    # through Tuesday's pass (4 days) and stale on Wednesday's (5). The accepted edge is a rare TWO-session
+    # closure beside a weekend, which trips it for one night.
+    # 0 DISABLES the monitor. Read via the env_prefix (ALPHADECK_TAPE_STALE_DAYS);
+    # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
+    # this default.
+    tape_stale_days: int = 5
 
     # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
     # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the

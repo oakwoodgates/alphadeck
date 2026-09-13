@@ -72,6 +72,48 @@ Freshness asks whether the log advanced, not whether a row is scoreable — the 
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
 reconstructed · not scored" there can both be true of the same night.
 
+### Stale price tapes — "is every name still being priced?"  `[BUILT, G5a]`
+
+`status.tape` is the price-tape panel, and it closes the "monitor health: is it watched?" gap for prices.
+**The failure it makes visible:** the price leg appends bars after the latest stored one, so a name whose
+vendor series simply **STOPS** — the SEC ticker stays canonical but the vendor prices the name under a new
+symbol after a rename, or the name delisted — returns a series that ends at the stop: **zero bars appended,
+no error, indistinguishable from a market holiday.** Nothing read the tape's edge, so it was invisible, and
+for that name every price-driven signal goes dark from the stop date (no breakout, no SMA flip, no RVOL — and
+no price-based de-arm either) while the CIK-keyed filing feeds keep flowing, so it can still WARM on a filing
+and never confirm on price.
+
+- **What counts as stale:** the latest stored EOD bar is `ALPHADECK_TAPE_STALE_DAYS` (default **5**) or more
+  **calendar** days before the run's as-of, or the name has no bars at all. Calendar days because the trading
+  clock deliberately has no holiday calendar. A live tape gets that session's bar appended nightly, so its
+  edge sits at 0–1 days and the threshold never comes near it — the number only matters once bars **stop**
+  arriving: 5 means a tape may lag up to **four** calendar days before it reads stale, and a dead tape
+  surfaces within a week. Counted out: a Friday close is fresh through Tuesday's pass (4 days) and reads
+  stale on **Wednesday's** (5), so a weekend — or a weekend plus a Monday or Friday holiday — is inside the
+  window. The accepted edge: a rare **two-session** closure beside a weekend (a Thursday+Friday shutdown
+  leaves a Wednesday edge and a Monday pass = 5 days) flags for one night and clears on the next session.
+  `0` disables the monitor; raise it if that night ever costs more than catching a dead tape a day sooner.
+- **Where it comes from:** the nightly pass records each name's tape edge and its stale set into the
+  run-of-record artifact, and this panel reads the newest artifact that actually **evaluated** recency. So it
+  is "as of last night" (the right granularity for a nightly feed), it costs no query, and this surface still
+  owns no tables. `tape` is **null** until a pass has looked — a `--no-live` pass never counts.
+- **One row per security**, even when two theses hold the name, with its last-bar date and the thesis it was
+  seen under; a name with no ticker renders by id rather than vanishing (#9). The list renders **only when
+  something is stale** — "no stale tapes" is the normal night.
+- **It pages, but it never changes `cron.status`.** A stopped tape is a **feed** gap to repair, not a cron
+  fault: the run did its job. So the night's run row carries a problem line naming the tape and the notifier
+  pushes it, while the one-word verdict stays about the cron (an `unhealthy` chip that really meant "a vendor
+  renamed a ticker" would teach you to ignore the chip). Only **newly** stale tapes page — the diff is against
+  the previous evaluated pass, keyed on the security (not the ticker), so a handful of known-dead tapes do not
+  re-page every night. The **first** evaluated pass after this shipped pages the whole current inventory once,
+  on purpose.
+- **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
+  delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
+  OTC fix's seam). The next nightly pass re-pulls the full year under the new symbol, appends the missing tail
+  and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is deliberately
+  not built: a wrong auto-resolve would file another company's tape under your member, which is worse than a
+  visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
+
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
 `ZoneInfo`) rather than an ambient `datetime.now()`. *(Earmark, still open: `schedule.py` remains the second
@@ -86,7 +128,7 @@ The one-word `cron.status` verdict, plus the last run's counts and any problems:
 | Verdict | Meaning |
 |---|---|
 | `never_ran` | no run-of-record artifact yet — run one below, or bring the `cron` sidecar up |
-| `unhealthy` | the last run **froze / errored / totally failed** — as loud as `stale`, so a bad run can't hide behind green |
+| `unhealthy` | the last run **froze / errored / totally failed / could not refresh the benchmark tape** — as loud as `stale`, so a bad run can't hide behind green |
 | `stale` | the record missed an expected scheduled run (freshness above) |
 | `gappy` | the edge is current and the last run clean, but a night inside the last `ALPHADECK_ADMIN_MISSED_WINDOW` scheduled runs has **no call-of-record** — a run fired on the wrong day (the hole check above); the detail names the dates |
 | `healthy` | the last run is clean, the record is current, and the window has no holes |
@@ -102,6 +144,18 @@ itself was assessed — it runs inside the EDGAR 12h TTL and legitimately fetche
 shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminRunOut.catch_up`).
 `GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
 
+A **newly stale price tape** (G5a) also appears in `problems`, but carries the same benign marker as the
+`--no-live` note, so it never makes the verdict `unhealthy` — it is a feed gap, not a cron fault (see
+"Stale price tapes" above).
+
+A **failed benchmark refresh** is one of the alarms (G4). The SPY/IWM tape is a *shared* call-logic input
+(`benchmark_rs`), refreshed by a fail-open passenger leg before the per-thesis loop; its faults used to reach
+stdout only, so a night could produce calls against a **stale** tape and still read green. Two problem lines,
+reported distinctly because they are different news: the leg **failing outright** (nothing refreshed) and
+**N individual benchmark pulls** failing (a partly stale tape). The counts are written into the artifact, so a
+night that paged re-reads as `unhealthy` in the history forever; an artifact written before this shipped reads
+clean, never broken.
+
 ## Run daily now — the one trigger
 
 `POST /admin/run-daily` **kicks a background job** and returns immediately (**202** + `job_id`); poll
@@ -109,7 +163,14 @@ shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminR
 ingest → call-of-record → the run-log artifact → the health page), so a manual run **lands in the run
 history like the nightly one**. A **409** single-slot guard means a double-click can never stack a second
 pass. It does a **LIVE EDGAR pull** (~2 min warm, up to ~65 min on a cold cache) and is safe to re-click once
-finished — the pass is idempotent (`record_if_changed` appends nothing on unchanged facts). The job opens its
+finished — the pass is idempotent (`record_if_changed` appends nothing on unchanged facts). **Safe at any hour
+(G1):** it used to be a morning-only button, because it warmed every company's filing index for up to 12h and
+the night's scheduled pass then served that warm index — blind to the afternoon's filings. The recurring
+client now carries the **recurring TTL (five minutes)**, so this button *refreshes* the cache rather than
+warming it and the night re-fetches regardless — anything read more than five minutes ago is re-pulled, and
+nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` §Fresh data). The one thing
+that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
+re-click can legitimately report ~0 EDGAR fetches. The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
 an infinite spinner — the run history + record edge are the durable authority. A manual pass that starts
 **before** that night's `RUN_AT` (a pre-open click, on the prior session's bars) does **not** satisfy the

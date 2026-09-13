@@ -33,7 +33,9 @@ from app.schemas_api import (
     AdminRunJobStatus,
     AdminRunOut,
     AdminRunsOut,
+    AdminStaleTapeOut,
     AdminStatusOut,
+    AdminTapeOut,
     BackupCreateIn,
     BackupJobRef,
     BackupJobStatus,
@@ -88,10 +90,28 @@ def _problems(health: HealthEvent | None) -> list[str]:
         out.append(f"{health.withheld_failure} call(s) WITHHELD — TOTAL INGEST FAILURE")
     if health.errored:
         out.append(f"{health.errored} thesis error(s)")
+    # G4 — the shared-input alarms (a stale SPY/IWM tape silently degrades benchmark_rs for every call
+    # that night). NOT benign: these sit above the no-live note and DO make the cron verdict unhealthy.
+    if health.benchmark_leg_failed:
+        out.append("BENCHMARK REFRESH LEG FAILED — the SPY/IWM tape did not refresh tonight")
+    if health.benchmark_errors:
+        out.append(
+            f"{health.benchmark_errors} benchmark refresh error(s) — benchmark_rs read a stale tape"
+        )
     if health.withheld_no_live:
         out.append(
             f"{health.withheld_no_live} call(s) withheld — no-live "
             f"(a cache-only run, {_BENIGN_MARK})"
+        )
+    # G5a — a newly stale PRICE TAPE. Deliberately carries the BENIGN marker, so it shows on the run row and
+    # pages through the notifier but does NOT make the one-word cron verdict `unhealthy`: the cron did its
+    # job, the FEED has a gap for the operator to repair. (Honest loudness cuts both ways — an `unhealthy`
+    # chip that really means "a vendor renamed a ticker" would teach the operator to ignore the chip.) The
+    # freshness PANEL is where this lives; this line is its breadcrumb on the run.
+    if health.tape_stale_new:
+        out.append(
+            f"{len(health.tape_stale_new)} price tape(s) newly STALE — "
+            f"{', '.join(health.tape_stale_new)} (a feed gap to repair, {_BENIGN_MARK} in this run)"
         )
     return out
 
@@ -104,10 +124,21 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     verdict the run itself paged on, re-readable forever from the file). A ``catch_up`` pass skips the
     FREEZE predicate exactly as the run itself did (it ran inside the EDGAR TTL — ~0 fetches is correct),
     so the history never shows a catch-up as unhealthy; an artifact from before the key reads False.
+
+    The RUN-LEVEL keys added after the original schema (``catch_up``, and G4's benchmark counts) are read
+    with ``.get`` ON PURPOSE, unlike the strict ``payload[...]`` above: this function is strict by design and
+    its callers skip a RAISING artifact fail-open, so reading a new key strictly would make every artifact
+    written before the deploy unparseable — silently blanking the entire run history and ``last_run``.
     """
     asof = date.fromisoformat(payload["asof"])
     allow_live = payload["mode"] == "live"
     catch_up = bool(payload.get("catch_up", False))
+    # G4 — re-derive the benchmark alarm from the artifact, so the history's verdict matches what the run
+    # paged (see the note on .get above: an artifact from before these keys reads clean, not broken).
+    benchmark_errors = int(payload.get("benchmark_errors") or 0)
+    benchmark_leg_failed = bool(payload.get("benchmark_leg_failed", False))
+    # G5a — the night's newly-stale tape labels, re-read so the history shows the same page this run emitted
+    tape_stale_new = tuple(str(x) for x in (payload.get("tape_stale_new") or ()))
     results = [
         ThesisRunResult(
             thesis_id=UUID(t["id"]),
@@ -120,7 +151,15 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         )
         for t in payload["theses"]
     ]
-    health = assess_health(results, asof=asof, allow_live=allow_live, freeze_check=not catch_up)
+    health = assess_health(
+        results,
+        asof=asof,
+        allow_live=allow_live,
+        freeze_check=not catch_up,
+        benchmark_errors=benchmark_errors,
+        benchmark_leg_failed=benchmark_leg_failed,
+        tape_stale_new=tape_stale_new,
+    )
     summary = payload["summary"]
     return AdminRunOut(
         ran_at=str(payload["started_at"]),
@@ -139,6 +178,48 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         problems=_problems(health),
         catch_up=catch_up,
     )
+
+
+def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
+    """The price-tape freshness panel (G5a), built from the newest artifact that actually EVALUATED tape
+    recency — ARTIFACT-SOURCED on purpose, not a fresh DB scan: this router's bound is "a read surface over
+    the cron's own instrumentation" that owns no tables, and a second definition of "stale" living in a
+    query here could drift from the one the page fired on. The cost is that the panel reads "as of the last
+    pass", which is the right granularity for a nightly feed.
+
+    ``None`` = no pass has looked yet (the quiet state right after deploy, and for a ``--no-live``-only
+    history). Rows are deduped by ``security_id`` across theses — a name held by two theses is ONE dead
+    tape — and the first thesis that saw it names it. A ticker-less row is kept and rendered by id (#9).
+    Fail-open per artifact, mirroring the run-history read: a malformed row is skipped, never an exception.
+    """
+    for doc in payloads:
+        if doc.get("mode") != "live" or not doc.get("tape_evaluated", False):
+            continue
+        rows: dict[str, AdminStaleTapeOut] = {}
+        for t in doc.get("theses") or []:
+            if not isinstance(t, dict):
+                continue
+            for s in t.get("tape_stale") or []:
+                try:
+                    sid = str(s["security_id"])
+                    if sid in rows:  # same security under a second thesis — one dead tape
+                        continue
+                    rows[sid] = AdminStaleTapeOut(
+                        security_id=UUID(sid),
+                        ticker=s.get("ticker"),
+                        edge=date.fromisoformat(s["edge"]) if s.get("edge") else None,
+                        thesis=str(t.get("name") or ""),
+                    )
+                except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
+                    continue
+        return AdminTapeOut(
+            asof=date.fromisoformat(doc["asof"]),
+            ran_at=str(doc["started_at"]),
+            stale_days=get_settings().tape_stale_days,
+            stale=list(rows.values()),
+            newly_stale=[str(x) for x in (doc.get("tape_stale_new") or [])],
+        )
+    return None
 
 
 def _backup_out(info: BackupInfo) -> BackupOut:
@@ -168,11 +249,15 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     (container-local clock; a Friday edge on a Monday morning is CURRENT — never a weekend false
     alarm); ``edge: null`` is the quiet "record has never begun" state. ``last_run`` is the newest
     readable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no
-    artifact), ``unhealthy`` (the last run froze / errored / totally failed — as loud as stale, so a
-    bad run can't hide behind green), ``stale`` (the record missed an expected run), ``gappy`` (the
-    edge is current but a night inside the last ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO
-    call-of-record — a run that fired on the wrong day; the edge check alone cannot see it), else
-    ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean window).
+    artifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the
+    shared benchmark tape — as loud as stale, so a bad run can't hide behind green), ``stale`` (the
+    record missed an expected run), ``gappy`` (the edge is current but a night inside the last
+    ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record — a run that fired on the
+    wrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists
+    the holes (empty on a clean window). ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
+    name whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency —
+    ``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes
+    ``cron.status``.
     """
     run_at = _run_at()
     now = _now()
@@ -224,8 +309,9 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             detail="no daily run has been recorded yet — run one below, or bring the cron sidecar up",
         )
     else:
-        # the REAL alarms (frozen / total ingest failure / errors) — the benign no-live note excluded,
-        # so a hand-run dev pass never paints the cron unhealthy (honest loudness)
+        # the REAL alarms (frozen / total ingest failure / errors) — the benign notes excluded (a hand-run
+        # dev pass, and a newly stale price tape, which is a FEED gap not a cron fault), so neither paints
+        # the cron unhealthy (honest loudness; the stale tape lives on the freshness panel instead)
         alarms = [p for p in last_run.problems if _BENIGN_MARK not in p]
         if alarms:
             cron = AdminCronOut(
@@ -263,6 +349,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     backups = list_backups()
     last_backup = _backup_out(backups[0]) if backups else None
 
+    # G5a — the price-tape panel, from the artifacts ALREADY read above (no second read, no DB query): the
+    # "is it watched?" view for prices. None until a pass has evaluated recency.
+    tape = _tape_out(payloads)
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -278,6 +368,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         last_run=last_run,
         cron=cron,
         last_backup=last_backup,
+        tape=tape,
     )
 
 
@@ -318,6 +409,13 @@ def start_run_daily() -> AdminRunJobRef:
             allow_live=outcome.allow_live,
             started_at=outcome.started_at,
             finished_at=outcome.finished_at,
+            # G4 — carried off the outcome, or this poll payload would report a healthy run over the
+            # benchmark fault the SAME pass wrote into its artifact and paged about. G5a rides along for
+            # the same reason (the stale diff is computed once, inside the pass).
+            benchmark_errors=outcome.benchmark_errors,
+            benchmark_leg_failed=outcome.benchmark_leg_failed,
+            tape_evaluated=outcome.tape_evaluated,
+            tape_stale_new=outcome.tape_stale_new,
         )
         return _admin_run_out(payload)
 

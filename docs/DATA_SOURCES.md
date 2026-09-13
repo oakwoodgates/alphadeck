@@ -57,6 +57,27 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   — better stale than a `CacheMiss`; the TTL only forces a refetch when a live pull is permitted. The #125
   rebuild-survival win holds: a re-draft **within** 12h is still free; only a draft a day later re-enumerates,
   which is correct — the universe drifted.
+- **The 12h TTL is the INTERACTIVE default; every RECURRING caller builds its client with the RECURRING TTL
+  (five minutes — `RECURRING_CACHE_TTL_S`).** The 12h clock starts when *that* company's key was last fetched,
+  so any daytime read warmed it for up to 12h and the nightly pass served the warm file — blind to everything
+  filed after the daytime fetch (a narrower, silent version of the same freeze; "run the daytime pass before
+  10:30" is no rule, because the stamp is per COMPANY and a pass takes up to an hour). So the recurring
+  constructors — `pipeline/daily.py`'s per-thesis client, `radar/spac.py`, `radar/shell_sweep.py` — pass
+  `cache_ttl_s=RECURRING_CACHE_TTL_S`. This is the per-CLIENT dial (the parallel of `force_refresh=True` for
+  prices), **not** a per-call flag: no caller threads anything, and the key-classed policy above is untouched,
+  so immutable `forms/*` still cache forever and the cost is one index fetch per company per pass.
+  **Five minutes, not zero — MEASURED, not stylistic.** Within ONE pass the three filing legs (`_form4_leg` /
+  `_form8k_leg` / `_schedule13_leg`) each read the SAME `submissions/CIK<10>.json` key milliseconds apart, and
+  `_is_stale` is `now - mtime > ttl` — so at zero a file written milliseconds ago is already stale and those
+  three reads cost **3 live fetches instead of 1** (≈1,500 SEC requests a night on a 500-name universe, for no
+  freshness gain — and EDGAR politeness is a correctness requirement here, not a courtesy). Five minutes keeps
+  the same-pass re-reads free *and* still closes the gap across passes: EDGAR accepts filings 06:00–22:00 ET,
+  so nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
+  (measured: a 20-minute-old key refetches). Accepted residual: a second pass started *within* five minutes of
+  another reads the first's cache for the companies it reached last. `ingest_fundamentals` keeps the 12h TTL
+  **deliberately** (a large document feeding a *quarterly* series — a day's staleness cannot change a call), as
+  do the Workbench and a standalone `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is
+  inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
@@ -169,6 +190,40 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > **Canceled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
 > + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
+
+### When the SYMBOL drifts: the OTC class, the RENAME class, and the recency monitor
+
+The SEC ticker is canonical for identity, but the vendor may price a name under a **different** symbol — and
+the ingest cannot tell that from "this name had a quiet year". Two classes, one shared repair:
+
+- **The OTC class `[BUILT, #252]`.** An OTC name quotes under a suffixed symbol (a "D" appended after a
+  corporate action, for instance) and the canonical ticker returns a stub history. Fix: the **vendor symbol
+  override** on the security master (`security_master.price_symbol`, migration 0032) — stored only when it
+  DIFFERS from the ticker; `ingest_bars_for_security` fetches `price_symbol or ticker`, and the bars land
+  under the same `security_id`, so the detectors simply start seeing the fuller history (no call-path touch).
+  A verified symbol-search resolver populates it, deliberately **OTC-scoped and thin-history-gated**.
+- **The RENAME class — the silent one `[MONITORED, G5a; repair is manual]`.** After a rename the vendor's
+  series for the OLD symbol simply **ENDS**. The ingest appends bars after the latest stored one, so it
+  appends **zero, with no error** — byte-identical to a market holiday. The resolver above cannot reach this
+  case by construction (it is OTC-scoped and gated on thin history, while a renamed name has a long, healthy
+  history that merely stops), so such a tape could sit dead indefinitely while every price-driven signal for
+  that name went dark and nothing said so.
+- **The monitor that makes it visible (G5a).** The nightly pass now records each name's **tape edge** (its
+  latest stored bar date) and flags a tape whose edge is `ALPHADECK_TAPE_STALE_DAYS` (default 5 calendar days;
+  `0` disables) or more behind the run's as-of, or that has no bars at all. The stale set lands on the
+  run-of-record artifact, **newly** stale names page through the health notifier, and the Admin freshness
+  panel lists every currently stale tape with its last-bar date (`ADMIN.md` §stale price tapes). It is a
+  MONITOR: no detector, no call input, and nothing on the CallCard (a day-varying card field would flap the
+  cron's `record_if_changed` idempotency).
+- **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
+  the next nightly pass re-pulls the full year, appends the missing tail and hole-fills the overlap (splices
+  measured clean). Teaching the resolver to follow renames **automatically** is deliberately **not built**: a
+  wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a visible gap
+  (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
+- **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25-NSE / 15-12G) also ends the
+  series, and correctly: there is nothing to repair, the name is simply no longer priced. The monitor cannot
+  tell the two apart — it reports the *fact* that the tape stopped and leaves the diagnosis to the operator,
+  which is why a known-dead tape pages only once rather than every night.
 
 ## Form 4 — the Rule 10b5-1 checkbox `[BUILT — CAPTURE-ONLY]`
 

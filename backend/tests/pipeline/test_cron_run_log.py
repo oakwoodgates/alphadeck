@@ -5,9 +5,15 @@ from datetime import date, datetime, time, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from pipeline.cron_run_log import already_ran_live, list_run_logs, write_cron_run_log
+from pipeline.cron_run_log import (
+    already_ran_live,
+    list_run_logs,
+    previous_stale_tapes,
+    write_cron_run_log,
+)
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
+from pipeline.tape_health import StaleTape
 
 _START = datetime(2026, 7, 17, 22, 30, 1, tzinfo=timezone.utc)
 _END = datetime(2026, 7, 17, 23, 35, 12, tzinfo=timezone.utc)
@@ -202,6 +208,59 @@ def test_an_artifact_WITHOUT_the_catch_up_key_still_parses(tmp_path):
     assert already_ran_live(_JUL17, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is True
 
 
+def test_payload_carries_the_BENCHMARK_counts_default_clean(tmp_path):
+    """G4 — the shared-input refresh leg's outcome is RUN-LEVEL on the artifact, beside edgar_fetches.
+    It must live here, not only in the live page: the admin history re-derives health from this file, so a
+    count that reached only the notifier would make the night the platform PAGED about re-read as green.
+    """
+    clean = write_cron_run_log(
+        [_thesis_result()],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    doc = _read(clean)
+    assert doc["benchmark_errors"] == 0 and doc["benchmark_leg_failed"] is False
+
+    faulted = write_cron_run_log(
+        [_thesis_result()],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_END,  # a distinct started-at -> a distinct filename
+        finished_at=_END,
+        base_dir=tmp_path,
+        benchmark_errors=2,
+        benchmark_leg_failed=True,
+    )
+    doc = _read(faulted)
+    assert doc["benchmark_errors"] == 2 and doc["benchmark_leg_failed"] is True
+
+
+def test_an_artifact_WITHOUT_the_BENCHMARK_keys_still_parses(tmp_path):
+    """The same back-compat rule as the catch_up key, and the reason the admin reader uses .get: an
+    artifact written before these keys existed must read CLEAN, never broken — a strict read would raise,
+    the caller would skip it fail-open, and the whole run history would silently blank after the deploy.
+    """
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    doc = _read(path)
+    del doc["benchmark_errors"], doc["benchmark_leg_failed"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    logs = list_run_logs(base_dir=tmp_path)
+    assert len(logs) == 1 and "benchmark_errors" not in logs[0]
+    # the admin reconstruction's read of each (int(... or 0) / bool(..., False))
+    assert int(logs[0].get("benchmark_errors") or 0) == 0
+    assert bool(logs[0].get("benchmark_leg_failed", False)) is False
+
+
 def test_records_thesis_level_error_and_transition(tmp_path):
     results = [
         _thesis_result(name="Broke", error="ingest: db down", recorded=None),
@@ -335,3 +394,170 @@ def test_fail_open_returns_none_never_raises(tmp_path):
         )
         is None
     )
+
+
+# --- G5a: the price-tape monitor's durable record + the newly-stale baseline --------------------------
+
+
+def _st(ticker, *, sid=None, edge=None):
+    return StaleTape(ticker=ticker, security_id=sid or uuid4(), edge=edge)
+
+
+def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_path):
+    """The artifact is the monitor's durable record and has three jobs: the per-thesis rows are the
+    inventory the Admin panel renders AND the key the next run's diff reads; `tape_stale_new` is that
+    diff's output for the night (so the history shows the page this run emitted); `tape_evaluated` says the
+    pass actually looked. `edge` null means the name has no bars at all."""
+    sid = uuid4()
+    res = _thesis_result(
+        recorded=True,
+        tape_stale=(_st("AAA", sid=sid, edge=date(2026, 6, 1)), _st(None, edge=None)),
+    )
+    path = write_cron_run_log(
+        [res],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        tape_stale_new=("AAA",),
+    )
+    doc = _read(path)
+
+    assert doc["tape_evaluated"] is True and doc["tape_stale_new"] == ["AAA"]
+    rows = doc["theses"][0]["tape_stale"]
+    assert rows[0] == {"security_id": str(sid), "ticker": "AAA", "edge": "2026-06-01"}
+    assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
+
+
+def test_payload_defaults_to_NOT_evaluated_with_no_stale_rows(tmp_path):
+    """The quiet default: a pass that did not evaluate recency (no-live, or the monitor disabled) records
+    exactly that, and a healthy universe carries an empty list rather than a missing key."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    doc = _read(path)
+    assert doc["tape_evaluated"] is False and doc["tape_stale_new"] == []
+    assert doc["theses"][0]["tape_stale"] == []
+
+
+def test_previous_stale_tapes_is_NONE_when_nothing_has_evaluated_yet(tmp_path):
+    """NONE, not an empty set — the distinction the first-night inventory page rests on. No run home at all,
+    and a home whose only artifact never evaluated recency, both read as "no baseline"."""
+    assert previous_stale_tapes(base_dir=tmp_path / "nope") is None
+
+    write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )  # tape_evaluated defaults False — a pass from BEFORE this monitor existed
+    assert previous_stale_tapes(base_dir=tmp_path) is None
+
+
+def test_previous_stale_tapes_returns_the_security_IDS_of_the_newest_evaluated_pass(tmp_path):
+    """Keyed on security_id, never ticker: a ticker-less name must still take part in the diff, and a ticker
+    changing under a name is half of why this monitor exists. An EMPTY set (a pass that looked and found
+    nothing) is a real baseline — distinct from None."""
+    a, b = uuid4(), uuid4()
+    write_cron_run_log(
+        [_thesis_result(recorded=True, tape_stale=(_st("AAA", sid=a), _st(None, sid=b)))],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    assert previous_stale_tapes(base_dir=tmp_path) == {str(a), str(b)}
+
+    write_cron_run_log(  # a LATER evaluated pass with a clean universe -> an empty baseline, not None
+        [_thesis_result(recorded=True)],
+        asof=date(2026, 7, 20),
+        allow_live=True,
+        started_at=_utc(2026, 7, 20, 22, 30),
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    assert previous_stale_tapes(base_dir=tmp_path) == set()
+
+
+def test_previous_stale_tapes_SKIPS_a_no_live_artifact(tmp_path):
+    """The load-bearing filter: a hand-run `--no-live` pass writes an artifact too, and if it could become
+    the baseline it would silence the next real page for every already-known dead tape. Its `tape_evaluated`
+    is False by construction, and `mode` is checked as well — belt and suspenders, like `already_ran_live`.
+    """
+    a = uuid4()
+    write_cron_run_log(
+        [_thesis_result(recorded=True, tape_stale=(_st("AAA", sid=a),))],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    write_cron_run_log(  # a LATER cache-only pass: newest on disk, but never the baseline
+        [_thesis_result(withheld_reason="no-live")],
+        asof=date(2026, 7, 20),
+        allow_live=False,
+        started_at=_utc(2026, 7, 20, 23, 0),
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,  # even if it claimed to have looked, mode excludes it
+    )
+    assert previous_stale_tapes(base_dir=tmp_path) == {
+        str(a)
+    }  # the LIVE pass is still the baseline
+
+
+def test_previous_stale_tapes_tolerates_a_MALFORMED_row_and_an_old_artifact(tmp_path):
+    """Fail-open per artifact, like every other reader here: a damaged row is skipped rather than raising,
+    because the worst case of a thin baseline is a repeated page — never a missed one."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True, tape_stale=(_st("AAA"),))],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    doc = _read(path)
+    doc["theses"][0]["tape_stale"] = ["not-a-dict", {"ticker": "NOID"}]  # no security_id
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert previous_stale_tapes(base_dir=tmp_path) == set()  # skipped, not an exception
+
+
+def test_an_artifact_WITHOUT_the_TAPE_keys_still_parses(tmp_path):
+    """The same back-compat rule as `catch_up` and the benchmark counts: an artifact written before these
+    keys existed must read CLEAN, never broken — a strict read would raise, the caller would skip it
+    fail-open, and the whole run history would silently blank after the deploy."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    doc = _read(path)
+    del doc["tape_evaluated"], doc["tape_stale_new"]
+    del doc["theses"][0]["tape_stale"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    logs = list_run_logs(base_dir=tmp_path)
+    assert len(logs) == 1 and "tape_evaluated" not in logs[0]
+    assert bool(logs[0].get("tape_evaluated", False)) is False  # the readers' .get shape
+    assert tuple(logs[0].get("tape_stale_new") or ()) == ()
+    assert previous_stale_tapes(base_dir=tmp_path) is None  # and it is no baseline
+    assert already_ran_live(_JUL17, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is True  # unaffected

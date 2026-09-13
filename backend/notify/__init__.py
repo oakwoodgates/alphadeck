@@ -71,6 +71,12 @@ class HealthEvent:
     ingest failure — the ingest raised or every name errored) is a real alarm; ``withheld_no_live`` (a manual
     ``--no-live`` cache-only run, which the scheduled cron never does) is BENIGN and labeled so — a page must
     not cry "failure" when someone just ran a dev pass by hand.
+
+    G4 — the BENCHMARK refresh counts ride here too. The SPY/IWM tape is a SHARED call-logic input
+    (``benchmark_rs``), refreshed by a fail-open passenger leg whose faults used to reach stdout only: the
+    night still produced calls, computed against a stale tape, and nothing said so. Two counts, because they
+    are different news: ``benchmark_errors`` = individual benchmark pulls that failed (a partly stale tape),
+    ``benchmark_leg_failed`` = the leg raised before producing any result (no refresh at all).
     """
 
     asof: date
@@ -82,6 +88,13 @@ class HealthEvent:
     errored: int
     edgar_fetches: int
     frozen: bool  # live run + names present + ZERO edgar fetches = the R1 freeze, pageable
+    # G4: benchmark-refresh faults — real alarms (the calls that night read a stale shared input)
+    benchmark_errors: int = 0
+    benchmark_leg_failed: bool = False
+    # G5a: names whose PRICE TAPE went stale since the previous evaluated pass, as display labels (ticker,
+    # or the security id when ticker-less). NEWLY stale only — a known-dead tape must not re-page nightly.
+    # It pages, but it is NOT a cron alarm: the run worked, the FEED has a gap to repair (see the label).
+    tape_stale_new: tuple[str, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -99,9 +112,25 @@ class HealthEvent:
             bits.append(f"{self.withheld_failure} call(s) WITHHELD — TOTAL INGEST FAILURE")
         if self.errored:
             bits.append(f"{self.errored} thesis error(s)")
+        # G4 — the shared-input alarms: the leg dying outright and individual pulls failing are distinct
+        if self.benchmark_leg_failed:
+            bits.append("BENCHMARK REFRESH LEG FAILED — the SPY/IWM tape did not refresh tonight")
+        if self.benchmark_errors:
+            bits.append(
+                f"{self.benchmark_errors} benchmark refresh error(s) — benchmark_rs read a stale tape"
+            )
         if self.withheld_no_live:
             bits.append(
                 f"{self.withheld_no_live} call(s) withheld — no-live (a cache-only run, not an error)"
+            )
+        # G5a — a FEED gap, not a cron fault, so it sits with the benign note and names what to do. Every
+        # price-driven detector for these names is dark until the tape resumes (no breakout, no SMA flip, no
+        # RVOL — and no price-based de-arm either), which is why it pages at all.
+        if self.tape_stale_new:
+            bits.append(
+                f"{len(self.tape_stale_new)} price tape(s) newly STALE — "
+                f"{', '.join(self.tape_stale_new)} (no new bars; check for a ticker rename or a "
+                "delisting and set the vendor price symbol — not a cron error)"
             )
         return f"cron {self.asof}: " + " · ".join(bits)
 

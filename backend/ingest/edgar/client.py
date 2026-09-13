@@ -24,6 +24,29 @@ _DEFAULT_CACHE_TTL_S = (
     12 * 3600
 )  # < the daily cron period, so the nightly run always sees an expired index
 
+# THE RECURRING PASS's TTL (G1) — what `pipeline/daily.py`, `radar/spac.py` and `radar/shell_sweep.py`
+# build their clients with. The 12h default above is an INTERACTIVE dial: its clock starts when a given
+# COMPANY's key was last fetched, so any daytime read (the Admin "Run daily now", a boot catch-up, the
+# on-promote ingest, a Workbench pull) left that company warm for up to 12h and the 22:30 pass served the
+# warm index — blind to everything filed after the daytime fetch. A recurring pass must never read a
+# DAYTIME-warm index.
+#
+# Five minutes, NOT zero, and the difference is measured, not stylistic:
+#   - WITHIN one pass, the three filing legs (`_form4_leg`, `_form8k_leg`, `_schedule13_leg`) each call
+#     `fetch_submissions` for the SAME `submissions/CIK<10>.json` key, milliseconds apart, and their
+#     docstrings promise the 2nd and 3rd reads are free. `_is_stale` is `now - mtime > ttl`, so at ttl=0 a
+#     file written milliseconds ago is already stale: MEASURED 3 live fetches for 3 back-to-back reads at
+#     ttl=0 versus 1 at ttl=300 — i.e. zero TRIPLES the per-company index cost (~1,500 requests a night on
+#     a 500-name universe) for no freshness gain. EDGAR politeness is a correctness requirement here, not a
+#     courtesy (`docs/DATA_SOURCES.md` §EDGAR etiquette).
+#   - ACROSS passes it still closes the gap: EDGAR accepts filings 06:00-22:00 ET, so nothing can be filed
+#     in the five minutes before the 22:30 pass, and no daytime warmth survives five minutes. MEASURED: a
+#     20-minute-old key refetches at ttl=300.
+# The residual, accepted and documented: a SECOND pass started within five minutes of another reads the
+# first pass's cache for the companies it reached last — which is why the R4 freeze page keeps its
+# `--catch-up` exemption (`pipeline/daily.assess_health`).
+RECURRING_CACHE_TTL_S = 300
+
 
 class EdgarClient:
     """Thin, polite, cache-first SEC client.
