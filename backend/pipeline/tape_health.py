@@ -22,9 +22,16 @@ WHAT THIS MODULE IS, AND IS NOT:
   made in ``pipeline/daily.py``, which is the layer that has the run's ``asof``.
 - **CALENDAR days, on purpose.** ``domain/market_time.py`` deliberately has no trading calendar (no weekend
   skip, no holidays — see its docstring), so a trading-day count is not available here and teaching it one
-  is out of scope. The default threshold (``Settings.tape_stale_days`` = 5) is wide enough to clear a long
-  weekend plus a holiday without a calendar, and narrow enough that a genuinely dead tape surfaces inside a
-  week.
+  is out of scope. What the threshold actually buys: a LIVE tape gets that session's bar appended by the
+  nightly pass, so its edge sits at 0-1 days and the threshold never comes near it — the number only starts
+  to matter once bars STOP arriving. ``Settings.tape_stale_days`` = 5 therefore means **a tape may lag up to
+  FOUR calendar days before it reads stale** (room for a vendor delay stretched across a weekend), while a
+  genuinely dead tape surfaces within a week. Worked through: a Friday close is fresh through Tuesday's pass
+  (4 days) and reads stale on WEDNESDAY's (5), so an ordinary weekend — or a weekend plus a Monday or Friday
+  holiday — sits comfortably inside the window. The ACCEPTED EDGE: a rare TWO-session closure adjacent to a
+  weekend (a Thursday+Friday shutdown leaves a Wednesday edge and a Monday pass = 5 days) trips it for ONE
+  night and clears on the next session. Raise ``ALPHADECK_TAPE_STALE_DAYS`` if that night ever matters more
+  than catching a dead tape a day sooner.
 
 The REPAIR is the operator's and is not code: ``security_master.price_symbol`` (the OTC symbol override,
 #252) points the price leg at the vendor's current symbol, and the next nightly pass re-pulls the full
@@ -76,10 +83,11 @@ def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
     """Has this tape stopped? ``True`` when it has NO bars at all (``edge is None``) or its latest bar is
     ``stale_days`` or more CALENDAR days before ``asof``.
 
-    The ``>=`` boundary is deliberate: with ``stale_days=5``, an edge of ``asof - 5`` days reads stale and
-    ``asof - 4`` does not, so a Friday close is still fresh on the following Tuesday (3 days) and on
-    Wednesday (4 days), and trips on Thursday — a full week of market closure, never a long weekend.
-    ``stale_days <= 0`` disables the judgment entirely (the monitor's off-switch): nothing is stale.
+    The ``>=`` boundary is deliberate: with ``stale_days=5`` an edge of ``asof - 5`` days reads stale and
+    ``asof - 4`` does not. Counted out from a Friday close: Monday's pass is 3 days (fresh), Tuesday's is 4
+    (fresh), and WEDNESDAY's is 5 — stale. So the window tolerates a weekend, and a weekend plus a Monday or
+    Friday holiday, but not a full week without a bar. ``stale_days <= 0`` disables the judgment entirely
+    (the monitor's off-switch): nothing is stale.
     """
     if stale_days <= 0:
         return False

@@ -161,8 +161,13 @@ class Settings(BaseSettings):
     # that silently ENDED — the vendor prices the name under a new symbol after a rename, or it delisted —
     # appends zero bars with NO error, which is byte-identical to a market holiday, so nothing noticed and
     # every price-driven detector for that name went dark. CALENDAR days because domain/market_time.py
-    # deliberately has no trading calendar; 5 clears a long weekend plus a holiday and still surfaces a dead
-    # tape inside a week. 0 DISABLES the monitor. Read via the env_prefix (ALPHADECK_TAPE_STALE_DAYS);
+    # deliberately has no trading calendar. A LIVE tape gets that session's bar appended nightly, so its edge
+    # sits at 0-1 days and this number never comes near it — it only matters once bars STOP arriving: 5 means
+    # a tape may lag up to FOUR calendar days (room for a vendor delay stretched across a weekend) before it
+    # reads stale, while a genuinely dead tape surfaces within a week. Counted out: a Friday close is fresh
+    # through Tuesday's pass (4 days) and stale on Wednesday's (5). The accepted edge is a rare TWO-session
+    # closure beside a weekend, which trips it for one night.
+    # 0 DISABLES the monitor. Read via the env_prefix (ALPHADECK_TAPE_STALE_DAYS);
     # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
     # this default.
     tape_stale_days: int = 5

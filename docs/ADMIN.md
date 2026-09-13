@@ -85,8 +85,14 @@ and never confirm on price.
 
 - **What counts as stale:** the latest stored EOD bar is `ALPHADECK_TAPE_STALE_DAYS` (default **5**) or more
   **calendar** days before the run's as-of, or the name has no bars at all. Calendar days because the trading
-  clock deliberately has no holiday calendar; five clears a long weekend plus a holiday and still surfaces a
-  dead tape inside a week. `0` disables the monitor.
+  clock deliberately has no holiday calendar. A live tape gets that session's bar appended nightly, so its
+  edge sits at 0–1 days and the threshold never comes near it — the number only matters once bars **stop**
+  arriving: 5 means a tape may lag up to **four** calendar days before it reads stale, and a dead tape
+  surfaces within a week. Counted out: a Friday close is fresh through Tuesday's pass (4 days) and reads
+  stale on **Wednesday's** (5), so a weekend — or a weekend plus a Monday or Friday holiday — is inside the
+  window. The accepted edge: a rare **two-session** closure beside a weekend (a Thursday+Friday shutdown
+  leaves a Wednesday edge and a Monday pass = 5 days) flags for one night and clears on the next session.
+  `0` disables the monitor; raise it if that night ever costs more than catching a dead tape a day sooner.
 - **Where it comes from:** the nightly pass records each name's tape edge and its stale set into the
   run-of-record artifact, and this panel reads the newest artifact that actually **evaluated** recency. So it
   is "as of last night" (the right granularity for a nightly feed), it costs no query, and this surface still

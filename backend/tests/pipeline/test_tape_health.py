@@ -38,14 +38,37 @@ def test_the_threshold_is_INCLUSIVE_at_stale_days():
     assert is_tape_stale(_ASOF - timedelta(days=5), asof=_ASOF, stale_days=5) is True
 
 
-def test_a_LONG_WEEKEND_does_not_read_stale_at_the_default_threshold():
-    """The reason the default is 5 CALENDAR days (market_time deliberately has no trading calendar): a
-    Friday close is still fresh the following Wednesday — Thu + Fri closed for a holiday — and only trips on
-    Thursday, a full week without a bar."""
+def test_a_WEEKEND_and_a_single_holiday_stay_fresh_at_the_default_threshold():
+    """The day math the default rests on, counted out rather than asserted in prose (an earlier docstring got
+    this off by one). From a Friday close, with stale_days=5: Monday's pass is 3 days and Tuesday's is 4 —
+    both FRESH — and Wednesday's is 5, STALE. So an ordinary weekend, and a weekend plus a Monday holiday
+    (last bar Friday, next bar Tuesday, worst pass 3 days) or a Friday holiday (last bar Thursday, Monday
+    pass = 4 days), all sit inside the window."""
     friday = date(2026, 6, 5)
-    assert friday.weekday() == 4  # pin the fixture's own calendar claim
+    thursday = date(2026, 6, 4)
+    assert (friday.weekday(), thursday.weekday()) == (4, 3)  # pin the fixture's own calendar claim
+    assert is_tape_stale(friday, asof=date(2026, 6, 8), stale_days=5) is False  # Monday: 3 days
     assert is_tape_stale(friday, asof=date(2026, 6, 9), stale_days=5) is False  # Tuesday: 4 days
     assert is_tape_stale(friday, asof=date(2026, 6, 10), stale_days=5) is True  # Wednesday: 5 days
+    # a FRIDAY holiday: the last bar is Thursday and the next session is Monday — still fresh
+    assert is_tape_stale(thursday, asof=date(2026, 6, 8), stale_days=5) is False  # Monday: 4 days
+
+
+def test_a_TWO_SESSION_closure_beside_a_weekend_trips_for_ONE_night_accepted():
+    """THE ACCEPTED EDGE, pinned so nobody is surprised by it and nobody silently "fixes" it: a rare
+    two-session market closure adjacent to a weekend (a Thursday+Friday shutdown) leaves a WEDNESDAY edge and
+    the next pass is MONDAY — 5 calendar days, so it reads stale for that one night and clears on Tuesday's
+    pass once a bar lands. Without a trading calendar this is unavoidable at any threshold tight enough to
+    catch a dead tape inside a week; the lever is ALPHADECK_TAPE_STALE_DAYS."""
+    wednesday, monday, tuesday = date(2026, 6, 3), date(2026, 6, 8), date(2026, 6, 9)
+    assert (wednesday.weekday(), monday.weekday()) == (2, 0)
+    assert (
+        is_tape_stale(wednesday, asof=monday, stale_days=5) is True
+    )  # the one-night false positive
+    assert is_tape_stale(monday, asof=tuesday, stale_days=5) is False  # ...cleared by the next bar
+    assert (
+        is_tape_stale(wednesday, asof=monday, stale_days=6) is False
+    )  # the operator's lever works
 
 
 def test_a_tape_with_NO_BARS_AT_ALL_is_stale():
