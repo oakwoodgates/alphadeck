@@ -20,6 +20,7 @@ from db.session import DEFAULT_TENANT_ID
 from pipeline import daily, daily_job
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
+from pipeline.tape_health import StaleTape
 from repositories import calls_repo
 
 _FRI = date(2026, 7, 17)
@@ -85,6 +86,8 @@ def _artifact(
     catch_up: bool = False,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
+    tape_evaluated: bool = False,
+    tape_stale_new: tuple[str, ...] = (),
 ):
     """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home)."""
     results = results if results is not None else [_tr(recorded=True, edgar_fetches=88)]
@@ -97,6 +100,8 @@ def _artifact(
         catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
+        tape_evaluated=tape_evaluated,
+        tape_stale_new=tape_stale_new,
     )
     assert path is not None
     return path
@@ -452,3 +457,130 @@ def test_poll_unknown_job_is_404(client):
     r = client.get("/admin/run-daily/jobs/no-such-job")
     assert r.status_code == 404
     assert "not found" in r.json()["detail"]
+
+
+# --- G5a: the price-tape freshness panel + the verdict it must NOT change -----------------------------
+
+
+def _stale_row(ticker, *, sid=None, edge=None):
+    return StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge)
+
+
+def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron_runs_dir):
+    """The panel is the operator's "is it watched?" view for prices, ARTIFACT-sourced (this router still
+    owns no tables). Each row must name WHICH security, WHEN its tape stopped, and under which thesis —
+    a count alone is unactionable. A ticker-less row is kept and identified by id (#9)."""
+    a, b = uuid.uuid4(), uuid.uuid4()
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="Thesis One",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(
+                    _stale_row("AAA", sid=a, edge=date(2026, 6, 30)),
+                    _stale_row(None, sid=b),
+                ),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=("AAA",),
+    )
+    body = client.get("/admin/status").json()
+
+    tape = body["tape"]
+    assert tape is not None
+    assert tape["stale_days"] == 5 and tape["asof"] == "2026-07-20"
+    assert tape["newly_stale"] == ["AAA"]
+    rows = {r["security_id"]: r for r in tape["stale"]}
+    assert rows[str(a)]["ticker"] == "AAA" and rows[str(a)]["edge"] == "2026-06-30"
+    assert rows[str(a)]["thesis"] == "Thesis One"
+    assert rows[str(b)]["ticker"] is None and rows[str(b)]["edge"] is None  # kept, not dropped
+
+
+def test_status_tape_DEDUPS_a_security_held_by_two_theses(client, cron_runs_dir):
+    """One dead tape is ONE row even when two theses hold the name — the same dedup the page and the CLI
+    summary apply. Otherwise the panel's count would measure holders, not dead tapes."""
+    shared = uuid.uuid4()
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="Thesis One",
+                recorded=True,
+                tape_stale=(_stale_row("AAA", sid=shared),),
+            ),
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="Thesis Two",
+                recorded=True,
+                tape_stale=(_stale_row("AAA", sid=shared),),
+            ),
+        ],
+        tape_evaluated=True,
+    )
+    tape = client.get("/admin/status").json()["tape"]
+    assert (
+        len(tape["stale"]) == 1 and tape["stale"][0]["thesis"] == "Thesis One"
+    )  # first holder names it
+
+
+def test_status_tape_is_NULL_until_a_pass_has_EVALUATED_recency(client, cron_runs_dir):
+    """The quiet state: right after deploy (and for a history of `--no-live` passes only) nothing has looked
+    at tape recency, so the panel is absent rather than an empty list pretending the universe is clean.
+    """
+    _artifact(
+        asof=_MON, at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc)
+    )  # tape_evaluated False
+    assert client.get("/admin/status").json()["tape"] is None
+
+    _artifact(  # a cache-only pass is excluded by mode even if it claimed to evaluate
+        asof=_MON,
+        at=datetime(2026, 7, 20, 23, 0, tzinfo=timezone.utc),
+        allow_live=False,
+        results=[_tr(withheld_reason="no-live")],
+        tape_evaluated=True,
+    )
+    assert client.get("/admin/status").json()["tape"] is None
+
+
+def test_status_a_NEWLY_STALE_tape_is_listed_but_does_NOT_make_the_cron_unhealthy(
+    client, db, monkeypatch
+):
+    """THE OPERATOR'S RULE: a stopped price tape is a FEED gap to repair, not a cron fault — the run did its
+    job. So it pages (the run row is not `healthy`, the problem line names it) while the one-word verdict
+    stays about the CRON. An `unhealthy` chip that really meant "a vendor renamed a ticker" would teach the
+    operator to ignore the chip."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    daily.run_daily(db, asof=_MON, allow_live=True)  # edge = Monday (current)
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,  # the run itself is spotless
+                tape_stale=(_stale_row("AAA", edge=date(2026, 6, 30)),),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=("AAA",),
+    )
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["last_run"]["healthy"] is False  # the assessor DID page…
+    assert any("newly STALE" in p and "AAA" in p for p in body["last_run"]["problems"])
+    assert any("not an error" in p for p in body["last_run"]["problems"])  # …as a benign note
+    assert body["cron"]["status"] == "healthy"  # …and the verdict stays about the cron
+    assert "STALE" not in body["cron"]["detail"]
+    assert body["tape"]["newly_stale"] == ["AAA"]  # it lives on the panel instead

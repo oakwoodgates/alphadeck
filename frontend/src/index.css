@@ -1726,6 +1726,9 @@ td.evled-n.ov-signal { color: var(--txt-3); }
 .adm-runline { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .adm-problems { margin: 5px 0 0; padding-left: 18px; font-size: 11px; color: var(--warm); }
 .adm-problems li { margin: 2px 0; }
+/* the stale-price-tape panel (G5a) — set off from the freshness lines above it; renders only when a tape
+   has actually stopped, so the separator marks a real exception rather than decorating every night */
+.adm-stale { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 /* the ONE trigger */
 .adm-runrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .adm-runbtn { font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: 0.14s; }

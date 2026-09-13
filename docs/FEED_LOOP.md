@@ -9,7 +9,8 @@
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
-> reconstructed with a PINNED `known_at`).
+> reconstructed with a PINNED `known_at`) · `backend/pipeline/tape_health.py` (the price-tape recency
+> monitor — a monitor, never a signal).
 >
 > **Status: BUILT** — the per-thesis ingest (PR #70), the daily cron + `record_if_changed` (#71), the
 > fresh-data fix + the price-source seam (#72), the scheduling sidecar (#73), and the **cron-freeze
@@ -197,7 +198,8 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
-  errors**, or **failed to refresh the benchmark tape** (below). A healthy run returns `None` — silent
+  errors**, **failed to refresh the benchmark tape** (below), or found a **newly stale price tape** (G5a,
+  below — pageable but not a cron alarm). A healthy run returns `None` — silent
   (loudness marks the exception). This is the page R1 lacked: the platform now notices its own blindness.
 - **A failed BENCHMARK refresh pages too (G4)** `[BUILT]`. The shared-input legs that run *before* the
   per-thesis loop (the SPY/IWM tape feeding `benchmark_rs`; each basket's quarterly revenue) are
@@ -211,6 +213,24 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   notifier would make that night re-read forever as a green row), and both make the Admin cron verdict
   `unhealthy` — a real alarm, not a benign note. The fundamentals leg keeps stdout-only reporting: a
   quarterly series tolerates a day.
+- **A price tape that STOPPED pages too (G5a)** `[BUILT]`. The price leg appends bars after the latest stored
+  one, so a name whose vendor series simply **ends** — the SEC ticker stays canonical but the vendor prices it
+  under a new symbol after a rename, or it delisted — appends **zero bars with no error**, which is
+  byte-identical to a market holiday. Nothing read the tape's edge, so for that name every price-driven
+  detector went dark from the stop date (no breakout, no SMA flip, no RVOL — and no price-based de-arm
+  either) while the CIK-keyed filing legs kept flowing, so it could still WARM on a filing and never confirm
+  on price. Now `ingest_thesis` reports each name's **tape edge** (`NameResult.tape_edge` — a FACT), `run_daily`
+  judges it against the run's `asof` (`pipeline/tape_health.py` — pure; `Settings.tape_stale_days`, default 5
+  CALENDAR days, `0` disables), the stale set lands per-thesis on the run-of-record artifact, and **newly**
+  stale names page. Newly only, diffed against the previous evaluated pass and keyed on `security_id` (never
+  the ticker — a ticker-less name must still page, and a ticker changing under a name is half the point): a
+  handful of known-dead tapes must not re-page nightly, while the FIRST evaluated pass hands over the whole
+  inventory once. A `--no-live` pass evaluates nothing and records `tape_evaluated: false`, so it can never
+  become the baseline and silence the next real page. It is a **MONITOR**: it touches no detector, no
+  `calls/` module, and nothing on the CallCard — a day-varying card field would flap `record_if_changed`'s
+  substance compare and break the cron's idempotency. And it is NOT a cron alarm: the run worked, the FEED has
+  a gap, so the Admin verdict stays `healthy` while the panel lists it (`ADMIN.md` §stale price tapes). The
+  repair is the operator's and is data, not code (`DATA_SOURCES.md` §when the symbol drifts).
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).
 - **No-lookahead.** `asof = today`, `known_at = now` (`PointInTimeData` defaults `None → now`); never backdated.
@@ -471,6 +491,16 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
   that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
   absence). Unchanged, still open.
+- **A price tape that silently ENDED — MONITORED (G5a), the repair still manual.** Zero bars appended with no
+  error is what a dead tape and a market holiday both look like, so a rename-starved name could sit dark
+  indefinitely: no breakout, no SMA flip, no RVOL, and no price-based de-arm, while its filing feeds kept it
+  warming. The nightly pass now reads each name's tape edge, flags a tape `tape_stale_days` (default 5
+  calendar days) or more behind the as-of, pages the **newly** stale ones, and the Admin panel lists the
+  current inventory — so the gap is visible and attributable. **Still open by design:** the repair is the
+  operator's (set the vendor symbol override; the next pass heals the tape), because an automatic
+  rename-follower could file another company's tape under a member — worse than a visible gap (#4/#6). Also
+  still open: the monitor cannot distinguish a rename from a genuine delisting (it reports the fact, not the
+  diagnosis), and the fund-shares leg for an ETF sleeve has no equivalent recency check yet — price bars only.
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

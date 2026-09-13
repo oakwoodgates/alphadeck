@@ -36,6 +36,7 @@ import argparse
 import xml.etree.ElementTree as ET
 from collections.abc import Collection
 from dataclasses import dataclass
+from datetime import date
 from uuid import UUID
 
 import psycopg
@@ -56,6 +57,7 @@ from ingest.edgar.submissions import (
 )
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.source import FundSharesSource
+from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
 from repositories import thesis_repo
@@ -91,6 +93,13 @@ class NameResult:
     sched13_appended: int = 0
     sched13_reversioned: int = 0
     sched13_identity_skipped: int = 0
+    # THE TAPE EDGE (G5a): the latest stored EOD bar date for this security AFTER this pass, or None when
+    # it has no bars at all. A FACT, never a judgment — whether that edge is too old is decided by
+    # `pipeline.daily` against the run's `asof` (`pipeline/tape_health.py`), because a tape that silently
+    # ENDED (a vendor symbol drift after a rename, a delisting) appends zero bars with NO error, which is
+    # byte-identical to a market holiday. Nothing read it before this field existed, so a dead tape was
+    # invisible and every price-driven detector for that name went quietly dark.
+    tape_edge: date | None = None
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -293,6 +302,18 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001
             conn.rollback()
             errs.append(f"price: {e}")
+        # THE TAPE EDGE (G5a) — read AFTER the price leg so an appended tail counts, and OUTSIDE its
+        # try/except so a name whose price leg FAILED still reports where its stored tape actually ends (a
+        # failing name and a dead tape are different facts; the monitor must see both). Its OWN try: this is
+        # a monitor reading a fact, so a fault here degrades to None — it must never blank a name's whole
+        # result. Cheap: one indexed MAX(d) per name. The JUDGMENT (is this edge too old?) is NOT made here
+        # — `pipeline.daily` makes it against the run's asof (`pipeline/tape_health.py`), which is why this
+        # function needs no `asof` parameter and no ambient clock.
+        tape_edge: date | None = None
+        try:
+            tape_edge = latest_bar_date(conn, sec.id, tenant_id=thesis.tenant_id)
+        except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
+            print(f"  warn: {sec.ticker or sec.id} tape-edge read failed: {e}")
         fs_appended, fs_reversioned = 0, 0
         try:
             shares = ingest_fund_shares_for_security(
@@ -324,6 +345,7 @@ def ingest_thesis(
                 sched13_appended=s13_appended,
                 sched13_reversioned=s13_reversioned,
                 sched13_identity_skipped=s13_skipped,
+                tape_edge=tape_edge,
             )
         )
     return results

@@ -593,3 +593,68 @@ def test_the_three_filing_legs_cost_ONE_submissions_fetch_per_company(
     assert len(submissions_pulls) == 1  # ONE index fetch across the form4 + 8-K + 13D/G legs
     assert results[0].form4_appended == _F4_PER_ACCESSION  # ...and the legs really ran
     assert client.live_fetches == len(urls)  # the freeze counter agrees with the network
+
+
+# --- G5a: the TAPE EDGE — the fact the recency monitor judges -----------------------------------------
+
+
+def test_name_result_carries_the_tape_edge_AFTER_the_price_leg(db, security_id, monkeypatch):
+    """The edge must be read AFTER the append, not before: `ingest_bars_for_security` computes its own
+    `last` BEFORE appending, and reporting that would be one pass stale every single night — a name whose
+    tape resumed today would still read as ending yesterday. Two bars land; the edge is the LATER one.
+    """
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15), date(2026, 6, 16)))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].price_bars_appended == 2
+    assert results[0].tape_edge == date(2026, 6, 16)  # the appended tail, not the pre-append edge
+
+
+def test_a_STOPPED_tape_reports_its_real_edge_with_zero_bars_and_no_error(
+    db, security_id, monkeypatch
+):
+    """THE GAP, reproduced: a second pass over a series that has not moved appends ZERO bars and reports NO
+    error — byte-identical to a market holiday. Before `tape_edge` existed that was the whole signal, so a
+    dead tape was invisible; now the pass still says nothing is wrong, but it reports WHERE the tape ends,
+    which is what makes the judgment possible."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    IT.ingest_thesis(db, tid, allow_live=False)
+
+    again = IT.ingest_thesis(db, tid, allow_live=False)  # the vendor series has not moved
+
+    assert (
+        again[0].price_bars_appended == 0 and again[0].error is None
+    )  # indistinguishable from quiet
+    assert again[0].tape_edge == date(2026, 6, 15)  # ...but the edge is now visible
+
+
+def test_a_name_with_NO_bars_reports_a_NULL_edge(db, security_id, monkeypatch):
+    """A security that never priced: the edge is None (not today, not an exception), which the monitor reads
+    as the most complete form of a stopped tape."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=())
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].price_bars_appended == 0 and results[0].tape_edge is None
+
+
+def test_a_FAILED_price_leg_still_reports_the_stored_edge(db, security_id, monkeypatch):
+    """The edge read sits OUTSIDE the price leg's try/except on purpose: a name whose fetch is failing AND
+    whose stored tape is dead are different facts, and the monitor must see the second even while the first
+    is true (otherwise a persistently-failing name would also go silently dark)."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    IT.ingest_thesis(db, tid, allow_live=False)  # land one bar
+
+    def _boom(ticker):
+        raise RuntimeError("vendor 500")
+
+    _patch(monkeypatch, accessions=("ACC-1",), eod_fn=_boom)
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].error is not None and "price" in results[0].error  # the leg DID fail…
+    assert results[0].tape_edge == date(2026, 6, 15)  # …and the stored edge is still reported

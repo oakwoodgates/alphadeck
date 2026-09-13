@@ -191,6 +191,40 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
 > + volume (above), so a second adjustment would DOUBLE-adjust (÷ an already-÷10 close). Not built.
 
+### When the SYMBOL drifts: the OTC class, the RENAME class, and the recency monitor
+
+The SEC ticker is canonical for identity, but the vendor may price a name under a **different** symbol — and
+the ingest cannot tell that from "this name had a quiet year". Two classes, one shared repair:
+
+- **The OTC class `[BUILT, #252]`.** An OTC name quotes under a suffixed symbol (a "D" appended after a
+  corporate action, for instance) and the canonical ticker returns a stub history. Fix: the **vendor symbol
+  override** on the security master (`security_master.price_symbol`, migration 0032) — stored only when it
+  DIFFERS from the ticker; `ingest_bars_for_security` fetches `price_symbol or ticker`, and the bars land
+  under the same `security_id`, so the detectors simply start seeing the fuller history (no call-path touch).
+  A verified symbol-search resolver populates it, deliberately **OTC-scoped and thin-history-gated**.
+- **The RENAME class — the silent one `[MONITORED, G5a; repair is manual]`.** After a rename the vendor's
+  series for the OLD symbol simply **ENDS**. The ingest appends bars after the latest stored one, so it
+  appends **zero, with no error** — byte-identical to a market holiday. The resolver above cannot reach this
+  case by construction (it is OTC-scoped and gated on thin history, while a renamed name has a long, healthy
+  history that merely stops), so such a tape could sit dead indefinitely while every price-driven signal for
+  that name went dark and nothing said so.
+- **The monitor that makes it visible (G5a).** The nightly pass now records each name's **tape edge** (its
+  latest stored bar date) and flags a tape whose edge is `ALPHADECK_TAPE_STALE_DAYS` (default 5 calendar days;
+  `0` disables) or more behind the run's as-of, or that has no bars at all. The stale set lands on the
+  run-of-record artifact, **newly** stale names page through the health notifier, and the Admin freshness
+  panel lists every currently stale tape with its last-bar date (`ADMIN.md` §stale price tapes). It is a
+  MONITOR: no detector, no call input, and nothing on the CallCard (a day-varying card field would flap the
+  cron's `record_if_changed` idempotency).
+- **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
+  the next nightly pass re-pulls the full year, appends the missing tail and hole-fills the overlap (splices
+  measured clean). Teaching the resolver to follow renames **automatically** is deliberately **not built**: a
+  wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a visible gap
+  (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
+- **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25-NSE / 15-12G) also ends the
+  series, and correctly: there is nothing to repair, the name is simply no longer priced. The monitor cannot
+  tell the two apart — it reports the *fact* that the tape stopped and leaves the diagnosis to the operator,
+  which is why a known-dead tape pages only once rather than every night.
+
 ## Form 4 — the Rule 10b5-1 checkbox `[BUILT — CAPTURE-ONLY]`
 
 `fact_insider_txn.aff_10b5_1` records the filing's **Rule 10b5-1 checkbox** (`<aff10b5One>`). **Nothing reads

@@ -8,7 +8,7 @@ dedups on read, so a duplicate append hides behind a correct read while the tabl
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -23,6 +23,7 @@ from ingest.edgar.form4 import ingest_form4
 from notify import ArmedName
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
+from pipeline.ingest_thesis import NameResult
 from repositories import calls_repo
 
 # form4_sample.xml is a senior (CEO) open-market P-buy dated 2026-06-01; this asof is within its flip
@@ -951,3 +952,166 @@ def test_pass_on_no_live_reports_NO_benchmark_fault(monkeypatch):
     _prime_pass(monkeypatch, bench_raises=True)  # would raise IF the leg ran
     out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
     assert out.benchmark_errors == 0 and out.benchmark_leg_failed is False
+
+
+# --- G5a: the price-tape recency monitor (judgment, diff, page) ---------------------------------------
+
+
+def _ingest_returning(names):
+    """Stub the cron's ingest step so it returns controlled NameResults — the `_no_network` sibling: this
+    one hands back per-name outcomes instead of an empty list."""
+    return lambda *a, **k: list(names)
+
+
+def _nr(**kw) -> NameResult:
+    base = dict(ticker="AAA", security_id=uuid.uuid4(), form4_appended=0, price_bars_appended=0)
+    return NameResult(**{**base, **kw})
+
+
+def _stale(ticker, *, edge=None, sid=None):
+    return daily.StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge)
+
+
+def _thesis_result_with(stale):
+    return [
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(), name="T", recorded=True, tape_stale=tuple(stale)
+        )
+    ]
+
+
+def test_run_daily_judges_tape_staleness_against_the_runs_ASOF(db, monkeypatch):
+    """The judgment lives in run_daily because this is the layer holding the run's asof — time stays a
+    parameter, never an ambient clock inside the ingest unit. One dead tape, one fresh: only the dead one is
+    reported, with its real edge."""
+    dead = _nr(ticker="DEAD", tape_edge=_ASOF - timedelta(days=40))
+    alive = _nr(ticker="ALIVE", tape_edge=_ASOF)
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([dead, alive]))
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert [s.ticker for s in out[0].tape_stale] == ["DEAD"]
+    assert out[0].tape_stale[0].edge == _ASOF - timedelta(days=40)
+
+
+def test_run_daily_does_NOT_judge_tape_staleness_on_a_NO_LIVE_pass(db, monkeypatch):
+    """A cache-only pass evaluates nothing: it cannot see a tape's current edge honestly, its call is
+    withheld anyway, and — the load-bearing part — it must never become the baseline the next live pass
+    diffs against, or a hand-run dev pass would silence the next real page."""
+    monkeypatch.setattr(
+        daily, "ingest_thesis", _ingest_returning([_nr(ticker="DEAD", tape_edge=None)])
+    )
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=False)
+
+    assert out[0].tape_stale == ()
+
+
+def test_run_daily_tape_monitor_is_OFF_at_stale_days_zero(db, monkeypatch):
+    """The documented off-switch (ALPHADECK_TAPE_STALE_DAYS=0) reaches the cron, not just the predicate."""
+    monkeypatch.setattr(
+        daily, "ingest_thesis", _ingest_returning([_nr(ticker="DEAD", tape_edge=None)])
+    )
+    monkeypatch.setattr(daily, "get_settings", lambda: SimpleNamespace(tape_stale_days=0))
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert out[0].tape_stale == ()
+
+
+def test_assess_health_pages_a_NEWLY_stale_tape_and_names_it():
+    """It pages — every price-driven signal for that name is dark until the tape resumes — and the page
+    NAMES the tape, because a bare "a tape went stale" is unactionable."""
+    h = daily.assess_health([], asof=_ASOF, allow_live=True, tape_stale_new=("AAA", "BBB"))
+    assert h is not None
+    assert h.tape_stale_new == ("AAA", "BBB")
+    assert "newly STALE" in h.label and "AAA, BBB" in h.label
+    assert "not a cron error" in h.label  # a FEED gap, and the page says so
+
+
+def test_assess_health_is_SILENT_when_no_tape_became_stale():
+    """Inverse loudness: the known-dead tapes of every previous night must not re-page, so only the DIFF
+    reaches here and a night with nothing new is silent."""
+    assert daily.assess_health([], asof=_ASOF, allow_live=True, tape_stale_new=()) is None
+
+
+def test_pass_pages_a_NEWLY_stale_tape_and_stays_quiet_on_a_KNOWN_one(monkeypatch, tmp_path):
+    """THE DIFF, across three passes through the REAL artifact writer (run-log home redirected to tmp):
+    pass 1 finds a dead tape and pages it; pass 2 finds the SAME one and pages NOTHING; pass 3 finds an
+    additional one and pages ONLY the new name. This is what stops a handful of known-dead tapes from crying
+    wolf every night forever. The diff is keyed on security_id, so the SAME ids are reused across passes.
+    """
+    a, b = uuid.uuid4(), uuid.uuid4()
+    seen: list[tuple[str, ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen.append(tuple(kw.get("tape_stale_new") or ()))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    def _pass(stale):
+        monkeypatch.setattr(daily, "run_daily", lambda conn, **k: _thesis_result_with(stale))
+        return daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    out1 = _pass([_stale("AAA", sid=a)])
+    out2 = _pass([_stale("AAA", sid=a)])
+    out3 = _pass([_stale("AAA", sid=a), _stale("BBB", sid=b)])
+
+    assert seen[0] == ("AAA",)  # the first evaluated pass: the inventory, paged once
+    assert seen[1] == ()  # the SAME dead tape the next night: silent
+    assert seen[2] == ("BBB",)  # only the genuinely new one
+    assert out1.tape_evaluated and out2.tape_evaluated and out3.tape_evaluated
+    assert out3.tape_stale_new == ("BBB",)
+
+
+def test_pass_on_a_FIRST_evaluated_run_pages_the_WHOLE_inventory(monkeypatch, tmp_path):
+    """The operator's decision for the deploy night: with no previous evaluated artifact
+    (``previous_stale_tapes() -> None``, deliberately distinct from an empty set) every currently-stale tape
+    is news, so the first pass hands over the whole inventory ONCE rather than starting silent."""
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)  # an EMPTY run home
+    monkeypatch.setattr(
+        daily,
+        "run_daily",
+        lambda conn, **k: _thesis_result_with([_stale("AAA"), _stale("BBB")]),
+    )
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert sorted(out.tape_stale_new) == ["AAA", "BBB"]
+
+
+def test_pass_on_no_live_records_tape_evaluated_FALSE(monkeypatch):
+    """A --no-live pass must record that it did not look, so it can never serve as the diff baseline."""
+    _prime_pass(monkeypatch)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
+    assert out.tape_evaluated is False and out.tape_stale_new == ()
+
+
+def test_report_lists_stale_tapes_deduped_and_only_when_there_are_any(capsys):
+    """stdout is the first place an operator looks at a cron run. One dead tape held by TWO theses is ONE
+    line (deduped across theses, like the page and the panel); a healthy universe says nothing about tapes.
+    """
+    shared = _stale("DEAD", edge=date(2026, 4, 1))
+    two_theses = [
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(), name="T1", recorded=True, tape_stale=(shared,)
+        ),
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(), name="T2", recorded=True, tape_stale=(shared,)
+        ),
+    ]
+    daily._report(two_theses)
+    out = capsys.readouterr().out
+    assert out.count("DEAD: last bar 2026-04-01") == 1  # deduped across the two holders
+
+    daily._report([daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=True)])
+    assert "STALE PRICE TAPES" not in capsys.readouterr().out  # quiet when there are none

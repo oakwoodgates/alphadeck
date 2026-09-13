@@ -1907,7 +1907,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record \u2014 a run that fired on the\nwrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists\nthe holes (empty on a clean window).",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record \u2014 a run that fired on the\nwrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists\nthe holes (empty on a clean window). ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket\nname whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency \u2014\n``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes\n``cron.status``.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -2655,6 +2655,49 @@
         "title": "AdminRunsOut",
         "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
       },
+      "AdminStaleTapeOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge"
+          },
+          "thesis": {
+            "type": "string",
+            "title": "Thesis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "thesis"
+        ],
+        "title": "AdminStaleTapeOut",
+        "description": "One basket name whose PRICE TAPE has stopped (G5a): ``edge`` is the latest stored EOD bar date\n(``null`` = no bars at all), ``thesis`` the thesis it was seen under. A tape that silently ENDS \u2014 the\nvendor prices the name under a new symbol after a rename, or it delisted \u2014 appends zero bars with NO\nerror, indistinguishable from a holiday, and every price-driven detector for that name goes dark\n(no breakout, no SMA flip, no RVOL \u2014 and no price-based de-arm either). ``ticker`` may be ``null``;\nthe row still renders by ``security_id`` and is never dropped (#9)."
+      },
       "AdminStatusOut": {
         "properties": {
           "record": {
@@ -2682,6 +2725,16 @@
                 "type": "null"
               }
             ]
+          },
+          "tape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminTapeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2690,7 +2743,48 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot. READ-ONLY \u2014 the endpoint owns no tables and writes nothing (test-proved; the\n``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet \"no\nsnapshots yet\" state."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the price-tape panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated tape recency (the quiet \"not looked yet\" state)."
+      },
+      "AdminTapeOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "ran_at": {
+            "type": "string",
+            "title": "Ran At"
+          },
+          "stale_days": {
+            "type": "integer",
+            "title": "Stale Days"
+          },
+          "stale": {
+            "items": {
+              "$ref": "#/components/schemas/AdminStaleTapeOut"
+            },
+            "type": "array",
+            "title": "Stale",
+            "default": []
+          },
+          "newly_stale": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Newly Stale",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "ran_at",
+          "stale_days"
+        ],
+        "title": "AdminTapeOut",
+        "description": "The price-tape freshness panel (G5a), read from the newest run artifact that actually EVALUATED\nrecency \u2014 not a fresh DB scan, so this surface still owns no tables. ``asof`` / ``ran_at`` say which\npass produced it (the answer is \"as of last night\", which is the right granularity for a nightly\nfeed); ``stale_days`` is the threshold that pass used. ``stale`` is the full current inventory, one\nrow per security (a name placed in several value-chain links appears once); ``newly_stale`` are the\ndisplay labels that PAGED that night \u2014 the diff against the previous evaluated pass, so a known-dead\ntape does not re-page forever. The repair is the operator's: point the price leg at the vendor's\ncurrent symbol (``security_master.price_symbol``) and the next nightly pass heals the tape."
       },
       "Authorship": {
         "type": "string",

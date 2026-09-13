@@ -51,6 +51,30 @@ const CATCHUP_RUN = {
 
 const CLEAN_WINDOW = { missed: 0, missed_asofs: [] as string[], window_days: 10 };
 
+// G5a — the price-tape panel as the artifact-sourced read serves it. Two rows on purpose: one ordinary
+// name, and one with NO ticker (an unresolved/renamed member), which must still render — by id, never
+// dropped (#9). The ids are synthetic fixtures, not real securities.
+const TAPE_TWO_STALE = {
+  asof: "2026-07-17",
+  ran_at: "2026-07-17T22:30:01+00:00",
+  stale_days: 5,
+  stale: [
+    {
+      security_id: "11111111-1111-1111-1111-111111111111",
+      ticker: "AAA",
+      edge: "2026-06-30",
+      thesis: "Thesis One",
+    },
+    {
+      security_id: "22222222-2222-2222-2222-222222222222",
+      ticker: null as string | null,
+      edge: null as string | null,
+      thesis: "Thesis Two",
+    },
+  ],
+  newly_stale: ["AAA"],
+};
+
 const STATUS_CURRENT = {
   record: {
     edge: "2026-07-17",
@@ -198,6 +222,8 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(fresh.textContent).toContain("2026-07-17");
     // a clean window renders NO missed-nights list — a control that doesn't discriminate doesn't render
     expect(screen.queryByTestId("adm-missed")).toBeNull();
+    // ...and no stale-tape panel either: "no stale tapes" is the normal night (honest loudness)
+    expect(screen.queryByTestId("adm-stale-tapes")).toBeNull();
     expect(fresh.textContent).not.toContain("no call-of-record");
   });
 
@@ -233,6 +259,36 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(fresh.className).not.toMatch(/stale/);
     expect(fresh.textContent).toContain("never begun");
     expect(screen.getByTestId("adm-cron").textContent).toContain("never ran");
+  });
+
+  it("a STOPPED price tape is listed with its last-bar date, and a ticker-less row renders by id", () => {
+    // G5a: the panel is the operator's "is it watched?" view for prices. A name whose vendor series ended
+    // (a rename the vendor priced under a new symbol, a delisting) goes dark for every price-driven
+    // signal, so each row must name WHICH name, WHEN its tape stopped, and under which thesis. The
+    // ticker-less row is the #9 case: it renders by security id rather than disappearing.
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_TWO_STALE } };
+    renderAdmin();
+    const panel = screen.getByTestId("adm-stale-tapes");
+    expect(panel.textContent).toContain("2");
+    expect(panel.textContent).toContain("AAA");
+    expect(panel.textContent).toContain("2026-06-30"); // the edge date, not just a count
+    expect(panel.textContent).toContain("Thesis One");
+    // the ticker-less member: by id, and its empty edge reads "never" rather than blank
+    expect(panel.textContent).toContain("22222222-2222-2222-2222-222222222222");
+    expect(panel.textContent).toContain("never");
+    // and it tells the operator what to do about it
+    expect(panel.textContent).toMatch(/price symbol/i);
+  });
+
+  it("an EMPTY stale list renders no panel (a list true of nothing carries no information)", () => {
+    h.status = {
+      ...h.status,
+      data: { ...STATUS_CURRENT, tape: { ...TAPE_TWO_STALE, stale: [], newly_stale: [] } },
+    };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-stale-tapes")).toBeNull();
+    // ...and the freshness card is otherwise untouched (no empty-state noise)
+    expect(screen.getByTestId("adm-fresh").textContent).toContain("current");
   });
 });
 

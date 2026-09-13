@@ -1642,16 +1642,49 @@ class AdminCronOut(BaseModel):
     detail: str
 
 
+class AdminStaleTapeOut(BaseModel):
+    """One basket name whose PRICE TAPE has stopped (G5a): ``edge`` is the latest stored EOD bar date
+    (``null`` = no bars at all), ``thesis`` the thesis it was seen under. A tape that silently ENDS — the
+    vendor prices the name under a new symbol after a rename, or it delisted — appends zero bars with NO
+    error, indistinguishable from a holiday, and every price-driven detector for that name goes dark
+    (no breakout, no SMA flip, no RVOL — and no price-based de-arm either). ``ticker`` may be ``null``;
+    the row still renders by ``security_id`` and is never dropped (#9)."""
+
+    security_id: UUID
+    ticker: str | None = None
+    edge: date | None = None
+    thesis: str
+
+
+class AdminTapeOut(BaseModel):
+    """The price-tape freshness panel (G5a), read from the newest run artifact that actually EVALUATED
+    recency — not a fresh DB scan, so this surface still owns no tables. ``asof`` / ``ran_at`` say which
+    pass produced it (the answer is "as of last night", which is the right granularity for a nightly
+    feed); ``stale_days`` is the threshold that pass used. ``stale`` is the full current inventory, one
+    row per security (a name placed in several value-chain links appears once); ``newly_stale`` are the
+    display labels that PAGED that night — the diff against the previous evaluated pass, so a known-dead
+    tape does not re-page forever. The repair is the operator's: point the price leg at the vendor's
+    current symbol (``security_master.price_symbol``) and the next nightly pass heals the tape."""
+
+    asof: date
+    ran_at: str
+    stale_days: int
+    stale: list[AdminStaleTapeOut] = []
+    newly_stale: list[str] = []
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
-    newest DB snapshot. READ-ONLY — the endpoint owns no tables and writes nothing (test-proved; the
-    ``last_backup`` join is a pure directory read). ``last_backup`` is ``None`` = the quiet "no
-    snapshots yet" state."""
+    newest DB snapshot + the price-tape panel. READ-ONLY — the endpoint owns no tables and writes
+    nothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from
+    the run artifacts). ``last_backup`` is ``None`` = the quiet "no snapshots yet" state; ``tape`` is
+    ``None`` until a pass has evaluated tape recency (the quiet "not looked yet" state)."""
 
     record: AdminRecordOut
     last_run: AdminRunOut | None = None
     cron: AdminCronOut
     last_backup: BackupOut | None = None
+    tape: AdminTapeOut | None = None
 
 
 class AdminRunsOut(BaseModel):

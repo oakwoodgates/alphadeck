@@ -91,6 +91,10 @@ class HealthEvent:
     # G4: benchmark-refresh faults — real alarms (the calls that night read a stale shared input)
     benchmark_errors: int = 0
     benchmark_leg_failed: bool = False
+    # G5a: names whose PRICE TAPE went stale since the previous evaluated pass, as display labels (ticker,
+    # or the security id when ticker-less). NEWLY stale only — a known-dead tape must not re-page nightly.
+    # It pages, but it is NOT a cron alarm: the run worked, the FEED has a gap to repair (see the label).
+    tape_stale_new: tuple[str, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -118,6 +122,15 @@ class HealthEvent:
         if self.withheld_no_live:
             bits.append(
                 f"{self.withheld_no_live} call(s) withheld — no-live (a cache-only run, not an error)"
+            )
+        # G5a — a FEED gap, not a cron fault, so it sits with the benign note and names what to do. Every
+        # price-driven detector for these names is dark until the tape resumes (no breakout, no SMA flip, no
+        # RVOL — and no price-based de-arm either), which is why it pages at all.
+        if self.tape_stale_new:
+            bits.append(
+                f"{len(self.tape_stale_new)} price tape(s) newly STALE — "
+                f"{', '.join(self.tape_stale_new)} (no new bars; check for a ticker rename or a "
+                "delisting and set the vendor price symbol — not a cron error)"
             )
         return f"cron {self.asof}: " + " · ".join(bits)
 
