@@ -289,8 +289,15 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     # night still counts as covered (unchanged, deliberate).
     tz = market_tz()
     covered = {d for d, rec in stamps.items() if rec >= datetime.combine(d, run_at, tzinfo=tz)}
-    daytime_only = sorted(set(stamps) - covered)
     missed = missed_asofs(covered, expected=expected, first=first, window=len(window_days))
+    # ``daytime_only`` is a SUBSET OF ``missed``, not of every as-of that happens to carry a pre-cutoff row.
+    # The difference bit on dev: a weekend manual pass leaves rows for a Saturday/Sunday as-of recorded
+    # before 22:30, and a raw ``set(stamps) - covered`` listed those days — but no pass is ever SCHEDULED on
+    # a weekend (``missed_asofs`` walks scheduled weekdays only), so such a day is not a hole and "daytime
+    # only" is meaningless for it. Filtering through ``missed`` keeps the wire field equal to what it
+    # promises: the holes whose ONLY row is a pre-``RUN_AT`` one. Ascending, since ``missed`` is.
+    pre_cutoff = set(stamps) - covered
+    daytime_only = [d for d in missed if d in pre_cutoff]
 
     if edge is None:
         reason = "the record has never begun — no call-of-record logged yet"
@@ -300,8 +307,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         )
     elif missed:
         # the edge is current, but the window is not clean — the reason must not say "no run is missing"
-        daytime_in_window = [d for d in missed if d in set(daytime_only)]
-        tail = f" ({len(daytime_in_window)} with a daytime row only)" if daytime_in_window else ""
+        tail = f" ({len(daytime_only)} with a daytime row only)" if daytime_only else ""
         reason = (
             f"current at the edge — but {len(missed)} of the last {len(window_days)} scheduled "
             f"run(s) have no post-{run_at:%H:%M} call-of-record{tail}"

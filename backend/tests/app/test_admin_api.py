@@ -717,3 +717,44 @@ def test_status_a_daytime_row_PLUS_a_post_close_row_covers_the_night(client, db,
     assert body["record"]["missed_asofs"] == []
     assert body["record"]["daytime_only_asofs"] == []
     assert body["cron"]["status"] == "healthy"
+
+
+def test_status_daytime_only_lists_SCHEDULED_nights_only_never_a_weekend(client, db, monkeypatch):
+    """``daytime_only_asofs`` is a SUBSET OF ``missed_asofs`` — the holes whose only row is a pre-``RUN_AT``
+    one — not "every as-of carrying a pre-cutoff row".
+
+    MEASURED on dev and it bit: an operator's weekend manual pass leaves rows for a SATURDAY as-of recorded
+    before 22:30, and computing the field as `set(stamps) - covered` listed that Saturday. No pass is ever
+    SCHEDULED on a weekend (``missed_asofs`` walks scheduled weekdays only), so such a day is not a hole and
+    "daytime only" means nothing for it — the field contradicted its own docstring. The verdict, the reason
+    and the FE were never wrong (they all intersect with ``missed``); the wire field was.
+
+    Here: Saturday 09-05 and a real scheduled night, Tuesday 09-08, BOTH carry only a pre-cutoff row. Only
+    Tuesday may appear."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "T")
+    saturday = date(2026, 9, 5)
+    assert (saturday.weekday(), _S_TUE.weekday()) == (5, 1)  # pin the fixture's own calendar claim
+    daily.run_daily(db, asof=_S_MON, allow_live=True)  # a real post-close row (recorded now)
+    daily.run_daily(db, asof=_S_WED, allow_live=True)
+    # the weekend manual pass: a Saturday as-of, recorded 09:22 ET (13:22Z) — before that day's 22:30
+    _insert_call_at(
+        db, tid, asof=saturday, recorded_at=datetime(2026, 9, 5, 13, 22, tzinfo=timezone.utc)
+    )
+    # and a SCHEDULED night with the same shape — this one IS a hole
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 8, 13, 15, tzinfo=timezone.utc)
+    )
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))  # Wednesday night, past RUN_AT
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed_asofs"] == ["2026-09-08"]  # the weekend was never scheduled
+    assert body["record"]["daytime_only_asofs"] == ["2026-09-08"]  # ...so it cannot be daytime-only
+    # the contract the docstring states: a subset of the holes, nothing more
+    assert set(body["record"]["daytime_only_asofs"]) <= set(body["record"]["missed_asofs"])
+    assert "2026-09-05" not in body["cron"]["detail"]
+    assert (
+        "1 with a daytime row only" in body["record"]["reason"]
+    )  # counts the hole, not the Saturday
