@@ -129,7 +129,8 @@ other prefix (`submissions`/`companyfacts`/`efts`) refreshes on a **12h TTL** wh
 new mutable endpoint is safe-by-default; no caller threads anything. Full detail + the "works when you test it"
 trap: `DATA_SOURCES.md:45–58`; the whole episode: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
-**…and the 12h TTL is an INTERACTIVE default: the recurring pass pins it to ZERO (G1)** `[BUILT]`. The TTL
+**…and the 12h TTL is an INTERACTIVE default: the recurring pass takes the RECURRING TTL, five minutes
+(G1)** `[BUILT]`. The TTL
 closed the forever-cache, but left a narrower version of the same hole, and this one was *silent and common*.
 The clock starts when a given company's index was **last fetched**, so **any daytime read warms that company
 for up to 12h**: the Admin "Run daily now", a sidecar boot catch-up, the on-promote ingest of new members, a
@@ -138,14 +139,28 @@ to everything filed after the daytime fetch — the day's call-of-record missed 
 an arm or risk veto they caused was dated **a night late**. "Just run the daytime pass before 10:30" is not a
 rule to live by: the stamp is **per company** and a full pass takes up to an hour, so a run *started* early
 still warms the companies it reaches late. So every **recurring** EDGAR client is now built with
-`cache_ttl_s=0` — the per-CLIENT dial, the exact parallel of `force_refresh=True` for prices, with no flag
-threaded through callers: `pipeline/daily.py`'s per-thesis client, `radar/spac.py`, `radar/shell_sweep.py`
-(whose whole job is reading a CIK's *current* SIC — a warm index made the night's enrichment a no-op).
-Immutable `forms/*` documents still cache forever, so the cost is **one index fetch per company per pass**,
-which the nightly run already paid whenever it ran outside the TTL. **`ingest_fundamentals` keeps the 12h
-TTL deliberately** (companyfacts is a large document feeding a *quarterly* series — a day's staleness cannot
-change a call), and the interactive paths (the Workbench, a standalone `python -m pipeline.ingest_thesis`)
-keep it too. Consequence for the operator: **"Run daily now" is safe at any hour**.
+`cache_ttl_s=RECURRING_CACHE_TTL_S` — the per-CLIENT dial, the exact parallel of `force_refresh=True` for
+prices, with no flag threaded through callers: `pipeline/daily.py`'s per-thesis client, `radar/spac.py`,
+`radar/shell_sweep.py` (whose whole job is reading a CIK's *current* SIC — a warm index made the night's
+enrichment a no-op). Immutable `forms/*` documents still cache forever, so the cost is **one index fetch per
+company per pass**, which the nightly run already paid whenever it ran outside the TTL.
+
+**Five minutes, not zero — and the difference was MEASURED.** `ingest_thesis` runs three filing legs per
+company back to back, and each reads the SAME `submissions/CIK<10>.json` key (that shared read is why the
+8-K and 13D/G legs cost "zero extra enumeration fetches"). `_is_stale` is `now - mtime > ttl`, so at **zero**
+a file written milliseconds ago is already stale and those three reads cost **3 live fetches instead of 1** —
+tripling the per-company index cost (≈1,500 SEC requests a night on a 500-name universe) for no freshness
+gain, against an API whose politeness this repo treats as a **correctness** requirement. Five minutes keeps
+the same-pass re-reads free and still closes the daytime gap: EDGAR accepts filings **06:00–22:00 ET**, so
+nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
+(measured: a 20-minute-old key refetches). **Accepted residual:** a second pass started *within* five minutes
+of another reads the first's cache for the companies it reached last — which is exactly why the R4 freeze
+page keeps its `--catch-up` exemption (see "Known gaps").
+
+**`ingest_fundamentals` keeps the 12h TTL deliberately** (companyfacts is a large document feeding a
+*quarterly* series — a day's staleness cannot change a call), and the interactive paths (the Workbench, a
+standalone `python -m pipeline.ingest_thesis`) keep it too. Consequence for the operator: **"Run daily now"
+is safe at any hour**.
 
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
@@ -420,16 +435,19 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   bounded to the *last expected* night, never older); the operator's tool for a hole is `pipeline.backfill`
   with a PINNED `known_at` ("Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
   which records today's knowledge.
-- **The R4 freeze page's false-positive path is CLOSED for every pass that goes through `run_daily` (G1).**
-  It fires on `edgar_fetches == 0`, which used to be *also* what a correct run entirely inside the 12h EDGAR
-  TTL looked like (all cache hits) — so the page was unreliable in the benign direction, and a reader learned
-  to shrug at it. Now the recurring client is built `cache_ttl_s=0`: a live pass **always** re-fetches each
-  company's index, so `0 fetches` on a scheduled run, a `--catch-up`, a hand-run `python -m pipeline.daily`,
-  or the Admin "Run daily now" means the cache genuinely never reached out — a **true** freeze. (The
-  `--catch-up` exemption — `assess_health(freeze_check=False)`, artifact `catch_up: true` — is KEPT as
-  belt-and-suspenders, no longer as the load-bearing rule; removing it would only risk paging a catch-up that
-  legitimately had nothing to fetch.) Option A (page on 0 only when the cache was outside its TTL) is now
-  moot on this path. The remaining unreliability is the ATTEMPTS-not-successes gap below.
+- **The R4 freeze page's false-positive path is NARROWED again by G1 — closed for the scheduled pass and
+  the Admin "Run daily now", NOT for a second pass five minutes behind another.** It fires on
+  `edgar_fetches == 0`, which used to be *also* what a correct run entirely inside the 12h EDGAR TTL looked
+  like (all cache hits) — so the page was unreliable in the benign direction, and a reader learned to shrug
+  at it. With the recurring client now on the five-minute **RECURRING TTL**, a live pass re-fetches every
+  company's index whenever the previous read is older than five minutes, so for the **nightly scheduled
+  pass** and the **Admin trigger** `0 fetches` means the cache genuinely never reached out — a **true**
+  freeze. Still exposed, by design: **a SECOND pass started within five minutes of another** (a hand-run
+  `python -m pipeline.daily` right after the nightly, the retry/catch-up sequence) legitimately reads the
+  first pass's cache for the companies it reached last, and can report ~0. That is precisely why the
+  `--catch-up` exemption — `assess_health(freeze_check=False)`, artifact `catch_up: true` — **stays**. Option
+  A (page on 0 only when the cache was outside its TTL for the names touched) remains the more correct fix
+  for that residual when built. The other unreliability is the ATTEMPTS-not-successes gap below.
 - **`edgar_fetches` counts ATTEMPTS, not successes.** `EdgarClient.get_text` does `live_fetches += 1`
   immediately *before* calling `_fetch`, so a pull that RAISES still increments the counter. A run whose every
   fetch fails therefore reports a large, reassuring number, and `frozen` (which trips only at exactly 0) can

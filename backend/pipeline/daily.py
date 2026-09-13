@@ -44,7 +44,7 @@ from db.session import connect
 from domain.enums import State
 from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import already_ran_live, write_cron_run_log
@@ -117,17 +117,23 @@ def run_daily(
         # failure (e.g. a malformed thesis) is captured, not fatal. A fact failure does NOT block the call.
         # a fresh client PER THESIS so its live_fetches count is that thesis's own (the freeze detector)
         #
-        # G1 — ``cache_ttl_s=0``: THE RECURRING PASS MUST NEVER READ A WARM MUTABLE KEY. The EDGAR cache's
-        # default 12h TTL is an INTERACTIVE dial (a Workbench re-draft within the day is free); on the
-        # nightly path it was a blind spot. Every filing leg enumerates from ONE mutable document per
-        # company (``submissions/CIK<10>.json``), the cron container shares the backend's ``/data`` cache
-        # volume, and that file's 12h clock starts when IT was fetched — so any daytime read (Admin "Run
-        # daily now", a boot catch-up, the on-promote ingest, a Workbench identity/extract pull) left the
-        # index fresh enough that the 22:30 pass served it off disk and was structurally blind to every
-        # filing accepted after that daytime fetch (Form 4 buys and sells, 8-Ks, 13Ds — ingested by the NEXT
-        # pass, so an arm or a risk veto they caused is dated a night late). "Just run it before 10:30" is
-        # not a rule to live by: the stamp is per COMPANY and a full pass takes up to an hour, so a run
+        # G1 — THE RECURRING TTL (five minutes): A RECURRING PASS MUST NEVER READ A DAYTIME-WARM MUTABLE
+        # KEY. The EDGAR cache's default 12h TTL is an INTERACTIVE dial (a Workbench re-draft within the day
+        # is free); on the nightly path it was a blind spot. Every filing leg enumerates from ONE mutable
+        # document per company (``submissions/CIK<10>.json``), the cron container shares the backend's
+        # ``/data`` cache volume, and that file's 12h clock starts when IT was fetched — so any daytime read
+        # (Admin "Run daily now", a boot catch-up, the on-promote ingest, a Workbench identity/extract pull)
+        # left the index fresh enough that the 22:30 pass served it off disk and was structurally blind to
+        # every filing accepted after that daytime fetch (Form 4 buys and sells, 8-Ks, 13Ds — ingested by the
+        # NEXT pass, so an arm or a risk veto they caused is dated a night late). "Just run it before 10:30"
+        # is not a rule to live by: the stamp is per COMPANY and a full pass takes up to an hour, so a run
         # STARTED early still leaves the companies it reaches late warm.
+        # FIVE MINUTES, NOT ZERO, for a MEASURED reason: ``ingest_thesis``'s three filing legs re-read this
+        # company's index milliseconds apart and those reads must stay free — at ttl=0 a file written
+        # milliseconds ago is already stale, which costs 3 live fetches for 3 back-to-back reads instead of
+        # 1, tripling the per-company index cost for zero freshness gain. Nothing can be filed in the five
+        # minutes before 22:30 (EDGAR accepts 06:00-22:00 ET) and no daytime warmth survives five minutes.
+        # Full rationale + the accepted residual: ``ingest.edgar.client.RECURRING_CACHE_TTL_S``.
         # This is the per-CLIENT dial on the recurring path — the exact parallel of ``force_refresh=True``
         # for prices (see this function's docstring) — NOT a per-call flag threaded through callers (R1 /
         # #196: "the boolean wearing a timedelta" is how the ~11-day insider freeze happened). Immutable
@@ -135,7 +141,9 @@ def run_daily(
         # the nightly run already paid whenever it ran outside the TTL — and the SEC rate limiter bounds it.
         # ``python -m pipeline.ingest_thesis`` run standalone keeps the 12h default (an operator-initiated,
         # interactive path); ``ingest_fundamentals`` keeps it deliberately (see its construction site).
-        edgar_client = EdgarClient(allow_live=allow_live, user_agent=user_agent, cache_ttl_s=0)
+        edgar_client = EdgarClient(
+            allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
+        )
         try:
             res.ingested = ingest_thesis(
                 conn,
@@ -270,8 +278,9 @@ def assess_health(
     pass runs inside the EDGAR cache's 12h TTL right after the scheduled run, so ~0 fetches is what a
     CORRECT catch-up looks like — the known R4 false-positive (FEED_LOOP.md "Known gaps", option B). The
     scheduled run and the Admin "Run daily now" keep the default ``True``. (Since G1 the per-thesis filing
-    legs are TTL-zero, so a SCHEDULED run's 0 fetches is a genuine freeze; the catch-up exemption is kept as
-    belt-and-suspenders, not as the load-bearing rule it was.)
+    legs carry the five-minute RECURRING TTL, so for the scheduled pass and the Admin trigger 0 fetches is a
+    genuine freeze. The exemption still EARNS its keep: a SECOND pass started within five minutes of another
+    legitimately reads the first's cache for the companies it reached last.)
 
     G4 — the BENCHMARK refresh legs are PASSENGERS in ``run_daily_pass`` (fail-open, own connection), and
     their faults used to reach stdout only: a SPY/IWM tape that did not refresh silently degrades

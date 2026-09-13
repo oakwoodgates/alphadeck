@@ -57,18 +57,27 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   — better stale than a `CacheMiss`; the TTL only forces a refetch when a live pull is permitted. The #125
   rebuild-survival win holds: a re-draft **within** 12h is still free; only a draft a day later re-enumerates,
   which is correct — the universe drifted.
-- **The 12h TTL is the INTERACTIVE default; every RECURRING caller builds its client `cache_ttl_s=0`.** The
-  TTL's clock starts when *that* company's key was last fetched, so any daytime read warmed it for up to 12h
-  and the nightly pass served the warm file — blind to everything filed after the daytime fetch (a narrower,
-  silent version of the same freeze; "run the daytime pass before 10:30" is no rule, because the stamp is per
-  COMPANY and a pass takes up to an hour). So the recurring constructors — `pipeline/daily.py`'s per-thesis
-  client, `radar/spac.py`, `radar/shell_sweep.py` — pass `cache_ttl_s=0`. This is the per-CLIENT dial (the
-  parallel of `force_refresh=True` for prices), **not** a per-call flag: no caller threads anything, and the
-  key-classed policy above is untouched, so immutable `forms/*` still cache forever and the cost is one index
-  fetch per company per pass. `ingest_fundamentals` keeps the 12h TTL **deliberately** (a large document
-  feeding a *quarterly* series — a day's staleness cannot change a call), as do the Workbench and a standalone
-  `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is inert — a stale hit is still
-  served, so the suite and `--no-live` are unaffected.
+- **The 12h TTL is the INTERACTIVE default; every RECURRING caller builds its client with the RECURRING TTL
+  (five minutes — `RECURRING_CACHE_TTL_S`).** The 12h clock starts when *that* company's key was last fetched,
+  so any daytime read warmed it for up to 12h and the nightly pass served the warm file — blind to everything
+  filed after the daytime fetch (a narrower, silent version of the same freeze; "run the daytime pass before
+  10:30" is no rule, because the stamp is per COMPANY and a pass takes up to an hour). So the recurring
+  constructors — `pipeline/daily.py`'s per-thesis client, `radar/spac.py`, `radar/shell_sweep.py` — pass
+  `cache_ttl_s=RECURRING_CACHE_TTL_S`. This is the per-CLIENT dial (the parallel of `force_refresh=True` for
+  prices), **not** a per-call flag: no caller threads anything, and the key-classed policy above is untouched,
+  so immutable `forms/*` still cache forever and the cost is one index fetch per company per pass.
+  **Five minutes, not zero — MEASURED, not stylistic.** Within ONE pass the three filing legs (`_form4_leg` /
+  `_form8k_leg` / `_schedule13_leg`) each read the SAME `submissions/CIK<10>.json` key milliseconds apart, and
+  `_is_stale` is `now - mtime > ttl` — so at zero a file written milliseconds ago is already stale and those
+  three reads cost **3 live fetches instead of 1** (≈1,500 SEC requests a night on a 500-name universe, for no
+  freshness gain — and EDGAR politeness is a correctness requirement here, not a courtesy). Five minutes keeps
+  the same-pass re-reads free *and* still closes the gap across passes: EDGAR accepts filings 06:00–22:00 ET,
+  so nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
+  (measured: a 20-minute-old key refetches). Accepted residual: a second pass started *within* five minutes of
+  another reads the first's cache for the companies it reached last. `ingest_fundamentals` keeps the 12h TTL
+  **deliberately** (a large document feeding a *quarterly* series — a day's staleness cannot change a call), as
+  do the Workbench and a standalone `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is
+  inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and

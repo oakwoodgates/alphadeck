@@ -120,8 +120,11 @@ pass. It does a **LIVE EDGAR pull** (~2 min warm, up to ~65 min on a cold cache)
 finished — the pass is idempotent (`record_if_changed` appends nothing on unchanged facts). **Safe at any hour
 (G1):** it used to be a morning-only button, because it warmed every company's filing index for up to 12h and
 the night's scheduled pass then served that warm index — blind to the afternoon's filings. The recurring
-client is now TTL-zero, so this button *refreshes* the cache rather than warming it, and the night re-fetches
-regardless (`FEED_LOOP.md` §Fresh data). The job opens its
+client now carries the **recurring TTL (five minutes)**, so this button *refreshes* the cache rather than
+warming it and the night re-fetches regardless — anything read more than five minutes ago is re-pulled, and
+nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` §Fresh data). The one thing
+that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
+re-click can legitimately report ~0 EDGAR fetches. The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
 an infinite spinner — the run history + record edge are the durable authority. A manual pass that starts
 **before** that night's `RUN_AT` (a pre-open click, on the prior session's bars) does **not** satisfy the

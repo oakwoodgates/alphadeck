@@ -17,7 +17,7 @@ from pathlib import Path
 
 from db.session import DEFAULT_TENANT_ID
 from ingest import CacheMiss
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from pipeline import spac_sweep
 from pipeline.provision_tenant import provision_tenant
 from radar import repo
@@ -336,7 +336,7 @@ def test_cap_defers_a_visible_remainder_and_the_next_run_continues(db, tmp_path)
     assert repo.known_shell_ciks(db) == {"0000001111", "0000002222", "0000003333"}
 
 
-# --- 9. G1: the nightly sweep leg builds a TTL-ZERO EDGAR client --------------------------------------
+# --- 9. G1: the nightly sweep leg builds its EDGAR client with the RECURRING TTL ----------------------
 
 
 class _RecordingEdgar:
@@ -352,7 +352,7 @@ class _RecordingEdgar:
         raise CacheMiss(cache_key)
 
 
-def test_sweep_builds_its_edgar_client_with_cache_ttl_ZERO(db, monkeypatch):
+def test_sweep_builds_its_edgar_client_with_the_RECURRING_TTL(db, monkeypatch):
     """G1 — no exceptions on the nightly path, and here the dial is the POINT of the leg: its whole job is
     to read a CIK's CURRENT submissions identity (where the SEC sicDescription lives), so a warm index made
     the night's enrichment a silent no-op and a de-SPAC'd shell's SIC flip stayed invisible another day.
@@ -363,5 +363,5 @@ def test_sweep_builds_its_edgar_client_with_cache_ttl_ZERO(db, monkeypatch):
     run_shell_sweep(db, allow_live=True)
 
     assert len(_RecordingEdgar.seen) == 1
-    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == 0
+    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == RECURRING_CACHE_TTL_S
     assert _RecordingEdgar.seen[0]["allow_live"] is True  # the other kwargs are unchanged

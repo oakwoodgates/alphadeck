@@ -18,6 +18,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
+from ingest.edgar.client import RECURRING_CACHE_TTL_S
 from ingest.edgar.form4 import ingest_form4
 from notify import ArmedName
 from pipeline import cron_run_log, daily
@@ -817,7 +818,7 @@ def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypa
     assert seen["fundamentals"].get("allow_live") is True
 
 
-# --- G1: the recurring pass builds a TTL-ZERO EDGAR client (the daytime-warmth gap) ------------------
+# --- G1: the recurring pass builds its EDGAR client with the RECURRING TTL (daytime warmth) ----------
 
 
 class _RecordingEdgar:
@@ -832,11 +833,14 @@ class _RecordingEdgar:
         _RecordingEdgar.seen.append(kw)
 
 
-def test_run_daily_builds_its_edgar_client_with_cache_ttl_ZERO(db, monkeypatch):
-    """G1 — THE WIRING: the per-thesis client on the RECURRING path must be built with cache_ttl_s=0, so a
-    daytime read of a company's submissions index can never leave the night's pass serving it from cache
-    (blind to everything filed after the daytime fetch). The client is constructed INSIDE the per-thesis
-    loop, so this needs a real thesis; the ingest itself is stubbed (no network)."""
+def test_run_daily_builds_its_edgar_client_with_the_RECURRING_TTL(db, monkeypatch):
+    """G1 — THE WIRING: the per-thesis client on the RECURRING path must be built with the RECURRING TTL,
+    so a daytime read of a company's submissions index can never leave the night's pass serving it from
+    cache (blind to everything filed after the daytime fetch). Asserted against the CONSTANT, never a
+    literal: the value is five MINUTES rather than zero because the three filing legs re-read one company's
+    index milliseconds apart, and that trade-off is measured in ``tests/ingest/test_edgar_client.py`` and
+    documented at the constant. The client is constructed INSIDE the per-thesis loop, so this needs a real
+    thesis; the ingest itself is stubbed (no network)."""
     _no_network(monkeypatch)
     _thesis(db, "T")
     _RecordingEdgar.seen = []
@@ -847,7 +851,7 @@ def test_run_daily_builds_its_edgar_client_with_cache_ttl_ZERO(db, monkeypatch):
     assert (
         len(_RecordingEdgar.seen) == 1
     )  # one client per thesis (the freeze counter is per-thesis)
-    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == 0
+    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == RECURRING_CACHE_TTL_S
     assert _RecordingEdgar.seen[0]["allow_live"] is True  # the other kwargs are unchanged
 
 
