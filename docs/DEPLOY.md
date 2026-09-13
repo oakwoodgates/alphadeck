@@ -148,6 +148,19 @@ backend, a bind mount) built from code that exists nowhere in git.
   `pipeline.daily` path must ALSO `docker compose up -d --build --no-deps cron`, verified
   with `docker ps` (fresh CreatedAt) + `docker logs alphadeck-cron-1` (its next scheduled
   run) — else the 22:30 run silently stays on old code.
+- **The sidecar's SHELL ships in that image too.** `backend/Dockerfile` does `COPY . .`, so
+  `backend/scripts/daily_cron.sh` is baked in and the container runs `/app/scripts/daily_cron.sh`.
+  A change to the loop itself (the schedule math, the failed-run retry) therefore needs the same
+  `--no-deps --build cron` — there is no bind-mount to pick it up.
+- **A cron ENV change needs the container RECREATED, not just rebuilt.** Compose applies a changed
+  `environment:` block on recreate, which `up -d --build --no-deps cron` does — but a bare `docker
+  restart alphadeck-cron-1` does not. After changing any of the cron service's vars, confirm with
+  `docker exec alphadeck-cron-1 printenv RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S`.
+  The cron service's vars today: `RUN_AT` (the shell's schedule time),
+  **`ALPHADECK_CRON_AT`** (the SAME wall time under the name `Settings.cron_run_at` reads, so the
+  `--catch-up` guard's cutoff inside that container matches the time the shell fires on — both from the
+  one host var `ALPHADECK_CRON_AT`), and **`RETRY_DELAY_S`** (`ALPHADECK_CRON_RETRY_DELAY_S`, default
+  1200 s — the wait before the one retry of a failed scheduled run).
 - Prefer the targeted `--no-deps <service>` over a bare `docker compose up --build`
   (which rebuilds + restarts the whole stack — still safe, just slower).
 - The prod stack is `restart: unless-stopped` — it self-recovers after a daemon/laptop

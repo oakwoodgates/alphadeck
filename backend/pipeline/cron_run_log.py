@@ -200,6 +200,36 @@ def write_cron_run_log(
         return None
 
 
+def _recorded_for_some_thesis(doc: dict) -> bool:
+    """Did this artifact's pass get as far as the CALL step for at least one thesis (G2b)?
+
+    ``True`` when some per-thesis entry's ``recorded`` is a **bool** — ``True`` (a new call-of-record was
+    appended) or ``False`` (unchanged, so no row, which is the common healthy-quiet outcome and absolutely
+    counts). ``None`` there means the call step FAILED for that thesis, and a ``withheld_reason`` means it
+    never ran at all (a cache-only pass, or a total ingest failure), so an artifact where EVERY thesis reads
+    ``None`` is a pass that recorded nothing.
+
+    Why the guard needs this: ``already_ran_live`` used to credit any live post-``RUN_AT`` artifact
+    *regardless of health*, so a pass that completed with every thesis withheld or errored — the DB down
+    after connect, the User-Agent empty so every name errored — left behind an artifact that blocked both the
+    retry and a later boot catch-up. The night then had no honest post-close row and nothing would ever try
+    again.
+
+    Fail-open toward RUNNING, like every other branch in the guard: a missing, non-list or malformed
+    ``theses`` entry reads as "no evidence", so a damaged or pre-schema artifact lets the catch-up run. A
+    repeated run is safe (``record_if_changed`` appends nothing on unchanged facts); a skipped one is the
+    silent gap. Note the corollary for a fresh install: an artifact with ZERO theses credits nothing, which
+    is correct — a pass over no theses recorded nothing — and the re-run is instant.
+
+    ``isinstance(..., bool)`` on purpose, not ``in (True, False)``: in Python ``1 in (True, False)`` is True,
+    so an integer that wandered into the field would be mistaken for an outcome.
+    """
+    theses = doc.get("theses")
+    if not isinstance(theses, list):
+        return False
+    return any(isinstance(t, dict) and isinstance(t.get("recorded"), bool) for t in theses)
+
+
 def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | None = None) -> bool:
     """Did a LIVE cron pass for ``asof`` already run **for the night** — one that STARTED at or after
     ``asof``'s ``run_at`` in market time? The catch-up guard (R6): a sidecar that boots after the scheduled
@@ -209,6 +239,12 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
     ``mode == "live"`` is load-bearing: a ``--no-live`` dev run writes a run log too, but it must NOT count as
     "the night ran" — otherwise a hand-run ``--no-live`` (like the R4 page test) would suppress the real
     nightly catch-up, and the real run would silently never happen.
+
+    **And the pass must have RECORDED for some thesis (G2b).** The guard used to credit a live post-``run_at``
+    artifact regardless of health, so a pass that COMPLETED with every thesis withheld or errored blocked both
+    the sidecar's retry and any later boot catch-up — the night kept no honest post-close row and nothing ever
+    tried again. ``_recorded_for_some_thesis`` (above) is that test; it is deliberately generous (``recorded``
+    False — unchanged, no row — counts, because that is the common healthy-quiet night).
 
     **Started at/after ``run_at`` is load-bearing too (2026-09-10).** A live pass that started BEFORE that
     night's ``run_at`` — a pre-open Admin "Run daily now" at 09:15 — ran on the PRIOR session's bars: it lacks
@@ -253,7 +289,7 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
             continue  # no honest start instant -> not evidence the night ran
         if started.tzinfo is None or started.utcoffset() is None:
             continue  # a naive stamp cannot be compared against a market-time cutoff
-        if started >= cutoff:
+        if started >= cutoff and _recorded_for_some_thesis(doc):
             return True
     return False
 

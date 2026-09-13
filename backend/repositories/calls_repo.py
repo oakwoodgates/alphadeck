@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -149,14 +149,33 @@ def record_first(conn: psycopg.Connection) -> date | None:
         return cur.fetchone()["first"]
 
 
-def recorded_asofs(conn: psycopg.Connection, *, since: date) -> set[date]:
-    """Every DISTINCT as-of with at least one call-of-record on or after ``since`` (all tenants, every
-    thesis — one recorded thesis makes the night recorded; the cron walks them all). The hole-aware
-    freshness read's membership set: ``schedule.missed_asofs`` subtracts it from the scheduled window.
+def recorded_asof_stamps(conn: psycopg.Connection, *, since: date) -> dict[date, datetime]:
+    """``asof -> MAX(recorded_at)`` for every as-of with at least one call-of-record on or after ``since``
+    (all tenants, every thesis — the cron walks them all). The hole-aware freshness read's input.
+
+    Replaces the older ``recorded_asofs`` (a bare set of dates), because mere EXISTENCE of a row turned out
+    to be too weak a test for "that night ran" (G2c): a pre-open Admin "Run daily now" at 09:15 writes a row
+    for today's as-of from the PRIOR session's bars, and the hole check counted it, so a night whose 22:30
+    pass then failed read as covered. The caller compares each stamp against that night's ``RUN_AT`` in
+    market time and treats only a row recorded at/after it as covering the night.
+
+    **MAX is the right aggregate**: ``MAX(recorded_at) >= cutoff`` is exactly "SOME row for this as-of was
+    recorded at or after the cutoff", which is the question — a daytime row plus a proper night row makes the
+    night covered, and the daytime row alone does not.
+
+    Value-free by design (the repository discipline): it returns stamps and judges nothing. The cutoff needs
+    ``RUN_AT`` and the market timezone — deploy config — which live in the router, so the comparison lives
+    there too and this read stays testable without either. A ``reconstructed`` row (``pipeline.backfill``) is
+    counted like any other, and its ``recorded_at`` is the reconstruction instant, so a backfilled night
+    reads as covered — unchanged from before, and deliberate: freshness asks whether the log advanced.
     Read-only, bounded by ``since`` (the window's first scheduled day)."""
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT asof FROM calls WHERE asof >= %s", (since,))
-        return {r["asof"] for r in cur.fetchall()}
+        cur.execute(
+            "SELECT asof, max(recorded_at) AS recorded_at FROM calls "
+            "WHERE asof >= %s GROUP BY asof",
+            (since,),
+        )
+        return {r["asof"]: r["recorded_at"] for r in cur.fetchall()}
 
 
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:
@@ -203,7 +222,7 @@ def latest_for_thesis(
 def reconstructed_asofs(conn: psycopg.Connection, *, upto: date) -> list[date]:
     """Every as-of on or before ``upto`` for which EVERY row is reconstructed (``pipeline.backfill``,
     0042) — no honest (nightly / manual) row shares the night — ledger-wide (all tenants, every thesis:
-    the same scope as ``record_edge`` / ``recorded_asofs``), ascending. The Scoreboard banner's list:
+    the same scope as ``record_edge`` / ``recorded_asof_stamps``), ascending. The Scoreboard banner's list:
     the nights the record path has NOTHING honest for. A night that carries both a reconstruction and
     an honest row is NOT listed — the record path scored it from the honest row(s) (MEASURED on prod,
     2026-09-09: 8 reconstructed + 17 honest rows, 13 episodes arming honestly, yet the first cut named

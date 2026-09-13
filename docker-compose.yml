@@ -127,6 +127,17 @@ services:
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}
       TZ: ${ALPHADECK_CRON_TZ:-America/New_York} # explicit TZ — schedule at US market close, never UTC
       RUN_AT: ${ALPHADECK_CRON_AT:-22:30} # HH:MM in TZ — after the US close + EOD settle
+      # The SAME wall time under the name Settings.cron_run_at reads (ALPHADECK_CRON_AT). The shell fires on
+      # RUN_AT above, but `pipeline.daily --catch-up`'s guard resolves the night's cutoff through Settings
+      # INSIDE THIS CONTAINER — and without this line that read fell back to the code default 22:30 while the
+      # shell used the operator's RUN_AT. Latent while both are 22:30; G2 makes that cutoff load-bearing (it
+      # now gates the failed-run retry), so the two must come from ONE host var. The backend service already
+      # mirrors it for the admin schedule read; this is the cron half.
+      ALPHADECK_CRON_AT: ${ALPHADECK_CRON_AT:-22:30}
+      # G2a — the wait before the ONE retry of a scheduled run that exited non-zero (seconds). The fallback
+      # is a NUMBER, not empty: the shell's guard would fall back anyway, but an empty value here would read
+      # as "set" and is the same trap as the backend's int/bool env fallbacks.
+      RETRY_DELAY_S: ${ALPHADECK_CRON_RETRY_DELAY_S:-1200}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push. Unset ->
       # LogNotifier (transitions logged, not delivered); set SLACK_WEBHOOK_URL in `.env` to push to Slack.

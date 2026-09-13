@@ -123,6 +123,19 @@ const STATUS_GAPPY = {
   },
 };
 
+// G2c — the DAYTIME-ONLY shape: Tuesday's only call-of-record was written by a pre-open pass (on Monday's
+// bars), and that night's post-close pass failed or never fired. The row EXISTS, so the edge reads current
+// and the old membership test called the night covered. It is a hole, and a distinct one.
+const STATUS_DAYTIME_ONLY = {
+  ...STATUS_GAPPY,
+  record: {
+    ...STATUS_GAPPY.record,
+    reason:
+      "current at the edge — but 1 of the last 10 scheduled run(s) have no post-22:30 call-of-record (1 with a daytime row only)",
+    daytime_only_asofs: ["2026-09-08"],
+  },
+};
+
 const STATUS_NEVER = {
   record: {
     edge: null,
@@ -235,12 +248,26 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(fresh.className).not.toMatch(/stale/); // the edge itself is current — the hole is the alarm
     const missed = screen.getByTestId("adm-missed");
     expect(missed.textContent).toContain("1");
-    expect(missed.textContent).toContain("no call-of-record");
+    // since G2c the line names the CUTOFF a night must clear, not just "a record exists"
+    expect(missed.textContent).toContain("no post-close call-of-record");
     expect(missed.textContent).toContain("2026-09-08");
+    // ...and this night has NO row at all, so it must NOT carry the daytime-only mark
+    expect(missed.textContent).not.toContain("daytime row only");
     const cron = screen.getByTestId("adm-cron");
     expect(cron.textContent).toContain("gappy");
     expect(cron.textContent).toContain("2026-09-08");
     expect(cron.querySelector(".adm-chip")?.className).toMatch(/s-gappy/);
+  });
+
+  it("marks a night whose ONLY row is a DAYTIME one, distinctly from a night that ran nothing", () => {
+    // G2c: the two shapes call for different responses — "nothing fired" versus "a pass ran on the prior
+    // session's bars and then the post-close pass failed or never fired". The mark is the only way to tell
+    // them apart on the page; the test above pins that an ordinary hole does not carry it.
+    h.status = { ...h.status, data: STATUS_DAYTIME_ONLY };
+    renderAdmin();
+    const missed = screen.getByTestId("adm-missed");
+    expect(missed.textContent).toContain("2026-09-08 (daytime row only)");
+    expect(screen.getByTestId("adm-fresh").className).toMatch(/gappy/); // still loud
   });
 
   it("a STALE record is loud (stale styling + days behind)", () => {

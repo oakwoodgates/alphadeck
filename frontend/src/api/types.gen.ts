@@ -997,9 +997,11 @@ export interface paths {
          *     artifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the
          *     shared benchmark tape — as loud as stale, so a bad run can't hide behind green), ``stale`` (the
          *     record missed an expected run), ``gappy`` (the edge is current but a night inside the last
-         *     ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has NO call-of-record — a run that fired on the
-         *     wrong day; the edge check alone cannot see it), else ``healthy``. ``record.missed_asofs`` lists
-         *     the holes (empty on a clean window). ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
+         *     ``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's
+         *     ``RUN_AT`` — a run that fired on the wrong day, or failed after a daytime pass; the edge check alone
+         *     cannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean
+         *     window) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.
+         *     ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
          *     name whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency —
          *     ``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes
          *     ``cron.status``.
@@ -1317,9 +1319,18 @@ export interface components {
          *
          *     ``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly
          *     that meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last
-         *     ``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with NO
+         *     ``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no
          *     call-of-record — a run that fired on the wrong day advances the edge right over the night it skipped,
          *     invisible to the edge check. ``[]`` / ``0`` on a clean window.
+         *
+         *     **COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record
+         *     for that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence
+         *     was too weak: a pre-open "Run daily now" writes a row for today's as-of off the PRIOR session's bars,
+         *     so a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the
+         *     as-ofs whose ONLY row is such a daytime one — every one of them also appears in ``missed_asofs``, and
+         *     the detail marks them, because "nothing ran" and "something ran, but not after the close" call for
+         *     different responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the
+         *     night; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.
          */
         AdminRecordOut: {
             /** Edge */
@@ -1344,6 +1355,11 @@ export interface components {
             missed: number;
             /** Missed Asofs */
             missed_asofs: string[];
+            /**
+             * Daytime Only Asofs
+             * @default []
+             */
+            daytime_only_asofs: string[];
             /** Window Days */
             window_days: number;
         };

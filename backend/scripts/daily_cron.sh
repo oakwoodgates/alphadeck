@@ -27,6 +27,15 @@
 #   host suspended across RUN_AT fires within one slice of resuming (the LATE WAKE line then measures the
 #   suspend itself, and the catch-up below covers any nights it spanned). Quiet — no per-slice log line
 #   (~1,440 wakeups a day would drown the log).
+# - RETRIES A FAILED SCHEDULED RUN ONCE (G2a). A non-zero exit used to end the night: the loop logged it and
+#   waited for tomorrow, so a transient fault (a DB restart mid-run, a vendor 5xx, a network blip) cost that
+#   night's call-of-record outright — and a daytime row on the same day could keep the Admin page reading
+#   "healthy" over the hole. Now the loop waits RETRY_DELAY_S (default 1200 s, sliced through `wait_until`
+#   like the schedule wait) and fires ONE `python -m pipeline.daily --catch-up --asof "$target"`. `--catch-up`
+#   is the guard, which is what makes retrying on a bare exit code safe: it no-ops when a live post-RUN_AT
+#   pass for that as-of already RECORDED for some thesis, so a partial failure costs one CLI start rather
+#   than a re-ingest, while a crash-before-artifact reruns the night in full. The retry sits BEFORE the
+#   in-loop catch-up window closes and before the nightly backup, so both still run after it.
 # - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every weekday strictly after
 #   the target up to the last EXPECTED as-of at the instant the scheduled run FINISHES gets a `--catch-up`
 #   pass. The window closes AFTER the run, not at the wake: a live run takes 7-15 min, so a wake shortly
@@ -61,6 +70,12 @@ RUN_AT="${RUN_AT:-22:30}"
 # non-numeric or non-positive value would spin `sleep 0` in a hot loop, so it falls back to the default.
 SLICE_S="${SLICE_S:-60}"
 [ "${SLICE_S}" -ge 1 ] 2>/dev/null || SLICE_S=60
+# G2a — how long to wait before the ONE retry of a scheduled run that exited non-zero (see the retry block
+# in the loop). 20 minutes by default: long enough for a transient fault to pass (a DB restart, a vendor
+# 5xx, a network blip), short enough to land the night's record well before the next RUN_AT. Same
+# non-numeric / non-positive guard as SLICE_S.
+RETRY_DELAY_S="${RETRY_DELAY_S:-1200}"
+[ "${RETRY_DELAY_S}" -ge 1 ] 2>/dev/null || RETRY_DELAY_S=1200
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -174,7 +189,33 @@ while :; do
   if is_weekday "${target}"; then
     echo "daily-cron: $(date) — running pipeline.daily --asof ${target}"
     # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day
-    python -m pipeline.daily --asof "${target}" || echo "daily-cron: run FAILED (continuing to the next day)"
+    if python -m pipeline.daily --asof "${target}"; then
+      :
+    else
+      # G2a — RETRY ONCE. A scheduled run that fails used to be the end of the night: the loop caught the
+      # non-zero exit, logged it, and waited for tomorrow, so a transient fault (a DB restart mid-run, a
+      # vendor 5xx, a network blip) cost that night's call-of-record outright — and with a daytime row on
+      # the same day the Admin page could still read healthy over it (see the hole check in
+      # app/routers/admin.py). One retry, `RETRY_DELAY_S` later.
+      #
+      # --catch-up IS THE GUARD, and that is why the retry is safe to fire on any non-zero exit: the CLI
+      # no-ops when a LIVE pass for this as-of that STARTED at/after tonight's RUN_AT already RECORDED for
+      # some thesis (cron_run_log.already_ran_live). So the two failure shapes resolve correctly without
+      # the shell knowing which it hit:
+      #   - the pass CRASHED before writing its artifact (DB unreachable at connect, killed mid-run)
+      #     -> no artifact -> the guard finds nothing -> the retry runs the night in full;
+      #   - the pass COMPLETED but exited 1 because SOME thesis errored -> its artifact shows the call step
+      #     ran -> the guard no-ops -> the retry costs one CLI start, not a re-ingest;
+      #   - the pass completed with EVERY thesis withheld/errored -> nothing recorded -> the guard lets the
+      #     retry run (that is 2b; before it, this artifact would have blocked even a boot catch-up).
+      # wait_until, not sleep: the same monotonic-clock reason as the schedule wait (a suspended host does
+      # not advance `sleep`'s clock, so a raw sleep could overshoot by the whole suspend).
+      echo "daily-cron: run FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
+      wait_until "$(( $(date +%s) + RETRY_DELAY_S ))"
+      echo "daily-cron: $(date) — retrying ${target} (--catch-up)"
+      python -m pipeline.daily --catch-up --asof "${target}" \
+        || echo "daily-cron: retry ${target} FAILED (continuing to the next day)"
+    fi
   else
     echo "daily-cron: $(date) — weekend (asof ${target}), no scheduled run"
   fi

@@ -264,9 +264,10 @@ def test_status_GAPPY_when_a_weekday_inside_the_window_has_no_record(client, db,
     assert body["record"]["missed"] == 1
     assert body["record"]["missed_asofs"] == ["2026-09-08"]
     assert body["record"]["window_days"] == 10
-    assert (
-        "no call-of-record" in body["record"]["reason"]
-    )  # the reason no longer says "no run is missing"
+    # the reason no longer says "no run is missing"; since G2c it names the CUTOFF a night must clear
+    assert "no post-22:30 call-of-record" in body["record"]["reason"]
+    # ...and this night has NO row at all, so it is not the daytime-only shape
+    assert body["record"]["daytime_only_asofs"] == []
     assert body["last_run"]["healthy"] is True
     assert body["cron"]["status"] == "gappy"
     assert "2026-09-08" in body["cron"]["detail"] and "hole" in body["cron"]["detail"]
@@ -584,3 +585,176 @@ def test_status_a_NEWLY_STALE_tape_is_listed_but_does_NOT_make_the_cron_unhealth
     assert body["cron"]["status"] == "healthy"  # …and the verdict stays about the cron
     assert "STALE" not in body["cron"]["detail"]
     assert body["tape"]["newly_stale"] == ["AAA"]  # it lives on the panel instead
+
+
+# --- G2c: a night is COVERED only by a post-RUN_AT row -------------------------------------------------
+
+
+def _insert_call_at(db, thesis_id, *, asof: date, recorded_at: datetime):
+    """Land a call-of-record for ``asof`` with an EXPLICIT ``recorded_at``. The ``calls`` log is immutable (a
+    real ``no_update`` trigger), so the stamp cannot be backdated afterwards — it has to be supplied at
+    insert time. Everything else is a real row: the card is copied from one the REAL daily pass wrote.
+    """
+    with db.cursor() as cur:
+        cur.execute(
+            """INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card, recorded_at)
+               SELECT tenant_id, thesis_id, %s, state, verdict, card, %s
+               FROM calls WHERE thesis_id = %s ORDER BY seq LIMIT 1""",
+            (asof, recorded_at, thesis_id),
+        )
+        assert cur.rowcount == 1, "seed one real row through the daily pass first"
+    db.commit()
+
+
+def test_status_a_night_whose_ONLY_row_is_a_DAYTIME_one_is_listed_as_missed(
+    client, db, monkeypatch
+):
+    """THE G2c CASE, the measured prod shape: a pre-open "Run daily now" writes a row for that as-of off the
+    PRIOR session's bars, then the 22:30 pass fails or never fires. The edge is current, the row EXISTS — so
+    the old membership test read the night as covered and the hole was invisible. Now the night is listed,
+    marked distinctly from "nothing ran at all", and the verdict is `gappy`."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "T")
+    daily.run_daily(
+        db, asof=_S_MON, allow_live=True
+    )  # Monday: a real post-close row (recorded now)
+    daily.run_daily(db, asof=_S_WED, allow_live=True)  # Wednesday too
+    # Tuesday: ONLY a 09:15 ET row (13:15Z) — before that night's 22:30 cutoff
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 8, 13, 15, tzinfo=timezone.utc)
+    )
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))  # Wednesday night, past RUN_AT
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["edge"] == "2026-09-09"  # the edge LOOKS current…
+    assert body["record"]["stale"] is False
+    assert body["record"]["missed_asofs"] == ["2026-09-08"]  # …and Tuesday is a hole anyway
+    assert body["record"]["daytime_only_asofs"] == ["2026-09-08"]  # named as the daytime-only shape
+    assert body["cron"]["status"] == "gappy"
+    assert "2026-09-08 (daytime row only)" in body["cron"]["detail"]
+    assert "daytime row only" in body["record"]["reason"]
+
+
+def test_status_a_POST_RUN_AT_row_covers_the_night(client, db, monkeypatch):
+    """No false gappy: an ordinary night recorded after its RUN_AT is covered, the window is clean, and
+    nothing mentions holes or daytime rows (honest loudness — a control that doesn't discriminate stays
+    quiet). The seeded rows here are recorded at the test's own `now`, which is after every 2026-09 cutoff.
+    """
+    _seed_nights(db, monkeypatch, _S_MON, _S_TUE, _S_WED)
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed"] == 0 and body["record"]["missed_asofs"] == []
+    assert body["record"]["daytime_only_asofs"] == []
+    assert body["record"]["reason"] == "current — no scheduled run is missing"
+    assert body["cron"]["status"] == "healthy"
+    assert "daytime" not in body["cron"]["detail"]
+
+
+def test_status_a_NEXT_MORNING_catch_up_row_covers_the_night(client, db, monkeypatch):
+    """The catch-up must still count. A boot / late-wake `--catch-up` for last night runs the NEXT morning,
+    so its row is recorded well after that night's RUN_AT — later than the cutoff, which is exactly the
+    point of comparing against the cutoff rather than against the as-of's own calendar day."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "T")
+    daily.run_daily(db, asof=_S_MON, allow_live=True)
+    daily.run_daily(db, asof=_S_WED, allow_live=True)
+    # Tuesday's night was missed and caught up at 09:09 ET on WEDNESDAY (13:09Z) — after Tue 22:30 ET
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 9, 13, 9, tzinfo=timezone.utc)
+    )
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed_asofs"] == []  # the catch-up covered it
+    assert body["record"]["daytime_only_asofs"] == []
+    assert body["cron"]["status"] == "healthy"
+
+
+def test_status_a_night_with_NO_row_at_all_is_listed_WITHOUT_the_daytime_mark(
+    client, db, monkeypatch
+):
+    """The two shapes stay distinguishable: a night that produced nothing is a plain hole, and must NOT be
+    labeled "daytime row only" — that label is a real diagnosis (a pass ran on the prior session's bars),
+    not decoration on every missing night."""
+    _seed_nights(db, monkeypatch, _S_MON, _S_WED)  # Tuesday has NO row of any kind
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed_asofs"] == ["2026-09-08"]
+    assert body["record"]["daytime_only_asofs"] == []  # nothing ran — not the daytime shape
+    assert "2026-09-08" in body["cron"]["detail"]
+    assert "daytime row only" not in body["cron"]["detail"]
+
+
+def test_status_a_daytime_row_PLUS_a_post_close_row_covers_the_night(client, db, monkeypatch):
+    """Why the repo read takes MAX(recorded_at): an operator who clicks "Run daily now" in the morning AND
+    whose nightly pass then works has a perfectly covered night. Reading the earliest stamp (or any single
+    row) would have called that night daytime-only."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "T")
+    daily.run_daily(db, asof=_S_MON, allow_live=True)
+    daily.run_daily(db, asof=_S_WED, allow_live=True)
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 8, 13, 15, tzinfo=timezone.utc)
+    )
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 9, 2, 35, tzinfo=timezone.utc)
+    )
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed_asofs"] == []
+    assert body["record"]["daytime_only_asofs"] == []
+    assert body["cron"]["status"] == "healthy"
+
+
+def test_status_daytime_only_lists_SCHEDULED_nights_only_never_a_weekend(client, db, monkeypatch):
+    """``daytime_only_asofs`` is a SUBSET OF ``missed_asofs`` — the holes whose only row is a pre-``RUN_AT``
+    one — not "every as-of carrying a pre-cutoff row".
+
+    MEASURED on dev and it bit: an operator's weekend manual pass leaves rows for a SATURDAY as-of recorded
+    before 22:30, and computing the field as `set(stamps) - covered` listed that Saturday. No pass is ever
+    SCHEDULED on a weekend (``missed_asofs`` walks scheduled weekdays only), so such a day is not a hole and
+    "daytime only" means nothing for it — the field contradicted its own docstring. The verdict, the reason
+    and the FE were never wrong (they all intersect with ``missed``); the wire field was.
+
+    Here: Saturday 09-05 and a real scheduled night, Tuesday 09-08, BOTH carry only a pre-cutoff row. Only
+    Tuesday may appear."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "T")
+    saturday = date(2026, 9, 5)
+    assert (saturday.weekday(), _S_TUE.weekday()) == (5, 1)  # pin the fixture's own calendar claim
+    daily.run_daily(db, asof=_S_MON, allow_live=True)  # a real post-close row (recorded now)
+    daily.run_daily(db, asof=_S_WED, allow_live=True)
+    # the weekend manual pass: a Saturday as-of, recorded 09:22 ET (13:22Z) — before that day's 22:30
+    _insert_call_at(
+        db, tid, asof=saturday, recorded_at=datetime(2026, 9, 5, 13, 22, tzinfo=timezone.utc)
+    )
+    # and a SCHEDULED night with the same shape — this one IS a hole
+    _insert_call_at(
+        db, tid, asof=_S_TUE, recorded_at=datetime(2026, 9, 8, 13, 15, tzinfo=timezone.utc)
+    )
+    _artifact(asof=_S_WED, at=datetime(2026, 9, 9, 22, 30, tzinfo=timezone.utc))
+    _pin(monkeypatch, datetime(2026, 9, 9, 23, 0))  # Wednesday night, past RUN_AT
+
+    body = client.get("/admin/status").json()
+
+    assert body["record"]["missed_asofs"] == ["2026-09-08"]  # the weekend was never scheduled
+    assert body["record"]["daytime_only_asofs"] == ["2026-09-08"]  # ...so it cannot be daytime-only
+    # the contract the docstring states: a subset of the holes, nothing more
+    assert set(body["record"]["daytime_only_asofs"]) <= set(body["record"]["missed_asofs"])
+    assert "2026-09-05" not in body["cron"]["detail"]
+    assert (
+        "1 with a daytime row only" in body["record"]["reason"]
+    )  # counts the hole, not the Saturday
