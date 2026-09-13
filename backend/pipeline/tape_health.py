@@ -1,4 +1,9 @@
-"""The price-tape RECENCY rule (G5a) — "has this name's tape silently ended?"
+"""The per-name feed RECENCY rule (G5a price tapes · F1 fund shares) — "has this feed silently ended?"
+
+TWO FEEDS, ONE RULE. The judgment (``is_tape_stale``) and the dedup (``_stale``) are shared; what differs
+per feed is its THRESHOLD (its own ``Settings`` field, because the cadences differ) and its PROSE (its
+noun and its repair advice, which live once in ``domain/feed_kinds``). Adding a third feed is a kind, a
+threshold and a field adapter — never a second definition of "stale".
 
 THE GAP THIS CLOSES. The price leg appends bars after the latest stored one and hole-fills inside the
 vendor's window (``ingest/prices/ingest_security.py``). A name whose vendor series simply STOPS — the SEC
@@ -17,8 +22,9 @@ WHAT THIS MODULE IS, AND IS NOT:
   run-of-record artifact — deliberately **never on the CallCard**: a day-varying field in the card would
   flap ``record_if_changed``'s substance compare and break the cron's idempotency.
 - **PURE.** No I/O, no DB, no clock: ``asof`` and ``stale_days`` are parameters (the signal-purity
-  discipline applied to a monitor — time is never ambient). The FACT it judges (a name's latest stored bar
-  date) is read in ``pipeline/ingest_thesis.py`` and carried on ``NameResult.tape_edge``; the JUDGMENT is
+  discipline applied to a monitor — time is never ambient). The FACTS it judges (a name's latest stored bar
+  date, and an ETF sleeve's latest stored shares sample) are read in ``pipeline/ingest_thesis.py`` and
+  carried on ``NameResult.tape_edge`` / ``NameResult.fund_shares_edge``; the JUDGMENT is
   made in ``pipeline/daily.py``, which is the layer that has the run's ``asof``.
 - **CALENDAR days, on purpose.** ``domain/market_time.py`` deliberately has no trading calendar (no weekend
   skip, no holidays — see its docstring), so a trading-day count is not available here and teaching it one
@@ -33,11 +39,24 @@ WHAT THIS MODULE IS, AND IS NOT:
   night and clears on the next session. Raise ``ALPHADECK_TAPE_STALE_DAYS`` if that night ever matters more
   than catching a dead tape a day sooner.
 
-The REPAIR is the operator's and is not code: ``security_master.price_symbol`` (the OTC symbol override,
-#252) points the price leg at the vendor's current symbol, and the next nightly pass re-pulls the full
-year, appends the missing tail and hole-fills the overlap. Extending the symbol resolver to renames
-automatically is a separate, unbuilt decision: a wrong auto-resolve would file ANOTHER company's tape under
-this member, which is worse than a visible gap (#4/#6). See ``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
+THE FUND-SHARES FEED (F1) — the same silent-end class, one layer over. An ETF sleeve's shares-outstanding
+sample feeds the flow read (``signals/display/etf_flow.py`` — DISPLAY context, never a call input), and its
+source is a fallback chain (Polygon when keyed → the issuer page → the aggregator) whose legs miss
+independently. Two ways it stops without an error: every leg misses (a closed/renamed fund, a redesigned
+page), or — the subtler one — a page's own STATED as-of date freezes while it keeps serving the same count,
+which the incremental compare correctly skips as an unchanged sample. Either way the leg reports success and
+the series stands still. It gets its OWN threshold (``Settings.fund_shares_stale_days``) because the
+cadences differ: MEASURED on dev, the primary source states the pull date exactly (lag 0) while the
+aggregator fallback stated a two-day-old date, so a healthy sleeve's edge sits 0-2 days behind the pass.
+
+The REPAIRS are the operator's and are not code, and they DIFFER per feed (which is why each kind carries
+its own advice in ``domain/feed_kinds``): for a price tape, ``security_master.price_symbol`` (the OTC symbol
+override, #252) points the price leg at the vendor's current symbol and the next nightly pass re-pulls the
+full year, appends the missing tail and hole-fills the overlap; for a fund-shares tape it is a fund/ticker/
+source question (does it still trade under that ticker, did a source page change, is the key set). Extending
+the symbol resolver to renames automatically is a separate, unbuilt decision: a wrong auto-resolve would
+file ANOTHER company's tape under this member, which is worse than a visible gap (#4/#6). See
+``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
 """
 
 from __future__ import annotations
@@ -47,6 +66,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+from domain.feed_kinds import FUND_SHARES, PRICE, FeedKind, feed_kind
 
 if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the layering one-way)
     from pipeline.ingest_thesis import NameResult
@@ -64,19 +85,30 @@ def stale_label(ticker: str | None, security_id: object) -> str:
 
 @dataclass(frozen=True)
 class StaleTape:
-    """One name whose price tape has gone stale: its ``edge`` (the latest stored bar date, ``None`` when
-    the tape has NO bars at all) plus the identity needed to render and to diff.
+    """One name whose monitored feed has gone stale: its ``edge`` (the latest stored date for that feed,
+    ``None`` when it has NO data at all) plus the identity needed to render and to diff, and ``kind`` —
+    WHICH feed stopped (``domain/feed_kinds``: ``price`` | ``fund_shares``).
 
     ``security_id`` is the diff KEY — never the ticker: a ticker-less name must still be able to page, and a
-    ticker can change under a name (which is half of why this monitor exists)."""
+    ticker can change under a name (which is half of why this monitor exists). With two feeds the key is
+    ``(kind, security_id)``: one name can be stale on both at once and each is its own repair.
+
+    ``kind`` defaults to ``price`` because that is what it means everywhere it is absent — the rows written
+    before this field existed are price rows (see ``feed_kind``'s fail-soft note)."""
 
     ticker: str | None
     security_id: UUID
     edge: date | None
+    kind: str = PRICE.key
 
     @property
     def label(self) -> str:
         return stale_label(self.ticker, self.security_id)
+
+    @property
+    def feed(self) -> FeedKind:
+        """The vocabulary entry for this row's kind (noun + repair advice), fail-soft to price."""
+        return feed_kind(self.kind)
 
 
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
@@ -96,26 +128,70 @@ def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
     return (asof - edge).days >= stale_days
 
 
-def stale_tapes(
-    results: Iterable[NameResult], *, asof: date, stale_days: int
+def _stale(
+    rows: Iterable[tuple[UUID, str | None, date | None]],
+    *,
+    kind: FeedKind,
+    asof: date,
+    stale_days: int,
 ) -> tuple[StaleTape, ...]:
-    """The stale tapes among one thesis's per-name ingest results, FIRST-SEEN order, **deduplicated by
-    ``security_id``**.
+    """The shared judgment + dedup, over ``(security_id, ticker, edge)`` triples. ONE implementation for
+    every feed kind — the per-kind public functions below are just the field adapters, so a second feed
+    can never acquire a second definition of "stale" or a second dedup rule.
 
     The dedup is load-bearing, not tidiness: a name the draft placed in N value-chain links is N
     ``basket_member`` rows with the SAME ``security_id``, so ``ingest_thesis`` returns N ``NameResult``s for
-    it (the later walks append nothing — incremental) and a naive count would report one dead tape N times,
-    on the page and in the panel. Same rule as the on-promote ingest summary's ``members`` count.
+    it (the later walks append nothing — incremental) and a naive count would report one dead feed N times,
+    on the page and in the panel. Same rule as the on-promote ingest summary's ``members`` count. Dedup is
+    WITHIN a kind, so a name stale on both feeds yields one row per feed — two different repairs.
 
-    A name whose price leg ERRORED is still judged: the edge read is independent of the leg's outcome, so a
-    name that is both failing and dead shows up as both (the error on its own result, the stale tape here) —
-    never silently one or the other."""
+    FIRST-SEEN order preserved."""
     out: list[StaleTape] = []
     seen: set[UUID] = set()
-    for r in results:
-        if r.security_id in seen:
+    for security_id, ticker, edge in rows:
+        if security_id in seen:
             continue
-        seen.add(r.security_id)
-        if is_tape_stale(r.tape_edge, asof=asof, stale_days=stale_days):
-            out.append(StaleTape(ticker=r.ticker, security_id=r.security_id, edge=r.tape_edge))
+        seen.add(security_id)
+        if is_tape_stale(edge, asof=asof, stale_days=stale_days):
+            out.append(StaleTape(ticker=ticker, security_id=security_id, edge=edge, kind=kind.key))
     return tuple(out)
+
+
+def stale_tapes(
+    results: Iterable[NameResult], *, asof: date, stale_days: int
+) -> tuple[StaleTape, ...]:
+    """The stale PRICE tapes among one thesis's per-name ingest results (see ``_stale`` for the dedup).
+
+    Every resolved member is judged: a price tape is expected for all of them. A name whose price leg
+    ERRORED is still judged — the edge read is independent of the leg's outcome, so a name that is both
+    failing and dead shows up as both (the error on its own result, the stale tape here), never silently
+    one or the other."""
+    return _stale(
+        ((r.security_id, r.ticker, r.tape_edge) for r in results),
+        kind=PRICE,
+        asof=asof,
+        stale_days=stale_days,
+    )
+
+
+def stale_fund_shares(
+    results: Iterable[NameResult], *, asof: date, stale_days: int
+) -> tuple[StaleTape, ...]:
+    """The stale FUND-SHARES tapes among one thesis's per-name results — **only the members the leg
+    applies to** (``r.fund_shares_tracked``: an ETF sleeve with a ticker).
+
+    The filter is the difference between this and its price sibling, and it is not an optimization: an
+    equity member has no samples, so its edge is ``None``, and ``None`` means STALE to the rule. Judging
+    ungated would report every equity in every basket as a dead fund tape. Conversely a TRACKED sleeve with
+    a ``None`` edge is genuinely news — its sampler has never produced anything — so the rule's ``None``
+    handling is exactly right once the gate is applied.
+
+    Its own threshold (``Settings.fund_shares_stale_days``), because the feeds have different cadences:
+    a price tape gets a bar every session, while a sleeve's sample carries the source page's own stated
+    as-of date, which measurably lags the pull by up to two days on the fallback leg."""
+    return _stale(
+        ((r.security_id, r.ticker, r.fund_shares_edge) for r in results if r.fund_shares_tracked),
+        kind=FUND_SHARES,
+        asof=asof,
+        stale_days=stale_days,
+    )

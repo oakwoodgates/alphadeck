@@ -174,6 +174,19 @@ class Settings(BaseSettings):
     # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
     # this default.
     tape_stale_days: int = 5
+    # F1 — the FUND-SHARES RECENCY threshold: the same rule for the OTHER per-name feed (an ETF sleeve's
+    # shares-outstanding sample, which the flow read is built on), with its own number because the cadences
+    # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Polygon) states the
+    # PULL date exactly — lag 0 across 28 post-backfill samples — while the aggregator fallback stated a
+    # TWO-day-old date, so a healthy sleeve's edge sits 0-2 calendar days behind the pass that sampled it.
+    # 7 therefore clears the two-day stated lag PLUS a long weekend PLUS two failed nights before it calls a
+    # sampler dead, while a genuinely dead one (dev holds a sleeve whose samples stopped 46 days back)
+    # surfaces inside a week. Deliberately NOT the price tape's 5: this feed's edge starts two days back on
+    # a good night, where a live price tape's starts at 0-1. Chosen over a looser 10 on the operator's
+    # standard — missed data is the costliest class and a false page costs one page.
+    # 0 DISABLES it independently of the price monitor. Read via the env_prefix
+    # (ALPHADECK_FUND_SHARES_STALE_DAYS); like its sibling, NOT injected by docker-compose.
+    fund_shares_stale_days: int = 7
 
     # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
     # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the

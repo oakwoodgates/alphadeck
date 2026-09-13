@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { AdminRunOut } from "../api/hooks";
+import type { AdminRunOut, AdminStaleTapeOut } from "../api/hooks";
 import {
   useAdminRuns,
   useAdminStatus,
@@ -54,6 +54,42 @@ function RunSummaryLine({ run }: { run: AdminRunOut }) {
   );
 }
 
+/** One stopped-FEED block: the loud count line, the rows (each naming WHICH name, WHEN it last had data,
+ *  and under which thesis), and one sub-line saying what goes dark and what to do about it.
+ *
+ *  ONE component, rendered once per feed kind, because the rows are identical in shape while the copy is
+ *  genuinely different: a dead price tape is usually a vendor symbol to point at, a dead fund-shares
+ *  sample is a fund/ticker/source question. Rendered by its caller ONLY when its own partition is
+ *  non-empty — "no stale fund tapes" is the normal night on an all-equity basket, and a block true of
+ *  nothing carries no information (honest loudness). A row with no ticker still renders, by id (#9). */
+function StaleFeedBlock({
+  rows,
+  testId,
+  headline,
+  edgeNoun,
+  note,
+}: {
+  rows: AdminStaleTapeOut[];
+  testId: string;
+  headline: ReactNode;
+  edgeNoun: string;
+  note: ReactNode;
+}) {
+  return (
+    <div className="adm-stale" data-testid={testId}>
+      <div className="adm-line adm-loud">{headline}</div>
+      <ul className="adm-problems">
+        {rows.map((t) => (
+          <li key={`${t.kind}:${t.security_id}`}>
+            <b>{t.ticker ?? t.security_id}</b> — last {edgeNoun} {t.edge ?? "never"} · {t.thesis}
+          </li>
+        ))}
+      </ul>
+      <div className="adm-sub">{note}</div>
+    </div>
+  );
+}
+
 function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
   if (!problems?.length) return null;
   return (
@@ -69,8 +105,9 @@ function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
  *  (record freshness vs the Mon-Fri+RUN_AT schedule, the run-of-record history, a health verdict)
  *  plus ONE explicit trigger: "Run daily now". Honest loudness throughout: loud styling is reserved
  *  for stale / unhealthy / gappy (a night inside the recent window with NO call-of-record — the
- *  wrong-day fire the edge check can't see) and for a STOPPED price tape; "current", "never begun",
- *  and "never ran" stay quiet, and the missed-nights list and the stale-tape list each render ONLY
+ *  wrong-day fire the edge check can't see) and for a STOPPED feed (a price tape, an ETF sleeve's
+ *  fund-shares samples); "current", "never begun",
+ *  and "never ran" stay quiet, and the missed-nights list and each stopped-feed block render ONLY
  *  when there is one to show. The trigger fires ONLY on the button click — never on mount, render, or
  *  poll (reads may poll; the trigger may not). */
 export function Admin({ header }: Props) {
@@ -123,6 +160,12 @@ export function Admin({ header }: Props) {
   const status = statusQ.data;
   const runs = runsQ.data?.runs ?? [];
   const backups = backupsQ.data?.backups ?? [];
+  // The stopped-feed rows, partitioned by WHICH feed stopped: the rows share a shape but not a repair,
+  // so each renders in its own block with its own copy, and each block appears only when it has rows.
+  // Anything not explicitly `fund_shares` counts as a price tape — the same fail-soft reading the backend
+  // applies to a row written before fund shares were monitored.
+  const staleFundShares = status?.tape?.stale.filter((t) => t.kind === "fund_shares") ?? [];
+  const stalePriceTapes = status?.tape?.stale.filter((t) => t.kind !== "fund_shares") ?? [];
 
   return (
     <div className="board-shell adm-shell">
@@ -181,32 +224,55 @@ export function Admin({ header }: Props) {
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}
             </div>
-            {/* the STALE PRICE TAPES — names whose stored EOD tape has stopped (a ticker rename the vendor
-                priced under a new symbol, or a delisting). Rendered ONLY when there is one: a panel true of
-                every row carries no information, and "no stale tapes" is the normal night. A row with no
-                ticker still renders, by id — never dropped (#9). */}
-            {status.tape && status.tape.stale.length > 0 && (
-              <div className="adm-stale" data-testid="adm-stale-tapes">
-                <div className="adm-line adm-loud">
-                  <b>{status.tape.stale.length}</b> price tape(s) have stopped — no new bars for{" "}
-                  {status.tape.stale_days}+ days
-                </div>
-                <ul className="adm-problems">
-                  {status.tape.stale.map((t) => (
-                    <li key={t.security_id}>
-                      <b>{t.ticker ?? t.security_id}</b> — last bar {t.edge ?? "never"} ·{" "}
-                      {t.thesis}
-                    </li>
-                  ))}
-                </ul>
-                <div className="adm-sub">
-                  Every price-driven signal for these names is dark until the tape resumes (no breakout,
-                  no SMA flip, no RVOL — and no price-based de-arm either); the filing feeds keep running.
-                  Check each for a ticker rename or a delisting, then set the vendor price symbol on the
-                  security master — the next nightly pass re-pulls the full year and heals the tape. As of
-                  the {status.tape.asof} pass.
-                </div>
-              </div>
+            {/* the STOPPED FEEDS — one block per feed kind, each rendered ONLY when IT has a row: a panel
+                true of every row carries no information, "no stale tapes" is the normal night, and an
+                all-equity basket has no fund-shares feed to be quiet about. The rows are one shape; the
+                copy is not, because the repairs differ — which is exactly what `kind` carries. Anything
+                that is not explicitly `fund_shares` renders as a price row, mirroring the backend's
+                fail-soft reading of a row written before fund shares were monitored. */}
+            {status.tape && stalePriceTapes.length > 0 && (
+              <StaleFeedBlock
+                rows={stalePriceTapes}
+                testId="adm-stale-tapes"
+                edgeNoun="bar"
+                headline={
+                  <>
+                    <b>{stalePriceTapes.length}</b> price tape(s) have stopped — no new bars for{" "}
+                    {status.tape.stale_days}+ days
+                  </>
+                }
+                note={
+                  <>
+                    Every price-driven signal for these names is dark until the tape resumes (no
+                    breakout, no SMA flip, no RVOL — and no price-based de-arm either); the filing feeds
+                    keep running. Check each for a ticker rename or a delisting, then set the vendor
+                    price symbol on the security master — the next nightly pass re-pulls the full year
+                    and heals the tape. As of the {status.tape.asof} pass.
+                  </>
+                }
+              />
+            )}
+            {status.tape && staleFundShares.length > 0 && (
+              <StaleFeedBlock
+                rows={staleFundShares}
+                testId="adm-stale-fund-shares"
+                edgeNoun="sample"
+                headline={
+                  <>
+                    <b>{staleFundShares.length}</b> fund-shares tape(s) have stopped — no new samples
+                    for {status.tape.fund_shares_stale_days}+ days
+                  </>
+                }
+                note={
+                  <>
+                    These ETF sleeves' net-flow read is quiet until sampling resumes; their price and
+                    filing feeds are unaffected. Check that each fund still trades under that ticker,
+                    look in the run output for a fund-shares warning (a redesigned source page breaks
+                    the parse visibly), and confirm the shares source key is set. As of the{" "}
+                    {status.tape.asof} pass.
+                  </>
+                }
+              />
             )}
           </section>
 

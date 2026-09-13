@@ -14,7 +14,12 @@ from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import InstrumentKind
 from domain.security import Security
-from ingest.funds.ingest_security import FundSharesResult, ingest_fund_shares_for_security
+from ingest.funds.ingest_security import (
+    FundSharesResult,
+    fund_shares_applies,
+    ingest_fund_shares_for_security,
+    latest_shares_date,
+)
 from ingest.funds.source import FundSharesUnavailable
 
 _D = date(2026, 7, 24)
@@ -185,3 +190,75 @@ def test_writes_under_the_given_tenant(db, security_id):
     with db.cursor() as cur:
         cur.execute("SELECT tenant_id FROM fact_fund_shares")
         assert {r["tenant_id"] for r in cur.fetchall()} == {uuid.UUID(str(DEFAULT_TENANT_ID))}
+
+
+# --- F1: the leg's gate, extracted, and the sample-edge read the monitor judges ----------------------
+
+
+def test_fund_shares_applies_is_the_LEGS_OWN_gate(db, security_id):
+    """ONE definition with two readers: the leg's early return and the recency monitor's edge read. They
+    must agree, or the monitor would either judge members the leg never samples (reporting every equity as
+    a dead fund tape — its edge is None, and None means stale) or skip ones it does.
+
+    Proved against the leg's actual behavior rather than asserted twice: where the predicate says False,
+    the leg is a no-op that never touches the source."""
+    equity = _sec(security_id, kind=InstrumentKind.EQUITY)
+    tickerless = _sec(security_id, ticker=None)
+    sleeve = _sec(security_id)
+
+    assert fund_shares_applies(sleeve) is True
+    assert fund_shares_applies(equity) is False
+    assert fund_shares_applies(tickerless) is False
+
+    for sec in (equity, tickerless):
+        src = _StubSource(_snap())
+        assert ingest_fund_shares_for_security(
+            db, sec, tenant_id=DEFAULT_TENANT_ID, source=src
+        ) == FundSharesResult(0, 0)
+        assert src.calls == 0  # the source is never even constructed for these
+
+
+def test_latest_shares_date_is_the_newest_SAMPLE_unaffected_by_re_versions(db, security_id):
+    """The sample edge the monitor judges: a plain MAX over stored sample dates. ``None`` before anything
+    is stored (a sampler that has never worked — the loudest version of the failure, not an exempt one),
+    and a RESTATED count for a day already sampled is a new VERSION of that day, so it must not move the
+    edge backwards or forwards."""
+    assert latest_shares_date(db, security_id, tenant_id=DEFAULT_TENANT_ID) is None
+
+    ingest_fund_shares_for_security(
+        db, _sec(security_id), tenant_id=DEFAULT_TENANT_ID, source=_StubSource(_snap())
+    )
+    db.commit()
+    assert latest_shares_date(db, security_id, tenant_id=DEFAULT_TENANT_ID) == _D
+
+    # a LATER sample moves the edge; a restatement of an earlier day does not move it back
+    later = date(2026, 7, 27)
+    ingest_fund_shares_for_security(
+        db,
+        _sec(security_id),
+        tenant_id=DEFAULT_TENANT_ID,
+        source=_StubSource(_snap(d=later, shares=999.0)),
+    )
+    db.commit()
+    assert latest_shares_date(db, security_id, tenant_id=DEFAULT_TENANT_ID) == later
+
+    res = ingest_fund_shares_for_security(
+        db,
+        _sec(security_id),
+        tenant_id=DEFAULT_TENANT_ID,
+        source=_StubSource(_snap(d=_D, shares=555.0)),  # the FIRST day, corrected
+    )
+    db.commit()
+    assert res.reversioned == 1  # it really was a re-version
+    assert latest_shares_date(db, security_id, tenant_id=DEFAULT_TENANT_ID) == later
+
+
+def test_latest_shares_date_is_TENANT_scoped(db, security_id):
+    """The same tenancy discipline as every other fact read: another tenant's samples are not this
+    tenant's edge."""
+    ingest_fund_shares_for_security(
+        db, _sec(security_id), tenant_id=DEFAULT_TENANT_ID, source=_StubSource(_snap())
+    )
+    db.commit()
+    other = uuid.UUID("00000000-0000-0000-0000-0000000002a0")
+    assert latest_shares_date(db, security_id, tenant_id=other) is None

@@ -58,21 +58,42 @@ const TAPE_TWO_STALE = {
   asof: "2026-07-17",
   ran_at: "2026-07-17T22:30:01+00:00",
   stale_days: 5,
+  fund_shares_stale_days: 7,
   stale: [
     {
       security_id: "11111111-1111-1111-1111-111111111111",
       ticker: "AAA",
       edge: "2026-06-30",
       thesis: "Thesis One",
+      kind: "price",
     },
     {
       security_id: "22222222-2222-2222-2222-222222222222",
       ticker: null as string | null,
       edge: null as string | null,
       thesis: "Thesis Two",
+      kind: "price",
     },
   ],
   newly_stale: ["AAA"],
+};
+
+// F1 — the same panel carrying BOTH feeds: the two price rows above plus one ETF sleeve whose
+// fund-shares sampling stopped. The two kinds must render as separate blocks with separate copy,
+// because the repairs differ.
+const TAPE_BOTH_KINDS = {
+  ...TAPE_TWO_STALE,
+  stale: [
+    ...TAPE_TWO_STALE.stale,
+    {
+      security_id: "33333333-3333-3333-3333-333333333333",
+      ticker: "FUND" as string | null,
+      edge: "2026-07-02" as string | null,
+      thesis: "Thesis One",
+      kind: "fund_shares",
+    },
+  ],
+  newly_stale: ["FUND"],
 };
 
 const STATUS_CURRENT = {
@@ -316,6 +337,36 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(screen.queryByTestId("adm-stale-tapes")).toBeNull();
     // ...and the freshness card is otherwise untouched (no empty-state noise)
     expect(screen.getByTestId("adm-fresh").textContent).toContain("current");
+  });
+
+  it("a stopped FUND-SHARES tape renders its own block, with its own threshold and repair", () => {
+    // F1: the two feeds stop the same silent way but are repaired differently — a price tape by pointing
+    // the vendor symbol at the renamed listing, a fund-shares tape by checking the fund/ticker/source. So
+    // they must not share one block: each names its own count, its own threshold and its own next step.
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_BOTH_KINDS } };
+    renderAdmin();
+
+    const funds = screen.getByTestId("adm-stale-fund-shares");
+    expect(funds.textContent).toContain("FUND");
+    expect(funds.textContent).toContain("2026-07-02"); // its last SAMPLE date
+    expect(funds.textContent).toContain("7"); // ...under the fund threshold, not the tape's 5
+    expect(funds.textContent).toMatch(/sample/i);
+    expect(funds.textContent).not.toMatch(/price symbol/i); // that is the OTHER feed's repair
+
+    // ...and the price block is still its own, still counting only its own rows
+    const tapes = screen.getByTestId("adm-stale-tapes");
+    expect(tapes.textContent).toContain("2"); // the two price rows, not 3
+    expect(tapes.textContent).not.toContain("FUND");
+    expect(tapes.textContent).toMatch(/price symbol/i);
+  });
+
+  it("no fund-shares block when only price tapes are stale (honest loudness, per feed)", () => {
+    // The normal night on an all-equity basket: the fund block must be ABSENT, not an empty list — a
+    // block true of nothing carries no information, and today most baskets hold no ETF sleeve at all.
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_TWO_STALE } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-stale-tapes")).toBeTruthy();
+    expect(screen.queryByTestId("adm-stale-fund-shares")).toBeNull();
   });
 });
 

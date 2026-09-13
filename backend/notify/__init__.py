@@ -22,6 +22,7 @@ from typing import Protocol
 from uuid import UUID
 
 from domain.enums import State
+from domain.feed_kinds import StaleFeedLabel, stale_feed_bits
 from domain.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -91,10 +92,11 @@ class HealthEvent:
     # G4: benchmark-refresh faults — real alarms (the calls that night read a stale shared input)
     benchmark_errors: int = 0
     benchmark_leg_failed: bool = False
-    # G5a: names whose PRICE TAPE went stale since the previous evaluated pass, as display labels (ticker,
-    # or the security id when ticker-less). NEWLY stale only — a known-dead tape must not re-page nightly.
-    # It pages, but it is NOT a cron alarm: the run worked, the FEED has a gap to repair (see the label).
-    tape_stale_new: tuple[str, ...] = ()
+    # G5a/F1: names whose monitored FEED went stale since the previous evaluated pass — each entry a
+    # (kind, label) pair, so the page can group by feed and give each its own repair advice (a price tape's
+    # fix is not a fund-shares tape's). NEWLY stale only — a known-dead feed must not re-page nightly. It
+    # pages, but it is NOT a cron alarm: the run worked, the FEED has a gap to repair (see the label).
+    tape_stale_new: tuple[StaleFeedLabel, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -123,15 +125,14 @@ class HealthEvent:
             bits.append(
                 f"{self.withheld_no_live} call(s) withheld — no-live (a cache-only run, not an error)"
             )
-        # G5a — a FEED gap, not a cron fault, so it sits with the benign note and names what to do. Every
-        # price-driven detector for these names is dark until the tape resumes (no breakout, no SMA flip, no
-        # RVOL — and no price-based de-arm either), which is why it pages at all.
-        if self.tape_stale_new:
-            bits.append(
-                f"{len(self.tape_stale_new)} price tape(s) newly STALE — "
-                f"{', '.join(self.tape_stale_new)} (no new bars; check for a ticker rename or a "
-                "delisting and set the vendor price symbol — not a cron error)"
-            )
+        # G5a/F1 — a FEED gap, not a cron fault, so it sits with the benign note and names what to do.
+        # ONE line per feed kind, each with its own count, names and repair (a price tape's fix is the
+        # vendor symbol; a fund-shares tape's is not), built by the shared `stale_feed_bits` so this page
+        # and the Admin run row cannot drift — they used to keep two hand-written copies in step.
+        # Why it pages at all: every price-driven detector for a dead price tape is dark until it resumes
+        # (no breakout, no SMA flip, no RVOL — and no price-based de-arm), and a dead fund-shares sample
+        # takes the sleeve's flow read quiet with it.
+        bits.extend(f"{bit} — not a cron error" for bit in stale_feed_bits(self.tape_stale_new))
         return f"cron {self.asof}: " + " · ".join(bits)
 
 

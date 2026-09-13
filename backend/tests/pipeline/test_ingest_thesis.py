@@ -658,3 +658,75 @@ def test_a_FAILED_price_leg_still_reports_the_stored_edge(db, security_id, monke
 
     assert results[0].error is not None and "price" in results[0].error  # the leg DID fail…
     assert results[0].tape_edge == date(2026, 6, 15)  # …and the stored edge is still reported
+
+
+# --- F1: the FUND-SHARES edge, the twin of the tape edge ---------------------------------------------
+
+
+def test_an_ETF_sleeve_reports_its_fund_shares_edge_AFTER_the_leg(db, security_id, monkeypatch):
+    """The edge is read after the fund-shares leg, so the sample this pass just stored COUNTS — read
+    before, a healthy sleeve would look one pass stale forever. The sleeve is also marked TRACKED, which
+    is what tells the monitor this member has a fund feed at all."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="URA", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("DEVCO", security_id), ("URA", etf)])
+    src = _FakeFundSource(_fund_snap(d=date(2026, 6, 16)))
+
+    by = {r.ticker: r for r in IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)}
+
+    assert by["URA"].fund_shares_tracked is True
+    assert by["URA"].fund_shares_appended == 1
+    assert by["URA"].fund_shares_edge == date(
+        2026, 6, 16
+    )  # the sample just stored, not a prior one
+
+
+def test_an_EQUITY_member_is_NOT_tracked_and_has_no_fund_edge(db, security_id, monkeypatch):
+    """THE TRAP the flag exists for: an equity has no samples, so its edge is None — and None means STALE
+    to the rule. The flag is what stops the monitor reporting every equity in every basket as a dead fund
+    tape; `None` edge + `tracked False` is "never sampled, correctly", not "sampling stopped"."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.fund_shares_tracked is False and r.fund_shares_edge is None
+
+
+def test_a_FAILED_fund_shares_leg_still_reports_TRACKED_and_its_stored_edge(
+    db, security_id, monkeypatch
+):
+    """A sleeve with no samplable source RAISES inside the leg, so there is no result to read a flag off —
+    which is exactly why the flag comes from the member's identity instead. The name must still come back
+    TRACKED (so the monitor judges it) and carry whatever its stored series actually ends at, here nothing
+    at all: a sampler that has never worked is the loudest version of this failure, not an exempt one.
+    """
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="URA", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("URA", etf)])
+    src = _FakeFundSource(error=RuntimeError("no samplable fund-shares source"))
+
+    r = IT.ingest_thesis(db, tid, allow_live=False, fund_source=src)[0]
+
+    assert r.error is not None and "fund_shares" in r.error  # the leg DID fail…
+    assert r.fund_shares_tracked is True  # …and the member is still judged…
+    assert r.fund_shares_edge is None  # …with nothing ever stored
+
+
+def test_the_fund_edge_survives_a_restated_sample_and_a_rerun(db, monkeypatch):
+    """The edge is a MAX over stored sample dates, so a restatement (a new version of the same day) and an
+    idempotent re-run both leave it where it belongs — the same read discipline as the price tape's.
+    """
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    etf = _add_master(db, ticker="URA", cik=None, instrument_kind="etf")
+    tid = _make_thesis(db, [("URA", etf)])
+
+    first = IT.ingest_thesis(
+        db, tid, allow_live=False, fund_source=_FakeFundSource(_fund_snap(shares=100.0))
+    )[0]
+    restated = IT.ingest_thesis(  # SAME day, a corrected count -> a new version, same edge
+        db, tid, allow_live=False, fund_source=_FakeFundSource(_fund_snap(shares=200.0))
+    )[0]
+
+    assert first.fund_shares_edge == restated.fund_shares_edge == date(2026, 6, 16)
+    assert restated.fund_shares_reversioned == 1  # it really was a second version

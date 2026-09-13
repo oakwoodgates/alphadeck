@@ -18,6 +18,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
+from domain.feed_kinds import StaleFeedLabel
 from ingest.edgar.client import RECURRING_CACHE_TTL_S
 from ingest.edgar.form4 import ingest_form4
 from notify import ArmedName
@@ -968,8 +969,13 @@ def _nr(**kw) -> NameResult:
     return NameResult(**{**base, **kw})
 
 
-def _stale(ticker, *, edge=None, sid=None):
-    return daily.StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge)
+def _stale(ticker, *, edge=None, sid=None, kind="price"):
+    return daily.StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind)
+
+
+def _lbl(label, *, kind="price"):
+    """A newly-stale (kind, label) entry — what the diff hands the page."""
+    return StaleFeedLabel(kind=kind, label=label)
 
 
 def _thesis_result_with(stale):
@@ -1010,26 +1016,52 @@ def test_run_daily_does_NOT_judge_tape_staleness_on_a_NO_LIVE_pass(db, monkeypat
 
 
 def test_run_daily_tape_monitor_is_OFF_at_stale_days_zero(db, monkeypatch):
-    """The documented off-switch (ALPHADECK_TAPE_STALE_DAYS=0) reaches the cron, not just the predicate."""
+    """The documented off-switch (ALPHADECK_TAPE_STALE_DAYS=0) reaches the cron, not just the predicate —
+    and each feed's switch is INDEPENDENT, so turning the price monitor off leaves the fund one running.
+    """
     monkeypatch.setattr(
         daily, "ingest_thesis", _ingest_returning([_nr(ticker="DEAD", tape_edge=None)])
     )
-    monkeypatch.setattr(daily, "get_settings", lambda: SimpleNamespace(tape_stale_days=0))
+    monkeypatch.setattr(
+        daily,
+        "get_settings",
+        lambda: SimpleNamespace(tape_stale_days=0, fund_shares_stale_days=7),
+    )
     _thesis(db, "T")
 
     out = daily.run_daily(db, asof=_ASOF, allow_live=True)
 
-    assert out[0].tape_stale == ()
+    assert out[0].tape_stale == ()  # the price monitor is off; the name is not an ETF sleeve either
 
 
 def test_assess_health_pages_a_NEWLY_stale_tape_and_names_it():
     """It pages — every price-driven signal for that name is dark until the tape resumes — and the page
     NAMES the tape, because a bare "a tape went stale" is unactionable."""
-    h = daily.assess_health([], asof=_ASOF, allow_live=True, tape_stale_new=("AAA", "BBB"))
+    h = daily.assess_health(
+        [], asof=_ASOF, allow_live=True, tape_stale_new=(_lbl("AAA"), _lbl("BBB"))
+    )
     assert h is not None
-    assert h.tape_stale_new == ("AAA", "BBB")
+    assert h.tape_stale_new == (_lbl("AAA"), _lbl("BBB"))
     assert "newly STALE" in h.label and "AAA, BBB" in h.label
     assert "not a cron error" in h.label  # a FEED gap, and the page says so
+
+
+def test_assess_health_pages_EACH_FEED_KIND_on_its_own_line_with_its_own_repair():
+    """F1: a price tape and a fund-shares tape stop the same silent way but are fixed differently, so one
+    merged line would give half the names the wrong instruction. One line per feed, each with its own
+    count, names and advice — and the fund line must NOT tell the operator to set a price symbol."""
+    h = daily.assess_health(
+        [],
+        asof=_ASOF,
+        allow_live=True,
+        tape_stale_new=(_lbl("AAA"), _lbl("ETF1", kind="fund_shares"), _lbl("BBB")),
+    )
+    assert h is not None
+    assert "2 price tape(s) newly STALE — AAA, BBB" in h.label
+    assert "1 fund-shares tape(s) newly STALE — ETF1" in h.label
+    price_line, fund_line = h.label.split("1 fund-shares")
+    assert "price symbol" in price_line and "price symbol" not in fund_line
+    assert "POLYGON_API_KEY" in fund_line
 
 
 def test_assess_health_is_SILENT_when_no_tape_became_stale():
@@ -1042,14 +1074,15 @@ def test_pass_pages_a_NEWLY_stale_tape_and_stays_quiet_on_a_KNOWN_one(monkeypatc
     """THE DIFF, across three passes through the REAL artifact writer (run-log home redirected to tmp):
     pass 1 finds a dead tape and pages it; pass 2 finds the SAME one and pages NOTHING; pass 3 finds an
     additional one and pages ONLY the new name. This is what stops a handful of known-dead tapes from crying
-    wolf every night forever. The diff is keyed on security_id, so the SAME ids are reused across passes.
+    wolf every night forever. The diff is keyed on kind + security_id, so the SAME ids are reused across
+    passes.
     """
     a, b = uuid.uuid4(), uuid.uuid4()
     seen: list[tuple[str, ...]] = []
     real_assess = daily.assess_health
 
     def _assess(results, **kw):
-        seen.append(tuple(kw.get("tape_stale_new") or ()))
+        seen.append(tuple(x.label for x in (kw.get("tape_stale_new") or ())))
         return real_assess(results, **kw)
 
     _prime_pass(monkeypatch)
@@ -1069,7 +1102,36 @@ def test_pass_pages_a_NEWLY_stale_tape_and_stays_quiet_on_a_KNOWN_one(monkeypatc
     assert seen[1] == ()  # the SAME dead tape the next night: silent
     assert seen[2] == ("BBB",)  # only the genuinely new one
     assert out1.tape_evaluated and out2.tape_evaluated and out3.tape_evaluated
-    assert out3.tape_stale_new == ("BBB",)
+    assert out3.tape_stale_new == (StaleFeedLabel(kind="price", label="BBB"),)
+
+
+def test_pass_pages_the_SAME_security_again_when_its_OTHER_feed_stops(monkeypatch, tmp_path):
+    """F1, the reason the diff key carries the KIND: one name's price tape dies, and later its fund-shares
+    sampling dies too. The second is news the operator has not been told, with a different repair — keyed
+    on the id alone it would be silently swallowed as "already known"."""
+    sid = uuid.uuid4()
+    seen: list[tuple[tuple[str, str], ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen.append(tuple((x.kind, x.label) for x in (kw.get("tape_stale_new") or ())))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    def _pass(stale):
+        monkeypatch.setattr(daily, "run_daily", lambda conn, **k: _thesis_result_with(stale))
+        return daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    _pass([_stale("AAA", sid=sid)])
+    out2 = _pass([_stale("AAA", sid=sid), _stale("AAA", sid=sid, kind="fund_shares")])
+
+    assert seen[0] == (("price", "AAA"),)
+    assert seen[1] == (("fund_shares", "AAA"),)  # the SAME security, the OTHER feed: news
+    assert out2.tape_stale_new == (StaleFeedLabel(kind="fund_shares", label="AAA"),)
 
 
 def test_pass_on_a_FIRST_evaluated_run_pages_the_WHOLE_inventory(monkeypatch, tmp_path):
@@ -1086,7 +1148,7 @@ def test_pass_on_a_FIRST_evaluated_run_pages_the_WHOLE_inventory(monkeypatch, tm
 
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
 
-    assert sorted(out.tape_stale_new) == ["AAA", "BBB"]
+    assert sorted(x.label for x in out.tape_stale_new) == ["AAA", "BBB"]
 
 
 def test_pass_on_no_live_records_tape_evaluated_FALSE(monkeypatch):
@@ -1294,3 +1356,97 @@ def test_the_exit_predicate_and_the_ARTIFACT_guard_agree_where_they_must(monkeyp
     no_live = [_res(recorded=None, withheld_reason="no-live")]
     assert daily._failed_to_record(no_live) is False
     assert guard_says_recorded(no_live, allow_live=False) is False
+
+
+# --- F1: the fund-shares feed judged beside the price tape, with its own threshold ------------------
+
+
+def test_run_daily_judges_BOTH_feeds_against_the_runs_asof(db, monkeypatch):
+    """One name's price tape is dead, another's fund-shares sampling is — both are reported, each tagged
+    with the feed that stopped, because the repairs differ. The judgment stays in run_daily (the layer
+    holding the run's asof) for both."""
+    dead_tape = _nr(ticker="DEADTAPE", tape_edge=_ASOF - timedelta(days=40))
+    dead_fund = _nr(
+        ticker="DEADFUND",
+        tape_edge=_ASOF,  # its PRICE tape is fine...
+        fund_shares_tracked=True,
+        fund_shares_edge=_ASOF - timedelta(days=40),  # ...its sampling stopped
+    )
+    healthy_fund = _nr(
+        ticker="OKFUND", tape_edge=_ASOF, fund_shares_tracked=True, fund_shares_edge=_ASOF
+    )
+    monkeypatch.setattr(
+        daily, "ingest_thesis", _ingest_returning([dead_tape, dead_fund, healthy_fund])
+    )
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert [(s.ticker, s.kind) for s in out[0].tape_stale] == [
+        ("DEADTAPE", "price"),
+        ("DEADFUND", "fund_shares"),
+    ]
+    assert out[0].tape_stale[1].edge == _ASOF - timedelta(days=40)
+
+
+def test_run_daily_never_judges_the_fund_feed_of_a_NON_ETF_member(db, monkeypatch):
+    """THE TRAP the tracked flag exists for: an equity member has no fund-shares samples, so its edge is
+    None — and None means STALE to the rule. Ungated, every equity in every basket would be reported as a
+    dead fund tape. The member here has a healthy price tape and an untracked (default) fund feed.
+    """
+    monkeypatch.setattr(
+        daily, "ingest_thesis", _ingest_returning([_nr(ticker="EQUITY", tape_edge=_ASOF)])
+    )
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert out[0].tape_stale == ()
+
+
+def test_run_daily_fund_monitor_is_OFF_at_its_OWN_zero(db, monkeypatch):
+    """Each feed's off-switch is independent: ALPHADECK_FUND_SHARES_STALE_DAYS=0 silences the fund monitor
+    while the price monitor keeps working."""
+    dead_both = _nr(
+        ticker="DEAD",
+        tape_edge=_ASOF - timedelta(days=40),
+        fund_shares_tracked=True,
+        fund_shares_edge=_ASOF - timedelta(days=40),
+    )
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([dead_both]))
+    monkeypatch.setattr(
+        daily,
+        "get_settings",
+        lambda: SimpleNamespace(tape_stale_days=5, fund_shares_stale_days=0),
+    )
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert [s.kind for s in out[0].tape_stale] == [
+        "price"
+    ]  # the fund half is off, the price half isn't
+
+
+def test_report_lists_each_FEED_KIND_in_its_own_block(capsys):
+    """stdout is the first place an operator looks. The two feeds get separate blocks with separate advice
+    — a merged list would hand half the names the wrong repair — and each row says when that feed last had
+    data, in that feed's own words (a bar, a sample)."""
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                tape_stale=(
+                    _stale("DEADTAPE", edge=date(2026, 4, 1)),
+                    _stale("DEADFUND", edge=date(2026, 4, 2), kind="fund_shares"),
+                ),
+            )
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "DEADTAPE: last bar 2026-04-01" in out
+    assert "DEADFUND: last sample 2026-04-02" in out
+    price_block, fund_block = out.split("STALE FUND-SHARES TAPES")
+    assert "price symbol" in price_block and "price symbol" not in fund_block

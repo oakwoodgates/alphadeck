@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from domain.feed_kinds import StaleFeedLabel
 from pipeline.cron_run_log import (
     already_ran_live,
     list_run_logs,
@@ -414,19 +415,24 @@ def test_fail_open_returns_none_never_raises(tmp_path):
 # --- G5a: the price-tape monitor's durable record + the newly-stale baseline --------------------------
 
 
-def _st(ticker, *, sid=None, edge=None):
-    return StaleTape(ticker=ticker, security_id=sid or uuid4(), edge=edge)
+def _st(ticker, *, sid=None, edge=None, kind="price"):
+    return StaleTape(ticker=ticker, security_id=sid or uuid4(), edge=edge, kind=kind)
 
 
 def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_path):
-    """The artifact is the monitor's durable record and has three jobs: the per-thesis rows are the
+    """The artifact is the monitor's durable record and has four jobs: the per-thesis rows are the
     inventory the Admin panel renders AND the key the next run's diff reads; `tape_stale_new` is that
     diff's output for the night (so the history shows the page this run emitted); `tape_evaluated` says the
-    pass actually looked. `edge` null means the name has no bars at all."""
-    sid = uuid4()
+    pass actually looked; and the two threshold keys say what it judged under. `edge` null means the name
+    has no data at all, and `kind` says WHICH feed stopped."""
+    sid, fund_sid = uuid4(), uuid4()
     res = _thesis_result(
         recorded=True,
-        tape_stale=(_st("AAA", sid=sid, edge=date(2026, 6, 1)), _st(None, edge=None)),
+        tape_stale=(
+            _st("AAA", sid=sid, edge=date(2026, 6, 1)),
+            _st(None, edge=None),
+            _st("ETF1", sid=fund_sid, edge=date(2026, 6, 2), kind="fund_shares"),
+        ),
     )
     path = write_cron_run_log(
         [res],
@@ -436,14 +442,45 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         finished_at=_END,
         base_dir=tmp_path,
         tape_evaluated=True,
-        tape_stale_new=("AAA",),
+        tape_stale_new=(StaleFeedLabel("price", "AAA"), StaleFeedLabel("fund_shares", "ETF1")),
+        tape_stale_days=5,
+        fund_shares_stale_days=7,
     )
     doc = _read(path)
 
-    assert doc["tape_evaluated"] is True and doc["tape_stale_new"] == ["AAA"]
+    assert doc["tape_evaluated"] is True
+    assert doc["tape_stale_new"] == [
+        {"kind": "price", "label": "AAA"},
+        {"kind": "fund_shares", "label": "ETF1"},
+    ]
+    assert doc["tape_stale_days"] == 5 and doc["fund_shares_stale_days"] == 7
     rows = doc["theses"][0]["tape_stale"]
-    assert rows[0] == {"security_id": str(sid), "ticker": "AAA", "edge": "2026-06-01"}
+    assert rows[0] == {
+        "security_id": str(sid),
+        "ticker": "AAA",
+        "edge": "2026-06-01",
+        "kind": "price",
+    }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
+    assert rows[2]["kind"] == "fund_shares" and rows[2]["edge"] == "2026-06-02"
+
+
+def test_payload_records_a_DISABLED_monitors_threshold_as_zero(tmp_path):
+    """F6: 0 is a REAL stored value — that feed's monitor was off for the pass — so the panel's reader must
+    distinguish it from "the artifact does not carry the key". Pinned here on the writing side."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=date(2026, 9, 8),
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        tape_stale_days=5,
+        fund_shares_stale_days=0,
+    )
+    doc = _read(path)
+    assert doc["tape_stale_days"] == 5 and doc["fund_shares_stale_days"] == 0
 
 
 def test_payload_defaults_to_NOT_evaluated_with_no_stale_rows(tmp_path):
@@ -479,12 +516,22 @@ def test_previous_stale_tapes_is_NONE_when_nothing_has_evaluated_yet(tmp_path):
 
 
 def test_previous_stale_tapes_returns_the_security_IDS_of_the_newest_evaluated_pass(tmp_path):
-    """Keyed on security_id, never ticker: a ticker-less name must still take part in the diff, and a ticker
-    changing under a name is half of why this monitor exists. An EMPTY set (a pass that looked and found
-    nothing) is a real baseline — distinct from None."""
-    a, b = uuid4(), uuid4()
+    """Keyed on kind + security_id, never ticker: a ticker-less name must still take part in the diff, a
+    ticker changing under a name is half of why this monitor exists, and one security can be stale on both
+    feeds with a different repair for each. An EMPTY set (a pass that looked and found nothing) is a real
+    baseline — distinct from None."""
+    a, b, f = uuid4(), uuid4(), uuid4()
     write_cron_run_log(
-        [_thesis_result(recorded=True, tape_stale=(_st("AAA", sid=a), _st(None, sid=b)))],
+        [
+            _thesis_result(
+                recorded=True,
+                tape_stale=(
+                    _st("AAA", sid=a),
+                    _st(None, sid=b),
+                    _st("ETF1", sid=f, kind="fund_shares"),
+                ),
+            )
+        ],
         asof=_JUL17,
         allow_live=True,
         started_at=_NIGHT_JUL17,
@@ -492,7 +539,11 @@ def test_previous_stale_tapes_returns_the_security_IDS_of_the_newest_evaluated_p
         base_dir=tmp_path,
         tape_evaluated=True,
     )
-    assert previous_stale_tapes(base_dir=tmp_path) == {str(a), str(b)}
+    assert previous_stale_tapes(base_dir=tmp_path) == {
+        f"price:{a}",
+        f"price:{b}",
+        f"fund_shares:{f}",
+    }
 
     write_cron_run_log(  # a LATER evaluated pass with a clean universe -> an empty baseline, not None
         [_thesis_result(recorded=True)],
@@ -531,8 +582,30 @@ def test_previous_stale_tapes_SKIPS_a_no_live_artifact(tmp_path):
         tape_evaluated=True,  # even if it claimed to have looked, mode excludes it
     )
     assert previous_stale_tapes(base_dir=tmp_path) == {
-        str(a)
+        f"price:{a}"
     }  # the LIVE pass is still the baseline
+
+
+def test_previous_stale_tapes_reads_a_PRE_KIND_row_as_a_PRICE_row(tmp_path):
+    """THE DEPLOY-NIGHT TEST. Every stale row written before the fund-shares feed existed carries no
+    `kind`, and those rows are price rows. If the baseline read them as anything else, the first pass
+    after this ships would find none of its known-dead price tapes in the baseline and re-page the ENTIRE
+    existing inventory as if new — the exact nightly crying-wolf this diff exists to prevent."""
+    a = uuid4()
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True, tape_stale=(_st("AAA", sid=a),))],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    doc = _read(path)
+    del doc["theses"][0]["tape_stale"][0]["kind"]  # an artifact from before the field existed
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    assert previous_stale_tapes(base_dir=tmp_path) == {f"price:{a}"}
 
 
 def test_previous_stale_tapes_tolerates_a_MALFORMED_row_and_an_old_artifact(tmp_path):

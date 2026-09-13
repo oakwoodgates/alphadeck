@@ -92,9 +92,15 @@ Freshness asks whether the log advanced, not whether a row is scoreable — the 
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
 reconstructed · not scored" there can both be true of the same night.
 
-### Stale price tapes — "is every name still being priced?"  `[BUILT, G5a]`
+### Stopped feeds — "is every name still being fed?"  `[BUILT, G5a price tapes · F1 fund shares]`
 
-`status.tape` is the price-tape panel, and it closes the "monitor health: is it watched?" gap for prices.
+`status.tape` is the feed-freshness panel. It watches **two** per-name feeds, each with its own threshold,
+its own rows (tagged `kind`) and its own block on the page, because they stop for different reasons and are
+repaired differently. The price tape is below; the ETF fund-shares feed follows it.
+
+#### Price tapes — "is every name still being priced?"
+
+This closes the "monitor health: is it watched?" gap for prices.
 **The failure it makes visible:** the price leg appends bars after the latest stored one, so a name whose
 vendor series simply **STOPS** — the SEC ticker stays canonical but the vendor prices the name under a new
 symbol after a rename, or the name delisted — returns a series that ends at the stop: **zero bars appended,
@@ -113,10 +119,13 @@ and never confirm on price.
   window. The accepted edge: a rare **two-session** closure beside a weekend (a Thursday+Friday shutdown
   leaves a Wednesday edge and a Monday pass = 5 days) flags for one night and clears on the next session.
   `0` disables the monitor; raise it if that night ever costs more than catching a dead tape a day sooner.
-- **Where it comes from:** the nightly pass records each name's tape edge and its stale set into the
+- **Where it comes from:** the nightly pass records each name's feed edges and its stale set into the
   run-of-record artifact, and this panel reads the newest artifact that actually **evaluated** recency. So it
   is "as of last night" (the right granularity for a nightly feed), it costs no query, and this surface still
   owns no tables. `tape` is **null** until a pass has looked — a `--no-live` pass never counts.
+  The **thresholds shown are the ones that pass judged under**, read off its artifact rather than live: a
+  setting changed between the pass and the read would otherwise describe the list on screen with a number
+  that never produced it. `0` on a threshold means that feed's monitor was disabled for the pass.
 - **One row per security**, even when two theses hold the name, with its last-bar date and the thesis it was
   seen under; a name with no ticker renders by id rather than vanishing (#9). The list renders **only when
   something is stale** — "no stale tapes" is the normal night.
@@ -133,6 +142,40 @@ and never confirm on price.
   and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is deliberately
   not built: a wrong auto-resolve would file another company's tape under your member, which is worse than a
   visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
+
+#### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
+
+The same silent-end class, one layer over. An ETF sleeve's shares-outstanding sample is what the net-flow
+read is built from (`signals/display/etf_flow.py` — display context, never a call input), and its source is
+a fallback chain (Polygon when a key is set → the issuer page → the aggregator) whose legs miss
+independently. **Two ways it stops with no error:** every leg misses (the fund closed or renamed, a source
+page was redesigned), or — the subtler one — a page's own **stated as-of date freezes** while it keeps
+serving the same count, which the incremental compare correctly skips as an unchanged sample. Either way
+the leg reports success and the series stands still.
+
+- **What counts as stale:** the latest stored sample is `ALPHADECK_FUND_SHARES_STALE_DAYS` (default **7**)
+  or more calendar days before the run's as-of, or the sleeve has no samples at all. Its own number, not the
+  price tape's 5, because the feeds differ. MEASURED on dev from the stored samples: the primary source
+  states the **pull date exactly** (lag 0 across 28 samples) while the aggregator fallback stated a
+  **two-day-old** date — so a healthy sleeve's edge sits 0–2 days behind the pass that sampled it, where a
+  live price tape's sits at 0–1. **7 therefore clears the two-day stated lag plus a long weekend plus two
+  failed nights** before it calls a sampler dead, and a genuinely dead one still surfaces inside a week.
+  `0` disables this feed's monitor independently of the price one.
+- **Only ETF sleeves are judged.** A member is evaluated only if the fund-shares leg applies to it (an
+  `instrument_kind = 'etf'` member with a ticker — the leg's own gate, shared with the monitor so the two
+  cannot drift). This is load-bearing, not an optimization: an equity has no samples, so its edge is `null`,
+  and `null` means **stale** to the rule — ungated, every equity in every basket would be reported as a dead
+  fund tape every night. A tracked sleeve with no samples at all is the opposite case and is reported
+  loudly: its sampler has never worked.
+- **A name can be stale on both feeds at once** — two rows, two repairs. The diff that decides what pages is
+  keyed on the feed **and** the security, so a sleeve whose price tape died last month and whose sampling
+  dies today pages again today, as the new thing it is.
+- **The repair is yours, and it is NOT the price symbol:** check that the fund still trades under that
+  ticker, look in the run's output for a fund-shares warning (the source chain warns visibly when a primary
+  leg errors, which is what a redesigned page looks like), and confirm the shares-source key is set.
+- **Expect this block to be empty, and that is the point.** It is quiet unless a sleeve's sampling actually
+  stops, and today very few baskets hold an ETF sleeve at all — the monitor exists so the sleeve can grow
+  without re-opening the same silent-end gap the price tape had.
 
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
@@ -164,9 +207,10 @@ itself was assessed — it runs inside the EDGAR 12h TTL and legitimately fetche
 shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminRunOut.catch_up`).
 `GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
 
-A **newly stale price tape** (G5a) also appears in `problems`, but carries the same benign marker as the
-`--no-live` note, so it never makes the verdict `unhealthy` — it is a feed gap, not a cron fault (see
-"Stale price tapes" above).
+A **newly stale feed** — a price tape (G5a) or an ETF sleeve's fund-shares sampling (F1) — also appears in
+`problems`, one line per feed with that feed's own count, names and repair, but carrying the same benign
+marker as the `--no-live` note: it never makes the verdict `unhealthy`, because it is a feed gap, not a cron
+fault (see "Stopped feeds" above).
 
 **A night that errored on some theses but still recorded is no longer a failed run to the scheduler**
 (F4, 2026-09-13). Nothing on this page changes — the errors still show in `problems` and the run row, and

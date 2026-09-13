@@ -55,7 +55,11 @@ from ingest.edgar.submissions import (
     parse_acceptance,
     schedule13_filings,
 )
-from ingest.funds.ingest_security import ingest_fund_shares_for_security
+from ingest.funds.ingest_security import (
+    fund_shares_applies,
+    ingest_fund_shares_for_security,
+    latest_shares_date,
+)
 from ingest.funds.source import FundSharesSource
 from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
@@ -100,6 +104,18 @@ class NameResult:
     # byte-identical to a market holiday. Nothing read it before this field existed, so a dead tape was
     # invisible and every price-driven detector for that name went quietly dark.
     tape_edge: date | None = None
+    # THE FUND-SHARES EDGE (F1) — the price tape's twin for the OTHER per-name feed: the latest stored
+    # shares-outstanding sample date for this ETF sleeve AFTER this pass, or None when it has none. Same
+    # silent-end class: the sampler is a fallback chain whose legs miss independently, and a source page
+    # whose STATED as-of date freezes re-reports the same count, which the incremental compare correctly
+    # skips — so the leg reports success while the series stands still. A FACT, judged in `pipeline.daily`.
+    fund_shares_edge: date | None = None
+    # ...and whether the leg APPLIES to this member at all (an ETF sleeve with a ticker —
+    # `ingest.funds.ingest_security.fund_shares_applies`, the leg's own gate). Load-bearing and NOT
+    # derivable from the edge: an equity has no samples and must never be judged, while an ETF with no
+    # samples has a sampler that has never worked and must be. Nor derivable from the leg's result — an
+    # unsamplable fund RAISES, and that is precisely the name to report.
+    fund_shares_tracked: bool = False
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -230,6 +246,12 @@ def ingest_thesis(
     mirror: a non-ETF member contributes no shares sample and never touches the source). Incremental +
     no-lookahead (see the module docstring). Returns one ``NameResult`` per member that had a resolved id.
 
+    Each name's result also carries the two RECENCY FACTS the nightly monitor judges — the latest stored
+    price bar date (``tape_edge``) and, for an ETF sleeve only, the latest stored fund-shares sample date
+    (``fund_shares_edge`` + ``fund_shares_tracked``). Both are read AFTER their leg and outside its
+    try/except, and neither is judged here: this unit has no ``asof`` by design, so "is that too old?" is
+    ``pipeline.daily``'s call (``pipeline/tape_health.py``).
+
     ``force_refresh`` makes the price + fund-shares legs bypass a stale cache hit (the recurring/daily
     path sets it; see ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults
     to Yahoo); ``fund_source`` the swappable shares source (defaults to issuer-first + fallback).
@@ -329,6 +351,23 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001 — fail-visible: a fund with no samplable source is a
             conn.rollback()  # captured error on ITS NameResult, never a silent omission (#7/#9)
             errs.append(f"fund_shares: {e}")
+        # THE FUND-SHARES EDGE (F1) — the tape-edge read's twin, placed AFTER the fund-shares leg for the
+        # same reason: a sample appended by this pass must count, or a healthy sleeve would read one pass
+        # stale forever. GATED on `fund_shares_applies`, which is load-bearing twice over: it keeps ~500
+        # equity members from paying a pointless query every night, and it stops them being JUDGED at all
+        # (an equity's edge is None, and None means STALE to the rule — ungated, the monitor would report
+        # the entire basket). OUTSIDE the leg's try, so an ETF whose sampler RAISED still reports where its
+        # stored series actually ends — a failing leg and a dead series are different facts and the monitor
+        # must see both. Its OWN try: a monitor read never costs a name its result.
+        fund_shares_edge: date | None = None
+        fund_shares_tracked = fund_shares_applies(sec)
+        if fund_shares_tracked:
+            try:
+                fund_shares_edge = latest_shares_date(conn, sec.id, tenant_id=thesis.tenant_id)
+            except (
+                Exception
+            ) as e:  # noqa: BLE001 — same degrade-to-None discipline as the tape edge
+                print(f"  warn: {sec.ticker or sec.id} fund-shares-edge read failed: {e}")
         results.append(
             NameResult(
                 sec.ticker,
@@ -346,6 +385,8 @@ def ingest_thesis(
                 sched13_reversioned=s13_reversioned,
                 sched13_identity_skipped=s13_skipped,
                 tape_edge=tape_edge,
+                fund_shares_edge=fund_shares_edge,
+                fund_shares_tracked=fund_shares_tracked,
             )
         )
     return results

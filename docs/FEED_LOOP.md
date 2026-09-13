@@ -545,16 +545,26 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   retry is ONE attempt, and a multi-night host-off outage still reruns only the last expected night on boot
   (never older holes — a deploy must not silently backfill history); `pipeline.backfill` with a pinned
   `known_at` remains the operator's tool for an older hole.
-- **A price tape that silently ENDED — MONITORED (G5a), the repair still manual.** Zero bars appended with no
-  error is what a dead tape and a market holiday both look like, so a rename-starved name could sit dark
+- **A per-name feed that silently ENDED — MONITORED (G5a price tapes · F1 fund shares), the repair still
+  manual.** Zero rows appended with no error is what a dead feed and a market holiday both look like, so a
+  rename-starved name could sit dark
   indefinitely: no breakout, no SMA flip, no RVOL, and no price-based de-arm, while its filing feeds kept it
-  warming. The nightly pass now reads each name's tape edge, flags a tape `tape_stale_days` (default 5
+  warming. The nightly pass now reads each name's feed edges, flags a price tape `tape_stale_days` (default 5
   calendar days) or more behind the as-of, pages the **newly** stale ones, and the Admin panel lists the
-  current inventory — so the gap is visible and attributable. **Still open by design:** the repair is the
-  operator's (set the vendor symbol override; the next pass heals the tape), because an automatic
-  rename-follower could file another company's tape under a member — worse than a visible gap (#4/#6). Also
+  current inventory — so the gap is visible and attributable.
+  **F1 extends the same rule to the ETF fund-shares feed**, with its own threshold
+  (`fund_shares_stale_days`, default **7** — MEASURED: a healthy sleeve's sample sits 0–2 days behind the
+  pass, because the primary source states the pull date exactly while the fallback stated a two-day-old
+  date, so 7 clears that lag plus a long weekend plus two failed nights), its own rows (`kind`) and its own
+  repair. Only ETF sleeves are judged: an equity has no samples, and a `null` edge means **stale** to the
+  rule, so an ungated monitor would report every equity in every basket. One rule, one dedup, two
+  thresholds; the prose for each feed lives once in `domain/feed_kinds.py`.
+  **Still open by design:** the repair is the
+  operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
+  automatic rename-follower could file another company's tape under a member — worse than a visible gap
+  (#4/#6). Also
   still open: the monitor cannot distinguish a rename from a genuine delisting (it reports the fact, not the
-  diagnosis), and the fund-shares leg for an ETF sleeve has no equivalent recency check yet — price bars only.
+  diagnosis).
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

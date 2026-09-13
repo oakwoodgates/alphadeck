@@ -212,7 +212,7 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   latest stored bar date) and flags a tape whose edge is `ALPHADECK_TAPE_STALE_DAYS` (default 5 calendar days;
   `0` disables) or more behind the run's as-of, or that has no bars at all. The stale set lands on the
   run-of-record artifact, **newly** stale names page through the health notifier, and the Admin freshness
-  panel lists every currently stale tape with its last-bar date (`ADMIN.md` §stale price tapes). It is a
+  panel lists every currently stale tape with its last-bar date (`ADMIN.md` §stopped feeds). It is a
   MONITOR: no detector, no call input, and nothing on the CallCard (a day-varying card field would flap the
   cron's `record_if_changed` idempotency).
 - **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
@@ -224,6 +224,32 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   series, and correctly: there is nothing to repair, the name is simply no longer priced. The monitor cannot
   tell the two apart — it reports the *fact* that the tape stopped and leaves the diagnosis to the operator,
   which is why a known-dead tape pages only once rather than every night.
+
+### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
+
+An ETF sleeve's shares-outstanding sample (`fact_fund_shares`, the net-flow read's basis) comes from a
+**fallback chain** — Polygon when `POLYGON_API_KEY` is set, then the issuer's fund page, then the
+aggregator — whose legs miss independently. It ends without an error in two ways: every leg misses (the fund
+closed or renamed, a source page was redesigned — the chain warns visibly when a *primary* leg errors, so
+that half is at least loud in the run output), or a page's own **stated as-of date freezes** while it keeps
+serving the same count, which the incremental compare correctly skips as an unchanged sample. The leg then
+reports success while the series stands still.
+
+- **Its own threshold, for a measured reason.** The nightly pass records each sleeve's **sample edge** and
+  flags it at `ALPHADECK_FUND_SHARES_STALE_DAYS` (default **7** calendar days; `0` disables this feed
+  independently). Not the price tape's 5: MEASURED on dev, the primary source states the **pull date
+  exactly** (lag 0 across 28 post-backfill samples) while the aggregator fallback stated a **two-day-old**
+  date, so a healthy sleeve's edge sits 0–2 days behind the pass that sampled it. 7 clears that stated lag
+  plus a long weekend plus two failed nights; a dead sampler still surfaces inside a week.
+- **`d` is the SOURCE's own stated as-of date, never an assumed "today"** (migration 0027) — which is
+  exactly why a frozen stated date is a real failure mode rather than a theoretical one.
+- **Only ETF sleeves are judged** (the ingest leg's own gate, shared with the monitor): an equity has no
+  samples, and a `null` edge means *stale* to the rule, so an ungated monitor would report every equity in
+  every basket. A tracked sleeve with no samples at all IS reported — its sampler has never worked.
+- **The repair is the operator's and is NOT `price_symbol`** (that is the price leg's lever): check the fund
+  still trades under that ticker, read the run's fund-shares warnings for a broken source page, and confirm
+  the shares-source key. What goes quiet meanwhile is the sleeve's **display** flow read — never a call
+  input (#4/#6) — while its price and filing feeds keep running.
 
 ## Form 4 — the Rule 10b5-1 checkbox `[BUILT — CAPTURE-ONLY]`
 
