@@ -47,9 +47,10 @@ from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.cron_run_log import already_ran_live, write_cron_run_log
+from pipeline.cron_run_log import already_ran_live, previous_stale_tapes, write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from pipeline.schedule import parse_run_at
+from pipeline.tape_health import StaleTape, stale_tapes
 from repositories import calls_repo, thesis_repo
 from securities import master
 
@@ -78,6 +79,11 @@ class ThesisRunResult:
     # run, Source A) or "total ingest failure" (the ingest raised, or EVERY name errored, Source C). A healthy
     # OR partial run still records (the partial one marked via the calls ingest_fresh column, R2b).
     withheld_reason: str | None = None
+    # G5a — this thesis's names whose PRICE TAPE has gone stale (judged below against this run's asof). A
+    # MONITOR field: it rides on the run result and the run-of-record artifact and NEVER on the CallCard —
+    # a day-varying card field would flap record_if_changed's substance compare and break the cron's
+    # idempotency. Empty on a --no-live pass (not evaluated) and on a healthy universe.
+    tape_stale: tuple[StaleTape, ...] = ()
 
 
 def run_daily(
@@ -159,6 +165,16 @@ def run_daily(
         # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
+        # G5a — THE TAPE-RECENCY JUDGMENT. `ingest_thesis` reported each name's tape EDGE (a fact); the
+        # judgment belongs HERE because this is the layer that holds the run's `asof` — time stays a
+        # parameter, never an ambient clock inside the ingest unit. Gated on `allow_live`: a cache-only pass
+        # must not reset the newly-stale baseline the next live pass diffs against (its artifact records
+        # `tape_evaluated: false`), and it is withheld from the record anyway. `tape_stale_days <= 0`
+        # disables the monitor, which `is_tape_stale` also honors — the gate here just skips the work.
+        if allow_live and get_settings().tape_stale_days > 0:
+            res.tape_stale = stale_tapes(
+                res.ingested, asof=asof, stale_days=get_settings().tape_stale_days
+            )
         # R2a — THE RECORDING GATE: a run that didn't meaningfully refresh must not write the log of record.
         # TWO conditions, closing two do-nothing shapes that a fact-count test can't (a --no-live run over a
         # warm cache is fast, clean, appends nothing, and does NOT error):
@@ -267,6 +283,7 @@ def assess_health(
     freeze_check: bool = True,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
+    tape_stale_new: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -289,6 +306,15 @@ def assess_health(
     benchmark pulls that failed (1 of 2 = a partly stale tape), ``benchmark_leg_failed`` = the leg itself
     raised before producing per-benchmark results (no refresh happened at all). Both are passed IN rather
     than derived, because the legs run outside ``run_daily`` and this function stays pure.
+
+    G5a — ``tape_stale_new`` are the display labels of names whose PRICE TAPE went stale **since the previous
+    evaluated live pass** (``cron_run_log.previous_stale_tapes`` does that diff, keyed on ``security_id``;
+    this function stays pure, so the cross-run comparison is passed IN like the benchmark counts). NEWLY
+    stale only, on purpose: a handful of known-dead tapes must not re-page every night forever (inverse
+    loudness — a page true of every night carries no information). It pages, but it is NOT an alarm about the
+    CRON: the run did its job, the FEED has a gap the operator repairs by pointing the price leg at the
+    vendor's current symbol — so ``app/routers/admin.py::_problems`` renders it with the benign marker and
+    the one-word cron verdict stays about the cron.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -305,6 +331,7 @@ def assess_health(
         or frozen
         or benchmark_errors
         or benchmark_leg_failed
+        or tape_stale_new
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -317,6 +344,7 @@ def assess_health(
         frozen=frozen,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
+        tape_stale_new=tape_stale_new,
     )
 
 
@@ -330,7 +358,9 @@ class DailyPassOutcome:
     ``benchmark_errors`` / ``benchmark_leg_failed`` (G4) carry the SHARED-INPUT refresh leg's outcome off
     the pass, because the admin "run now" job rebuilds its poll payload from THIS object
     (``app/routers/admin.py``) — without them that payload would disagree with the artifact on disk about
-    whether the night was healthy."""
+    whether the night was healthy. ``tape_evaluated`` / ``tape_stale_new`` (G5a) ride along for the same
+    reason: the cross-run stale diff is computed ONCE, in the pass, and both the artifact and that poll
+    payload must report the same thing."""
 
     results: list[ThesisRunResult]
     asof: date
@@ -341,6 +371,10 @@ class DailyPassOutcome:
     catch_up: bool = False
     benchmark_errors: int = 0
     benchmark_leg_failed: bool = False
+    # G5a: did this pass EVALUATE tape recency (live + the monitor enabled), and which names became stale
+    # since the previous evaluated live pass (display labels — ticker, or the id when ticker-less)
+    tape_evaluated: bool = False
+    tape_stale_new: tuple[str, ...] = ()
 
 
 def run_daily_pass(
@@ -426,6 +460,22 @@ def run_daily_pass(
     finally:
         conn.close()
     finished_at = datetime.now(timezone.utc)
+    # G5a — THE NEWLY-STALE DIFF, computed BEFORE the artifact is written (ordering is load-bearing: once
+    # this run's artifact exists it would be its own "previous" and nothing could ever read as newly stale).
+    # The diff is keyed on security_id, NOT ticker — a ticker-less name must still be able to page, and a
+    # ticker changing under a name is half of why this monitor exists. `previous_stale_tapes()` returns None
+    # when no evaluated live artifact exists yet (the first pass after the deploy): that is deliberately
+    # treated as "everything currently stale is news", so the operator gets the inventory ONCE instead of a
+    # silent first night. Thereafter only genuinely-new names page (a handful of known-dead tapes must not
+    # re-page forever). A --no-live pass evaluates nothing and records `tape_evaluated: false`, so it can
+    # never reset the baseline the next live pass diffs against.
+    tape_evaluated = allow_live and get_settings().tape_stale_days > 0
+    tape_stale_new: tuple[str, ...] = ()
+    if tape_evaluated:
+        current = {str(s.security_id): s.label for r in results for s in r.tape_stale}
+        prior = previous_stale_tapes()
+        new_ids = sorted(current) if prior is None else sorted(set(current) - prior)
+        tape_stale_new = tuple(current[i] for i in new_ids)
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
     log_path = write_cron_run_log(
@@ -437,6 +487,8 @@ def run_daily_pass(
         catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
+        tape_evaluated=tape_evaluated,
+        tape_stale_new=tape_stale_new,
     )
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
@@ -451,6 +503,7 @@ def run_daily_pass(
         freeze_check=not catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
+        tape_stale_new=tape_stale_new,
     )
     if health is not None:
         notifier.notify_health(health)
@@ -507,6 +560,8 @@ def run_daily_pass(
         catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
+        tape_evaluated=tape_evaluated,
+        tape_stale_new=tape_stale_new,
     )
 
 
@@ -546,6 +601,14 @@ def _report(results: list[ThesisRunResult]) -> int:
         print("TRANSITIONS:")
         for t in transitions:
             print(f"  {t}")
+    # G5a — the stale-tape inventory, deduped ACROSS theses (one dead tape, not one per holder) and printed
+    # only when there is one (loudness marks the exception). stdout is the first place an operator looks at
+    # a cron run; the durable copies are the run-log artifact and the Admin freshness panel.
+    stale = {str(s.security_id): s for r in results for s in r.tape_stale}
+    if stale:
+        print("STALE PRICE TAPES (no new bars — check for a ticker rename or a delisting):")
+        for s in stale.values():
+            print(f"  {s.label}: last bar {s.edge.isoformat() if s.edge else 'never'}")
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "

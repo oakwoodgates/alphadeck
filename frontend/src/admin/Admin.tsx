@@ -69,9 +69,10 @@ function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
  *  (record freshness vs the Mon-Fri+RUN_AT schedule, the run-of-record history, a health verdict)
  *  plus ONE explicit trigger: "Run daily now". Honest loudness throughout: loud styling is reserved
  *  for stale / unhealthy / gappy (a night inside the recent window with NO call-of-record — the
- *  wrong-day fire the edge check can't see); "current", "never begun", and "never ran" stay quiet,
- *  and the missed-nights list renders ONLY when there is one to show. The trigger fires ONLY on the
- *  button click — never on mount, render, or poll (reads may poll; the trigger may not). */
+ *  wrong-day fire the edge check can't see) and for a STOPPED price tape; "current", "never begun",
+ *  and "never ran" stay quiet, and the missed-nights list and the stale-tape list each render ONLY
+ *  when there is one to show. The trigger fires ONLY on the button click — never on mount, render, or
+ *  poll (reads may poll; the trigger may not). */
 export function Admin({ header }: Props) {
   const statusQ = useAdminStatus();
   const runsQ = useAdminRuns(20);
@@ -170,6 +171,33 @@ export function Admin({ header }: Props) {
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}
             </div>
+            {/* the STALE PRICE TAPES — names whose stored EOD tape has stopped (a ticker rename the vendor
+                priced under a new symbol, or a delisting). Rendered ONLY when there is one: a panel true of
+                every row carries no information, and "no stale tapes" is the normal night. A row with no
+                ticker still renders, by id — never dropped (#9). */}
+            {status.tape && status.tape.stale.length > 0 && (
+              <div className="adm-stale" data-testid="adm-stale-tapes">
+                <div className="adm-line adm-loud">
+                  <b>{status.tape.stale.length}</b> price tape(s) have stopped — no new bars for{" "}
+                  {status.tape.stale_days}+ days
+                </div>
+                <ul className="adm-problems">
+                  {status.tape.stale.map((t) => (
+                    <li key={t.security_id}>
+                      <b>{t.ticker ?? t.security_id}</b> — last bar {t.edge ?? "never"} ·{" "}
+                      {t.thesis}
+                    </li>
+                  ))}
+                </ul>
+                <div className="adm-sub">
+                  Every price-driven signal for these names is dark until the tape resumes (no breakout,
+                  no SMA flip, no RVOL — and no price-based de-arm either); the filing feeds keep running.
+                  Check each for a ticker rename or a delisting, then set the vendor price symbol on the
+                  security master — the next nightly pass re-pulls the full year and heals the tape. As of
+                  the {status.tape.asof} pass.
+                </div>
+              </div>
+            )}
           </section>
 
           {/* 2 — cron health: the one-word verdict + the last run */}

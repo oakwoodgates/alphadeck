@@ -50,6 +50,8 @@ def build_run_payload(
     catch_up: bool = False,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
+    tape_evaluated: bool = False,
+    tape_stale_new: tuple[str, ...] = (),
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -78,6 +80,19 @@ def build_run_payload(
     the notifier would make the night the platform PAGED about re-read forever as a green row. An artifact
     written before the keys existed reads as `0` / `False` (the reader uses `.get` — a new key must never
     make an old artifact unparseable, which would blank the whole history).
+
+    `tape_evaluated` / `tape_stale_new` + the per-thesis `tape_stale` list (G5a) record the PRICE-TAPE
+    RECENCY monitor. Three jobs, which is why all three live on the artifact:
+    - the per-thesis `tape_stale` rows (`security_id`, `ticker`, `edge`) are the DURABLE inventory the Admin
+      freshness panel renders and the next run's diff reads (`previous_stale_tapes`, below) — keyed on
+      `security_id`, never the ticker, because a ticker-less name must still be able to page and a ticker
+      changing under a name is half of why the monitor exists;
+    - `tape_stale_new` is that diff's OUTPUT for the night (display labels — the ticker, or the id when
+      ticker-less), so the admin history re-derives the same page this run emitted;
+    - `tape_evaluated` says the pass actually LOOKED (live + the monitor enabled). A `--no-live` pass records
+      `false` and is therefore skipped as a diff baseline — otherwise a hand-run cache-only pass would reset
+      the baseline and silence the next real page.
+    An artifact written before these keys existed reads as `false` / `[]` / no rows (`.get` again).
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -97,6 +112,11 @@ def build_run_payload(
         # leg runs once per pass on its own connection, outside the per-thesis loop.
         "benchmark_errors": benchmark_errors,
         "benchmark_leg_failed": benchmark_leg_failed,
+        # G5a — the price-tape recency monitor. `tape_evaluated` = this pass looked at all (live + enabled);
+        # `tape_stale_new` = the names that became stale since the previous EVALUATED live pass, as display
+        # labels (ticker, or the security id when ticker-less — never dropped, #9).
+        "tape_evaluated": tape_evaluated,
+        "tape_stale_new": list(tape_stale_new),
         "summary": {
             "theses": len(results),
             "appended": recorded,
@@ -122,6 +142,16 @@ def build_run_payload(
                 "form4_skipped": sum(x.form4_skipped for x in r.ingested),
                 # the ETF sleeves' fund-shares samples (net flow F2) — 0 on an all-equity thesis
                 "fund_shares_appended": sum(x.fund_shares_appended for x in r.ingested),
+                # G5a — this thesis's STALE price tapes: the durable inventory the Admin panel renders and
+                # the next run's diff keys on. `edge` is the latest stored bar date (null = no bars at all).
+                "tape_stale": [
+                    {
+                        "security_id": str(s.security_id),
+                        "ticker": s.ticker,
+                        "edge": s.edge.isoformat() if s.edge else None,
+                    }
+                    for s in r.tape_stale
+                ],
             }
             for r in results
         ],
@@ -139,6 +169,8 @@ def write_cron_run_log(
     catch_up: bool = False,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
+    tape_evaluated: bool = False,
+    tape_stale_new: tuple[str, ...] = (),
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -154,6 +186,8 @@ def write_cron_run_log(
             catch_up=catch_up,
             benchmark_errors=benchmark_errors,
             benchmark_leg_failed=benchmark_leg_failed,
+            tape_evaluated=tape_evaluated,
+            tape_stale_new=tape_stale_new,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -222,6 +256,38 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
         if started >= cutoff:
             return True
     return False
+
+
+def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
+    """The set of ``security_id`` strings whose price tape was STALE on the most recent pass that actually
+    EVALUATED recency — the baseline the current pass diffs against so only NEWLY stale tapes page (G5a).
+
+    ``None`` (distinct from an empty set!) = **no evaluated live artifact exists yet** — the first pass after
+    this monitor deployed, or a run home with nothing in it. The caller treats that as "everything currently
+    stale is news" so the operator gets the inventory ONCE, loudly, instead of a silent first night; an empty
+    SET means a pass did look and found nothing stale, so a name appearing now is genuinely new.
+
+    Two filters, both load-bearing. ``mode == "live"``: a ``--no-live`` pass cannot see a tape's current edge
+    honestly and must never become the baseline, or a hand-run cache-only pass would silence the next real
+    page. ``tape_evaluated``: an artifact written BEFORE this monitor existed, or by a pass with the monitor
+    disabled (``tape_stale_days = 0``), carries no stale inventory — reading its absent list as "nothing was
+    stale" would make every already-known dead tape page again as if new.
+
+    Newest-first, first match wins. Fail-open PER ARTIFACT like its siblings (an unreadable or malformed file
+    is skipped, never an exception) — and the whole read is best-effort: the caller's worst case is a repeat
+    page, never a missed one. Pure file read — no DB, no network, nothing written."""
+    for doc in list_run_logs(base_dir=base_dir):
+        if doc.get("mode") != "live" or not doc.get("tape_evaluated", False):
+            continue
+        out: set[str] = set()
+        for t in doc.get("theses") or []:
+            if not isinstance(t, dict):
+                continue
+            for s in t.get("tape_stale") or []:
+                if isinstance(s, dict) and s.get("security_id"):
+                    out.add(str(s["security_id"]))
+        return out
+    return None
 
 
 def list_run_logs(*, base_dir: Path | None = None, limit: int | None = None) -> list[dict]:

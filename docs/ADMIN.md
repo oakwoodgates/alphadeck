@@ -72,6 +72,42 @@ Freshness asks whether the log advanced, not whether a row is scoreable — the 
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
 reconstructed · not scored" there can both be true of the same night.
 
+### Stale price tapes — "is every name still being priced?"  `[BUILT, G5a]`
+
+`status.tape` is the price-tape panel, and it closes the "monitor health: is it watched?" gap for prices.
+**The failure it makes visible:** the price leg appends bars after the latest stored one, so a name whose
+vendor series simply **STOPS** — the SEC ticker stays canonical but the vendor prices the name under a new
+symbol after a rename, or the name delisted — returns a series that ends at the stop: **zero bars appended,
+no error, indistinguishable from a market holiday.** Nothing read the tape's edge, so it was invisible, and
+for that name every price-driven signal goes dark from the stop date (no breakout, no SMA flip, no RVOL — and
+no price-based de-arm either) while the CIK-keyed filing feeds keep flowing, so it can still WARM on a filing
+and never confirm on price.
+
+- **What counts as stale:** the latest stored EOD bar is `ALPHADECK_TAPE_STALE_DAYS` (default **5**) or more
+  **calendar** days before the run's as-of, or the name has no bars at all. Calendar days because the trading
+  clock deliberately has no holiday calendar; five clears a long weekend plus a holiday and still surfaces a
+  dead tape inside a week. `0` disables the monitor.
+- **Where it comes from:** the nightly pass records each name's tape edge and its stale set into the
+  run-of-record artifact, and this panel reads the newest artifact that actually **evaluated** recency. So it
+  is "as of last night" (the right granularity for a nightly feed), it costs no query, and this surface still
+  owns no tables. `tape` is **null** until a pass has looked — a `--no-live` pass never counts.
+- **One row per security**, even when two theses hold the name, with its last-bar date and the thesis it was
+  seen under; a name with no ticker renders by id rather than vanishing (#9). The list renders **only when
+  something is stale** — "no stale tapes" is the normal night.
+- **It pages, but it never changes `cron.status`.** A stopped tape is a **feed** gap to repair, not a cron
+  fault: the run did its job. So the night's run row carries a problem line naming the tape and the notifier
+  pushes it, while the one-word verdict stays about the cron (an `unhealthy` chip that really meant "a vendor
+  renamed a ticker" would teach you to ignore the chip). Only **newly** stale tapes page — the diff is against
+  the previous evaluated pass, keyed on the security (not the ticker), so a handful of known-dead tapes do not
+  re-page every night. The **first** evaluated pass after this shipped pages the whole current inventory once,
+  on purpose.
+- **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
+  delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
+  OTC fix's seam). The next nightly pass re-pulls the full year under the new symbol, appends the missing tail
+  and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is deliberately
+  not built: a wrong auto-resolve would file another company's tape under your member, which is worse than a
+  visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
+
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
 `ZoneInfo`) rather than an ambient `datetime.now()`. *(Earmark, still open: `schedule.py` remains the second
@@ -101,6 +137,10 @@ pass (the sidecar's boot / late-wake catch-up) is re-read with the freeze check 
 itself was assessed — it runs inside the EDGAR 12h TTL and legitimately fetches ~0 — so the history never
 shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminRunOut.catch_up`).
 `GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
+
+A **newly stale price tape** (G5a) also appears in `problems`, but carries the same benign marker as the
+`--no-live` note, so it never makes the verdict `unhealthy` — it is a feed gap, not a cron fault (see
+"Stale price tapes" above).
 
 A **failed benchmark refresh** is one of the alarms (G4). The SPY/IWM tape is a *shared* call-logic input
 (`benchmark_rs`), refreshed by a fail-open passenger leg before the per-thesis loop; its faults used to reach
