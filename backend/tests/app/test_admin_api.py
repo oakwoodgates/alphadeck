@@ -10,6 +10,7 @@ autouse ``cron_runs_dir`` fixture in this package's conftest)."""
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -17,6 +18,8 @@ import pytest
 
 from app.routers import admin
 from db.session import DEFAULT_TENANT_ID
+from domain.feed_kinds import StaleFeedLabel
+from domain.settings import get_settings
 from pipeline import daily, daily_job
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
@@ -87,7 +90,9 @@ def _artifact(
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
     tape_evaluated: bool = False,
-    tape_stale_new: tuple[str, ...] = (),
+    tape_stale_new: tuple[StaleFeedLabel, ...] = (),
+    tape_stale_days: int = 5,
+    fund_shares_stale_days: int = 7,
 ):
     """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home)."""
     results = results if results is not None else [_tr(recorded=True, edgar_fetches=88)]
@@ -102,6 +107,8 @@ def _artifact(
         benchmark_leg_failed=benchmark_leg_failed,
         tape_evaluated=tape_evaluated,
         tape_stale_new=tape_stale_new,
+        tape_stale_days=tape_stale_days,
+        fund_shares_stale_days=fund_shares_stale_days,
     )
     assert path is not None
     return path
@@ -463,8 +470,8 @@ def test_poll_unknown_job_is_404(client):
 # --- G5a: the price-tape freshness panel + the verdict it must NOT change -----------------------------
 
 
-def _stale_row(ticker, *, sid=None, edge=None):
-    return StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge)
+def _stale_row(ticker, *, sid=None, edge=None, kind="price"):
+    return StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind)
 
 
 def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron_runs_dir):
@@ -488,14 +495,14 @@ def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron
             )
         ],
         tape_evaluated=True,
-        tape_stale_new=("AAA",),
+        tape_stale_new=(StaleFeedLabel("price", "AAA"),),
     )
     body = client.get("/admin/status").json()
 
     tape = body["tape"]
     assert tape is not None
     assert tape["stale_days"] == 5 and tape["asof"] == "2026-07-20"
-    assert tape["newly_stale"] == ["AAA"]
+    assert tape["newly_stale"] == ["AAA"]  # the LABELS, never the raw {kind, label} objects
     rows = {r["security_id"]: r for r in tape["stale"]}
     assert rows[str(a)]["ticker"] == "AAA" and rows[str(a)]["edge"] == "2026-06-30"
     assert rows[str(a)]["thesis"] == "Thesis One"
@@ -573,7 +580,7 @@ def test_status_a_NEWLY_STALE_tape_is_listed_but_does_NOT_make_the_cron_unhealth
             )
         ],
         tape_evaluated=True,
-        tape_stale_new=("AAA",),
+        tape_stale_new=(StaleFeedLabel("price", "AAA"),),
     )
     _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
 
@@ -758,3 +765,176 @@ def test_status_daytime_only_lists_SCHEDULED_nights_only_never_a_weekend(client,
     assert (
         "1 with a daytime row only" in body["record"]["reason"]
     )  # counts the hole, not the Saturday
+
+
+# --- F1 + F6: the fund-shares rows on the panel, and the thresholds the PASS judged under -------------
+
+
+def test_status_tape_lists_a_FUND_SHARES_row_tagged_with_its_kind(client, cron_runs_dir):
+    """A stopped ETF sleeve sampling lands on the same panel as a stopped price tape, tagged with the feed
+    that stopped — the FE renders the two as separate blocks because the repairs differ, and it can only
+    do that if the row says which. One security stale on BOTH feeds is two rows, not one."""
+    both = uuid.uuid4()
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="Thesis One",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(
+                    _stale_row("AAA", sid=both, edge=date(2026, 6, 30)),
+                    _stale_row("AAA", sid=both, edge=date(2026, 7, 1), kind="fund_shares"),
+                ),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=(StaleFeedLabel("fund_shares", "AAA"),),
+    )
+
+    tape = client.get("/admin/status").json()["tape"]
+
+    rows = {(r["security_id"], r["kind"]): r for r in tape["stale"]}
+    assert len(rows) == 2  # the same security, two dead feeds, two repairs
+    assert rows[(str(both), "price")]["edge"] == "2026-06-30"
+    assert rows[(str(both), "fund_shares")]["edge"] == "2026-07-01"
+    assert tape["newly_stale"] == ["AAA"]
+
+
+def test_status_tape_reports_the_PASSS_thresholds_not_the_LIVE_setting(
+    client, cron_runs_dir, monkeypatch
+):
+    """F6: the panel states the number its list was computed with. Reading the setting live instead
+    misdescribes the inventory whenever it changed between the pass and the read — the list says one thing
+    and the sentence above it says another. Both feeds' thresholds come off the artifact."""
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(_stale_row("AAA", edge=date(2026, 6, 30)),),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_days=5,
+        fund_shares_stale_days=7,
+    )
+    # the operator retunes BOTH settings after that pass ran
+    monkeypatch.setenv("ALPHADECK_TAPE_STALE_DAYS", "99")
+    monkeypatch.setenv("ALPHADECK_FUND_SHARES_STALE_DAYS", "42")
+    get_settings.cache_clear()
+    try:
+        tape = client.get("/admin/status").json()["tape"]
+    finally:
+        get_settings.cache_clear()
+
+    assert tape["stale_days"] == 5 and tape["fund_shares_stale_days"] == 7
+
+
+def test_status_tape_keeps_a_STORED_ZERO_threshold_rather_than_the_live_value(
+    client, cron_runs_dir, monkeypatch
+):
+    """The `or`-trap, pinned: 0 is a REAL stored value meaning that feed's monitor was DISABLED for the
+    pass. A truthiness check would silently swap in whatever the setting says today — the very
+    misdescription F6 exists to stop, inverted."""
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(_stale_row("AAA", edge=date(2026, 6, 30)),),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_days=5,
+        fund_shares_stale_days=0,  # the fund monitor was OFF for this pass
+    )
+
+    tape = client.get("/admin/status").json()["tape"]
+
+    assert tape["fund_shares_stale_days"] == 0  # not the live default
+
+
+def test_status_a_newly_stale_FUND_SHARES_tape_is_BENIGN_like_its_price_sibling(
+    client, db, monkeypatch
+):
+    """The operator's rule applied to the second feed: a stopped fund-shares tape is a FEED gap to repair,
+    not a cron fault, so it pages and lists but never takes over the one-word cron verdict. Its problem
+    line must also carry its OWN repair, not the price tape's."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    daily.run_daily(db, asof=_MON, allow_live=True)  # edge = Monday (current)
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,  # the run itself is spotless
+                tape_stale=(_stale_row("ETF1", edge=date(2026, 6, 30), kind="fund_shares"),),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=(StaleFeedLabel("fund_shares", "ETF1"),),
+    )
+    _pin(monkeypatch, datetime(2026, 7, 20, 23, 0))
+
+    body = client.get("/admin/status").json()
+
+    assert body["last_run"]["healthy"] is False  # the assessor DID page…
+    line = next(p for p in body["last_run"]["problems"] if "fund-shares tape(s) newly STALE" in p)
+    assert "ETF1" in line and "not an error" in line  # …as a benign note
+    assert "price symbol" not in line  # …with ITS repair, not the price tape's
+    assert body["cron"]["status"] == "healthy"  # …and the verdict stays about the cron
+
+
+def test_an_artifact_WITHOUT_the_FUND_keys_still_parses_and_reads_as_price(client, cron_runs_dir):
+    """Back-compat, the strictness trap again: every artifact on disk right now predates the fund feed —
+    no `kind` on its rows, no threshold keys, and bare strings in `tape_stale_new`. All of it must still
+    render (a raising reader would blank the whole run history and `last_run`), with its rows read as
+    PRICE rows and the thresholds falling back to the live settings."""
+    a = uuid.uuid4()
+    path = _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(_stale_row("AAA", sid=a, edge=date(2026, 6, 30)),),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=(StaleFeedLabel("price", "AAA"),),
+    )
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    del doc["theses"][0]["tape_stale"][0]["kind"]  # a pre-F1 artifact, exactly as it sits on disk
+    del doc["tape_stale_days"]
+    del doc["fund_shares_stale_days"]
+    doc["tape_stale_new"] = ["AAA"]  # the old bare-string shape
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    body = client.get("/admin/status").json()
+
+    assert body["last_run"] is not None  # the history did NOT blank
+    assert any(
+        "price tape(s) newly STALE" in p and "AAA" in p for p in body["last_run"]["problems"]
+    )
+    tape = body["tape"]
+    assert tape["stale"][0]["kind"] == "price" and tape["stale"][0]["security_id"] == str(a)
+    assert tape["stale_days"] == 5 and tape["fund_shares_stale_days"] == 7  # the live defaults
+    assert tape["newly_stale"] == ["AAA"]

@@ -1001,10 +1001,10 @@ export interface paths {
          *     ``RUN_AT`` — a run that fired on the wrong day, or failed after a daytime pass; the edge check alone
          *     cannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean
          *     window) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.
-         *     ``tape`` is the PRICE-TAPE freshness panel (G5a): every basket
-         *     name whose stored EOD tape has stopped, read from the newest run artifact that evaluated recency —
-         *     ``null`` until a pass has looked. A stale tape is a FEED gap, not a cron fault, so it never changes
-         *     ``cron.status``.
+         *     ``tape`` is the FEED freshness panel (G5a price tapes · F1 ETF fund shares): every basket
+         *     name whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from
+         *     the newest run artifact that evaluated recency — ``null`` until a pass has looked. A stale feed is a
+         *     FEED gap, not a cron fault, so it never changes ``cron.status``.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1463,12 +1463,18 @@ export interface components {
         };
         /**
          * AdminStaleTapeOut
-         * @description One basket name whose PRICE TAPE has stopped (G5a): ``edge`` is the latest stored EOD bar date
-         *     (``null`` = no bars at all), ``thesis`` the thesis it was seen under. A tape that silently ENDS — the
-         *     vendor prices the name under a new symbol after a rename, or it delisted — appends zero bars with NO
-         *     error, indistinguishable from a holiday, and every price-driven detector for that name goes dark
-         *     (no breakout, no SMA flip, no RVOL — and no price-based de-arm either). ``ticker`` may be ``null``;
-         *     the row still renders by ``security_id`` and is never dropped (#9).
+         * @description One basket name whose monitored FEED has stopped: ``edge`` is the latest stored date for that feed
+         *     (``null`` = nothing stored at all), ``thesis`` the thesis it was seen under, and ``kind`` WHICH feed —
+         *     ``price`` (G5a) or ``fund_shares`` (F1).
+         *
+         *     Both stop the same silent way — zero rows appended, no error, indistinguishable from a holiday — and
+         *     both are dark until repaired: a stopped price tape (the vendor prices the name under a new symbol after
+         *     a rename, or it delisted) takes every price-driven detector for that name with it (no breakout, no SMA
+         *     flip, no RVOL — and no price-based de-arm), while a stopped fund-shares sample takes an ETF sleeve's
+         *     flow read quiet. The REPAIRS differ, which is why the row says which feed it is: the vendor price
+         *     symbol on the master for a tape, a fund/ticker/source check for a sleeve. A row from an artifact
+         *     written before fund shares were monitored reads ``price``. ``ticker`` may be ``null``; the row still
+         *     renders by ``security_id`` and is never dropped (#9).
          */
         AdminStaleTapeOut: {
             /**
@@ -1482,14 +1488,19 @@ export interface components {
             edge?: string | null;
             /** Thesis */
             thesis: string;
+            /**
+             * Kind
+             * @default price
+             */
+            kind: string;
         };
         /**
          * AdminStatusOut
          * @description The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
-         *     newest DB snapshot + the price-tape panel. READ-ONLY — the endpoint owns no tables and writes
+         *     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
          *     nothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from
          *     the run artifacts). ``last_backup`` is ``None`` = the quiet "no snapshots yet" state; ``tape`` is
-         *     ``None`` until a pass has evaluated tape recency (the quiet "not looked yet" state).
+         *     ``None`` until a pass has evaluated feed recency (the quiet "not looked yet" state).
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -1500,14 +1511,21 @@ export interface components {
         };
         /**
          * AdminTapeOut
-         * @description The price-tape freshness panel (G5a), read from the newest run artifact that actually EVALUATED
-         *     recency — not a fresh DB scan, so this surface still owns no tables. ``asof`` / ``ran_at`` say which
-         *     pass produced it (the answer is "as of last night", which is the right granularity for a nightly
-         *     feed); ``stale_days`` is the threshold that pass used. ``stale`` is the full current inventory, one
-         *     row per security (a name placed in several value-chain links appears once); ``newly_stale`` are the
-         *     display labels that PAGED that night — the diff against the previous evaluated pass, so a known-dead
-         *     tape does not re-page forever. The repair is the operator's: point the price leg at the vendor's
-         *     current symbol (``security_master.price_symbol``) and the next nightly pass heals the tape.
+         * @description The FEED freshness panel (G5a price tapes · F1 ETF fund shares), read from the newest run artifact
+         *     that actually EVALUATED recency — not a fresh DB scan, so this surface still owns no tables. ``asof`` /
+         *     ``ran_at`` say which pass produced it (the answer is "as of last night", which is the right
+         *     granularity for a nightly feed).
+         *
+         *     ``stale_days`` and ``fund_shares_stale_days`` are the thresholds **that pass judged under**, read off
+         *     its artifact rather than live, so the number shown always describes the list shown even if the setting
+         *     changed in between; each feed has its own because their cadences differ (a price tape gets a bar every
+         *     session, while a sleeve's sample carries the source page's own stated as-of date). ``0`` means that
+         *     feed's monitor was disabled for the pass.
+         *
+         *     ``stale`` is the full current inventory, one row per feed per security (a name placed in several
+         *     value-chain links appears once; a name stale on both feeds appears once per feed, since the repairs
+         *     differ — each row's ``kind`` says which). ``newly_stale`` are the display labels that PAGED that night
+         *     — the diff against the previous evaluated pass, so a known-dead feed does not re-page forever.
          */
         AdminTapeOut: {
             /**
@@ -1519,6 +1537,11 @@ export interface components {
             ran_at: string;
             /** Stale Days */
             stale_days: number;
+            /**
+             * Fund Shares Stale Days
+             * @default 0
+             */
+            fund_shares_stale_days: number;
             /**
              * Stale
              * @default []

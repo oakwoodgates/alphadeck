@@ -49,6 +49,7 @@ import psycopg
 
 from db.session import connect
 from domain.enums import State
+from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -57,7 +58,7 @@ from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import already_ran_live, previous_stale_tapes, write_cron_run_log
 from pipeline.ingest_thesis import NameResult, ingest_thesis
 from pipeline.schedule import parse_run_at
-from pipeline.tape_health import StaleTape, stale_tapes
+from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, thesis_repo
 from securities import master
 
@@ -86,8 +87,9 @@ class ThesisRunResult:
     # run, Source A) or "total ingest failure" (the ingest raised, or EVERY name errored, Source C). A healthy
     # OR partial run still records (the partial one marked via the calls ingest_fresh column, R2b).
     withheld_reason: str | None = None
-    # G5a — this thesis's names whose PRICE TAPE has gone stale (judged below against this run's asof). A
-    # MONITOR field: it rides on the run result and the run-of-record artifact and NEVER on the CallCard —
+    # G5a/F1 — this thesis's names whose monitored FEED has gone stale (judged below against this run's
+    # asof): price tapes and ETF fund-shares samples together, each row carrying its `kind`. A MONITOR
+    # field: it rides on the run result and the run-of-record artifact and NEVER on the CallCard —
     # a day-varying card field would flap record_if_changed's substance compare and break the cron's
     # idempotency. Empty on a --no-live pass (not evaluated) and on a healthy universe.
     tape_stale: tuple[StaleTape, ...] = ()
@@ -172,16 +174,28 @@ def run_daily(
         # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
-        # G5a — THE TAPE-RECENCY JUDGMENT. `ingest_thesis` reported each name's tape EDGE (a fact); the
-        # judgment belongs HERE because this is the layer that holds the run's `asof` — time stays a
-        # parameter, never an ambient clock inside the ingest unit. Gated on `allow_live`: a cache-only pass
-        # must not reset the newly-stale baseline the next live pass diffs against (its artifact records
-        # `tape_evaluated: false`), and it is withheld from the record anyway. `tape_stale_days <= 0`
-        # disables the monitor, which `is_tape_stale` also honors — the gate here just skips the work.
-        if allow_live and get_settings().tape_stale_days > 0:
-            res.tape_stale = stale_tapes(
-                res.ingested, asof=asof, stale_days=get_settings().tape_stale_days
-            )
+        # G5a/F1 — THE FEED-RECENCY JUDGMENT, both feeds. `ingest_thesis` reported each name's EDGES (facts:
+        # the latest stored price bar, and for an ETF sleeve the latest stored shares sample); the judgment
+        # belongs HERE because this is the layer that holds the run's `asof` — time stays a parameter, never
+        # an ambient clock inside the ingest unit. Gated on `allow_live`: a cache-only pass must not reset
+        # the newly-stale baseline the next live pass diffs against (its artifact records
+        # `tape_evaluated: false`), and it is withheld from the record anyway.
+        # ONE settings read, TWO thresholds: the feeds have different cadences (a price tape gets a bar
+        # every session; a sleeve's sample carries the source page's own stated as-of date, measurably up
+        # to two days behind the pull), so one number cannot serve both. Either at <= 0 disables that feed's
+        # monitor independently — `is_tape_stale` honors it too; the gates here just skip the work. The two
+        # row sets ride ONE field because they are the same question about two feeds; each row carries its
+        # `kind`, and the dedup is per (kind, security) so a name stale on both is reported once per feed.
+        if allow_live:
+            s = get_settings()
+            rows: tuple[StaleTape, ...] = ()
+            if s.tape_stale_days > 0:
+                rows += stale_tapes(res.ingested, asof=asof, stale_days=s.tape_stale_days)
+            if s.fund_shares_stale_days > 0:
+                rows += stale_fund_shares(
+                    res.ingested, asof=asof, stale_days=s.fund_shares_stale_days
+                )
+            res.tape_stale = rows
         # R2a — THE RECORDING GATE: a run that didn't meaningfully refresh must not write the log of record.
         # TWO conditions, closing two do-nothing shapes that a fact-count test can't (a --no-live run over a
         # warm cache is fast, clean, appends nothing, and does NOT error):
@@ -307,7 +321,7 @@ def assess_health(
     freeze_check: bool = True,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
-    tape_stale_new: tuple[str, ...] = (),
+    tape_stale_new: tuple[StaleFeedLabel, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -331,14 +345,16 @@ def assess_health(
     raised before producing per-benchmark results (no refresh happened at all). Both are passed IN rather
     than derived, because the legs run outside ``run_daily`` and this function stays pure.
 
-    G5a — ``tape_stale_new`` are the display labels of names whose PRICE TAPE went stale **since the previous
-    evaluated live pass** (``cron_run_log.previous_stale_tapes`` does that diff, keyed on ``security_id``;
-    this function stays pure, so the cross-run comparison is passed IN like the benchmark counts). NEWLY
-    stale only, on purpose: a handful of known-dead tapes must not re-page every night forever (inverse
+    G5a/F1 — ``tape_stale_new`` are the ``(kind, label)`` pairs for names whose monitored FEED went stale
+    **since the previous evaluated live pass** (``cron_run_log.previous_stale_tapes`` does that diff, keyed
+    on ``kind:security_id``; this function stays pure, so the cross-run comparison is passed IN like the
+    benchmark counts). Both feeds ride one argument and the page groups them by kind, because a price tape
+    and a fund-shares sample stop for different reasons and are repaired differently. NEWLY
+    stale only, on purpose: a handful of known-dead feeds must not re-page every night forever (inverse
     loudness — a page true of every night carries no information). It pages, but it is NOT an alarm about the
-    CRON: the run did its job, the FEED has a gap the operator repairs by pointing the price leg at the
-    vendor's current symbol — so ``app/routers/admin.py::_problems`` renders it with the benign marker and
-    the one-word cron verdict stays about the cron.
+    CRON: the run did its job, the FEED has a gap the operator repairs (the vendor price symbol for a tape;
+    a fund/ticker/source check for a sleeve) — so ``app/routers/admin.py::_problems`` renders it with the
+    benign marker and the one-word cron verdict stays about the cron.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -395,10 +411,16 @@ class DailyPassOutcome:
     catch_up: bool = False
     benchmark_errors: int = 0
     benchmark_leg_failed: bool = False
-    # G5a: did this pass EVALUATE tape recency (live + the monitor enabled), and which names became stale
-    # since the previous evaluated live pass (display labels — ticker, or the id when ticker-less)
+    # G5a/F1: did this pass EVALUATE feed recency (live + at least one monitor enabled), and which names
+    # became stale since the previous evaluated live pass — (kind, label) pairs, the label being the ticker
+    # or the security id when ticker-less. The THRESHOLDS each feed was judged under ride here too (F6):
+    # the Admin panel describes an inventory, and describing it with a number the pass did not use — because
+    # the setting changed between the pass and the read — would misstate what is on screen. 0 is a real
+    # value (that feed's monitor was off), so readers must check for presence, never truthiness.
     tape_evaluated: bool = False
-    tape_stale_new: tuple[str, ...] = ()
+    tape_stale_new: tuple[StaleFeedLabel, ...] = ()
+    tape_stale_days: int = 0
+    fund_shares_stale_days: int = 0
 
 
 def run_daily_pass(
@@ -493,13 +515,26 @@ def run_daily_pass(
     # silent first night. Thereafter only genuinely-new names page (a handful of known-dead tapes must not
     # re-page forever). A --no-live pass evaluates nothing and records `tape_evaluated: false`, so it can
     # never reset the baseline the next live pass diffs against.
-    tape_evaluated = allow_live and get_settings().tape_stale_days > 0
-    tape_stale_new: tuple[str, ...] = ()
+    settings = get_settings()
+    tape_stale_days = settings.tape_stale_days
+    fund_shares_stale_days = settings.fund_shares_stale_days
+    # "Evaluated" = this pass LOOKED at at least one feed. Either threshold alone is enough, so disabling
+    # one monitor never demotes the artifact as a baseline for the other. The one consequence, deliberate
+    # and never silent: re-ENABLING a feed later diffs against an artifact holding none of its rows, so its
+    # whole current inventory pages once — the same designed behavior as the first pass after deploy.
+    tape_evaluated = allow_live and (tape_stale_days > 0 or fund_shares_stale_days > 0)
+    tape_stale_new: tuple[StaleFeedLabel, ...] = ()
     if tape_evaluated:
-        current = {str(s.security_id): s.label for r in results for s in r.tape_stale}
+        # The diff key is `kind:security_id` — the KIND matters as much as the id now: one name can go
+        # stale on its price tape and later on its fund-shares sample, and the second is news the operator
+        # has not been told, with a different repair. Keyed on the id (never the ticker) because a
+        # ticker-less name must still be able to page and a ticker can change under a name.
+        current = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
         prior = previous_stale_tapes()
-        new_ids = sorted(current) if prior is None else sorted(set(current) - prior)
-        tape_stale_new = tuple(current[i] for i in new_ids)
+        new_keys = sorted(current) if prior is None else sorted(set(current) - prior)
+        tape_stale_new = tuple(
+            StaleFeedLabel(kind=current[k].kind, label=current[k].label) for k in new_keys
+        )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
     log_path = write_cron_run_log(
@@ -513,6 +548,8 @@ def run_daily_pass(
         benchmark_leg_failed=benchmark_leg_failed,
         tape_evaluated=tape_evaluated,
         tape_stale_new=tape_stale_new,
+        tape_stale_days=tape_stale_days,
+        fund_shares_stale_days=fund_shares_stale_days,
     )
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
@@ -586,6 +623,8 @@ def run_daily_pass(
         benchmark_leg_failed=benchmark_leg_failed,
         tape_evaluated=tape_evaluated,
         tape_stale_new=tape_stale_new,
+        tape_stale_days=tape_stale_days,
+        fund_shares_stale_days=fund_shares_stale_days,
     )
 
 
@@ -630,14 +669,20 @@ def _report(results: list[ThesisRunResult]) -> int:
         print("TRANSITIONS:")
         for t in transitions:
             print(f"  {t}")
-    # G5a — the stale-tape inventory, deduped ACROSS theses (one dead tape, not one per holder) and printed
-    # only when there is one (loudness marks the exception). stdout is the first place an operator looks at
-    # a cron run; the durable copies are the run-log artifact and the Admin freshness panel.
-    stale = {str(s.security_id): s for r in results for s in r.tape_stale}
-    if stale:
-        print("STALE PRICE TAPES (no new bars — check for a ticker rename or a delisting):")
-        for s in stale.values():
-            print(f"  {s.label}: last bar {s.edge.isoformat() if s.edge else 'never'}")
+    # G5a/F1 — the stale-feed inventory, deduped ACROSS theses per (kind, security) — one dead feed, not one
+    # per holder — and printed only when there is one (loudness marks the exception). ONE BLOCK PER FEED
+    # KIND, each headed with that feed's own noun and repair advice from `domain/feed_kinds`, because the
+    # two are not the same problem and a merged list would give half the rows the wrong instruction. stdout
+    # is the first place an operator looks at a cron run; the durable copies are the run-log artifact and
+    # the Admin freshness panel.
+    stale = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
+    for kind in FEED_KINDS.values():
+        rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key]
+        if not rows:
+            continue
+        print(f"STALE {kind.noun.upper()}S ({kind.advice}):")
+        for s in rows:
+            print(f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}")
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "

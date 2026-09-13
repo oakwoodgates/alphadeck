@@ -1121,6 +1121,9 @@ export function usePutKillCriteria(thesisId: string) {
 // --- Admin (ops surface, Slice 1): freshness/health READS + the explicit "Run daily now" trigger ---
 export type AdminStatusOut = components["schemas"]["AdminStatusOut"];
 export type AdminRunOut = components["schemas"]["AdminRunOut"];
+// One stale FEED row on the freshness panel (a price tape, or an ETF sleeve's fund-shares samples —
+// `kind` says which, because the two are repaired differently).
+export type AdminStaleTapeOut = components["schemas"]["AdminStaleTapeOut"];
 export type AdminRunsOut = components["schemas"]["AdminRunsOut"];
 export type AdminRunJobRef = components["schemas"]["AdminRunJobRef"];
 export type AdminRunJobStatus = components["schemas"]["AdminRunJobStatus"];

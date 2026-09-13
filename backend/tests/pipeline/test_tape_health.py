@@ -1,4 +1,4 @@
-"""G5a — the price-tape recency RULE, from direct inputs (pure; no DB, no clock).
+"""G5a/F1 — the FEED recency RULE, from direct inputs (pure; no DB, no clock).
 
 The gap being tested: a vendor series that simply STOPS (a ticker rename the vendor priced under a new
 symbol, a delisting) appends zero bars with NO error, which is byte-identical to a market holiday — so every
@@ -12,7 +12,13 @@ import uuid
 from datetime import date, timedelta
 
 from pipeline.ingest_thesis import NameResult
-from pipeline.tape_health import StaleTape, is_tape_stale, stale_label, stale_tapes
+from pipeline.tape_health import (
+    StaleTape,
+    is_tape_stale,
+    stale_fund_shares,
+    stale_label,
+    stale_tapes,
+)
 
 _ASOF = date(2026, 6, 10)  # a Wednesday
 
@@ -136,3 +142,95 @@ def test_the_label_rule_is_shared_and_prefers_the_ticker():
     assert stale_label("AAA", sid) == "AAA"
     assert stale_label(None, sid) == str(sid)
     assert StaleTape(ticker="AAA", security_id=sid, edge=None).label == "AAA"
+
+
+# --- F1: the SAME rule over the fund-shares feed, with its own threshold and a tracked gate ----------
+
+
+def test_the_fund_threshold_boundary_is_the_same_INCLUSIVE_rule():
+    """One rule, two thresholds. At the fund default of 7: an edge 6 days back is fresh, 7 is stale. The
+    number differs from the price tape's 5 because the feeds differ — MEASURED on dev, a healthy sleeve's
+    sample sits 0-2 days behind the pass that took it (the primary source states the pull date exactly;
+    the fallback stated a two-day-old date), so 7 clears that lag plus a long weekend plus two failed
+    nights, while a dead sampler still surfaces inside a week."""
+    assert is_tape_stale(_ASOF - timedelta(days=6), asof=_ASOF, stale_days=7) is False
+    assert is_tape_stale(_ASOF - timedelta(days=7), asof=_ASOF, stale_days=7) is True
+
+
+def test_stale_fund_shares_judges_ONLY_a_tracked_member():
+    """THE TRAP this gate exists for: an equity member has no samples, so its fund edge is None — and None
+    means STALE. Ungated, every equity in every basket would be reported as a dead fund tape every night.
+    A TRACKED sleeve with a None edge is the opposite case and genuinely news: its sampler has never
+    produced anything."""
+    equity = _name(ticker="EQUITY", fund_shares_edge=None)  # tracked defaults to False
+    sleeve_never = _name(ticker="SLEEVE", fund_shares_tracked=True, fund_shares_edge=None)
+    out = stale_fund_shares([equity, sleeve_never], asof=_ASOF, stale_days=7)
+    assert [s.ticker for s in out] == ["SLEEVE"]
+
+
+def test_stale_fund_shares_tags_its_KIND_and_reads_the_fund_edge_not_the_tape_edge():
+    """The two feeds are judged from their OWN fields: a sleeve with a healthy price tape and dead sampling
+    is stale on fund shares only, and the row says which feed so the page can give the right repair.
+    """
+    sleeve = _name(
+        ticker="SLEEVE",
+        tape_edge=_ASOF,  # price fine
+        fund_shares_tracked=True,
+        fund_shares_edge=date(2026, 4, 1),  # sampling stopped
+    )
+    out = stale_fund_shares([sleeve], asof=_ASOF, stale_days=7)
+    assert len(out) == 1
+    assert out[0].kind == "fund_shares" and out[0].edge == date(2026, 4, 1)
+    assert out[0].feed.noun == "fund-shares tape"
+    # ...and its price tape is NOT reported by the price collector
+    assert stale_tapes([sleeve], asof=_ASOF, stale_days=5) == ()
+
+
+def test_a_name_stale_on_BOTH_feeds_is_reported_ONCE_PER_FEED():
+    """The dedup is within a kind, deliberately: one security with two dead feeds is two rows, because the
+    two are different problems with different repairs. Keyed on the id alone the second would vanish.
+    """
+    sid = uuid.uuid4()
+    dead_both = _name(
+        ticker="DEAD",
+        security_id=sid,
+        tape_edge=date(2026, 4, 1),
+        fund_shares_tracked=True,
+        fund_shares_edge=date(2026, 4, 1),
+    )
+    rows = stale_tapes([dead_both], asof=_ASOF, stale_days=5) + stale_fund_shares(
+        [dead_both], asof=_ASOF, stale_days=7
+    )
+    assert [(s.security_id, s.kind) for s in rows] == [(sid, "price"), (sid, "fund_shares")]
+
+
+def test_stale_fund_shares_DEDUPS_a_sleeve_placed_in_several_links():
+    """The same multi-link dedup as the price collector — the sleeve is N basket_member rows, one dead
+    sampler."""
+    sid = uuid.uuid4()
+    rows = [
+        _name(ticker="SLEEVE", security_id=sid, fund_shares_tracked=True, fund_shares_edge=None)
+        for _ in range(3)
+    ]
+    out = stale_fund_shares(rows, asof=_ASOF, stale_days=7)
+    assert len(out) == 1 and out[0].security_id == sid
+
+
+def test_stale_fund_shares_reports_a_sleeve_whose_LEG_ERRORED():
+    """An unsamplable fund RAISES inside the leg, so its error is on the name's result — and the edge read
+    happens outside that try, so the dead series is reported here too. A failing sampler and a stopped
+    series are different facts; neither may mask the other."""
+    failing = _name(
+        ticker="SLEEVE",
+        fund_shares_tracked=True,
+        fund_shares_edge=None,
+        error="fund_shares: no samplable source",
+    )
+    out = stale_fund_shares([failing], asof=_ASOF, stale_days=7)
+    assert len(out) == 1 and out[0].kind == "fund_shares"
+
+
+def test_a_stale_tape_defaults_to_the_PRICE_kind():
+    """The default is what makes every row written before fund shares existed read correctly — they are
+    price rows."""
+    assert StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None).kind == "price"
