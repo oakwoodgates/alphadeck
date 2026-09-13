@@ -154,7 +154,17 @@ def run_spac_radar(
     today), accrete + persist + (optionally) match. Idempotent over a re-scan of the same window
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
     client with ``allow_live=False``)."""
-    client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    # G1 — ``cache_ttl_s=0``: a RECURRING pass never reads a warm mutable key (no exceptions on the
+    # nightly path; the rationale is spelled out at ``pipeline.daily.run_daily``'s construction site).
+    # Both keys this leg reads are mutable: TODAY's ``daily-index/master.<date>.idx`` GROWS through the
+    # day as filings are accepted, so a daytime scan cached an incomplete index that the 22:30 pass then
+    # served — the radar silently missed the evening's DAs; and ``submissions/CIK<10>.json`` is the same
+    # mutable index the call path enumerates from (item-code resolution here). Re-pulling costs the
+    # ``days``-wide index window (3 files) plus the per-CIK indexes the pass was already fetching;
+    # immutable ``forms/*`` documents still cache forever.
+    client = edgar_client or EdgarClient(
+        allow_live=allow_live, user_agent=user_agent, cache_ttl_s=0
+    )
     until = until or market_today()
     result = RadarRunResult()
     submissions_by_cik: dict[str, dict[str, Any] | None] = {}

@@ -57,6 +57,18 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   — better stale than a `CacheMiss`; the TTL only forces a refetch when a live pull is permitted. The #125
   rebuild-survival win holds: a re-draft **within** 12h is still free; only a draft a day later re-enumerates,
   which is correct — the universe drifted.
+- **The 12h TTL is the INTERACTIVE default; every RECURRING caller builds its client `cache_ttl_s=0`.** The
+  TTL's clock starts when *that* company's key was last fetched, so any daytime read warmed it for up to 12h
+  and the nightly pass served the warm file — blind to everything filed after the daytime fetch (a narrower,
+  silent version of the same freeze; "run the daytime pass before 10:30" is no rule, because the stamp is per
+  COMPANY and a pass takes up to an hour). So the recurring constructors — `pipeline/daily.py`'s per-thesis
+  client, `radar/spac.py`, `radar/shell_sweep.py` — pass `cache_ttl_s=0`. This is the per-CLIENT dial (the
+  parallel of `force_refresh=True` for prices), **not** a per-call flag: no caller threads anything, and the
+  key-classed policy above is untouched, so immutable `forms/*` still cache forever and the cost is one index
+  fetch per company per pass. `ingest_fundamentals` keeps the 12h TTL **deliberately** (a large document
+  feeding a *quarterly* series — a day's staleness cannot change a call), as do the Workbench and a standalone
+  `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is inert — a stale hit is still
+  served, so the suite and `--no-live` are unaffected.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and

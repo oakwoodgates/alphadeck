@@ -55,6 +55,13 @@ def ingest_fundamentals(
     non-archived thesis). Securities are de-duplicated across baskets (one companyfacts pull per CIK).
     Per-name fail-visible + committing on success; the caller owns nothing (this commits per name).
     """
+    # The ONE deliberate exception to the recurring path's ``cache_ttl_s=0`` (G1): this leg keeps the
+    # 12h default. ``companyfacts/CIK<10>.json`` is a LARGE document and the series it feeds is
+    # QUARTERLY, so a day's staleness cannot change a call — whereas re-pulling every basket name's
+    # companyfacts nightly is real bandwidth for no new information. The legs that enumerate FILINGS
+    # (``pipeline.daily``'s per-thesis client, the SPAC radar, the shell sweep) are TTL-zero because a
+    # day's staleness there hides a filing. If a future fundamentals signal needs same-day freshness,
+    # this is the line to change — deliberately, not by forgetting.
     client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
     if thesis_id is not None:
         one = thesis_repo.get(conn, thesis_id)

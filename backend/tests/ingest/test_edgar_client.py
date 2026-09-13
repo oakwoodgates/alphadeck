@@ -125,3 +125,54 @@ def test_live_fetches_counter_counts_network_pulls_not_cache_hits(tmp_path):
     client.get_json("https://sec.gov/x", "submissions/fresh.json")  # fresh hit → +0
     client.get_text("https://sec.gov/x", "forms/acc/doc.htm")  # immutable hit → +0
     assert client.live_fetches == 2  # only the two that hit the network
+
+
+# --- G1: the RECURRING pass's TTL-zero dial (the daytime-warmth gap) ---------------------------------
+#
+# The 12h TTL is an INTERACTIVE default. On the nightly path it was a blind spot: any daytime read of a
+# company's submissions index (Admin "Run daily now", a boot catch-up, an on-promote ingest, a Workbench
+# pull) left the file fresh enough that the 22:30 pass served it off disk and never saw the afternoon's
+# filings. The recurring callers therefore construct their client with cache_ttl_s=0.
+
+
+def test_ttl_zero_refetches_a_warm_mutable_key_the_default_ttl_serves(tmp_path):
+    """THE GAP AND THE FIX, on ONE warm file — the SAME index a daytime run just fetched:
+
+    - the 12h DEFAULT serves it from cache with zero pulls (this is the night going blind);
+    - cache_ttl_s=0 refetches it and overwrites the cache (this is the night seeing the afternoon).
+
+    Both clients read the same key from the same dir, so the dial is the only difference."""
+    key = "submissions/CIK0000000009.json"
+    p = _write_cache(tmp_path, key, '{"daytime": true}', age_s=120)  # "fetched 2 minutes ago"
+
+    warm, warm_fetched = _live_client(tmp_path)  # the 12h interactive default
+    assert warm.get_json("https://sec.gov/" + key, key) == {"daytime": True}
+    assert warm_fetched == [] and warm.live_fetches == 0  # blind: the stale daytime index served
+
+    recurring, fetched = _live_client(tmp_path, ttl_s=0)  # what the nightly pass builds
+    assert recurring.get_json("https://sec.gov/" + key, key) == {"fresh": True}
+    assert len(fetched) == 1 and recurring.live_fetches == 1
+    assert "daytime" not in p.read_text(encoding="utf-8")  # the cache was overwritten → fresh again
+
+
+def test_ttl_zero_still_caches_immutable_filing_documents_forever(tmp_path):
+    """The COST BOUND: TTL 0 must not defeat the immutable class. forms/<accession>/<doc> is a filing
+    document — an accession never changes — so the nightly pass still pays ZERO for the thousands of
+    per-filing documents it reads; only the mutable per-company INDEX is re-pulled."""
+    _write_cache(tmp_path, "forms/acc-9/doc.htm", "the filing", age_s=999 * 3600)
+    client, fetched = _live_client(tmp_path, ttl_s=0)
+
+    assert client.get_text("https://sec.gov/acc-9/doc.htm", "forms/acc-9/doc.htm") == "the filing"
+    assert fetched == [] and client.live_fetches == 0
+
+
+def test_ttl_zero_is_inert_offline_so_the_suite_and_no_live_are_unaffected(tmp_path):
+    """allow_live=False + TTL 0 still SERVES the stale hit (better stale than a CacheMiss) — the TTL only
+    forces a refetch when a live pull is permitted. This is why the radar/sweep tests, which inject a
+    fixture-cache client with allow_live=False, are untouched by the dial."""
+    _write_cache(tmp_path, "submissions/CIK0000000008.json", '{"cached": true}', age_s=999 * 3600)
+    client = EdgarClient(cache_dir=tmp_path, allow_live=False, cache_ttl_s=0)
+    assert client.get_json("https://sec.gov/x", "submissions/CIK0000000008.json") == {
+        "cached": True
+    }
+    assert client.live_fetches == 0

@@ -815,3 +815,135 @@ def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypa
     assert "force_refresh" not in seen["fundamentals"]
     assert "ttl" not in seen["fundamentals"]
     assert seen["fundamentals"].get("allow_live") is True
+
+
+# --- G1: the recurring pass builds a TTL-ZERO EDGAR client (the daytime-warmth gap) ------------------
+
+
+class _RecordingEdgar:
+    """Constructor-compatible fake that RECORDS the kwargs it was built with (the _DeadEdgar idiom from
+    the shell-sweep tests). live_fetches is an instance attr so run_daily's freeze-counter read works.
+    """
+
+    seen: list[dict] = []
+
+    def __init__(self, **kw) -> None:
+        self.live_fetches = 0
+        _RecordingEdgar.seen.append(kw)
+
+
+def test_run_daily_builds_its_edgar_client_with_cache_ttl_ZERO(db, monkeypatch):
+    """G1 — THE WIRING: the per-thesis client on the RECURRING path must be built with cache_ttl_s=0, so a
+    daytime read of a company's submissions index can never leave the night's pass serving it from cache
+    (blind to everything filed after the daytime fetch). The client is constructed INSIDE the per-thesis
+    loop, so this needs a real thesis; the ingest itself is stubbed (no network)."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    _RecordingEdgar.seen = []
+    monkeypatch.setattr(daily, "EdgarClient", _RecordingEdgar)
+
+    daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    assert (
+        len(_RecordingEdgar.seen) == 1
+    )  # one client per thesis (the freeze counter is per-thesis)
+    assert _RecordingEdgar.seen[0]["cache_ttl_s"] == 0
+    assert _RecordingEdgar.seen[0]["allow_live"] is True  # the other kwargs are unchanged
+
+
+# --- G4: a failed BENCHMARK refresh pages (the shared SPY/IWM tape feeding benchmark_rs) -------------
+
+
+def test_assess_health_pages_a_failed_benchmark_refresh():
+    """An otherwise-CLEAN run with a benchmark pull that failed is unhealthy: the calls that night were
+    computed against a stale shared input, which the run's own counts cannot show."""
+    h = daily.assess_health([], asof=_ASOF, allow_live=True, benchmark_errors=1)
+    assert h is not None
+    assert h.benchmark_errors == 1 and h.benchmark_leg_failed is False
+    assert "benchmark refresh error" in h.label and "stale tape" in h.label
+
+
+def test_assess_health_pages_a_benchmark_LEG_that_never_ran():
+    """The other shape, reported DISTINCTLY: the leg raised before producing any per-benchmark result, so
+    nothing refreshed at all — not "1 of 2 benchmarks failed"."""
+    h = daily.assess_health([], asof=_ASOF, allow_live=True, benchmark_leg_failed=True)
+    assert h is not None
+    assert h.benchmark_leg_failed is True and h.benchmark_errors == 0
+    assert "BENCHMARK REFRESH LEG FAILED" in h.label
+
+
+def test_assess_health_stays_silent_when_the_benchmark_legs_were_clean():
+    """No new false page: the defaults change nothing for a healthy run (loudness marks the exception)."""
+    assert daily.assess_health([], asof=_ASOF, allow_live=True) is None
+    assert (
+        daily.assess_health(
+            [], asof=_ASOF, allow_live=True, benchmark_errors=0, benchmark_leg_failed=False
+        )
+        is None
+    )
+
+
+def test_pass_threads_a_benchmark_FAULT_to_the_artifact_and_the_health_page(monkeypatch):
+    """G4 END TO END in the pass: the benchmarks leg raising is still FAIL-OPEN (fundamentals still runs,
+    the pass returns), but the fault now reaches BOTH the run-of-record artifact and assess_health — and
+    it is carried on the outcome, which is what the Admin "run now" job rebuilds its payload from.
+    """
+    _prime_pass(monkeypatch, bench_raises=True)
+    seen_log: dict = {}
+    seen_health: dict = {}
+
+    def _log(results, **kw):
+        seen_log.clear()
+        seen_log.update(kw)
+        return None  # fail-open shape, no file I/O
+
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen_health.clear()
+        seen_health.update(kw)
+        return real_assess(results, **kw)
+
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert seen_log["benchmark_leg_failed"] is True and seen_log["benchmark_errors"] == 0
+    assert seen_health["benchmark_leg_failed"] is True
+    assert out.benchmark_leg_failed is True and out.benchmark_errors == 0
+
+
+def test_pass_counts_INDIVIDUAL_benchmark_errors_without_failing_the_leg(monkeypatch):
+    """The partial shape: the leg RAN and returned results, one of which carried an error. That is a count,
+    not a leg failure — the page must say which (a stale half-tape vs no refresh at all)."""
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(
+        "pipeline.ingest_benchmarks.ingest_benchmarks",
+        lambda conn, **k: [
+            SimpleNamespace(bars_appended=3, error=None),
+            SimpleNamespace(bars_appended=0, error="yahoo 502"),
+        ],
+    )
+    seen_health: dict = {}
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen_health.clear()
+        seen_health.update(kw)
+        return real_assess(results, **kw)
+
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert out.benchmark_errors == 1 and out.benchmark_leg_failed is False
+    assert seen_health["benchmark_errors"] == 1
+
+
+def test_pass_on_no_live_reports_NO_benchmark_fault(monkeypatch):
+    """A --no-live pass SKIPS the refresh legs entirely, so it must report them clean — a skipped leg is
+    not a failed one (the counts are initialized before the allow_live gate for exactly this)."""
+    _prime_pass(monkeypatch, bench_raises=True)  # would raise IF the leg ran
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
+    assert out.benchmark_errors == 0 and out.benchmark_leg_failed is False
