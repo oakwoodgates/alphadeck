@@ -22,7 +22,7 @@ SignalEvent[]  ──►  call-assembler (this spec)  ──►  CallCard
 (from detectors)     pure f(thesis, events, asof)     (served by API, rendered in Cockpit)
 ```
 
-The assembler is **pure and deterministic**: same thesis + same signal events + same `asof` → same CallCard. The LLM stub fills only `counter_case` and explanatory prose (citing existing evidence IDs); it never sets state, verdict, grade, or triggers. The `calls` table stores assembled CallCards as the **accountability record** (what the platform asserted, when) — it is **not** the read path. The API recomputes the CallCard live at the requested `asof`.
+The assembler is **pure and deterministic**: same thesis + same signal events + same `asof` → same CallCard. The LLM stub fills only `counter_case` and explanatory prose (citing existing evidence IDs); it never sets state, verdict, grade, or triggers. The `calls` table stores assembled CallCards as the **accountability record** (what the platform asserted, when) — it is **not** the read path. The API recomputes the CallCard live at the requested `asof` — for a past `asof` with `known_at` capped at the end of that market day (`serve_known_at`, #336: then-knowable facts, today's code and today's basket — `INVARIANTS.md` #4 + §Known gaps).
 
 ## The through-line — factor behavior on the property that drives it  `[PRINCIPLE]`
 

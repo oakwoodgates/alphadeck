@@ -48,7 +48,10 @@ both no-lookahead tests green **is** the integrity bar.
 
 ## Determinism pin + the mirror
 
-A run pins `known_at = PIN` (the `recorded_at` ceiling). The Parquet export is a **one-shot, truncate-and-
+A run pins `known_at = PIN` (the `recorded_at` ceiling) — and the pin only gates transaction time when it sits
+in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`)
+pins `now`, so that panel is honest by LABELING (a recompute, never the record), not by gating to the past — the
+same knowledge-horizon caveat the serve path closed with `serve_known_at` (`INVARIANTS.md` #4). The Parquet export is a **one-shot, truncate-and-
 rewrite** snapshot of the SoR (all columns, all rows for the tenant — rebuildable, **never authoritative**; the
 PIN is a read-time filter, so the mirror reproduces the SoR's `as_of` for any `known_at`). Same
 `(snapshot, PIN, window, cfg)` → **value-identical** timeline + scores (the honest, achievable form of
@@ -97,6 +100,12 @@ static (the seed), **but it is a real lookahead vector the moment a thesis's mem
 window** — a member added after T would still be replayed at T. **Bitemporal thesis definitions must be
 addressed before the backtest can be trusted on evolving theses.** Out of scope for Step 1 (flagged loudly so
 Step 2 and anyone after know the boundary); the harness output carries the same warning.
+
+This is not replay's alone. The same gap sits under every past-`asof` recompute — the Board/Cockpit/Workbench
+scrub-back (`INVARIANTS.md` #4) and `pipeline.backfill`'s reconstruction of a missed night (`FEED_LOOP.md`) —
+and it is why a reconstructed row is reported, never scored (`SCOREBOARD.md`). The one canonical statement, and
+the one surface immune to it (the Scoreboard's record path), live in `INVARIANTS.md` §Known gaps; this section
+records only replay's own exposure.
 
 ## Run it
 

@@ -8,7 +8,7 @@
 > `backend/pipeline/schedule.py`, the snapshot runner `backend/pipeline/backup.py`.
 >
 > **Status: BUILT** — Slice 1 (freshness/health + Run-daily-now, #208) + Slice 4 (the DB-snapshot button,
-> #215). Reached via the FE **Admin** nav tab (Board · Workbench · Scoreboard · Admin).
+> #215) + the hole-aware freshness read and the `gappy` verdict (#330). Reached via the FE **Admin** nav tab (Board · Workbench · Scoreboard · Admin).
 
 ---
 
@@ -44,7 +44,7 @@ nights, and containers that don't always restart. Three questions and one safety
 
 `GET /admin/status` → the summary the page opens on. The **record edge** is the calls-log `MAX(asof)`
 (`calls_repo.record_edge`), measured against the last **expected** Mon-Fri + `RUN_AT` run
-(`schedule.py::last_expected_asof` / `expected_runs_behind`, on the container-local clock):
+(`schedule.py::last_expected_asof` / `expected_runs_behind`, on the market clock — `market_now()`):
 
 - A **Friday** edge read on a **Monday morning** is `0` behind — **current**, never a weekend false alarm;
   the same edge Monday **night** is `1` behind.
@@ -64,6 +64,13 @@ the record began is pre-history, never a "miss"; a fresh install has no holes). 
 The page lists the missed dates **only when there are any** (a control that doesn't discriminate doesn't
 render). The cause — the sidecar firing for the day it *woke* rather than the night it was scheduled for — is
 fixed in `FEED_LOOP.md` §the scheduling sidecar (the target as-of is now fixed at schedule time).
+
+**A reconstructed night reads as recorded here — on purpose.** `record_edge` / `record_first` /
+`recorded_asofs` count EVERY `calls` row, including the rows `pipeline.backfill` wrote (`calls.reconstructed`,
+migration 0042): after a backfill the night is no longer a hole, `gappy` clears, and the edge can advance.
+Freshness asks whether the log advanced, not whether a row is scoreable — the Scoreboard's record path is the
+one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
+reconstructed · not scored" there can both be true of the same night.
 
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
@@ -133,7 +140,7 @@ runner, retention, the host bind, the client version) — this section is the su
 **Why the net exists (the honest note).** On **2026-07-21** a shared-Postgres pytest hazard **truncated the
 whole demo DB**. Recovery worked **only** because an ad-hoc `pg_dump` happened to exist — it was a **real
 restore** from a 2026-07-17 snapshot (all six theses and the real call-of-record, migrations `0021→0024`),
-**not** a synthetic rebuild; a forward `daily` run then re-armed Rainbow Rush. This slice turns that lucky
+**not** a synthetic rebuild; a forward `daily` run then re-armed one of the restored theses. This slice turns that lucky
 ad-hoc into a one-click **and** nightly net (and #217 removed the root cause — a fail-closed guard that
 refuses to truncate any non-`alphadeck_test` DB). Full account of the truncation hazard: the operator memory;
 the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.

@@ -95,8 +95,9 @@ authority for the "why"): partial stamp OR freeze-era OR thawed-late. A flagged 
 **INGEST** badge and is **excluded from the aggregate metrics, ON by default (no toggle)** — the
 same conservative posture as `censored_start` — while staying **ledger-visible always** (the
 recall-is-sacred cousin: nothing drops from the ledger). The banner's eligibility parenthetical
-reads `matured + non-censored + clean-ingest`. Consequence, stated plainly: the launch record is
-12/12 freeze-touched, so the metrics stay honestly empty until the first clean-data arm matures.
+reads `matured + non-censored + clean-ingest`. Consequence, stated plainly: the launch record was
+12/12 freeze-touched, so the metrics stayed honestly empty until the first clean-data arms matured; the
+eligible pool has since begun to accrue, and it is built from honest (non-reconstructed) rows only.
 The flags are composed AFTER `score_episode`, from reads the scoring path never sees
 (`scoreboard/provenance.py` imports nothing from `calls/`, and nothing on the call/write path
 imports it) — a clean, flagged, and legacy-NULL episode score identically, pinned by test.
@@ -232,7 +233,8 @@ per-bucket counts, censoring, and stability over a materially larger forward rec
 ## Prices: the Postgres twin, asof-capped
 
 `scoreboard/prices.py::PgRealizedPrices` is the Postgres twin of replay's DuckDB `RealizedPrices` —
-the same three-method surface `score_episode` duck-types against, same latest-version-per-day dedup
+the same reader surface `score_episode` duck-types against (the three close reads, `bars_between`, `tape_edge`,
+`market_tape_edge`), same latest-version-per-day dedup
 and `recorded_at DESC, id DESC` tiebreak, plus two caps: `d <= asof` (the request as-of — scrubbing
 the Scoreboard back can never see a later bar; open episodes' returns run to the last bar ≤ asof)
 and `recorded_at <= known_at` (default now — a re-versioned/restated bar's latest version wins:
@@ -287,7 +289,8 @@ has depth while the forward record accrues — without polluting it. Structure o
   at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
   (`window_overlaps_record` + a banner warning), never silent.
 - **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts; baskets are not
-  versioned (REPLAY.md's known limitation) — the caveat rides the banner permanently. Separate
+  versioned (`REPLAY.md`'s known limitation — the platform-wide gap `INVARIANTS.md` §Known gaps names, shared
+  with `pipeline.backfill` and the Board/Cockpit scrub-back) — the caveat rides the banner permanently. Separate
   endpoint, separate section, metrics never pooled with the live summary.
 - **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
   the window's first replayed day; `matured` against the data edge; metrics over matured ∧
@@ -300,7 +303,8 @@ has depth while the forward record accrues — without polluting it. Structure o
 The Scoreboard also answers **"is the call-of-record current *now*?"** — the same question the Admin page
 asks (`ADMIN.md`), surfaced here because the Board-vs-Scoreboard confusion happened on this page.
 `GET /scoreboard` carries `record_edge` (the **uncapped** calls-log `MAX(asof)` — independent of the request
-as-of, so it reads the same whether the view is scrubbed to the past or to today) measured against the last
+as-of, so it reads the same whether the view is scrubbed to the past or to today; it counts reconstructed rows
+too — freshness asks whether the log advanced, not whether a row is scoreable) measured against the last
 **expected** Mon-Fri + `RUN_AT` run (`pipeline/schedule.py` — ONE contract shared with the Admin surface,
 never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`): staleness answers
 "current now", not "as of a past date", so a scrubbed-back view suppresses it. It goes **loud only when
@@ -342,8 +346,9 @@ every body row in both views and compares its colSpan-weighted cell count to the
 **own** sort state, because the replay set is a recompute and the two are never pooled.
 
 Sortable: **Name · Armed · De-armed · Return · Peak · Peak high · Worst · Worst low · Past peak**.
-Not sortable, deliberately: **Path** (a shape has no honest scalar), **Status** (a badge set has no
-ordering the record gives it), and the Summary-only **Why** / **Operator** / **Exit-by**.
+Not sortable, deliberately: **Path** (a shape has no honest scalar), **Status** (a badge set — plus, on a
+closed row, one muted **close-reason chip** whose hover carries the composed detail and the raw wire token —
+has no ordering the record gives it), and the Summary-only **Why** / **Operator** / **Exit-by**.
 
 Three rules, inherited from the Cockpit's sort because they are the same rules:
 
@@ -481,7 +486,9 @@ events** as **colored numbered chips**:
   visible range is the recent episode; **pan/zoom** reveals earlier events and de-crowds dense clusters
   (collision-stacking spills to a visible "+N", never a silent drop).
 - **No-lookahead on both axes** — an insider buy is **positioned by its transaction date** (`valid_from`) but
-  **gated by disclosure** (`recorded_at ≤ known_at`, capped at the as-of), so a scrubbed-back Scoreboard hides
+  **gated by disclosure** (`recorded_at ≤ known_at`, capped at the end of the as-of's MARKET day —
+  `domain.market_time.known_at_for_asof`, the same cap the Board/Cockpit/Workbench scrub-back threads through
+  `serve_known_at`; a UTC day-end sat BEFORE the 22:30 ET cron and read one bar short), so a scrubbed-back Scoreboard hides
   later bars AND later-*disclosed* buys — the honesty a filing's days-to-months lag demands (the price bar's
   `valid_from == d` needs only the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
   history is short (`scoreboard/overlays.py`).

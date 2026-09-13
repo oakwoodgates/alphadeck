@@ -175,7 +175,7 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 `fact_insider_txn.aff_10b5_1` records the filing's **Rule 10b5-1 checkbox** (`<aff10b5One>`). **Nothing reads
 it.** It is captured so the history ACCRUES while the call-logic question stays open for the operator.
 
-**Why it exists.** Insider *selling* is ~95 % of Form 4 flow (AI Memory: **30,388 sells vs 1,441 open-market
+**Why it exists.** Insider *selling* is ~95 % of Form 4 flow (one operator thesis: **30,388 sells vs 1,441 open-market
 buys**), and much of it is **autopilot** — pre-scheduled under a 10b5-1 plan adopted months earlier, executing
 whether the insider is euphoric or terrified, so it carries ~no information about their current view. Only a
 **discretionary** sale (chosen now, with everything they know) could. Measured live: **MU had 7 of 13 recent

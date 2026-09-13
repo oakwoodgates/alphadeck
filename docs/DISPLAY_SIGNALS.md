@@ -65,7 +65,8 @@ The payload is **generic on purpose**: adding a metrics/events member changes ze
 `openapi.json` / `types.gen.ts` diff, no FE change) and one panel section renders every member
 uniformly (`series[]` was the one deliberate widening — a SHAPE needed a field of its own; the next
 series member rides it with zero schema change). Because every read is the bitemporal as-of, an old `asof` time-travels the tape for free
-(#1). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
+(#1) — on both axes: the route threads `serve_known_at(asof)`, so a past as-of also hides bars RECORDED after the
+end of that market day (#336; the basket is today's — `INVARIANTS.md` §Known gaps). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
 
 ## Member catalog
 
@@ -247,6 +248,6 @@ the max is `sma.py`'s 600 d, + `MARGIN_DAYS`); the insider read stays **unbounde
 window" (→ `0/0`) semantics would collapse under a floor for a name whose only Form 4s are older than it
 (a batched existence check is the deferred follow-up that would let display take the call's insider bound).
 A member that reads a table it has not declared, or asks for a longer window than it declared, fails
-`tests/signals/test_horizons.py` — never a truncated read. MEASURED on the 190-name Modern Defense thesis
+`tests/signals/test_horizons.py` — never a truncated read. MEASURED on a 190-name operator thesis
 (dev, host venv → dev DB, 2026-09-03): the `/display-signals` body 16.3 s → 3.1 s and `/call` 10.9 s → 2.1 s (2,851 and
 2,934 per-security queries → one batch query per table), output byte-identical on all eleven theses at two as-ofs. See `docs/INVARIANTS.md` §4.
