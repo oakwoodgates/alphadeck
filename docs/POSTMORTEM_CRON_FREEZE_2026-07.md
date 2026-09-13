@@ -29,11 +29,11 @@ invisible. Every night's run therefore recorded a call built on frozen insider d
 - **The observability that would have caught it (R2–R6, #197–#200):** a `live_fetches` freeze detector, a
   two-condition recording gate, a per-run log, a health pager, and catch-up-on-boot.
 - **Outcome:** the freeze is dead (a real run pulled **18,190** live EDGAR requests where a frozen run pulled
-  0), and the North Star was reached — a fresh thesis (Rainbow Rush) **armed on real insider + price data**.
+  0), and the North Star was reached — a fresh operator thesis **armed on real insider + price data**.
 
 ## Timeline / narrative
 
-1. **The trigger.** The operator: *"Rainbow Rush has no insider buys — that doesn't seem right."* It didn't,
+1. **The trigger.** The operator, of a fresh thesis: *"[it] has no insider buys — that doesn't seem right."* It didn't,
    and the trail led not to the detector but to the cache underneath it.
 2. **The root cause.** `EdgarClient` served any cached key forever. `submissions/*` (the per-issuer filing
    index) is *mutable* — a new Form 4 adds to it — but was treated like an immutable document. So the daily
@@ -126,11 +126,11 @@ Names agreed with reality only when they had filed nothing since their cache dat
 | 2026-07-14 | 77 | 3 |
 | 2026-07-11 | 39 | 6 |
 
-**Post-R1 thaw (gate-2 proof).** A live ingest took AI Memory from **+0** insider txns (frozen) to **+583**;
+**Post-R1 thaw (gate-2 proof).** A live ingest took one operator thesis from **+0** insider txns (frozen) to **+583**;
 **DELL advanced 2026-06-26 → 2026-07-10** (its 07-14 filing, +246 rows); the 07-06 cohort thawed **423 → 351**.
 
 **The production catch-up.** `edgar_fetches = 18,190` (a frozen run was 0), `duration_s ≈ 4,170` (~70 min),
-6/6 theses fresh, 0 errored, no health page — and **Rainbow Rush ARMED** (core_entry, 53 triggers,
+6/6 theses fresh, 0 errored, no health page — and **the fresh thesis ARMED** (core_entry, 53 triggers,
 `insider` + `technical_breakout`), the North Star.
 
 **The recovery re-run (inside the TTL).** Cache-served: `edgar_fetches = 1`, `duration_s = 53.6 s` — one fetch

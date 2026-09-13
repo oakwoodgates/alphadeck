@@ -26,7 +26,9 @@ The Workbench scores each basket name from the **point-in-time facts**; the engi
   numbers, never a stale snapshot. Only the chain **structure** persists (operationally, on the thesis spine
   — see `ROADMAP.md` "the persistence seam"); the scores are recomputed every read.
 - **Every figure comes from a tenant-filtered as-of read** (`PointInTimeData`), so no-lookahead and tenant
-  isolation hold for free (`INVARIANTS.md` #4, #5).
+  isolation hold for free (`INVARIANTS.md` #4, #5) — on both axes: a past `asof` on the scored read caps
+  `known_at` at the end of that market day (`serve_known_at`, #336), so a scrubbed-back score reads what was
+  knowable then, over today's basket.
 
 Each name carries **four 0-4 pip METERS** — `purity`, `runway`, `catalysts`, `dilution` — plus **market cap
 as a FIGURE** (a number, not a meter; `pips` stays null). **`—` (no data) is distinct from `0`** — a meter

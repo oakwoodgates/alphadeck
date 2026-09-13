@@ -22,14 +22,14 @@
   → drafted chain the operator ratifies → the **three-gate TRIAGE flow** (cheap cut → mark-for-data →
   finalize on data; `TRIAGE.md`) with per-section data pulls, honest extraction flags (one observed
   condition, one label), canonical-primary CIK resolution, and the archetype decided once on the rail.
-- **Live-fire hardening happened on a real thesis** (the AI-memory gate walkthrough): the every-name
+- **Live-fire hardening happened on a real operator thesis** (the MVP-gate walkthrough): the every-name
   dual-class mis-flag, the invisible ratify, the 2018 stale-marketable composition, and the ticker-less
   `master.get` crash were each caught live and fixed with regression tests.
 
-**The MVP gate RAN (2026-07-10)** — the AI-memory thesis end-to-end on real data: 68 names ingested
+**The MVP gate RAN (2026-07-10)** — a real 68-name operator thesis end-to-end on real data: 68 names ingested
 (+41k insider txns, +8k bars), the call computed **WARMING / not-yet / `exit_by` signal-validity horizon**
-with a real MU insider
-conviction (Form 4-linked) against volume-backed watch names — the two-key discipline live; the daily
+with a real Form 4-linked insider
+conviction on a mega-cap member against volume-backed watch names — the two-key discipline live; the daily
 cron sidecar runs nightly and its same-day idempotency held in production (0 appended · 11 unchanged).
 The North Star's *Armed* call now awaits a real two-key coincidence — correct behavior, which the cron
 will catch.
@@ -63,7 +63,7 @@ the silent error-vanish, the Decision-Queue deep-link) (#207–#216). The inside
 currently latent** — correctness/honesty layers whose live payoff waits on matching live data, not fixes to a
 visible number. Along the way the **demo DB was truncated by a shared-Postgres pytest hazard and RECOVERED
 from a 2026-07-17 `pg_dump` — a REAL restore, not a synthetic rebuild** (all six theses + the real
-call-of-record, migrations `0021→0024`; Rainbow Rush re-armed on a forward `daily` run), and **#217 removed
+call-of-record, migrations `0021→0024`; one restored thesis re-armed on a forward `daily` run), and **#217 removed
 the root cause** (a per-worktree test DB + a fail-closed guard that refuses to truncate any
 non-`alphadeck_test` name).
 
@@ -93,10 +93,12 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 > — the insider-core signal-validity window ended ~35d past the realized peak — is a setup-strength *shape*
 > problem [wire field `confidence`; age-decay, `RECALIBRATION.md` B.4], not
 > a magnitude the binary liveness window can fix). The daily call-of-record is the forward RECORD the Scoreboard
-> now tracks — which **began 2026-07-10 and is still accruing.** That launch record is itself freeze-touched, so
-> Slice 3's per-episode provenance flags (#214) hold it out of the aggregate metrics: they stay **honestly
-> empty** until the first clean-data arm matures (`SCOREBOARD.md`). Do not round "feeds itself" up to
-> "validated forward."
+> now tracks — which **began 2026-07-10 and is still accruing** (a night the cron missed can be reconstructed
+> with the clock pinned, but a reconstructed row is reported, never scored — `SCOREBOARD.md`). That launch
+> record is itself freeze-touched, so Slice 3's per-episode provenance flags (#214) hold it out of the
+> aggregate metrics: they stayed **honestly empty** until the first clean-data arms matured, and an eligible
+> pool crossing the `n ≥ 5` gate is a sample passing a UI safeguard, not evidence (`SCOREBOARD.md`).
+> Do not round "feeds itself" up to "validated forward."
 
 ## Organizing principle — two halves on one spine
 
@@ -131,7 +133,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
-| **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ MU insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
+| **The MVP gate, run live (2026-07-10)**: 68-name ingest → WARMING call w/ a Form 4-linked insider conviction → cron nightly, idempotency held in prod | — | `FEED_LOOP.md`, `CALL_LOGIC.md` |
 | Decision capture: the operator-decisions log (take/pass/close/void) · Managing thesis-monitoring state reachable · the gate's override record | #143, #144, #146 | `CALL_LOGIC.md` §2 |
 | Catalyst + kill-criteria authoring (cited conviction facts + the calendar/kill editors; wipe-trap #3 fixed structurally) · thesis archive · the notify pipe | #147–#150 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Excluded-name permanence (#7): the durable NO + optional reason, seeded grayed on re-draft (discovery never filters) | #151 | `TRIAGE.md` |
@@ -158,6 +160,10 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Empty-seed visibility: dead ("∅ no EDGAR hits") seed terms ride the draft report (the `empty_terms` chip + strip line) + a DecisionActions name-dedupe fix | #253, #254 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
 | **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
 | **Cockpit-refinement arc**: trailing-return columns (1d/7d/30d/90d + 1Y) · RVOL\|8 (call-matched) + RVOL\|20 (call-decoupled) · insider **Ins 30d/90d** buys/buyers · the **value-chain lens** (a third basket grouping) · the business-type chip on discovery rows · within-group **sortable columns** — the cockpit as a scannable display-signal instrument, all off the call path | #256–#262 | `BOARD.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
+| *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `DEPLOY.md`, `ACTIVIST_STAKE.md`, `CORPORATE_EVENTS.md`)* | #263–#329 | — |
+| **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` with a PINNED `known_at` (`--known-at next-run`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
+| **Scoreboard Timing view + record bugs**: MAE/MFE excursions (close + wick, all four columns) · the episode path sparkline with the de-arm tick · split Armed/De-armed columns + close-reason chips · sortable columns + sticky headers · `truncated` redefined against the tape edge (+ `tape_behind_market`, the TAPE ENDS badge) · the exit = the last bar IN the window (the backwards-return fix) | #333, #334 | `SCOREBOARD.md` |
+| **Serve-path `known_at` cap + reconstructed rows**: `serve_known_at(asof)` on `/call`, `/display-signals`, `/scored` (a scrub-back reads what was knowable by the end of that MARKET day) · `calls.reconstructed` (migration 0042) + the backfill's thesis-existence gate + `repair_reconstructed_precreation` · the Scoreboard scores honest rows only, `reconstructed_nights` named once | #336–#338 | `INVARIANTS.md` #4, `FEED_LOOP.md`, `SCOREBOARD.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -190,7 +196,10 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    accrues); **2f "the real WHY"** — a deeper per-episode Scoreboard explanation (never specced, an open
    design question, not a committed feature); and the **replay-regenerate button** — regenerating the
    historical snapshot from the app is **deferred to the replay-panel work** (it needs DuckDB in the lean
-   image + a replay-perf fix; today the snapshot is a dev-venv CLI artifact the app only reads).
+   image + a replay-perf fix; today the snapshot is a dev-venv CLI artifact the app only reads); and the
+   **point-in-time basket** (`basket_member` is full-replace, no timestamps — `INVARIANTS.md` §Known gaps): the
+   precondition for a reconstructed night ever being scoreable and for a past-asof recompute (the Board/Cockpit
+   scrub-back, replay) to stop being a labeled counterfactual.
 2. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
    transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
    Deferred by operator call ("other things coming").
@@ -207,7 +216,9 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri + `RUN_AT` schedule contract, which still has two
    homes (`scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand) — `market_today()`
    deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
-   Still open: the **R4
+   The **wrong-day fire is CLOSED** (#330–#332: target-at-schedule-time, the sliced wall-clock wait, boot
+   catch-up to the last expected night, the hole-aware `gappy` read; a missed night is reconstructed with
+   `pipeline.backfill`'s pinned clock — reported, never scored). Still open: the **R4
    0-fetch false-positive** (a run entirely inside the 12h EDGAR TTL looks like a freeze — page on 0 only
    when the cache was outside its TTL, or restrict the freeze page to scheduled runs); the **fetch counter
    counts ATTEMPTS, not successes** — `EdgarClient.get_text` does `live_fetches += 1` immediately *before*
@@ -217,7 +228,10 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    withhold guard caught it, never the detector built to catch exactly this. Count *completions* (or carry
    a failure tally beside the attempt count) so the freeze detector reports the network rather than the
    intent. And an **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
-   sidecar can't alert about its own absence). Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
+   sidecar can't alert about its own absence; the only thing that catches a host that is OFF at `RUN_AT` and
+   stays off past the next boot's last-expected window); and the **`RUN_AT` choice** (an earlier fire while
+   the host is usually awake, at the cost of same-evening filings landing a night later — an ops decision).
+   Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
    `FEED_LOOP.md` "Known gaps".
 7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
    fund/affiliate blocks (Baker Bros / Paulson-style) that are portfolio moves, not conviction, screened

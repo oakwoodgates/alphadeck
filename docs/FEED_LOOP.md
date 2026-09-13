@@ -14,7 +14,10 @@
 > **Status: BUILT** — the per-thesis ingest (PR #70), the daily cron + `record_if_changed` (#71), the
 > fresh-data fix + the price-source seam (#72), the scheduling sidecar (#73), and the **cron-freeze
 > remediation** (#196–#200): the key-classed EDGAR cache TTL, a recording gate, a run-of-record log, a health
-> pager, and catch-up-on-boot. With it, **M2 — "the functional platform feeds itself" — is complete**, and the
+> pager, and catch-up-on-boot; and the **missed-nights arc** (#330–#332, #337–#338): the sidecar fires for
+> the INTENDED night and waits in wall-clock slices, the freshness read is hole-aware (`gappy`), and a missed
+> night is reconstructed with a PINNED clock and marked `calls.reconstructed` (reported on the Scoreboard,
+> never scored). With it, **M2 — "the functional platform feeds itself" — is complete**, and the
 > North Star is reachable end to end: create a thesis (M1) → `ingest_thesis` pulls real insider + price → it
 > WARMS/ARMS on real data → the daily cron logs the call-of-record.
 >
@@ -272,9 +275,14 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   `recorded_at` is always now — and the as-of gate is two-axis (`valid_from <= asof` AND `recorded_at <=
   known_at`, `INVARIANTS.md` #4). A naive re-run computes the past night with `known_at = now`: TODAY's
   knowledge, "what the platform says now about that night", not what it would have logged. MEASURED on dev:
-  Modern Defense backfilled as ARMED on Aug 24–31 while the real nightly runs around those nights recorded
+  one thesis backfilled as ARMED on four missed nights while the real nightly runs around those nights recorded
   INCUBATING, because that thesis's facts arrived after them. The pinned backfill records what the cron WOULD
-  have logged, consistent with its recorded neighbors.
+  have logged as far as the FACTS go — faithful to its PIN, not guaranteed identical to its recorded neighbors.
+  Two things make a neighbor differ honestly: `asof` is a LIVENESS parameter, so a drifted nightly row (a
+  wrong-day fire — the prior night's bars under the wake day's label) can count a filing dated on its label
+  day that the intended night cannot; and a neighbor computed under the 2026-07 frozen cache understates.
+  The reconstruction is the right row; the neighbors are the ones carrying label drift — read a difference
+  against them with that in mind, never as a hidden transition. The two axes a pin cannot fix are below.
 - **The pin — `--known-at next-run`** resolves to the `finished_at` of the FIRST live run after the night
   (`resolve_next_run_known_at`, pure over the R3 run artifacts; `no-live` runs and runs started ON the as-of
   day do not count, a `--catch-up` pass does). That run ingested the night's own EOD bar and its filings and
@@ -316,6 +324,11 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   after a backup and after re-running the classification query there (the pins differ per stack) — never
   an agent. Reconstructed rows for theses that DID exist are left alone: reported-not-scored, and the
   evidence the backfill happened.
+- **What a reconstruction changes on the ops surface.** The Admin freshness reads (`record_edge` /
+  `record_first` / `recorded_asofs`, and the Scoreboard's `record_edge` line) count EVERY row, reconstructed
+  included: after a backfill the night is no longer a hole, `gappy` clears, and the edge can advance. That is
+  deliberate — freshness asks whether the log advanced, not whether a row is scoreable; the Scoreboard's
+  record path is the ONE reader that filters (`docs/ADMIN.md`, `docs/SCOREBOARD.md`).
 - **Provenance + idempotency.** One write-only, fail-open JSON per invocation under
   `data/backfills/<utc-ts>.json` (`pipeline/backfill_log.py`: `asof`, `known_at`, `known_at_policy`
   `explicit` | `next-run`, per-thesis state / verdict / recorded / error). NOT a cron run artifact —

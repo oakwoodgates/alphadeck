@@ -133,17 +133,19 @@ replay stays honest.
 - *Also honored by (the SERVE path — the scrub-back cap):* the gate COLUMN being right is not enough; the
   PIN must move. `GET /theses/{id}/call`, `/display-signals`, and `/workbench/…/scored` recompute through
   a `PointInTimeData` whose `known_at` defaults to `now`, so for a past `asof` the `recorded_at` half of the
-  gate never bit and a Board/Cockpit scrub-back read TODAY's knowledge of that date (MEASURED 2026-09-09:
-  Modern Defense at `asof=2026-08-25` recomputed ARMED on TPCS bars ingested 2026-09-01 while the record
-  said watching — `docs/temp/serve-path-lookahead-audit-2026-09-09.md`). The three routes now thread
+  gate never bit and a Board/Cockpit scrub-back read TODAY's knowledge of that date (MEASURED 2026-09-09: one
+  thesis at a late-August as-of recomputed ARMED on a member's bars ingested a week AFTER that as-of — 63 bars
+  visible to the serve gate, 0 to an honest one — while the record said watching; the gitignored working note
+  `docs/temp/serve-path-lookahead-audit-2026-09-09.md`). The three routes now thread
   `domain.market_time.serve_known_at(asof)`: `None` for a live `asof` (the unchanged live read — the PIT's
   own UTC `now` for facts, the DATABASE clock for the decisions log, `decisions_repo`'s one-clock rule) and
   `known_at_for_asof(asof)` = the end of that **market** day for a past one (the cron's own convention —
   `RUN_AT` 22:30 ET with `asof = market_today()` — so the recompute's data view is a superset of the
   record's by at most the hours to midnight ET, never a subset; a UTC day-end would have sat before the
   cron and read one bar short). What this does NOT make identical to the record: the recompute runs
-  today's CODE and today's BASKET (`basket_member` is full-replace on promote, not bitemporal) over
-  then-knowable facts — PIT-honest on data, not a replay of the row. *Enforced by:* the per-site leak +
+  today's CODE and today's BASKET (`basket_member` is full-replace on promote, not bitemporal — the platform-wide
+  gap under *Known gaps* below) over then-knowable facts — PIT-honest on data, a labeled counterfactual on
+  membership, never a replay of the row. *Enforced by:* the per-site leak +
   template tests in `tests/app/test_theses_api.py`, `test_display_signals_api.py`,
   `test_workbench_api.py` (a fact dated before but recorded after the as-of is invisible; a live `asof`
   threads `None`), and `tests/domain/test_market_time.py` (the market-day cap, the post-20:00-ET live
@@ -202,6 +204,16 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
   still recomputes from facts, and the log is never read back to serve. (`_canonical` makes the compare
   order-independent so a pure reorder can't re-append; `tests/repositories/test_calls_repo.py`,
   `tests/pipeline/test_daily.py`.) See `FEED_LOOP.md`.
+- *Also honored by (the reconstructed row — `pipeline.backfill`, migration 0042):* a missed night's row is
+  appended by the SAME assembly with `known_at` pinned, and carries `calls.reconstructed = true` OFF the card
+  (a field IN the card would fake a change in `record_if_changed`'s canonical compare). The record stays
+  immutable — 0042's one-time legacy stamp set the flag under a single-statement trigger disable and rewrote
+  nothing the call says. **A reconstructed row never defines an episode boundary:** the Scoreboard's record
+  path reads `latest_for_thesis(include_reconstructed=False)` (filtered BEFORE the per-as-of dedup, so a night
+  carrying both scores its nightly row); every other reader — the cron's transition compare, the backfill's
+  prior-row report, the freshness reads, the decision log's stance — keeps the default and sees every row.
+  (`tests/scoreboard/test_record.py`, `tests/repositories/test_calls_repo.py`,
+  `tests/db/test_migration_0042_reconstructed.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual
@@ -417,3 +429,15 @@ naively ingesting the 4/A both *double-count*), so it is **measure-first, MARK-d
 **held behind the operator's signal-change hold** — no change to signal/call logic until the operator lifts it.
 Measured prevalence (2026-07-17): 1,126 Form 4/A · 1.8% of Form 4s · 162 of 250 names (amended *buys* a smaller
 subset). Relates to #1 (no model-sourced firings — this is a deterministic-path gap) and #4 (no lookahead).
+
+**Known gap — basket composition is not point-in-time (one platform-wide limitation, three surfaces).**
+`basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past
+night is unknowable. Every recompute at a past `asof` therefore runs TODAY's roster over then-knowable facts:
+the Board/Cockpit/Workbench scrub-back (#4 above — PIT-honest on data, a labeled counterfactual on
+membership), the replay harness (`REPLAY.md` §Known limitation — the harness output carries the warning), and
+`pipeline.backfill`'s reconstruction of a missed night (`FEED_LOOP.md` — which is why a reconstructed row is
+reported, never scored). The ONE surface immune is the Scoreboard's record path: it scores recorded cards,
+never a recompute, and excludes reconstructed rows. Closing it is a bitemporal (or snapshotted) basket — the
+precondition for a reconstructed row ever counting and for a past-asof recompute to stop being a
+counterfactual. Until then, no surface may present a past-asof recompute as "what the platform said"; that
+is the Scoreboard's record.

@@ -19,8 +19,9 @@ stack until you **rebuild its image**:
 - A **frontend** change needs a `frontend` rebuild.
 - A change with a **backend** half (a new field, endpoint, migration) needs a `backend`
   rebuild too — a "frontend-only" PR needs only the FE rebuild.
-- A change on the **nightly `pipeline.daily` path** needs a `cron` rebuild too — the cron
-  is a SEPARATE image built from the same context (`build: ./backend`), so a `backend`
+- A change on the **nightly `pipeline.daily` path** — or to the sidecar script itself,
+  `backend/scripts/daily_cron.sh`, which ships INSIDE that image — needs a `cron` rebuild too:
+  the cron is a SEPARATE image built from the same context (`build: ./backend`), so a `backend`
   rebuild alone leaves the 22:30 run on old code (Flow A's cron caveat has the details).
 - Dev is the same for the frontend (built image). The dev **backend** is the only
   bind-mounted, live-reload service (`./backend:/app` + `--reload`); the dev frontend
@@ -69,7 +70,8 @@ read it before reaching for it.
    container's image + creation time). Verify the swap took:
    ```
    docker ps --filter name=alphadeck-cron-1     # fresh CreatedAt -> the new image is live
-   docker logs alphadeck-cron-1                  # echoes "next run <ts>" — its live schedule
+   docker logs alphadeck-cron-1                  # the boot catch-up line, then "next run <ts> — asof <date>"
+   docker top alphadeck-cron-1                   # a `sleep 60` (the sliced wait) — never a tens-of-thousands-second sleep
    ```
 4. **Verify the REAL artifact** (not just that it built):
    ```
@@ -92,8 +94,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev 
 git checkout main
 ```
 
-The built image PERSISTS after you restore `main`. Add `backend` to the rebuild for a
-backend half. Dev: app http://localhost:8081 · API + docs http://localhost:8001/docs.
+The built image PERSISTS after you restore `main` — for the FRONTEND. **The dev backend does not
+preview this way:** the dev override bind-mounts `./backend:/app` from the compose project
+directory, so the running container serves whatever the MAIN checkout has checked out — the sha's
+code only while you are detached, `main`'s again the moment you restore it, image or no image. A
+backend half (a CLI, a migration, a route) previews on dev through Flow C (whose
+`--project-directory` re-points that bind mount at the worktree), or by leaving the checkout
+detached while you look. Dev: app http://localhost:8081 · API + docs http://localhost:8001/docs.
 
 ---
 
@@ -119,9 +126,13 @@ since `.env` / `.env.dev` live only at the main-checkout root — and the absolu
 `--env-file` closes exactly that gap. Nothing is written to the main checkout: no detach,
 no WIP commit; it stays clean and on `main` throughout.
 
-Use Flow B once a sha exists (it leaves a reproducible provenance trail); use Flow C
-while iterating. **Rebuild dev from the main checkout when you are done** — otherwise dev
-keeps serving an image built from code that exists nowhere in git.
+For a backend half, add `backend` to the service list: with `--project-directory <worktree>`
+the dev override's `./backend:/app` bind mount resolves to the WORKTREE's backend, so the
+re-created container live-reloads the worktree's code (this is how a new `pipeline.*` CLI is
+exercised on dev before it is merged — Flow B cannot do it, above). Use Flow B once a sha
+exists (it leaves a reproducible provenance trail); use Flow C while iterating. **Rebuild dev
+from the main checkout when you are done** — otherwise dev keeps serving an image (and, for the
+backend, a bind mount) built from code that exists nowhere in git.
 
 ---
 

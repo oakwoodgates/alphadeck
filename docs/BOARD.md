@@ -28,8 +28,13 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   other (#4: the platform is deferential on thesis — it times, it doesn't judge ideas).
 - **The as-of scrub** (top right) defaults to **local today** (`todayISO` — deliberately not UTC, which is
   tomorrow after ~8pm ET; the gate-2 catch). Scrubbing back replays the board as it *would have read* on
-  that date — the no-lookahead rule applies to the UI too: a fill or fact dated after the as-of is
-  invisible to it, by design.
+  that date — the no-lookahead rule applies to the UI too, on BOTH axes: a fill or fact dated after the as-of
+  is invisible to it, and so is one RECORDED after that day (`GET /theses/{id}/call?asof=` threads
+  `serve_known_at(asof)` — `known_at` capped at the end of that MARKET day for a past as-of, `None` for a live
+  one; #336, `INVARIANTS.md` #4). The remaining caveat, stated once: the recompute runs today's CODE over
+  today's BASKET (`basket_member` is not point-in-time — the platform-wide gap in `INVARIANTS.md` §Known
+  gaps), so a scrubbed-back card is a labeled counterfactual until baskets are point-in-time; what the
+  platform actually said that night is the Scoreboard's record, never this recompute.
 - **The Decision Queue** — the one loud element: an armed-only strip so an actionable call can't be
   forgotten. A multi-name theme shows its **single top-ranked actionable name** with a quiet `+N` hint
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
@@ -68,7 +73,8 @@ author one" invisible):
 - **Kill criteria** — the documented "what would kill this thesis." Consumed by the deterministic
   counter-case on the CallCard — an authored thesis stops reading "no documented counter-case."
 
-The Cockpit shares the Board's as-of; the call rail beside it recomputes live at that date.
+The Cockpit shares the Board's as-of; the call rail beside it recomputes live at that date — under the same
+`known_at` cap for a past as-of, and so do the display signals (`/display-signals?asof=` threads it too).
 
 ### The grouped basket — per-name buckets
 
@@ -287,7 +293,8 @@ panel (above) is the deep view — the thesis-wide lists are no longer the only 
 
 ## The nightly rhythm
 
-At 22:30 ET (the `cron` compose profile, `FEED_LOOP.md`), for every **non-archived** thesis:
+At 22:30 ET (the `cron` compose service — on by default, no profile; it fires for the INTENDED night with the
+target as-of fixed at schedule time and waits in wall-clock slices, `FEED_LOOP.md`), for every **non-archived** thesis:
 ingest (incremental Form 4 + EOD, with the **re-version pass** — a split re-base self-heals in one tick)
 → assemble today's call → **transition detection** (state/verdict vs the prior as-of's call-of-record —
 the material-change line; churn is not a transition) → append the call-of-record only if it changed.
