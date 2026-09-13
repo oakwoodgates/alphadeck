@@ -546,3 +546,50 @@ def test_report_omits_backfill_segment_when_zero(capsys):
     out = capsys.readouterr().out
     assert "+3 bars" in out and "backfilled" not in out
     assert "+3 price bars" in out  # total = 3 + 0
+
+
+# --- G1: the three filing legs share ONE submissions fetch per company (the recurring TTL) ------------
+
+
+def test_the_three_filing_legs_cost_ONE_submissions_fetch_per_company(
+    db, security_id, monkeypatch, tmp_path
+):
+    """THE PROMISE THE RECURRING TTL MUST NOT BREAK. ``_form8k_leg`` and ``_schedule13_leg`` document that
+    they "read the SAME submissions document the Form 4 leg fetches (the client's cache makes the second
+    read free), so the whole tape costs zero extra enumeration fetches". That promise is a property of the
+    CLIENT's cache, and a recurring TTL of zero would quietly break it — ``_is_stale`` is
+    ``now - mtime > ttl``, so a file written milliseconds earlier is already stale and each leg refetches.
+
+    So this runs the REAL ``EdgarClient`` (real cache + real TTL logic) with only its ``_fetch`` stubbed,
+    injected the way the cron injects it — deliberately NOT ``_patch``'s ``fetch_submissions`` stub, which
+    would bypass the cache and make the test unable to see the regression. One member with a CIK, three
+    legs, exactly ONE network pull of ``submissions/``."""
+    import json as _json
+
+    from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+
+    urls: list[str] = []
+
+    def _fetch(url: str) -> str:
+        urls.append(url)
+        if "submissions" in url:
+            return _json.dumps(_subs(("ACC-1",)))
+        return _XML  # the Form 4 document (immutable forms/* key)
+
+    client = EdgarClient(
+        cache_dir=tmp_path,
+        allow_live=True,
+        user_agent="test ua",
+        cache_ttl_s=RECURRING_CACHE_TTL_S,
+    )
+    client._fetch = _fetch  # type: ignore[method-assign]
+    monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars(())))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=True, edgar_client=client)
+
+    assert len(results) == 1 and results[0].error is None
+    submissions_pulls = [u for u in urls if "submissions" in u]
+    assert len(submissions_pulls) == 1  # ONE index fetch across the form4 + 8-K + 13D/G legs
+    assert results[0].form4_appended == _F4_PER_ACCESSION  # ...and the legs really ran
+    assert client.live_fetches == len(urls)  # the freeze counter agrees with the network

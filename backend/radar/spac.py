@@ -29,7 +29,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
 from domain.settings import get_settings
 from ingest import CacheMiss
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.dailyindex import IndexFiling, fetch_daily_index
 from ingest.edgar.submissions import fetch_submissions, parse_identity, parse_item_codes
 from radar import matcher, repo
@@ -154,7 +154,19 @@ def run_spac_radar(
     today), accrete + persist + (optionally) match. Idempotent over a re-scan of the same window
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
     client with ``allow_live=False``)."""
-    client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    # G1 — THE RECURRING TTL (five minutes): a RECURRING pass never reads a DAYTIME-warm mutable key (no
+    # exceptions on the nightly path; the full rationale, including why five minutes rather than zero — the
+    # same-pass re-read of one key must stay free — lives at ``ingest.edgar.client.RECURRING_CACHE_TTL_S``).
+    # Both keys this leg reads are mutable: TODAY's ``daily-index/master.<date>.idx`` GROWS through the
+    # day as filings are accepted, so a daytime scan cached an incomplete index that the 22:30 pass then
+    # served — the radar silently missed the evening's DAs; and ``submissions/CIK<10>.json`` is the same
+    # mutable index the call path enumerates from (item-code resolution here). Re-pulling costs the
+    # ``days``-wide index window (3 files) plus the per-CIK indexes the pass was already fetching (this leg
+    # also memoizes submissions per CIK in ``submissions_by_cik``, so it re-reads a key at most once);
+    # immutable ``forms/*`` documents still cache forever.
+    client = edgar_client or EdgarClient(
+        allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
+    )
     until = until or market_today()
     result = RadarRunResult()
     submissions_by_cik: dict[str, dict[str, Any] | None] = {}
