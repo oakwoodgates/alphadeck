@@ -27,6 +27,13 @@ Discipline:
     python -m pipeline.daily --catch-up --asof 2026-09-08   # the sidecar's late-wake / boot catch-up:
                                                             # a no-op if a LIVE pass for that asof already
                                                             # ran at/after that night's RUN_AT
+
+EXIT CODE (the contract a wrapper reads): **0 when the night has a call-of-record** for at least one
+thesis — including a healthy-quiet night where nothing changed, a partial night where some theses errored,
+an empty roster, and a deliberate ``--no-live`` pass. **Non-zero ONLY when the night has no record at
+all** (the pass crashed, or every thesis was withheld/errored for a real reason). The sidecar's one retry
+fires on that, so the code answers "does tonight have a record?", never "did anything go wrong" — errors
+are reported through the printed summary and the R4 health page. See ``_failed_to_record``.
 """
 
 from __future__ import annotations
@@ -197,13 +204,30 @@ def run_daily(
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
             card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
-            # (4) TRANSITION DETECTION (the notify seam): compare state/verdict against the PRIOR
-            # as-of's call-of-record — the material-change line (trigger churn / provenance noise
-            # version the log via record_if_changed without being transitions; a state or verdict
-            # MOVE is what an operator would want to be told about). First-ever call = no prior =
-            # no event. Delivery is the adapter's concern (v1: a loud log line).
+            # (4) TRANSITION DETECTION (the notify seam): compare state/verdict against the
+            # call-of-record AT OR BEFORE this as-of — the material-change line (trigger churn /
+            # provenance noise version the log via record_if_changed without being transitions; a
+            # state or verdict MOVE is what an operator would want to be told about). First-ever
+            # call = no prior = no event. Delivery is the adapter's concern (v1: a loud log line).
+            #
+            # F2 — `<=`, NOT `<`: THE BASELINE IS THE LATEST RECORD AT OR BEFORE THIS AS-OF. Under
+            # `<` a SECOND pass on the same day compared against YESTERDAY and re-pushed a
+            # transition it had already announced hours earlier (MEASURED on dev 2026-09-13: two
+            # later passes each re-reported the same transitions the first pass had reported, while
+            # appending 0 rows — an Admin "Run daily now" after the nightly did the same). `<=`
+            # picks the same-day earlier row when there is one, so one move is announced ONCE. It
+            # can never reach a FUTURE row, so a catch-up for a past night still compares against
+            # that night's own row when one exists, else its predecessor — never a later night's.
+            # Why this is the RIGHT baseline and not merely a quieter one: it is the SAME row
+            # `record_if_changed` compares against (`calls_repo.record_if_changed` — `c.asof ==
+            # card.asof`), so "unchanged card -> no row appended" and "unchanged card -> no page"
+            # become ONE rule instead of two that disagree within a day.
+            # ACCEPTED NUANCE: `latest_for_thesis` includes `reconstructed` rows by default, so a
+            # catch-up of a past night that already holds a reconstructed row compares against it.
+            # A page about a stale night is noise either way, and narrowing the include flag here
+            # would be a behavior change beyond this fix (#337 scoped that ruling to the Scoreboard).
             prior = next(
-                (c for c in calls_repo.latest_for_thesis(conn, thesis.id) if c.asof < asof), None
+                (c for c in calls_repo.latest_for_thesis(conn, thesis.id) if c.asof <= asof), None
             )
             if prior is not None and (
                 prior.state is not card.state or prior.verdict is not card.verdict
@@ -566,7 +590,12 @@ def run_daily_pass(
 
 
 def _report(results: list[ThesisRunResult]) -> int:
-    """Print a per-thesis summary; return the number that errored (the process exit signal)."""
+    """Print a per-thesis summary; return the number of theses that ERRORED.
+
+    That count is still printed and still pages (``assess_health`` -> ``HealthEvent.errored``), but it is
+    no longer the process exit signal — ``_failed_to_record`` (below) is. A night that recorded 11 of 12
+    theses is a night with a call-of-record, and exiting non-zero for it made the sidecar sleep 20 minutes
+    and fire a retry the guard then no-opped (F4)."""
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
     withheld = [r for r in results if r.withheld_reason]
@@ -617,6 +646,49 @@ def _report(results: list[ThesisRunResult]) -> int:
     return len(errored)
 
 
+def _failed_to_record(results: list[ThesisRunResult]) -> bool:
+    """F4 — THE EXIT SIGNAL: did this pass fail to produce a call-of-record it should have produced?
+
+    ``True`` only when theses existed, NONE of them reached the call step, and that was not by request.
+    The sidecar's retry fires on this (``scripts/daily_cron.sh``), so the question it must answer is "does
+    tonight have a record?" — not "did anything at all go wrong". Before F4 the exit code was the ERRORED
+    count, so a single bad thesis out of twelve made the loop wait ``RETRY_DELAY_S`` (20 min) and fire a
+    ``--catch-up`` the guard immediately no-opped, while the log read "run FAILED" over a night that
+    recorded eleven. Per-thesis errors keep printing and keep paging through R4; only the exit code moved.
+
+    The ladder, one clause per reason:
+
+    1. **No theses at all -> not a failure.** A pass over an empty roster recorded nothing because there
+       was nothing to record (a fresh install, or every thesis deleted). Retrying it nightly forever would
+       be pure noise.
+    2. **Some thesis has a BOOL ``recorded`` -> not a failure.** ``True`` = a new row was appended,
+       ``False`` = unchanged so no row — which is the common healthy-quiet night and absolutely counts as
+       "the call step ran". ``None`` means the call step FAILED for that thesis.
+    3. **Every withhold was ``no-live`` -> not a failure.** A cache-only pass withholds every call BY
+       DESIGN (``run_daily``'s recording gate, Source A). ``python -m pipeline.daily --no-live`` is a
+       documented operator command and must keep exiting 0; the cron never passes ``--no-live``.
+    4. **Otherwise -> failure.** Theses existed and none recorded for a real reason (a total ingest
+       failure, or the call step erroring for every one). That night has no record and the retry is
+       exactly right.
+
+    ``isinstance(..., bool)``, not ``in (True, False)``: in Python ``1 in (True, False)`` is True, so an
+    integer that wandered into the field would be mistaken for an outcome.
+
+    THE ARTIFACT TWIN: ``cron_run_log._recorded_for_some_thesis`` answers the same question — did the call
+    step run for some thesis — over a PARSED ARTIFACT rather than live results, because that is what the
+    ``--catch-up`` guard has to work from. The two must agree on the same pass; a test pins it. They are
+    separate functions on purpose (different inputs, different fail-open directions: the guard errs toward
+    RUNNING on a damaged artifact, this errs toward exit 0 on an empty roster).
+    """
+    if not results:
+        return False  # (1) nothing to record
+    if any(isinstance(r.recorded, bool) for r in results):
+        return False  # (2) the call step ran for someone — the night has a record
+    if all(r.withheld_reason == "no-live" for r in results):
+        return False  # (3) a deliberate cache-only pass withholds by design
+    return True  # (4) theses existed, nothing recorded, and not by request
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="Daily cron: refresh facts + append the call-of-record per thesis."
@@ -656,8 +728,16 @@ def main(argv: list[str] | None = None) -> None:
             return
 
     outcome = run_daily_pass(asof=asof, allow_live=allow_live, catch_up=args.catch_up)
-    if _report(outcome.results):
-        raise SystemExit(1)  # surface partial failure to a scheduler / wrapper, non-silently
+    _report(outcome.results)  # the per-thesis summary + the errored count, printed either way
+    # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
+    # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis
+    # errored": the sidecar retries on this code, and a 20-minute pause plus a guard no-op bought nothing
+    # for a night that recorded 11 of 12 while the log read "run FAILED". A partial failure still prints
+    # per thesis and still pages through R4 (assess_health -> HealthEvent.errored) — the operator hears
+    # about it, the scheduler does not act on it. Two deliberate exemptions, both exit 0: a pass over NO
+    # theses (nothing to record) and a `--no-live` pass (it withholds by design). See _failed_to_record.
+    if _failed_to_record(outcome.results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

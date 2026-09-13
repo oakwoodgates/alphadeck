@@ -31,11 +31,13 @@
 #   waited for tomorrow, so a transient fault (a DB restart mid-run, a vendor 5xx, a network blip) cost that
 #   night's call-of-record outright — and a daytime row on the same day could keep the Admin page reading
 #   "healthy" over the hole. Now the loop waits RETRY_DELAY_S (default 1200 s, sliced through `wait_until`
-#   like the schedule wait) and fires ONE `python -m pipeline.daily --catch-up --asof "$target"`. `--catch-up`
-#   is the guard, which is what makes retrying on a bare exit code safe: it no-ops when a live post-RUN_AT
-#   pass for that as-of already RECORDED for some thesis, so a partial failure costs one CLI start rather
-#   than a re-ingest, while a crash-before-artifact reruns the night in full. The retry sits BEFORE the
-#   in-loop catch-up window closes and before the nightly backup, so both still run after it.
+#   like the schedule wait) and fires ONE `python -m pipeline.daily --catch-up --asof "$target"`.
+#   WHAT A NON-ZERO EXIT MEANS (F4, 2026-09-13): the night has NO call-of-record at all. It used to mean
+#   "some thesis errored", so a night that recorded 11 of 12 theses still cost a 20-minute pause and a
+#   retry the guard then no-opped. The retry now fires only on a genuine total miss, which is the only
+#   shape a re-run can fix. `--catch-up` stays as the guard anyway (belt-and-suspenders for the narrow
+#   case of a pass that wrote its artifact and then died). The retry sits BEFORE the in-loop catch-up
+#   window closes and before the nightly backup, so both still run after it.
 # - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every weekday strictly after
 #   the target up to the last EXPECTED as-of at the instant the scheduled run FINISHES gets a `--catch-up`
 #   pass. The window closes AFTER the run, not at the wake: a live run takes 7-15 min, so a wake shortly
@@ -198,16 +200,19 @@ while :; do
       # the same day the Admin page could still read healthy over it (see the hole check in
       # app/routers/admin.py). One retry, `RETRY_DELAY_S` later.
       #
-      # --catch-up IS THE GUARD, and that is why the retry is safe to fire on any non-zero exit: the CLI
-      # no-ops when a LIVE pass for this as-of that STARTED at/after tonight's RUN_AT already RECORDED for
-      # some thesis (cron_run_log.already_ran_live). So the two failure shapes resolve correctly without
+      # THE EXIT CODE NOW MEANS "THE NIGHT HAS NO RECORD" (F4). `pipeline.daily` exits 0 whenever the call
+      # step reached at least one thesis — a quiet unchanged night, a partial night where some theses
+      # errored, an empty roster, a deliberate `--no-live` — and non-zero ONLY when nothing recorded. So
+      # reaching this branch already means a re-run is the right move; per-thesis errors page through R4
+      # instead of pausing the loop for nothing. Two shapes land here, and both resolve correctly without
       # the shell knowing which it hit:
       #   - the pass CRASHED before writing its artifact (DB unreachable at connect, killed mid-run)
       #     -> no artifact -> the guard finds nothing -> the retry runs the night in full;
-      #   - the pass COMPLETED but exited 1 because SOME thesis errored -> its artifact shows the call step
-      #     ran -> the guard no-ops -> the retry costs one CLI start, not a re-ingest;
-      #   - the pass completed with EVERY thesis withheld/errored -> nothing recorded -> the guard lets the
+      #   - the pass COMPLETED with EVERY thesis withheld/errored -> nothing recorded -> the guard lets the
       #     retry run (that is 2b; before it, this artifact would have blocked even a boot catch-up).
+      # --catch-up STAYS the guard regardless — belt-and-suspenders for the narrow case of a pass that
+      # wrote its artifact and then died after recording: it no-ops when a LIVE pass for this as-of that
+      # STARTED at/after tonight's RUN_AT already RECORDED for some thesis (cron_run_log.already_ran_live).
       # wait_until, not sleep: the same monotonic-clock reason as the schedule wait (a suspended host does
       # not advance `sleep`'s clock, so a raw sleep could overshoot by the whole suspend).
       echo "daily-cron: run FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"

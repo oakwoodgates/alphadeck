@@ -1115,3 +1115,182 @@ def test_report_lists_stale_tapes_deduped_and_only_when_there_are_any(capsys):
 
     daily._report([daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=True)])
     assert "STALE PRICE TAPES" not in capsys.readouterr().out  # quiet when there are none
+
+
+# --- F2: the transition baseline is the record AT OR BEFORE this as-of (no same-day re-notify) --------
+
+
+def test_a_same_day_second_pass_does_NOT_re_notify_the_nights_transition(
+    db, security_id, monkeypatch
+):
+    """THE BUG THIS CLOSES (MEASURED on dev 2026-09-13): a second pass on the same day — the Admin "Run
+    daily now" button after the nightly, or the sidecar's retry/catch-up sequence — re-pushed the night's
+    transitions to Slack, because the baseline was the latest row with `asof < today` (YESTERDAY) even
+    though a row for TODAY already existed. Here: the morning pass pages incubating → warming, and the
+    evening pass on unchanged facts pages NOTHING and appends nothing (count the table, both)."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "Nuclear", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # the prior night: INCUBATING
+    ingest_form4(db, security_id, _XML, "0000000000-26-000001")  # the P-buy that warms it
+    db.commit()
+
+    morning = _Capture()
+    daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=morning)
+    assert [(e.from_state, e.to_state) for e in morning.events] == [("incubating", "warming")]
+    rows_after_morning = len(_calls(db, tid))
+
+    evening = _Capture()
+    by = {
+        r.thesis_id: r for r in daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=evening)
+    }
+    assert evening.events == []  # the same move is announced ONCE
+    assert by[tid].transition is None
+    assert len(_calls(db, tid)) == rows_after_morning  # ...and nothing was appended either
+
+
+def test_a_genuine_intraday_MOVE_still_notifies_against_the_same_day_row(
+    db, security_id, monkeypatch
+):
+    """The other half: quieting the re-push must not mute a REAL move later the same day. The evening
+    pass pages warming → armed — measured against the MORNING row, not against yesterday's incubating
+    one, so the arrow describes the move the operator has not yet been told about."""
+    _no_network(monkeypatch)
+    _thesis(db, "Nuclear", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # the prior night: INCUBATING
+    ingest_form4(db, security_id, _XML, "0000000000-26-000001")
+    db.commit()
+
+    morning = _Capture()
+    daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=morning)
+    assert [(e.from_state, e.to_state) for e in morning.events] == [("incubating", "warming")]
+
+    # the evening pass, SAME as-of: the card has moved on (the assembler stubbed, the house pattern)
+    monkeypatch.setattr(
+        daily, "call_for_thesis", lambda conn, thid, asof, **k: _armed_card(thid, security_id, asof)
+    )
+    evening = _Capture()
+    daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=evening)
+
+    assert len(evening.events) == 1
+    evt = evening.events[0]
+    assert (evt.from_state, evt.to_state) == ("warming", "armed")  # NOT incubating → armed
+
+
+def test_a_catch_up_for_a_PAST_asof_compares_to_that_nights_predecessor(
+    db, security_id, monkeypatch
+):
+    """`<=` can never reach FORWARD. With rows for Jun 5 (incubating) and Jun 11 (warming), a catch-up
+    pass for Jun 10 compares against Jun 5 — that night's predecessor — and still pages the move. If the
+    baseline could see the later row it would read warming → warming and say nothing."""
+    _no_network(monkeypatch)
+    _thesis(db, "Nuclear", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # INCUBATING
+    ingest_form4(db, security_id, _XML, "0000000000-26-000001")
+    db.commit()
+    daily.run_daily(db, asof=date(2026, 6, 11), allow_live=True, notifier=_Capture())  # WARMING
+
+    cap = _Capture()
+    daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=cap)  # Jun 10, between the two
+
+    assert len(cap.events) == 1
+    assert (cap.events[0].from_state, cap.events[0].to_state) == ("incubating", "warming")
+
+
+# --- F4: the exit code answers "does tonight have a record?", not "did anything go wrong" ------------
+
+
+def _outcome_with(results):
+    """A finished pass carrying `results` — the shape `main` reads for its exit decision."""
+    now = datetime(2026, 9, 9, 3, 0, tzinfo=timezone.utc)
+    return daily.DailyPassOutcome(
+        results=results,
+        asof=_ASOF,
+        allow_live=True,
+        started_at=now,
+        finished_at=now,
+        log_path=None,
+    )
+
+
+def _exit_code(monkeypatch, results) -> int:
+    """Run the CLI over a stubbed pass and return the process exit code (0 = no SystemExit)."""
+    monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: _outcome_with(results))
+    try:
+        daily.main(["--asof", _ASOF.isoformat()])
+    except SystemExit as exc:
+        return int(exc.code or 0)
+    return 0
+
+
+def _res(**kw):
+    return daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", **kw)
+
+
+def test_exit_0_when_the_pass_recorded_for_SOME_thesis(monkeypatch):
+    """The headline: a night that recorded is a night with a record, whatever else went wrong. One
+    appended row beside an errored thesis exits 0 — before F4 that cost the sidecar a 20-minute pause
+    and a retry the guard immediately no-opped, while the log read "run FAILED" over a recorded night.
+    An UNCHANGED-only night (recorded False, no row — the common healthy-quiet outcome) counts too.
+    """
+    assert _exit_code(monkeypatch, [_res(recorded=True), _res(recorded=None, error="boom")]) == 0
+    assert _exit_code(monkeypatch, [_res(recorded=False), _res(recorded=False)]) == 0
+
+
+def test_exit_1_when_NOTHING_recorded_for_any_thesis(monkeypatch):
+    """The retry's real trigger: theses existed and the call step reached none of them, so the night has
+    no call-of-record and a re-run is exactly the right move."""
+    assert (
+        _exit_code(monkeypatch, [_res(recorded=None, error="boom"), _res(recorded=None, error="x")])
+        == 1
+    )
+    # the other total-failure shape: withheld for a REAL reason (not by request)
+    assert (
+        _exit_code(monkeypatch, [_res(recorded=None, withheld_reason="total ingest failure")]) == 1
+    )
+
+
+def test_exit_0_on_a_no_live_pass_that_withheld_everything(monkeypatch):
+    """`python -m pipeline.daily --no-live` withholds every call BY DESIGN (the recording gate, Source
+    A) and is a documented operator command — it must keep exiting 0. The cron never passes --no-live,
+    so this exemption can never hide a real miss from the sidecar."""
+    withheld = [_res(recorded=None, withheld_reason="no-live") for _ in range(3)]
+    assert _exit_code(monkeypatch, withheld) == 0
+
+
+def test_exit_0_when_there_are_NO_theses(monkeypatch):
+    """A pass over an empty roster recorded nothing because there was nothing to record (a fresh
+    install). Exiting non-zero would make the sidecar retry every night forever on a working stack.
+    """
+    assert _exit_code(monkeypatch, []) == 0
+
+
+def test_the_exit_predicate_and_the_ARTIFACT_guard_agree_where_they_must(monkeypatch):
+    """Two functions answer "did the call step run for some thesis" — `_failed_to_record` over live
+    results (the CLI's exit code) and `cron_run_log._recorded_for_some_thesis` over a parsed artifact
+    (the --catch-up guard). On a LIVE pass with theses they must agree, or the sidecar would retry a
+    night the guard then refuses to re-run (or skip one it would have).
+
+    They diverge on exactly two shapes, deliberately, because their fail-open directions differ: an
+    EMPTY roster and a --no-live pass are not failures for the exit code, while the guard credits
+    neither as evidence the night ran (it errs toward RUNNING — a repeated run is safe, a skipped one
+    is the silent gap). Pinned here so the divergence stays a decision rather than a drift."""
+    now = datetime(2026, 9, 9, 3, 0, tzinfo=timezone.utc)
+
+    def guard_says_recorded(results, *, allow_live=True):
+        payload = cron_run_log.build_run_payload(
+            results, asof=_ASOF, allow_live=allow_live, started_at=now, finished_at=now
+        )
+        return cron_run_log._recorded_for_some_thesis(payload)
+
+    for results in (
+        [_res(recorded=True), _res(recorded=None, error="boom")],  # partial
+        [_res(recorded=False), _res(recorded=False)],  # unchanged-only
+        [_res(recorded=None, error="boom")],  # total failure
+    ):
+        assert daily._failed_to_record(results) is not guard_says_recorded(results)
+
+    empty: list = []
+    assert daily._failed_to_record(empty) is False and guard_says_recorded(empty) is False
+    no_live = [_res(recorded=None, withheld_reason="no-live")]
+    assert daily._failed_to_record(no_live) is False
+    assert guard_says_recorded(no_live, allow_live=False) is False

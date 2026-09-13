@@ -171,13 +171,24 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
 
 1. **Refresh facts** — `ingest_thesis` (incremental + fail-visible; `force_refresh=True`, the recurring path).
 2. **Assemble TODAY's call WITHOUT writing** — `call_for_thesis(asof=today, known_at=now, record=False)`.
-3. **Detect a MATERIAL TRANSITION** — state or verdict changed vs the PRIOR as-of's call-of-record →
+3. **Detect a MATERIAL TRANSITION** — state or verdict changed vs the call-of-record **at or before**
+   this as-of →
    emit a `TransitionEvent` through the **notify seam** (`backend/notify`: a `Notifier` protocol; v1
    ships `LogNotifier` — a loud log line + the summary's TRANSITIONS block, printed only when there are
    any. DELIVERY is deferred: a channel is one adapter behind `get_notifier()`, zero cron rework). This
    is also the calls-log **material-change line**: clock/trigger churn versions the log via
    `record_if_changed` *without* being a transition; a state/verdict MOVE is what an operator would want
    to be told about.
+   **The baseline is `asof <= this as-of`, not `asof <`** (F2, 2026-09-13). It used to be strictly
+   earlier, so a **second pass on the same day** — an Admin "Run daily now" after the nightly, the
+   sidecar's retry or catch-up sequence — compared against *yesterday* even though a row for today
+   already existed, and re-pushed a transition it had announced hours before (MEASURED on dev: two later
+   passes each re-reported the first pass's transitions while appending 0 rows). At or before means the
+   same move is announced **once**, a genuine intraday move still pages (measured against the morning
+   row, so the arrow describes what you have not yet been told), and a catch-up for a past night still
+   compares to that night's own row when one exists, else its predecessor — it can never reach forward.
+   It also makes one rule of two: this is the *same* row `record_if_changed` compares against, so
+   "unchanged card → no row" and "unchanged card → no page" can no longer disagree within a day.
 4. **Append the call-of-record — GATED, and only if it changed** — `calls_repo.record_if_changed`, *unless the
    recording gate withholds it* (below).
 
@@ -277,13 +288,19 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   daytime row on the same day the Admin page could still read "healthy" right over the hole. Now the loop
   waits **`RETRY_DELAY_S`** (env, default **1200 s**; compose passes `ALPHADECK_CRON_RETRY_DELAY_S`) through
   the same sliced `wait_until` the schedule uses (a raw `sleep` would overshoot by a whole host suspend) and
-  fires ONE `python -m pipeline.daily --catch-up --asof "$target"`. **`--catch-up` is the guard**, which is
-  what makes retrying on a bare exit code safe — the shell never has to know which failure it hit:
-  a pass that **crashed before writing its artifact** leaves no evidence, so the retry runs the night in
-  full; a pass that **completed but exited 1 because some thesis errored** has an artifact showing the call
-  step ran, so the guard no-ops and the retry costs one CLI start rather than a ~65-minute re-ingest; a pass
-  that completed with **every** thesis withheld or errored recorded nothing, so the retry runs (that is G2b,
-  below). The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
+  fires ONE `python -m pipeline.daily --catch-up --asof "$target"`.
+  **What a non-zero exit MEANS (F4, 2026-09-13): the night has no call-of-record at all.** It used to be
+  the count of theses that ERRORED, so a night that recorded 11 of 12 still cost a 20-minute pause and a
+  retry the guard immediately no-opped, while the log read `run FAILED` over a recorded night. The CLI now
+  exits 0 whenever the call step reached at least one thesis — a quiet unchanged night, a partial night
+  where some theses errored, an empty roster, a deliberate `--no-live` — and non-zero only when nothing
+  recorded, which is the only shape a re-run can fix. Per-thesis errors still print and still page through
+  R4; the scheduler simply no longer acts on them. Two shapes reach the retry, and **`--catch-up` stays
+  the guard** for both so the shell never has to know which it hit: a pass that **crashed before writing
+  its artifact** leaves no evidence, so the retry runs the night in full; a pass that completed with
+  **every** thesis withheld or errored recorded nothing, so the retry runs too (that is G2b, below). The
+  guard also covers the narrow case of a pass that wrote its artifact and then died after recording.
+  The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
   still run after it. Exactly ONE retry — a second failure is logged and the loop moves on.
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
   the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
@@ -517,7 +534,9 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
 - **A failed scheduled run, and a daytime row hiding the failed night — CLOSED (G2).** Two halves of one
   blind spot. (a) The sidecar caught the CLI's non-zero exit, logged it, and waited for tomorrow, so a
   transient fault cost the night outright; it now retries once after `RETRY_DELAY_S` via `--catch-up` (see
-  the sidecar section). (b) The `--catch-up` guard credited any live post-`RUN_AT` artifact regardless of
+  the sidecar section) — **and since F4 (2026-09-13) that exit code means "the night has no record",
+  not "some thesis errored"**, so the retry fires on a genuine total miss instead of pausing the loop 20
+  minutes for a night that recorded 11 of 12 theses. (b) The `--catch-up` guard credited any live post-`RUN_AT` artifact regardless of
   health, so a pass that completed with everything withheld blocked both the retry and a later boot
   catch-up; it now requires that the call step RECORDED for some thesis. (c) The Admin hole check counted any
   row for the as-of, so a pre-open "Run daily now" row covered a night whose post-close pass failed; a night

@@ -17,10 +17,13 @@ Access rule (LOAD-BEARING — D5 of the refactor plan):
   truncates. So: cached for stable config, late at the edge for the toggled three.
 
 Env names: generic fields read ``ALPHADECK_<FIELD>`` (``env_prefix``) so a stray ``MODEL`` / ``TZ`` / ``HOST``
-in CI or Docker can't accidentally capture one (the compose sidecar's ``ALPHADECK_CRON_TZ`` is simply ignored;
-``ALPHADECK_CRON_AT`` is deliberately READ — ``cron_run_at``'s alias — so the admin schedule read models the
-same RUN_AT the sidecar runs). The legacy-named vars keep their EXACT current names via an explicit alias (CI + docker-compose
-inject them under those names; the prefix would otherwise demand ``ALPHADECK_DATABASE_URL`` — a different,
+in CI or Docker can't accidentally capture one. Two are deliberately READ from compose so a deploy knob and
+the code that models it cannot drift: ``ALPHADECK_CRON_AT`` (``cron_run_at``'s alias — the admin schedule
+read models the same RUN_AT the sidecar runs) and ``ALPHADECK_MARKET_TZ`` (``market_tz`` via the prefix —
+now injected into BOTH services from the same host variable that pins their container ``TZ``, so the wall
+clock and the trading-day clock cannot disagree; ``ALPHADECK_TZ`` / ``ALPHADECK_CRON_TZ`` are retired).
+The legacy-named vars keep their EXACT current names via an explicit alias (CI + docker-compose inject
+them under those names; the prefix would otherwise demand ``ALPHADECK_DATABASE_URL`` — a different,
 wrong var). ``env_file`` is deliberately NOT enabled — nothing reads a ``.env`` at the Python layer today
 (compose injects env); enabling it would be a silent behavior change.
 """
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ALPHADECK_",
         case_sensitive=False,
-        extra="ignore",  # the process env carries many unrelated vars (incl. ALPHADECK_CRON_TZ) — ignore them
+        extra="ignore",  # the process env carries many unrelated ALPHADECK_* vars (RUN_AT, …) — ignore them
     )
 
     # --- LLM seam (M4b — the FLAG-explanation drafter, the FIRST LLM call) — operational dials only ---
@@ -179,6 +182,10 @@ class Settings(BaseSettings):
     # explicit answer; `market_today()` / `market_now()` are its only readers. Read via the env_prefix
     # (ALPHADECK_MARKET_TZ) — deliberately NOT the bare `TZ` compose pins (which stays as defense-in-depth
     # for wall-clock consumers like the cron shell), so a stray TZ can't capture the domain clock.
+    # SINCE F3 (2026-09-13) compose injects ALPHADECK_MARKET_TZ into the backend AND the cron service and
+    # pins both containers' `TZ` from the SAME host variable, so the wall clock and this domain clock
+    # cannot drift apart; the old ALPHADECK_TZ / ALPHADECK_CRON_TZ names are retired and read nowhere.
+    # The compose fallback must therefore stay EQUAL to this default (compose always injects it now).
     # A bad zone fails LOUD in market_tz() — never a silent UTC fallback.
     market_tz: str = "America/New_York"
 
