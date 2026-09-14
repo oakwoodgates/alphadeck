@@ -138,10 +138,10 @@ and never confirm on price.
   on purpose.
 - **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
-  OTC fix's seam). The next nightly pass re-pulls the full year under the new symbol, appends the missing tail
-  and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is deliberately
-  not built: a wrong auto-resolve would file another company's tape under your member, which is worse than a
-  visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
+  OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the
+  missing tail and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is
+  deliberately not built: a wrong auto-resolve would file another company's tape under your member, which is
+  worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
 
 #### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
 

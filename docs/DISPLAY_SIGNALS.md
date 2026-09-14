@@ -186,8 +186,10 @@ structurally unable to be one.
 
 **`sma_position` notes.** `LOOKBACK_DAYS=600` is *calendar* days (`price_history` trims by
 calendar): ≈410 trading bars → ~210 SMA200-computable bars ≈ 10 months of 50×200 cross search. A
-fresh name's initial 1y pull is honestly thinner — the basis (`bars_used` + the n/a notes) shows
-exactly how much tape the reading stands on, and the daily cron's incremental ingest deepens
+fresh name's initial pull is `2y` (~504 bars / ~730 calendar days — chosen to cover this 600-day
+lookback and the 253-bar 1Y return with margin, `ingest/prices/source.py`), so a name with two years
+of tape reads on a full window from its first ingest; the basis (`bars_used` + the n/a notes) still
+shows exactly how much tape the reading stands on, and the daily cron's incremental ingest deepens
 history over time. Flip detection is a sign state machine over `close − SMA` (and `SMA50 − SMA200`):
 exact zeros are skipped — a close ON the line is not a cross (touch-and-return flips nothing; a
 cross *through* the line stamps the first bar on the far side); the most recent flip wins.
