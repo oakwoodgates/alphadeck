@@ -179,6 +179,7 @@ def derive_thesis_record(
     *,
     known_at: datetime | None = None,
     market_edge: date | None = None,
+    basket_size: int | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
     """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
@@ -187,6 +188,10 @@ def derive_thesis_record(
     - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
     - ``censored_start``: armed already on the thesis's FIRST recorded card — the record began
       mid-arm, the true arm date is unknowable; marked, never reconstructed (no backfill).
+    - ``basket_size``: the roster count AS OF ``known_at`` (F12) — the caller resolves it once per
+      thesis via ``thesis_repo.basket_size_asof`` (a count-only PIT read) and threads it here; None
+      falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
+      roster would misreport a past-as-of.
     """
     snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof)
     record = ThesisRecord(
@@ -194,7 +199,7 @@ def derive_thesis_record(
         tenant_id=thesis.tenant_id,
         name=thesis.name,
         ticker=thesis.ticker,
-        basket_size=len(thesis.basket),
+        basket_size=basket_size if basket_size is not None else len(thesis.basket),
         archived=thesis.archived_at is not None,
         first_call_asof=snaps[0].asof if snaps else None,
         last_call_asof=snaps[-1].asof if snaps else None,
@@ -313,9 +318,21 @@ def scoreboard_records(
             market_edges[thesis.tenant_id] = market_tape_edge(
                 conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at
             )
+        # F12 — the roster count AS OF known_at (basket_member is full-replace, so the live count would
+        # misreport a past-as-of Scoreboard). A COUNT-ONLY snapshot read — NOT get_asof, which would
+        # re-run the full per-thesis load (basket + children) just for a number, doubling the Scoreboard's
+        # DB cost. live_fallback = the live count already in hand, covering the no-snapshot / pre-F12 case.
+        pit_basket_size = thesis_repo.basket_size_asof(
+            conn, thesis.id, known_at, live_fallback=len(thesis.basket)
+        )
         try:
             record, snaps = derive_thesis_record(
-                conn, thesis, asof, known_at=known_at, market_edge=market_edges[thesis.tenant_id]
+                conn,
+                thesis,
+                asof,
+                known_at=known_at,
+                market_edge=market_edges[thesis.tenant_id],
+                basket_size=pit_basket_size,
             )
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard
@@ -324,7 +341,7 @@ def scoreboard_records(
                 tenant_id=thesis.tenant_id,
                 name=thesis.name,
                 ticker=thesis.ticker,
-                basket_size=len(thesis.basket),
+                basket_size=pit_basket_size,
                 archived=thesis.archived_at is not None,
                 error=f"{type(e).__name__}: {e}",
             )

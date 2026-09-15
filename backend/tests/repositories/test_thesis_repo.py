@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
+from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Authorship, TermTier
 from domain.thesis import (
@@ -461,3 +462,216 @@ def test_set_surfaced_terms_updates_in_place_and_touches_nothing_else(db, securi
     assert got.basket[0].thesis_fit == "the leading US telehealth platform"
     assert got.basket[0].segment == "Telehealth platforms"
     assert _member_count(db, t.id) == 1  # UPDATE-in-place: no row appeared for the unknown id
+
+
+# --- F12: basket_snapshot — the roster's point-in-time record (the second bitemporal leak) ---
+
+
+def _snapshot_count(db, thesis_id) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM basket_snapshot WHERE thesis_id = %s", (thesis_id,))
+        return cur.fetchone()["n"]
+
+
+def _pin_latest_snapshot_taken_at(db, thesis_id, when: datetime) -> None:
+    """Pin the newest snapshot's ``taken_at`` to a controlled instant — ``upsert`` stamps ``now()``, so
+    tests that need a deterministic time gap between two snapshots pin them explicitly."""
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE basket_snapshot SET taken_at = %s WHERE id = ("
+            "  SELECT id FROM basket_snapshot WHERE thesis_id = %s ORDER BY taken_at DESC, id DESC LIMIT 1"
+            ")",
+            (when, thesis_id),
+        )
+    db.commit()
+
+
+def _second_security(db, ticker: str, cik: str) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, cik, "2026-01-01"),
+        )
+    db.commit()
+    return sid
+
+
+def _two_pinned_rosters(db, security_id) -> tuple[uuid.UUID, uuid.UUID]:
+    """A thesis with two snapshots at controlled times: roster A (1 member) @ 2026-06-01, roster B
+    (2 members) @ 2026-06-10. Returns (thesis_id, second_security_id)."""
+    t = _thesis(security_id)  # 1 member, HIMS, both segments defined
+    thesis_repo.upsert(db, t)
+    db.commit()
+    _pin_latest_snapshot_taken_at(db, t.id, datetime(2026, 6, 1, tzinfo=timezone.utc))
+
+    sid2 = _second_security(db, "DEVCO2", "0007654321")
+    t2 = t.model_copy(
+        update={
+            "basket": [
+                t.basket[0],
+                BasketMember(
+                    ticker="DEVCO2",
+                    role="r",
+                    security_id=sid2,
+                    segment="Compounding / supply",
+                ),
+            ]
+        }
+    )
+    thesis_repo.upsert(db, t2)
+    db.commit()
+    _pin_latest_snapshot_taken_at(db, t.id, datetime(2026, 6, 10, tzinfo=timezone.utc))
+    return t.id, sid2
+
+
+def test_snapshot_written_on_promote_and_deduped_on_unchanged_repromote(db, security_id):
+    """A promote writes ONE snapshot; an UNCHANGED re-promote (the Workbench full-replaces on every
+    interactive save) writes NONE (dedup on content_hash); a CHANGED roster writes another. COUNT THE
+    TABLE before/after — the idempotency convention (a correct read hides a duplicate append)."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1  # promote froze the roster
+
+    # an unchanged re-promote of the read-back thesis must NOT grow the table
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1  # deduped: identical content_hash
+
+    # a CHANGED roster DOES append a new snapshot
+    got = thesis_repo.get(db, t.id)
+    got.basket[0].conviction = 5
+    thesis_repo.upsert(db, got)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 2
+
+
+def test_get_asof_now_matches_live_get(db, security_id):
+    """THE LIVE-PATH BYTE-IDENTICAL guarantee at the roster level: after a promote (which seeds a
+    snapshot at now()), ``get_asof(now)`` reconstructs the EXACT roster ``get`` reads — so the
+    live/today call path is unchanged. The whole thesis round-trips identical too."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    live = thesis_repo.get(db, t.id)
+    asof_now = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    assert asof_now is not None
+    assert asof_now.basket == live.basket  # byte-identical roster at a live known_at
+    assert asof_now == live  # ...and the whole thesis
+
+
+def test_get_asof_returns_the_older_roster_between_two_snapshots(db, security_id):
+    """A known_at BETWEEN two snapshots yields the OLDER roster (the count as it was known then), and a
+    known_at after both yields the newer — the roster is versioned by taken_at."""
+    tid, _sid2 = _two_pinned_rosters(db, security_id)
+
+    between = datetime(2026, 6, 5, tzinfo=timezone.utc)  # after A (06-01), before B (06-10)
+    got = thesis_repo.get_asof(db, tid, between)
+    assert [m.ticker for m in got.basket] == ["HIMS"]  # the OLDER 1-member roster
+    assert len(got.basket) == 1
+
+    after = datetime(2026, 6, 15, tzinfo=timezone.utc)  # after B
+    assert len(thesis_repo.get_asof(db, tid, after).basket) == 2  # the newer 2-member roster
+
+
+def test_get_asof_no_lookahead_never_reads_a_snapshot_after_known_at(db, security_id):
+    """No lookahead (#1): a snapshot taken AFTER known_at is invisible. The 2-member roster is pinned to
+    06-10; a known_at of 06-09 sees only the earlier 1-member roster — never the future one — while
+    06-10 itself does see it (proving the 2-member snapshot exists and is hidden only by time)."""
+    tid, _sid2 = _two_pinned_rosters(db, security_id)
+
+    before_b = datetime(2026, 6, 9, tzinfo=timezone.utc)
+    assert len(thesis_repo.get_asof(db, tid, before_b).basket) == 1  # future roster not read
+
+    at_b = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    assert len(thesis_repo.get_asof(db, tid, at_b).basket) == 2  # <= known_at is inclusive
+
+
+def test_basket_size_asof_count_only_pit_read(db, security_id):
+    """The COUNT-ONLY PIT read the Scoreboard uses (no full thesis hydration): the roster count as of
+    known_at from the latest snapshot <= known_at (same no-lookahead selection as get_asof), else the
+    live_fallback. The distinctive live_fallback (99) proves the real historical count is returned, not
+    the fallback."""
+    tid, _sid2 = _two_pinned_rosters(db, security_id)  # A (1) @ 06-01, B (2) @ 06-10
+
+    between = datetime(2026, 6, 5, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, between, live_fallback=99) == 1  # the OLDER count
+    after = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, after, live_fallback=99) == 2  # the newer count
+
+    # a known_at before any snapshot -> the live_fallback (no lookahead into the future roster)
+    early = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, early, live_fallback=7) == 7
+
+    # no snapshot at all -> the live_fallback (pre-F12 thesis)
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (tid,))
+    db.commit()
+    assert thesis_repo.basket_size_asof(db, tid, None, live_fallback=5) == 5
+
+
+def test_get_asof_with_no_snapshot_falls_back_to_the_live_roster(db, security_id):
+    """PRE-SNAPSHOT FALLBACK: a thesis with no qualifying snapshot (promoted before F12, or a known_at
+    entirely before its first snapshot) recomputes on the LIVE roster — the honest best available, never
+    an empty basket."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+
+    # simulate a pre-F12 thesis: basket_member rows present, snapshot dropped
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
+    db.commit()
+    assert _snapshot_count(db, t.id) == 0
+    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    assert got is not None
+    assert [m.ticker for m in got.basket] == ["HIMS"]  # live fallback, not empty
+
+    # a known_at BEFORE the first snapshot (re-created here) also falls back to live
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    db.commit()
+    early = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    assert [m.ticker for m in thesis_repo.get_asof(db, t.id, early).basket] == ["HIMS"]
+
+
+def test_get_asof_none_known_at_is_now(db, security_id):
+    """``known_at=None`` reads the latest snapshot (treated as now) — the live-read default the serve
+    path and the cron rely on."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    got = thesis_repo.get_asof(db, t.id, None)
+    assert got is not None and [m.ticker for m in got.basket] == ["HIMS"]
+
+
+def test_get_asof_missing_thesis_returns_none(db):
+    assert thesis_repo.get_asof(db, uuid.uuid4(), datetime.now(timezone.utc)) is None
+
+
+def test_deploy_seed_covers_a_snapshotless_thesis(db, security_id):
+    """The migration's deploy-seed writes one snapshot per EXISTING thesis. Simulate a pre-F12 thesis
+    (basket_member rows, no snapshot), re-run the migration file (idempotent), and confirm exactly one
+    snapshot appears covering the live roster — and a second run adds none."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
+    db.commit()
+    assert _snapshot_count(db, t.id) == 0
+
+    seed_sql = (MIGRATIONS_DIR / "0043_basket_snapshot.sql").read_text(encoding="utf-8")
+    with db.cursor() as cur:
+        cur.execute(seed_sql)  # CREATE ... IF NOT EXISTS (no-ops) + the NOT-EXISTS-guarded seed
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1  # the snapshotless thesis got seeded
+    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    assert [m.ticker for m in got.basket] == ["HIMS"]  # the seeded roster == the live roster
+
+    # idempotent: a second run seeds nothing more (the thesis now has a snapshot)
+    with db.cursor() as cur:
+        cur.execute(seed_sql)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1

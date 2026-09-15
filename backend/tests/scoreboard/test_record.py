@@ -8,6 +8,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
+from domain.thesis import BasketMember, Segment, Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow
 from repositories import calls_repo, thesis_repo
@@ -707,3 +708,66 @@ def test_same_asof_the_honest_row_wins_over_a_later_reconstruction_stamp_include
     assert ep.ingest_flagged is True
     # latest-wins without the filter would take the reconstruction's "warming" and arm a day late
     assert _unfiltered_episodes(db, thesis.id)[0].arm_date == date(2026, 6, 2)
+
+
+# --- F12: basket_size on the Scoreboard is point-in-time (the roster as of known_at) ---
+
+
+def _pin_snapshot(db, thesis_id, when: datetime) -> None:
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE basket_snapshot SET taken_at = %s WHERE id = ("
+            "  SELECT id FROM basket_snapshot WHERE thesis_id = %s ORDER BY taken_at DESC, id DESC LIMIT 1"
+            ")",
+            (when, thesis_id),
+        )
+    db.commit()
+
+
+def _extra_security(db, ticker: str, cik: str) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, cik, "2026-01-01"),
+        )
+    db.commit()
+    return sid
+
+
+def test_basket_size_is_point_in_time(db, security_id):
+    """F12: the Scoreboard's ``basket_size`` reflects the roster AS OF ``known_at`` (via get_asof), not
+    today's full-replace basket. Two pinned snapshots — 1 member @ 06-01, 2 members @ 06-10 — so a
+    known_at between them reports 1 and after both reports 2."""
+    t = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="PIT roster",
+        narrative="two rosters over time",
+        segments=[Segment(label="A"), Segment(label="B")],
+        basket=[BasketMember(ticker="DEVCO", role="r", security_id=security_id, segment="A")],
+    )
+    thesis_repo.upsert(db, t)
+    db.commit()
+    _pin_snapshot(db, t.id, datetime(2026, 6, 1, tzinfo=timezone.utc))
+
+    sid2 = _extra_security(db, "DEVCO2", "0007654321")
+    t2 = t.model_copy(
+        update={
+            "basket": [
+                t.basket[0],
+                BasketMember(ticker="DEVCO2", role="r", security_id=sid2, segment="B"),
+            ]
+        }
+    )
+    thesis_repo.upsert(db, t2)
+    db.commit()
+    _pin_snapshot(db, t.id, datetime(2026, 6, 10, tzinfo=timezone.utc))
+
+    def _basket_size(known_at: datetime) -> int:
+        result, _, _ = scoreboard_records(db, date(2026, 6, 20), known_at=known_at)
+        return next(r for r in result.theses if r.thesis_id == t.id).basket_size
+
+    assert _basket_size(datetime(2026, 6, 5, tzinfo=timezone.utc)) == 1  # the historical count
+    assert _basket_size(datetime(2026, 6, 15, tzinfo=timezone.utc)) == 2  # the newer count
