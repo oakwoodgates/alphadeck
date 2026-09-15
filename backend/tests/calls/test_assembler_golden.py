@@ -112,7 +112,9 @@ def test_momentum_only_confirmation_arms_but_is_caveated():
     assert momentum.confidence < backed.confidence  # the volume gap reads as lower confidence
     assert momentum.confidence <= DEFAULT_CONFIG.starter_confidence_cap
     assert "momentum-only" in momentum.counter_case.lower()
-    assert "starter" in momentum.expression.lower() and "volume" in momentum.expression.lower()
+    assert (
+        "momentum-only" in momentum.expression.lower() and "volume" in momentum.expression.lower()
+    )
     # the Confirmation KEY reflects the actual grade (no hardcoded "volume-backed") and agrees with the caveat:
     assert backed.confirmation_grade is Grade.CORE
     assert "volume-backed" in backed.key_confirmation.detail.lower()

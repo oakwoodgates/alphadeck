@@ -529,22 +529,34 @@ def _expression(
     conviction_holdable: bool,
 ) -> str:
     if state == State.MANAGING:
-        return "Position open — manage to the exit-by; trail the stop or take the gain."
+        return (
+            "Position open (you logged the entry) — Alpha Deck is monitoring the thesis "
+            "through the exit-by validity horizon; the counter-case flags a break."
+        )
     if state == State.ARMED:
         if conviction_grade == Grade.FLIP:
             if not conviction_holdable:
-                return "FLIP: small size, short-dated options; do not hold — exit at/just past the catalyst."
+                return (
+                    "FLIP setup — a fast, attention-driven trigger with a short-lived edge that "
+                    "decays at the catalyst; not a structural, holdable base. Validity is brief "
+                    "(to the exit-by)."
+                )
             return (
-                "STARTER: a provisional conviction (real but not yet binding) with the market "
-                "confirming — enter small; build as it firms (a binding deal, or more catalysts), not "
-                "max size off one early step."
+                "Provisional conviction — real but not yet binding, and the market is "
+                "confirming. An early read, not a settled one; the setup firms as the case "
+                "hardens (a binding deal, more catalysts)."
             )
         if momentum_only:
             return (
-                "Core thesis, STARTER entry — the breakout is momentum-only (volume hasn't "
-                "confirmed). Start small; build to core size only when a real volume breakout confirms."
+                "Core (structural) thesis, but the breakout is momentum-only — volume hasn't "
+                "confirmed. It completes into a confirmed core setup only when a real volume "
+                "breakout lands."
             )
-        return "CORE: spot + options past exit-by; build into the leaders/shovels of the basket."
+        return (
+            "CORE setup — a structural, volume-confirmed trigger with a durable edge through "
+            "the exit-by. The signal is strongest among the basket's leaders (see the per-name "
+            "tape)."
+        )
     if risk_blocked:
         if dearmed:
             # a structural breakdown de-armed the hold. ADVISORY, a signal-validity event — NEVER a sell
@@ -568,6 +580,9 @@ def _expression(
                 "watching the theme, not acting. A breakout alone isn't a reason to enter."
             )
         if conviction_grade == Grade.FLIP and not conviction_holdable:
-            return "FLIP only (small, short-dated); the structural core entry isn't confirmed yet."
+            return (
+                "FLIP setup only — a fast, short-lived trigger; the structural core setup "
+                "isn't confirmed yet."
+            )
         return "Not yet — hold for a volume-confirmed breakout before entering."
     return "Watching — banked idea, nothing to act on. No nag while incubating."
