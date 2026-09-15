@@ -470,8 +470,10 @@ def test_poll_unknown_job_is_404(client):
 # --- G5a: the price-tape freshness panel + the verdict it must NOT change -----------------------------
 
 
-def _stale_row(ticker, *, sid=None, edge=None, kind="price"):
-    return StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind)
+def _stale_row(ticker, *, sid=None, edge=None, kind="price", closed_at=None):
+    return StaleTape(
+        ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind, closed_at=closed_at
+    )
 
 
 def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron_runs_dir):
@@ -507,6 +509,36 @@ def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron
     assert rows[str(a)]["ticker"] == "AAA" and rows[str(a)]["edge"] == "2026-06-30"
     assert rows[str(a)]["thesis"] == "Thesis One"
     assert rows[str(b)]["ticker"] is None and rows[str(b)]["edge"] is None  # kept, not dropped
+
+
+def test_status_tape_marks_a_CLOSED_delisted_row_with_its_date(client, cron_runs_dir):
+    """G5b — a stopped tape whose name filed a SEC delisting form rides the wire as CLOSED: closed_at set to
+    the delisting date, still listed on the panel (never dropped, #9), while a plain feed-gap row keeps
+    closed_at null. The closed name is absent from newly_stale — it does not page (#7/WB#3)."""
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(
+                    _stale_row("GONE", edge=date(2026, 6, 30), closed_at=date(2026, 7, 2)),
+                    _stale_row("DEAD", edge=date(2026, 6, 30)),
+                ),
+            )
+        ],
+        tape_evaluated=True,
+        tape_stale_new=(StaleFeedLabel("price", "DEAD"),),  # only the feed gap paged
+    )
+    tape = client.get("/admin/status").json()["tape"]
+
+    rows = {r["ticker"]: r for r in tape["stale"]}
+    assert rows["GONE"]["closed_at"] == "2026-07-02"  # the delisting date rides the wire
+    assert rows["DEAD"]["closed_at"] is None  # a feed gap stays a repair row
+    assert tape["newly_stale"] == ["DEAD"]  # the closed name never pages
 
 
 def test_status_tape_DEDUPS_a_security_held_by_two_theses(client, cron_runs_dir):

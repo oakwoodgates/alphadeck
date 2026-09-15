@@ -980,8 +980,10 @@ def _nr(**kw) -> NameResult:
     return NameResult(**{**base, **kw})
 
 
-def _stale(ticker, *, edge=None, sid=None, kind="price"):
-    return daily.StaleTape(ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind)
+def _stale(ticker, *, edge=None, sid=None, kind="price", closed_at=None):
+    return daily.StaleTape(
+        ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind, closed_at=closed_at
+    )
 
 
 def _lbl(label, *, kind="price"):
@@ -1043,6 +1045,28 @@ def test_run_daily_tape_monitor_is_OFF_at_stale_days_zero(db, monkeypatch):
     out = daily.run_daily(db, asof=_ASOF, allow_live=True)
 
     assert out[0].tape_stale == ()  # the price monitor is off; the name is not an ETF sleeve either
+
+
+def test_run_daily_classifies_a_DELISTED_stale_tape_as_CLOSED(db, monkeypatch):
+    """G5b — a stopped tape whose name has a SEC delisting form (carried on NameResult.delisted_at) is
+    reclassified CLOSED by run_daily: still reported (never dropped, #9), but carrying closed_at so the
+    panel renders it quietly and it does not page. A stopped tape with no delisting form stays a plain
+    stale-repair row — the two are told apart deterministically by the form, never a guess (#3)."""
+    closed = _nr(
+        ticker="GONE",
+        tape_edge=_ASOF - timedelta(days=40),
+        delisted_at=_ASOF - timedelta(days=38),
+    )
+    repair = _nr(ticker="DEAD", tape_edge=_ASOF - timedelta(days=40))  # delisted_at defaults None
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([closed, repair]))
+    _thesis(db, "T")
+
+    out = daily.run_daily(db, asof=_ASOF, allow_live=True)
+
+    rows = {s.ticker: s for s in out[0].tape_stale}
+    assert rows["GONE"].closed is True and rows["GONE"].closed_at == _ASOF - timedelta(days=38)
+    assert rows["DEAD"].closed is False and rows["DEAD"].closed_at is None
+    assert set(rows) == {"GONE", "DEAD"}  # the closed name is NOT dropped from the inventory (#9)
 
 
 def test_assess_health_pages_a_NEWLY_stale_tape_and_names_it():
@@ -1114,6 +1138,38 @@ def test_pass_pages_a_NEWLY_stale_tape_and_stays_quiet_on_a_KNOWN_one(monkeypatc
     assert seen[2] == ("BBB",)  # only the genuinely new one
     assert out1.tape_evaluated and out2.tape_evaluated and out3.tape_evaluated
     assert out3.tape_stale_new == (StaleFeedLabel(kind="price", label="BBB"),)
+
+
+def test_pass_does_NOT_page_a_CLOSED_delisted_tape(monkeypatch, tmp_path):
+    """G5b/#7 — a name that stopped trading (delisted / acquired / deregistered) is an EXPECTED event, not a
+    feed gap: it must NEVER page as newly-stale (paging "set the vendor price symbol" for it would be wrong
+    advice). A plain stale-repair tape in the SAME pass DOES page. The closed one is still in the inventory
+    (the artifact carries it, the panel shows it quietly) — only the loud newly-stale page skips it.
+    """
+    a, b = uuid.uuid4(), uuid.uuid4()
+    seen: list[tuple[str, ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen.append(tuple(x.label for x in (kw.get("tape_stale_new") or ())))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+    monkeypatch.setattr(
+        daily,
+        "run_daily",
+        lambda conn, **k: _thesis_result_with(
+            [_stale("REPAIR", sid=a), _stale("GONE", sid=b, closed_at=date(2026, 4, 3))]
+        ),
+    )
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert seen[0] == ("REPAIR",)  # only the feed gap reaches the page
+    assert out.tape_stale_new == (StaleFeedLabel(kind="price", label="REPAIR"),)
 
 
 def test_pass_pages_the_SAME_security_again_when_its_OTHER_feed_stops(monkeypatch, tmp_path):
@@ -1188,6 +1244,28 @@ def test_report_lists_stale_tapes_deduped_and_only_when_there_are_any(capsys):
 
     daily._report([daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=True)])
     assert "STALE PRICE TAPES" not in capsys.readouterr().out  # quiet when there are none
+
+
+def test_report_prints_a_CLOSED_tape_in_the_QUIET_block_not_the_loud_stale_one(capsys):
+    """G5b/#7 — a delisted name prints in the quiet 'closed tapes' block (no repair needed), NEVER in the
+    loud 'STALE PRICE TAPES' block whose advice ('set the vendor price symbol') would be wrong for it. A
+    plain stale tape in the same run stays loud."""
+    closed = _stale("GONE", edge=date(2026, 4, 1), closed_at=date(2026, 4, 3))
+    repair = _stale("DEAD", edge=date(2026, 4, 1))
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(), name="T", recorded=True, tape_stale=(closed, repair)
+            )
+        ]
+    )
+    out = capsys.readouterr().out
+    # the repair one is loud; the closed one is NOT in the loud block
+    loud = out.split("closed tapes")[0]
+    assert "STALE PRICE TAPES" in loud and "DEAD: last bar 2026-04-01" in loud
+    assert "GONE" not in loud
+    # ...it is in the quiet closed block, with its delisting date
+    assert "closed tapes" in out and "GONE: last bar 2026-04-01 · delisting filed 2026-04-03" in out
 
 
 # --- F2: the transition baseline is the record AT OR BEFORE this as-of (no same-day re-notify) --------

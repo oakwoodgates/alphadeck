@@ -90,6 +90,32 @@ function StaleFeedBlock({
   );
 }
 
+/** The CLOSED tapes (G5b) — names that stopped trading (delisted / acquired / deregistered), detected
+ *  deterministically from a SEC delisting form (Form 25 / 25-NSE / 15-12B / 15-12G). QUIET on purpose (no
+ *  `adm-loud`, muted text): a closed tape is an EXPECTED event, not a feed gap — its price tape correctly
+ *  ends and needs no repair, so shouting it would be noise (honest loudness, #7/WB#3). It is still SHOWN,
+ *  never dropped (#9): the operator sees which names left the market and when. Each row names the name, when
+ *  it stopped trading (the delisting-form filing date), its last bar, and the thesis. Rendered by its caller
+ *  only when there is at least one closed tape. */
+function ClosedTapeBlock({ rows }: { rows: AdminStaleTapeOut[] }) {
+  return (
+    <div className="adm-stale adm-closed" data-testid="adm-closed-tapes">
+      <div className="adm-line adm-quiet">
+        <b>{rows.length}</b> price tape(s) closed — the name stopped trading (delisted, acquired, or
+        deregistered per a SEC filing), so the tape correctly ends and needs no repair
+      </div>
+      <ul className="adm-problems">
+        {rows.map((t) => (
+          <li key={`closed:${t.security_id}`}>
+            <b>{t.ticker ?? t.security_id}</b> — stopped trading {t.closed_at ?? "unknown"} · last
+            bar {t.edge ?? "never"} · {t.thesis}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
   if (!problems?.length) return null;
   return (
@@ -165,7 +191,14 @@ export function Admin({ header }: Props) {
   // Anything not explicitly `fund_shares` counts as a price tape — the same fail-soft reading the backend
   // applies to a row written before fund shares were monitored.
   const staleFundShares = status?.tape?.stale.filter((t) => t.kind === "fund_shares") ?? [];
-  const stalePriceTapes = status?.tape?.stale.filter((t) => t.kind !== "fund_shares") ?? [];
+  const priceTapes = status?.tape?.stale.filter((t) => t.kind !== "fund_shares") ?? [];
+  // G5b — a stopped PRICE tape splits two ways by its `closed_at`: a name that CLOSED (delisted, acquired,
+  // or deregistered — a delisting form on file, closed_at set) needs no repair and renders QUIETLY, while a
+  // feed gap (closed_at null, the common case) is the loud "stale — repair" row. Same instinct as honest
+  // loudness per feed (#7/WB#3): the exception to act on is loud, the expected event is quiet — and neither
+  // is ever dropped from the panel (#9).
+  const closedTapes = priceTapes.filter((t) => t.closed_at != null);
+  const stalePriceTapes = priceTapes.filter((t) => t.closed_at == null);
 
   return (
     <div className="board-shell adm-shell">
@@ -252,6 +285,11 @@ export function Admin({ header }: Props) {
                 }
               />
             )}
+            {/* G5b — the CLOSED tapes: names that stopped trading (delisted / acquired / deregistered),
+                detected from a SEC delisting form. Rendered QUIETLY and only when there is one — a closed
+                tape is an expected event that needs no repair, so it must not shout (honest loudness), and
+                it is kept visible rather than dropped (#9). */}
+            {status.tape && closedTapes.length > 0 && <ClosedTapeBlock rows={closedTapes} />}
             {status.tape && staleFundShares.length > 0 && (
               <StaleFeedBlock
                 rows={staleFundShares}

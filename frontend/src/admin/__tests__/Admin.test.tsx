@@ -96,6 +96,26 @@ const TAPE_BOTH_KINDS = {
   newly_stale: ["FUND"],
 };
 
+// G5b — the panel carrying a CLOSED tape (a name that stopped trading — delisted/acquired/deregistered,
+// closed_at set) alongside a plain feed-gap row (closed_at null). The two must render in SEPARATE blocks:
+// the feed gap loud ("stale — repair"), the closed one quiet ("stopped trading"), and the closed name is
+// NOT in newly_stale (it does not page — an expected event, #7/WB#3).
+const TAPE_WITH_CLOSED = {
+  ...TAPE_TWO_STALE,
+  stale: [
+    TAPE_TWO_STALE.stale[0], // AAA — a plain feed gap (closed_at absent)
+    {
+      security_id: "44444444-4444-4444-4444-444444444444",
+      ticker: "GONE" as string | null,
+      edge: "2026-06-30" as string | null,
+      thesis: "Thesis One",
+      kind: "price",
+      closed_at: "2026-07-02" as string | null,
+    },
+  ],
+  newly_stale: ["AAA"],
+};
+
 const STATUS_CURRENT = {
   record: {
     edge: "2026-07-17",
@@ -367,6 +387,35 @@ describe("Admin — honest loudness on the freshness widget", () => {
     renderAdmin();
     expect(screen.getByTestId("adm-stale-tapes")).toBeTruthy();
     expect(screen.queryByTestId("adm-stale-fund-shares")).toBeNull();
+  });
+
+  it("a CLOSED (delisted) tape renders in its own QUIET block, not the loud stale one", () => {
+    // G5b: a name that stopped trading (delisted / acquired / deregistered) is an EXPECTED event, not a
+    // feed gap to repair — so it must render QUIETLY in its own block, saying WHEN it stopped, and must
+    // NOT appear in the loud "stale — repair" block (whose "set the vendor price symbol" advice would be
+    // wrong for it). It is still SHOWN, never dropped (#9).
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_WITH_CLOSED } };
+    renderAdmin();
+
+    const closed = screen.getByTestId("adm-closed-tapes");
+    expect(closed.textContent).toContain("GONE");
+    expect(closed.textContent).toContain("2026-07-02"); // the date it stopped trading
+    expect(closed.textContent).toMatch(/stopped trading/i);
+    expect(closed.textContent).not.toMatch(/price symbol/i); // no repair advice — nothing to repair
+    // the closed block is QUIET — no loud/armed accent (honest loudness, #7/WB#3)
+    expect(closed.querySelector(".adm-loud")).toBeNull();
+
+    // ...the closed name is NOT in the loud stale-repair block, which still shows the real feed gap
+    const tapes = screen.getByTestId("adm-stale-tapes");
+    expect(tapes.textContent).toContain("AAA");
+    expect(tapes.textContent).not.toContain("GONE");
+    expect(tapes.textContent).toMatch(/price symbol/i);
+  });
+
+  it("no closed block when no tape is closed (honest loudness — an expected event, shown only when present)", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_TWO_STALE } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-closed-tapes")).toBeNull();
   });
 });
 

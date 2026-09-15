@@ -415,8 +415,10 @@ def test_fail_open_returns_none_never_raises(tmp_path):
 # --- G5a: the price-tape monitor's durable record + the newly-stale baseline --------------------------
 
 
-def _st(ticker, *, sid=None, edge=None, kind="price"):
-    return StaleTape(ticker=ticker, security_id=sid or uuid4(), edge=edge, kind=kind)
+def _st(ticker, *, sid=None, edge=None, kind="price", closed_at=None):
+    return StaleTape(
+        ticker=ticker, security_id=sid or uuid4(), edge=edge, kind=kind, closed_at=closed_at
+    )
 
 
 def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_path):
@@ -425,13 +427,15 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
     diff's output for the night (so the history shows the page this run emitted); `tape_evaluated` says the
     pass actually looked; and the two threshold keys say what it judged under. `edge` null means the name
     has no data at all, and `kind` says WHICH feed stopped."""
-    sid, fund_sid = uuid4(), uuid4()
+    sid, fund_sid, closed_sid = uuid4(), uuid4(), uuid4()
     res = _thesis_result(
         recorded=True,
         tape_stale=(
             _st("AAA", sid=sid, edge=date(2026, 6, 1)),
             _st(None, edge=None),
             _st("ETF1", sid=fund_sid, edge=date(2026, 6, 2), kind="fund_shares"),
+            # G5b — a CLOSED (delisted) row carries its delisting-form date so the panel renders it quietly
+            _st("GONE", sid=closed_sid, edge=date(2026, 6, 3), closed_at=date(2026, 6, 5)),
         ),
     )
     path = write_cron_run_log(
@@ -460,9 +464,13 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         "ticker": "AAA",
         "edge": "2026-06-01",
         "kind": "price",
+        "closed_at": None,  # G5b — a plain feed-gap row: not closed
     }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
     assert rows[2]["kind"] == "fund_shares" and rows[2]["edge"] == "2026-06-02"
+    # G5b — the CLOSED row serializes its delisting-form date, so the panel reads "closed — stopped
+    # trading <date>" instead of the loud "stale — repair"
+    assert rows[3]["ticker"] == "GONE" and rows[3]["closed_at"] == "2026-06-05"
 
 
 def test_payload_records_a_DISABLED_monitors_threshold_as_zero(tmp_path):

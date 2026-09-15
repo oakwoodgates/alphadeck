@@ -1665,13 +1665,22 @@ class AdminStaleTapeOut(BaseModel):
     flow read quiet. The REPAIRS differ, which is why the row says which feed it is: the vendor price
     symbol on the master for a tape, a fund/ticker/source check for a sleeve. A row from an artifact
     written before fund shares were monitored reads ``price``. ``ticker`` may be ``null``; the row still
-    renders by ``security_id`` and is never dropped (#9)."""
+    renders by ``security_id`` and is never dropped (#9).
+
+    ``closed_at`` (G5b) distinguishes a delisting from a feed gap: when set (a ``price`` row only), it is
+    the filing date of the name's SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) and the name has
+    legitimately stopped trading — delisted, acquired, or deregistered — so its tape correctly ENDED and
+    needs no repair. The panel renders such a row QUIETLY as "closed — stopped trading <date>", distinct
+    from the loud "stale — repair" rows, and it never pages as newly-stale (#7/WB#3). ``null`` (the common
+    case, and every ``fund_shares`` row) means a feed gap the operator repairs. The name is never dropped
+    from the monitor (#9) — the marker only reclassifies its stopped tape."""
 
     security_id: UUID
     ticker: str | None = None
     edge: date | None = None
     thesis: str
     kind: str = "price"
+    closed_at: date | None = None
 
 
 class AdminTapeOut(BaseModel):
@@ -1688,8 +1697,11 @@ class AdminTapeOut(BaseModel):
 
     ``stale`` is the full current inventory, one row per feed per security (a name placed in several
     value-chain links appears once; a name stale on both feeds appears once per feed, since the repairs
-    differ — each row's ``kind`` says which). ``newly_stale`` are the display labels that PAGED that night
-    — the diff against the previous evaluated pass, so a known-dead feed does not re-page forever.
+    differ — each row's ``kind`` says which). A row with ``closed_at`` set is a name that CLOSED (delisted /
+    acquired / deregistered), G5b — it stays in this inventory (never dropped, #9) but renders quietly and
+    is absent from ``newly_stale``. ``newly_stale`` are the display labels that PAGED that night — the diff
+    against the previous evaluated pass, so a known-dead feed does not re-page forever, and a closed tape
+    (an expected event, not a feed gap) is never in it (#7/WB#3).
     """
 
     asof: date

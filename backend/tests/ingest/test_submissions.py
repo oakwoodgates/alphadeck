@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ingest.edgar.submissions import (
     acceptance_times,
+    delisting_date,
     filings_of,
     form4_doc_url,
     form4_filings,
@@ -405,3 +406,46 @@ def test_parse_identity_filer_forms_sparse_doc_abstains():
     ident = parse_identity({})
     assert ident.recent_foreign_form is None
     assert ident.files_domestic_forms is False
+
+
+# --- delisting_date: the deterministic "this name stopped trading" tell (G5b, tape monitor) ------------
+
+
+def test_delisting_date_is_NONE_when_no_delisting_form():
+    """A live, listed name files none of the delisting forms → None, so a stopped tape (if any) stays a
+    feed gap to repair rather than being mis-marked closed. A sparse/old doc → None too, never a crash.
+    """
+    assert delisting_date(_recent(["10-K", "8-K", "4", "DEF 14A"])) is None
+    assert delisting_date({}) is None
+
+
+def test_delisting_date_reads_a_form_25_by_its_FILING_date():
+    """Form 25-NSE (removal from listing) → the delisting date is its FILING date (valid-time from EDGAR,
+    #1 no-lookahead), not today's date."""
+    from datetime import date
+
+    subs = _recent_dated([("25-NSE", "2026-08-20"), ("8-K", "2026-08-19")])
+    assert delisting_date(subs) == date(2026, 8, 20)
+
+
+def test_delisting_date_recognizes_every_delisting_form_type():
+    """All four SEC delisting forms count — 25 / 25-NSE (removal from listing) and 15-12B / 15-12G
+    (deregistration) — both classes of the deterministic tell (#3, never an LLM)."""
+    from datetime import date
+
+    for form in ("25", "25-NSE", "15-12B", "15-12G"):
+        assert delisting_date(_recent_dated([(form, "2026-07-01")])) == date(2026, 7, 1)
+
+
+def test_delisting_date_picks_the_MOST_RECENT_across_forms():
+    """A name that de/re/de-listed carries several delisting filings — the LATEST is the current closure
+    (a Form 25 followed weeks later by a Form 15). Max across the form types, deterministically."""
+    from datetime import date
+
+    subs = _recent_dated([("25-NSE", "2026-08-20"), ("15-12B", "2026-09-05")])
+    assert delisting_date(subs) == date(2026, 9, 5)
+
+
+def test_delisting_date_tolerates_a_malformed_filing_date():
+    """A malformed filing date → abstain (None), never a crash inside the nightly ingest loop."""
+    assert delisting_date(_recent_dated([("25", "not-a-date")])) is None
