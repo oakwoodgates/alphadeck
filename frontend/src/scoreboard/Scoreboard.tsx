@@ -1,11 +1,21 @@
 import { Fragment, useState, type ReactNode } from "react";
 
-import type { ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
+import type { OperatorSpanOut, ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
 import { useScoreboard } from "../api/hooks";
 import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
 import { EpisodeRow } from "./EpisodeRow";
 import { EpisodeScorecard } from "./EpisodeScorecard";
+import {
+  filterEpisodes,
+  filterMatchCounts,
+  filterSpans,
+  groupCountLabel,
+  LEDGER_FILTERS,
+  ledgerTally,
+  toggleLedgerFilter,
+  type LedgerFilterId,
+} from "./filters";
 import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
 import { ReplayPanel } from "./ReplayPanel";
@@ -40,11 +50,15 @@ type Props = {
 
 function SpanRow({
   t,
+  spans,
   onSelect,
   view,
   sort,
 }: {
   t: ScoreboardThesisOut;
+  /** the group's spans AFTER the chip filter — the host filters, then this sorts, so `sortSpans`
+   *  keeps its "same length in, same length out" contract and the two steps stay separable. */
+  spans: readonly OperatorSpanOut[];
   onSelect: (id: string, nameKey?: string) => void;
   view: LedgerView;
   /** the active column sort — spans re-rank among THEMSELVES, never interleaved with the episodes
@@ -54,7 +68,7 @@ function SpanRow({
   // off-record spans (overrides live here) — rendered per span under the thesis group
   return (
     <>
-      {sortSpans(t.operator_spans, sort).map((s) => {
+      {sortSpans(spans, sort).map((s) => {
         const ret = fmtReturn(s.operator_return);
         // the OVERRIDE / THESIS-LEVEL marks are the span's status — identical in both views
         const statusCell = (
@@ -171,6 +185,13 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
   // move and no row is ever filtered out (see `sortLedger.ts`).
   const [sort, setSort] = useState<LedgerSort | null>(null);
   const onSort = (col: LedgerSortColId) => setSort((cur) => nextLedgerSort(cur, col));
+  // the status filter chips — the ledger's first true hide-from-view control, so it starts EMPTY
+  // (never the default) and `Clear` is one click back to the whole record. Local state like `view`
+  // and `sort` above: no URL param this slice, and no browser storage (repo convention). See
+  // `filters.ts` for the predicates, the union rule, and why the LIVE ledger alone gets this.
+  const [filters, setFilters] = useState<ReadonlySet<LedgerFilterId>>(() => new Set());
+  const onFilter = (id: LedgerFilterId) => setFilters((cur) => toggleLedgerFilter(cur, id));
+  const filtering = filters.size > 0;
   const cols = ledgerColCount(view); // the group/note-row colSpan tracks the rendered column count
   // fold state per thesis (archived groups START folded — present, quiet, never dropped)
   const [toggled, setToggled] = useState<Set<string>>(new Set());
@@ -184,6 +205,11 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
     });
 
   const summary = data?.summary;
+  // both computed over the WHOLE record rather than the rendered subset: a chip's count must not
+  // move when a group is folded or another chip is pressed, and the "showing X of Y" line has to
+  // report what the FILTER hid (see `filters.ts`).
+  const chipCounts = filterMatchCounts(data?.theses ?? []);
+  const tally = ledgerTally(data?.theses ?? [], filters);
 
   return (
     <div className="board-shell sb-shell">
@@ -266,6 +292,50 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
             </button>
           </div>
 
+          {/* the status filter chips — the one control on this page that actually REMOVES rows, so
+              it carries the receipts interaction principle #2 demands: the count line below says
+              what was hidden, every group keeps its heading, and `Clear` is one click back. The
+              chips sit with the counts line / view toggle because they are read together ("1
+              episodes, 1 open" → "show me the open one"). */}
+          <div className="sb-filters">
+            <div className="sb-filterchips" role="group" aria-label="ledger filters">
+              {LEDGER_FILTERS.map((f) => {
+                const on = filters.has(f.id);
+                const n = chipCounts[f.id];
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={on ? "on" : ""}
+                    aria-pressed={on}
+                    // a chip matching nothing goes dim and inert WITH its 0 rather than vanishing —
+                    // "there are none" is an answer, and a control that disappeared would leave the
+                    // operator wondering whether the question was ever asked. Never disabled while
+                    // ACTIVE, though: the record refreshes underneath this view, and a chip that
+                    // dropped to 0 mid-session must still be pressable to turn itself off (#1).
+                    disabled={n === 0 && !on}
+                    title={f.title}
+                    onClick={() => onFilter(f.id)}
+                  >
+                    {f.label} <span className="ct">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* both render only while something is filtered — an always-present "Clear" would imply
+                a filter that is always on, and the count line has nothing to report at rest. */}
+            {filtering && (
+              <>
+                <button type="button" className="sb-filterclear" onClick={() => setFilters(new Set())}>
+                  Clear
+                </button>
+                <span className="sb-filterline">
+                  showing {tally.showing} of {tally.total} rows · {tally.hidden} hidden by filter
+                </span>
+              </>
+            )}
+          </div>
+
           <MetricsStrip metrics={summary.metrics} minN={summary.min_n} />
 
           {/* the maturity horizon (2e) — the countdown behind the mute gate. Asof-pure (a scrubbed
@@ -296,75 +366,103 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
           <table className="basket sb-ledger">
             <LedgerHead view={view} returnHeader="Record return" sort={sort} onSort={onSort} />
             <tbody>
-              {data.theses.map((t) => (
-                <Fragment key={t.thesis_id}>
-                  <tr className={`grp ${groupToneClass(t)}`}>
-                    <td colSpan={cols}>
-                      <button
-                        type="button"
-                        className="grp-h"
-                        aria-expanded={isOpen(t)}
-                        onClick={() => toggle(t.thesis_id)}
-                      >
-                        {/* the heading rides its own span so it can stick to the left of the
-                            horizontal scroller — a group row spans the whole table, so the thesis
-                            name would otherwise scroll out of view with the columns. */}
-                        <span className="grp-lbl">
-                          <span className="chev">▾</span>
-                          <span className="lbl">{t.name}</span>
-                          {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
-                          <em className="hint">· {groupHint(t)}</em>
-                          <span className="ct">· {groupCount(t)}</span>
-                        </span>
-                      </button>
-                    </td>
-                  </tr>
-                  {t.record_error && isOpen(t) && (
-                    <tr className="sb-note-row">
-                      <td colSpan={cols} className="sb-error">
-                        record error: {t.record_error}
+              {data.theses.map((t) => {
+                // filter FIRST, then sort — two separable steps, so `sortEpisodes`/`sortSpans` keep
+                // their "a re-order, never a filter" contract and this stays the only place a row
+                // can leave the ledger.
+                const eps = filterEpisodes(t.episodes, filters);
+                const spans = filterSpans(t.operator_spans, filters);
+                const filteredOut = groupCount(t) > 0 && eps.length + spans.length === 0;
+                return (
+                  <Fragment key={t.thesis_id}>
+                    <tr className={`grp ${groupToneClass(t)}`}>
+                      <td colSpan={cols}>
+                        <button
+                          type="button"
+                          className="grp-h"
+                          aria-expanded={isOpen(t)}
+                          onClick={() => toggle(t.thesis_id)}
+                        >
+                          {/* the heading rides its own span so it can stick to the left of the
+                              horizontal scroller — a group row spans the whole table, so the thesis
+                              name would otherwise scroll out of view with the columns. */}
+                          <span className="grp-lbl">
+                            <span className="chev">▾</span>
+                            <span className="lbl">{t.name}</span>
+                            {t.archived && <span className="sb-badge b-arch">ARCHIVED</span>}
+                            <em className="hint">· {groupHint(t)}</em>
+                            {/* while a filter is on the heading reads "N of M" — a folded group with
+                                matches has to be able to declare them, and no group is ever allowed
+                                to look emptier than it is. Fold state itself is untouched by
+                                filtering: it is the operator's own explicit act. */}
+                            <span className="ct">· {groupCountLabel(t, filters)}</span>
+                          </span>
+                        </button>
                       </td>
                     </tr>
-                  )}
-                  {t.decision_anomaly && isOpen(t) && (
-                    <tr className="sb-note-row">
-                      <td colSpan={cols} className="sb-anomaly">
-                        decision log anomaly: {t.decision_anomaly}
-                      </td>
-                    </tr>
-                  )}
-                  {/* sorted WITHIN the group — the group is the ledger's spine, so the rows re-rank
-                      under their own thesis heading and the headings never move. A re-order, never
-                      a filter: `sortEpisodes` returns the same length it was given. The key is the
-                      episode's own identity rather than its index, or a re-sort would hand React
-                      the same key for a different episode. */}
-                  {isOpen(t) &&
-                    sortEpisodes(t.episodes, sort).map((ep) => (
-                      <EpisodeRow
-                        key={`${ep.security_id}-${ep.arm_date}-${ep.dearm_date ?? "open"}`}
-                        ep={ep}
-                        thesisId={t.thesis_id}
-                        onSelect={onSelect}
-                        onOpenScorecard={setOpenEp}
-                        view={view}
-                      />
-                    ))}
-                  {isOpen(t) && <SpanRow t={t} onSelect={onSelect} view={view} sort={sort} />}
-                  {isOpen(t) && !groupCount(t) && !t.record_error && (
-                    <tr className="sb-note-row">
-                      <td colSpan={cols} className="sb-quietline">
-                        {t.warming_since
-                          ? `warming since ${fmtDate(t.warming_since)} — the withheld window is accruing`
-                          : "no arm episodes on this record"}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
+                    {t.record_error && isOpen(t) && (
+                      <tr className="sb-note-row">
+                        <td colSpan={cols} className="sb-error">
+                          record error: {t.record_error}
+                        </td>
+                      </tr>
+                    )}
+                    {t.decision_anomaly && isOpen(t) && (
+                      <tr className="sb-note-row">
+                        <td colSpan={cols} className="sb-anomaly">
+                          decision log anomaly: {t.decision_anomaly}
+                        </td>
+                      </tr>
+                    )}
+                    {/* sorted WITHIN the group — the group is the ledger's spine, so the rows re-rank
+                        under their own thesis heading and the headings never move. A re-order, never
+                        a filter: `sortEpisodes` returns the same length it was given. The key is the
+                        episode's own identity rather than its index, or a re-sort would hand React
+                        the same key for a different episode. */}
+                    {isOpen(t) &&
+                      sortEpisodes(eps, sort).map((ep) => (
+                        <EpisodeRow
+                          key={`${ep.security_id}-${ep.arm_date}-${ep.dearm_date ?? "open"}`}
+                          ep={ep}
+                          thesisId={t.thesis_id}
+                          onSelect={onSelect}
+                          onOpenScorecard={setOpenEp}
+                          view={view}
+                        />
+                      ))}
+                    {isOpen(t) && (
+                      <SpanRow t={t} spans={spans} onSelect={onSelect} view={view} sort={sort} />
+                    )}
+                    {/* a group the filter emptied keeps its heading and says so, with the number it is
+                        holding back — a thesis that HAS a record must never read as one that doesn't
+                        (#2). Distinct from the genuinely-empty case below, which is about the record. */}
+                    {isOpen(t) && filteredOut && (
+                      <tr className="sb-note-row">
+                        <td colSpan={cols} className="sb-quietline">
+                          no rows match the filter · {groupCount(t)} hidden
+                        </td>
+                      </tr>
+                    )}
+                    {isOpen(t) && !groupCount(t) && !t.record_error && (
+                      <tr className="sb-note-row">
+                        <td colSpan={cols} className="sb-quietline">
+                          {t.warming_since
+                            ? `warming since ${fmtDate(t.warming_since)} — the withheld window is accruing`
+                            : "no arm episodes on this record"}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
           </div>
 
+          {/* the historical (replayed) panel is deliberately OUTSIDE the filter chips: its rows
+              predate decision capture, so "in position" and "needs an answer" could only ever
+              answer the same way for every row there — a control that doesn't discriminate
+              shouldn't render (#7). The chips filter the LIVE record ledger only. */}
           <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} view={view} />
         </div>
       )}

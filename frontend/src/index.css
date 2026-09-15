@@ -1294,6 +1294,22 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-viewtoggle button + button { border-left: 1px solid var(--line); }
 .sb-viewtoggle button:hover { color: var(--txt-2); background: var(--panel-2); }
 .sb-viewtoggle button.on { color: var(--txt); background: var(--panel-2); }
+/* the status filter chips — the same segmented visual language as the view toggle above, because
+   they sit together and are read together; what differs is the meaning, so the differences are the
+   ones that carry it: a live count on every chip, a dim+inert chip when that count is 0 (an answer,
+   not a disappearance), and a Clear + "showing X of Y" receipt that exist only while a filter is on. */
+.sb-filters { display: flex; align-self: flex-start; align-items: center; flex-wrap: wrap; gap: 10px; }
+.sb-filterchips { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.sb-filterchips button { font: inherit; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: none; padding: 4px 13px; cursor: pointer; transition: 0.14s; }
+.sb-filterchips button + button { border-left: 1px solid var(--line); }
+.sb-filterchips button:hover:not(:disabled) { color: var(--txt-2); background: var(--panel-2); }
+.sb-filterchips button.on { color: var(--txt); background: var(--panel-2); }
+.sb-filterchips button:disabled { color: var(--txt-4); cursor: default; }
+.sb-filterchips .ct { margin-left: 5px; color: var(--txt-4); }
+.sb-filterchips button.on .ct { color: var(--txt-2); }
+.sb-filterclear { font: inherit; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 4px 11px; cursor: pointer; transition: 0.14s; }
+.sb-filterclear:hover { color: var(--txt); background: var(--panel-2); }
+.sb-filterline { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
 /* the record-freshness marker (2a): a compact one-line "is the record current NOW" — quiet by
    default (current / never-begun), loud (--warm, the lapse/closing tint) only when the record is
    stale (honest loudness). Mirrors the Admin freshness readout; shown only on the live view. */
