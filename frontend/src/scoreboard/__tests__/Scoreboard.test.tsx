@@ -739,4 +739,212 @@ describe("Scoreboard", () => {
       }
     },
   );
+
+  // -------- the status filter chips: the ledger's first true hide-from-view control ---------------
+
+  const OP_RUNNING = {
+    action: "took",
+    decision_id: "d-held",
+    decision_date: "2026-07-12",
+    thesis_level: false,
+    entry_price: 30,
+    entry_inferred: false,
+    exit_inferred: false,
+    running: true,
+    operator_return: 0.05,
+  };
+  const OP_CLOSED = { ...OP_RUNNING, decision_id: "d-done", running: false, operator_return: 0.1 };
+
+  // One group holding every row kind the chips discriminate between, and a second whose only row
+  // matches nothing — the case that proves a filtered-out group keeps its heading.
+  const FILTER_PAYLOAD = {
+    ...PAYLOAD,
+    theses: [
+      {
+        ...PAYLOAD.theses[0],
+        name: "Live group",
+        episodes: [
+          { ...EP, security_id: "s-open", ticker: "OPENN" }, // open · no decision logged
+          {
+            ...SCORED_EP,
+            security_id: "s-held",
+            ticker: "HELD",
+            status: "open",
+            matured: false,
+            dearm_date: null,
+            operator: OP_RUNNING, // open · taken and still held
+          },
+          { ...SCORED_EP, security_id: "s-done", ticker: "DONE", operator: OP_CLOSED }, // closed-out take
+        ],
+        operator_spans: PAYLOAD.theses[1].operator_spans, // a RUNNING off-record span (ticker J)
+      },
+      {
+        ...PAYLOAD.theses[2],
+        name: "Quiet group",
+        archived: false,
+        episodes: [{ ...SCORED_EP, security_id: "s-cold", ticker: "COLD" }], // closed, no decision
+        operator_spans: [],
+      },
+    ],
+  };
+
+  it("the chips start OFF — the whole ledger, no Clear, no count line (never the default)", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:OPENN",
+      "row:HELD",
+      "row:DONE",
+      "row:J",
+      "group:Quiet group",
+      "row:COLD",
+    ]);
+    expect(container.querySelector(".sb-filterline")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open 2" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  // Each chip's number is taken over the whole record (both groups, folded or not), so it answers
+  // "how many are there" rather than "how many can I see".
+  it("each chip carries its own live count over the whole record", () => {
+    renderBoard({ data: FILTER_PAYLOAD });
+    expect(screen.getByRole("button", { name: "Open 2" })).toBeInTheDocument(); // OPENN + HELD
+    expect(screen.getByRole("button", { name: "In position 2" })).toBeInTheDocument(); // HELD + the span
+    expect(screen.getByRole("button", { name: "Needs an answer 1" })).toBeInTheDocument(); // OPENN
+  });
+
+  it("a chip removes rows, reports what it hid, and every group keeps its heading", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+
+    // only the open episodes survive — the closed-out take, the span and the other group's row are gone
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:OPENN",
+      "row:HELD",
+      "group:Quiet group",
+    ]);
+    expect(screen.getByRole("button", { name: "Open 2" })).toHaveAttribute("aria-pressed", "true");
+
+    // the receipt: nothing vanished silently
+    expect(container.querySelector(".sb-filterline")?.textContent).toBe(
+      "showing 2 of 5 rows · 3 hidden by filter",
+    );
+    // the emptied group still says what it is holding back, and its heading declares N of M
+    expect(screen.getByText("no rows match the filter · 1 hidden")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Live group/ }).textContent).toContain("· 2 of 4");
+    expect(screen.getByRole("button", { name: /Quiet group/ }).textContent).toContain("· 0 of 1");
+  });
+
+  // Two chips are a UNION: open ∪ in-position is the live picture, and the off-record span comes back
+  // because a running take is a position even though it is not an arm.
+  it("two chips union rather than intersect", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "In position 2" }));
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:OPENN",
+      "row:HELD",
+      "row:J",
+      "group:Quiet group",
+    ]);
+    expect(container.querySelector(".sb-filterline")?.textContent).toBe(
+      "showing 3 of 5 rows · 2 hidden by filter",
+    );
+  });
+
+  it("Clear restores the full ledger in one click, and takes its own affordance with it", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    const before = ledgerShape(container);
+    fireEvent.click(screen.getByRole("button", { name: "Needs an answer 1" }));
+    expect(ledgerShape(container)).toEqual(["group:Live group", "row:OPENN", "group:Quiet group"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(ledgerShape(container)).toEqual(before);
+    expect(container.querySelector(".sb-filterline")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open 2" })).toHaveAttribute("aria-pressed", "false");
+    // the heading is back to its plain count too
+    expect(screen.getByRole("button", { name: /Live group/ }).textContent).toContain("· 4");
+  });
+
+  // Pressing the same chip again is its own inverse — the operator never needs Clear to undo one press.
+  it("a chip is its own inverse", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    const before = ledgerShape(container);
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+    expect(ledgerShape(container)).not.toEqual(before);
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+    expect(ledgerShape(container)).toEqual(before);
+  });
+
+  // "There are none" is an answer. A chip that vanished at zero would leave the operator unsure the
+  // question was ever asked, so it stays put, dim and inert, wearing its 0.
+  it("a chip matching nothing renders disabled with its 0 rather than disappearing", () => {
+    const noUnanswered = {
+      ...FILTER_PAYLOAD,
+      theses: [
+        {
+          ...FILTER_PAYLOAD.theses[0],
+          episodes: FILTER_PAYLOAD.theses[0].episodes.filter((e) => e.ticker !== "OPENN"),
+        },
+        FILTER_PAYLOAD.theses[1],
+      ],
+    };
+    const { container } = renderBoard({ data: noUnanswered });
+    const chip = screen.getByRole("button", { name: "Needs an answer 0" });
+    expect(chip).toBeDisabled();
+    fireEvent.click(chip);
+    expect(container.querySelector(".sb-filterline")).toBeNull(); // inert — nothing was filtered
+    expect(screen.getByRole("button", { name: "Open 1" })).toBeEnabled();
+  });
+
+  // Folding is the operator's own explicit state; a filter must not reach into it. A folded group
+  // with matches still declares them in its heading.
+  it("filtering leaves fold state alone — a folded group still declares its matches", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    const group = () => screen.getByRole("button", { name: /Live group/ });
+    fireEvent.click(group()); // fold it closed
+    expect(group()).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+    expect(group()).toHaveAttribute("aria-expanded", "false"); // the filter did not re-open it
+    expect(group().textContent).toContain("· 2 of 4"); // …and it still says what it holds
+    // the chip count is unmoved by the fold — it counts the record, not the visible rows
+    expect(screen.getByRole("button", { name: "Open 2" })).toBeInTheDocument();
+    expect(container.querySelector(".sb-filterline")?.textContent).toBe(
+      "showing 2 of 5 rows · 3 hidden by filter",
+    );
+  });
+
+  // Filter first, then sort: the sorters keep their "same length in, same length out" contract, so
+  // the two controls compose instead of one swallowing the other.
+  it("a filter and a sort compose — the surviving rows still re-rank within their group", () => {
+    const { container } = renderBoard({ data: FILTER_PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: "Open 2" }));
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:OPENN",
+      "row:HELD",
+      "group:Quiet group",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Name" })); // desc by ticker: OPENN > HELD
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:OPENN",
+      "row:HELD",
+      "group:Quiet group",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Name" })); // asc — the filtered pair flips
+    expect(ledgerShape(container)).toEqual([
+      "group:Live group",
+      "row:HELD",
+      "row:OPENN",
+      "group:Quiet group",
+    ]);
+    // the sort moved rows around; it never put a filtered-out one back
+    expect(container.querySelector(".sb-filterline")?.textContent).toBe(
+      "showing 2 of 5 rows · 3 hidden by filter",
+    );
+  });
 });
