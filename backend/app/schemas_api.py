@@ -302,7 +302,7 @@ class ScoredMemberOut(BaseModel):
     foreign_filer_form: str | None = None
     # The RESOLVED vendor price symbol (migration 0032) — carried verbatim from the master (``identity_for``).
     # A non-null value is the EXCEPTION: the name is priced under a different symbol than its SEC ticker
-    # (FDCT priced under "FDCTD"). Display identity like origin, never a call input (#1/#3). ``None`` = priced
+    # (EXMPL priced under "EXMPLD"). Display identity like origin, never a call input (#1/#3). ``None`` = priced
     # under the canonical ticker (the common, healthy case) — the FE renders the note ONLY when set, and the
     # watchlist export emits ``price_symbol ?? ticker`` so TradingView resolves the right listing.
     price_symbol: str | None = None

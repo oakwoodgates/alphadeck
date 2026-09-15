@@ -85,6 +85,41 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   hit-cap boundary of mega-terms (three same-day drafts each re-fetched ~87 pages and saw slightly different
   universes as the live index moved). Cache etiquette only works if the cache survives the deploy loop.
 
+## Long-outage data bounds — what a resumed feed cannot recover on its own  `[KNOWN; no code closes them yet]`
+
+The freshness rules above make a pass SEE the current window — `force_refresh=True` on prices, the key-classed
+TTL on EDGAR — but neither WIDENS the window a pull reads. Every incremental leg resumes the same way: re-read a
+bounded window, append what is not yet stored. So an outage longer than that window (the stack down for months;
+the cron sidecar dead while the app stayed up) leaves a hole the first pass back neither fills nor reports.
+Two bounds are known today, stated as facts about current behavior — nothing in the code closes either yet:
+
+- **Prices — a fixed two-year window.** The member-name pull is `YahooPriceSource(range_=DEFAULT_RANGE)` with
+  `DEFAULT_RANGE = "2y"` (`ingest/prices/source.py`; `fetch_eod`'s own bare default is `"1y"`, reached only
+  by direct callers such as the symbol resolver's probe; benchmarks pull `5y` through
+  `pipeline.ingest_benchmarks --range`). `ingest_bars_for_security` appends the bars newer than the tape edge
+  (`latest_bar_date`) and runs the re-version / hole-fill compare over the overlap, so an outage SHORTER than
+  the window self-heals on the first pass back — the whole missed tail is inside the pull. An outage LONGER
+  than the window does not: the bars between the old tape edge and the window's left edge (two years before
+  the resume date) are never requested, and the tape resumes with a permanent hole that the tape-recency
+  monitor (§When the SYMBOL drifts, below) cannot see — it judges the EDGE, which is fresh again. The repair
+  is a manual wider re-pull: `pipeline.ingest_thesis` has no range knob, so it is a hand-run
+  `YahooPriceSource(range_="5y")` (or `"max"`) through `ingest_bars_for_security`, whose overlap pass then
+  hole-fills. The recovered bars carry the re-pull's `recorded_at`, so a replay pinned inside the gap still
+  does not see them — honest: the system did not have them then.
+- **EDGAR filings — `filings.recent` only.** Every filing leg that enumerates from a company's submissions
+  JSON — Form 4 (`form4_filings`), the 8-K item tape, the 13D/G tape, `pipeline.backfill_accepted` — reads
+  `filings.recent` (`ingest/edgar/submissions.py`, `filings_of` and its sibling readers) and never the older
+  `filings.files[]` chunks. SEC bounds `recent` at roughly the **1,000 most-recent filings of ALL form
+  types** (its documentation reads "at least one year or 1,000, whichever is more" — plan on the 1,000). For
+  a light filer that is many years of history — the "≥ 1 year / 1,000" depth the tape sections below quote —
+  but the window is a filing COUNT, so its span in time is set by cadence, not the calendar: a heavy filer
+  (a structured-note 424B issuer, an issuer with many reporting insiders) can cycle it in months. The walk is
+  incremental on accession (`existing_accessions` skips what is stored), so a filing that scrolled out of
+  `recent` during an outage of months is never enumerated — a **permanent-loss** bound, silent by
+  construction (nothing counts what `recent` no longer lists), and unlike prices there is no wider window to
+  ask for today. The fix is paging the older `filings.files[]` chunks — the deferred `--deep` walk
+  `backfill_accepted` already names — a known, not-yet-built follow-up.
+
 ## USASpending (DOE awards) — the automated catalyst feed `[BUILT, #37]`
 
 The first **automated** catalyst-conviction source (`ingest/doe/`). It discovers DOE awards for a hand-curated
@@ -162,7 +197,10 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 - **Cache behavior.** Cache-first on disk (`data/price_cache/`) for dev and the `--no-live` path (re-runs
   reproducible, polite). The **recurring/daily path force-refreshes** (`fetch_eod(force_refresh=True)`): it
   re-pulls live and overwrites the cache, so the daily cron gets NEW bars instead of a frozen cache hit. A
-  cache MISS always fetches, so a new thesis's first ingest is fresh regardless.
+  cache MISS always fetches, so a new thesis's first ingest is fresh regardless. The pull itself is a fixed
+  **two-year window** (`YahooPriceSource(range_=DEFAULT_RANGE)`, `DEFAULT_RANGE = "2y"`): the refresh makes a
+  pass see the CURRENT window, never a wider one, so an outage longer than the window leaves a permanent hole
+  (§Long-outage data bounds, above).
 - **The `PriceSource` seam** (`ingest/prices/source.py`). The source sits behind a `get_bars(ticker, *,
   allow_live, force_refresh) -> [normalized EOD bars]` interface; `YahooPriceSource` and `StooqPriceSource`
   are adapters; the ingest path depends on the interface, so swapping the source is changing an **adapter**,
@@ -216,10 +254,10 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   MONITOR: no detector, no call input, and nothing on the CallCard (a day-varying card field would flap the
   cron's `record_if_changed` idempotency).
 - **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
-  the next nightly pass re-pulls the full year, appends the missing tail and hole-fills the overlap (splices
-  measured clean). Teaching the resolver to follow renames **automatically** is deliberately **not built**: a
-  wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a visible gap
-  (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
+  the next nightly pass re-pulls the full two-year window, appends the missing tail and hole-fills the
+  overlap (splices measured clean). Teaching the resolver to follow renames **automatically** is deliberately
+  **not built**: a wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a
+  visible gap (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
 - **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25-NSE / 15-12G) also ends the
   series, and correctly: there is nothing to repair, the name is simply no longer priced. The monitor cannot
   tell the two apart — it reports the *fact* that the tape stopped and leaves the diagnosis to the operator,
