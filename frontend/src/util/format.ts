@@ -136,3 +136,24 @@ export function todayISO(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
+
+/** F11 — the past-as-of gate: true when `asof` (YYYY-MM-DD) is strictly before today (local).
+ *  ISO date strings compare lexically == chronologically (byEventDateDesc above leans on the same
+ *  fact), so a plain string compare avoids a timezone-sensitive Date parse. Today itself, and any
+ *  date beyond it, read false — only a genuine past date is a recompute; the live view carries no
+ *  caveat (honest loudness #7 / WB#3: the note marks the exception, not the rule). */
+export function isPastAsof(asof: string): boolean {
+  return asof < todayISO();
+}
+
+/** F11 — the ONE wording for "you're looking at a recompute, not the record" (Board + Cockpit call
+ *  views). Deliberately basis-agnostic: it never claims the roster or facts are period-accurate
+ *  (untrue for a pre-F12 fallback date) — it only flags that this is a recompute, not the immutable
+ *  nightly calls-of-record row the Scoreboard scores. */
+export function recomputeNote(asof: string): string {
+  return `Recomputed as of ${fmtDate(asof)} — not the recorded call`;
+}
+
+/** The tooltip paired with `recomputeNote` everywhere it renders. */
+export const RECOMPUTE_TOOLTIP =
+  "Re-derived from data known as of this date; the recorded call-of-record is the Scoreboard entry.";

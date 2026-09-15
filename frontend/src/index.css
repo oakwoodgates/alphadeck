@@ -440,6 +440,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .cc-manage .cc-head { background: rgba(52, 194, 160, 0.1); color: var(--manage); }
 .cc-incub .cc-head { background: var(--panel-2); color: var(--txt-3); }
 .cc-body { padding: 12px; background: var(--panel); }
+/* F11 — quiet "recomputed, not the recorded call" caveat (past as-of only); muted + italic, no
+   alarm color — it is context, not a warning. */
+.cc-recompute { margin-bottom: 12px; font-size: 10px; line-height: 1.4; letter-spacing: 0.02em; color: var(--txt-4); font-style: italic; }
 
 /* --- the rail's list panels ------------------------------------------------------------------
    Each growing list is its own bounded, independently-scrolling widget. The rail is 96% list by
@@ -560,6 +563,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    Incubating dormant, Warming a gentle glow, Armed loud, Managing a steady panel.
    =========================================================================== */
 .board-shell { height: 100vh; display: flex; flex-direction: column; }
+/* F11 — one quiet line for the whole board (every card shares the as-of dial); muted, no alarm
+   color, thin hairline so it reads as a caption, not an error strip like .board-errs below. */
+.board-recompute { padding: 7px 18px; font-size: 10.5px; font-style: italic; letter-spacing: 0.02em; color: var(--txt-4); background: var(--panel-2); border-bottom: 1px solid var(--line); }
 .topbar { min-height: 46px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 8px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, var(--bg-2), var(--bg)); }
 .nav { display: flex; gap: 4px; }
 .nav a { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); padding: 6px 11px; border-radius: 6px; }

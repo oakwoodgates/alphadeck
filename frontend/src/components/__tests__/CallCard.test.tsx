@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
+import { todayISO } from "../../util/format";
 import { CallCard, counterCaseSummary } from "../CallCard";
 
 // A minimal armed card: one graded trigger (shows its grade + source link, hit/◉) and one risk signal that
@@ -137,6 +138,28 @@ describe("CallCard — foreign-filer conviction annotation (single-name)", () =>
     expect(container.querySelector(".miss-note")).toBeNull();
     // the missing lines themselves are unchanged
     expect(screen.getByText(/Conviction trigger/)).toBeInTheDocument();
+  });
+});
+
+// --- F11: the past-as-of "recomputed, not the recorded call" line -----------------------------
+// Derived purely from card.asof (no new prop): a scrubbed-past card says so, quietly; the live
+// (today) card carries no caveat at all — honest loudness (#7 / WB#3), the note marks the
+// exception, not the rule.
+describe("CallCard — F11 past-asof recompute line", () => {
+  it("renders the quiet line when card.asof is a PAST date", () => {
+    const { container } = render(<CallCard card={{ ...card, asof: "2026-06-01" }} />);
+    expect(screen.getByText("Recomputed as of Jun 1 — not the recorded call")).toBeInTheDocument();
+    // basis-agnostic tooltip — never claims the roster/facts are period-accurate, only that this
+    // is a recompute, not the record
+    expect(container.querySelector(".cc-recompute")?.getAttribute("title")).toMatch(
+      /Re-derived from data known as of this date/,
+    );
+  });
+
+  it("is ABSENT when card.asof is TODAY (the live view)", () => {
+    const { container } = render(<CallCard card={{ ...card, asof: todayISO() }} />);
+    expect(screen.queryByText(/not the recorded call/)).toBeNull();
+    expect(container.querySelector(".cc-recompute")).toBeNull();
   });
 });
 
