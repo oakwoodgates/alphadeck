@@ -61,6 +61,34 @@ class TransitionEvent:
 
 
 @dataclass(frozen=True)
+class SpacStatusEvent:
+    """One SPAC shell's deal-state transition INTO ``announced`` (a DA), for a company whose DA-class
+    filing MATCHED a thesis's term set. ANNOUNCED-ONLY by design (the operator's loudness call): a deal
+    announcement is the actionable milestone; ``terminated`` / ``completed`` moves are not paged. The
+    trigger is the deterministic ``radar.state.deal_state`` derive (#3 — never an LLM), and a page is
+    emitted only on the (transitioned CIK × matched thesis) intersection, so loudness marks the
+    exception (#7). One event per (transitioned CIK, matched thesis)."""
+
+    cik: str
+    company_name: str
+    ticker: str | None
+    thesis_id: UUID
+    thesis_name: str
+    accession: str
+    filed: date
+    signal_terms: tuple[
+        str, ...
+    ] = ()  # SIGNAL-tier term strings that hit the DA doc (provenance #6)
+    broad_terms: tuple[str, ...] = ()  # BROAD-tier term strings that hit
+    url: str | None = None  # the DA filing's EDGAR link (#6 — every page traces to its filing)
+
+    @property
+    def label(self) -> str:
+        who = self.ticker or self.company_name or self.cik
+        return f"{who} → announced (matches {self.thesis_name})"
+
+
+@dataclass(frozen=True)
 class HealthEvent:
     """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is notable (R4). A silent
     daily job is a daily job you don't have: the R1 freeze went 11+ days undetected because the operator was
@@ -143,6 +171,10 @@ class Notifier(Protocol):
 
     def notify_health(self, event: HealthEvent) -> None: ...  # pragma: no cover — a Protocol
 
+    def notify_spac_status(
+        self, event: SpacStatusEvent
+    ) -> None: ...  # pragma: no cover — a Protocol
+
 
 class LogNotifier:
     """v1: the transition is RECORDED loudly, delivered nowhere (the deferred-delivery adapter)."""
@@ -153,6 +185,10 @@ class LogNotifier:
     def notify_health(self, event: HealthEvent) -> None:
         # a run-health page is a RECORD (a bad cron night, logged loud); delivery is the Slack adapter's job
         _log.error("CRON HEALTH %s", event.label)
+
+    def notify_spac_status(self, event: SpacStatusEvent) -> None:
+        # a SPAC → announced page is a RECORD (logged loud); delivery is the Slack adapter's job
+        _log.warning("SPAC ANNOUNCED %s (filed %s)", event.label, event.filed)
 
 
 _KIND_LABELS = {
@@ -240,6 +276,33 @@ class SlackNotifier:
                 exc_info=True,
             )
 
+    def notify_spac_status(self, event: SpacStatusEvent) -> None:
+        """A thesis-matched SPAC shell reached ``announced`` (a DA). ANNOUNCED-ONLY loudness (#7): the radar
+        calls this ONLY on a →announced transition for a thesis-matched company (deterministic #3, never an
+        LLM), so — like ``notify_health`` — every call is by construction the rare exception a push is for.
+        Records loud first (the log line survives regardless of delivery), then best-effort pushes. FAIL-OPEN
+        like the others: a Slack outage / bad URL / network error is logged and swallowed — this method must
+        NEVER raise, so a delivery fault can never fail the radar leg or the cron that runs it."""
+        self._log_sink.notify_spac_status(event)  # (1) record — always, before any push
+        try:
+            import httpx  # lazy (repo convention)
+
+            s = get_settings()
+            if not s.slack_webhook_url:  # no webhook => no push (the page is already logged above)
+                return
+            resp = httpx.post(
+                s.slack_webhook_url,
+                json={"text": self._format_spac(event)},
+                timeout=s.http_timeout_s,
+            )
+            resp.raise_for_status()
+        except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the radar/cron
+            _log.warning(
+                "slack spac-status notify failed for %s (fail-open, logged only)",
+                event.label,
+                exc_info=True,
+            )
+
     @staticmethod
     def _format(event: TransitionEvent) -> str:
         """The compact company-level push: line 1 the thesis header (the state move), line 2 the armed
@@ -258,6 +321,20 @@ class SlackNotifier:
         ]
         if tails:
             lines.append(" · ".join(tails))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_spac(event: SpacStatusEvent) -> str:
+        """The compact SPAC-announced push: line 1 the company + which thesis it matched, line 2 the
+        matched terms (the provenance behind the match, #6), line 3 the DA filing link. American English.
+        """
+        who = f"{event.ticker} ({event.company_name})" if event.ticker else event.company_name
+        lines = [f"🟢 {who} — SPAC deal ANNOUNCED · matches {event.thesis_name}"]
+        terms = [*event.signal_terms, *event.broad_terms]
+        if terms:
+            lines.append("matched: " + ", ".join(terms))
+        if event.url:
+            lines.append(event.url)
         return "\n".join(lines)
 
 

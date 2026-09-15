@@ -19,6 +19,7 @@ from notify import (
     HealthEvent,
     LogNotifier,
     SlackNotifier,
+    SpacStatusEvent,
     TransitionEvent,
     get_notifier,
 )
@@ -321,3 +322,82 @@ def test_get_notifier_returns_slack_when_webhook_set(monkeypatch):
 def test_get_notifier_falls_back_to_log_when_webhook_unset(monkeypatch):
     # autouse fixture already delenv'd + cache-cleared — the var is unset
     assert isinstance(get_notifier(), LogNotifier)
+
+
+# --- SPAC ANNOUNCED page: notify_spac_status (announced-only loudness #7, deterministic #3) ---------------
+# The radar leg calls this ONLY on a → announced transition for a thesis-matched shell, so — like
+# notify_health — every call is by construction the rare exception a push is for (no armed-style gate needed).
+
+
+def _spac_event(*, ticker="NEWS", signal=("psilocybin",), broad=(), url="https://sec.example/da"):
+    return SpacStatusEvent(
+        cik="0000002222",
+        company_name="New Shell Acquisition Corp",
+        ticker=ticker,
+        thesis_id=uuid4(),
+        thesis_name="Rainbow",
+        accession="0002222222-26-000002",
+        filed=date(2026, 8, 3),
+        signal_terms=signal,
+        broad_terms=broad,
+        url=url,
+    )
+
+
+def test_spac_status_posts_the_compact_announced_page(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify_spac_status(_spac_event())
+
+    assert len(calls) == 1 and calls[0]["url"] == _WEBHOOK
+    assert set(calls[0]["json"]) == {"text"}
+    assert calls[0]["json"]["text"] == (
+        "🟢 NEWS (New Shell Acquisition Corp) — SPAC deal ANNOUNCED · matches Rainbow\n"
+        "matched: psilocybin\n"
+        "https://sec.example/da"
+    )
+
+
+def test_spac_status_falls_back_to_company_name_without_a_ticker(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify_spac_status(_spac_event(ticker=None, url=None))
+
+    assert calls[0]["json"]["text"] == (
+        "🟢 New Shell Acquisition Corp — SPAC deal ANNOUNCED · matches Rainbow\nmatched: psilocybin"
+    )
+
+
+def test_spac_status_lists_both_term_tiers(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify_spac_status(
+        _spac_event(signal=("psilocybin",), broad=("uranium enrichment",))
+    )
+
+    assert "matched: psilocybin, uranium enrichment" in calls[0]["json"]["text"]
+
+
+def test_spac_status_push_is_FAIL_OPEN(monkeypatch):
+    """The load-bearing contract, same as notify/notify_health: a Slack outage must NEVER raise. The radar
+    leg calls this AFTER its own commits, so a raise would falsely fail the leg (and print a leg-failed line).
+    """
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch, raises=httpx.ConnectError("slack is down"))
+    SlackNotifier().notify_spac_status(_spac_event())  # must not raise
+    assert len(calls) == 1  # attempted + swallowed
+
+
+def test_spac_status_records_loud_even_with_no_webhook(monkeypatch, caplog):
+    """No Slack configured → the LogNotifier fallback still RECORDS the announced page loudly (a log is a
+    record, not a nag) — the record survives regardless of delivery."""
+    import logging
+
+    calls = _capture_post(monkeypatch)  # webhook unset (autouse fixture) → no push
+    with caplog.at_level(logging.WARNING):
+        LogNotifier().notify_spac_status(_spac_event())
+    assert calls == []  # nothing pushed (no webhook)
+    assert any("SPAC ANNOUNCED" in r.message and "Rainbow" in r.message for r in caplog.records)

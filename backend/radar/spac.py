@@ -32,7 +32,9 @@ from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.dailyindex import IndexFiling, fetch_daily_index
 from ingest.edgar.submissions import fetch_submissions, parse_identity, parse_item_codes
+from notify import Notifier, SpacStatusEvent
 from radar import matcher, repo
+from radar.state import StateEvent, deal_state
 from repositories import thesis_repo
 from securities import master
 from workbench.enrichment import enrich_for_ciks
@@ -61,6 +63,7 @@ class RadarRunResult:
     matches_appended: int = 0
     matches_unchanged: int = 0
     docs_matched: int = 0  # DA-class docs fetched + matched this run
+    status_notifications: int = 0  # ANNOUNCED-only pages emitted this run
     errors: list[str] = field(default_factory=list)
     edgar_fetches: int = 0
 
@@ -74,6 +77,9 @@ class RadarRunResult:
             f"+{self.matches_appended} matches ({self.matches_unchanged} unchanged)",
             f"{self.edgar_fetches} EDGAR fetches",
         ]
+        # loudness marks the exception — silent when nothing was announced (#7)
+        if self.status_notifications:
+            parts.append(f"+{self.status_notifications} announced pages")
         if self.errors:
             parts.append(f"{len(self.errors)} ERRORS")
         return " · ".join(parts)
@@ -149,11 +155,19 @@ def run_spac_radar(
     edgar_client: EdgarClient | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     match: bool = True,
+    notifier: Notifier | None = None,
 ) -> RadarRunResult:
     """One radar pass: scan the daily indexes for ``days`` days ending at ``until`` (default
     today), accrete + persist + (optionally) match. Idempotent over a re-scan of the same window
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
-    client with ``allow_live=False``)."""
+    client with ``allow_live=False``).
+
+    ``notifier`` (the nightly cron passes one; the CLI passes none) fires an ANNOUNCED-only Slack page
+    per (CIK, thesis) when a shell's deal-state transitions INTO ``announced`` this run AND its DA-class
+    filing matched that thesis's term set — deterministic (#3, ``deal_state``), loudness-marks-the-
+    exception (#7), and naturally idempotent (the baseline is the prior RECORDED state, so a re-scan over
+    already-stored events pages nothing). It runs AFTER the commits below and is fail-open, so a notify
+    fault can never roll back committed radar facts nor fail the run."""
     # G1 — THE RECURRING TTL (five minutes): a RECURRING pass never reads a DAYTIME-warm mutable key (no
     # exceptions on the nightly path; the full rationale, including why five minutes rather than zero — the
     # same-pass re-read of one key must stay free — lives at ``ingest.edgar.client.RECURRING_CACHE_TTL_S``).
@@ -240,6 +254,21 @@ def run_spac_radar(
                 security_id=sid_by_cik.get(cik10),
             )
         )
+    # ANNOUNCED-only page baseline: the PRIOR deal-state per CIK, from the RECORDED history read BEFORE
+    # this run's appends. This is the idempotency anchor — a re-scan finds these events already stored, so
+    # prior == new and nothing pages (the "baseline is the prior recorded state, not a fresh re-compare"
+    # rule). Only built when a notifier is listening (the CLI path passes none and pays for no extra read).
+    # State is a read-time derive, never stored (radar/state.py).
+    prior_by_cik: dict[str, dict[str, StateEvent]] = {}
+    if notifier is not None:
+        for h in repo.events_for_ciks(conn, sorted({ev.cik for ev in events}), tenant_id=tenant_id):
+            prior_by_cik.setdefault(h["cik"], {})[h["accession"]] = StateEvent(
+                filed=h["filed"],
+                form=h["form"],
+                items=tuple(h["items"]) if h["items"] else None,
+                accession=h["accession"],
+            )
+
     for ev in events:
         if repo.record_event_if_changed(conn, ev, tenant_id=tenant_id):
             result.events_appended += 1
@@ -247,9 +276,29 @@ def run_spac_radar(
             result.events_unchanged += 1
     conn.commit()
 
+    matches: list[repo.SpacMatch] = []
     if match:
-        _match_events(conn, client, events, result, tenant_id=tenant_id)
+        matches = _match_events(conn, client, events, result, tenant_id=tenant_id)
         conn.commit()
+
+    # The ANNOUNCED-only status page (#7 inverse loudness, #3 deterministic): a company that transitioned
+    # INTO `announced` this run AND matched a thesis's term set. It runs AFTER the commits above so a notify
+    # fault can never roll back committed radar facts (the SAVEPOINT-in-the-cron-loop trap); the whole block
+    # is fail-open and fail-visible (#9 — a fault is recorded in errors, never raised).
+    if notifier is not None:
+        try:
+            _notify_announced(
+                conn,
+                notifier,
+                prior_by_cik,
+                events,
+                matches,
+                sid_by_cik,
+                result,
+                tenant_id=tenant_id,
+            )
+        except Exception as e:  # noqa: BLE001 — notify is best-effort; the radar's job is the tape
+            result.errors.append(f"status notify: {e}")
 
     result.edgar_fetches = client.live_fetches
     return result
@@ -262,19 +311,22 @@ def _match_events(
     result: RadarRunResult,
     *,
     tenant_id: UUID,
-) -> None:
+) -> list[repo.SpacMatch]:
     """Slice 2: run every thesis's term set over each DA-class filing in this window. A match row
-    is recorded only when ≥1 term hit (either tier); the append-if-changed keeps re-scans flat."""
+    is recorded only when ≥1 term hit (either tier); the append-if-changed keeps re-scans flat.
+    Returns EVERY match found this run (whether it appended or was unchanged) — the ANNOUNCED-only
+    notifier reads them to intersect a →announced transition with the theses that filing matched."""
     da_events = [
         e
         for e in events
         if e.form in DA_MATCH_FORMS or (e.form.startswith("8-K") and "1.01" in (e.items or []))
     ]
     if not da_events:
-        return
+        return []
     theses = [t for t in thesis_repo.list_all(conn) if t.term_set]
     if not theses:
-        return
+        return []
+    matches: list[repo.SpacMatch] = []
     for ev in da_events:
         try:
             text, truncated = matcher.fetch_filing_text(client, ev.cik, ev.accession)
@@ -296,7 +348,91 @@ def _match_events(
                 source_ref=f"{get_settings().sec_archives_base}/{int(ev.cik)}/{ev.accession}.txt",
                 filed=ev.filed,
             )
+            matches.append(m)
             if repo.record_match_if_changed(conn, m, tenant_id=tenant_id):
                 result.matches_appended += 1
             else:
                 result.matches_unchanged += 1
+    return matches
+
+
+def _notify_announced(
+    conn: psycopg.Connection,
+    notifier: Notifier,
+    prior_by_cik: dict[str, dict[str, StateEvent]],
+    events: list[repo.SpacEvent],
+    matches: list[repo.SpacMatch],
+    sid_by_cik: dict[str, UUID],
+    result: RadarRunResult,
+    *,
+    tenant_id: UUID,
+) -> None:
+    """Emit ONE ANNOUNCED page per (transitioned CIK, matched thesis). A CIK transitioned when its
+    deal-state moved INTO ``announced`` this run (prior != announced AND new == announced); ``new`` is the
+    prior RECORDED history MERGED with this run's observed events (this run's version wins per accession),
+    so a re-scan over already-stored events yields prior == new and pages nothing (idempotent). The
+    intersection with ``matches`` (this run's DA-class term hits) makes loudness mark the exception (#7): a
+    transitioned-but-unmatched shell and an unchanged status both page nothing, and terminated / completed
+    moves never reach here (they are not → announced). Enrichment reads are isolated so a fault never
+    poisons the committed radar txn."""
+    new_by_cik: dict[str, dict[str, StateEvent]] = {c: dict(v) for c, v in prior_by_cik.items()}
+    for ev in events:
+        new_by_cik.setdefault(ev.cik, {})[ev.accession] = StateEvent(
+            filed=ev.filed,
+            form=ev.form,
+            items=tuple(ev.items) if ev.items else None,
+            accession=ev.accession,
+        )
+    prior_state = {c: deal_state(list(v.values())) for c, v in prior_by_cik.items()}
+    new_state = {c: deal_state(list(v.values())) for c, v in new_by_cik.items()}
+    transitioned = {
+        c
+        for c in new_by_cik
+        if new_state[c] == "announced" and prior_state.get(c, "searching") != "announced"
+    }
+    if not transitioned:
+        return
+    # ONE page per (CIK, thesis): dedup this run's matches on the transitioned CIKs, keeping the most
+    # informative (most terms) when a CIK filed more than one DA this run — a single transition, one page.
+    best: dict[tuple[str, UUID], repo.SpacMatch] = {}
+    for m in matches:
+        if m.cik not in transitioned:
+            continue
+        key = (m.cik, m.thesis_id)
+        cur = best.get(key)
+        if cur is None or (len(m.matched_signal) + len(m.matched_broad)) > (
+            len(cur.matched_signal) + len(cur.matched_broad)
+        ):
+            best[key] = m
+    if not best:
+        return
+    company_by_cik = {ev.cik: ev.company_name for ev in events}
+    url_by_accession = {ev.accession: ev.source_ref for ev in events}
+    sids = [sid_by_cik[c] for c in transitioned if c in sid_by_cik]
+    try:
+        ticker_by_sid = repo.tickers_for(conn, sids, tenant_id=tenant_id)
+    except Exception:  # noqa: BLE001 — an enrichment read must not poison the committed radar txn
+        conn.rollback()
+        ticker_by_sid = {}
+    thesis_name = {t.id: t.name for t in thesis_repo.list_all(conn)}
+    for key in sorted(best, key=lambda k: (k[0], str(k[1]))):
+        m = best[key]
+        name = thesis_name.get(m.thesis_id)
+        if name is None:  # a match on an archived/deleted thesis — never a ghost page
+            continue
+        sid = sid_by_cik.get(m.cik)
+        notifier.notify_spac_status(
+            SpacStatusEvent(
+                cik=m.cik,
+                company_name=company_by_cik.get(m.cik, m.cik),
+                ticker=ticker_by_sid.get(sid) if sid else None,
+                thesis_id=m.thesis_id,
+                thesis_name=name,
+                accession=m.accession,
+                filed=m.filed,
+                signal_terms=tuple(m.matched_signal),
+                broad_terms=tuple(m.matched_broad),
+                url=url_by_accession.get(m.accession, m.source_ref),
+            )
+        )
+        result.status_notifications += 1
