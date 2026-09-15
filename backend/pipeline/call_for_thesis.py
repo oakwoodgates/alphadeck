@@ -35,7 +35,14 @@ def call_for_thesis(
     caller owns the transaction (commit/rollback). ``known_at`` defaults to now (live read); the replay
     harness pins it to a past transaction time.
     """
-    thesis = thesis_repo.get(conn, thesis_id)
+    # THE ROSTER FEED (F12, the SECOND bitemporal leak): read the basket as it was known at ``known_at``
+    # (via basket_snapshot), MIRRORING the position feed just below. ``basket_member`` is full-replace /
+    # non-temporal, so a past-asof call (or a pinned-known_at run) would otherwise recompute on TODAY's
+    # roster (#1); get_asof reads the roster as it was known then. Fed here, at the single assembly funnel,
+    # so serve / pipeline.run / the daily cron / backfill all get it from one place. A thesis with no
+    # qualifying snapshot (pre-F12) falls back to the live roster; get_asof(now) == get, so a live/today
+    # call is byte-identical.
+    thesis = thesis_repo.get_asof(conn, thesis_id, known_at)
     if thesis is None:
         raise LookupError(f"thesis not found: {thesis_id}")
 

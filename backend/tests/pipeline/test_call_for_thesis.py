@@ -8,13 +8,17 @@ from pathlib import Path
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG
 from domain.enums import State, Verdict
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from pipeline.call_for_thesis import call_for_thesis
-from repositories import calls_repo, thesis_repo
+from pipeline.core import assemble_from_pit
+from repositories import calls_repo, decisions_repo, thesis_repo
+from signals.base import PointInTimeData
+from signals.horizons import call_bounds
 
 # The vertical slice, end to end through persistence: seed real HIMS facts + persist the thesis, then
 # compute the CallCard from the stored thesis by re-deriving signals from the facts as-of.
@@ -106,3 +110,34 @@ def test_call_for_thesis_is_sticky_through_consolidation(db, security_id):
 def test_call_for_thesis_unknown_thesis_raises(db):
     with pytest.raises(LookupError):
         call_for_thesis(db, uuid.uuid4(), date(2026, 6, 1), known_at=_KNOWN)
+
+
+@pytest.mark.parametrize("live_known_at", ["now", None])
+def test_live_call_is_byte_identical_to_the_live_roster(db, security_id, live_known_at):
+    """F12 LIVE-PATH SAFETY: the funnel reads the roster via get_asof(known_at); at a LIVE known_at it MUST
+    reproduce the live basket_member roster exactly, so the assembled card is BYTE-IDENTICAL to the pre-F12
+    behavior (which read the roster via thesis_repo.get). Covers BOTH live variants — ``known_at=now`` (the
+    nightly cron) and ``known_at=None`` (serve-live / pipeline.run). Assembles a reference card straight from
+    the live get() roster with the same point-in-time view and compares the full serialized cards.
+    """
+    tid = _seed_hims_thesis(db, security_id)
+    asof = date(2026, 6, 1)
+    known = datetime.now(timezone.utc) if live_known_at == "now" else None
+
+    via_funnel = call_for_thesis(db, tid, asof, known_at=known, record=False)
+
+    # the reference: what the funnel did BEFORE F12 — assemble from the live get() roster, same pit
+    ref = thesis_repo.get(db, tid)
+    ref.position = decisions_repo.effective_position(db, ref, asof=asof, known_at=known)
+    basket = {m.security_id for m in ref.basket if m.security_id is not None}
+    pit = PointInTimeData(
+        db,
+        asof=asof,
+        known_at=known,
+        tenant_id=ref.tenant_id,
+        basket=basket,
+        bounds=call_bounds(DEFAULT_CONFIG),
+    )
+    reference = assemble_from_pit(pit, ref, asof, DEFAULT_CONFIG)
+
+    assert via_funnel.model_dump(mode="json") == reference.model_dump(mode="json")

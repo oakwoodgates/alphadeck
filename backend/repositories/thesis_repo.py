@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 import psycopg
 from psycopg.types.json import Json
 
-from domain.thesis import Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
-from repositories.mappers import row_to_thesis, thesis_to_row
+from domain.thesis import BasketMember, Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
+from repositories.mappers import _row_to_basket_member, row_to_thesis, thesis_to_row
 
 
 def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
@@ -36,6 +37,88 @@ def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
         )
         exclusions = cur.fetchall()
     return row_to_thesis(t, basket, evidence, catalysts, kills, exclusions)
+
+
+def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None) -> Thesis | None:
+    """Load a Thesis with its basket ROSTER as it was known at ``known_at`` — the roster's point-in-time
+    read (F12, the SECOND bitemporal leak). ``basket_member`` is full-replace / non-temporal, so a plain
+    ``get`` reconstructs a PAST-dated recompute on TODAY's roster; ``basket_snapshot`` (migration 0043)
+    versions the roster, one jsonb row per promote. The thesis BODY and its other children (evidence /
+    catalysts / kills / exclusions) load live via ``get`` — only the roster is versioned — then the basket
+    is REPLACED by the LATEST snapshot with ``taken_at <= known_at`` (NO LOOKAHEAD, #1: a snapshot taken
+    after ``known_at`` is never read). ``known_at`` None -> now.
+
+    PRE-SNAPSHOT FALLBACK: a thesis with NO qualifying snapshot (promoted before this table existed, or
+    entirely before ``known_at``) keeps the live ``basket_member`` roster from ``get`` — the honest best
+    available (a separate F11 label change carries the "recompute ran on the live roster" note).
+
+    BYTE-IDENTICAL LIVE PATH: ``get_asof(now)`` reproduces ``get`` exactly for any thesis with a current
+    snapshot — the deploy seed writes one per existing thesis, and ``upsert`` writes one on every roster
+    change — so the live/today call path (serve asof=today, the nightly record) is unchanged. Callers own
+    the transaction. This is roster METADATA, never a call input (#3): the reassigned basket only re-scopes
+    the PIT prefetch and the armed/watch grouping, exactly as the live roster did."""
+    thesis = get(conn, thesis_id)
+    if thesis is None:
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT members FROM basket_snapshot "
+            "WHERE thesis_id = %s AND taken_at <= COALESCE(%s, now()) "
+            "ORDER BY taken_at DESC, id DESC LIMIT 1",
+            (thesis_id, known_at),
+        )
+        row = cur.fetchone()
+    if row is not None:
+        # jsonb comes back as list[dict]; sort by the stored ordinal (mirrors get's ORDER BY ordinal)
+        # and rebuild through the SAME mapper get uses, so the reconstructed members are byte-identical.
+        members = sorted(row["members"], key=lambda b: b["ordinal"])
+        thesis.basket = [_row_to_basket_member(b) for b in members]
+    return thesis
+
+
+def _member_to_snapshot(ordinal: int, m: BasketMember) -> dict[str, Any]:
+    """One basket member as a JSON-native snapshot object — the SAME key set and value types the deploy
+    seed (migration 0043) builds from the ``basket_member`` columns, so ``md5(members::text)`` agrees
+    across the seed and the on-promote write (jsonb normalizes key order). Values are JSON-native (UUID ->
+    str) so ``Json`` can serialize them — the ``set_term_set`` ``model_dump(mode="json")`` idiom. Every
+    field ``_row_to_basket_member`` reads is present, so ``get_asof`` round-trips a byte-identical member.
+    """
+    return {
+        "ordinal": ordinal,
+        "ticker": m.ticker,
+        "role": m.role,
+        "security_id": str(m.security_id) if m.security_id is not None else None,
+        "detail": m.detail,
+        "segment": m.segment,
+        "thesis_fit": m.thesis_fit,
+        "conviction": m.conviction,
+        "surfaced_terms": list(m.surfaced_terms),
+        "authored_by": m.authored_by.value,
+        "signed_off": m.signed_off,
+    }
+
+
+def _write_basket_snapshot(cur: psycopg.Cursor, thesis: Thesis, tenant_id: UUID) -> None:
+    """Append a ``basket_snapshot`` row for the roster ``upsert`` just wrote — SKIPPED when its
+    ``content_hash`` equals the thesis's latest snapshot. The Workbench full-replaces the basket on EVERY
+    interactive edit (a narrative-only re-promote resends an unchanged roster), so without the dedup the
+    table would grow on every save (the idempotency convention: count the table, not the read). Atomic with
+    the upsert (same cursor/transaction). ``content_hash`` is ``md5(members::text)`` computed by Postgres
+    over the SAME logical jsonb the deploy seed uses, so seed and write agree and a re-promote of an
+    unchanged roster dedups against the seed."""
+    members = [_member_to_snapshot(i, m) for i, m in enumerate(thesis.basket)]
+    cur.execute(
+        """
+        INSERT INTO basket_snapshot (id, tenant_id, thesis_id, taken_at, members, content_hash)
+        SELECT gen_random_uuid(), %(tenant)s, %(tid)s, now(), m.members, md5(m.members::text)
+        FROM (SELECT %(members)s::jsonb AS members) m
+        WHERE md5(m.members::text) IS DISTINCT FROM (
+            SELECT content_hash FROM basket_snapshot
+            WHERE thesis_id = %(tid)s ORDER BY taken_at DESC, id DESC LIMIT 1
+        )
+        """,
+        {"tenant": tenant_id, "tid": thesis.id, "members": Json(members)},
+    )
 
 
 def set_term_set(conn: psycopg.Connection, thesis_id: UUID, term_set: list[TermSetEntry]) -> None:
@@ -235,3 +318,8 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                    ON CONFLICT (id) DO NOTHING""",
                 (e.id, tenant, tid, e.kind, e.label, e.ref, e.date_label, i),
             )
+        # F12 — freeze the roster just written as a point-in-time snapshot (deduped when unchanged),
+        # ATOMIC with this upsert (same cursor/transaction). get_asof(known_at) reads it back so a
+        # past-dated recompute runs on the roster as it was known then, not today's. Roster metadata
+        # only — never a call input (#3); no CallCard field changes.
+        _write_basket_snapshot(cur, thesis, tenant)
