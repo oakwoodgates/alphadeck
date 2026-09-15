@@ -2,7 +2,14 @@ import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useSetArchived, useTheses } from "../api/hooks";
-import { fmtDate, tickerLabel, verdictLabel } from "../util/format";
+import {
+  fmtDate,
+  isPastAsof,
+  recomputeNote,
+  RECOMPUTE_TOOLTIP,
+  tickerLabel,
+  verdictLabel,
+} from "../util/format";
 import { ThesisCard } from "./ThesisCard";
 
 const COLUMNS = [
@@ -79,6 +86,16 @@ export function Board({ header, asof, onSelect }: Props) {
   return (
     <div className="board-shell">
       {header}
+
+      {/* F11 — honest loudness (#7 / WB#3): every column shares the ONE as-of dial, so a past scrub
+          makes EVERY card on screen a recompute, not the recorded call-of-record — a per-card badge
+          would be true of every row and so be noise (WB#3); one quiet line for the whole board says
+          it once. Absent on the live/today board. */}
+      {isPastAsof(asof) && (
+        <div className="board-recompute" title={RECOMPUTE_TOOLTIP}>
+          {recomputeNote(asof)}
+        </div>
+      )}
 
       {/* Decision Queue — the loud, armed-only anti-forgetting strip */}
       <div className="dq">

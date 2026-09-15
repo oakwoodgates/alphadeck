@@ -6,6 +6,9 @@ import {
   daysFrom,
   fmtDate,
   gradeClass,
+  isPastAsof,
+  recomputeNote,
+  RECOMPUTE_TOOLTIP,
   STATE_CLASS,
   verdictLabel,
 } from "../util/format";
@@ -81,6 +84,17 @@ export function CallCard({
       </div>
 
       <div className="cc-body">
+        {/* F11 — honest loudness (#7 / WB#3): a past as-of view is a RECOMPUTE, not the immutable
+            nightly calls-of-record row the Scoreboard scores. Quiet, basis-agnostic (never claims
+            the roster/facts are period-accurate), and absent on the live/today card. Derived from
+            card.asof alone — the same field that answers the entry/exit clocks below — so a stale
+            (keepPreviousData) placeholder card is labeled for the date it actually answers, and the
+            note updates the instant a scrub's new date resolves. */}
+        {isPastAsof(card.asof) && (
+          <div className="cc-recompute" title={RECOMPUTE_TOOLTIP}>
+            {recomputeNote(card.asof)}
+          </div>
+        )}
         <div className={`verdict ${sc}`}>{verdictLabel(card.verdict)}</div>
         <div className="vsub">{card.expression}</div>
 
