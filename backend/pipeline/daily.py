@@ -597,13 +597,18 @@ def run_daily_pass(
     # edgar_fetches freeze counters or the recording gate. Fail-open: a radar fault never fails the
     # call cron (printed loud, not raised). Skipped on --no-live (the recording-gate philosophy — a
     # cache-only run can't scan new indexes; the CLI `python -m pipeline.spac_radar` is the manual path).
+    # The nightly leg passes the notifier so a shell that transitions INTO `announced` AND matches a
+    # thesis fires an ANNOUNCED-only page (#7); the page runs after the radar's own commits and is
+    # fail-open inside run_spac_radar, so it can never roll back radar facts or fail this leg.
     if allow_live:
         try:
             from radar.spac import run_spac_radar
 
             radar_conn = connect()
             try:
-                rr = run_spac_radar(radar_conn, until=asof, days=3, allow_live=True)
+                rr = run_spac_radar(
+                    radar_conn, until=asof, days=3, allow_live=True, notifier=notifier
+                )
             finally:
                 radar_conn.close()
             print(f"SPAC radar: {rr.summary}")

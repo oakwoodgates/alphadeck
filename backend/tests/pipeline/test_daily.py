@@ -138,6 +138,11 @@ def test_daily_emits_a_transition_only_on_a_real_state_or_verdict_move(
         def notify(self, event):
             captured.append(event)
 
+        def notify_spac_status(
+            self, event
+        ):  # pragma: no cover — radar leg not exercised in run_daily
+            pass
+
     by = {
         r.thesis_id: r
         for r in daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True, notifier=Capture())
@@ -199,6 +204,9 @@ class _Capture:
 
     def notify(self, event):
         self.events.append(event)
+
+    def notify_spac_status(self, event):  # pragma: no cover — radar leg not exercised in run_daily
+        pass
 
 
 def test_daily_armed_transition_threads_company_detail_onto_the_event(db, security_id, monkeypatch):
@@ -608,6 +616,9 @@ class _Silent:
         pass
 
     def notify_health(self, event):  # pragma: no cover
+        pass
+
+    def notify_spac_status(self, event):  # pragma: no cover — radar leg stubbed in these pass tests
         pass
 
 

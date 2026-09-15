@@ -17,7 +17,9 @@ from domain.enums import TermTier
 from domain.thesis import TermSetEntry, Thesis
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+from radar import repo
 from radar.spac import run_spac_radar
+from radar.state import StateEvent, deal_state
 from repositories import thesis_repo
 
 D = date(2026, 8, 3)
@@ -230,3 +232,196 @@ def test_radar_builds_its_edgar_client_with_the_RECURRING_TTL(db, monkeypatch):
     assert len(_RecordingEdgar.seen) == 1
     assert _RecordingEdgar.seen[0]["cache_ttl_s"] == RECURRING_CACHE_TTL_S
     assert _RecordingEdgar.seen[0]["allow_live"] is True  # the other kwargs are unchanged
+
+
+# --- the ANNOUNCED-only status page: a → announced transition on a thesis-matched shell (#7, #3) ------
+
+
+class _CaptureNotifier:
+    """A complete Notifier double that records each surface separately. The radar leg calls only
+    notify_spac_status; implementing all three keeps this a faithful structural Protocol stand-in.
+    """
+
+    def __init__(self) -> None:
+        self.spac_status: list = []
+        self.transitions: list = []
+        self.health: list = []
+
+    def notify(self, event) -> None:  # pragma: no cover — the radar leg never calls this
+        self.transitions.append(event)
+
+    def notify_health(self, event) -> None:  # pragma: no cover — nor this
+        self.health.append(event)
+
+    def notify_spac_status(self, event) -> None:
+        self.spac_status.append(event)
+
+
+def _cache_for(tmp_path, *, index_rows, subs, forms):
+    """Build a minimal EDGAR fixture cache for one 2026-08-03 index: ``index_rows`` = list of
+    (cik, name, form, accession); ``subs`` = {cik10: submissions dict}; ``forms`` = {accession: text}.
+    Mirrors the ``cache`` fixture's on-disk shape for tests needing their own filing set."""
+    header = "CIK|Company Name|Form Type|Date Filed|Filename\n" + "-" * 80 + "\n"
+    body = "".join(
+        f"{cik}|{name}|{form}|2026-08-03|edgar/data/{cik}/{acc}.txt\n"
+        for cik, name, form, acc in index_rows
+    )
+    (tmp_path / "daily-index").mkdir()
+    (tmp_path / "daily-index" / "master.20260803.idx").write_text(header + body, encoding="utf-8")
+    sdir = tmp_path / "submissions"
+    sdir.mkdir()
+    for cik10, payload in subs.items():
+        (sdir / f"CIK{cik10}.json").write_text(json.dumps(payload), encoding="utf-8")
+    for acc, text in forms.items():
+        d = tmp_path / "forms" / acc
+        d.mkdir(parents=True)
+        (d / "full.txt").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def _state_events(db, cik10: str) -> list[StateEvent]:
+    """The CIK's full recorded event history, as the state walk reads it (for asserting deal_state)."""
+    return [
+        StateEvent(
+            filed=r["filed"],
+            form=r["form"],
+            items=tuple(r["items"]) if r["items"] else None,
+            accession=r["accession"],
+        )
+        for r in repo.events_for_ciks(db, [cik10])
+    ]
+
+
+def test_announced_transition_on_a_matched_company_pages_once(db, cache):
+    """The headline: a shell whose DA moved it searching → announced AND whose DA doc hit a thesis's
+    term set fires exactly ONE page (per matched thesis). A shell that ALSO went → announced but matched
+    nothing does NOT page — loudness marks the exception (#7)."""
+    _seed_master(
+        db, "0000001111", "KNWN", "Blank Checks"
+    )  # 8-K item 1.01 → announced, but no term hit
+    _seed_master(
+        db, "0000002222", "NEWS", None
+    )  # the 425 → announced AND its doc hits "psilocybin"
+    thesis = _seed_thesis(db)
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+    notifier = _CaptureNotifier()
+
+    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+
+    assert r.status_notifications == 1 and len(notifier.spac_status) == 1
+    evt = notifier.spac_status[0]
+    assert evt.cik == "0000002222" and evt.ticker == "NEWS"  # 1111 (unmatched) did NOT page
+    assert evt.thesis_id == thesis.id and evt.thesis_name == "Rainbow"
+    assert evt.signal_terms == ("psilocybin",) and evt.broad_terms == ()
+    assert evt.accession == "0002222222-26-000002"
+    assert "announced" in evt.label and "Rainbow" in evt.label
+
+
+def test_a_second_run_over_the_same_transition_is_silent(db, cache):
+    """Idempotency: the baseline is the PRIOR RECORDED state, not a fresh re-compare. A re-scan finds
+    the events already stored, so prior == announced == new → no transition → no page (COUNT the pages).
+    """
+    _seed_master(db, "0000001111", "KNWN", "Blank Checks")
+    _seed_master(db, "0000002222", "NEWS", None)
+    _seed_thesis(db)
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+
+    first = _CaptureNotifier()
+    run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=first)
+    assert len(first.spac_status) == 1  # the → announced transition paged once
+
+    second = _CaptureNotifier()
+    r2 = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=second)
+    assert second.spac_status == [] and r2.status_notifications == 0  # silent on the re-scan
+
+
+def test_an_unchanged_status_pages_nothing(db, tmp_path):
+    """A known shell files a DEF 14A (an extension proxy) — a WATCHED form, so it records an event, but
+    it is neither an announce form nor an 8-K, so the deal stays `searching`: no → announced, no page.
+    """
+    _seed_master(db, "0000006666", "EXTN", "Blank Checks")
+    _seed_thesis(db)
+    cache = _cache_for(
+        tmp_path,
+        index_rows=[("6666", "Extending Corp", "DEF 14A", "0006666666-26-000001")],
+        subs={"0000006666": _submissions("6666", "Blank Checks")},
+        forms={},  # DEF 14A is not a DA-match form — never fetched for matching
+    )
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+    notifier = _CaptureNotifier()
+
+    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+
+    assert r.events_appended == 1  # the proxy WAS recorded (a watched event) …
+    assert deal_state(_state_events(db, "0000006666")) == "searching"  # … but the deal did not move
+    assert notifier.spac_status == [] and r.status_notifications == 0
+
+
+def test_announced_on_a_non_matched_universe_pages_nothing(db, cache):
+    """→ announced on a shell whose DA matches NO thesis pages nothing (matched-only, #7). Both fixture
+    shells transition, but the only thesis's terms hit neither DA doc, so there is no page."""
+    _seed_master(db, "0000001111", "KNWN", "Blank Checks")
+    _seed_master(db, "0000002222", "NEWS", None)
+    t = Thesis(id=uuid.uuid4(), name="Elsewhere", narrative="x", tenant_id=DEFAULT_TENANT_ID)
+    thesis_repo.upsert(db, t)
+    thesis_repo.set_term_set(
+        db, t.id, [TermSetEntry(term="quantum computing", tier=TermTier.SIGNAL)]
+    )
+    db.commit()
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+    notifier = _CaptureNotifier()
+
+    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+
+    assert r.matches_appended == 0  # nothing matched the thesis …
+    assert notifier.spac_status == [] and r.status_notifications == 0  # … so nothing paged
+
+
+@pytest.mark.parametrize("item,expected", [("1.02", "terminated"), ("2.01", "completed")])
+def test_terminated_and_completed_do_NOT_page_announced_only(db, tmp_path, item, expected):
+    """ANNOUNCED-only: 5555 is ALREADY announced (a prior 425 in the log); this run's 8-K (item 1.02 /
+    2.01) moves the deal announced → terminated / completed — a REAL transition, asserted non-vacuously —
+    but it is NOT → announced, so nothing pages."""
+    sid = _seed_master(db, "0000005555", "TERM", "Blank Checks")
+    _seed_thesis(db)  # a live thesis exists to match against — yet the move still must not page
+    with (
+        db.cursor() as cur
+    ):  # seed the prior announce so this run's baseline deal-state is `announced`
+        cur.execute(
+            "INSERT INTO fact_spac_event (tenant_id, cik, security_id, company_name, form, items, "
+            "filed, accession, source_ref, valid_from) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                DEFAULT_TENANT_ID,
+                "0000005555",
+                sid,
+                "Terminating Corp",
+                "425",
+                None,
+                date(2026, 7, 1),
+                "0005555555-26-000001",
+                "http://x",
+                date(2026, 7, 1),
+            ),
+        )
+    db.commit()
+    cache = _cache_for(
+        tmp_path,
+        index_rows=[("5555", "Terminating Corp", "8-K", "0005555555-26-000009")],
+        subs={
+            "0000005555": _submissions(
+                "5555",
+                "Blank Checks",
+                accessions=["0005555555-26-000009"],
+                items=[item],
+                forms=["8-K"],
+            )
+        },
+        forms={"0005555555-26-000009": "<html>Business combination update.</html>"},
+    )
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+    notifier = _CaptureNotifier()
+
+    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+
+    assert deal_state(_state_events(db, "0000005555")) == expected  # the move really happened …
+    assert notifier.spac_status == [] and r.status_notifications == 0  # … just not one we page on
