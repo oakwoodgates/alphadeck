@@ -76,6 +76,29 @@ def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | Non
     return thesis
 
 
+def basket_size_asof(
+    conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None, *, live_fallback: int
+) -> int:
+    """The roster COUNT as it was known at ``known_at`` — the COUNT-ONLY point-in-time read for the
+    Scoreboard (F12). Reads ``jsonb_array_length`` of the latest snapshot with ``taken_at <= known_at``
+    (the SAME no-lookahead predicate as ``get_asof``, #1) — it never hydrates the thesis. ``get_asof`` (a
+    FULL load: basket + evidence + catalysts + kills + exclusions) is for the assembly funnel that needs
+    the whole thesis; the Scoreboard loops every thesis and needs only the number, so a second full ``get``
+    per thesis would double the per-thesis DB load for a count. ``live_fallback`` is returned when no
+    qualifying snapshot exists (pre-F12, or a ``known_at`` before the first snapshot) — the caller passes
+    ``len(thesis.basket)``, the live roster it already holds. ``known_at`` None -> now. Read-only; the
+    caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT jsonb_array_length(members) AS n FROM basket_snapshot "
+            "WHERE thesis_id = %s AND taken_at <= COALESCE(%s, now()) "
+            "ORDER BY taken_at DESC, id DESC LIMIT 1",
+            (thesis_id, known_at),
+        )
+        row = cur.fetchone()
+    return row["n"] if row is not None else live_fallback
+
+
 def _member_to_snapshot(ordinal: int, m: BasketMember) -> dict[str, Any]:
     """One basket member as a JSON-native snapshot object — the SAME key set and value types the deploy
     seed (migration 0043) builds from the ``basket_member`` columns, so ``md5(members::text)`` agrees

@@ -189,8 +189,9 @@ def derive_thesis_record(
     - ``censored_start``: armed already on the thesis's FIRST recorded card — the record began
       mid-arm, the true arm date is unknowable; marked, never reconstructed (no backfill).
     - ``basket_size``: the roster count AS OF ``known_at`` (F12) — the caller resolves it once per
-      thesis via ``thesis_repo.get_asof`` and threads it here; None falls back to the LIVE ``thesis``
-      count (the direct-call default, e.g. unit tests). The live roster would misreport a past-as-of.
+      thesis via ``thesis_repo.basket_size_asof`` (a count-only PIT read) and threads it here; None
+      falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
+      roster would misreport a past-as-of.
     """
     snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof)
     record = ThesisRecord(
@@ -318,15 +319,12 @@ def scoreboard_records(
                 conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at
             )
         # F12 — the roster count AS OF known_at (basket_member is full-replace, so the live count would
-        # misreport a past-as-of Scoreboard). get_asof falls back to the live roster pre-snapshot / at
-        # now; its own read must never blank a row, so guard it and fall back to the live count.
-        try:
-            asof_thesis = thesis_repo.get_asof(conn, thesis.id, known_at)
-            pit_basket_size = (
-                len(asof_thesis.basket) if asof_thesis is not None else len(thesis.basket)
-            )
-        except Exception:  # noqa: BLE001 — a roster PIT read never blanks the Scoreboard row
-            pit_basket_size = len(thesis.basket)
+        # misreport a past-as-of Scoreboard). A COUNT-ONLY snapshot read — NOT get_asof, which would
+        # re-run the full per-thesis load (basket + children) just for a number, doubling the Scoreboard's
+        # DB cost. live_fallback = the live count already in hand, covering the no-snapshot / pre-F12 case.
+        pit_basket_size = thesis_repo.basket_size_asof(
+            conn, thesis.id, known_at, live_fallback=len(thesis.basket)
+        )
         try:
             record, snaps = derive_thesis_record(
                 conn,

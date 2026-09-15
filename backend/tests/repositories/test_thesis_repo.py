@@ -589,6 +589,29 @@ def test_get_asof_no_lookahead_never_reads_a_snapshot_after_known_at(db, securit
     assert len(thesis_repo.get_asof(db, tid, at_b).basket) == 2  # <= known_at is inclusive
 
 
+def test_basket_size_asof_count_only_pit_read(db, security_id):
+    """The COUNT-ONLY PIT read the Scoreboard uses (no full thesis hydration): the roster count as of
+    known_at from the latest snapshot <= known_at (same no-lookahead selection as get_asof), else the
+    live_fallback. The distinctive live_fallback (99) proves the real historical count is returned, not
+    the fallback."""
+    tid, _sid2 = _two_pinned_rosters(db, security_id)  # A (1) @ 06-01, B (2) @ 06-10
+
+    between = datetime(2026, 6, 5, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, between, live_fallback=99) == 1  # the OLDER count
+    after = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, after, live_fallback=99) == 2  # the newer count
+
+    # a known_at before any snapshot -> the live_fallback (no lookahead into the future roster)
+    early = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    assert thesis_repo.basket_size_asof(db, tid, early, live_fallback=7) == 7
+
+    # no snapshot at all -> the live_fallback (pre-F12 thesis)
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (tid,))
+    db.commit()
+    assert thesis_repo.basket_size_asof(db, tid, None, live_fallback=5) == 5
+
+
 def test_get_asof_with_no_snapshot_falls_back_to_the_live_roster(db, security_id):
     """PRE-SNAPSHOT FALLBACK: a thesis with no qualifying snapshot (promoted before F12, or a known_at
     entirely before its first snapshot) recomputes on the LIVE roster — the honest best available, never
