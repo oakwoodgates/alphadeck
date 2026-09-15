@@ -88,11 +88,13 @@ def build_run_payload(
     `tape_evaluated` / `tape_stale_new` / the two threshold keys + the per-thesis `tape_stale` list
     (G5a price tapes · F1 fund shares) record the FEED-RECENCY monitor. Four jobs, which is why they all
     live on the artifact:
-    - the per-thesis `tape_stale` rows (`security_id`, `ticker`, `edge`, `kind`) are the DURABLE inventory
-      the Admin freshness panel renders and the next run's diff reads (`previous_stale_tapes`, below) —
-      keyed on `kind` + `security_id`, never the ticker, because a ticker-less name must still be able to
-      page, a ticker changing under a name is half of why the monitor exists, and one name can be stale on
-      both feeds at once with a different repair for each;
+    - the per-thesis `tape_stale` rows (`security_id`, `ticker`, `edge`, `kind`, `closed_at`) are the
+      DURABLE inventory the Admin freshness panel renders and the next run's diff reads
+      (`previous_stale_tapes`, below) — keyed on `kind` + `security_id`, never the ticker, because a
+      ticker-less name must still be able to page, a ticker changing under a name is half of why the monitor
+      exists, and one name can be stale on both feeds at once with a different repair for each. `closed_at`
+      (G5b) is the delisting-form date when the stopped tape is a name that CLOSED (delisted / acquired /
+      deregistered), so the panel renders it quietly and the newly-stale page skips it (#7/WB#3);
     - `tape_stale_new` is that diff's OUTPUT for the night ({kind, label} entries — the label being the
       ticker, or the id when ticker-less), so the admin history re-derives the same per-feed page this run
       emitted;
@@ -166,12 +168,17 @@ def build_run_payload(
                 # next run's diff keys on. `edge` is the latest stored date for that feed (null = none at
                 # all); `kind` says WHICH feed stopped, because the two are repaired differently. A row
                 # without `kind` is a pre-F1 artifact's row and reads as `price` (`feed_kind`).
+                # G5b — `closed_at` is the delisting-form filing date when this stopped tape belongs to a
+                # name that CLOSED (delisted / acquired / deregistered), else null (a feed gap to repair).
+                # The panel reads it to render the row quietly as "closed" instead of loud "stale — repair"
+                # (`_tape_out`); a pre-G5b artifact's row lacks the key and reads null (`.get`, never a raise).
                 "tape_stale": [
                     {
                         "security_id": str(s.security_id),
                         "ticker": s.ticker,
                         "edge": s.edge.isoformat() if s.edge else None,
                         "kind": s.kind,
+                        "closed_at": s.closed_at.isoformat() if s.closed_at else None,
                     }
                     for s in r.tape_stale
                 ],

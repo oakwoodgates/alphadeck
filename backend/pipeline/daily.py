@@ -91,7 +91,9 @@ class ThesisRunResult:
     # asof): price tapes and ETF fund-shares samples together, each row carrying its `kind`. A MONITOR
     # field: it rides on the run result and the run-of-record artifact and NEVER on the CallCard —
     # a day-varying card field would flap record_if_changed's substance compare and break the cron's
-    # idempotency. Empty on a --no-live pass (not evaluated) and on a healthy universe.
+    # idempotency. Empty on a --no-live pass (not evaluated) and on a healthy universe. G5b — a price row
+    # whose name has a SEC delisting form carries `closed_at`: it stays in this inventory (never dropped,
+    # #9) but renders quietly as "closed" and is skipped from the loud newly-stale page (#7/WB#3).
     tape_stale: tuple[StaleTape, ...] = ()
 
 
@@ -529,7 +531,15 @@ def run_daily_pass(
         # stale on its price tape and later on its fund-shares sample, and the second is news the operator
         # has not been told, with a different repair. Keyed on the id (never the ticker) because a
         # ticker-less name must still be able to page and a ticker can change under a name.
-        current = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
+        #
+        # G5b — CLOSED tapes are EXCLUDED from the diff, so a name that stopped trading (delisted / acquired
+        # / deregistered) NEVER pages as newly-stale: it is not a feed gap to repair and paging "set the
+        # vendor price symbol" for it would be wrong (#7/WB#3 — a page true of an expected event is noise).
+        # It stays in each thesis's `tape_stale` (so the panel renders it quietly as "closed" and #9 holds
+        # — never dropped from the monitor); only the loud NEWLY-STALE page skips it.
+        current = {
+            f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale if not s.closed
+        }
         prior = previous_stale_tapes()
         new_keys = sorted(current) if prior is None else sorted(set(current) - prior)
         tape_stale_new = tuple(
@@ -680,14 +690,25 @@ def _report(results: list[ThesisRunResult]) -> int:
     # two are not the same problem and a merged list would give half the rows the wrong instruction. stdout
     # is the first place an operator looks at a cron run; the durable copies are the run-log artifact and
     # the Admin freshness panel.
+    #
+    # G5b — CLOSED tapes (a name that delisted / was acquired / deregistered) are split OUT of the loud
+    # STALE-repair blocks and printed in their own QUIET block: they need no repair, so listing them under
+    # "set the vendor price symbol" would give the wrong instruction, and shouting an expected event is
+    # noise (#7). Quiet by casing: the STALE headers are UPPERCASE (loud), the closed header is lowercase.
     stale = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
     for kind in FEED_KINDS.values():
-        rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key]
+        rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key and not s.closed]
         if not rows:
             continue
         print(f"STALE {kind.noun.upper()}S ({kind.advice}):")
         for s in rows:
             print(f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}")
+    closed = [s for s in stale.values() if s.closed]
+    if closed:
+        print("closed tapes (stopped trading — delisted/acquired/deregistered, no repair needed):")
+        for s in closed:
+            edge = s.edge.isoformat() if s.edge else "never"
+            print(f"  {s.label}: last bar {edge} · delisting filed {s.closed_at.isoformat()}")
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "

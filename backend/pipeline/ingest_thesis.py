@@ -48,6 +48,7 @@ from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
+    delisting_date,
     fetch_submissions,
     form4_doc_url,
     form4_filings,
@@ -116,6 +117,14 @@ class NameResult:
     # samples has a sampler that has never worked and must be. Nor derivable from the leg's result — an
     # unsamplable fund RAISES, and that is precisely the name to report.
     fund_shares_tracked: bool = False
+    # THE DELISTING DATE (G5b) — the classification fact that tells a STOPPED price tape apart from a feed
+    # gap: the filing date of this name's most recent SEC delisting form (25 / 25-NSE / 15-12B / 15-12G,
+    # `submissions.delisting_date`), or None when it has filed none. A stopped tape WITH one is a name that
+    # legitimately CLOSED (delisted / acquired / deregistered) — its tape correctly ended, so the monitor
+    # marks it "closed", not "stale — repair" (`pipeline/tape_health.py`). A FACT, not a judgment (the
+    # judgment — is the tape stale AND is this a close? — is `pipeline.daily`'s, against the run's asof).
+    # Read from the SAME cached submissions the Form 4 leg fetched, so it costs zero extra network.
+    delisted_at: date | None = None
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -336,6 +345,22 @@ def ingest_thesis(
             tape_edge = latest_bar_date(conn, sec.id, tenant_id=thesis.tenant_id)
         except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
             print(f"  warn: {sec.ticker or sec.id} tape-edge read failed: {e}")
+        # THE DELISTING DATE (G5b) — read the name's most recent SEC delisting form (25/25-NSE/15-12B/
+        # 15-12G) from its submissions so a STOPPED tape can be told apart from a feed gap. FREE on a daily
+        # pass: the Form 4 leg above already fetched + cached this CIK's submissions, so this is a cache-hit
+        # disk read + a list comprehension, exactly like the 8-K / 13D legs (a cache hit never touches the
+        # network or the freeze counter). Gated on `sec.cik` — a name with no CIK has no submissions and so
+        # no delisting form (the Form 4 leg's own guard). Its OWN try, degrade to None: this is a monitor
+        # read feeding a classification, so a fault must never cost a name its result, and None is the SAFE
+        # default — a name without positive delisting evidence stays the loud "stale — repair", never the
+        # quiet "closed" (erring toward visible, #7/#9). NOT judged here — `pipeline.daily` decides whether a
+        # stale tape with this date is a close, so this unit still needs no `asof`.
+        delisted_at: date | None = None
+        if sec.cik:
+            try:
+                delisted_at = delisting_date(fetch_submissions(client, sec.cik))
+            except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
+                print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
         fs_appended, fs_reversioned = 0, 0
         try:
             shares = ingest_fund_shares_for_security(
@@ -387,6 +412,7 @@ def ingest_thesis(
                 tape_edge=tape_edge,
                 fund_shares_edge=fund_shares_edge,
                 fund_shares_tracked=fund_shares_tracked,
+                delisted_at=delisted_at,
             )
         )
     return results

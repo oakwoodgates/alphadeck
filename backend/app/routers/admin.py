@@ -214,7 +214,8 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
     history). Rows are deduped by ``kind`` + ``security_id`` across theses — a name held by two theses is
     ONE dead feed, while a name stale on BOTH feeds is two rows with two repairs — and the first thesis
     that saw it names it. A row without a ``kind`` (a pre-F1 artifact) reads as a price row. A ticker-less
-    row is kept and rendered by id (#9).
+    row is kept and rendered by id (#9). A row with ``closed_at`` set (G5b) is a CLOSED name (delisted /
+    acquired / deregistered) — it stays in the list (never dropped, #9) and the FE renders it quietly.
     Fail-open per artifact, mirroring the run-history read: a malformed row is skipped, never an exception.
 
     Both THRESHOLDS come off the artifact (F6) — see ``_threshold`` for why a stored 0 must survive.
@@ -239,6 +240,12 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
                         edge=date.fromisoformat(s["edge"]) if s.get("edge") else None,
                         thesis=str(t.get("name") or ""),
                         kind=kind,
+                        # G5b — the delisting classification: a date here reclassifies the row from "stale
+                        # — repair" to "closed — stopped trading <date>" (a pre-G5b artifact lacks the key
+                        # and reads None — a plain stale-repair row, the correct reading).
+                        closed_at=(
+                            date.fromisoformat(s["closed_at"]) if s.get("closed_at") else None
+                        ),
                     )
                 except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                     continue
@@ -298,7 +305,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     ``tape`` is the FEED freshness panel (G5a price tapes · F1 ETF fund shares): every basket
     name whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from
     the newest run artifact that evaluated recency — ``null`` until a pass has looked. A stale feed is a
-    FEED gap, not a cron fault, so it never changes ``cron.status``.
+    FEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)
+    is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form — so its tape
+    correctly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as
+    "closed" and never pages.
     """
     run_at = _run_at()
     now = _now()

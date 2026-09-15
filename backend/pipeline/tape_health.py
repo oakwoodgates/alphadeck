@@ -57,6 +57,20 @@ source question (does it still trade under that ticker, did a source page change
 the symbol resolver to renames automatically is a separate, unbuilt decision: a wrong auto-resolve would
 file ANOTHER company's tape under this member, which is worse than a visible gap (#4/#6). See
 ``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
+
+DELISTED vs FEED-GAP (G5b — the "closed" classification). Not every stopped price tape is a feed gap to
+repair: a name that DELISTED / was acquired / deregistered legitimately stopped trading, and its tape
+correctly ends. Nagging the operator to "set the vendor price symbol" for such a name is wrong — there is
+nothing to repair. The DETERMINISTIC tell (#3, never an LLM, never the master's ``status`` heuristic) is a
+SEC delisting form — Form 25 / 25-NSE (removal from listing) or 15-12B / 15-12G (deregistration) — read
+from the name's submissions (``ingest.edgar.submissions.delisting_date``) and carried as
+``NameResult.delisted_at``. A stale tape WITH one is classified CLOSED (``StaleTape.closed_at`` set to the
+delisting form's filing date, #1 valid-time); WITHOUT one it stays a plain stale-repair row, exactly as
+before. A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
+RECLASSIFIES the stopped tape, and it is EXPECTED so it renders quietly and does not page as newly-stale
+(#7/WB#3). This is a DERIVE-ON-READ classification (nothing persisted, reversible by construction): every
+pass re-reads the cached submissions, so if a detection is ever wrong the fix is code, never a stored row
+to clear.
 """
 
 from __future__ import annotations
@@ -94,12 +108,22 @@ class StaleTape:
     ``(kind, security_id)``: one name can be stale on both at once and each is its own repair.
 
     ``kind`` defaults to ``price`` because that is what it means everywhere it is absent — the rows written
-    before this field existed are price rows (see ``feed_kind``'s fail-soft note)."""
+    before this field existed are price rows (see ``feed_kind``'s fail-soft note).
+
+    ``closed_at`` (G5b) is the DELISTING classification: the filing date of the name's SEC delisting form
+    (25 / 25-NSE / 15-12B / 15-12G) when this stopped tape belongs to a name that CLOSED — delisted,
+    acquired, deregistered — else ``None``. ``None`` = a feed gap to REPAIR (a rename the vendor priced
+    under a new symbol; the fix is ``security_master.price_symbol``); a date = the tape correctly ENDED
+    and the name stopped trading around then. A closed tape is EXPECTED, so it renders quietly and does NOT
+    page as newly-stale (#7/WB#3), but it is NEVER dropped from the inventory or the monitor (#9) — the
+    marker only RECLASSIFIES the row. Only ever set on a PRICE row (delisting is a listing event); the
+    fund-shares feed never carries it."""
 
     ticker: str | None
     security_id: UUID
     edge: date | None
     kind: str = PRICE.key
+    closed_at: date | None = None
 
     @property
     def label(self) -> str:
@@ -109,6 +133,13 @@ class StaleTape:
     def feed(self) -> FeedKind:
         """The vocabulary entry for this row's kind (noun + repair advice), fail-soft to price."""
         return feed_kind(self.kind)
+
+    @property
+    def closed(self) -> bool:
+        """Did this stopped tape stop because the name CLOSED (a delisting form on file), rather than a
+        feed gap to repair? A closed tape renders quietly and never pages as newly-stale (#7/WB#3); a
+        non-closed one stays the loud "stale — repair" row."""
+        return self.closed_at is not None
 
 
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
@@ -129,15 +160,21 @@ def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
 
 
 def _stale(
-    rows: Iterable[tuple[UUID, str | None, date | None]],
+    rows: Iterable[tuple[UUID, str | None, date | None, date | None]],
     *,
     kind: FeedKind,
     asof: date,
     stale_days: int,
 ) -> tuple[StaleTape, ...]:
-    """The shared judgment + dedup, over ``(security_id, ticker, edge)`` triples. ONE implementation for
-    every feed kind — the per-kind public functions below are just the field adapters, so a second feed
-    can never acquire a second definition of "stale" or a second dedup rule.
+    """The shared judgment + dedup, over ``(security_id, ticker, edge, closed_at)`` tuples. ONE
+    implementation for every feed kind — the per-kind public functions below are just the field adapters,
+    so a second feed can never acquire a second definition of "stale" or a second dedup rule.
+
+    ``closed_at`` (G5b) is the delisting classification for a PRICE row (the price adapter passes the name's
+    delisting-form date; the fund-shares adapter always passes ``None`` — delisting is a listing event). It
+    rides onto the emitted ``StaleTape`` so a stopped tape can render "closed — stopped trading <date>"
+    instead of the loud "stale — repair". It is only ever meaningful on an emitted (stale) row: a name with
+    a delisting form but a still-FRESH tape is not emitted at all (nothing to mark until the tape stops).
 
     The dedup is load-bearing, not tidiness: a name the draft placed in N value-chain links is N
     ``basket_member`` rows with the SAME ``security_id``, so ``ingest_thesis`` returns N ``NameResult``s for
@@ -148,12 +185,20 @@ def _stale(
     FIRST-SEEN order preserved."""
     out: list[StaleTape] = []
     seen: set[UUID] = set()
-    for security_id, ticker, edge in rows:
+    for security_id, ticker, edge, closed_at in rows:
         if security_id in seen:
             continue
         seen.add(security_id)
         if is_tape_stale(edge, asof=asof, stale_days=stale_days):
-            out.append(StaleTape(ticker=ticker, security_id=security_id, edge=edge, kind=kind.key))
+            out.append(
+                StaleTape(
+                    ticker=ticker,
+                    security_id=security_id,
+                    edge=edge,
+                    kind=kind.key,
+                    closed_at=closed_at,
+                )
+            )
     return tuple(out)
 
 
@@ -165,9 +210,14 @@ def stale_tapes(
     Every resolved member is judged: a price tape is expected for all of them. A name whose price leg
     ERRORED is still judged — the edge read is independent of the leg's outcome, so a name that is both
     failing and dead shows up as both (the error on its own result, the stale tape here), never silently
-    one or the other."""
+    one or the other.
+
+    ``r.delisted_at`` (G5b) rides onto each row as ``closed_at``: a stopped tape whose name has a SEC
+    delisting form on file is a name that CLOSED, so it renders "closed — stopped trading <date>" and does
+    not page, rather than the loud "stale — repair". A ``None`` delisting date (the healthy common case)
+    keeps the row a plain stale-repair one."""
     return _stale(
-        ((r.security_id, r.ticker, r.tape_edge) for r in results),
+        ((r.security_id, r.ticker, r.tape_edge, r.delisted_at) for r in results),
         kind=PRICE,
         asof=asof,
         stale_days=stale_days,
@@ -188,9 +238,17 @@ def stale_fund_shares(
 
     Its own threshold (``Settings.fund_shares_stale_days``), because the feeds have different cadences:
     a price tape gets a bar every session, while a sleeve's sample carries the source page's own stated
-    as-of date, which measurably lags the pull by up to two days on the fallback leg."""
+    as-of date, which measurably lags the pull by up to two days on the fallback leg.
+
+    ``closed_at`` is always ``None`` here (the fourth tuple element): delisting is a LISTING event and the
+    "closed" classification is a price-tape concept, so a stopped fund-shares sample is never marked closed
+    by this mechanism — it stays a stale-repair row (its own repair: a fund/ticker/source check)."""
     return _stale(
-        ((r.security_id, r.ticker, r.fund_shares_edge) for r in results if r.fund_shares_tracked),
+        (
+            (r.security_id, r.ticker, r.fund_shares_edge, None)
+            for r in results
+            if r.fund_shares_tracked
+        ),
         kind=FUND_SHARES,
         asof=asof,
         stale_days=stale_days,

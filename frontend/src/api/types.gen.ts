@@ -1004,7 +1004,10 @@ export interface paths {
          *     ``tape`` is the FEED freshness panel (G5a price tapes · F1 ETF fund shares): every basket
          *     name whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from
          *     the newest run artifact that evaluated recency — ``null`` until a pass has looked. A stale feed is a
-         *     FEED gap, not a cron fault, so it never changes ``cron.status``.
+         *     FEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)
+         *     is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form — so its tape
+         *     correctly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as
+         *     "closed" and never pages.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1475,6 +1478,14 @@ export interface components {
          *     symbol on the master for a tape, a fund/ticker/source check for a sleeve. A row from an artifact
          *     written before fund shares were monitored reads ``price``. ``ticker`` may be ``null``; the row still
          *     renders by ``security_id`` and is never dropped (#9).
+         *
+         *     ``closed_at`` (G5b) distinguishes a delisting from a feed gap: when set (a ``price`` row only), it is
+         *     the filing date of the name's SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) and the name has
+         *     legitimately stopped trading — delisted, acquired, or deregistered — so its tape correctly ENDED and
+         *     needs no repair. The panel renders such a row QUIETLY as "closed — stopped trading <date>", distinct
+         *     from the loud "stale — repair" rows, and it never pages as newly-stale (#7/WB#3). ``null`` (the common
+         *     case, and every ``fund_shares`` row) means a feed gap the operator repairs. The name is never dropped
+         *     from the monitor (#9) — the marker only reclassifies its stopped tape.
          */
         AdminStaleTapeOut: {
             /**
@@ -1493,6 +1504,8 @@ export interface components {
              * @default price
              */
             kind: string;
+            /** Closed At */
+            closed_at?: string | null;
         };
         /**
          * AdminStatusOut
@@ -1524,8 +1537,11 @@ export interface components {
          *
          *     ``stale`` is the full current inventory, one row per feed per security (a name placed in several
          *     value-chain links appears once; a name stale on both feeds appears once per feed, since the repairs
-         *     differ — each row's ``kind`` says which). ``newly_stale`` are the display labels that PAGED that night
-         *     — the diff against the previous evaluated pass, so a known-dead feed does not re-page forever.
+         *     differ — each row's ``kind`` says which). A row with ``closed_at`` set is a name that CLOSED (delisted /
+         *     acquired / deregistered), G5b — it stays in this inventory (never dropped, #9) but renders quietly and
+         *     is absent from ``newly_stale``. ``newly_stale`` are the display labels that PAGED that night — the diff
+         *     against the previous evaluated pass, so a known-dead feed does not re-page forever, and a closed tape
+         *     (an expected event, not a feed gap) is never in it (#7/WB#3).
          */
         AdminTapeOut: {
             /**

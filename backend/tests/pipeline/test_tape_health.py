@@ -234,3 +234,60 @@ def test_a_stale_tape_defaults_to_the_PRICE_kind():
     """The default is what makes every row written before fund shares existed read correctly — they are
     price rows."""
     assert StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None).kind == "price"
+
+
+# --- G5b: the DELISTING classification — a stale tape WITH a delisting form reads CLOSED --------------
+
+
+def test_a_stale_tape_WITH_a_delisting_date_reads_CLOSED():
+    """A stopped tape whose name has a SEC delisting form (carried on NameResult.delisted_at) is a name that
+    CLOSED — delisted / acquired / deregistered — not a feed gap to repair. The row carries closed_at (the
+    form's filing date) and reads `closed`, so the panel can render it quietly and the page can skip it.
+    """
+    dead = _name(ticker="GONE", tape_edge=date(2026, 4, 1), delisted_at=date(2026, 4, 3))
+    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
+    assert len(out) == 1
+    assert out[0].closed is True and out[0].closed_at == date(2026, 4, 3)
+
+
+def test_a_stale_tape_WITHOUT_a_delisting_date_stays_a_REPAIR_row():
+    """The healthy common case: a stopped tape with no delisting form is a feed gap to repair — closed_at
+    None, `closed` False — so it keeps the loud 'stale — repair' treatment."""
+    dead = _name(ticker="DEAD", tape_edge=date(2026, 4, 1))  # delisted_at defaults None
+    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
+    assert len(out) == 1 and out[0].closed is False and out[0].closed_at is None
+
+
+def test_a_CLOSED_name_is_never_dropped_from_the_inventory():
+    """#9 — recall is sacred: the marker only RECLASSIFIES, it never removes the name from the monitor. A
+    stale+closed name is still emitted, with its real edge, exactly like any other stale row."""
+    dead = _name(ticker="GONE", tape_edge=date(2026, 4, 1), delisted_at=date(2026, 4, 3))
+    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
+    assert [s.ticker for s in out] == ["GONE"] and out[0].edge == date(2026, 4, 1)
+
+
+def test_a_FRESH_tape_with_a_delisting_date_is_NOT_emitted():
+    """A name with a delisting form but a still-fresh tape is not reported at all — there is nothing to mark
+    until the tape actually stops, so an active name is never nagged."""
+    fresh = _name(ticker="STILLON", tape_edge=_ASOF, delisted_at=date(2026, 4, 3))
+    assert stale_tapes([fresh], asof=_ASOF, stale_days=5) == ()
+
+
+def test_the_FUND_SHARES_feed_is_never_classified_closed():
+    """Delisting is a LISTING (price) event: a stopped fund-shares sample is never marked closed by this
+    mechanism even if the sleeve's issuer filed a delisting form, so its own repair advice is never
+    suppressed. closed_at stays None on every fund-shares row."""
+    sleeve = _name(
+        ticker="ETF",
+        fund_shares_tracked=True,
+        fund_shares_edge=date(2026, 4, 1),
+        delisted_at=date(2026, 4, 3),
+    )
+    out = stale_fund_shares([sleeve], asof=_ASOF, stale_days=7)
+    assert len(out) == 1 and out[0].closed is False and out[0].closed_at is None
+
+
+def test_a_StaleTape_defaults_to_NOT_closed():
+    """A row built without closed_at (every pre-G5b row, and every fund-shares row) is a plain
+    stale-repair tape."""
+    assert StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None).closed is False

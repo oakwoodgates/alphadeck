@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from domain.security import SecurityIdentity
@@ -139,6 +139,46 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     (``accepted`` = the raw SEC ``acceptanceDateTime`` — the Form 4 leg threads it into the fact's
     ``accepted`` column, the honest disclosure clock)."""
     return filings_of(submissions, "4")
+
+
+# The SEC DELISTING forms — the deterministic "this name stopped trading" tell (#3, never an LLM, never a
+# guess). Form 25 / 25-NSE = notification of REMOVAL FROM LISTING (the exchange or issuer files it around
+# the delisting); Form 15-12B (exchange-listed) / 15-12G (OTC/other) = DEREGISTRATION / suspension of the
+# reporting duty, filed after. A name that files any of these has legitimately left the market: its price
+# tape correctly ENDS, and the tape monitor must read it "closed — stopped trading", never "stale — repair"
+# (a feed gap the operator fixes with security_master.price_symbol). MEASURED in the 2026-09-11 stale-tape
+# triage: one of these landed within days of every one of the six real tape ends.
+DELISTING_FORMS = frozenset({"25-NSE", "25", "15-12B", "15-12G"})
+
+
+def delisting_date(submissions: dict[str, Any]) -> date | None:
+    """The most recent SEC DELISTING-form filing date in a submissions JSON, or ``None`` when the company
+    has filed none.
+
+    Deterministic (#3): the classification comes from the SEC form itself (``DELISTING_FORMS``), never a
+    model's reading, the master's ``status`` heuristic, or a guess. The date is the form's FILING date —
+    valid-time straight from EDGAR (#1 no-lookahead), the honest "removed from listing / deregistered
+    around here" marker. A stopped price tape WITH one of these is a name that CLOSED (delisted / acquired
+    / deregistered); WITHOUT one it is a feed gap to repair.
+
+    Reads the SAME ``filings.recent`` arrays every other leg walks (``filings_of``), so during a daily pass
+    it costs ZERO extra fetches — the submissions doc is already cached by the Form 4 leg. MOST RECENT
+    (max filed) on purpose: a name that de/re/de-listed carries several, and the latest is the current
+    closure. ISO date strings compare lexicographically = chronologically, so ``max`` is the newest.
+    Tolerates a sparse/old doc (missing keys, a malformed date) — returns ``None``, never raises.
+    """
+    filed = [
+        f["filed"]
+        for form in DELISTING_FORMS
+        for f in filings_of(submissions, form)
+        if f.get("filed")
+    ]
+    if not filed:
+        return None
+    try:
+        return date.fromisoformat(max(filed))
+    except ValueError:  # a malformed filing date -> abstain (never a guess, never a crash)
+        return None
 
 
 def acceptance_times(submissions: dict[str, Any]) -> dict[str, str]:

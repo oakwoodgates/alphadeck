@@ -53,14 +53,20 @@ class _MixedClient(_FakeClient):
         return _XML
 
 
-def _subs(accessions, form8ks=()):
+def _subs(accessions, form8ks=(), delistings=()):
     """A submissions JSON exposing one Form 4 per accession — plus, optionally, 8-K rows as
-    (accession, filed, items_raw) triples — all in the parallel `recent` arrays (the `items` entry
-    is "" on non-8-K rows, as EDGAR serves it)."""
+    (accession, filed, items_raw) triples and DELISTING rows as (form, filed) pairs (G5b: Form
+    25/25-NSE/15-12B/15-12G) — all in the parallel `recent` arrays (the `items` entry is "" on
+    non-8-K rows, as EDGAR serves it)."""
     accns = list(accessions)
-    rows = [("4", a, f"xslF345X05/{a}.xml", "2026-05-01", "") for a in accns] + [
-        ("8-K", a, f"{a}.htm", filed, items) for a, filed, items in form8ks
-    ]
+    rows = (
+        [("4", a, f"xslF345X05/{a}.xml", "2026-05-01", "") for a in accns]
+        + [("8-K", a, f"{a}.htm", filed, items) for a, filed, items in form8ks]
+        + [
+            (form, f"DL-{i}", "primary_doc.htm", filed, "")
+            for i, (form, filed) in enumerate(delistings)
+        ]
+    )
     return {
         "filings": {
             "recent": {
@@ -658,6 +664,41 @@ def test_a_FAILED_price_leg_still_reports_the_stored_edge(db, security_id, monke
 
     assert results[0].error is not None and "price" in results[0].error  # the leg DID fail…
     assert results[0].tape_edge == date(2026, 6, 15)  # …and the stored edge is still reported
+
+
+# --- G5b: the DELISTING date — the fact that tells a CLOSED name from a feed gap ----------------------
+
+
+def test_name_result_carries_the_DELISTING_date_from_submissions(db, security_id, monkeypatch):
+    """G5b — ingest_thesis reads the name's most recent SEC delisting form (25/25-NSE/15-12B/15-12G) from
+    its submissions and reports it as delisted_at, the fact the monitor uses to tell a CLOSED name (delisted
+    / acquired / deregistered) from a feed gap. Read from the SAME submissions the Form 4 leg fetched, so
+    it costs zero extra network."""
+    monkeypatch.setattr(IT, "EdgarClient", _FakeClient)
+    monkeypatch.setattr(
+        IT,
+        "fetch_submissions",
+        lambda client, cik: _subs(("ACC-1",), delistings=[("25-NSE", "2026-06-20")]),
+    )
+    monkeypatch.setattr(
+        IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars([date(2026, 6, 15)]))
+    )
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].delisted_at == date(2026, 6, 20)
+
+
+def test_name_result_delisted_at_is_NONE_for_a_live_name(db, security_id, monkeypatch):
+    """A listed name with no delisting form → delisted_at None, so its stopped tape (if any) stays a feed
+    gap to repair rather than being mis-marked closed."""
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert results[0].delisted_at is None
 
 
 # --- F1: the FUND-SHARES edge, the twin of the tape edge ---------------------------------------------
