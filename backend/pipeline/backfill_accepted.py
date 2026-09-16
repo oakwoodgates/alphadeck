@@ -121,7 +121,10 @@ class BackfillResult:
         0  # distinct accessions found in submissions with a parseable acceptance
     )
     accessions_unresolved: int = (
-        0  # distinct accessions NOT in the recent window (deferred --deep) -> NULL
+        # distinct accessions the enumeration could not resolve -> left NULL and VISIBLE (#9). With
+        # --deep that means the accession is in neither `filings.recent` NOR any paginated older page
+        # (or its page was unreadable); a shallow run adds "older than the recent window" to that list.
+        0
     )
     rows_corrected: int = 0  # rows NULL -> accepted set
     rows_residual_null: int = (
@@ -211,10 +214,20 @@ def _target_scopes(
     latest-version NULL ``accepted`` and 96 are basket members, so this is the cost thread applied to the
     deep walk — the expensive pagination is spent on the names the operator's surfaces actually show.
     NARROWING ONLY: an excluded security's rows are untouched and stay NULL and visible, never dropped (#9).
+
+    THE MEMBERSHIP TEST IS THE (tenant, security) PAIR, not the security alone (invariant #5). A bare
+    ``security_id IN (...)`` would let a basket member in tenant A pull that security's tenant-B rows into
+    the worklist — ``security_master.id`` carries no tenant, so nothing at the database layer would stop
+    it, and the isolation test is the only backstop there is. Today the fork/dev tenants hold the same
+    security ids as prod, so this is a live path to a cross-tenant read, not a theoretical one. Proven by
+    ``tests/db/test_tenant_isolation.py``.
     """
     where = ""
     if basket_only:
-        where = "WHERE security_id IN (SELECT security_id FROM basket_member WHERE security_id IS NOT NULL)"
+        where = (
+            "WHERE (tenant_id, security_id) IN "
+            "(SELECT tenant_id, security_id FROM basket_member WHERE security_id IS NOT NULL)"
+        )
     q = (
         "SELECT DISTINCT tenant_id, security_id FROM (" + _LATEST.format(where=where) + ") latest "
         "WHERE accepted IS NULL ORDER BY tenant_id, security_id"
@@ -355,7 +368,9 @@ def run_backfill(
             )
         for row in rows:
             dt = amap.get(row["accession"])
-            if dt is None:  # accession out of the recent window (deferred --deep) — stays NULL (#9)
+            # unresolved by THIS run's enumeration: out of `filings.recent` and (on --deep) absent from
+            # every older page too, or its page was unreadable. Stays NULL and VISIBLE — never guessed (#9).
+            if dt is None:
                 unresolved_accessions.add(row["accession"])
                 res.rows_residual_null += 1
                 continue

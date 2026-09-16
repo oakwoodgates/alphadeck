@@ -10,6 +10,7 @@ EdgarClient returning canned submissions (the real client is cache-first over th
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import date, datetime, timezone
@@ -594,3 +595,67 @@ def test_verify_at_the_same_depth_sees_a_deep_resolved_row_as_consistent(db, sec
 
     assert deep_v.mismatches == [] and deep_v.keys_compared == 2
     assert len(shallow_v.mismatches) == 2  # the documented trap, pinned so it can't surprise anyone
+
+
+# --- the tolerated-error boundary: one bad page vs a programming fault --------------------------------
+
+
+class _RaisingPagesClient(_FakeClient):
+    """Serves the company document normally but raises a chosen exception for EVERY older page."""
+
+    def __init__(self, by_cik: dict[str, dict], exc: Exception) -> None:
+        super().__init__(by_cik)
+        self.exc = exc
+
+    def get_json(self, url: str, cache_key: str) -> dict:
+        if "-submissions-" in cache_key.split("/")[-1]:
+            raise self.exc
+        return super().get_json(url, cache_key)
+
+
+def test_a_garbled_page_is_TOLERATED_and_counted():
+    """A truncated or garbled older page is ONE page's failure: counted, logged, the walk continues, and
+    its accessions stay NULL and visible (#9). ``json.JSONDecodeError`` is what ``client.get_json`` raises
+    on a malformed body, and it is the only ``ValueError`` this path can legitimately produce."""
+    subs = _subs_with_pages(
+        [("acc-recent", "2026-01-02T18:30:00.000Z")], ["CIK0001234567-submissions-001.json"]
+    )
+    client = _RaisingPagesClient({}, json.JSONDecodeError("Expecting value", "", 0))
+
+    amap, read, failed = acceptance_times_deep(client, subs)
+
+    assert (read, failed) == (0, 1)  # counted, not absorbed
+    assert set(amap) == {"acc-recent"}  # the recent window still contributed
+
+
+def test_a_BARE_ValueError_ABORTS_rather_than_being_absorbed_into_a_page_tally():
+    """The nit this fixes. The tolerance used to accept any ``ValueError``, which on this path can only be
+    a programming fault: the sole non-JSON ``ValueError`` reachable here is ``fetch_submissions_page``'s
+    page-name guard, already made unreachable by ``submissions_page_names``' validation. Absorbing it would
+    increment a page counter and move on — exactly the skip-counter shape that hid a real Form-4 bug before.
+    It must abort loudly instead.
+
+    (Deliberately NARROWER than the sibling ``pipeline.ingest_thesis._tolerable_filing_error``, which
+    parses XML where a malformed value inside a readable filing genuinely raises a plain ``ValueError``.
+    The two SHOULD differ; this is not a divergence to "fix".)"""
+    subs = _subs_with_pages(
+        [("acc-recent", "2026-01-02T18:30:00.000Z")], ["CIK0001234567-submissions-001.json"]
+    )
+    client = _RaisingPagesClient({}, ValueError("not an EDGAR submissions page name"))
+
+    with pytest.raises(ValueError, match="not an EDGAR submissions page name"):
+        acceptance_times_deep(client, subs)
+
+
+def test_a_CacheMiss_is_still_tolerated():
+    """The --no-live shape is unchanged by the narrowing: an uncached page under cache-only operation is
+    one page's absence, not a fault."""
+    subs = _subs_with_pages(
+        [("acc-recent", "2026-01-02T18:30:00.000Z")], ["CIK0001234567-submissions-001.json"]
+    )
+    client = _RaisingPagesClient({}, CacheMiss("submissions/CIK0001234567-submissions-001.json"))
+
+    amap, read, failed = acceptance_times_deep(client, subs)
+
+    assert (read, failed) == (0, 1)
+    assert set(amap) == {"acc-recent"}
