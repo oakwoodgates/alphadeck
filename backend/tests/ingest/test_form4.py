@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from ingest.edgar.form4 import _norm_cik, _txn_date, existing_accessions, ingest_form4, parse_form4
+from ingest.edgar.form4 import (
+    _norm_cik,
+    _txn_date,
+    accession_filing_year,
+    existing_accessions,
+    implausible_txn_date,
+    ingest_form4,
+    parse_form4,
+)
 
 _FIX = Path(__file__).resolve().parent.parent / "fixtures" / "edgar"
 _XML = (_FIX / "form4_sample.xml").read_text(encoding="utf-8")
@@ -320,3 +328,134 @@ def test_ingest_stores_security_title_and_foreign_symbol(db, security_id):
         "Common Shares (2330.TW)",
     ]
     assert {r["issuer_foreign_symbol"] for r in rows} == {"2330.TW"}
+
+
+# --- P1: the transaction-date sanity bound ------------------------------------------------------------
+#
+# ROOT CAUSE, settled against the SEC documents themselves before any of this was written (the fix differs
+# completely depending on the answer): the impossible dates are FILER GARBAGE, not a parser defect. Fetched
+# live from EDGAR 2026-09-15 —
+#   0001628280-24-010030 (BBAI)  <transactionDate><value>0023-03-23</value></transactionDate>
+#   0001437749-24-004874 (LSCC)  <transactionDate><value>2027-02-17</value></transactionDate>
+# — verbatim, in the raw ownership XML. ``parse_form4`` reproduces the filer's value faithfully, so there is
+# nothing to re-derive and no corrected date may be invented (#3). The row is rejected, loudly.
+
+
+@pytest.mark.parametrize(
+    "accession, expected",
+    [
+        ("0001628280-24-010030", 2024),  # the real BBAI leading-zero filing
+        ("0001437749-24-004874", 2024),  # the real LSCC future-dated filing
+        ("0001181431-06-033946", 2006),  # a 2006 filing reporting genuine 1990s transactions
+        ("0000912057-99-012345", 1999),  # the 1990s pivot: 93-99 is the 20th century
+        ("0000912057-93-000001", 1993),  # EDGAR's first electronic year
+        ("0000912057-00-000001", 2000),  # ...and 00 is the 21st
+        ("acc-planned", None),  # a seed/test label: no filing year -> abstain, no upper bound
+        ("DEMO-F4", None),
+        ("0001628280-24-01003", None),  # malformed (5-digit sequence) -> abstain, never a guess
+    ],
+)
+def test_accession_filing_year(accession, expected):
+    assert accession_filing_year(accession) == expected
+
+
+@pytest.mark.parametrize(
+    "txn_date, accession",
+    [
+        (date(23, 3, 23), "0001628280-24-010030"),  # BBAI — leading-zero year, verbatim in the XML
+        (
+            date(24, 2, 12),
+            "0000913760-24-000032",
+        ),  # SNEX — beside a correct 2024-02-12 in the same doc
+        (date(24, 10, 2), "0000912282-24-000687"),  # UUUU
+        (date(25, 7, 25), "0001900188-25-000010"),  # GS
+        (date(2027, 2, 17), "0001437749-24-004874"),  # LSCC — three years after the filing
+        (date(2027, 11, 17), "0001628280-23-039558"),  # CRDO
+        (
+            date(2024, 10, 24),
+            "0001628280-23-035012",
+        ),  # CRDO — only ONE year ahead, still impossible
+        (date(2022, 1, 5), "0001209191-21-002530"),  # PENN — the same off-by-one-year shape
+    ],
+)
+def test_implausible_txn_date_flags_every_measured_impossible_row(txn_date, accession):
+    """The eight real (date, accession) pairs measured on the dev copy of prod. Not a synthetic shape —
+    each one is a stored row whose date the filing states verbatim."""
+    assert implausible_txn_date(txn_date, accession) is not None
+
+
+@pytest.mark.parametrize(
+    "txn_date, accession",
+    [
+        # THE FALSE-POSITIVE GUARD, and the reason the lower anchor is 1934 and not 2003: a Form 4 filed
+        # years later legitimately reports an old transaction. MEASURED: 42 corpus rows carry a real
+        # 1993-2002 date on accessions filed in 2006/2007. A "predates EDGAR's 2003 mandate" floor would
+        # have deleted every one of them.
+        (date(1993, 5, 11), "0001181431-06-033946"),  # the oldest genuine row in the corpus
+        (date(1995, 9, 30), "0001144204-07-028344"),
+        (date(2000, 12, 15), "0001144204-07-028340"),
+        (date(2024, 3, 5), "0001628280-24-010030"),  # a correct row from the BBAI filing itself
+        (date(2024, 2, 12), "0000913760-24-000032"),  # ...and from the SNEX one
+        (
+            date(2024, 12, 31),
+            "0001628280-24-999999",
+        ),  # the last day of the filing year is in bounds
+        (
+            date(2026, 6, 1),
+            "acc-planned",
+        ),  # no filing year -> the upper bound abstains, row kept (#9)
+        (date(1934, 1, 1), "acc-planned"),  # the epoch itself is in bounds
+    ],
+)
+def test_implausible_txn_date_keeps_legitimate_dates(txn_date, accession):
+    assert implausible_txn_date(txn_date, accession) is None
+
+
+def _with_both_txn_dates(buy: str, sale: str) -> str:
+    """The sample filing with BOTH transaction dates replaced (the buy is 2026-06-01, the sale 2026-05-15)."""
+    return _XML.replace("<value>2026-06-01</value>", f"<value>{buy}</value>").replace(
+        "<value>2026-05-15</value>", f"<value>{sale}</value>"
+    )
+
+
+def test_ingest_form4_rejects_the_impossible_row_and_keeps_the_rest(db, security_id):
+    """PER-TRANSACTION rejection, not per-filing. The real LSCC filing carries one 2027-02-17 row beside
+    five correctly-dated ones; dropping the whole filing to punish the typo would lose real insider history
+    (#9). Only the bad row is withheld, and the table proves it."""
+    n = ingest_form4(
+        db, security_id, _with_both_txn_dates("2027-06-01", "2026-05-15"), "0000000000-26-000001"
+    )
+    db.commit()
+    assert n == 1  # the sale landed; the impossible buy did not
+    with db.cursor() as cur:
+        cur.execute("SELECT txn_code, valid_from FROM fact_insider_txn")
+        rows = cur.fetchall()
+    assert [(r["txn_code"], r["valid_from"]) for r in rows] == [("S", date(2026, 5, 15))]
+
+
+def test_ingest_form4_never_clamps_an_impossible_date(db, security_id):
+    """NOT stored, NOT clamped. A clamp (to the filing year, to ``periodOfReport``, to anything) would
+    fabricate a fact the filing never stated — #3. The table must contain no row for that transaction at
+    ANY date."""
+    ingest_form4(
+        db, security_id, _with_both_txn_dates("2026-06-01", "0025-05-15"), "0000000000-26-000002"
+    )
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_insider_txn WHERE txn_code = 'S'")
+        assert cur.fetchone()["n"] == 0  # no clamped/"corrected" stand-in was written
+
+
+def test_ingest_form4_prints_the_rejection_itemized_never_a_tally(db, security_id, capsys):
+    """FAIL LOUD. The repo's Form-4 lesson is that a rising skip COUNTER masks a real bug, so a rejection
+    must name the filing, the insider, the sequence and the raw date in the run's output — enough for the
+    operator to open the filing and check it — not increment a tally nobody reads."""
+    ingest_form4(
+        db, security_id, _with_both_txn_dates("2027-06-01", "2026-05-15"), "0001437749-24-004874"
+    )
+    db.commit()
+    out = capsys.readouterr().out
+    assert "0001437749-24-004874" in out  # which filing
+    assert "2027-06-01" in out  # the raw date, verbatim
+    assert "seq=0" in out  # which transaction within it
+    assert "REJECT" in out and "NOT stored" in out

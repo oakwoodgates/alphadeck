@@ -22,6 +22,76 @@ from domain.coerce import to_float
 # safe substitute: it rejects 'YYYY-MM-DDZ' and misreads the bare offset '-05:00' as a 5 a.m. time.
 _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+# --- the transaction-date sanity bound (P1) ---------------------------------------------------------
+# MEASURED on the dev copy of prod (595,376 rows, 2026-09-15): 29 rows / 15 distinct facts carry a
+# transaction date that CANNOT be true. Two shapes, and the root cause is settled — the SEC XML itself
+# says so, VERBATIM; ``parse_form4`` reproduces the filer's value faithfully:
+#   * a leading-zero year — 0001628280-24-010030 (BBAI) really contains
+#     ``<transactionDate><value>0023-03-23</value></transactionDate>`` (and its OTHER two transactions are
+#     correctly dated 2023-11-13 / 2024-03-05); 0000913760-24-000032 (SNEX) carries ``0024-02-12`` beside a
+#     correct ``2024-02-12`` in the same document.
+#   * a year AHEAD of the filing — 0001437749-24-004874 (LSCC) really says ``2027-02-17`` on an accession
+#     filed 2024-02-20; 0001628280-23-035012 (CRDO) says ``2024-10-24`` on one filed 2023-10-24.
+# So this is FILER GARBAGE, not a parser bug, and the disposition follows from #3: we must NOT invent a
+# corrected date (``periodOfReport`` is the EARLIEST reportable transaction date, not this row's, and on the
+# SNEX/BBAI/GS filings it is itself corrupt). The row is REJECTED and printed in full; the rest of the
+# filing still stores (#9 — one filer typo never blanks five good transactions).
+#
+# The bound is deliberately STRUCTURAL — derived from the filing's own identity, never from an ambient
+# clock and never from a tuned constant:
+#
+# LOWER — Section 16 insider reporting was created by the Securities Exchange Act of 1934; no reportable
+# transaction can predate it. That catches every leading-zero year (0023/0024/0025) with ~59 years of
+# headroom over the oldest genuine row in the corpus (1993-05-11). NOT "predates EDGAR's 2003 electronic
+# Form 4 mandate": MEASURED, 42 corpus rows carry a legitimate 1993–2002 transaction date, reported on Form
+# 4s filed in 2006/2007 (accessions 0001181431-06-*, 0001144204-07-*) — a 2003 floor would reject real data.
+#
+# UPPER — an EDGAR accession is ``NNNNNNNNNN-YY-NNNNNN`` with the two-digit year assigned at submission, so
+# it names the filing year. A Form 4 reports a transaction that has ALREADY occurred (Section 16(a): filed
+# within two business days AFTER), so the transaction cannot fall in a later calendar year than the filing.
+# Coarse on purpose: the exact filing date is not available here (the ownership document carries none, and
+# only the enumeration knows ``filed``), and the year anchor needs nothing threaded. Its residual is
+# MEASURED and stated rather than guessed: 38 further rows are dated after their own ``accepted`` datetime
+# within the SAME year and are NOT rejected — tightening to that clock would make the bound depend on a
+# column that is NULL for ~47% of rows, so the same filing would be judged differently run to run.
+_EDGAR_ACCESSION = re.compile(r"^\d{10}-(\d{2})-\d{6}$")
+_SECTION_16_EPOCH_YEAR = 1934  # the Securities Exchange Act of 1934 created Section 16 reporting
+
+
+def accession_filing_year(accession: str) -> int | None:
+    """The filing YEAR encoded in an EDGAR accession (``0001628280-24-010030`` -> 2024), or ``None`` when
+    ``accession`` is not EDGAR-shaped (a seed/test label like ``"acc-planned"``).
+
+    EDGAR's electronic era starts in 1993, so a two-digit ``93``–``99`` is the 1990s and everything else is
+    2000+ (unambiguous through 2092). ``None`` means "no upper anchor" and the caller ABSTAINS from the
+    upper bound rather than guessing — erring toward keeping a row (#9)."""
+    m = _EDGAR_ACCESSION.match(accession.strip())
+    if m is None:
+        return None
+    yy = int(m.group(1))
+    return (1900 if 93 <= yy <= 99 else 2000) + yy
+
+
+def implausible_txn_date(txn_date: date, accession: str) -> str | None:
+    """Why this transaction date cannot be true, or ``None`` when it is plausible.
+
+    The ONE rule — imported by both the ingest (which rejects the row) and
+    ``pipeline.repair_impossible_txn_dates`` (which deletes rows already stored), so the live bound and the
+    repair can never disagree. See the block comment above for the derivation and the measurements.
+    """
+    if txn_date.year < _SECTION_16_EPOCH_YEAR:
+        return (
+            f"year {txn_date.year:04d} predates the Securities Exchange Act of "
+            f"{_SECTION_16_EPOCH_YEAR} — Section 16 reporting did not exist"
+        )
+    filing_year = accession_filing_year(accession)
+    if filing_year is not None and txn_date.year > filing_year:
+        return (
+            f"postdates the accession's filing year {filing_year} — a Form 4 reports a transaction "
+            "that has already occurred"
+        )
+    return None
+
 
 def _txn_date(raw: str | None) -> date | None:
     """Parse a Form 4 transaction date, tolerating a spurious trailing tz-offset / time suffix.
@@ -176,10 +246,26 @@ def ingest_form4(
     itself carries no acceptance datetime, so ``parse_form4`` is UNCHANGED and this rides as a per-filing
     kwarg like ``recorded_at``. ``None`` leaves the column NULL (the read gate/display fall back to
     ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
+
+    THE SANITY BOUND (P1): a transaction whose date cannot be true (``implausible_txn_date``) is REJECTED —
+    never stored, never clamped to a guessed date (#3: a clamp fabricates a fact), and never absorbed into a
+    tally. Each rejection PRINTS the accession, the insider, the sequence and the raw date, because a rising
+    skip COUNTER is exactly how a real Form-4 bug hid before (the skip-counter lesson). Rejection is
+    per-TRANSACTION, not per-filing: the LSCC filing that carries one ``2027-02-17`` row also carries five
+    correctly-dated ones, and dropping the filing would lose them (#9).
     """
     count = 0
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
+            continue
+        reason = implausible_txn_date(t["txn_date"], accession)
+        if reason is not None:
+            print(
+                f"  REJECT insider txn {accession} seq={i} "
+                f"{t['insider_name'] or '?'} ({t['txn_code'] or '?'}): "
+                f"transactionDate {t['txn_date'].isoformat()} {reason}. "
+                "The filing says this verbatim — NOT stored, and no corrected date is invented (#3)."
+            )
             continue
         values = {
             "tenant_id": tenant_id,
