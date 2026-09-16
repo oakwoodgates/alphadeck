@@ -49,7 +49,9 @@ Discipline (``daily.run_daily``'s, minus everything that is not a recompute):
   appends ZERO rows. A DIFFERENT pin that sees different facts is a genuine change and appends one.
 - **The markers.** ``reconstructed = true`` on every row written here — the explicit provenance the
   Scoreboard filters on (the cron never sets it). ``ingest_fresh`` / ``ingest_errors`` stay ``None``: there
-  is no ingest in a backfill, NULL is the honest stamp.
+  is no ingest in a backfill, NULL is the honest stamp. ``run_kind = 'backfill'`` (0044) rides beside them:
+  the SCORING filter and the RUN IDENTITY are two different questions about the same row, and both are
+  answered explicitly rather than one being derived from the other.
 - **Provenance, write-only, fail-open** — one JSON per invocation under ``data/backfills/``
   (``pipeline/backfill_log.py``), skips included. It is NOT a cron run artifact: ``already_ran_live`` stays
   False for the night. A ``--dry-run`` writes NOTHING — neither a row nor an artifact.
@@ -71,7 +73,9 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.config import DEFAULT_CONFIG, config_hash
 from domain.market_time import market_today, market_tz
+from domain.settings import get_settings
 from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import list_run_logs
@@ -202,6 +206,12 @@ def run_backfill(
         theses = thesis_repo.list_all(conn)
     tz = market_tz()
     created = thesis_repo.created_at_for(conn, [t.id for t in theses])
+    # ONE explicit cfg for the whole reconstruction, used for BOTH the assemble and its fingerprint (0044) —
+    # the same honesty rule `daily.run_daily` holds: the stamp must follow the cfg that produced the card,
+    # never a separately-hashed DEFAULT_CONFIG that merely happens to match today.
+    cfg = DEFAULT_CONFIG
+    cfg_hash = config_hash(cfg)
+    code_sha = get_settings().image_sha
     out: list[BackfillResult] = []
     for thesis in theses:
         res = BackfillResult(thesis_id=thesis.id, name=thesis.name)
@@ -226,7 +236,7 @@ def run_backfill(
                 res.prior_state, res.prior_verdict = prior.state.value, prior.verdict.value
             # THE reconstruction: the same assembly the cron runs, with the clock pinned. record=False —
             # the append below is the ONLY write, and it is the idempotent one.
-            card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
+            card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, cfg=cfg, record=False)
             res.state, res.verdict = card.state.value, card.verdict.value
             res.armed = len(card.armed_members)
             if dry_run:
@@ -234,8 +244,17 @@ def run_backfill(
             else:
                 # reconstructed=True: the explicit marker the Scoreboard's record path filters on (0042).
                 # ingest_fresh / ingest_errors stay None ON PURPOSE: there was no ingest (the NULL stamp)
+                # run_kind='backfill' (0044) is the PROVENANCE twin of that marker, not a duplicate of it:
+                # `reconstructed` is the Scoreboard's scoring FILTER, `run_kind` is the run's identity, and
+                # both being written here is what keeps the two readings of this row consistent.
                 res.recorded = calls_repo.record_if_changed(
-                    conn, card, thesis.tenant_id, reconstructed=True
+                    conn,
+                    card,
+                    thesis.tenant_id,
+                    reconstructed=True,
+                    config_hash=cfg_hash,
+                    code_sha=code_sha,
+                    run_kind="backfill",
                 )
                 conn.commit()
         except Exception as e:  # noqa: BLE001 — one thesis's failure never aborts the backfill

@@ -31,7 +31,13 @@
 #   waited for tomorrow, so a transient fault (a DB restart mid-run, a vendor 5xx, a network blip) cost that
 #   night's call-of-record outright — and a daytime row on the same day could keep the Admin page reading
 #   "healthy" over the hole. Now the loop waits RETRY_DELAY_S (default 1200 s, sliced through `wait_until`
-#   like the schedule wait) and fires ONE `python -m pipeline.daily --catch-up --asof "$target"`.
+#   like the schedule wait) and fires ONE `python -m pipeline.daily --run-kind cron --catch-up --asof "$target"`.
+#
+# - EVERY invocation below passes `--run-kind cron` (F1 / migration 0044), which is stamped on each
+#   call-of-record row this sidecar's runs append. THIS SCRIPT IS THE ONLY THING THAT MAY PASS IT: the CLI
+#   defaults to `manual`, and the sidecar and an operator type the SAME command, so an explicit flag is the
+#   only thing that can tell the nightly record from a hand run. Do not "simplify" it into an env var — a
+#   `docker exec <this container> python -m pipeline.daily` would then stamp `cron` and lie.
 #   WHAT A NON-ZERO EXIT MEANS (F4, 2026-09-13): the night has NO call-of-record at all. It used to mean
 #   "some thesis errored", so a night that recorded 11 of 12 theses still cost a 20-minute pause and a
 #   retry the guard then no-opped. The retry now fires only on a genuine total miss, which is the only
@@ -129,7 +135,7 @@ catch_up_days() {
 catch_up_between() {
   for _cb in $(catch_up_days "$1" "$2"); do
     echo "daily-cron: late wake — catching up ${_cb}"
-    python -m pipeline.daily --catch-up --asof "${_cb}" || echo "daily-cron: catch-up ${_cb} FAILED (continuing)"
+    python -m pipeline.daily --run-kind cron --catch-up --asof "${_cb}" || echo "daily-cron: catch-up ${_cb} FAILED (continuing)"
   done
 }
 
@@ -169,7 +175,7 @@ echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CL
 # ended for the same reason).
 _boot_target=$(last_expected_asof "$(date +%s)")
 echo "daily-cron: booted $(date) — catch-up for the last expected night ${_boot_target} (no-op if its post-${RUN_AT} live pass already ran)"
-python -m pipeline.daily --catch-up --asof "${_boot_target}" || echo "daily-cron: boot catch-up ${_boot_target} FAILED (continuing to the schedule)"
+python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}" || echo "daily-cron: boot catch-up ${_boot_target} FAILED (continuing to the schedule)"
 
 while :; do
   now=$(date +%s)
@@ -191,7 +197,7 @@ while :; do
   if is_weekday "${target}"; then
     echo "daily-cron: $(date) — running pipeline.daily --asof ${target}"
     # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day
-    if python -m pipeline.daily --asof "${target}"; then
+    if python -m pipeline.daily --run-kind cron --asof "${target}"; then
       :
     else
       # G2a — RETRY ONCE. A scheduled run that fails used to be the end of the night: the loop caught the
@@ -218,7 +224,7 @@ while :; do
       echo "daily-cron: run FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
       wait_until "$(( $(date +%s) + RETRY_DELAY_S ))"
       echo "daily-cron: $(date) — retrying ${target} (--catch-up)"
-      python -m pipeline.daily --catch-up --asof "${target}" \
+      python -m pipeline.daily --run-kind cron --catch-up --asof "${target}" \
         || echo "daily-cron: retry ${target} FAILED (continuing to the next day)"
     fi
   else

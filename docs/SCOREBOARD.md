@@ -379,6 +379,17 @@ can be scanned down the whole universe (#228). Summary is **9 columns** —
 `Name · Armed · De-armed · Why · Exit-by · Status · Return · Peak · Operator`. Timing is **11** —
 `Name · Armed · De-armed · Path · Return · Peak · Peak high · Worst · Worst low · Past peak · Status`.
 
+**The run-identity line (F1, migration `0044`).** Under the ingest line the drawer carries one quiet caption —
+`policy ‹hash8› · ‹run_kind› · code ‹sha8›` — naming the `CallConfig` fingerprint, the kind of run (`cron` /
+`manual` / `backfill`) and the image SHA of the row that recorded this arm. Unlike the ingest line it is
+**not** exception-only: it flags nothing and excludes nothing from the aggregates, so it is provenance on a
+drill-down rather than loudness (#7 governs badges and alerts). It is **absent entirely** on a row recorded
+before the stamp existed — an absent line is the honest reading of "we do not know", where a row of
+em-dashes would read as a broken feature. The copy is backend-authored (the `ingest_note` precedent), so the
+hash is shortened in exactly one place in the codebase; the FULL `config_hash` / `code_sha` ride the wire
+beside it and appear on hover (#6 — provenance always shows its work). Why it matters: the two largest arm
+bursts in the record were weekend **manual** runs on deploy days, and until now the row could not say so.
+
 **Armed and De-armed are two columns**, not one cell reading `Aug 7 → Aug 11`: they are two
 measurements, and packed together they could be neither scanned down nor sorted on. The censored-start
 `*` stays with the **arm** date — it is the arm that is unknowable. A still-open episode's De-armed

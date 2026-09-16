@@ -234,6 +234,14 @@ def derive_thesis_record(
             if episodes
             else {}
         )
+        # F1/0044 — the arm-date row's RUN IDENTITY, read with the SAME include_reconstructed value (and
+        # therefore the same winning row) as `health` and `thesis_timeline` above, so the caption on an
+        # episode always describes the run that produced the card being scored.
+        identity = (
+            calls_repo.run_identity_for_thesis(conn, thesis.id, include_reconstructed=False)
+            if episodes
+            else {}
+        )
         lags = (
             provenance.thaw_lags(
                 conn,
@@ -248,6 +256,7 @@ def derive_thesis_record(
             prov = provenance.derive_episode_provenance(
                 ep.arm_date, trigs, health=health, lags=lags
             )
+            ident = identity.get(ep.arm_date)
             record.episodes.append(
                 ScoredEpisode(
                     episode=ep,
@@ -260,6 +269,10 @@ def derive_thesis_record(
                     thaw_lag_days=prov.thaw_lag_days,
                     ingest_flagged=prov.ingest_flagged,
                     ingest_note=prov.ingest_note,
+                    arm_config_hash=ident.config_hash if ident else None,
+                    arm_code_sha=ident.code_sha if ident else None,
+                    arm_run_kind=ident.run_kind if ident else None,
+                    run_identity_note=provenance.run_identity_note(ident),
                     triggers_at_arm=trigs,
                     # Slice C — composed ONLY for the one opaque token (the others self-explain, #7);
                     # dict lookups over the cards already in hand, no new queries.

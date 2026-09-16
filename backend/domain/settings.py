@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -409,6 +409,26 @@ class Settings(BaseSettings):
     slack_webhook_url: str | None = Field(
         default=None, validation_alias=AliasChoices("SLACK_WEBHOOK_URL")
     )
+    # The git SHA BAKED INTO THIS IMAGE at build time (F1): `docker build --build-arg GIT_SHA=$(git rev-parse
+    # HEAD)` -> the Dockerfile's `ENV ALPHADECK_IMAGE_SHA` -> here -> stamped on every `calls` row it writes.
+    # Read via the env_prefix (ALPHADECK_IMAGE_SHA), like the other deploy-time values.
+    #
+    # NAMED `image_sha`, NOT `code_sha`, and the name is load-bearing: on the BIND-MOUNTED tiers (dev / sig /
+    # fork mount ./backend over the image's /app) the running code is the worktree's, so this value is the
+    # IMAGE's and can lag it. Prod and the cron sidecar run the image as built, which is where the record's
+    # legibility matters; dev rows are never the record. The honest name beats a precise-sounding wrong one
+    # (operator decision Q19).
+    #
+    # BLANK -> None is LOAD-BEARING, not tidiness: the Dockerfile's ENV always SETS the variable (to "" when
+    # GIT_SHA was not passed), so without this validator a rebuild that forgot the build arg would stamp an
+    # empty string on every call row instead of NULL — a fabricated value by omission, exactly what the
+    # "NULL when unknown, never fabricated" rule forbids.
+    image_sha: str | None = None
+
+    @field_validator("image_sha", mode="before")
+    @classmethod
+    def _blank_image_sha_is_unknown(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
 
 @lru_cache(maxsize=1)

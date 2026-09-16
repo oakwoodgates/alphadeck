@@ -6,7 +6,8 @@ from uuid import UUID
 import psycopg
 
 from domain.call import CallCard
-from domain.config import DEFAULT_CONFIG, CallConfig
+from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
+from domain.settings import get_settings
 from pipeline.core import assemble_from_pit
 from repositories import calls_repo, decisions_repo, thesis_repo
 from signals.base import PointInTimeData
@@ -21,6 +22,7 @@ def call_for_thesis(
     known_at: datetime | None = None,
     cfg: CallConfig = DEFAULT_CONFIG,
     record: bool = True,
+    run_kind: str = "manual",
 ) -> CallCard:
     """Load the thesis, RE-DERIVE its dated signal stream from the bitemporal facts as-of (via the shared
     ``assemble_from_pit`` core), and (when ``record``) append the CallCard to the write-only ``calls``
@@ -34,6 +36,12 @@ def call_for_thesis(
     (``record=True``). When it writes, that append is the only write and is never read back to serve. The
     caller owns the transaction (commit/rollback). ``known_at`` defaults to now (live read); the replay
     harness pins it to a past transaction time.
+
+    ``run_kind`` (0044) labels the write for the record's run identity. It defaults to ``"manual"`` because
+    the ONLY ``record=True`` caller is the one-off ``python -m pipeline.run`` CLI — the nightly cron and the
+    backfill assemble here with ``record=False`` and do their own ``record_if_changed`` with their own kind.
+    The stamped ``config_hash`` is computed from THIS call's ``cfg``, the same object the assembler below
+    runs with, so the fingerprint can never describe a different policy than the one that produced the card.
     """
     # THE ROSTER FEED (F12, the SECOND bitemporal leak): read the basket as it was known at ``known_at``
     # (via basket_snapshot), MIRRORING the position feed just below. ``basket_member`` is full-replace /
@@ -73,5 +81,12 @@ def call_for_thesis(
     )
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
-        calls_repo.append(conn, card, thesis.tenant_id)
+        calls_repo.append(
+            conn,
+            card,
+            thesis.tenant_id,
+            config_hash=config_hash(cfg),
+            code_sha=get_settings().image_sha,
+            run_kind=run_kind,
+        )
     return card

@@ -38,6 +38,20 @@ RUN if [ -n "$PIP_EXTRAS" ]; then \
       pip install --no-cache-dir -e .; \
     fi
 
+# GIT_SHA — the commit this image was built from, stamped on every `calls` row the container writes
+# (F1 / migration 0044: `code_sha`, so the record can tell "the facts changed" from "the code changed").
+# Passed by docker-compose as `build.args.GIT_SHA: ${GIT_SHA:-}`; `docs/DEPLOY.md` and the `deploy` skill
+# prefix every rebuild with `GIT_SHA=$(git rev-parse HEAD)`.
+#
+# It sits AFTER the pip layer deliberately: a new sha on every deploy would otherwise bust the dependency
+# cache and turn a 20-second rebuild into a full reinstall.
+#
+# Default EMPTY, and empty means UNKNOWN, never a value: `Settings.image_sha` maps a blank string to None so
+# a rebuild that forgot the build arg stamps NULL rather than "". On bind-mounted tiers (dev/sig/fork mount
+# ./backend over /app) this is the IMAGE's sha and can lag the running code — hence the honest field name.
+ARG GIT_SHA=""
+ENV ALPHADECK_IMAGE_SHA=$GIT_SHA
+
 EXPOSE 8000
 
 # Apply migrations (idempotent) -> seed the HIMS demo (idempotent) -> serve. `exec` hands signals

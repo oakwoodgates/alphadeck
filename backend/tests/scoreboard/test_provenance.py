@@ -8,15 +8,17 @@ from calls.assembler import assemble_call
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.call import TriggerRef
-from domain.config import DEFAULT_CONFIG
+from domain.config import DEFAULT_CONFIG, short_hash
 from domain.enums import Kind
 from domain.signal import Provenance
 from repositories import calls_repo
+from repositories.calls_repo import RunIdentity
 from scoreboard.provenance import (
     FREEZE_WINDOW,
     THAW_LAG_DAYS,
     derive_episode_provenance,
     form4_accessions,
+    run_identity_note,
     thaw_lags,
 )
 from tests.scoreboard.helpers import keys_fired, persist_thesis
@@ -231,3 +233,43 @@ def test_form4_accessions_dedup_sort_and_skip_other_sources():
     t2 = _trig(_form4("acc-a"), _form4("acc-b"))
     assert form4_accessions([t1, t2]) == ["acc-a", "acc-b"]
     assert form4_accessions([]) == []
+
+
+# --- the run-identity caption (F1, migration 0044) -----------------------------------------------------
+
+
+def test_a_legacy_row_gets_NO_LINE_AT_ALL():
+    """A row recorded before 0044 knows nothing about its own run, and the honest rendering of that is
+    NOTHING — not "policy — · —". An absent line reads as "we do not know"; a line of em-dashes reads as
+    a broken feature, and (worse) trains the eye to skip the line on the rows that DO carry an answer.
+    """
+    assert run_identity_note(None) is None
+    assert run_identity_note(RunIdentity(None, None, None)) is None
+
+
+def test_a_partial_identity_still_renders_what_is_known():
+    """`code_sha` is NULL whenever the image was built without GIT_SHA — a perfectly normal state on a
+    dev/fork build — and that must not suppress the policy and the run kind, which ARE known. Degrade
+    field by field, never all-or-nothing (#9's instinct, applied to a caption)."""
+    assert run_identity_note(RunIdentity("a1b2c3d4e5f6", None, "cron")) == "policy a1b2c3d4 · cron"
+    assert run_identity_note(RunIdentity(None, None, "backfill")) == "backfill"
+    assert run_identity_note(RunIdentity("a1b2c3d4e5f6", None, None)) == "policy a1b2c3d4"
+
+
+def test_the_caption_shortens_through_the_ONE_helper():
+    """The hash is sliced in exactly one place in the codebase (`domain.config.short_hash`), so the
+    frontend, this caption and the replay banner can never disagree about how long a policy prefix is.
+    """
+    full = "0123456789abcdef0123456789abcdef"
+    note = run_identity_note(RunIdentity(full, full, "manual"))
+    assert note == f"policy {short_hash(full)} · manual · code {short_hash(full)}"
+    assert (
+        short_hash(full) in note and full not in note
+    )  # the LINE is short; the raw value rides beside
+
+
+def test_the_caption_is_not_gated_on_a_flag_unlike_ingest_note():
+    """Deliberate asymmetry, and the reason it is a separate composer: `ingest_note` is silent on a healthy
+    arm because a badge true of every row carries no information (#7). Run identity flags nothing at all —
+    it is provenance on a drill-down, where the constant line IS the point."""
+    assert run_identity_note(RunIdentity("aaaaaaaabbbb", None, "cron")) is not None
