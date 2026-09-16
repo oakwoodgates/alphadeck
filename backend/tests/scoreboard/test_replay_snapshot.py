@@ -184,3 +184,65 @@ def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):
     path.write_text("{not json", encoding="utf-8")
     assert read_snapshot(base_dir=tmp_path) is None  # absence, never a raise
     assert read_snapshot(base_dir=tmp_path / "missing") is None
+
+
+# --- F4: the roster provenance rides the artifact and the banner --------------------------------------
+
+
+def test_the_banner_says_ROSTERS_ARE_POINT_IN_TIME_when_nothing_fell_back():
+    """The blanket "Baskets are not versioned (REPLAY.md known limitation)" sentence is RETIRED: rosters
+    ARE versioned now (`basket_snapshot`, read per session), so a permanent caveat saying otherwise had
+    become false. The clean case now says so positively — something the blanket sentence could never do.
+    """
+    snap = _build([], {_TID: []}, record_began=None)
+
+    assert "Rosters are point-in-time." in snap.banner
+    assert "Baskets are not versioned" not in snap.banner
+    assert "NOT the record" in snap.banner  # the recompute caveat still always rides
+    assert snap.roster_fallback_theses == 0 and snap.roster_source_note is None
+
+
+def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket():
+    """The honest residual: a window predating the snapshot table replays on the live roster. That is the
+    right behavior (#9 — never blank a basket for want of history) but it must be SAID, per run and
+    quantitatively, in the F11 voice: a recompute, never the recorded call."""
+    note = (
+        "2 of 5 theses recomputed on TODAY's basket for 300 session(s) — no roster snapshot existed"
+    )
+    snap = _build([], {_TID: []}, record_began=None)
+    with_fallback = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2025, 7, 9),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        roster_fallback_theses=2,
+        roster_source_note=note,
+    )
+
+    assert note in with_fallback.banner
+    assert "Rosters are point-in-time." not in with_fallback.banner  # the clean claim is NOT made
+    assert with_fallback.roster_fallback_theses == 2
+    assert with_fallback.roster_source_note == note
+    assert snap.banner != with_fallback.banner  # the sentence is per-RUN, not boilerplate
+
+
+def test_an_artifact_written_BEFORE_F4_still_validates():
+    """The panel reads whatever `latest.json` is on disk, and the operator's newest one predates this
+    change. The two fields are DEFAULTED so an old artifact parses to "nothing to report" — the honest
+    value for a run that could not have known — instead of failing validation and blanking the panel
+    (`available:false` is supposed to mean "no artifact", never "a schema moved")."""
+    from scoreboard.schema import ReplaySnapshot  # local, matching this file's own convention
+
+    old = _build([], {_TID: []}, record_began=None).model_dump(mode="json")
+    del old["roster_fallback_theses"]
+    del old["roster_source_note"]
+
+    reparsed = ReplaySnapshot.model_validate(old)
+
+    assert reparsed.roster_fallback_theses == 0
+    assert reparsed.roster_source_note is None

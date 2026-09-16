@@ -288,10 +288,15 @@ has depth while the forward record accrues — without polluting it. Structure o
   seam (`window_end`) and a censored record episode on the same name are the same real arm, split
   at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
   (`window_overlaps_record` + a banner warning), never silent.
-- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts; baskets are not
-  versioned (`REPLAY.md`'s known limitation — the platform-wide gap `INVARIANTS.md` §Known gaps names, shared
-  with `pipeline.backfill` and the Board/Cockpit scrub-back) — the caveat rides the banner permanently. Separate
-  endpoint, separate section, metrics never pooled with the live summary.
+- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts — that caveat rides the banner
+  permanently. The ROSTER caveat no longer does, because it is no longer true: since F4 the harness resolves
+  each thesis's basket point-in-time at every session (`basket_snapshot`, capped at the session's market day),
+  so the banner now carries a **per-run** sentence instead — either "Rosters are point-in-time." or a named
+  count of the theses that recomputed on today's basket because no snapshot reached that far back
+  (`roster_fallback_theses` / `roster_source_note` on the artifact; `REPLAY.md` §KNOWN LIMITATION for the two
+  residuals, `INVARIANTS.md` §Known gaps for the platform-wide statement it shares with `pipeline.backfill`
+  and the Board/Cockpit scrub-back). Separate endpoint, separate section, metrics never pooled with the live
+  summary.
 - **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
   the window's first replayed day; `matured` against the data edge; metrics over matured ∧
   non-censored only; the WHY rides each episode from the arm-date snapshot (`MemberRow.triggers`,

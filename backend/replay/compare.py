@@ -55,9 +55,13 @@ def _score_one(
     cfg: CallConfig,
     tenant_id: UUID,
 ) -> tuple[list[Outcome], ReplayMetrics]:
+    # F4 — the cfg-sweep compares VARIANTS over one frozen mirror, so the roster provenance is identical
+    # across them by construction and adds nothing to the comparison; take the timelines only. (The label
+    # is not dropped on the floor: the runs that PUBLISH an artifact — replay.run and the Scoreboard
+    # snapshot — both surface it.)
     timeline = replay_all(
         conn, con, start=START, end=END, known_at=PIN, cfg=cfg, tenant_id=tenant_id
-    )
+    ).timelines
     outcomes = score_episodes(episodes_for(timeline), RealizedPrices(con, tenant_id=tenant_id))
     metrics = compute_metrics(
         outcomes,

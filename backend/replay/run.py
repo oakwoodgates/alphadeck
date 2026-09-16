@@ -170,9 +170,16 @@ def run(
     export_snapshot(conn, out, tenant_id=tenant_id)
     con = connect_mirror(out)
     try:
-        timeline = replay_all(
+        result = replay_all(
             conn, con, start=start, end=end, known_at=pin, cfg=cfg, tenant_id=tenant_id
         )
+        timeline = result.timelines
+        # F4 — say out loud when a thesis replayed on TODAY's basket because no snapshot reached that far
+        # back. Printed only when it happened (loudness marks the exception); silence means every thesis
+        # replayed on a real point-in-time roster.
+        roster_note = result.note()
+        if roster_note:
+            print(f"ROSTER: {roster_note}")
         episodes = episodes_for(timeline)
         realized = RealizedPrices(con, tenant_id=tenant_id)
         outcomes = score_episodes(episodes, realized)

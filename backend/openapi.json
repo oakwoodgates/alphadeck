@@ -7452,6 +7452,22 @@
             "title": "Window Overlaps Record",
             "default": false
           },
+          "roster_fallback_theses": {
+            "type": "integer",
+            "title": "Roster Fallback Theses",
+            "default": 0
+          },
+          "roster_source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Source Note"
+          },
           "banner": {
             "anyOf": [
               {
