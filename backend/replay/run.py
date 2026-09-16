@@ -4,12 +4,16 @@ import argparse
 import os
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
+from enum import Enum
 from pathlib import Path
+from types import UnionType
+from typing import Any, Union, get_args, get_origin
 from uuid import UUID
 
 import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
+from pydantic import BaseModel
 
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig
@@ -18,6 +22,7 @@ from replay.export import export_snapshot
 from replay.harness import replay_all
 from replay.metrics import ReplayMetrics, compute_metrics
 from replay.pit import connect_mirror
+from replay.schema import Episode, Outcome
 from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
 
@@ -146,9 +151,76 @@ def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUI
     return out
 
 
-def _write_parquet(path: Path, rows: list[dict]) -> None:
-    if rows:  # all-five tables are populated on the seed; skip writing an empty artifact
-        pq.write_table(pa.Table.from_pylist(rows), path)
+# --- the artifact schema (F3) -------------------------------------------------------------------------
+# `_write_parquet` used to SKIP an empty table, which left the PREVIOUS run's episodes.parquet /
+# outcomes.parquet sitting beside a fresh metrics.json — a zero-episode run silently reported the last
+# run's episodes. The fix is to always write, which needs a DECLARED schema: `pa.Table.from_pylist([])`
+# produces a ZERO-COLUMN table, which is why the skip existed in the first place.
+#
+# The declared schema is applied to the POPULATED path too, and that is deliberate rather than tidiness:
+# inference is value-dependent, so a run where (say) every `forward_return` happened to be None would infer
+# a `null`-typed column and the two runs' files would not share a schema. `replay/export.py` already holds
+# this discipline for the mirror ("correct even for an empty table") — this is the same rule on the model
+# side, where the types come from the Pydantic model instead of Postgres OIDs.
+#
+# THE TYPES ARE THOSE OF `model_dump(mode="json")`, not of the Python annotation. That distinction is
+# load-bearing for `date`: mode="json" renders it as an ISO STRING, so declaring `pa.date32()` would make
+# the empty file's schema disagree with every populated one. Same for UUID and the str-enums.
+#
+# The two models' field sets are reproduced here so that ADDING a field is a visible, deliberate edit
+# rather than something that silently changes the artifact's shape:
+#   Episode (15): thesis_id, security_id, is_headline, arm_date, last_armed_date, dearm_date,
+#                 close_reason, warm_date, verdict, entry_grade, conviction_grade, confidence,
+#                 theme_armed, exit_by, arm_until
+#   Outcome (31): the Episode entry attributes + entry_close, exit_close, exit_date, forward_return,
+#                 arm_until_return, warm_return, the excursion pair (peak/trough/intraday_high/
+#                 intraday_low × return+date), path (list[float] — the ONE non-scalar), dearm_index,
+#                 exit_vs_peak_days, truncated, tape_behind_market, insufficient_prices
+_ARROW_BY_TYPE: dict[type, pa.DataType] = {
+    bool: pa.bool_(),  # declared BEFORE int: bool is an int subclass
+    int: pa.int64(),
+    float: pa.float64(),
+    str: pa.string(),
+    UUID: pa.string(),  # mode="json" stringifies
+    date: pa.string(),  # mode="json" renders ISO text, NOT a date32
+}
+
+
+def _arrow_type(annotation: Any) -> pa.DataType:
+    """The Arrow type for one model field's annotation, as ``model_dump(mode="json")`` renders it.
+
+    RAISES on anything unmapped rather than defaulting to string: a silent fallback would let a new dial of
+    an unexpected type change the artifact's shape without anyone deciding to, which is the class of drift
+    this declared schema exists to prevent (the `signals/horizons.py` "a reader with no declaration fails a
+    TEST" discipline)."""
+    args = [a for a in get_args(annotation) if a is not type(None)]
+    if get_origin(annotation) in (Union, UnionType):  # `X | None` -> X
+        if len(args) != 1:
+            raise TypeError(f"_arrow_type: unsupported union {annotation!r}")
+        return _arrow_type(args[0])
+    if get_origin(annotation) is list:
+        return pa.list_(_arrow_type(args[0]))
+    if isinstance(annotation, type):
+        if issubclass(annotation, Enum):  # Verdict / Grade are str-enums -> their wire value
+            return pa.string()
+        for py, arrow in _ARROW_BY_TYPE.items():
+            if issubclass(annotation, py):
+                return arrow
+    raise TypeError(
+        f"_arrow_type: no Arrow type declared for {annotation!r} — add one deliberately so the "
+        "artifact's schema change is a decision, not a side effect"
+    )
+
+
+def arrow_schema(model: type[BaseModel]) -> pa.Schema:
+    """The explicit Parquet schema for a replay model, in field-declaration order."""
+    return pa.schema([(n, _arrow_type(f.annotation)) for n, f in model.model_fields.items()])
+
+
+def _write_parquet(path: Path, rows: list[dict], schema: pa.Schema) -> None:
+    """ALWAYS write, schema declared. An empty run writes an EMPTY table with the full schema — never
+    nothing, which would leave the previous run's file in place beside a fresh metrics.json."""
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema), path)
 
 
 def run(
@@ -182,8 +254,18 @@ def run(
             realized=realized,
             single_name_security=_single_name_security(conn, tenant_id),
         )
-        _write_parquet(out / "outcomes.parquet", [o.model_dump(mode="json") for o in outcomes])
-        _write_parquet(out / "episodes.parquet", [e.model_dump(mode="json") for e in episodes])
+        # ALWAYS written, schema declared — a zero-episode run leaves an EMPTY file, never the previous
+        # run's (F3). The schema comes from the model, so the empty and populated shapes are identical.
+        _write_parquet(
+            out / "outcomes.parquet",
+            [o.model_dump(mode="json") for o in outcomes],
+            arrow_schema(Outcome),
+        )
+        _write_parquet(
+            out / "episodes.parquet",
+            [e.model_dump(mode="json") for e in episodes],
+            arrow_schema(Episode),
+        )
         (out / "metrics.json").write_text(
             metrics.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n"
         )
