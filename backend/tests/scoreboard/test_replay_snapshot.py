@@ -206,9 +206,7 @@ def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket
     """The honest residual: a window predating the snapshot table replays on the live roster. That is the
     right behavior (#9 — never blank a basket for want of history) but it must be SAID, per run and
     quantitatively, in the F11 voice: a recompute, never the recorded call."""
-    note = (
-        "2 of 5 theses recomputed on TODAY's basket for 300 session(s) — no roster snapshot existed"
-    )
+    note = "2 of 5 replayed theses recomputed on TODAY's basket for 300 session(s) — none existed"
     snap = _build([], {_TID: []}, record_began=None)
     with_fallback = build_snapshot(
         {_TID: []},
@@ -224,6 +222,8 @@ def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket
         roster_source_note=note,
     )
 
+    # this note starts with a DIGIT, so sentence-casing is a no-op and it rides verbatim — the "all N…"
+    # shape, which does get cased, is pinned by test_the_roster_clause_is_SENTENCE_cased_* below
     assert note in with_fallback.banner
     assert "Rosters are point-in-time." not in with_fallback.banner  # the clean claim is NOT made
     assert with_fallback.roster_fallback_theses == 2
@@ -246,3 +246,29 @@ def test_an_artifact_written_BEFORE_F4_still_validates():
 
     assert reparsed.roster_fallback_theses == 0
     assert reparsed.roster_source_note is None
+
+
+def test_the_roster_clause_is_SENTENCE_cased_without_flattening_TODAY():
+    """The banner puts the roster note after a full stop, and the note is composed lowercase (it also
+    rides a run-report line mid-sentence) — so "…NOT the record. all 10 replayed theses…" read as a broken
+    sentence on the staged dev artifact. Sentence-cased on the FIRST CHARACTER ONLY: `str.capitalize()`
+    would lowercase the rest and turn "TODAY's basket" into "today's basket", destroying the emphasis that
+    is the entire point of the word."""
+    note = "all 10 replayed theses recomputed on TODAY's basket for 120 session(s)"
+    snap = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2026, 6, 15),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        roster_fallback_theses=10,
+        roster_source_note=note,
+    )
+
+    assert "NOT the record. All 10 replayed theses" in snap.banner
+    assert "TODAY's basket" in snap.banner  # not flattened to "today's"
+    assert snap.roster_source_note == note  # the artifact keeps the verbatim, uncased note

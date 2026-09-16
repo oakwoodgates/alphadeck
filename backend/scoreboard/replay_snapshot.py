@@ -130,8 +130,15 @@ def build_snapshot(
     # for how many sessions. Silence means every thesis replayed on a real point-in-time roster, which the
     # blanket sentence could never say. `roster_source_note` is backend-authored (one authority, the
     # `ingest_note` precedent) and speaks in the F11 voice: a recompute, never the recorded call.
+    # The note is composed lowercase (it also rides a run-report line mid-sentence), so it is
+    # sentence-cased HERE — it follows a full stop in the banner, and "…NOT the record. all 10 replayed
+    # theses…" reads as a broken sentence. First character only, NOT `str.capitalize()`, which lowercases
+    # the rest and would turn "TODAY's basket" into "today's basket" — destroying the emphasis that is the
+    # whole point of the word.
     roster_clause = (
-        f" {roster_source_note}." if roster_source_note else " Rosters are point-in-time."
+        f" {roster_source_note[0].upper()}{roster_source_note[1:]}."
+        if roster_source_note
+        else " Rosters are point-in-time."
     )
     banner = (
         f"REPLAYED — today's code + dials over historical facts (window {window_start} → "
