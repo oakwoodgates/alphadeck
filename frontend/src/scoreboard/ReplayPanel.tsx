@@ -60,10 +60,17 @@ export function ReplayPanel({
             OVERLAPS RECORD
           </span>
         )}
-        <em className="hint">
+        <em className="hint" title={data.config_hash ?? undefined}>
           {/* ISO dates, not fmtDate: the window spans years — "Jul 9 → Jul 9" reads zero-length */}
           · window {data.window_start} → {data.window_end} · generated{" "}
           {data.generated_at?.slice(0, 10)} · not the record
+          {/* F2 — WHICH DIALS this panel reflects, on the line that already says "not the record", so a
+              COLLAPSED panel still names its policy. `policy_label` is composed SERVER-side (the
+              `ingest_note` precedent): the hash is shortened in exactly one place in the codebase
+              (`domain.config.short_hash`), this renders the sentence and computes nothing, and the two
+              surfaces that show a policy — this line and the banner — can never disagree. The FULL hash
+              rides the hover, so provenance still shows its work (#6). */}
+          {data.policy_label && <> · {data.policy_label}</>}
         </em>
         <span className="ct">· {data.n_episodes}</span>
       </button>

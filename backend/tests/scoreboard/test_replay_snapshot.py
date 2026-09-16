@@ -184,3 +184,77 @@ def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):
     path.write_text("{not json", encoding="utf-8")
     assert read_snapshot(base_dir=tmp_path) is None  # absence, never a raise
     assert read_snapshot(base_dir=tmp_path / "missing") is None
+
+
+# --- F2: the panel names the policy it reflects -------------------------------------------------------
+
+
+def test_the_artifact_and_banner_NAME_the_policy_they_reflect():
+    """The panel used to claim "today's code + dials" while the CLI called `replay_all` with no `cfg` at
+    all — so it silently took DEFAULT_CONFIG and the artifact recorded neither the dials nor the code. It
+    could not back its own sentence. Now the fingerprint rides the artifact and the banner says it.
+    """
+    from domain.config import DEFAULT_CONFIG, config_hash, short_hash
+
+    digest = config_hash(DEFAULT_CONFIG)
+    snap = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2025, 7, 9),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        config_hash=digest,
+        code_sha="9f8e7d6c5b4a3210",
+    )
+
+    assert snap.config_hash == digest  # the FULL value, never truncated on the artifact
+    assert snap.code_sha == "9f8e7d6c5b4a3210"
+    assert snap.policy_label == f"policy {short_hash(digest)}"
+    assert f"Policy {short_hash(digest)}." in snap.banner
+    assert digest not in snap.banner  # the LINE is short; the raw value rides beside it
+
+
+def test_the_policy_label_is_shortened_SERVER_side_only_once():
+    """The hash is sliced in exactly one place in the codebase (`domain.config.short_hash`). The panel
+    renders `policy_label` verbatim and computes nothing, so the collapsed hint line and the banner can
+    never disagree about how long a policy prefix is."""
+    from domain.config import short_hash
+
+    full = "0123456789abcdef0123456789abcdef"
+    snap = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2025, 7, 9),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        config_hash=full,
+    )
+
+    assert snap.policy_label == f"policy {short_hash(full)}"
+    assert len(short_hash(full)) == 8
+
+
+def test_an_artifact_with_NO_identity_says_nothing_rather_than_guessing():
+    """An artifact generated before F2 carries no fingerprint, and the honest rendering of that is
+    SILENCE — not "policy unknown", which would read as a computed answer. The defaulted fields also mean
+    such an artifact still validates: `available:false` must mean "no artifact", never "a schema moved".
+    """
+    from scoreboard.schema import ReplaySnapshot
+
+    snap = _build([], {_TID: []}, record_began=None)
+    assert snap.config_hash is None and snap.code_sha is None and snap.policy_label is None
+    assert "Policy" not in snap.banner
+
+    old = snap.model_dump(mode="json")
+    for key in ("config_hash", "code_sha", "policy_label"):
+        del old[key]
+    reparsed = ReplaySnapshot.model_validate(old)
+    assert reparsed.config_hash is None and reparsed.policy_label is None

@@ -288,6 +288,14 @@ has depth while the forward record accrues — without polluting it. Structure o
   seam (`window_end`) and a censored record episode on the same name are the same real arm, split
   at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
   (`window_overlaps_record` + a banner warning), never silent.
+- **...and it NAMES the dials (F2).** The snapshot CLI used to call `replay_all` with no `cfg`, so it
+  silently took `DEFAULT_CONFIG` and the artifact recorded neither the dials nor the code — the panel
+  claimed "today's code + dials" with nothing to back it. It now passes one explicit `cfg` and stamps that
+  run's `config_hash` (the SAME fingerprint the `calls` rows carry, so a replayed episode and a recorded
+  night are comparable on policy) plus the image `code_sha`. The banner says `Policy ‹hash8›.` and the
+  collapsed header's "not the record" line carries `· policy ‹hash8›`, so a closed panel still says what it
+  reflects; the full hash rides the hover. The short form is composed SERVER-side, so the hash is shortened
+  in exactly one place in the codebase and the two surfaces cannot disagree.
 - **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts; baskets are not
   versioned (`REPLAY.md`'s known limitation — the platform-wide gap `INVARIANTS.md` §Known gaps names, shared
   with `pipeline.backfill` and the Board/Cockpit scrub-back) — the caveat rides the banner permanently. Separate

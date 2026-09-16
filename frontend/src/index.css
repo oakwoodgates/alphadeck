@@ -879,7 +879,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-editor-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; }
 .wb-dirty { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warm); }
 /* Autosave status (the resumable prune) — quiet by default (inverse loudness #7); loud only on sustained failure. */
-.wb-autosave { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.04em; color: var(--muted); }
+/* `--muted` was never declared in :root (grep: this was its ONLY use), so `color: var(--muted)` was an
+   invalid value and the label silently INHERITED its parent's color instead of reading as dim. Switched
+   to the existing dim-caption token rather than declaring a second name for a tone the palette already
+   has — one use site, and an alias would invite the two drifting apart. */
+.wb-autosave { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.04em; color: var(--txt-3); }
 .wb-autosave.saved { color: var(--manage); }
 .wb-autosave.err { color: var(--danger, #d64545); font-weight: 700; }
 

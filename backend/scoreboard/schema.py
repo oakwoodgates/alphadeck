@@ -183,6 +183,18 @@ class ReplaySnapshot(BaseModel):
     known_at_pin: str
     record_began: date | None = None
     window_overlaps_record: bool = False  # end pushed past the record: loud, never silent
+    # F2 — WHICH POLICY AND WHICH CODE this panel reflects. The snapshot CLI used to call replay_all with
+    # no `cfg` at all, so it silently took DEFAULT_CONFIG and the artifact recorded neither the dials nor
+    # the code that produced it: the panel could not say what it was showing. `config_hash` is the same
+    # fingerprint the `calls` rows carry (`domain.config.config_hash`), so a replayed episode and a
+    # recorded night are comparable on policy for the first time. Defaulted, so an artifact written before
+    # this change still validates — `available:false` must mean "no artifact", never "a schema moved".
+    config_hash: str | None = None
+    code_sha: str | None = None
+    # ...and the display form, composed HERE so the hash is shortened in exactly one place in the codebase
+    # (`domain.config.short_hash`) and the frontend renders a sentence rather than computing one — the
+    # `ingest_note` / `run_identity_note` precedent. `None` on an artifact that carries no fingerprint.
+    policy_label: str | None = None
     banner: str
     min_n: int
     n_theses: int = 0

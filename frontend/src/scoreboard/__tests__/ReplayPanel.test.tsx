@@ -118,6 +118,27 @@ describe("ReplayPanel", () => {
     expect(screen.queryByText(/REPLAYED — today's code/)).not.toBeInTheDocument();
   });
 
+  // F2 — the panel names the DIALS it reflects, on the line that already says "not the record", so a
+  // COLLAPSED panel still says what it is showing. The label is server-composed; the panel renders it.
+  it("names the policy on the collapsed header, with the full hash one hover away", () => {
+    const full = "0123456789abcdef0123456789abcdef";
+    renderPanel({
+      data: { ...PAYLOAD, config_hash: full, policy_label: "policy 01234567" },
+    });
+    const head = screen.getByRole("button", { name: /Historical — replayed/ });
+    expect(head.textContent).toContain("policy 01234567");
+    expect(head.textContent).not.toContain(full); // the LINE is short...
+    // ...and the untruncated value rides the hover, so provenance still shows its work
+    expect(head.querySelector("em.hint")).toHaveAttribute("title", full);
+  });
+
+  it("says nothing about policy when the artifact predates the fingerprint", () => {
+    renderPanel(); // PAYLOAD carries no config_hash — an artifact generated before F2
+    const head = screen.getByRole("button", { name: /Historical — replayed/ });
+    expect(head.textContent).not.toContain("policy");
+    expect(head.textContent).toContain("not the record"); // the rest of the line is unchanged
+  });
+
   it("expands to the banner, its own gated metrics strip, and the replayed rows", () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /Historical — replayed/ }));

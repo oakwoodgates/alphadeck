@@ -9,7 +9,9 @@ from uuid import UUID
 
 import psycopg
 
+from domain.config import DEFAULT_CONFIG, config_hash, short_hash
 from domain.market_time import market_today
+from domain.settings import get_settings
 from replay.episodes import derive_episodes
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot, Episode, Outcome
@@ -67,6 +69,8 @@ def build_snapshot(
     record_began: date | None,
     realized: _Realized | None = None,
     single_name_security: dict[UUID, UUID] | None = None,
+    config_hash: str | None = None,
+    code_sha: str | None = None,
 ) -> ReplaySnapshot:
     """Flatten a replay run into the artifact — pure (no DB, no duckdb, no clock).
 
@@ -122,9 +126,15 @@ def build_snapshot(
         single_name_security=single_name_security,
     )
     overlaps = record_began is not None and window_end >= record_began
+    # F2 — WHICH DIALS this panel reflects, said quietly on the line that already says "not the record".
+    # The snapshot CLI used to take DEFAULT_CONFIG implicitly, so "today's code + dials" was a claim the
+    # artifact could not back. Shortened HERE, server-side, through `domain.config.short_hash` — the one
+    # slicing point in the codebase — so the frontend renders the sentence and computes nothing.
+    policy_label = f"policy {short_hash(config_hash)}" if config_hash else None
+    policy = f" {policy_label.capitalize()}." if policy_label else ""
     banner = (
         f"REPLAYED — today's code + dials over historical facts (window {window_start} → "
-        f"{window_end}, pinned {pin.date()}); NOT the record. Baskets are not versioned "
+        f"{window_end}, pinned {pin.date()}); NOT the record.{policy} Baskets are not versioned "
         f"(REPLAY.md known limitation). {len(eligible)} episodes eligible for metrics "
         f"(matured + non-censored; gate n<{MIN_N})."
         + (
@@ -141,6 +151,9 @@ def build_snapshot(
         known_at_pin=pin.isoformat(),
         record_began=record_began,
         window_overlaps_record=overlaps,
+        config_hash=config_hash,
+        code_sha=code_sha,
+        policy_label=policy_label,
         banner=banner,
         min_n=MIN_N,
         n_theses=len(theses),
@@ -190,6 +203,7 @@ def main() -> None:
         )
         start = date.fromisoformat(args.start) if args.start else end - timedelta(days=365)
         pin = datetime.now(timezone.utc)
+        cfg = DEFAULT_CONFIG  # the panel reflects PRODUCTION dials; F2 makes it say which
 
         theses = thesis_repo.list_all(conn)  # archived EXCLUDED (the locked default)
         meta = {
@@ -211,7 +225,13 @@ def main() -> None:
             export_snapshot(conn, tmp)
             con = connect_mirror(tmp)
             try:
-                timeline = replay_all(conn, con, start=start, end=end, known_at=pin)
+                # F2 — ONE explicit cfg for the run, passed to the harness AND hashed into the
+                # artifact. It used to be omitted entirely, so `replay_all` silently defaulted and the
+                # panel could not name the dials it was showing. Holding it in a local (rather than
+                # hashing DEFAULT_CONFIG separately) is what keeps the stamp honest: if this run ever
+                # sweeps a non-default cfg, the fingerprint follows it instead of describing a policy
+                # that did not produce these episodes — the same rule `pipeline.daily` holds.
+                timeline = replay_all(conn, con, start=start, end=end, known_at=pin, cfg=cfg)
                 episodes = [ep for snaps in timeline.values() for ep in derive_episodes(snaps)]
                 realized = RealizedPrices(con)
                 scored = list(zip(episodes, score_episodes(episodes, realized), strict=True))
@@ -227,6 +247,8 @@ def main() -> None:
                     record_began=record_began,
                     realized=realized,
                     single_name_security=single_name,
+                    config_hash=config_hash(cfg),
+                    code_sha=get_settings().image_sha,
                 )
             finally:
                 con.close()
