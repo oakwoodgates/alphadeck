@@ -75,16 +75,29 @@ def trading_sessions(
 class RosterSource:
     """Where one thesis's roster came from across the sweep — the label behind every replayed episode.
 
-    ``source`` is ``"snapshot"`` only when EVERY replayed T resolved a real point-in-time roster; one
-    fallback day makes the whole thesis ``"live_fallback"``, because a timeline stitched from both is a
-    counterfactual on membership and rounding that to "snapshot" would be the silent half-truth this field
-    exists to prevent. The day counts keep it quantitative rather than binary: a thesis whose window is 2
-    fallback days out of 300 is a very different artifact from one that is 300 out of 300, and the banner
-    can say which."""
+    THREE values, because "we read a point-in-time roster" and "there was nothing to read" are different
+    answers and collapsing them lies:
 
-    source: str  # "snapshot" | "live_fallback"
+    - ``"snapshot"`` — the thesis replayed at least one session and EVERY one of them resolved a real
+      point-in-time roster. One fallback day demotes the whole thesis, because a timeline stitched from
+      both is a counterfactual on membership and rounding that up would be the silent half-truth this
+      field exists to prevent.
+    - ``"live_fallback"`` — at least one replayed session had no qualifying snapshot, so the live roster
+      stood in for it.
+    - ``"no_sessions"`` — the thesis replayed NOTHING (``total_days == 0``): an empty basket, or no bars
+      in the window. It made no roster claim either way, so it must not be counted as evidence for one.
+      MEASURED on the staged dev artifact (window 2026-06-15 → 07-09): two theses with no basket members
+      swept zero sessions, so ``fallback_days == 0`` read as ``"snapshot"`` and the banner announced "10
+      of 12" when no snapshot existed in June and every thesis that actually replayed had fallen back.
+      A vacuous zero is not a clean run.
+
+    The day counts keep it quantitative rather than binary: a thesis whose window is 2 fallback days out
+    of 300 is a very different artifact from one that is 300 out of 300, and the banner can say which.
+    """
+
+    source: str  # "snapshot" | "live_fallback" | "no_sessions"
     fallback_days: int  # replayed sessions with NO qualifying snapshot (the live roster stood in)
-    total_days: int  # replayed sessions in the window (0 = the thesis never replayed)
+    total_days: int  # replayed sessions in the window (0 => source is "no_sessions")
 
 
 @dataclass(frozen=True)
@@ -103,21 +116,34 @@ class ReplayResult:
         """How many theses replayed on the live roster for at least one session."""
         return sum(1 for r in self.roster_sources.values() if r.source == "live_fallback")
 
+    @property
+    def replayed_theses(self) -> int:
+        """How many theses actually swept a session — the only honest denominator for the note.
+
+        A thesis with an empty basket (or no bars in the window) replays nothing and asserts nothing about
+        rosters, so counting it would understate the fallback: the staged dev artifact read "10 of 12" when
+        all 10 theses that replayed had fallen back and the other 2 had simply not run."""
+        return sum(1 for r in self.roster_sources.values() if r.source != "no_sessions")
+
     def note(self) -> str | None:
         """The one-line roster caption for a run report / the panel banner, or ``None`` when every thesis
-        replayed on a real point-in-time roster. Backend-authored copy, one authority (the ``ingest_note``
-        precedent), in the F11 voice: this says the recompute is a recompute, never that it is the record.
-        """
-        n = self.fallback_theses
+        that replayed did so on a real point-in-time roster. Backend-authored copy, one authority (the
+        ``ingest_note`` precedent), in the F11 voice: this says the recompute is a recompute, never that it
+        is the record.
+
+        Both halves of the ratio count only theses WITH sessions. "all M" rather than "M of M" when every
+        replayed thesis fell back — which is today's production shape, since snapshot history begins
+        2026-09-15 and any earlier window has none."""
+        n, m = self.fallback_theses, self.replayed_theses
         if not n:
             return None
         days = sum(
             r.fallback_days for r in self.roster_sources.values() if r.source == "live_fallback"
         )
+        which = f"all {m} replayed theses" if n == m else f"{n} of {m} replayed theses"
         return (
-            f"{n} of {len(self.roster_sources)} theses recomputed on TODAY's basket for "
-            f"{days} session(s) — no roster snapshot existed that far back, so their membership is a "
-            "labeled counterfactual, not the roster of record"
+            f"{which} recomputed on TODAY's basket for {days} session(s) — no roster snapshot existed "
+            "that far back, so their membership is a labeled counterfactual, not the roster of record"
         )
 
 
@@ -188,10 +214,20 @@ def replay_thesis_with_roster(
                 fallback_days += 1  # no snapshot that far back — the live roster stands in, LOUDLY
         pit = ReplayPointInTimeData(con, asof=t, known_at=known_at, tenant_id=tenant_id)
         snapshots.append(CallSnapshot.from_card(assemble_from_pit(pit, roster, t, cfg)))
+    total_days = len(sessions)
+    # A thesis that swept NO sessions made no roster claim — it must not read as a clean point-in-time
+    # run just because its fallback count is vacuously zero. `snapshot` therefore REQUIRES having
+    # actually replayed something.
+    if total_days == 0:
+        label = "no_sessions"
+    elif conn is not None and fallback_days == 0:
+        label = "snapshot"
+    else:
+        label = "live_fallback"
     source = RosterSource(
-        source="snapshot" if conn is not None and fallback_days == 0 else "live_fallback",
-        fallback_days=fallback_days if conn is not None else len(sessions),
-        total_days=len(sessions),
+        source=label,
+        fallback_days=fallback_days if conn is not None else total_days,
+        total_days=total_days,
     )
     return snapshots, source
 

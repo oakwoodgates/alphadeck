@@ -291,3 +291,91 @@ def test_replay_all_returns_the_timelines_AND_the_roster_labels(db, tmp_path):
     assert result.roster_sources[UNH_THESIS_ID].source == "live_fallback"
     assert result.note() is not None
     assert UNH_SECURITY_ID  # the seed's ids are imported and real (guards a stale import)
+
+
+# --- a thesis that replayed NOTHING makes no roster claim ----------------------------------------------
+#
+# MEASURED on the staged dev artifact (window 2026-06-15 -> 07-09, 12 theses): the banner announced "10 of
+# 12 theses recomputed on TODAY's basket" although NO snapshot existed in June, so every thesis that
+# actually replayed had fallen back. The two it excused had no basket members at all: zero sessions ->
+# `fallback_days == 0` -> the old rule read that as "snapshot" and the ratio quietly understated the
+# fallback. A vacuous zero is not a clean run, and a denominator that counts theses which never ran is not
+# a denominator.
+
+
+def _sources(*specs) -> dict:
+    return {uuid.uuid4(): RosterSource(*spec) for spec in specs}
+
+
+def test_a_thesis_with_NO_members_reports_no_sessions_not_snapshot(db, tmp_path):
+    """The real shape from the dev artifact, end to end: a thesis whose basket is empty sweeps no sessions
+    and must say so. Claiming "snapshot" would assert a point-in-time roster that was never read."""
+    seed_unh(db)
+    db.commit()
+    empty = thesis_repo.get(db, UNH_THESIS_ID)
+    empty.basket = []  # the "DEV" / "Modern Defense Buildout" shape: promoted, never populated
+
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    try:
+        snaps, source = replay_thesis_with_roster(
+            con, empty, start=_START, end=_END, known_at=_PIN, conn=db
+        )
+    finally:
+        con.close()
+
+    assert snaps == []
+    assert source == RosterSource(source="no_sessions", fallback_days=0, total_days=0)
+    assert (
+        source.source != "snapshot"
+    ), "a vacuous zero must never read as a clean point-in-time run"
+
+
+def test_snapshot_REQUIRES_having_actually_replayed_something():
+    """The rule, stated directly on the three shapes so a refactor cannot quietly restore the old one."""
+    assert RosterSource("no_sessions", 0, 0).source == "no_sessions"
+    # ...and the constructor's callers are pinned by the end-to-end tests above; here we pin the meaning:
+    result = ReplayResult(
+        timelines={},
+        roster_sources=_sources(
+            ("snapshot", 0, 12), ("live_fallback", 12, 12), ("no_sessions", 0, 0)
+        ),
+    )
+    assert result.replayed_theses == 2  # the no-session thesis is NOT a denominator
+    assert result.fallback_theses == 1
+
+
+def test_the_note_excludes_no_session_theses_from_BOTH_halves():
+    """The staged-dev regression, pinned: 10 fell back, 2 never ran. The honest sentence is about the 10."""
+    result = ReplayResult(
+        timelines={},
+        roster_sources=_sources(
+            *([("live_fallback", 12, 12)] * 10), ("no_sessions", 0, 0), ("no_sessions", 0, 0)
+        ),
+    )
+
+    note = result.note()
+    assert note is not None
+    assert "all 10 replayed theses" in note
+    assert "10 of 12" not in note and "of 12" not in note  # the bug's exact wording, gone
+    assert "120 session(s)" in note  # the day count sums only the theses that ran
+
+
+def test_the_note_says_N_of_M_when_only_SOME_replayed_theses_fell_back():
+    """The mixed case still reads as a ratio — "all" is reserved for when it is literally all of them."""
+    result = ReplayResult(
+        timelines={},
+        roster_sources=_sources(
+            ("live_fallback", 3, 12), ("snapshot", 0, 12), ("no_sessions", 0, 0)
+        ),
+    )
+    assert "1 of 2 replayed theses" in result.note()
+
+
+def test_a_run_where_every_REPLAYED_thesis_had_a_snapshot_says_nothing():
+    """Silence is the clean case, and a no-session thesis must not break it into a false alarm."""
+    result = ReplayResult(
+        timelines={}, roster_sources=_sources(("snapshot", 0, 12), ("no_sessions", 0, 0))
+    )
+    assert result.note() is None
+    assert result.fallback_theses == 0
