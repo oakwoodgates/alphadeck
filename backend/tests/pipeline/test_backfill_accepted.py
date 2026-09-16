@@ -21,6 +21,11 @@ from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
 from ingest import CacheMiss
 from ingest.edgar.form4 import ingest_form4
+from ingest.edgar.submissions import (
+    acceptance_times_deep,
+    fetch_submissions_page,
+    submissions_page_names,
+)
 from pipeline.backfill_accepted import run_backfill, run_verify
 
 _XML = (
@@ -331,3 +336,261 @@ def test_execute_refuses_loud_on_a_pre_0037_constraint(db, security_id):
                 "(tenant_id, security_id, accession, insider_name, valid_from, txn_seq, recorded_at)"
             )
         db.commit()
+
+
+# --- P2: the --deep walk over filings.files[] ---------------------------------------------------------
+#
+# EDGAR's ``recent`` window is bounded per CIK by FILING COUNT, so the heaviest-filing names lose acceptance
+# coverage FIRST — and heavy filing volume means many insiders transacting, exactly what the cluster
+# detector keys on. MEASURED on the dev copy of prod: coverage is flat ~44-49% across every quarter of the
+# 2025-04-01 -> 2026-06-30 window (so the gap is NOT age-driven) but falls from 70.3% for securities with
+# 20-99 in-window rows to 42.4% for those with 500+. The older filings live in paginated
+# ``filings.files[]``; this is the walk that reaches them.
+#
+# The page shape is REAL, verified live against EDGAR 2026-09-15 (CIK0000051143-submissions-001.json): an
+# older page carries the same parallel arrays as ``filings.recent`` but at its TOP level, not nested.
+
+
+def _page(rows: list[tuple[str, str]]) -> dict:
+    """An OLDER submissions page: the same parallel arrays as ``recent``, at the document's top level."""
+    return {
+        "form": ["4"] * len(rows),
+        "accessionNumber": [a for a, _ in rows],
+        "acceptanceDateTime": [t for _, t in rows],
+        "filingDate": ["2019-01-01"] * len(rows),
+    }
+
+
+def _subs_with_pages(rows: list[tuple[str, str]], page_names: list[str]) -> dict:
+    subs = _subs(rows)
+    subs["filings"]["files"] = [
+        {"name": n, "filingCount": 2000, "filingFrom": "2012-05-16", "filingTo": "2019-12-31"}
+        for n in page_names
+    ]
+    return subs
+
+
+class _PagedClient(_FakeClient):
+    """``_FakeClient`` that ALSO serves older pages by filename, and records every cache key requested —
+    so a test can prove the deep walk went through the polite/cached client rather than around it.
+    """
+
+    def __init__(self, by_cik: dict[str, dict], pages: dict[str, dict] | None = None) -> None:
+        super().__init__(by_cik)
+        self.pages = pages or {}
+        self.keys: list[str] = []
+
+    def get_json(self, url: str, cache_key: str) -> dict:
+        self.keys.append(cache_key)
+        name = cache_key.split("/")[-1]
+        if name in self.pages:
+            return self.pages[name]
+        if "-submissions-" in name:  # a listed page we have no canned body for -> uncached
+            raise CacheMiss(cache_key)
+        return super().get_json(url, cache_key)
+
+
+@pytest.mark.parametrize(
+    "name, kept",
+    [
+        ("CIK0000051143-submissions-001.json", True),  # the real EDGAR shape
+        ("CIK0001234567-submissions-014.json", True),
+        ("../../../etc/passwd", False),  # the name is used as a cache PATH — never unvalidated
+        ("CIK0000051143-submissions-001.json/../evil", False),
+        ("CIK51143-submissions-001.json", False),  # EDGAR zero-pads the CIK to 10 in its own naming
+        ("", False),
+    ],
+)
+def test_submissions_page_names_validates_before_the_name_becomes_a_path(name, kept):
+    subs = _subs([])
+    subs["filings"]["files"] = [{"name": name}]
+    assert submissions_page_names(subs) == ([name] if kept else [])
+
+
+def test_fetch_submissions_page_refuses_an_unvalidated_name():
+    with pytest.raises(ValueError):
+        fetch_submissions_page(_PagedClient({}), "../evil.json")
+
+
+def test_a_company_inside_the_recent_window_reads_zero_pages():
+    """No ``filings.files[]`` -> the deep walk costs nothing extra for that name."""
+    client = _PagedClient({})
+    amap, read, failed = acceptance_times_deep(
+        client, _subs([("acc-a", "2026-01-02T18:30:00.000Z")])
+    )
+    assert (read, failed) == (0, 0)
+    assert set(amap) == {"acc-a"}
+    assert client.keys == []  # nothing fetched
+
+
+def test_deep_merges_the_older_pages_and_recent_wins_a_collision():
+    recent = [("acc-recent", "2026-01-02T18:30:00.000Z"), ("acc-both", "2026-02-02T18:30:00.000Z")]
+    pages = {
+        "CIK0001234567-submissions-001.json": _page(
+            [("acc-old-1", "2019-03-04T21:00:00.000Z"), ("acc-both", "1999-01-01T00:00:00.000Z")]
+        ),
+        "CIK0001234567-submissions-002.json": _page([("acc-old-2", "2015-06-07T22:15:00.000Z")]),
+    }
+    client = _PagedClient({}, pages)
+    subs = _subs_with_pages(recent, list(pages))
+
+    amap, read, failed = acceptance_times_deep(client, subs)
+
+    assert (read, failed) == (2, 0)
+    assert set(amap) == {"acc-recent", "acc-both", "acc-old-1", "acc-old-2"}
+    # the recent window is the freshest statement of the same accession — it wins
+    assert amap["acc-both"] == "2026-02-02T18:30:00.000Z"
+    # ...and every page went through the client under the submissions/ cache key (EDGAR etiquette: one
+    # polite, rate-limited, cached read per page — never a bare request)
+    assert client.keys == [f"submissions/{n}" for n in pages]
+
+
+def test_an_unreadable_page_is_counted_and_never_silently_dropped():
+    """#9: one unreadable page must not cost the other pages' coverage, and it must be VISIBLE."""
+    pages = {
+        "CIK0001234567-submissions-002.json": _page([("acc-old-2", "2015-06-07T22:15:00.000Z")])
+    }
+    client = _PagedClient({}, pages)
+    subs = _subs_with_pages(
+        [("acc-recent", "2026-01-02T18:30:00.000Z")],
+        ["CIK0001234567-submissions-001.json", "CIK0001234567-submissions-002.json"],
+    )
+
+    amap, read, failed = acceptance_times_deep(client, subs)
+
+    assert (read, failed) == (1, 1)  # the failure is COUNTED, not absorbed
+    assert set(amap) == {"acc-recent", "acc-old-2"}  # the readable page still contributed
+
+
+def test_backfill_deep_resolves_an_accession_the_recent_window_cannot(db, security_id):
+    """The whole point: an accession that fell out of ``recent`` stays NULL on a normal run and resolves
+    on a ``--deep`` one. Same DB, same rows, the only difference is the flag."""
+    ingest_form4(db, security_id, _XML, "acc-old")  # accepted NULL, and NOT in recent
+    db.commit()
+    old = "2019-03-04T21:00:00.000Z"
+    pages = {"CIK0001234567-submissions-001.json": _page([("acc-old", old)])}
+    subs = _subs_with_pages([("acc-other", "2026-01-02T18:30:00.000Z")], list(pages))
+
+    shallow = run_backfill(
+        db, client=_PagedClient({"1234567": subs}, pages), execute=True, log=lambda *_: None
+    )
+    assert shallow.rows_corrected == 0
+    assert _latest_accepted(db, "acc-old") == {None}  # unresolved -> NULL and VISIBLE (#9)
+    assert shallow.accessions_unresolved == 1
+
+    deep = run_backfill(
+        db,
+        client=_PagedClient({"1234567": subs}, pages),
+        execute=True,
+        deep=True,
+        log=lambda *_: None,
+    )
+    assert deep.rows_corrected == 2  # both txns of the filing
+    assert deep.pages_read == 1 and deep.pages_failed == 0
+    assert _latest_accepted(db, "acc-old") == {datetime(2019, 3, 4, 21, 0, tzinfo=_UTC)}
+
+
+def test_backfill_deep_rerun_appends_zero_rows_count_the_table(db, security_id):
+    """THE idempotency gate, counted on the TABLE: the as-of read dedups on the natural key, so a duplicate
+    correction would hide behind a perfectly correct read while the table silently grew."""
+    ingest_form4(db, security_id, _XML, "acc-old")
+    db.commit()
+    pages = {"CIK0001234567-submissions-001.json": _page([("acc-old", "2019-03-04T21:00:00.000Z")])}
+    subs = _subs_with_pages([], list(pages))
+
+    def run():
+        return run_backfill(
+            db,
+            client=_PagedClient({"1234567": subs}, pages),
+            execute=True,
+            deep=True,
+            log=lambda *_: None,
+        )
+
+    run()
+    before = _count(db)
+
+    second = run()
+
+    assert _count(db) == before  # the TABLE did not grow
+    assert second.rows_corrected == 0 and second.scopes_targeted == 0
+
+
+def test_backfill_reports_coverage_before_and_after(db, security_id):
+    ingest_form4(db, security_id, _XML, "acc-old")
+    db.commit()
+    pages = {"CIK0001234567-submissions-001.json": _page([("acc-old", "2019-03-04T21:00:00.000Z")])}
+    subs = _subs_with_pages([], list(pages))
+
+    res = run_backfill(
+        db,
+        client=_PagedClient({"1234567": subs}, pages),
+        execute=True,
+        deep=True,
+        log=lambda *_: None,
+    )
+
+    assert (res.coverage_keys_before, res.coverage_nonnull_before) == (2, 0)
+    assert (res.coverage_keys_after, res.coverage_nonnull_after) == (2, 2)
+
+
+def _place_in_a_basket(db, security_id) -> None:
+    tid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, %s, %s)",
+            (tid, DEFAULT_TENANT_ID, "T", "n"),
+        )
+        cur.execute(
+            "INSERT INTO basket_member (tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (DEFAULT_TENANT_ID, tid, 0, "DEVCO", "core", security_id),
+        )
+    db.commit()
+
+
+def test_basket_only_narrows_the_worklist_and_never_touches_the_excluded_rows(db, security_id):
+    """The cost thread: the deep walk's pagination is spent on the names the operator's surfaces show.
+    NARROWING ONLY — an excluded security's rows are left exactly as they were, NULL and visible (#9).
+    """
+    other = _security(db, ticker="OFFTHESIS", cik="0007654321")
+    ingest_form4(db, security_id, _XML, "acc-in-basket")
+    ingest_form4(db, other, _XML, "acc-off-basket")
+    db.commit()
+    _place_in_a_basket(db, security_id)
+    client = _PagedClient(
+        {
+            "1234567": _subs([("acc-in-basket", "2026-01-02T18:30:00.000Z")]),
+            "7654321": _subs([("acc-off-basket", "2026-01-03T18:30:00.000Z")]),
+        }
+    )
+
+    res = run_backfill(db, client=client, execute=True, basket_only=True, log=lambda *_: None)
+
+    assert res.scopes_targeted == 1
+    assert _latest_accepted(db, "acc-in-basket") == {datetime(2026, 1, 2, 18, 30, tzinfo=_UTC)}
+    assert _latest_accepted(db, "acc-off-basket") == {None}  # untouched, not dropped
+
+
+def test_verify_at_the_same_depth_sees_a_deep_resolved_row_as_consistent(db, security_id):
+    """--verify must be run at the SAME depth as the backfill it checks: shallow verification of a deep
+    write would re-classify every deep-resolved key as <unresolved> and report false mismatches."""
+    ingest_form4(db, security_id, _XML, "acc-old")
+    db.commit()
+    pages = {"CIK0001234567-submissions-001.json": _page([("acc-old", "2019-03-04T21:00:00.000Z")])}
+    subs = _subs_with_pages([], list(pages))
+    run_backfill(
+        db,
+        client=_PagedClient({"1234567": subs}, pages),
+        execute=True,
+        deep=True,
+        log=lambda *_: None,
+    )
+
+    deep_v = run_verify(
+        db, client=_PagedClient({"1234567": subs}, pages), deep=True, log=lambda *_: None
+    )
+    shallow_v = run_verify(db, client=_PagedClient({"1234567": subs}, pages), log=lambda *_: None)
+
+    assert deep_v.mismatches == [] and deep_v.keys_compared == 2
+    assert len(shallow_v.mismatches) == 2  # the documented trap, pinned so it can't surprise anyone
