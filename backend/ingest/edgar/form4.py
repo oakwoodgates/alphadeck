@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from datetime import date
+from typing import NamedTuple
 from uuid import UUID
 from xml.etree.ElementTree import Element
 
@@ -23,9 +24,13 @@ from domain.coerce import to_float
 _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # --- the transaction-date sanity bound (P1) ---------------------------------------------------------
-# MEASURED on the dev copy of prod (595,376 rows, 2026-09-15): 29 rows / 15 distinct facts carry a
-# transaction date that CANNOT be true. Two shapes, and the root cause is settled — the SEC XML itself
-# says so, VERBATIM; ``parse_form4`` reproduces the filer's value faithfully:
+# MEASURED on the dev copy of prod (595,376 rows; re-verified independently 2026-09-16, same numbers):
+# 29 rows / 15 distinct facts carry a transaction date that CANNOT be true — 10 below the Section 16 epoch,
+# 19 after the accession's own filing year; txn codes A=8, F=6, M=2, S=13 and ZERO ``P``, so no arm can
+# change. Two shapes, and the root cause is settled IN THE REPO, not in prose: both documents below are
+# committed verbatim as fixtures (``tests/fixtures/edgar/form4_bbai_leading_zero_year.xml`` /
+# ``form4_lscc_future_year.xml``, fetched live from EDGAR 2026-09-16 with the declared User-Agent) and
+# ``tests/ingest/test_form4.py::test_the_real_sec_xml_really_says_the_impossible_date`` asserts it:
 #   * a leading-zero year — 0001628280-24-010030 (BBAI) really contains
 #     ``<transactionDate><value>0023-03-23</value></transactionDate>`` (and its OTHER two transactions are
 #     correctly dated 2023-11-13 / 2024-03-05); 0000913760-24-000032 (SNEX) carries ``0024-02-12`` beside a
@@ -34,8 +39,11 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 #     filed 2024-02-20; 0001628280-23-035012 (CRDO) says ``2024-10-24`` on one filed 2023-10-24.
 # So this is FILER GARBAGE, not a parser bug, and the disposition follows from #3: we must NOT invent a
 # corrected date (``periodOfReport`` is the EARLIEST reportable transaction date, not this row's, and on the
-# SNEX/BBAI/GS filings it is itself corrupt). The row is REJECTED and printed in full; the rest of the
-# filing still stores (#9 — one filer typo never blanks five good transactions).
+# SNEX/BBAI/GS filings it is itself corrupt — the BBAI fixture's periodOfReport is ALSO ``0023-03-23``, and
+# a test pins that too). The row is REJECTED and printed in full; the rest of the filing still stores
+# (#9 — one filer typo never blanks the filing's good transactions: the LSCC document holds six
+# transactions, of which ``parse_form4`` stores the four non-derivative ones, so THREE correctly-dated rows
+# survive the rejection — not the five an earlier draft claimed by counting all six).
 #
 # The bound is deliberately STRUCTURAL — derived from the filing's own identity, never from an ambient
 # clock and never from a tuned constant:
@@ -228,6 +236,17 @@ def parse_form4(xml: str) -> list[dict]:
     return txns
 
 
+class Form4Ingest(NamedTuple):
+    """One filing's ingest outcome: rows appended, and transactions REJECTED by the sanity bound.
+
+    ``rejected`` exists so a gate can watch the aggregate — it is never the primary report. Every rejection
+    also PRINTS in full (accession, insider, sequence, raw date, reason); the earlier Form-4 defect hid
+    precisely because a counter was rising and a rising counter reads as normal operation."""
+
+    appended: int
+    rejected: int
+
+
 def ingest_form4(
     conn: psycopg.Connection,
     security_id: UUID,
@@ -237,9 +256,9 @@ def ingest_form4(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
     accepted=None,
-) -> int:
+) -> Form4Ingest:
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
-    owns the transaction (no commit here). Returns the count appended.
+    owns the transaction (no commit here). Returns ``(appended, rejected)``.
 
     ``accepted`` is the SEC acceptance datetime (the real "disclosed" clock) threaded from the
     enumeration (``submissions.acceptanceDateTime``, parsed via ``parse_acceptance``) — the ownership XML
@@ -248,18 +267,29 @@ def ingest_form4(
     ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
 
     THE SANITY BOUND (P1): a transaction whose date cannot be true (``implausible_txn_date``) is REJECTED —
-    never stored, never clamped to a guessed date (#3: a clamp fabricates a fact), and never absorbed into a
-    tally. Each rejection PRINTS the accession, the insider, the sequence and the raw date, because a rising
-    skip COUNTER is exactly how a real Form-4 bug hid before (the skip-counter lesson). Rejection is
-    per-TRANSACTION, not per-filing: the LSCC filing that carries one ``2027-02-17`` row also carries five
-    correctly-dated ones, and dropping the filing would lose them (#9).
+    never stored, never clamped to a guessed date (#3: a clamp fabricates a fact). Each rejection PRINTS the
+    accession, the insider, the sequence and the raw date, AND is tallied on the returned ``rejected``.
+
+    **The count ACCOMPANIES the per-row print; it never replaces it.** That ordering is the whole lesson of
+    the earlier Form-4 bug: a rising skip COUNTER is how a real defect hid in plain sight, because a number
+    going up reads as "working as designed". The print is what makes a rejection investigable; the count is
+    only so a gate can watch the aggregate (it rides ``NameResult.form4_txn_rejected`` into the cron's
+    per-thesis summary, which prints it ONLY when nonzero — honest loudness).
+
+    Rejection is per-TRANSACTION, not per-filing: the LSCC filing (``0001437749-24-004874``, committed as
+    ``tests/fixtures/edgar/form4_lscc_future_year.xml``) carries one ``2027-02-17`` row beside THREE
+    correctly-dated non-derivative ones, and dropping the filing would lose them (#9). (The filing holds six
+    transactions in total, but ``parse_form4`` stores the non-derivative ones only — hence three, not five;
+    the fixture makes that checkable rather than a claim in prose.)
     """
     count = 0
+    rejected = 0
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
             continue
         reason = implausible_txn_date(t["txn_date"], accession)
         if reason is not None:
+            rejected += 1
             print(
                 f"  REJECT insider txn {accession} seq={i} "
                 f"{t['insider_name'] or '?'} ({t['txn_code'] or '?'}): "
@@ -303,7 +333,7 @@ def ingest_form4(
             values["accepted"] = accepted
         append_fact(conn, "fact_insider_txn", values)
         count += 1
-    return count
+    return Form4Ingest(appended=count, rejected=rejected)
 
 
 def existing_accessions(

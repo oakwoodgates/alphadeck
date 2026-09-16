@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -203,7 +203,7 @@ def test_ingest_form4_stores_a_tz_suffixed_buy(db, security_id):
     fix the whole accession was skipped-and-counted, so the row never landed)."""
     n = ingest_form4(db, security_id, _with_txn_date("2026-05-13-05:00"), "acc-tzoffset")
     db.commit()
-    assert n == 2  # both rows stored
+    assert n == (2, 0)  # both rows stored, nothing rejected
     with db.cursor() as cur:
         cur.execute(
             "SELECT valid_from FROM fact_insider_txn WHERE accession=%s AND txn_code='P'",
@@ -420,13 +420,16 @@ def _with_both_txn_dates(buy: str, sale: str) -> str:
 
 def test_ingest_form4_rejects_the_impossible_row_and_keeps_the_rest(db, security_id):
     """PER-TRANSACTION rejection, not per-filing. The real LSCC filing carries one 2027-02-17 row beside
-    five correctly-dated ones; dropping the whole filing to punish the typo would lose real insider history
-    (#9). Only the bad row is withheld, and the table proves it."""
+    three correctly-dated NON-DERIVATIVE ones (six transactions in the document; ``parse_form4`` stores the
+    non-derivative ones only) — dropping the whole filing to punish the typo would lose real insider history
+    (#9). Only the bad row is withheld, and the table proves it. The real filing is committed as a fixture
+    and exercised directly in ``test_the_real_lscc_filing_*`` below; this keeps the minimal synthetic case.
+    """
     n = ingest_form4(
         db, security_id, _with_both_txn_dates("2027-06-01", "2026-05-15"), "0000000000-26-000001"
     )
     db.commit()
-    assert n == 1  # the sale landed; the impossible buy did not
+    assert n == (1, 1)  # the sale landed; the impossible buy did not, and it is TALLIED
     with db.cursor() as cur:
         cur.execute("SELECT txn_code, valid_from FROM fact_insider_txn")
         rows = cur.fetchall()
@@ -459,3 +462,113 @@ def test_ingest_form4_prints_the_rejection_itemized_never_a_tally(db, security_i
     assert "2027-06-01" in out  # the raw date, verbatim
     assert "seq=0" in out  # which transaction within it
     assert "REJECT" in out and "NOT stored" in out
+
+
+# --- THE REAL SEC DOCUMENTS: parser-vs-filer, settled in the repo rather than in prose ------------------
+#
+# The central factual claim of this change is that the impossible dates are FILER GARBAGE and that our
+# parser reproduces them faithfully — so there is nothing to re-derive and no corrected date may be
+# invented (#3). Until now that claim lived only in a commit message. These two accessions were fetched
+# live from EDGAR on 2026-09-16 with the declared User-Agent and are committed VERBATIM (unedited external
+# content — the American-English sweep must never touch them):
+#
+#   form4_bbai_leading_zero_year.xml  0001628280-24-010030 (BBAI, CIK 1836981, wk-form4_1709935137.xml,
+#                                    6,449 b) — <transactionDate><value>0023-03-23</value>, and its
+#                                    periodOfReport is ALSO 0023-03-23, which is why periodOfReport is no
+#                                    substitute. Two correctly-dated rows sit beside it.
+#   form4_lscc_future_year.xml       0001437749-24-004874 (LSCC, CIK 855658, rdgdoc.xml, 12,100 b) —
+#                                    <transactionDate><value>2027-02-17</value> on an accession filed
+#                                    2024-02-20. SIX transactions in the document: four nonDerivative
+#                                    (one bad) + two derivative. parse_form4 stores the non-derivative
+#                                    ones, so THREE correctly-dated rows survive the rejection — not the
+#                                    five an earlier draft of this change claimed by counting all six.
+_BBAI_REAL = (_FIX / "form4_bbai_leading_zero_year.xml").read_text(encoding="utf-8")
+_LSCC_REAL = (_FIX / "form4_lscc_future_year.xml").read_text(encoding="utf-8")
+
+
+def test_the_real_sec_xml_really_says_the_impossible_date():
+    """THE root-cause test. If our parser were corrupting these dates, the fix would be a parser fix and
+    rejecting the rows would be destroying real data. It is not: the SEC document itself says
+    ``0023-03-23`` and ``2027-02-17``, and ``parse_form4`` reproduces each verbatim."""
+    bbai = parse_form4(_BBAI_REAL)
+    assert [t["txn_date"] for t in bbai] == [date(23, 3, 23), date(2023, 11, 13), date(2024, 3, 5)]
+    assert "<value>0023-03-23</value>" in _BBAI_REAL  # the raw text, not just our parse of it
+
+    lscc = parse_form4(_LSCC_REAL)
+    assert [t["txn_date"] for t in lscc] == [
+        date(2024, 2, 17),
+        date(2027, 2, 17),
+        date(2024, 2, 18),
+        date(2024, 2, 18),
+    ]
+    assert "<value>2027-02-17</value>" in _LSCC_REAL
+
+
+def test_period_of_report_is_not_a_usable_fallback_on_the_real_filing():
+    """The obvious "fix" — substitute ``periodOfReport`` for the impossible transactionDate — is not
+    available: on the BBAI filing periodOfReport is ITSELF ``0023-03-23``. (It is also the filing's
+    EARLIEST reportable transaction date, not this row's, so it would be the wrong value even when
+    well-formed.) There is no honest date to write, which is why the row is rejected rather than repaired.
+    """
+    assert "<periodOfReport>0023-03-23</periodOfReport>" in _BBAI_REAL
+
+
+def test_the_real_bbai_filing_loses_one_row_and_keeps_two(db, security_id, capsys):
+    """End-to-end on the real document: one rejection, two survivors, COUNT THE TABLE."""
+    n = ingest_form4(db, security_id, _BBAI_REAL, "0001628280-24-010030")
+    db.commit()
+    assert n == (2, 1)
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_insider_txn")
+        assert cur.fetchone()["n"] == 2
+        cur.execute("SELECT valid_from FROM fact_insider_txn ORDER BY valid_from")
+        assert [r["valid_from"] for r in cur.fetchall()] == [date(2023, 11, 13), date(2024, 3, 5)]
+    out = capsys.readouterr().out
+    assert "0023-03-23" in out and "Peffer Julie" in out  # itemized, not tallied
+
+
+def test_the_real_lscc_filing_loses_one_row_and_keeps_THREE(db, security_id, capsys):
+    """The count an earlier draft got wrong, now checkable: the document holds six transactions, but
+    ``parse_form4`` stores the four non-derivative ones, so rejecting the ``2027-02-17`` row leaves
+    THREE — not five. Rejection is per-TRANSACTION; the good rows in a filing are never punished for a
+    filer's typo (#9)."""
+    n = ingest_form4(db, security_id, _LSCC_REAL, "0001437749-24-004874")
+    db.commit()
+    assert n == (3, 1)
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_insider_txn")
+        assert cur.fetchone()["n"] == 3
+        cur.execute("SELECT valid_from FROM fact_insider_txn ORDER BY valid_from, txn_seq")
+        assert [r["valid_from"] for r in cur.fetchall()] == [
+            date(2024, 2, 17),
+            date(2024, 2, 18),
+            date(2024, 2, 18),
+        ]
+    assert "2027-02-17" in capsys.readouterr().out
+
+
+def test_the_live_path_leaves_recorded_at_at_now_even_when_a_row_is_REJECTED(db, security_id):
+    """THE LIVE-PATH REGRESSION (invariant #1). The ingest must never backdate ``recorded_at`` — a fact
+    ingested today has to be invisible to an as-of read pinned earlier — and a rejection must not disturb
+    that for the rows that DO store. Asserted on the real filing, where one row is rejected mid-loop.
+    """
+    before = datetime.now(timezone.utc)
+    ingest_form4(db, security_id, _LSCC_REAL, "0001437749-24-004874")
+    db.commit()
+    after = datetime.now(timezone.utc)
+    with db.cursor() as cur:
+        cur.execute("SELECT recorded_at FROM fact_insider_txn")
+        stamps = [r["recorded_at"] for r in cur.fetchall()]
+    assert len(stamps) == 3
+    assert all(
+        before <= s <= after for s in stamps
+    ), "recorded_at must be the DB's now(), never backdated"
+
+
+def test_a_clean_filing_rejects_nothing_and_prints_nothing(db, security_id, capsys):
+    """Honest loudness on the other side: the ordinary case is SILENT and the tally is 0, so a nonzero
+    count in the cron summary genuinely marks the exception rather than being background noise."""
+    n = ingest_form4(db, security_id, _XML, "acc-clean")
+    db.commit()
+    assert n.rejected == 0
+    assert "REJECT" not in capsys.readouterr().out

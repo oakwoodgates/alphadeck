@@ -80,6 +80,14 @@ class NameResult:
     price_bars_appended: int
     error: str | None = None
     form4_skipped: int = 0  # filings skipped per-filing (pre-XML era / unfetchable), never appended
+    # P1 — TRANSACTIONS rejected by the sanity bound (`ingest.edgar.form4.implausible_txn_date`): a filer
+    # serialized a date that CANNOT be true (a leading-zero year like `0023-03-23`, or a year after the
+    # accession's own filing year). A DIFFERENT thing from `form4_skipped`: that is a whole filing we could
+    # not read, this is one bad row inside a filing that stored fine. Never clamped, never stored, never
+    # silently absorbed — each one already PRINTED in full at the row level; this tally exists only so the
+    # cron's per-thesis summary can name the aggregate, and it prints ONLY when nonzero (honest loudness).
+    # The count ACCOMPANIES the loud report; it must never replace it (the skip-counter lesson).
+    form4_txn_rejected: int = 0
     # overlap bars re-stored because the source RESTATED them (a split re-base; source-strategy A) —
     # the exceptional path, reported loudly only when nonzero
     price_bars_reversioned: int = 0
@@ -146,19 +154,27 @@ def _tolerable_filing_error(e: Exception) -> bool:
 
 def _form4_leg(
     conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Ingest only Form 4 accessions not already stored for this security (incremental). Returns
-    ``(appended, skipped)``. Needs the issuer CIK; a name without one contributes no insider facts.
+    ``(appended, skipped, txn_rejected)``. Needs the issuer CIK; a name without one contributes no
+    insider facts.
 
     PER-FILING tolerance: a filing whose fetch or parse fails (``_tolerable_filing_error``) is skipped
     with a printed warning and counted — never aborting the leg, so one bad old filing can't blank the
     name's whole insider history. A skipped accession is never stored, so every later run re-attempts it
-    (and re-counts it) rather than silently marking it done."""
+    (and re-counts it) rather than silently marking it done.
+
+    ``txn_rejected`` (P1) is a DIFFERENT and much narrower thing than ``skipped``: a per-TRANSACTION
+    rejection by the sanity bound (``ingest.edgar.form4.implausible_txn_date``) inside a filing that
+    otherwise stored fine. It is carried so the cron's per-thesis summary can name it when nonzero; every
+    rejection has already printed in full at the row level (the skip-counter lesson — the tally accompanies
+    the loud report, it never stands in for it)."""
     if not sec.cik:
-        return 0, 0
+        return 0, 0, 0
     seen = existing_accessions(conn, sec.id, tenant_id=tenant_id)
     appended = 0
     skipped = 0
+    txn_rejected = 0
     for f in form4_filings(fetch_submissions(client, sec.cik)):
         if f["accession"] in seen:
             continue  # already have this filing's txns — skip (no duplicate append)
@@ -168,7 +184,7 @@ def _form4_leg(
             xml = client.get_text(url, f"forms/{f['accession']}/{doc}")
             # thread the SEC acceptance datetime (the honest "disclosed" clock) from the enumeration —
             # the ownership XML has none; parse_acceptance -> None leaves accepted NULL (#9)
-            appended += ingest_form4(
+            one = ingest_form4(
                 conn,
                 sec.id,
                 xml,
@@ -176,6 +192,8 @@ def _form4_leg(
                 tenant_id=tenant_id,
                 accepted=parse_acceptance(f.get("accepted")),
             )
+            appended += one.appended
+            txn_rejected += one.rejected
         except Exception as e:
             # A tolerated error can only fire BEFORE this filing's first row: parse_form4 fully parses
             # the doc before ingest_form4 appends anything (append failures are DB errors → re-raised),
@@ -186,7 +204,7 @@ def _form4_leg(
             print(
                 f"  warn: {sec.ticker or sec.id} form4 {f['accession']} ({f['filed']}) skipped: {e}"
             )
-    return appended, skipped
+    return appended, skipped, txn_rejected
 
 
 def _form8k_leg(
@@ -292,8 +310,11 @@ def ingest_thesis(
         errs: list[str] = []
         f4 = 0
         f4_skipped = 0
+        f4_txn_rejected = 0
         try:
-            f4, f4_skipped = _form4_leg(conn, client, sec, tenant_id=thesis.tenant_id)
+            f4, f4_skipped, f4_txn_rejected = _form4_leg(
+                conn, client, sec, tenant_id=thesis.tenant_id
+            )
             conn.commit()
         except (
             Exception
@@ -401,6 +422,7 @@ def ingest_thesis(
                 px_appended,
                 "; ".join(errs) or None,
                 f4_skipped,
+                form4_txn_rejected=f4_txn_rejected,
                 price_bars_reversioned=px_reversioned,
                 fund_shares_appended=fs_appended,
                 fund_shares_reversioned=fs_reversioned,
@@ -426,6 +448,7 @@ def _report(results: list[NameResult]) -> int:
     # writes the whole recovered history via the reversioned path); count both, like the fund-shares tally
     total_px = sum(r.price_bars_appended + r.price_bars_reversioned for r in results)
     total_sk = sum(r.form4_skipped for r in results)
+    total_rj = sum(r.form4_txn_rejected for r in results)  # P1 — loud only when nonzero
     total_fs = sum(r.fund_shares_appended + r.fund_shares_reversioned for r in results)
     total_8k = sum(r.form8k_appended + r.form8k_reversioned for r in results)
     total_s13 = sum(r.sched13_appended + r.sched13_reversioned for r in results)
@@ -436,6 +459,13 @@ def _report(results: list[NameResult]) -> int:
         skips = (
             f", {r.form4_skipped} form4 skipped (pre-XML era / unfetchable)"
             if r.form4_skipped
+            else ""
+        )
+        # P1 — the per-TRANSACTION rejections, surfaced DISTINCTLY from the per-FILING skips above (they
+        # are different failures) and only when nonzero. Each one already printed in full during the leg.
+        rejects = (
+            f", {r.form4_txn_rejected} insider txn REJECTED (impossible date)"
+            if r.form4_txn_rejected
             else ""
         )
         # the exceptional path (a split re-base or a resolve-heal hole-backfill) — surfaced DISTINCTLY,
@@ -462,16 +492,17 @@ def _report(results: list[NameResult]) -> int:
         )
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{tail}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}"
         )
     sk = f", {total_sk} form4 skipped" if total_sk else ""
+    rj = f", {total_rj} insider txn REJECTED (impossible date)" if total_rj else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""
     e8k = f", +{total_8k} 8-K events" if total_8k else ""
     s13 = f", +{total_s13} 13D/G" if total_s13 else ""
     s13 += f" ({total_s13_sk} identity unresolved)" if total_s13_sk else ""
     print(
         f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{s13}"
-        f"{fs}{sk}, {len(errored)} errored"
+        f"{fs}{sk}{rj}, {len(errored)} errored"
     )
     return len(errored)
 

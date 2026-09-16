@@ -1539,3 +1539,45 @@ def test_report_lists_each_FEED_KIND_in_its_own_block(capsys):
     assert "DEADFUND: last sample 2026-04-02" in out
     price_block, fund_block = out.split("STALE FUND-SHARES TAPES")
     assert "price symbol" in price_block and "price symbol" not in fund_block
+
+
+# --- P1: the rejected-transaction count surfaces in the cron summary, only when nonzero ---------------
+
+
+def _name_result(**kw):
+    kw.setdefault("form4_appended", 0)
+    return NameResult(ticker="T", security_id=uuid.uuid4(), price_bars_appended=0, **kw)
+
+
+def test_report_NAMES_the_rejected_insider_txns_when_there_are_any(capsys):
+    """The aggregate a gate can watch. A filer's impossible date is refused at the row level and printed
+    in full during the ingest leg; this line is the summary's roll-up, so an operator scanning the cron's
+    output sees THAT it happened on this thesis and can go find the itemized reason above it."""
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T1",
+                recorded=True,
+                ingested=[_name_result(form4_txn_rejected=2), _name_result(form4_txn_rejected=1)],
+            )
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "3 insider txn REJECTED (impossible date)" in out  # summed across the thesis's names
+
+
+def test_report_is_SILENT_about_rejections_on_an_ordinary_night(capsys):
+    """Honest loudness (#7): every night rejects zero, so a line that always printed would carry no
+    information and would train the eye to skip the one night it matters."""
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T1",
+                recorded=True,
+                ingested=[_name_result(form4_appended=5)],
+            )
+        ]
+    )
+    assert "REJECTED" not in capsys.readouterr().out

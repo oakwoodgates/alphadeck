@@ -6,7 +6,11 @@ distinct facts** carry an impossible date — a leading-zero year (``0023-03-23`
 or a year AHEAD of the filing (``2027-02-17`` on one filed 2024-02-20). It is FILER GARBAGE, confirmed
 against the SEC documents themselves: ``0001628280-24-010030`` really contains
 ``<transactionDate><value>0023-03-23</value></transactionDate>``, and ``0001437749-24-004874`` really says
-``2027-02-17``. Our parser reproduces both faithfully — there is nothing to re-derive.
+``2027-02-17``. Our parser reproduces both faithfully — there is nothing to re-derive. Both documents are
+COMMITTED as fixtures (``tests/fixtures/edgar/form4_bbai_leading_zero_year.xml`` / ``form4_lscc_future_year
+.xml``) and a test asserts the claim, so the disposition rests on an artifact in the repo rather than on
+this paragraph. The 29/15 figure was re-measured independently on 2026-09-16 (unchanged), and the CLI's
+SQL pre-filter was run against the same copy and returns exactly those 29 rows.
 
 Live effect, and why the rows are not harmless: ``valid_from`` is the event-time half of the as-of gate, so
 an ancient-dated row is visible to EVERY as-of read forever, and a future-dated one is invisible until that
