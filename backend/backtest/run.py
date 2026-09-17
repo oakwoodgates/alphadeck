@@ -32,12 +32,14 @@ import pyarrow.parquet as pq
 from backtest import manifest as mf
 from backtest import store
 from backtest.config_overlay import OverlayError, load_overlay, overlay_diff
+from backtest.nulls import DEFAULT_DRAWS, draw_nulls
+from backtest.parallel import default_workers, replay_all_parallel
+from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
-from replay.harness import replay_all
 from replay.metrics import compute_metrics
 from replay.pit import connect_mirror
 from replay.run import arrow_schema
@@ -76,6 +78,9 @@ def execute(
     cfg: CallConfig = DEFAULT_CONFIG,
     overlay_path: str | None = None,
     mirror_dir: str | Path | None = None,
+    workers: int = 1,
+    null_draws: int = DEFAULT_DRAWS,
+    null_seed: str | None = None,
     hypothesis: str | None = None,
     decision_rule: str | None = None,
     regime: str | None = None,
@@ -110,8 +115,23 @@ def execute(
         theses = {t.id: t for t in thesis_repo.list_all(conn)}
 
         t0 = time.perf_counter()
-        result = replay_all(
-            conn, con, start=start, end=end, known_at=pin, cfg=cfg, tenant_id=tenant_id
+        # B5b — the theses are independent, so the sweep fans out by thesis over the SAME frozen
+        # mirror. `workers=1` takes the serial harness untouched; N>1 is byte-identical by test, and the
+        # wall clock is bounded by the LARGEST thesis rather than by N (see backtest/parallel.py).
+        #
+        # `mirror`, NOT `out`. Every worker opens the mirror by PATH (it is a fresh process), so under a
+        # shared mirror (B7) handing it the run directory would point each worker at a directory holding
+        # no facts. The two were the same expression until a sweep could share one export, which is
+        # precisely the kind of silent breakage a textual merge of B5b and B7 cannot see.
+        result = replay_all_parallel(
+            conn,
+            mirror,
+            start=start,
+            end=end,
+            known_at=pin,
+            cfg=cfg,
+            tenant_id=tenant_id,
+            workers=workers,
         )
         timings["replay_s"] = round(time.perf_counter() - t0, 2)
 
@@ -134,6 +154,32 @@ def execute(
             single_name_security=single_name,
         )
         timings["metrics_s"] = round(time.perf_counter() - t0, 2)
+
+        # B4 — the two nulls and the pooled view. They run on the SCORED layer (RealizedPrices only, no
+        # point-in-time view is reopened), so K draws per episode cost priced windows rather than replays.
+        # The seed defaults to the run_id, so a run reproduces its own draws and two runs never share them.
+        t0 = time.perf_counter()
+        seed = null_seed or run_id
+        sessions = sorted({s.asof for snaps in result.timelines.values() for s in snaps})
+        rosters = {
+            tid: [m.security_id for m in t.basket if m.security_id is not None]
+            for tid, t in theses.items()
+        }
+        nulls = draw_nulls(
+            episodes,
+            realized,
+            # the roster AS OF the entry date. `basket_snapshot` history begins 2026-09-15, so for any
+            # earlier window this is the harness's own documented fallback to today's basket -- the real
+            # arm and its null then draw from the SAME counterfactual roster, which is the symmetric and
+            # honest choice, and is said out loud on the surface rather than only here.
+            roster_at=lambda tid, _d, _r=rosters: _r.get(tid, []),
+            sessions=sessions,
+            seed=seed,
+            draws=null_draws,
+        )
+        pooled = build_report(episodes, nulls, draws=null_draws, seed=seed, sessions=len(sessions))
+        store.write_metrics(out, pooled, name="pooled.json")
+        timings["nulls_s"] = round(time.perf_counter() - t0, 2)
 
         _write_parquet(
             out / "episodes.parquet",
@@ -183,8 +229,14 @@ def execute(
             config=json.loads(blob),
             overlay_diff=overlay_diff(cfg),
             overlay_path=overlay_path,
+            workers=workers,
             theses=entries,
+            # `mirror`, not `out`: under a shared mirror (B7) the facts do not live in the run directory,
+            # and hashing an empty directory would make every point of a sweep claim the same vacuous
+            # hash -- destroying the one property that makes a config delta attributable.
             mirror=mf.MirrorInfo(hash=mf.mirror_hash(mirror)),
+            null_draws=null_draws,
+            null_seed=seed,
             hypothesis=hypothesis,
             decision_rule=decision_rule,
             regime=regime,
@@ -261,6 +313,31 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="what result would change your mind, written BEFORE the run",
     )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            f"replay N theses in parallel over the one frozen mirror (default 1 = the serial harness; "
+            f"this machine would default to {default_workers()}). Byte-identical to 1 by test; the wall "
+            f"clock is bounded by the LARGEST thesis, not by N."
+        ),
+    )
+    p.add_argument(
+        "--null-draws",
+        type=int,
+        default=DEFAULT_DRAWS,
+        help=(
+            "K draws per episode for each null model (timing and name-selection). Fewer than K "
+            "candidates means the whole population is used -- reporting three peers of a four-name "
+            "basket is honest where resampling to K would manufacture confidence."
+        ),
+    )
+    p.add_argument(
+        "--null-seed",
+        default=None,
+        help="the nulls' RNG seed (default: the run_id, so a run reproduces its own draws)",
+    )
     p.add_argument("--regime", default=None, help="a label for the market regime the window covers")
     p.add_argument(
         "--out-root", default=None, help="the store root (default: <repo>/data/backtest)"
@@ -296,6 +373,9 @@ def main(argv: list[str] | None = None) -> int:
             pin=pin,
             cfg=cfg,
             overlay_path=args.config,
+            workers=args.workers,
+            null_draws=args.null_draws,
+            null_seed=args.null_seed,
             hypothesis=args.hypothesis,
             decision_rule=args.decision_rule,
             regime=args.regime,

@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 from backtest import store
 from backtest.config_overlay import OverlayError, apply_overlay
 from backtest.manifest import mirror_hash
+from backtest.nulls import DEFAULT_DRAWS
 from backtest.run import execute
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
@@ -185,6 +186,8 @@ def run_sweep(
     decision_rule: str,
     subwindows: int = 2,
     regime: str | None = None,
+    workers: int = 1,
+    null_draws: int = DEFAULT_DRAWS,
     tenant_id: str | None = None,
     root: str | Path | None = None,
 ) -> SweepReport:
@@ -208,6 +211,8 @@ def run_sweep(
             pin=pin,
             cfg=cfg,
             mirror_dir=mirror,
+            workers=workers,  # B5b, now on main -- a pass-through per point
+            null_draws=null_draws,  # B4, likewise; a sweep pays this PER POINT
             hypothesis=hypothesis,
             decision_rule=decision_rule,
             regime=regime,
@@ -313,6 +318,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--hypothesis", required=True, help="pre-registration: what this sweep tests")
     p.add_argument("--decision-rule", required=True, help="what result would change your mind")
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "replay N theses in parallel WITHIN each sweep point (B5b). The points themselves stay "
+            "sequential: they share one mirror and one Postgres, so running two points at once would "
+            "contend for both while the wall clock is already bounded by the largest thesis."
+        ),
+    )
+    p.add_argument(
+        "--null-draws",
+        type=int,
+        default=DEFAULT_DRAWS,
+        help=(
+            "K null draws per episode, PER POINT (B4). A sweep pays this for every point, and the "
+            "curve is read off the pooled metric rather than off the nulls, so a wide sweep is a "
+            "reasonable place to lower it -- MEASURED: the nulls cost 269 s against 18 s of replay "
+            "on a one-week window at K=10, because each timing draw prices the whole basket for its "
+            "own benchmark window."
+        ),
+    )
     p.add_argument("--regime", default=None)
     p.add_argument("--out-root", default=None)
     return p
@@ -358,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
             decision_rule=args.decision_rule,
             subwindows=args.subwindows,
             regime=args.regime,
+            workers=args.workers,
+            null_draws=args.null_draws,
             root=args.out_root,
         )
     finally:
