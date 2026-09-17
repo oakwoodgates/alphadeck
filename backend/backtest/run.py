@@ -77,6 +77,7 @@ def execute(
     pin: datetime,
     cfg: CallConfig = DEFAULT_CONFIG,
     overlay_path: str | None = None,
+    mirror_dir: str | Path | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
     null_seed: str | None = None,
@@ -96,12 +97,19 @@ def execute(
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
     timings: dict[str, float] = {}
+    # ONE FROZEN MIRROR, optionally SHARED (B7). A sweep exports once and points every variant at the same
+    # Parquet files, which is what makes a metric delta attributable to the dial rather than to the tape
+    # moving underneath it -- `replay/compare.py` has held that discipline since the first sweep. The run
+    # directory then holds its outputs but no copy of the facts, and `mirror.hash` in the manifest is what
+    # ties them together: two runs quoting one mirror hash provably swept the same facts.
+    mirror = Path(mirror_dir) if mirror_dir else out
     t0 = time.perf_counter()
-    export_snapshot(conn, out, tenant_id=tenant_id)
+    if mirror_dir is None:
+        export_snapshot(conn, out, tenant_id=tenant_id)
     timings["export_s"] = round(time.perf_counter() - t0, 2)
 
     t0 = time.perf_counter()
-    con = connect_mirror(out)
+    con = connect_mirror(mirror)
     timings["connect_mirror_s"] = round(time.perf_counter() - t0, 2)
     try:
         theses = {t.id: t for t in thesis_repo.list_all(conn)}
@@ -110,9 +118,14 @@ def execute(
         # B5b — the theses are independent, so the sweep fans out by thesis over the SAME frozen
         # mirror. `workers=1` takes the serial harness untouched; N>1 is byte-identical by test, and the
         # wall clock is bounded by the LARGEST thesis rather than by N (see backtest/parallel.py).
+        #
+        # `mirror`, NOT `out`. Every worker opens the mirror by PATH (it is a fresh process), so under a
+        # shared mirror (B7) handing it the run directory would point each worker at a directory holding
+        # no facts. The two were the same expression until a sweep could share one export, which is
+        # precisely the kind of silent breakage a textual merge of B5b and B7 cannot see.
         result = replay_all_parallel(
             conn,
-            out,
+            mirror,
             start=start,
             end=end,
             known_at=pin,
@@ -218,7 +231,10 @@ def execute(
             overlay_path=overlay_path,
             workers=workers,
             theses=entries,
-            mirror=mf.MirrorInfo(hash=mf.mirror_hash(out)),
+            # `mirror`, not `out`: under a shared mirror (B7) the facts do not live in the run directory,
+            # and hashing an empty directory would make every point of a sweep claim the same vacuous
+            # hash -- destroying the one property that makes a config delta attributable.
+            mirror=mf.MirrorInfo(hash=mf.mirror_hash(mirror)),
             null_draws=null_draws,
             null_seed=seed,
             hypothesis=hypothesis,
