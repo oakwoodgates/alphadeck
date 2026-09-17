@@ -76,7 +76,10 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > *breakdown* de-arms via the `breakdown` **risk-signal** detectors (`[built — sig]`, `breakdown_dearm_enabled`
 > default ON since 2026-08-15): a close back below the 8-day breakout base (the **flip** exit) or below the
 > 200-day base (the **core** exit). Grade-aware and **post-dating the arm** (a name never de-arms concurrent
-> with its own arm); price-signal logic stays in detectors, never in the pure assembler.
+> with its own arm); price-signal logic stays in detectors, never in the pure assembler. WHICH of the two runs
+> is `breakdown_dearm_scope`, a **DORMANT** dial defaulting to `all` (both, as described) — `core_only` no-ops
+> the fast flip exit for an H3 measurement. The two switches read as "whether" (`breakdown_dearm_enabled`) and
+> "which" (`breakdown_dearm_scope`); the scope dial never means off.
 
 > **Theme menu = a ranked per-member view `[BUILT — M5a/M5b]`.** When several basket members are
 > independently armed (a theme thesis), the call computes a call **per member** and **ranks** them —
@@ -211,8 +214,12 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   back — the floor). Full rule in `docs/THEME_CONVICTION.md`.
 - **`revenue_acceleration` `[built — sig]` — grade-FIXED core, structural (Key 1).** YoY revenue growth's
   second derivative turning positive (re-accelerating for the first time in N quarters) is the structural
-  conviction behind the 5–10x — always `core` (a fundamental inflection is durable; grade fixed in the detector,
-  not a dial). Two floors keep it honest: a YoY **level** floor (`revenue_accel_min_yoy` = 10%) and — ratified
+  conviction behind the 5–10x — `core` by default (a fundamental inflection is durable). The grade WAS fixed in
+  the detector; it now reads `revenue_accel_grade`, a **DORMANT** dial whose default `core` reproduces this rule
+  byte-for-byte. That exists so the backtest can ASK whether a COMPUTED screen should supply a `core` Key 1 —
+  it is the single largest source of arms on the record — without a code edit; nothing about the live rule has
+  changed, and a flip needs a pre-registered pass plus sign-off (`docs/RECALIBRATION.md` part A).
+  Two floors keep it honest: a YoY **level** floor (`revenue_accel_min_yoy` = 10%) and — ratified
   2026-08-15 — an absolute **acceleration** floor (`revenue_accel_min_accel` = **2pp**), so a sub-2pp wiggle
   (UNH re-accelerated ~0.4pp — noise, not a genuine re-acceleration) never mints a CORE. Knowability from the filing's
   `filed` date (#1); reads companyfacts via `fact_fundamentals` (migration 0036).

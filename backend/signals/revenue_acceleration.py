@@ -41,8 +41,15 @@ from signals.registry import register_detector
 
 DETECTOR_NAME = "revenue_acceleration"
 # A fundamental inflection reads as strong conviction (mirrors a core catalyst's inline calibration; the
-# magic-number guard is on the assembler). Grade is fixed CORE (R6), so this is the only score it emits.
+# magic-number guard is on the assembler). R6 fixed the grade at CORE inline; that choice now lives on the
+# config as `revenue_accel_grade` (DORMANT, default CORE — byte-identical) so the backtest can ASK whether a
+# computed screen should supply a CORE Key 1, instead of the question needing a code edit.
+#
+# The score follows the grade through the SAME pair `catalyst_conviction` uses — which is not a coincidence
+# to be tidied away: the comment above already says this detector mirrors a core catalyst's calibration, so
+# borrowing its flip score too is the consistent reading rather than a new invented number.
 _CORE_SCORE = 0.9
+_FLIP_SCORE = 0.5
 
 # The fact_fundamentals metric_key the ingest writes (ingest.fundamentals.REVENUE_METRIC) — kept a literal
 # here so the pure detector needs no ingest import. §2.4's margin/FCF variants will gate on their own keys.
@@ -202,8 +209,8 @@ def score(
         role=Role.ENTRY_TRIGGER,
         kind=Kind.CATALYST,
         catalyst_type=CatalystType.EARNINGS,
-        grade=Grade.CORE,
-        score=_CORE_SCORE,
+        grade=cfg.revenue_accel_grade,
+        score=_CORE_SCORE if cfg.revenue_accel_grade is Grade.CORE else _FLIP_SCORE,
         label=label,
         alpha_liveness_days=lv,
         provenance=[
