@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 
 import pytest
@@ -22,8 +23,15 @@ from tests.replay.test_tape_memo import _PreMemoRealizedPrices  # noqa: E402
 #     so without pinning it the two passes would draw different nulls and the comparison would measure
 #     the seed rather than the memo.
 
+# The window and pin the backtest suite already runs `execute()` on, taken VERBATIM from
+# `tests/backtest/test_run_e2e.py` and `tests/backtest/test_parallel.py` — and proved to arm by
+# `tests/replay/test_scoring.py::test_unh_arm_scores_a_finite_forward_outcome`, which asserts "UNH should
+# produce at least one arm episode" over exactly this span. The first draft of this file shortened it to
+# 2025-06-30 to be cheap; the seed arms NOTHING there, so all three byte comparisons passed over empty
+# artifacts and only the non-vacuity guard caught it. A real instance where the seed genuinely arms, never
+# a window chosen to make a number appear.
 _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
-_START, _END = date(2025, 4, 1), date(2025, 6, 30)
+_START, _END = date(2025, 4, 1), date(2026, 6, 1)
 _SEED = "m1-artifact-parity"
 
 
@@ -67,7 +75,13 @@ def test_the_memo_leaves_the_run_artifacts_byte_identical(db, tmp_path, monkeypa
 
     for name in ("episodes.parquet", "outcomes.parquet", "pooled.json"):
         assert (memo.path / name).read_bytes() == (pre.path / name).read_bytes(), name
-    # the comparison must not be vacuous: an empty run would match trivially
+    # THE COMPARISON MUST NOT BE VACUOUS, at three levels — empty artifacts match trivially, and that is
+    # exactly what the first draft of this test did (a window where the seed never armed).
     assert memo.manifest.n_episodes > 0
+    pooled = json.loads((memo.path / "pooled.json").read_text(encoding="utf-8"))
+    assert (
+        pooled["n_scoreable"] > 0
+    ), "the nulls must have priced something for this to compare them"
+    assert pooled["metrics"][0]["actual"]["n"] > 0, "a metric with n=0 is not evidence of agreement"
     # both ran over the SAME frozen tape, which is what makes the byte comparison about the reader
     assert memo.manifest.mirror.hash == pre.manifest.mirror.hash
