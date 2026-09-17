@@ -298,3 +298,80 @@ def test_a_sweep_runs_every_point_over_ONE_frozen_mirror(db, tmp_path):
     assert len(store.list_runs(tmp_path)) == 2
     # ...and the curve carries a sub-window delta per sub-window, for every point
     assert all(len(p.subwindow_deltas) == report.subwindows for p in report.points)
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_a_sweep_with_WORKERS_and_a_SHARED_MIRROR_matches_the_serial_sweep(db, tmp_path):
+    """THE REGRESSION for the silent merge bug.
+
+    B5b's `replay_all_parallel(conn, out, ...)` and B7's shared mirror were written against different
+    bases where `out` and the mirror were the SAME directory. Git merged both cleanly -- no conflict
+    marker -- and the result handed every worker the RUN directory, which under a shared mirror holds no
+    facts at all. Each worker opens the mirror by PATH because it is a fresh process, so the whole sweep
+    replayed against nothing.
+
+    Every test that existed at the time passed, because none of them combined the two: the sweep tests
+    never set `workers`, and the parallel tests never set `mirror_dir`. This one sets BOTH.
+
+    TWO THESES, deliberately. `replay_all_parallel` falls back to the serial harness when
+    `len(theses) <= 1`, so a one-thesis fixture would never reach the worker path at all -- a first draft
+    of this test used the UNH seed alone and was green for that reason.
+
+    THE DIAL VALUES ARE BOTH >= 180, also deliberately. At 90 days the UNH cluster lapses before the
+    August breakout and the thesis legitimately does not arm (RECALIBRATION part B: "shortening to 90d
+    makes UNH fail to arm"), so a sweep through 90 would assert zero episodes and call a documented
+    behavior a bug. That first draft did exactly that.
+
+    The assertion is byte-identity against the SERIAL sweep, plus a non-empty check so the comparison
+    cannot be satisfied by two empty files."""
+    pytest.importorskip("duckdb")
+    import pyarrow.parquet as pq
+
+    from backtest import store
+    from backtest.manifest import read_manifest
+    from backtest.sweep import run_sweep
+    from pipeline.seed import seed_hims, seed_unh
+
+    seed_unh(db)
+    seed_hims(db)  # a SECOND thesis, so workers>=2 does not fall back to the serial harness
+    db.commit()
+
+    def sweep(root, workers):
+        return run_sweep(
+            db,
+            grid={"insider_core_alpha_liveness_days": [180, 365]},
+            start=date(2025, 4, 1),
+            end=date(2026, 6, 1),
+            pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            hypothesis="regression: workers + a shared mirror",
+            decision_rule="smoke only",
+            subwindows=2,
+            workers=workers,
+            null_draws=1,  # the nulls are not what this test is about; keep it cheap
+            root=root,
+        )
+
+    serial = sweep(tmp_path / "serial", 1)
+    parallel = sweep(tmp_path / "parallel", 2)
+
+    hashes = set()
+    for s_pt, p_pt in zip(serial.points, parallel.points, strict=True):
+        assert s_pt.dials == p_pt.dials
+        s_dir = store.run_dir(s_pt.run_id, tmp_path / "serial")
+        p_dir = store.run_dir(p_pt.run_id, tmp_path / "parallel")
+        assert s_dir is not None and p_dir is not None
+        s_bytes = (s_dir / "episodes.parquet").read_bytes()
+        p_bytes = (p_dir / "episodes.parquet").read_bytes()
+        # non-empty FIRST: byte-identity between two empty files would be vacuously true, and an empty
+        # file is precisely what the merge bug produced.
+        assert (
+            pq.read_table(p_dir / "episodes.parquet").num_rows > 0
+        ), f"point {p_pt.dials} produced NO episodes under workers=2 -- the workers saw no facts"
+        assert s_bytes == p_bytes, f"point {p_pt.dials}: parallel episodes differ from serial"
+        m = read_manifest(p_dir)
+        assert m is not None and m.workers == 2
+        hashes.add(m.mirror.hash)
+
+    assert len(hashes) == 1, "the parallel sweep's points did not share one mirror"
+    assert len(hashes.pop()) == 64, "the mirror hash is vacuous -- an empty directory was hashed"
