@@ -82,7 +82,10 @@ docker exec $(docker compose -f docker-compose.yml -f docker-compose.sig.yml -p 
 ```
 Writes `episodes.parquet` / `outcomes.parquet` / `metrics.json` showing what the new detectors *would have
 fired*. For the baseline, run the same window/PIN on prod code and diff. Full harness + the metric set:
-`docs/REPLAY.md`. **Known limitation:** thesis definitions / `security_master` are read from the *current*
+`docs/REPLAY.md`; for a run WITH identity — a manifest, the two null models, the pooled report and the
+`/backtest` surface (this stack mounts `./data/backtest` read-only, so the lab serves runs it cannot
+overwrite) — use `python -m backtest.run` instead and see `docs/BACKTEST.md`. **Known limitation:** thesis
+definitions / `security_master` are read from the *current*
 SoR (only the facts are as-of), so backtest over windows in which the basket was stable and treat
 evolving-basket results as indicative only (`docs/REPLAY.md` §KNOWN LIMITATION).
 

@@ -173,6 +173,23 @@ replay stays honest.
   vs the per-security read at `known_at = now` AND a `known_at` pinned BETWEEN two recorded versions of a fact),
   `tests/pipeline/test_pit_prefetch_equality.py` (canonical CallCard + display-body equality, incl. the
   `insider_flow_90d` '—' vs '0/0' shapes), and the grown poison-row test (`test_basket_prefetch_read_is_tenant_isolated`).
+- *Also honored by (the BACKTEST's public clock — a MIRROR-side axis swap, never a gate change):* a research
+  run may ask "when could ANYONE have known this?" instead of "when did THIS system record it?". That is a
+  third clock (public time: `accepted` / `filed` / the bar date) and it is applied where it cannot touch the
+  live path — `replay/export.py::export_snapshot(clock="public")` rewrites the exported `recorded_at` to the
+  disclosure instant, so **the reader, the gate and `knowability_expr` are byte-identical in both modes** and
+  `db/bitemporal.py` is not opened. Three rules make the swap honest rather than merely different. A table
+  with **no declared clock is excluded WHOLE** and named in the manifest with the detectors it blinds; a ROW
+  whose clock column is NULL is excluded and **COUNTED** (both counts ride the artifact and the surface, so
+  the size of the hole is part of the result). And versions are resolved AT EXPORT partitioned by
+  `(identity, clock_value)` — because for insider and price every re-version carries the SAME public clock
+  (our own repairs, not new filings: MEASURED 44,982 and 17,373 tying identity-groups, 8,947 of the price
+  ties differing on `close`), so a naive rewrite would leave the reader's `ORDER BY recorded_at DESC, id DESC`
+  to be decided by a random UUID. After the partition every surviving row for an identity carries a distinct
+  derived `recorded_at` and no tie is left to break. The scoring pass is unaffected: it reads FORWARD by
+  design (the no-lookahead rule binds the decision, not the measurement of it). Full detail, the registry
+  table and the NULL rates: `docs/BACKTEST.md`. *Enforced by:* `tests/replay/` (the parity gate runs on
+  `clock="record"` and stays byte-identical; the public-clock exclusion + NULL-count tests).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
