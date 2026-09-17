@@ -53,6 +53,13 @@ export const scoreboardPath = (asof: string | null) => withParams("/scoreboard",
 
 export const workbenchPath = (asof: string | null) => withParams("/workbench", { [ASOF]: asof });
 
+/** The selected backtest run (?run=<run_id>) — a run is a shareable link. */
+export const RUN = "run";
+
+// The Backtest — a research surface with no as-of dial of its own (a RUN carries its own window and
+// pin), but the param rides along so tabbing away and back keeps the operator's as-of elsewhere.
+export const backtestPath = (asof: string | null) => withParams("/backtest", { [ASOF]: asof });
+
 // The Admin page itself has no as-of dial (it is a "now" ops surface), but the param rides along so
 // tabbing away and back to a scrubbed view keeps the operator's as-of.
 export const adminPath = (asof: string | null) => withParams("/admin", { [ASOF]: asof });

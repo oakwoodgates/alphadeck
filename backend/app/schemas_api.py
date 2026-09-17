@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backtest.manifest import BacktestManifest
+from backtest.pooled import PooledReport
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import (
     BusinessSupersector,
@@ -1848,3 +1850,98 @@ class SpacAttachOut(BaseModel):
     added: bool = False
     already: bool = False
     removed: bool = False
+
+
+# --- /backtest (B6) — the research surface's wire shapes --------------------------------------------
+# ARTIFACT-SERVED, like the Scoreboard's replay panel: a run is written by a CLI and the API only reads
+# the JSON it left behind. `available` is the ONLY required field on the two envelopes, so
+# `BacktestRunsResponse(available=False)` is a complete, valid 200 — which is what makes the route
+# dev/sig-only BY DATA AVAILABILITY, with no build flag anywhere. On prod the store does not exist and
+# the page renders one quiet line.
+
+
+class BacktestRunSummaryOut(BaseModel):
+    """One registry row — enough to pick a run without opening it."""
+
+    run_id: str
+    created_at: str
+    hypothesis: str | None = None
+    decision_rule: str | None = None
+    config_short: str
+    config_hash: str
+    clock: str
+    known_at_mode: str
+    window_start: str
+    window_end: str
+    n_theses: int = 0
+    n_episodes: int = 0
+    dials_moved: list[str] = Field(default_factory=list)
+
+
+class BacktestRunsResponse(BaseModel):
+    available: bool
+    runs: list[BacktestRunSummaryOut] = Field(default_factory=list)
+    # "count your trials", per DIAL: how many runs in the registry have moved each one. Derived on read,
+    # so it can never fall out of date with the registry it summarizes.
+    dial_trials: dict[str, int] = Field(default_factory=dict)
+
+
+class BacktestLedgerOut(BaseModel):
+    """The run's episode ledger — the PER-THESIS drill-down, in the Scoreboard's own wire vocabulary.
+
+    It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
+    scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
+    of the same row and let their renderers drift. The front end therefore renders this through the
+    same ledger components the Scoreboard's replay panel uses.
+
+    A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
+    one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries
+    no thesis identifier at all; this is where a reader checks a pooled number against its own rows.
+
+    Its metrics are the run's own, over the ELIGIBLE set only (matured + non-censored — the Scoreboard's
+    rule), which is a smaller set than the pooled panel scores. The two are never pooled into one
+    number, and the banner says so."""
+
+    banner: str = ""
+    min_n: int = 0
+    n_theses: int = 0
+    n_episodes: int = 0
+    n_censored: int = 0
+    n_eligible: int = 0
+    metrics: list[ScoreboardMetricOut] = Field(default_factory=list)
+    theses: list[ScoreboardReplayThesisOut] = Field(default_factory=list)
+
+
+class BacktestRunResponse(BaseModel):
+    """One run: what it IS (the manifest), what it FOUND pooled, and its episodes for the drill-down.
+
+    The manifest and the pooled report are served as THEMSELVES — the artifact's own models, published
+    straight onto the wire. They were designed to be read (that is what a manifest is for), the route is
+    read-only, and re-declaring ~60 fields here would only create a second place for the artifact's
+    shape to drift from itself.
+
+    `episodes` stays an untyped pass-through, deliberately and for the opposite reason: the front end
+    reads exactly the BREADTH fields off it (co-arm counts, the Key-1 source, the confirmation grade),
+    those fields ride THIS response rather than widening the Scoreboard's `ScoredEpisode`, and a run
+    written by an older or newer engine must degrade to missing fields rather than fail validation on a
+    read-only research surface."""
+
+    available: bool
+    run_id: str | None = None
+    manifest: BacktestManifest | None = None
+    pooled: PooledReport | None = None
+    episodes: list[dict[str, Any]] = Field(default_factory=list)
+    ledger: BacktestLedgerOut | None = None
+    # BACKEND-AUTHORED, rendered verbatim (the `ingest_note` precedent): the front end must not compose
+    # or edit these, so the caveat cannot drift between the artifact and the page.
+    labels: list[str] = Field(default_factory=list)
+
+
+class BacktestSweepResponse(BaseModel):
+    """The sweep curve. LATEST-ONLY — `backtest.sweep` writes one `sweep.json` per store, so a second
+    sweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the
+    curve does not; making sweeps addressable is the noted follow-up."""
+
+    available: bool
+    sweep: dict[str, Any] | None = None
+    labels: list[str] = Field(default_factory=list)

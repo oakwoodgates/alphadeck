@@ -1,18 +1,31 @@
 import { useNavigate, useSearchParams } from "react-router";
 
-import { ASOF, adminPath, boardPath, radarPath, scoreboardPath, validAsof, workbenchPath } from "./nav";
+import {
+  ASOF,
+  adminPath,
+  backtestPath,
+  boardPath,
+  radarPath,
+  scoreboardPath,
+  validAsof,
+  workbenchPath,
+} from "./nav";
 
 // The ONE place a top-nav destination is declared (order = display order). Adding or removing a tab is
 // a one-line change here, and every surface renders this exact bar: the routing shell (App.tsx) builds
 // it per route and hands it to each page as its `header` slot, so the pages stay router-free — they
 // never import a path or a navigate, and their tests need no Router. The active tab is inert; the rest
 // navigate themselves, carrying ?asof= straight off the URL so even a "now" surface hands the param on.
-export type NavKey = "board" | "workbench" | "scoreboard" | "radar" | "admin";
+export type NavKey = "board" | "workbench" | "scoreboard" | "backtest" | "radar" | "admin";
 
 const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) => string }[] = [
   { key: "board", label: "Board", to: boardPath },
   { key: "workbench", label: "Workbench", to: workbenchPath },
   { key: "scoreboard", label: "Scoreboard", to: scoreboardPath },
+  // ALWAYS rendered, never gated on data. The `available:false` idiom hides SECTIONS, not tabs, and
+  // gating this one would cost a request on every page load to answer a question the page itself
+  // answers in one quiet line. On prod the tab opens a page that says there are no runs.
+  { key: "backtest", label: "Backtest", to: backtestPath },
   { key: "radar", label: "Radar", to: radarPath },
   { key: "admin", label: "Admin", to: adminPath },
 ];

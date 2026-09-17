@@ -32,11 +32,13 @@ import pyarrow.parquet as pq
 from backtest import manifest as mf
 from backtest import store
 from backtest.config_overlay import OverlayError, load_overlay, overlay_diff
+from backtest.ledger import LEDGER_NAME, SecurityRef, build_ledger
 from backtest.nulls import DEFAULT_DRAWS, draw_nulls
 from backtest.parallel import default_workers, replay_all_parallel
 from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
+from domain.market_time import market_today
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
@@ -46,6 +48,8 @@ from replay.run import arrow_schema
 from replay.schema import Episode, Outcome
 from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
+from scoreboard.replay_snapshot import ThesisMeta
+from securities import master
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,14 @@ def execute(
     Read-only over Postgres; writes only into this run's own directory. No row of any kind reaches
     ``calls`` — a simulated call is never the record."""
     now = now or datetime.now(timezone.utc)
+    # derived ONCE and shared by the ledger's banner and the manifest — two places naming "which dials
+    # moved" from two derivations is two places for them to disagree
+    diff = overlay_diff(cfg)
+    # ONE name for the axis this run's facts enter on, read by both the ledger's banner and the
+    # manifest. It is still a constant: `replay.export.export_snapshot` grew a `clock="public"` mode in
+    # B2, but nothing passes it through this runner yet, so a run on this path is always the system
+    # clock. Naming it here rather than hardcoding the string twice makes the gap one line wide.
+    clock = "record"
     run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now)
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
@@ -192,6 +204,73 @@ def execute(
             arrow_schema(Outcome),
         )
         store.write_metrics(out, metrics)
+        # The SERVING copy of the episodes (B6). The Parquet file above is the analytical artifact -- a
+        # reviewer opens it in DuckDB -- but reading it back needs pyarrow, which the LEAN api image
+        # deliberately does not carry (only the sig/fork images bake the `.[replay]` extra). Writing the
+        # same rows as JSON is what lets the `/backtest` route serve a run on ANY tier without importing
+        # the replay stack, exactly as the Scoreboard's replay panel serves ONE JSON artifact. Same
+        # `model_dump(mode="json")` rows, so the two files cannot disagree.
+        store.write_metrics(
+            out, {"episodes": [e.model_dump(mode="json") for e in episodes]}, name="episodes.json"
+        )
+
+        # B6 — THE LEDGER: the same episodes grouped by thesis, in the Scoreboard's own wire vocabulary,
+        # so the `/backtest` surface renders its drill-down through the SAME components the replay panel
+        # uses instead of a parallel set that could drift. Written here, by the process that holds the DB
+        # connection, because the run is immutable: the tickers a run reports are the ones it resolved,
+        # not whatever the master says the day somebody opens it. See backtest/ledger.py.
+        t0 = time.perf_counter()
+        sids = {ep.security_id for ep in episodes}
+        # ...and every name a TRIGGER fired on, because the ledger's Why cell resolves those to their
+        # own ticker and issuer CIK. On a theme thesis the trigger's security is often not the armed
+        # member, so leaving them out would silently dash the evidence links on exactly the rows that
+        # most need them (#6).
+        sids |= {
+            tr.security_id
+            for snaps in result.timelines.values()
+            for snap in snaps
+            for m in snap.members
+            for tr in m.triggers
+        }
+        sids |= {
+            m.security_id for snaps in result.timelines.values() for s in snaps for m in s.members
+        }
+        tickers = master.tickers_for(conn, sids, tenant_id=tenant_id)
+        names = master.names_for(conn, sids, tenant_id=tenant_id)
+        ciks = master.ciks_for(conn, sids, tenant_id=tenant_id)
+        ledger = build_ledger(
+            result.timelines,
+            list(zip(episodes, outcomes, strict=True)),
+            thesis_meta={
+                t.id: ThesisMeta(
+                    tenant_id=t.tenant_id, name=t.name, ticker=t.ticker, basket_size=len(t.basket)
+                )
+                for t in theses.values()
+            },
+            securities={
+                sid: SecurityRef(ticker=tickers.get(sid), cik=ciks.get(sid), name=names.get(sid))
+                for sid in sorted(sids, key=str)
+            },
+            window_start=start,
+            window_end=end,
+            pin=pin,
+            generated_at=now,
+            # maturity is judged against the DATA edge, not the window end: scoring reads forward
+            # without the pin (the no-lookahead rule binds the DECISION, not the measurement of it), so
+            # an episode whose exit_by has elapsed in market time is judged — the same rule, and the
+            # same market-time definition, the Scoreboard's own snapshot uses.
+            matured_asof=market_today(),
+            clock=clock,
+            config_hash=config_hash(cfg),
+            code_sha=mf.resolve_code_sha(),
+            dials_moved=sorted(diff),
+            realized=realized,
+            single_name_security=single_name,
+            roster_fallback_theses=result.fallback_theses,
+            roster_source_note=result.note(),
+        )
+        store.write_metrics(out, ledger, name=LEDGER_NAME)
+        timings["ledger_s"] = round(time.perf_counter() - t0, 2)
 
         entries: list[mf.ThesisEntry] = []
         for tid, source in result.roster_sources.items():
@@ -218,8 +297,13 @@ def execute(
             code_sha=mf.resolve_code_sha(),
             window_start=start,
             window_end=end,
-            clock="record",  # B2 adds "public"
-            known_at_mode="pin",  # B2 adds "lockstep"
+            # Both honest-clock axes were BUILT in B2 and neither is reachable from this runner yet:
+            # `export_snapshot(clock="public")` and the harness's `known_at_mode="lockstep"` exist and are
+            # tested, but nothing here passes either. Stated as a known gap in docs/BACKTEST.md rather
+            # than quietly wired: the clock belongs to the MIRROR, and a shared-mirror sweep skips the
+            # export entirely, so a `--clock` flag would be a no-op on every point but the first.
+            clock=clock,
+            known_at_mode="pin",
             pin=pin.isoformat(),
             config_hash=config_hash(cfg),
             config_short=short_hash(config_hash(cfg)) or "",
@@ -227,7 +311,7 @@ def execute(
             # the SAME bytes, parsed — a reader should be able to see the dials without re-deriving them,
             # and a test pins `json.loads(config_canonical_json) == config` so the pair cannot drift
             config=json.loads(blob),
-            overlay_diff=overlay_diff(cfg),
+            overlay_diff=diff,
             overlay_path=overlay_path,
             workers=workers,
             theses=entries,

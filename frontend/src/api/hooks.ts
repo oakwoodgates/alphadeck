@@ -1251,3 +1251,58 @@ export function useBackupJob(jobId: string | null) {
     },
   });
 }
+
+// --- /backtest (B6) — the research surface ----------------------------------------------------------
+// ARTIFACT-served, so asof-INDEPENDENT (a run is what it is; no asof in the key), exactly like the
+// Scoreboard's replay panel. `available:false` means this stack has no backtest store — the normal state
+// on prod — and the page says one quiet line rather than rendering an empty shell.
+export type BacktestRunsResponse = components["schemas"]["BacktestRunsResponse"];
+export type BacktestRunSummaryOut = components["schemas"]["BacktestRunSummaryOut"];
+export type BacktestRunResponse = components["schemas"]["BacktestRunResponse"];
+export type BacktestSweepResponse = components["schemas"]["BacktestSweepResponse"];
+// The artifact's own models, published straight onto the wire rather than re-declared (see
+// `BacktestRunResponse` backend-side) — so the page reads the manifest and the pooled report with real
+// types instead of casting its way through an untyped blob.
+export type BacktestManifest = components["schemas"]["BacktestManifest"];
+export type BacktestLedgerOut = components["schemas"]["BacktestLedgerOut"];
+export type PooledReport = components["schemas"]["PooledReport"];
+export type PooledMetric = components["schemas"]["MetricWithNulls"];
+export type PooledSlice = components["schemas"]["Slice"];
+export type PooledStat = components["schemas"]["Stat"];
+export type FiringDiagnostics = components["schemas"]["FiringDiagnostics"];
+
+export function useBacktestRuns() {
+  return useQuery({
+    queryKey: ["backtest-runs"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/backtest/runs");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useBacktestRun(runId: string | null) {
+  return useQuery({
+    queryKey: ["backtest-run", runId] as const,
+    enabled: Boolean(runId),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/backtest/runs/{run_id}", {
+        params: { path: { run_id: runId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useBacktestSweep() {
+  return useQuery({
+    queryKey: ["backtest-sweep"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/backtest/sweep");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
