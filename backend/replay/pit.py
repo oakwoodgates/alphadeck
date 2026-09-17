@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
-from datetime import date, datetime
+from collections.abc import Iterable, Mapping
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -48,6 +49,19 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def _partition_cols(table: str) -> list[str]:
+    """The natural-key partition for a BASKET-WIDE read: ``security_id`` prefixed to the per-security
+    identity, exactly as ``db.bitemporal.as_of_many`` builds it (``bitemporal.py:190``).
+
+    Prefixing matters twice. It keeps each security's partition equal to what the SCOPED read sees (so a
+    batch can never collapse two securities' rows onto one natural key — ``fact_insider_txn``'s identity
+    is ``(accession, insider_name, valid_from, txn_seq)``, which is unique only *within* a security), and
+    it makes the ORDER BY prefix a security boundary, so the within-security row order is identical on
+    both paths."""
+    ident = _FACT_IDENTITY[table]
+    return ["security_id"] + [c for c in ident if c != "security_id"]
+
+
 class ReplayPointInTimeData:
     """A DuckDB/Parquet-backed point-in-time view that **duck-types** ``signals.base.PointInTimeData`` —
     the same five accessors, same signatures, same ``list[dict]`` returns — so the unchanged detectors
@@ -58,6 +72,36 @@ class ReplayPointInTimeData:
     id DESC`` (the same deterministic tiebreak). The cap is constructor-bound — every accessor query is
     upper-bounded by ``asof``/``known_at`` with no widening path (the lookahead boundary). A parity test
     asserts each accessor equals the live ``PointInTimeData`` accessor row-for-row.
+
+    **The memo + basket prefetch + read bounds (backtest B5a) — the LIVE PIT's rule, ported.** This view
+    had none of the three, and that was the entire cost of a replay: MEASURED on the dev copy of prod, a
+    196-name thesis issued **2,935 DuckDB queries per session** (``price_history`` alone ~7x per
+    member-session, each re-reading that name's WHOLE tape unbounded and trimming in Python) and took
+    **42.1 s per session**. With the three below it issues **8 queries per session** and takes **1.65 s**
+    — a MEASURED **25.5x**, with byte-identical ``CallSnapshot``s. The mechanisms are deliberately the
+    same ones ``signals.base.PointInTimeData`` already documents, so the two PITs read as twins:
+
+    - **memo** — each ``(table, scope_id)`` as-of result is fetched ONCE for this view's lifetime. The key
+      is ONLY the table + the scope id: ``asof`` / ``known_at`` / ``tenant_id`` are constructor-bound, so a
+      memo can never cross a time or tenant boundary, and a per-CALL value (``price_history``'s
+      ``lookback_days``) is NEVER part of a key — every caller trims its own window from the memoized rows.
+    - **prefetch** — with a ``basket`` (the roster's resolved security ids AT THIS asof), the FIRST read of
+      a security-scoped table loads that table for the WHOLE basket in one query and fills the memo,
+      seeding an EMPTY list for a member with no rows so it is never re-queried. An id outside the basket
+      falls back to the per-security read, memoized. ``basket=None`` is the plain per-security read.
+    - **bounds** — the registry-DERIVED event-time floor per table (``signals/horizons.call_bounds(cfg)``:
+      ``max(declared reader horizons) + MARGIN_DAYS``, ``None`` = unbounded). Applied as a ``valid_from >=``
+      predicate on BOTH paths. Like the live twin, this view **never applies a floor on its own
+      initiative**: the map is caller-supplied and registry-derived, and the caller must derive it from the
+      SAME ``cfg`` the assembler runs with — a sweep that widens a lookback dial widens the floor with it,
+      or the read silently truncates. The floor is version-safe on the tables the registry bounds because
+      ``valid_from`` is a natural-key column there (``db/bitemporal.py:176-182``), so it can only drop
+      whole facts older than the floor, never change which VERSION of a fact wins.
+
+    **Row ORDER is pinned.** Both queries carry an explicit ``ORDER BY`` on the partition columns. DuckDB's
+    ``QUALIFY`` leaves the output order implementation-defined, and a tool whose premise is reproducible,
+    addressable runs must not rest on an accident — the same reason ``db.bitemporal.as_of_many`` states
+    that its ``DISTINCT ON`` ordering makes the batch's within-security order equal the scoped read's.
     """
 
     def __init__(
@@ -67,37 +111,121 @@ class ReplayPointInTimeData:
         asof: date,
         known_at: datetime,
         tenant_id: UUID = DEFAULT_TENANT_ID,
+        basket: Iterable[UUID] | None = None,
+        bounds: Mapping[str, int | None] | None = None,
     ) -> None:
         self.con = con
         self.asof = asof
         self.known_at = known_at
         self.tenant_id = tenant_id
+        # the prefetch scope, de-duplicated and ORDER-STABLE (the bound parameter list must not depend on
+        # set iteration order — a run has to reproduce itself). Empty == no basket == per-security reads.
+        self._basket: tuple[UUID, ...] = tuple(dict.fromkeys(basket or ()))
+        self._in_basket: frozenset[UUID] = frozenset(self._basket)
+        # the mirror stores uuid columns as VARCHAR (``export._OID_ARROW[2950]`` is ``pa.string()`` and
+        # ``_coerce`` stringifies), so a prefetched row's ``security_id`` comes back as text. This maps it
+        # BACK to the caller's UUID; without it every memo lookup misses and the prefetch silently serves
+        # empty lists — which looks exactly like a 35x speed-up and is measuring nothing.
+        self._sid_by_text: dict[str, UUID] = {str(s): s for s in self._basket}
+        self._bounds: dict[str, int | None] = dict(bounds or {})
+        self._memo: dict[tuple[str, UUID], list[dict[str, Any]]] = {}
+        self._prefetched: set[str] = set()
 
-    def _as_of(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
-        if table not in _FACT_IDENTITY:
-            raise ValueError(f"unknown fact table: {table!r}")
-        ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
-        # the knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (currently recorded_at for every
-        # table: the strict "what we held" no-lookahead axis; accepted is display/metrics only, never a
-        # gate). ONE source of truth (knowability_expr), so both engines revert in lockstep.
-        knowability = knowability_expr(table)
-        query = (
-            f"SELECT * FROM {table} "
-            f"WHERE tenant_id = ? AND {scope_col} = ? "
-            f"AND valid_from <= ? AND {knowability} <= ? "
-            f"QUALIFY ROW_NUMBER() OVER "
-            f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1"
-        )
-        res = self.con.execute(
-            query, [str(self.tenant_id), str(scope_id), self.asof, self.known_at]
-        )
-        cols = [d[0] for d in res.description]
-        rows = [dict(zip(cols, r)) for r in res.fetchall()]
-        for jc in _JSON_COLS.get(table, ()):  # decode jsonb-as-string back to a dict
+    # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
+
+    def _lower(self, table: str) -> date | None:
+        """The event-time floor for ``table`` under this view's bounds, or None (unbounded)."""
+        days = self._bounds.get(table)
+        return None if days is None else self.asof - timedelta(days=days)
+
+    def _decode(self, table: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Decode jsonb-as-string back to a dict/list — on EVERY path, scoped and prefetched."""
+        for jc in _JSON_COLS.get(table, ()):
             for row in rows:
                 if isinstance(row.get(jc), str):
                     row[jc] = json.loads(row[jc])
         return rows
+
+    def _gate(self, table: str) -> str:
+        """The knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (currently recorded_at for every
+        table: the strict "what we held" no-lookahead axis; accepted is display/metrics only, never a
+        gate). ONE source of truth (knowability_expr), so both engines revert in lockstep."""
+        return knowability_expr(table)
+
+    def _read_scoped(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
+        """The per-scope as-of read — one security (or one thesis). The pre-B5a query, plus the optional
+        registry floor and the explicit ORDER BY."""
+        ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
+        lower = self._lower(table)
+        floor = " AND valid_from >= ?" if lower is not None else ""
+        query = (
+            f"SELECT * FROM {table} "
+            f"WHERE tenant_id = ? AND {scope_col} = ? "
+            f"AND valid_from <= ? AND {self._gate(table)} <= ?{floor} "
+            f"QUALIFY ROW_NUMBER() OVER "
+            f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1 "
+            f"ORDER BY {ident}"
+        )
+        params: list[Any] = [str(self.tenant_id), str(scope_id), self.asof, self.known_at]
+        if lower is not None:
+            params.append(lower)
+        res = self.con.execute(query, params)
+        cols = [d[0] for d in res.description]
+        return self._decode(table, [dict(zip(cols, r)) for r in res.fetchall()])
+
+    def _prefetch(self, table: str) -> None:
+        """ONE as-of read for the WHOLE basket, filling the memo — the DuckDB twin of
+        ``db.bitemporal.as_of_many``: same gate, same per-security partition, same ``recorded_at DESC,
+        id DESC`` tiebreak, same optional floor, and an entry for EVERY requested id (``[]`` when it has
+        no rows, so "nothing on file" is memoized and never re-queried)."""
+        ident = ", ".join(_partition_cols(table))
+        lower = self._lower(table)
+        floor = " AND valid_from >= ?" if lower is not None else ""
+        placeholders = ", ".join("?" for _ in self._basket)
+        query = (
+            f"SELECT * FROM {table} "
+            f"WHERE tenant_id = ? AND security_id IN ({placeholders}) "
+            f"AND valid_from <= ? AND {self._gate(table)} <= ?{floor} "
+            f"QUALIFY ROW_NUMBER() OVER "
+            f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1 "
+            f"ORDER BY {ident}"
+        )
+        params: list[Any] = [
+            str(self.tenant_id),
+            *[str(s) for s in self._basket],
+            self.asof,
+            self.known_at,
+        ]
+        if lower is not None:
+            params.append(lower)
+        res = self.con.execute(query, params)
+        cols = [d[0] for d in res.description]
+        by_sid: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in self._basket}
+        for r in res.fetchall():
+            row = dict(zip(cols, r))
+            sid = self._sid_by_text.get(str(row["security_id"]))
+            if sid is not None:  # an id outside the basket cannot appear, but never guess
+                by_sid[sid].append(row)
+        for sid, rows in by_sid.items():
+            self._memo[(table, sid)] = self._decode(table, rows)
+
+    def _as_of(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
+        if table not in _FACT_IDENTITY:
+            raise ValueError(f"unknown fact table: {table!r}")
+        key = (table, scope_id)
+        if key not in self._memo:
+            if (
+                scope_col == "security_id"
+                and scope_id in self._in_basket
+                and table not in self._prefetched
+            ):
+                self._prefetch(table)
+                self._prefetched.add(table)
+            if key not in self._memo:  # outside the basket, thesis-scoped, or no basket at all
+                self._memo[key] = self._read_scoped(table, scope_col, scope_id)
+        # a FRESH list per call; the memo's container is never handed out (the row dicts are shared —
+        # readers are audited never to mutate a row, the live twin's rule)
+        return list(self._memo[key])
 
     def insider_txns(self, security_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_insider_txn", "security_id", security_id)

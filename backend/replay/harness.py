@@ -15,6 +15,7 @@ from pipeline.core import assemble_from_pit
 from replay.pit import ReplayPointInTimeData
 from replay.schema import CallSnapshot
 from repositories import thesis_repo
+from signals.horizons import call_bounds
 
 
 def trading_sessions(
@@ -204,6 +205,11 @@ def replay_thesis_with_roster(
     sessions = trading_sessions(con, sids, start, end, tenant_id)
     snapshots: list[CallSnapshot] = []
     fallback_days = 0
+    # B5a — the PIT's registry-derived read bounds, from the SAME cfg the assembler runs with (the live
+    # path's rule, `pipeline/call_for_thesis.py:80`). Derived ONCE per sweep, not per session: it iterates
+    # every registered detector. Deriving it from `cfg` rather than `DEFAULT_CONFIG` is load-bearing — a
+    # dial sweep that widens a lookback must widen the floor with it, or the read silently truncates.
+    bounds = call_bounds(cfg)
     for t in sessions:
         roster = thesis
         if conn is not None:
@@ -212,7 +218,16 @@ def replay_thesis_with_roster(
                 roster = thesis_repo.get_asof(conn, thesis.id, roster_known_at) or thesis
             else:
                 fallback_days += 1  # no snapshot that far back — the live roster stands in, LOUDLY
-        pit = ReplayPointInTimeData(con, asof=t, known_at=known_at, tenant_id=tenant_id)
+        # B5a — the prefetch scope is the roster AS RESOLVED AT T, never the passed thesis's live basket:
+        # the batch must not reach for a member the call at T cannot see (F4's per-T roster clock).
+        pit = ReplayPointInTimeData(
+            con,
+            asof=t,
+            known_at=known_at,
+            tenant_id=tenant_id,
+            basket=[m.security_id for m in roster.basket if m.security_id is not None],
+            bounds=bounds,
+        )
         snapshots.append(CallSnapshot.from_card(assemble_from_pit(pit, roster, t, cfg)))
     total_days = len(sessions)
     # A thesis that swept NO sessions made no roster claim — it must not read as a clean point-in-time
