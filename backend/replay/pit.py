@@ -24,7 +24,7 @@ import duckdb
 
 from db.bitemporal import _FACT_IDENTITY, knowability_expr
 from db.session import DEFAULT_TENANT_ID
-from replay.export import FACT_TABLES, MANIFEST_NAME
+from replay.export import FACT_TABLES, read_mirror_manifest
 from signals.base import window_prices
 
 # jsonb / array columns the export wrote as JSON strings — the accessor decodes them back to
@@ -47,20 +47,18 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     "skip whatever is missing" rule: a file missing for any OTHER reason is a broken export and must still
     fail loudly here rather than produce a mirror that silently answers nothing for that table. A detector
     that reads an excluded table then fails loudly too, which is the honest outcome — and
-    ``export_snapshot`` names those detectors in the manifest before the run starts."""
+    ``export_snapshot`` names those detectors in the manifest before the run starts.
+
+    The read goes through ``read_mirror_manifest`` rather than a direct ``json.loads`` because a run that
+    exported its OWN mirror leaves a RUN manifest at that same filename once it finishes (both are
+    ``manifest.json``, in one directory, run-manifest last). Re-opening a completed public-clock run as a
+    mirror is a legitimate thing to want, and the run manifest records the same exclusion list under
+    ``mirror`` — so the reader understands both shapes instead of silently seeing none."""
     con = duckdb.connect()
     base = Path(parquet_dir)
-    excluded: set[str] = set()
-    manifest = base / MANIFEST_NAME
-    if manifest.is_file():
-        try:
-            excluded = set(
-                json.loads(manifest.read_text(encoding="utf-8")).get("excluded_tables", [])
-            )
-        except (OSError, json.JSONDecodeError):
-            excluded = (
-                set()
-            )  # an unreadable manifest means "assume nothing was excluded" -> fail loud
+    manifest = read_mirror_manifest(base)
+    # no manifest -> "assume nothing was excluded", so a genuinely missing file still fails loudly below
+    excluded: set[str] = set(manifest.excluded_tables) if manifest else set()
     for table in FACT_TABLES:
         if table in excluded:
             continue
