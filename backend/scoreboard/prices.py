@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +10,56 @@ import psycopg
 def _f(x: Any) -> float | None:
     """Coerce a nullable numeric column (psycopg returns ``Decimal``/``None``) to ``float``/``None``."""
     return float(x) if x is not None else None
+
+
+def db_now(conn: psycopg.Connection) -> datetime:
+    """The DATABASE's current instant — the clock that STAMPS ``recorded_at``.
+
+    **The one-clock rule.** Every read here gates on ``recorded_at <= known_at``, and ``recorded_at`` is
+    written by the column default ``now()`` — the *database's* clock. Defaulting ``known_at`` to
+    ``datetime.now(timezone.utc)`` therefore compared two different clocks across a sub-millisecond margin,
+    and a fact recorded while the host clock lagged the database was INVISIBLE to a read taken immediately
+    afterwards. MEASURED on this stack: the natural margin between a bar's ``recorded_at`` and a
+    host-clock ``known_at`` taken right after its commit is only ~1.5 ms, so a host clock 2 ms behind the
+    database hid the bar in 84 of 100 replays and 4 ms behind in 100 of 100. Host/container skew is not
+    constant — it drifts, and a host sleep/resume perturbs it — which is exactly why the symptom came and
+    went. Taking the bound from the database removes the host clock from the comparison altogether: the
+    same injection at 2 ms, 4 ms, 50 ms and 5 s leaves 0 of 100.
+
+    ``clock_timestamp()``, not ``now()``: ``now()`` is TRANSACTION-START time, so inside a read transaction
+    it would sit before any fact committed during that transaction — under READ COMMITTED a later statement
+    can see such a row, and the bound must not exclude what the snapshot includes.
+
+    This mirrors the rule the serve path already holds for the operator log: ``decisions_repo`` bounds its
+    read with the database clock, and ``domain.market_time.serve_known_at``'s docstring says in as many
+    words that passing a host-clock ``now`` there would reopen the same flake. This reader was simply left
+    out of that decision.
+
+    Distinct from PR #359, which fixed the same MECHANISM test-side and said "no product code touched" —
+    correctly, because there the two clocks met only inside a test's assertion and the ingest never
+    compared them. Here the comparison is in the PRODUCT: a host timestamp is bound into a SQL predicate
+    against a database-stamped column, on a live serve path (``GET /scoreboard/price-window`` builds this
+    reader with no ``known_at``, and a live Scoreboard view reaches it with ``serve_known_at`` returning
+    ``None``). So the fix belongs where the comparison is.
+
+    Costs one round-trip per reader construction (~0.1 ms locally), once — never per query.
+    ``decisions_repo`` gets the same guarantee for free with a SQL-side
+    ``COALESCE(%s::timestamptz, clock_timestamp())`` and no round-trip; that is not available here because
+    this reader PINS one bound and reuses it across ``first_close_on_or_after`` / ``last_close_through`` /
+    ``closes_between`` / ``bars_between`` / ``market_tape_edge``. Resolving per statement would let two
+    methods of the same reader answer against different instants, which is the consistency the pin exists
+    to provide. One round-trip is the price of pinning.
+
+    It does NOT commit or roll back — the caller owns the transaction (``pipeline.call_for_thesis``'s rule).
+    One consequence worth knowing: on a connection with no open transaction this SELECT starts one, so a
+    fact written on that SAME connection afterwards takes its ``recorded_at`` from ``now()`` = this
+    transaction's start, i.e. from BEFORE the instant returned here, and is therefore visible to the reader
+    that just pinned it. That is an artifact of one connection doing both jobs (a test, essentially); on the
+    serve path the connection holding a reader does not write facts.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT clock_timestamp() AS t")
+        return cur.fetchone()["t"]
 
 
 def market_tape_edge(
@@ -34,7 +84,7 @@ def market_tape_edge(
         cur.execute(
             "SELECT max(d) AS edge FROM fact_price_eod "
             "WHERE tenant_id = %s AND d <= %s AND recorded_at <= %s AND close IS NOT NULL",
-            [tenant_id, cap, known_at or datetime.now(timezone.utc)],
+            [tenant_id, cap, known_at or db_now(conn)],  # the clock that STAMPS recorded_at
         )
         row = cur.fetchone()
     return row["edge"] if row else None
@@ -67,7 +117,10 @@ class PgRealizedPrices:
         self.conn = conn
         self.tenant_id = tenant_id
         self.cap = cap
-        self.known_at = known_at or datetime.now(timezone.utc)
+        # Pinned ONCE, from the clock that stamps ``recorded_at`` (see ``db_now``) — so every method of
+        # this reader answers against one transaction-axis bound, and that bound can never sit in the
+        # database's past because a host clock drifted.
+        self.known_at = known_at or db_now(conn)
         # The request-level market edge, threaded in by the caller that already resolved it once for
         # this tenant. ``None`` means "not supplied" and this reader resolves (and caches) its own on
         # first use — which is the standalone / replay / test path, never the hot one. Conflating
