@@ -17,7 +17,7 @@ _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
 def test_pit_insider_txns_have_no_lookahead(db, security_id):
     xml = (_F / "edgar" / "form4_sample.xml").read_text(encoding="utf-8")
-    assert ingest_form4(db, security_id, xml, "0001234567-26-000123") == 2
+    assert ingest_form4(db, security_id, xml, "0001234567-26-000123") == (2, 0)
 
     early = PointInTimeData(db, asof=date(2026, 5, 20), known_at=_KNOWN).insider_txns(security_id)
     assert {r["txn_code"] for r in early} == {"S"}  # only the 05-15 sale; the 06-01 buy is future
@@ -56,7 +56,7 @@ def test_pit_insider_transaction_time_gate_keys_on_recorded_at(db, security_id):
 def test_ingest_form4_allows_multiple_same_day_txns(db, security_id):
     # one filing, same insider + same date (an exercise + a sale): both stored (txn_seq distinguishes)
     xml = (_F / "edgar" / "form4_multi_sameday.xml").read_text(encoding="utf-8")
-    assert ingest_form4(db, security_id, xml, "acc-multi") == 2
+    assert ingest_form4(db, security_id, xml, "acc-multi") == (2, 0)
 
 
 def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
@@ -100,7 +100,7 @@ def test_pit_self_filing_excluded_from_call_but_kept_on_tape(db, security_id):
         "<transactionShares><value>10000</value></transactionShares>",
         "<transactionShares><value>30000000</value></transactionShares>",
     )
-    assert ingest_form4(db, security_id, self_xml, "acc-self") == 2
+    assert ingest_form4(db, security_id, self_xml, "acc-self") == (2, 0)
     db.commit()
 
     pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)

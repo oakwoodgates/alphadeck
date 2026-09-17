@@ -697,6 +697,13 @@ def _report(results: list[ThesisRunResult]) -> int:
         )
         skipped = sum(x.form4_skipped for x in r.ingested)
         sk = f" · {skipped} form4 skipped" if skipped else ""  # loudness marks the exception
+        # P1 — TRANSACTIONS the sanity bound refused (a filer's impossible date: a leading-zero year, or a
+        # year after the accession's own filing year). Loud only when nonzero, like every other exception
+        # count on this line. It is an AGGREGATE for a gate to watch; the per-row detail (accession,
+        # insider, sequence, raw date, reason) already printed in full during the ingest leg above — the
+        # count accompanies that report and must never be read as a substitute for it.
+        rejected = sum(x.form4_txn_rejected for x in r.ingested)
+        rj = f" · {rejected} insider txn REJECTED (impossible date)" if rejected else ""
         rv = sum(x.price_bars_reversioned for x in r.ingested)
         rvs = (
             f" · {rv} bars RE-VERSIONED (restated)" if rv else ""
@@ -705,7 +712,7 @@ def _report(results: list[ThesisRunResult]) -> int:
         frvs = (
             f" · {frv} fund shares RE-VERSIONED (restated)" if frv else ""
         )  # a corrected same-day count — loud only then
-        print(f"  {r.name}: +{facts} facts{sk}{rvs}{frvs} · {mark}")
+        print(f"  {r.name}: +{facts} facts{sk}{rj}{rvs}{frvs} · {mark}")
     # transitions get their own LOUD block — and only when there ARE any (loudness marks the
     # exception; the common all-quiet night prints nothing here)
     transitions = [r.transition for r in results if r.transition]
