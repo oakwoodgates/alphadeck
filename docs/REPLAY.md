@@ -115,6 +115,15 @@ python -m replay.run --start 2025-04-01 --end 2026-06-30 --pin 2027-01-01 --out 
 # writes: <out>/{fact_*.parquet (mirror), outcomes.parquet, episodes.parquet, metrics.json}; prints the metrics
 ```
 
+**Every artifact is written on every run, including an empty one.** A run that produces zero episodes writes
+an EMPTY `episodes.parquet` / `outcomes.parquet` carrying the full schema — it used to skip the write, which
+left the *previous* run's files beside a fresh `metrics.json` and silently reported last run's arms as this
+run's. The schema is DECLARED from the `Episode` / `Outcome` models (`replay/run.arrow_schema`) rather than
+inferred, and is applied to the populated path too, so the empty and populated files always agree column for
+column; an unmapped field type raises rather than defaulting, so adding a model field is a deliberate change
+to the artifact's shape. Re-running into the same `--out` is safe and unchanged: the mirror, both tables and
+`metrics.json` are all rewritten.
+
 > **Windows note:** the lab used to pay a ~5x tax from DuckDB's failed `import pandas` probe (per bound parameter, per query;
 > CPython never caches a failed import, so each probe re-walked `sys.path` — a stat storm). `replay/pit.py` now short-circuits it when pandas is absent.
 
