@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from backtest import store
+from backtest import artifact, store
 from backtest.run import MirrorClockMismatch, execute
 from replay.export import MANIFEST_NAME, mirror_clock, read_mirror_manifest
 
@@ -222,6 +222,15 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
         m = read_manifest(d)
         assert m is not None
         seen.add((m.clock, m.known_at_mode, m.mirror.hash))
+        # ...and the axis reaches the LEDGER's banner too -- the surface sentence a reader quotes from.
+        # This is the regression for a silent merge: B6 wrote `build_ledger(clock=clock)` when `clock` was
+        # a local constant, CW turned it into a nullable "inherit" argument, and git merged both cleanly
+        # because the edits never shared a line. A sweep point passes no clock, so the banner would have
+        # read None here while the manifest beside it read `public`.
+        ledger = artifact.read_ledger(d)
+        assert ledger is not None
+        assert "clock public" in ledger.snapshot.banner
+        assert "became PUBLIC" in ledger.snapshot.banner
     assert seen == {("public", "lockstep", report.mirror_hash)}
 
 

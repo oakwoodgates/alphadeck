@@ -11,9 +11,10 @@ import {
 import { Admin } from "./admin/Admin";
 import { AppHeader } from "./AppHeader";
 import { useTheses } from "./api/hooks";
+import { Backtest } from "./backtest/Backtest";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import { ASOF, NAME, RAIL, boardPath, railOpenFrom, thesisPath, validAsof } from "./nav";
+import { ASOF, NAME, RAIL, RUN, boardPath, railOpenFrom, thesisPath, validAsof } from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
@@ -75,6 +76,36 @@ function ScoreboardRoute() {
     <Scoreboard
       header={<AppHeader current="scoreboard" asof={asof} onAsofChange={setAsof} />}
       asof={asof}
+      onSelect={(id, nameKey) =>
+        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
+          state: { from: here },
+        })
+      }
+    />
+  );
+}
+
+function BacktestRoute() {
+  const navigate = useNavigate();
+  const here = useHere();
+  const { asof, asofParam, setAsof } = useAsof();
+  // The selected run rides ?run= so a run is a shareable link. A view dial like the as-of scrub and
+  // the Cockpit's name selection, so it REPLACES — browsing runs never spams history.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const onSelectRun = (id: string) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(RUN, id);
+        return next;
+      },
+      { replace: true },
+    );
+  return (
+    <Backtest
+      header={<AppHeader current="backtest" asof={asof} onAsofChange={setAsof} />}
+      runId={searchParams.get(RUN)}
+      onSelectRun={onSelectRun}
       onSelect={(id, nameKey) =>
         navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
           state: { from: here },
@@ -173,6 +204,7 @@ export function App() {
       <Route path="/" element={<BoardRoute />} />
       <Route path="/workbench" element={<WorkbenchRoute />} />
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
+      <Route path="/backtest" element={<BacktestRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
       <Route path="/radar" element={<RadarRoute />} />
       <Route path="/thesis/:thesisId" element={<CockpitRoute />} />

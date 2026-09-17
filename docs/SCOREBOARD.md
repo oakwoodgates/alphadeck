@@ -312,6 +312,28 @@ has depth while the forward record accrues — without polluting it. Structure o
   the one additive replay-schema change). Platform track only — decision capture post-dates
   history, so the operator column is structurally absent.
 
+
+### What `/backtest` borrows from this page (and what it must never borrow back)
+
+The Backtest surface (`docs/BACKTEST.md`) renders its per-thesis drill-down through THIS page's components —
+`LedgerHead`, `EpisodeRow`, `EpisodeScorecard`, `MetricsStrip` — and its ledger artifact is built by
+`scoreboard/replay_snapshot.build_snapshot`, the same pure flattener the panel above uses. That is
+deliberate: its rows genuinely are replayed, scored arm episodes, so a parallel set of components would give
+two surfaces two definitions of one row and let their renderers drift. Three consequences to hold:
+
+- **The wire shape is shared, so it is load-bearing in two places.** `ScoreboardEpisodeOut` /
+  `ScoreboardReplayThesisOut` now serve `/scoreboard/replay` AND `/backtest/runs/{id}`. A field added for one
+  arrives on the other.
+- **Backtest-only fields do NOT go on `ScoredEpisode`.** The breadth fields (co-arm counts, the Key-1 source,
+  the confirmation grade at the arm) ride the backtest's own response and are joined on
+  `(thesis_id, security_id, arm_date)`. They have no meaning on the record's ledger and must not be pushed
+  into the shared model to save a join.
+- **Nothing flows the other way.** This page's numbers come from the RECORD; a backtest is a recompute under
+  chosen dials. They are never pooled, never merged, and the Scoreboard never links to a backtest run.
+
+`ReplayPanel` itself is not reused — it calls `useScoreboardReplay` internally, so it is bound to that
+endpoint. Its children are where the rendering lives, and those are what is shared.
+
 ## Record freshness on the live view (Slice 2, #209)
 
 The Scoreboard also answers **"is the call-of-record current *now*?"** — the same question the Admin page

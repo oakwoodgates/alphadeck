@@ -10,8 +10,8 @@ import pytest
 pytest.importorskip("duckdb")
 pytest.importorskip("pyarrow")
 
+from backtest import artifact, store  # noqa: E402
 from backtest import manifest as mf  # noqa: E402
-from backtest import store  # noqa: E402
 from backtest.config_overlay import apply_overlay  # noqa: E402
 from backtest.run import build_parser, execute, main  # noqa: E402
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash  # noqa: E402
@@ -29,7 +29,18 @@ def test_a_run_leaves_a_complete_addressable_artifact(db, tmp_path):
     db.commit()
     outcome = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
 
-    for name in ("manifest.json", "episodes.parquet", "outcomes.parquet", "metrics.json"):
+    for name in (
+        "manifest.json",
+        "episodes.parquet",
+        "outcomes.parquet",
+        "metrics.json",
+        # B6 — the two SERVING copies. `episodes.json` exists because reading the Parquet needs pyarrow,
+        # which the lean api image does not carry; `ledger.json` is the per-thesis drill-down in the
+        # Scoreboard's own vocabulary. Both are written by the real path, so this is where their absence
+        # would be caught rather than in a hand-built fixture.
+        "episodes.json",
+        "ledger.json",
+    ):
         assert (outcome.path / name).is_file(), f"{name} missing from the run directory"
     assert list(outcome.path.glob("*.parquet")), "the frozen mirror should sit with the run"
 
@@ -44,6 +55,15 @@ def test_a_run_leaves_a_complete_addressable_artifact(db, tmp_path):
     assert m.overlay_diff == {}  # a bare run is the production dials
     assert m.timings["export_s"] >= 0 and "replay_s" in m.timings
     assert m.mirror.hash and len(m.mirror.hash) == 64
+
+    # ...and the ledger the surface serves holds THESE episodes, with the identity resolved by the run
+    ledger = artifact.read_ledger(outcome.path)
+    assert ledger is not None
+    assert sum(len(t.episodes) for t in ledger.snapshot.theses) == m.n_episodes
+    assert ledger.snapshot.theses, "the seeded thesis should appear even if it armed nothing"
+    if m.n_episodes:
+        sid = next(e.episode.security_id for t in ledger.snapshot.theses for e in t.episodes)
+        assert ledger.securities[str(sid)].ticker == "UNH"
 
 
 @pytest.mark.slow

@@ -2294,6 +2294,93 @@
         }
       }
     },
+    "/backtest/runs": {
+      "get": {
+        "tags": [
+          "backtest"
+        ],
+        "summary": "List Runs",
+        "description": "The run registry, newest first, plus how many runs have touched each dial.\n\n`available: false` when this stack has no backtest store \u2014 the normal state on prod.",
+        "operationId": "list_runs_backtest_runs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "backtest"
+        ],
+        "summary": "Read Run",
+        "description": "One run: its manifest, its pooled view, its episodes and its per-thesis ledger.\n\nAn unknown run id returns `available: false` rather than a 404, so the page degrades exactly as it\ndoes when the whole store is absent \u2014 one code path on the front end, and a stale bookmark reads as\n\"not here\" rather than as an error. A run written before the ledger existed simply has none, and the\ndrill-down says so rather than rendering an empty table.",
+        "operationId": "read_run_backtest_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/sweep": {
+      "get": {
+        "tags": [
+          "backtest"
+        ],
+        "summary": "Read Sweep",
+        "description": "The latest sweep curve, or `available: false` when none has been run.\n\nSINGULAR and latest-only because `backtest.sweep` writes one `sweep.json` per store. Each point on\nthe curve cites its own run_id, so the underlying runs stay addressable through `/backtest/runs/{id}`\neven though the curve itself is overwritten by the next sweep.",
+        "operationId": "read_sweep_backtest_sweep_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestSweepResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -2885,6 +2972,467 @@
         ],
         "title": "AutoConfirmRequest",
         "description": "Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).\n\nNOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number \u2014 it names a security and a\nfact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural\nbound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed\ncompanyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.\n\n``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the\noperator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify \u2014 extending this is a\ndecision, not a parameter."
+      },
+      "BacktestLedgerOut": {
+        "properties": {
+          "banner": {
+            "type": "string",
+            "title": "Banner",
+            "default": ""
+          },
+          "min_n": {
+            "type": "integer",
+            "title": "Min N",
+            "default": 0
+          },
+          "n_theses": {
+            "type": "integer",
+            "title": "N Theses",
+            "default": 0
+          },
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "n_censored": {
+            "type": "integer",
+            "title": "N Censored",
+            "default": 0
+          },
+          "n_eligible": {
+            "type": "integer",
+            "title": "N Eligible",
+            "default": 0
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardMetricOut"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardReplayThesisOut"
+            },
+            "type": "array",
+            "title": "Theses"
+          }
+        },
+        "type": "object",
+        "title": "BacktestLedgerOut",
+        "description": "The run's episode ledger \u2014 the PER-THESIS drill-down, in the Scoreboard's own wire vocabulary.\n\nIt reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,\nscored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions\nof the same row and let their renderers drift. The front end therefore renders this through the\nsame ledger components the Scoreboard's replay panel uses.\n\nA DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the\none ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries\nno thesis identifier at all; this is where a reader checks a pooled number against its own rows.\n\nIts metrics are the run's own, over the ELIGIBLE set only (matured + non-censored \u2014 the Scoreboard's\nrule), which is a smaller set than the pooled panel scores. The two are never pooled into one\nnumber, and the banner says so."
+      },
+      "BacktestManifest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version",
+            "default": 1
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "code_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Sha"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Window End"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock",
+            "default": "record"
+          },
+          "known_at_mode": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "lockstep"
+            ],
+            "title": "Known At Mode",
+            "default": "pin"
+          },
+          "pin": {
+            "type": "string",
+            "title": "Pin"
+          },
+          "config_hash": {
+            "type": "string",
+            "title": "Config Hash"
+          },
+          "config_short": {
+            "type": "string",
+            "title": "Config Short"
+          },
+          "config_canonical_json": {
+            "type": "string",
+            "title": "Config Canonical Json"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config"
+          },
+          "overlay_diff": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Overlay Diff"
+          },
+          "overlay_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overlay Path"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/ThesisEntry"
+            },
+            "type": "array",
+            "title": "Theses"
+          },
+          "mirror": {
+            "$ref": "#/components/schemas/MirrorInfo"
+          },
+          "workers": {
+            "type": "integer",
+            "title": "Workers",
+            "default": 1
+          },
+          "null_draws": {
+            "type": "integer",
+            "title": "Null Draws",
+            "default": 0
+          },
+          "null_seed": {
+            "type": "string",
+            "title": "Null Seed",
+            "default": ""
+          },
+          "hypothesis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hypothesis"
+          },
+          "decision_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Rule"
+          },
+          "regime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regime"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Timings"
+          },
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "n_theses": {
+            "type": "integer",
+            "title": "N Theses",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "created_at",
+          "window_start",
+          "window_end",
+          "pin",
+          "config_hash",
+          "config_short",
+          "config_canonical_json",
+          "mirror"
+        ],
+        "title": "BacktestManifest",
+        "description": "Everything needed to reproduce, or to refuse to trust, one run.\n\nNothing here is optional-by-accident. ``hypothesis`` and ``decision_rule`` are nullable only because a\nbare exploratory run at the default config is a legitimate thing to do; the CLI REQUIRES both the moment\nan overlay is supplied, so no run that moved a dial can exist without its pre-registration."
+      },
+      "BacktestRunResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pooled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PooledReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "episodes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Episodes"
+          },
+          "ledger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestLedgerOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "BacktestRunResponse",
+        "description": "One run: what it IS (the manifest), what it FOUND pooled, and its episodes for the drill-down.\n\nThe manifest and the pooled report are served as THEMSELVES \u2014 the artifact's own models, published\nstraight onto the wire. They were designed to be read (that is what a manifest is for), the route is\nread-only, and re-declaring ~60 fields here would only create a second place for the artifact's\nshape to drift from itself.\n\n`episodes` stays an untyped pass-through, deliberately and for the opposite reason: the front end\nreads exactly the BREADTH fields off it (co-arm counts, the Key-1 source, the confirmation grade),\nthose fields ride THIS response rather than widening the Scoreboard's `ScoredEpisode`, and a run\nwritten by an older or newer engine must degrade to missing fields rather than fail validation on a\nread-only research surface."
+      },
+      "BacktestRunSummaryOut": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "hypothesis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hypothesis"
+          },
+          "decision_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Rule"
+          },
+          "config_short": {
+            "type": "string",
+            "title": "Config Short"
+          },
+          "config_hash": {
+            "type": "string",
+            "title": "Config Hash"
+          },
+          "clock": {
+            "type": "string",
+            "title": "Clock"
+          },
+          "known_at_mode": {
+            "type": "string",
+            "title": "Known At Mode"
+          },
+          "window_start": {
+            "type": "string",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "title": "Window End"
+          },
+          "n_theses": {
+            "type": "integer",
+            "title": "N Theses",
+            "default": 0
+          },
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "dials_moved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dials Moved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "created_at",
+          "config_short",
+          "config_hash",
+          "clock",
+          "known_at_mode",
+          "window_start",
+          "window_end"
+        ],
+        "title": "BacktestRunSummaryOut",
+        "description": "One registry row \u2014 enough to pick a run without opening it."
+      },
+      "BacktestRunsResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestRunSummaryOut"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "dial_trials": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Dial Trials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "BacktestRunsResponse"
+      },
+      "BacktestSweepResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "sweep": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweep"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "BacktestSweepResponse",
+        "description": "The sweep curve. LATEST-ONLY \u2014 `backtest.sweep` writes one `sweep.json` per store, so a second\nsweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the\ncurve does not; making sweeps addressable is the noted follow-up."
       },
       "BackupCreateIn": {
         "properties": {
@@ -4929,6 +5477,79 @@
         "title": "ExtractionResult",
         "description": "The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when\nthere are none. The three empty states are DISTINCT (interaction #2 \u2014 \"we couldn't read it\" must\nnever masquerade as \"there is nothing\"; the old bare ``[]`` + the FE's *\"nothing to extract or\nratify here\"* copy was false for 44 of the 48 dark names):\n\n- ``facts`` non-empty \u2192 covered. For an annual-cover name that is SHARES ONLY \u2014 cash + purity are\n  still not covered for it (the FE says so rather than implying the data doesn't exist).\n- ``empty_reason=\"no-annual-filing\"`` \u2192 no 10-K/10-Q AND no 20-F/40-F: genuinely nothing on EDGAR\n  the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where \"nothing to\n  extract\" is true.\n- ``empty_reason=\"cover-not-located\"`` \u2192 an annual filing EXISTS but its cover instruction could\n  not be matched: the name is UNREAD, not empty \u2014 it stays a visible candidate for the next\n  pass, and companyfacts alone is deliberately NOT served (a fact without its located passage\n  would break the no-passage-no-fact contract).\n\n``runway_empty_reason`` (Retrieval Slice A) is the RUNWAY leg's own honest state for an annual\nfiler whose filing exists but yielded no cash_burn candidate \u2014 kept SEPARATE from ``empty_reason``\nbecause the shares leg usually still emits (facts non-empty), and the three states must stay\ndistinct (interaction #2):\n\n- ``\"cash-generative\"`` \u2192 operating cash flow is positive: a STATE, not a gap \u2014 no runway applies\n  and none is computed (a finite number here would be bogus).\n- ``\"financials-in-exhibit\"`` \u2192 a BURNING name whose financial statements were found in NEITHER\n  the main document NOR any EX-99 exhibit the bounded scan read (Retrieval Slice A-2 hunts the\n  exhibits by content signature \u2014 both statement rows \u2014 before this reason fires): deferred,\n  never a companyfacts-only number (no passage \u2192 no fact).\n- ``\"exhibit-ambiguous\"`` \u2192 MORE THAN ONE exhibit carries the statement signature (Slice A-2's\n  fail-closed rule): deferred rather than guessed \u2014 a wrong statement source is the runway\n  analog of a confident-wrong cover match.\n- ``\"statements-not-located\"`` \u2192 neither the statements nor a companyfacts sign could be read:\n  unread, not empty."
       },
+      "FiringDiagnostics": {
+        "properties": {
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "n_scoreable": {
+            "type": "integer",
+            "title": "N Scoreable",
+            "default": 0
+          },
+          "key1_source_mix": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Key1 Source Mix"
+          },
+          "confirmation_grade_mix": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Confirmation Grade Mix"
+          },
+          "co_arm_bucket_mix": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Co Arm Bucket Mix"
+          },
+          "close_reason_mix": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Close Reason Mix"
+          },
+          "entry_grade_mix": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Entry Grade Mix"
+          },
+          "pct_armed_with_a_co_member": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Armed With A Co Member"
+          },
+          "widest_single_session_group": {
+            "type": "integer",
+            "title": "Widest Single Session Group",
+            "default": 0
+          },
+          "timing_candidate_sessions": {
+            "type": "integer",
+            "title": "Timing Candidate Sessions",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "FiringDiagnostics",
+        "description": "Counts and mixes \u2014 NO outcome, so no hindsight risk. This is what catches a broken detector."
+      },
       "FlagExplanationOut": {
         "properties": {
           "explanation": {
@@ -5561,6 +6182,86 @@
         "title": "MemberDisplaySignalsOut",
         "description": "One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at\nthis asof (e.g. no ingested bars yet) \u2014 an honest empty, the member still shows."
       },
+      "MetricWithNulls": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "claim": {
+            "type": "string",
+            "title": "Claim"
+          },
+          "actual": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "excess": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "vs_timing": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "vs_name": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "insufficient_n": {
+            "type": "boolean",
+            "title": "Insufficient N",
+            "default": true
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "claim",
+          "actual",
+          "excess",
+          "vs_timing",
+          "vs_name"
+        ],
+        "title": "MetricWithNulls",
+        "description": "A pooled metric and the two things it must be read against.\n\n``actual`` alone is uninterpretable on a universe assembled with hindsight. ``vs_timing`` and\n``vs_name`` are the same statistic over the two null distributions, and ``excess`` strips the theme's\nown drift by measuring against the basket's equal-weight move over the identical window. A reader who\nquotes ``actual`` without them is quoting the operator's stock-picking, not the algorithm's timing."
+      },
+      "MirrorInfo": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "tables": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TableCounts"
+            },
+            "type": "object",
+            "title": "Tables"
+          },
+          "excluded_tables": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded Tables"
+          },
+          "blind_detectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blind Detectors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash"
+        ],
+        "title": "MirrorInfo",
+        "description": "The frozen Parquet mirror this run swept, and what it does NOT contain.\n\n``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is\nonly half an answer, because the reader still has to work out what stopped firing. Saying both means a\nresult can never be read as \"that detector is inert on this tape\" when the truth is \"that detector had\nno tape\"."
+      },
       "OperatorSpanOut": {
         "properties": {
           "take_id": {
@@ -5741,6 +6442,60 @@
           "absent"
         ],
         "title": "PlacementStatus"
+      },
+      "PooledReport": {
+        "properties": {
+          "n_episodes": {
+            "type": "integer",
+            "title": "N Episodes",
+            "default": 0
+          },
+          "n_scoreable": {
+            "type": "integer",
+            "title": "N Scoreable",
+            "default": 0
+          },
+          "null_draws": {
+            "type": "integer",
+            "title": "Null Draws",
+            "default": 0
+          },
+          "null_seed": {
+            "type": "string",
+            "title": "Null Seed",
+            "default": ""
+          },
+          "min_n": {
+            "type": "integer",
+            "title": "Min N",
+            "default": 5
+          },
+          "banner": {
+            "type": "string",
+            "title": "Banner",
+            "default": ""
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricWithNulls"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "slices": {
+            "items": {
+              "$ref": "#/components/schemas/Slice"
+            },
+            "type": "array",
+            "title": "Slices"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/FiringDiagnostics"
+          }
+        },
+        "type": "object",
+        "title": "PooledReport",
+        "description": "The whole pooled view. Deliberately carries NO thesis identifier of any kind \u2014 see the module\ndocstring; a test walks this payload to keep it that way."
       },
       "Position": {
         "properties": {
@@ -8360,6 +9115,42 @@
         "title": "SetBusinessTypeRequest",
         "description": "Body for ``POST /workbench/securities/{security_id}/business-type`` \u2014 the operator's per-security\nbusiness-type RE-TAG (Business-Type M1). ``business_type`` is the leaf to tag, or ``null`` to CLEAR the\nre-tag (the visible revert back to the maps-derived classification \u2014 reversibility, WB #1). Identity\nmetadata, never a fact (#3); the server stores it ONLY when it differs from the derived leaf (0033\nstore-on-diff) and stamps ``operator:retag`` as the basis."
       },
+      "Slice": {
+        "properties": {
+          "key": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Key"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N",
+            "default": 0
+          },
+          "actual": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "excess": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "vs_timing": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "vs_name": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "insufficient_n": {
+            "type": "boolean",
+            "title": "Insufficient N",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "Slice",
+        "description": "One ALGORITHM slice. ``key`` names only algorithm dimensions \u2014 see SLICE_KEYS."
+      },
       "SpacAttachOut": {
         "properties": {
           "thesis_id": {
@@ -8577,6 +9368,40 @@
         "title": "SpacMatchOut",
         "description": "One thesis's term-set hits against one radar filing (SPAC Radar, slice 2) \u2014 a RECOMMENDATION\n(INVARIANTS #10): display-only provenance, it changes nothing until the operator clicks an\naction. The matched term STRINGS by tier (the ``matched_terms`` idiom); ``truncated`` = the\ndocument was capped before matching (no silent caps \u2014 a cap must never read as \"no match\")."
       },
+      "Stat": {
+        "properties": {
+          "n": {
+            "type": "integer",
+            "title": "N",
+            "default": 0
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          }
+        },
+        "type": "object",
+        "title": "Stat",
+        "description": "One number with its sample size \u2014 never a bare figure."
+      },
       "State": {
         "type": "string",
         "enum": [
@@ -8587,6 +9412,40 @@
         ],
         "title": "State",
         "description": "Thesis lifecycle (a loop, not a ratchet)."
+      },
+      "TableCounts": {
+        "properties": {
+          "rows_in": {
+            "type": "integer",
+            "title": "Rows In"
+          },
+          "rows_out": {
+            "type": "integer",
+            "title": "Rows Out"
+          },
+          "rows_dropped_null_clock": {
+            "type": "integer",
+            "title": "Rows Dropped Null Clock",
+            "default": 0
+          },
+          "versions_collapsed": {
+            "type": "integer",
+            "title": "Versions Collapsed",
+            "default": 0
+          },
+          "identities_lost": {
+            "type": "integer",
+            "title": "Identities Lost",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows_in",
+          "rows_out"
+        ],
+        "title": "TableCounts",
+        "description": "One fact table's accounting through the export. Four numbers because they answer four different\nquestions, and collapsing them would hide the one that matters.\n\n``rows_dropped_null_clock`` counts RAW rows the public clock could not date; ``identities_lost`` counts\nwhole FACTS that therefore vanished. A 47% raw-row drop with 0.67% identities lost is a healthy export\n(the dropped rows were superseded versions); a small row drop with a large identity loss is a hole in\nthe tape. ``versions_collapsed`` is how many re-versions the export resolved before writing."
       },
       "TermEdit": {
         "properties": {
@@ -8762,6 +9621,51 @@
         ],
         "title": "ThesisDetail",
         "description": "The full thesis for the Cockpit \u2014 a wire model (no tenant_id) so generated FE types never bind\nto the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the\ncatalyst surface on CallCardResponse)."
+      },
+      "ThesisEntry": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "basket_size": {
+            "type": "integer",
+            "title": "Basket Size"
+          },
+          "roster_hash": {
+            "type": "string",
+            "title": "Roster Hash"
+          },
+          "roster_source": {
+            "type": "string",
+            "title": "Roster Source"
+          },
+          "fallback_days": {
+            "type": "integer",
+            "title": "Fallback Days"
+          },
+          "total_days": {
+            "type": "integer",
+            "title": "Total Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "basket_size",
+          "roster_hash",
+          "roster_source",
+          "fallback_days",
+          "total_days"
+        ],
+        "title": "ThesisEntry",
+        "description": "One thesis's identity in the run \u2014 including WHOSE roster it replayed on.\n\n``roster_source`` / ``fallback_days`` / ``total_days`` come straight off the harness's ``RosterSource``\nand are the honest half: ``basket_snapshot`` history begins 2026-09-15, so for any window before that\nevery thesis reads ``live_fallback`` and its membership is a labeled counterfactual. ``roster_hash``\nfingerprints the roster the run STARTED from (the live basket, ordered by ordinal then security) \u2014 read\ntogether with ``roster_source`` it says both which names and how point-in-time they were."
       },
       "ThesisSummary": {
         "properties": {

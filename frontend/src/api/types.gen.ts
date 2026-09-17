@@ -1238,6 +1238,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backtest/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description The run registry, newest first, plus how many runs have touched each dial.
+         *
+         *     `available: false` when this stack has no backtest store — the normal state on prod.
+         */
+        get: operations["list_runs_backtest_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backtest/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Run
+         * @description One run: its manifest, its pooled view, its episodes and its per-thesis ledger.
+         *
+         *     An unknown run id returns `available: false` rather than a 404, so the page degrades exactly as it
+         *     does when the whole store is absent — one code path on the front end, and a stale bookmark reads as
+         *     "not here" rather than as an error. A run written before the ledger existed simply has none, and the
+         *     drill-down says so rather than rendering an empty table.
+         */
+        get: operations["read_run_backtest_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backtest/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Sweep
+         * @description The latest sweep curve, or `available: false` when none has been run.
+         *
+         *     SINGULAR and latest-only because `backtest.sweep` writes one `sweep.json` per store. Each point on
+         *     the curve cites its own run_id, so the underlying runs stay addressable through `/backtest/runs/{id}`
+         *     even though the curve itself is overwritten by the next sweep.
+         */
+        get: operations["read_sweep_backtest_sweep_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1621,6 +1692,257 @@ export interface components {
              * @constant
              */
             fact_type: "shares_outstanding";
+        };
+        /**
+         * BacktestLedgerOut
+         * @description The run's episode ledger — the PER-THESIS drill-down, in the Scoreboard's own wire vocabulary.
+         *
+         *     It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
+         *     scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
+         *     of the same row and let their renderers drift. The front end therefore renders this through the
+         *     same ledger components the Scoreboard's replay panel uses.
+         *
+         *     A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
+         *     one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries
+         *     no thesis identifier at all; this is where a reader checks a pooled number against its own rows.
+         *
+         *     Its metrics are the run's own, over the ELIGIBLE set only (matured + non-censored — the Scoreboard's
+         *     rule), which is a smaller set than the pooled panel scores. The two are never pooled into one
+         *     number, and the banner says so.
+         */
+        BacktestLedgerOut: {
+            /**
+             * Banner
+             * @default
+             */
+            banner: string;
+            /**
+             * Min N
+             * @default 0
+             */
+            min_n: number;
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /**
+             * N Censored
+             * @default 0
+             */
+            n_censored: number;
+            /**
+             * N Eligible
+             * @default 0
+             */
+            n_eligible: number;
+            /** Metrics */
+            metrics?: components["schemas"]["ScoreboardMetricOut"][];
+            /** Theses */
+            theses?: components["schemas"]["ScoreboardReplayThesisOut"][];
+        };
+        /**
+         * BacktestManifest
+         * @description Everything needed to reproduce, or to refuse to trust, one run.
+         *
+         *     Nothing here is optional-by-accident. ``hypothesis`` and ``decision_rule`` are nullable only because a
+         *     bare exploratory run at the default config is a legitimate thing to do; the CLI REQUIRES both the moment
+         *     an overlay is supplied, so no run that moved a dial can exist without its pre-registration.
+         */
+        BacktestManifest: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Run Id */
+            run_id: string;
+            /** Created At */
+            created_at: string;
+            /** Code Sha */
+            code_sha?: string | null;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            /**
+             * Clock
+             * @default record
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /**
+             * Known At Mode
+             * @default pin
+             * @enum {string}
+             */
+            known_at_mode: "pin" | "lockstep";
+            /** Pin */
+            pin: string;
+            /** Config Hash */
+            config_hash: string;
+            /** Config Short */
+            config_short: string;
+            /** Config Canonical Json */
+            config_canonical_json: string;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** Overlay Diff */
+            overlay_diff?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Overlay Path */
+            overlay_path?: string | null;
+            /** Theses */
+            theses?: components["schemas"]["ThesisEntry"][];
+            mirror: components["schemas"]["MirrorInfo"];
+            /**
+             * Workers
+             * @default 1
+             */
+            workers: number;
+            /**
+             * Null Draws
+             * @default 0
+             */
+            null_draws: number;
+            /**
+             * Null Seed
+             * @default
+             */
+            null_seed: string;
+            /** Hypothesis */
+            hypothesis?: string | null;
+            /** Decision Rule */
+            decision_rule?: string | null;
+            /** Regime */
+            regime?: string | null;
+            /** Labels */
+            labels?: string[];
+            /** Timings */
+            timings?: {
+                [key: string]: number;
+            };
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+        };
+        /**
+         * BacktestRunResponse
+         * @description One run: what it IS (the manifest), what it FOUND pooled, and its episodes for the drill-down.
+         *
+         *     The manifest and the pooled report are served as THEMSELVES — the artifact's own models, published
+         *     straight onto the wire. They were designed to be read (that is what a manifest is for), the route is
+         *     read-only, and re-declaring ~60 fields here would only create a second place for the artifact's
+         *     shape to drift from itself.
+         *
+         *     `episodes` stays an untyped pass-through, deliberately and for the opposite reason: the front end
+         *     reads exactly the BREADTH fields off it (co-arm counts, the Key-1 source, the confirmation grade),
+         *     those fields ride THIS response rather than widening the Scoreboard's `ScoredEpisode`, and a run
+         *     written by an older or newer engine must degrade to missing fields rather than fail validation on a
+         *     read-only research surface.
+         */
+        BacktestRunResponse: {
+            /** Available */
+            available: boolean;
+            /** Run Id */
+            run_id?: string | null;
+            manifest?: components["schemas"]["BacktestManifest"] | null;
+            pooled?: components["schemas"]["PooledReport"] | null;
+            /** Episodes */
+            episodes?: {
+                [key: string]: unknown;
+            }[];
+            ledger?: components["schemas"]["BacktestLedgerOut"] | null;
+            /** Labels */
+            labels?: string[];
+        };
+        /**
+         * BacktestRunSummaryOut
+         * @description One registry row — enough to pick a run without opening it.
+         */
+        BacktestRunSummaryOut: {
+            /** Run Id */
+            run_id: string;
+            /** Created At */
+            created_at: string;
+            /** Hypothesis */
+            hypothesis?: string | null;
+            /** Decision Rule */
+            decision_rule?: string | null;
+            /** Config Short */
+            config_short: string;
+            /** Config Hash */
+            config_hash: string;
+            /** Clock */
+            clock: string;
+            /** Known At Mode */
+            known_at_mode: string;
+            /** Window Start */
+            window_start: string;
+            /** Window End */
+            window_end: string;
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /** Dials Moved */
+            dials_moved?: string[];
+        };
+        /** BacktestRunsResponse */
+        BacktestRunsResponse: {
+            /** Available */
+            available: boolean;
+            /** Runs */
+            runs?: components["schemas"]["BacktestRunSummaryOut"][];
+            /** Dial Trials */
+            dial_trials?: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * BacktestSweepResponse
+         * @description The sweep curve. LATEST-ONLY — `backtest.sweep` writes one `sweep.json` per store, so a second
+         *     sweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the
+         *     curve does not; making sweeps addressable is the noted follow-up.
+         */
+        BacktestSweepResponse: {
+            /** Available */
+            available: boolean;
+            /** Sweep */
+            sweep?: {
+                [key: string]: unknown;
+            } | null;
+            /** Labels */
+            labels?: string[];
         };
         /**
          * BackupCreateIn
@@ -2533,6 +2855,54 @@ export interface components {
             runway_empty_reason?: string | null;
         };
         /**
+         * FiringDiagnostics
+         * @description Counts and mixes — NO outcome, so no hindsight risk. This is what catches a broken detector.
+         */
+        FiringDiagnostics: {
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /**
+             * N Scoreable
+             * @default 0
+             */
+            n_scoreable: number;
+            /** Key1 Source Mix */
+            key1_source_mix?: {
+                [key: string]: number;
+            };
+            /** Confirmation Grade Mix */
+            confirmation_grade_mix?: {
+                [key: string]: number;
+            };
+            /** Co Arm Bucket Mix */
+            co_arm_bucket_mix?: {
+                [key: string]: number;
+            };
+            /** Close Reason Mix */
+            close_reason_mix?: {
+                [key: string]: number;
+            };
+            /** Entry Grade Mix */
+            entry_grade_mix?: {
+                [key: string]: number;
+            };
+            /** Pct Armed With A Co Member */
+            pct_armed_with_a_co_member?: number | null;
+            /**
+             * Widest Single Session Group
+             * @default 0
+             */
+            widest_single_session_group: number;
+            /**
+             * Timing Candidate Sessions
+             * @default 0
+             */
+            timing_candidate_sessions: number;
+        };
+        /**
          * FlagExplanationOut
          * @description The model-drafted, plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage.
          *
@@ -2860,6 +3230,56 @@ export interface components {
             signals: components["schemas"]["DisplaySignal"][];
         };
         /**
+         * MetricWithNulls
+         * @description A pooled metric and the two things it must be read against.
+         *
+         *     ``actual`` alone is uninterpretable on a universe assembled with hindsight. ``vs_timing`` and
+         *     ``vs_name`` are the same statistic over the two null distributions, and ``excess`` strips the theme's
+         *     own drift by measuring against the basket's equal-weight move over the identical window. A reader who
+         *     quotes ``actual`` without them is quoting the operator's stock-picking, not the algorithm's timing.
+         */
+        MetricWithNulls: {
+            /** Name */
+            name: string;
+            /** Claim */
+            claim: string;
+            actual: components["schemas"]["Stat"];
+            excess: components["schemas"]["Stat"];
+            vs_timing: components["schemas"]["Stat"];
+            vs_name: components["schemas"]["Stat"];
+            /**
+             * Insufficient N
+             * @default true
+             */
+            insufficient_n: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * MirrorInfo
+         * @description The frozen Parquet mirror this run swept, and what it does NOT contain.
+         *
+         *     ``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is
+         *     only half an answer, because the reader still has to work out what stopped firing. Saying both means a
+         *     result can never be read as "that detector is inert on this tape" when the truth is "that detector had
+         *     no tape".
+         */
+        MirrorInfo: {
+            /** Hash */
+            hash: string;
+            /** Tables */
+            tables?: {
+                [key: string]: components["schemas"]["TableCounts"];
+            };
+            /** Excluded Tables */
+            excluded_tables?: string[];
+            /** Blind Detectors */
+            blind_detectors?: string[];
+        };
+        /**
          * OperatorSpanOut
          * @description An off-record take→close span (answering no armed episode), with the stance FROZEN on the
          *     take row at logging time. ``override`` = entered while the platform said not-armed — the
@@ -2929,6 +3349,48 @@ export interface components {
          * @enum {string}
          */
         PlacementStatus: "placed" | "verify" | "ambiguous" | "absent";
+        /**
+         * PooledReport
+         * @description The whole pooled view. Deliberately carries NO thesis identifier of any kind — see the module
+         *     docstring; a test walks this payload to keep it that way.
+         */
+        PooledReport: {
+            /**
+             * N Episodes
+             * @default 0
+             */
+            n_episodes: number;
+            /**
+             * N Scoreable
+             * @default 0
+             */
+            n_scoreable: number;
+            /**
+             * Null Draws
+             * @default 0
+             */
+            null_draws: number;
+            /**
+             * Null Seed
+             * @default
+             */
+            null_seed: string;
+            /**
+             * Min N
+             * @default 5
+             */
+            min_n: number;
+            /**
+             * Banner
+             * @default
+             */
+            banner: string;
+            /** Metrics */
+            metrics?: components["schemas"]["MetricWithNulls"][];
+            /** Slices */
+            slices?: components["schemas"]["Slice"][];
+            diagnostics?: components["schemas"]["FiringDiagnostics"];
+        };
         /**
          * Position
          * @description Populated once the operator logs a fill — its presence drives the Managing state.
@@ -4102,6 +4564,30 @@ export interface components {
             business_type?: components["schemas"]["BusinessType"] | null;
         };
         /**
+         * Slice
+         * @description One ALGORITHM slice. ``key`` names only algorithm dimensions — see SLICE_KEYS.
+         */
+        Slice: {
+            /** Key */
+            key?: {
+                [key: string]: string;
+            };
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+            actual?: components["schemas"]["Stat"];
+            excess?: components["schemas"]["Stat"];
+            vs_timing?: components["schemas"]["Stat"];
+            vs_name?: components["schemas"]["Stat"];
+            /**
+             * Insufficient N
+             * @default true
+             */
+            insufficient_n: boolean;
+        };
+        /**
          * SpacAttachOut
          * @description The attach/detach receipt. ``added`` / ``removed`` say what actually happened; ``already``
          *     marks the idempotent no-op (the member was already in the basket). Reversible by design
@@ -4216,11 +4702,57 @@ export interface components {
             truncated: boolean;
         };
         /**
+         * Stat
+         * @description One number with its sample size — never a bare figure.
+         */
+        Stat: {
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+            /** Median */
+            median?: number | null;
+            /** Mean */
+            mean?: number | null;
+        };
+        /**
          * State
          * @description Thesis lifecycle (a loop, not a ratchet).
          * @enum {string}
          */
         State: "incubating" | "warming" | "armed" | "managing";
+        /**
+         * TableCounts
+         * @description One fact table's accounting through the export. Four numbers because they answer four different
+         *     questions, and collapsing them would hide the one that matters.
+         *
+         *     ``rows_dropped_null_clock`` counts RAW rows the public clock could not date; ``identities_lost`` counts
+         *     whole FACTS that therefore vanished. A 47% raw-row drop with 0.67% identities lost is a healthy export
+         *     (the dropped rows were superseded versions); a small row drop with a large identity loss is a hole in
+         *     the tape. ``versions_collapsed`` is how many re-versions the export resolved before writing.
+         */
+        TableCounts: {
+            /** Rows In */
+            rows_in: number;
+            /** Rows Out */
+            rows_out: number;
+            /**
+             * Rows Dropped Null Clock
+             * @default 0
+             */
+            rows_dropped_null_clock: number;
+            /**
+             * Versions Collapsed
+             * @default 0
+             */
+            versions_collapsed: number;
+            /**
+             * Identities Lost
+             * @default 0
+             */
+            identities_lost: number;
+        };
         /**
          * TermEdit
          * @description One operator-edited term in the manual save (``PUT .../terms/edit``). The operator owns ``term`` +
@@ -4318,6 +4850,35 @@ export interface components {
              * @default []
              */
             exclusions: components["schemas"]["ExcludedName"][];
+        };
+        /**
+         * ThesisEntry
+         * @description One thesis's identity in the run — including WHOSE roster it replayed on.
+         *
+         *     ``roster_source`` / ``fallback_days`` / ``total_days`` come straight off the harness's ``RosterSource``
+         *     and are the honest half: ``basket_snapshot`` history begins 2026-09-15, so for any window before that
+         *     every thesis reads ``live_fallback`` and its membership is a labeled counterfactual. ``roster_hash``
+         *     fingerprints the roster the run STARTED from (the live basket, ordered by ordinal then security) — read
+         *     together with ``roster_source`` it says both which names and how point-in-time they were.
+         */
+        ThesisEntry: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Basket Size */
+            basket_size: number;
+            /** Roster Hash */
+            roster_hash: string;
+            /** Roster Source */
+            roster_source: string;
+            /** Fallback Days */
+            fallback_days: number;
+            /** Total Days */
+            total_days: number;
         };
         /**
          * ThesisSummary
@@ -5967,6 +6528,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_backtest_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunsResponse"];
+                };
+            };
+        };
+    };
+    read_run_backtest_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_sweep_backtest_sweep_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestSweepResponse"];
                 };
             };
         };

@@ -1787,3 +1787,93 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-badge.b-labeled { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--leader); border: 1px solid color-mix(in srgb, var(--leader) 40%, transparent); background: color-mix(in srgb, var(--leader) 10%, transparent); }
 /* the run-history catch-up tag (a --catch-up pass: boot / late wake) — informational, deliberately quiet */
 .adm-badge.b-catchup { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--txt-3); border: 1px solid var(--line-2); }
+
+/* ================= The BACKTEST (research surface) — a recompute, never the record ====================
+   Quiet by construction: this page ranks nothing. The pooled block is the loud one because it is the
+   only reading that is interpretable; the per-thesis ledger is folded away and wears the Scoreboard's
+   own skin (it reuses those components verbatim, so it inherits `.sb-*` and only its chrome lives here).
+   Everything below is `.bt-*`; nothing here restyles a `.sb-*` rule the Scoreboard owns. */
+.bt-body { gap: 14px; }
+.bt-quiet { font-size: 11.5px; color: var(--txt-3); margin: 0; }
+/* the five permanent labels — the caveat block, backend-authored and rendered verbatim. Dashed, like
+   the banner idiom, so it reads as a frame around the page rather than as content of it. */
+.bt-labels { list-style: none; margin: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; border: 1px dashed var(--line); border-radius: 8px; }
+.bt-labels li { font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--txt-3); }
+.bt-labels li::before { content: "· "; color: var(--txt-4); }
+
+/* the run picker — what a run IS, never how it came out (a picker that ranked runs would be a
+   leaderboard over experiments, and the reader would pick a winner before reading the nulls) */
+.bt-runs { display: flex; flex-wrap: wrap; gap: 8px; }
+.bt-run { font: inherit; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: 0.14s; }
+.bt-run:hover { border-color: var(--leader); background: var(--panel-2); }
+.bt-run.on { border-color: var(--leader); background: var(--panel-2); }
+.bt-run-id { font-family: var(--mono); font-size: 11px; color: var(--txt-1); }
+.bt-run-meta { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); }
+.bt-run-dials { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+
+/* the manifest card — what produced the numbers; not collapsible, because a result without it is an
+   anecdote */
+.bt-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.bt-card h4 { margin: 4px 0 0; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); }
+.bt-facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; }
+.bt-facts div { display: flex; flex-direction: column; gap: 1px; }
+.bt-facts dt { font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); }
+.bt-facts dd { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--txt-1); }
+.bt-dials { border-collapse: collapse; font-size: 11.5px; }
+.bt-dials th { text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 3px 14px 3px 0; }
+.bt-dials td { font-family: var(--mono); padding: 3px 14px 3px 0; color: var(--txt-2); }
+.bt-pre { margin: 0; font-size: 11.5px; color: var(--txt-2); }
+.bt-pre strong { color: var(--txt-3); }
+
+/* the pooled panel — the page's primary reading. Each metric carries its two nulls and its
+   excess-over-basket BESIDE it, never behind a hover: the gaps are the only part that says anything
+   about the algorithm, so they are never one interaction away. */
+.bt-pooled { display: flex; flex-direction: column; gap: 10px; }
+.bt-pooled h4 { margin: 8px 0 0; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-3); }
+.bt-metrics { display: flex; flex-wrap: wrap; gap: 12px; }
+.bt-metric { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 460px; }
+/* an under-gated metric is DIMMED, never hidden — "we looked and there were three" is a finding */
+.bt-metric.gated { opacity: 0.72; }
+.bt-mhead { display: flex; align-items: center; gap: 8px; }
+.bt-mname { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-2); }
+.bt-mclaim { font-size: 11px; color: var(--txt-3); }
+.bt-mcols { display: flex; flex-wrap: wrap; gap: 18px; }
+.bt-mcol { display: flex; flex-direction: column; gap: 1px; cursor: help; }
+.bt-mcol-l { font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-4); }
+.bt-mcol-v { font-family: var(--mono); font-size: 15px; color: var(--txt-1); }
+.bt-mcol-v.pos { color: var(--armed); }
+.bt-mcol-v.neg { color: var(--warm); }
+.bt-mcol-n { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+.bt-mnote { font-size: 10.5px; color: var(--txt-4); }
+.sb-badge.b-gate { color: var(--txt-4); border: 1px solid var(--line-2); }
+.sb-badge.b-base { color: var(--txt-3); border: 1px solid var(--line-2); margin-left: 6px; }
+/* the short-window warning on the timing null — an exception marker, absent on a healthy run (#7) */
+.bt-caveat { font-size: 11px; color: var(--warm); border: 1px dashed color-mix(in srgb, var(--warm) 45%, transparent); border-radius: 8px; padding: 7px 10px; }
+
+.bt-slices th, .bt-sweeptbl th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bt-slices td, .bt-sweeptbl td { padding: 5px 10px 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 11.5px; color: var(--txt-2); white-space: nowrap; }
+.bt-row.gated { color: var(--txt-4); }
+.bt-row.gated td { color: var(--txt-4); }
+/* the plateau band — the ONLY thing a sweep is allowed to mark. Never a "best" row. */
+.bt-row.inband td { background: color-mix(in srgb, var(--leader) 7%, transparent); }
+.bt-n, .bt-v { font-family: var(--mono); }
+.bt-v.pos { color: var(--armed); }
+.bt-v.neg { color: var(--warm); }
+
+/* the firing diagnostics — counts and mixes, no outcome anywhere, so no hindsight risk */
+.bt-diag { display: flex; flex-direction: column; gap: 8px; }
+.bt-diagline { font-family: var(--mono); font-size: 11px; color: var(--txt-3); }
+.bt-diagline b { color: var(--txt-1); font-weight: 700; }
+.bt-mixes { display: flex; flex-wrap: wrap; gap: 14px; }
+.bt-mix { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 170px; }
+.bt-mixname { font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); margin-bottom: 3px; }
+.bt-mixrow { display: flex; gap: 8px; font-family: var(--mono); font-size: 10.5px; }
+.bt-mixlbl { flex: 1; color: var(--txt-2); }
+.bt-mixn { color: var(--txt-1); }
+.bt-mixpct { color: var(--txt-4); min-width: 34px; text-align: right; }
+
+/* the per-thesis ledger + the sweep — folded away, same disclosure chrome as the replay panel */
+.bt-ledger, .bt-sweep { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--line-2); display: flex; flex-direction: column; gap: 10px; }
+.bt-plateau { font-size: 11.5px; color: var(--txt-2); }
+/* the breadth lines in the drawer — this run's own fields, which the record's ledger has no concept of */
+.bt-breadth { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }

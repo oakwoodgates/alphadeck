@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
-from app.routers import admin, radar, scoreboard, theses, workbench
+from app.routers import admin, backtest, radar, scoreboard, theses, workbench
 from domain.settings import get_settings
 from workbench.draft_jobs import assert_single_worker
 
@@ -37,6 +37,11 @@ app.include_router(workbench.router)
 app.include_router(scoreboard.router)
 app.include_router(admin.router)
 app.include_router(radar.router)
+# /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
+# unconditionally and reports `available: false` where no store exists (prod), so there is no
+# build flag or env var anyone can get wrong. It never writes and is never linked from
+# Board/Cockpit/Scoreboard.
+app.include_router(backtest.router)
 
 
 @app.get("/health", tags=["meta"], response_model=HealthResponse)

@@ -150,6 +150,26 @@ Tests (`backend/tests/replay/`): `pytest tests/replay` — the parity gate, both
 UNH arc end-to-end, episode derivation, the scorer + the import-graph boundary guard, reproducibility, and the
 cfg-sweep. Parity + the two no-lookahead tests are the gate.
 
+## The run layer above this harness — `docs/BACKTEST.md`
+
+This module is the ENGINE: it knows how to replay one window once. It does not know what a RUN is.
+`backend/backtest/` owns that — an immutable, addressable artifact per run (its own directory, a manifest
+naming the code / dials / clock / pin / rosters, and a registry row so trials can be counted), the
+`clock=public` mirror mode, the two null models, the pooled algorithm-level report, the dial sweep, and the
+`/backtest` surface that serves them. Anything about what a replay is ALLOWED TO CLAIM — the labels, the
+nulls, the no-leaderboard rule, the cost numbers — lives there, not here.
+
+Two pieces of this harness are now read by that layer and should not be changed casually:
+
+- **`replay/export.py::export_snapshot(clock=...)`** — `"record"` is byte-for-byte what this exporter always
+  wrote and is the ONLY mode the Postgres-vs-Parquet parity gate runs on. `"public"` rewrites `recorded_at`
+  to the disclosure instant and resolves the version pile-up that creates, partitioned by
+  `(identity, clock_value)`. The reader, the gate and `knowability_expr` are untouched in both modes.
+- **`replay/pit.py`'s memo + basket prefetch + bounds** — the port of the live PIT's rule, MEASURED at 25.5×
+  with byte-identical snapshots. An equivalence test on this path must assert row COUNTS per security: the
+  mirror stores uuid columns as VARCHAR, so a `str`/`UUID` key mismatch reads as "fast" while returning
+  nothing (it did once).
+
 ## Out of scope (later)
 
 Step 2 (recalibration — tuning the dials); Step 3 (the production-tenant cut). The live **Scoreboard** is now
