@@ -22,6 +22,7 @@ from app.schemas_api import (
     _scoreboard_episode_out,
     _scoreboard_thesis_out,
 )
+from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_now
 from domain.settings import get_settings
@@ -317,7 +318,10 @@ def get_price_window(
     day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
     # ONE knowability cap for every event family (Slice B): min(now, asof-EOD) — the two-axis
     # no-lookahead every dated overlay read shares (invariant #1).
-    known_at = known_at_for_asof(asof)
+    # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the market-day cap dominates and
+    # the host clock never binds, but for asof == TODAY ``min(now, asof-EOD)`` IS ``now`` — and that
+    # bound is compared against database-stamped ``recorded_at`` values. One clock, per db/clock.py.
+    known_at = known_at_for_asof(asof, now=db_now(conn))
     buys = episode_insider_buys(
         conn,
         tenant_id=tenant,

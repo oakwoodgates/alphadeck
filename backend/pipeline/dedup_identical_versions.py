@@ -77,7 +77,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -86,6 +86,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from db.bitemporal import _FACT_IDENTITY
+from db.clock import db_now
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, thesis_repo
 
@@ -606,7 +607,10 @@ def main(argv: list[str] | None = None) -> None:
             return
 
         # --verify-asof: pin ONE known_at for the whole run, snapshot BEFORE touching any table.
-        known_at = datetime.now(timezone.utc)
+        # ONE clock: this bound is compared against database-stamped ``recorded_at`` values, so it comes
+        # from the database (``db.clock``). A host clock running behind would hide a just-ingested fact
+        # from the BEFORE snapshot and report a spurious card difference in the verify.
+        known_at = db_now(conn)
         before_snapshot: dict[UUID, str] | None = None
         if args.verify_asof is not None:
             before_snapshot = snapshot_canonical_calls(conn, args.verify_asof, known_at)
