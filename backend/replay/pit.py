@@ -24,7 +24,7 @@ import duckdb
 
 from db.bitemporal import _FACT_IDENTITY, knowability_expr
 from db.session import DEFAULT_TENANT_ID
-from replay.export import FACT_TABLES
+from replay.export import FACT_TABLES, MANIFEST_NAME
 from signals.base import window_prices
 
 # jsonb / array columns the export wrote as JSON strings — the accessor decodes them back to
@@ -40,10 +40,30 @@ _JSON_COLS: dict[str, tuple[str, ...]] = {
 
 def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB over the Parquet mirror — one materialized table per fact table. The
-    mirror is rebuildable + non-authoritative; this reads it for the fast as-of sweeps."""
+    mirror is rebuildable + non-authoritative; this reads it for the fast as-of sweeps.
+
+    A table the export DECLARED excluded (B2: a ``clock=public`` mirror drops any table with no public
+    clock) has no file and is skipped. The list comes from the mirror's own manifest, not from a
+    "skip whatever is missing" rule: a file missing for any OTHER reason is a broken export and must still
+    fail loudly here rather than produce a mirror that silently answers nothing for that table. A detector
+    that reads an excluded table then fails loudly too, which is the honest outcome — and
+    ``export_snapshot`` names those detectors in the manifest before the run starts."""
     con = duckdb.connect()
     base = Path(parquet_dir)
+    excluded: set[str] = set()
+    manifest = base / MANIFEST_NAME
+    if manifest.is_file():
+        try:
+            excluded = set(
+                json.loads(manifest.read_text(encoding="utf-8")).get("excluded_tables", [])
+            )
+        except (OSError, json.JSONDecodeError):
+            excluded = (
+                set()
+            )  # an unreadable manifest means "assume nothing was excluded" -> fail loud
     for table in FACT_TABLES:
+        if table in excluded:
+            continue
         path = (base / f"{table}.parquet").as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
     return con

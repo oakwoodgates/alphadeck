@@ -158,6 +158,7 @@ def replay_thesis(
     cfg: CallConfig = DEFAULT_CONFIG,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     conn: psycopg.Connection | None = None,
+    known_at_mode: str = "pin",
 ) -> list[CallSnapshot]:
     """One thesis's call timeline across its real trading sessions in the window — the TIMELINE-ONLY view.
 
@@ -173,6 +174,7 @@ def replay_thesis(
         cfg=cfg,
         tenant_id=tenant_id,
         conn=conn,
+        known_at_mode=known_at_mode,
     )[0]
 
 
@@ -186,6 +188,7 @@ def replay_thesis_with_roster(
     cfg: CallConfig = DEFAULT_CONFIG,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     conn: psycopg.Connection | None = None,
+    known_at_mode: str = "pin",
 ) -> tuple[list[CallSnapshot], RosterSource]:
     """Sweep one thesis's call across its real trading sessions in the window, running the REAL pipeline
     (``assemble_from_pit``) over a replay pit capped at each ``(T, known_at)``. ZERO forward knowledge —
@@ -220,10 +223,16 @@ def replay_thesis_with_roster(
                 fallback_days += 1  # no snapshot that far back — the live roster stands in, LOUDLY
         # B5a — the prefetch scope is the roster AS RESOLVED AT T, never the passed thesis's live basket:
         # the batch must not reach for a member the call at T cannot see (F4's per-T roster clock).
+        # B2 — THE FACT AXIS. "pin" keeps the run-wide determinism pin (the record-clock default,
+        # unchanged). "lockstep" caps the facts at the SAME per-T instant F4 already gave the roster, so
+        # both axes move together: on the public clock `recorded_at` means "when this became public", and
+        # a lockstep run therefore asks "what was disclosed by the end of day T?" rather than "what is
+        # disclosed now?". Reusing `roster_known_at` rather than recomputing keeps ONE definition of the
+        # day's end per session, so the two axes cannot drift apart by construction.
         pit = ReplayPointInTimeData(
             con,
             asof=t,
-            known_at=known_at,
+            known_at=known_at_for_asof(t, known_at) if known_at_mode == "lockstep" else known_at,
             tenant_id=tenant_id,
             basket=[m.security_id for m in roster.basket if m.security_id is not None],
             bounds=bounds,
@@ -256,6 +265,7 @@ def replay_all(
     known_at: datetime,
     cfg: CallConfig = DEFAULT_CONFIG,
     tenant_id: UUID = DEFAULT_TENANT_ID,
+    known_at_mode: str = "pin",
 ) -> ReplayResult:
     """Replay every thesis over the window, resolving each one's ROSTER point-in-time at every session
     (F4 — see the block comment above). Returns the per-thesis timelines PLUS the roster provenance.
@@ -276,6 +286,7 @@ def replay_all(
             cfg=cfg,
             tenant_id=tenant_id,
             conn=conn,
+            known_at_mode=known_at_mode,
         )
         timelines[thesis.id] = snaps
         roster_sources[thesis.id] = source
