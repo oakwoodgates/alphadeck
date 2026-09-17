@@ -193,7 +193,6 @@ def run_sweep(
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
     clock: Literal["record", "public"] = "record",
-    tenant_id: str | None = None,
     root: str | Path | None = None,
 ) -> SweepReport:
     """Export the mirror ONCE, replay every variant over it, and report the curve.
@@ -207,6 +206,11 @@ def run_sweep(
     root_path = Path(root or store.DEFAULT_ROOT)
     mirror = root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{start}-{end}-{clock}"
     mirror.mkdir(parents=True, exist_ok=True)
+    # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep took
+    # a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and dropped is worse
+    # than none, because a caller reads it as honored. It is removed rather than wired: nothing can pass one
+    # (there is no `--tenant` on this CLI or on `backtest.run`) and the whole backtest package is
+    # single-tenant by construction. Multi-tenant sweeps are a real change, not a parameter.
     export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
 
     points: list[SweepPoint] = []

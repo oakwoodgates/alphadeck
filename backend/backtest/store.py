@@ -30,6 +30,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backtest import manifest as mf
+
 # The store's home — the ``scoreboard/artifact.py`` idiom: the repo's gitignored ``data/`` locally,
 # ``/data`` in the container. The CLI that WRITES a run needs the ``.[replay]`` extra the lean prod image
 # deliberately lacks, so (from B6) compose overlays this subpath with a READ-ONLY bind: the container can
@@ -71,11 +73,29 @@ def index_path(root: str | Path | None = None) -> Path:
     return Path(root or DEFAULT_ROOT) / INDEX_NAME
 
 
+class RunDirExists(FileExistsError):
+    """This run id already has a directory.
+
+    A subclass of ``FileExistsError`` so nothing that already catches that changes behavior — what changes
+    is the MESSAGE. A bare ``FileExistsError`` naming a temp path tells a reader that something collided
+    but not what, and the answer ("every component of the id agreed, inside one second") is not guessable
+    from the path. It cost a real debugging detour once; the error now says it."""
+
+
 def create_run_dir(run_id: str, root: str | Path | None = None) -> Path:
-    """Create this run's directory. RAISES ``FileExistsError`` if it already exists — a run is immutable,
-    so silently reusing one would overwrite an artifact somebody may already have cited."""
+    """Create this run's directory. RAISES ``RunDirExists`` if it already exists — a run is immutable, so
+    silently reusing one would overwrite an artifact somebody may already have cited."""
     path = runs_root(root) / run_id
-    path.mkdir(parents=True, exist_ok=False)
+    try:
+        path.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        parts = " - ".join(mf.RUN_ID_PARTS)
+        raise RunDirExists(
+            f"run {run_id!r} already exists at {path}. A run id is composed of: {parts} — so this "
+            f"collided only because EVERY one of those agreed with an existing run, inside the same "
+            f"second. A run is immutable and may already have been cited, so this refuses rather than "
+            f"overwriting it: change the hypothesis, move a dial, or wait a second."
+        ) from exc
     return path
 
 

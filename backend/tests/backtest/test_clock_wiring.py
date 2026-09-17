@@ -228,15 +228,15 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
 @pytest.mark.slow
 @pytest.mark.timeout(300)
 def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tmp_path):
-    """Same window, same pin, different axis. The mirror directory is named for the clock, so the second
-    sweep exports beside the first rather than over it -- otherwise the first sweep's points would go on
-    citing a mirror hash that no longer describes the tape they actually swept.
+    """Same window, same pin, ONE hypothesis, different axis — the exact shape the first pre-registered
+    pass will run back to back, and the shape that used to break in two ways.
 
-    The two sweeps carry DIFFERENT pre-registered hypotheses, which is both realistic (a record sweep and
-    a public sweep are two experiments) and necessary: `make_run_id` is (timestamp-to-the-second,
-    hypothesis, config_hash), so two runs of one grid under one hypothesis inside the same second collide
-    on `create_run_dir(exist_ok=False)`. That guard is B1 working as designed and is NOT what this test is
-    about; the sharp edge it implies is reported rather than papered over here."""
+    The mirror directory is named for the clock, so the second sweep exports BESIDE the first rather than
+    over it; otherwise the first sweep's points would go on citing a mirror hash that no longer describes
+    the tape they swept. And the run id now carries the clock, so the two passes do not collide inside the
+    timestamp's one-second resolution — on a window this short a point finishes well inside one second,
+    which is how this was found (the earlier draft of this test died on a bare `FileExistsError` from
+    `create_run_dir`). One hypothesis on purpose: passing two would hide both bugs again."""
     pytest.importorskip("duckdb")
     from backtest.sweep import run_sweep
 
@@ -245,13 +245,19 @@ def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tm
         start=_START,
         end=_END,
         pin=_PIN,
+        hypothesis="CW smoke",
         decision_rule="plateau, not argmax",
         subwindows=2,
         root=tmp_path,
     )
-    rec = run_sweep(db, clock="record", hypothesis="CW smoke on the record clock", **seed)
-    pub = run_sweep(db, clock="public", hypothesis="CW smoke on the public clock", **seed)
+    rec = run_sweep(db, clock="record", **seed)
+    pub = run_sweep(db, clock="public", **seed)
     assert rec.mirror_hash != pub.mirror_hash
     mirrors = sorted(p.name for p in (tmp_path / "mirrors").iterdir())
     assert len(mirrors) == 2
     assert mirrors[0].endswith("public") and mirrors[1].endswith("record")
+    # ...and the four runs are four addressable trials, not two runs and two crashes
+    assert len(store.list_runs(tmp_path)) == 2
+    ids = {r.run_id for r in store.list_runs(tmp_path)}
+    assert len({i for i in ids if "-record-" in i}) == 1
+    assert len({i for i in ids if "-public-" in i}) == 1

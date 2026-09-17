@@ -153,7 +153,10 @@ def execute(
         run_clock = clock or "record"
     # DERIVED, never a flag. See the docstring.
     known_at_mode: Literal["pin", "lockstep"] = "lockstep" if run_clock == "public" else "pin"
-    run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now)
+    # the CLOCK is part of the id: the same grid under the same hypothesis on both axes is two
+    # measurements run back to back, and without it they collide inside the timestamp's one-second
+    # resolution (see backtest/manifest.py::make_run_id)
+    run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now, clock=run_clock)
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
     timings: dict[str, float] = {}

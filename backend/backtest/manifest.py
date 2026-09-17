@@ -211,14 +211,37 @@ def slugify(text: str | None, *, fallback: str = "default", limit: int = 24) -> 
     return slug or fallback
 
 
-def make_run_id(cfg: CallConfig, *, hypothesis: str | None, now: datetime | None = None) -> str:
-    """``<utc timestamp>-<hypothesis slug>-<config short hash>``.
+#: What a run id is made of, in order — named once so the error a COLLISION raises can say which parts
+#: had to agree for it to happen (``store.create_run_dir``), rather than leaving a reader to infer the
+#: composition from a dashed string.
+RUN_ID_PARTS: tuple[str, ...] = (
+    "utc timestamp (to the second)",
+    "clock",
+    "hypothesis slug",
+    "config short hash",
+)
 
-    Sortable first (so a directory listing is a timeline), then legible (which experiment), then precise
-    (which dials). The timestamp is what guarantees a re-run is a NEW run rather than a silent overwrite —
-    two runs of identical inputs are two trials, and counting trials is the point."""
+
+def make_run_id(
+    cfg: CallConfig,
+    *,
+    hypothesis: str | None,
+    now: datetime | None = None,
+    clock: str = "record",
+) -> str:
+    """``<utc timestamp>-<clock>-<hypothesis slug>-<config short hash>`` — see ``RUN_ID_PARTS``.
+
+    Sortable first (so a directory listing is a timeline), then legible (which axis, which experiment),
+    then precise (which dials). The timestamp is what guarantees a re-run is a NEW run rather than a silent
+    overwrite — two runs of identical inputs are two trials, and counting trials is the point.
+
+    The CLOCK is a component because it is a component of the EXPERIMENT (CW): the same grid under the same
+    hypothesis on the record clock and on the public clock is two different measurements, and they are
+    routinely run back to back. Without it those two collide inside one second — the timestamp's resolution
+    — and the second one dies on ``create_run_dir``. It also puts the axis in a directory listing, which is
+    where a reader comparing a record pass to a public one actually looks."""
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{slugify(hypothesis)}-{short_hash(config_hash(cfg))}"
+    return f"{stamp}-{slugify(clock)}-{slugify(hypothesis)}-{short_hash(config_hash(cfg))}"
 
 
 def write_manifest(run_dir: str | Path, manifest: BacktestManifest) -> Path:
