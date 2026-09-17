@@ -3729,6 +3729,13 @@ export interface components {
              * @default false
              */
             window_overlaps_record: boolean;
+            /**
+             * Roster Fallback Theses
+             * @default 0
+             */
+            roster_fallback_theses: number;
+            /** Roster Source Note */
+            roster_source_note?: string | null;
             /** Config Hash */
             config_hash?: string | null;
             /** Code Sha */

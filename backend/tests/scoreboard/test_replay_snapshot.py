@@ -9,7 +9,7 @@ from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from scoreboard.artifact import read_snapshot, write_snapshot
 from scoreboard.replay_snapshot import ThesisMeta, build_snapshot
 
-# The replay-panel flattener — PURE (no DB, no duckdb, no clock): the honesty flags mirror the
+# The replay-panel flattener â€” PURE (no DB, no duckdb, no clock): the honesty flags mirror the
 # forward record (censored_start on the window's first day; matured against the data edge;
 # metrics over matured + non-censored only), the WHY comes from the arm-date snapshot's MemberRow
 # triggers, and pushing the window over the record is LOUD in the artifact, never silent.
@@ -120,7 +120,7 @@ def test_flags_censoring_maturity_status_and_triggers():
 
 
 def test_metrics_judge_only_matured_non_censored():
-    """A censored matured episode and an immature open one both stay OUT of the metric inputs —
+    """A censored matured episode and an immature open one both stay OUT of the metric inputs â€”
     the same eligibility rule as the live summary (the strips must be comparable)."""
     timeline = {
         _TID: [
@@ -140,7 +140,7 @@ def test_metrics_judge_only_matured_non_censored():
 
     assert snap.n_eligible == 1
     arm_timing = next(m for m in snap.metrics if m.name == "arm_timing_forward_return")
-    assert arm_timing.n == 1  # only the eligible one — the +50% censored outcome never leaks in
+    assert arm_timing.n == 1  # only the eligible one â€” the +50% censored outcome never leaks in
     assert arm_timing.summary["median"] == 0.07
 
 
@@ -156,7 +156,7 @@ def test_window_overlap_is_loud_never_silent():
 
 
 def test_old_artifact_missing_slice_c_fields_parses_to_defaults():
-    """An artifact written BEFORE Slice C lacks the new episode fields entirely — it must still
+    """An artifact written BEFORE Slice C lacks the new episode fields entirely â€” it must still
     validate (defaults flow; the endpoint never 500s on an old artifact). Additive-only, proved."""
     from scoreboard.schema import ReplaySnapshot
 
@@ -186,75 +186,89 @@ def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):
     assert read_snapshot(base_dir=tmp_path / "missing") is None
 
 
-# --- F2: the panel names the policy it reflects -------------------------------------------------------
+# --- F4: the roster provenance rides the artifact and the banner --------------------------------------
 
 
-def test_the_artifact_and_banner_NAME_the_policy_they_reflect():
-    """The panel used to claim "today's code + dials" while the CLI called `replay_all` with no `cfg` at
-    all — so it silently took DEFAULT_CONFIG and the artifact recorded neither the dials nor the code. It
-    could not back its own sentence. Now the fingerprint rides the artifact and the banner says it.
+def test_the_banner_says_ROSTERS_ARE_POINT_IN_TIME_when_nothing_fell_back():
+    """The blanket "Baskets are not versioned (REPLAY.md known limitation)" sentence is RETIRED: rosters
+    ARE versioned now (`basket_snapshot`, read per session), so a permanent caveat saying otherwise had
+    become false. The clean case now says so positively â€” something the blanket sentence could never do.
     """
-    from domain.config import DEFAULT_CONFIG, config_hash, short_hash
-
-    digest = config_hash(DEFAULT_CONFIG)
-    snap = build_snapshot(
-        {_TID: []},
-        [],
-        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
-        window_start=date(2025, 7, 9),
-        window_end=date(2026, 7, 9),
-        pin=_PIN,
-        generated_at=_PIN,
-        matured_asof=date(2026, 7, 12),
-        record_began=None,
-        config_hash=digest,
-        code_sha="9f8e7d6c5b4a3210",
-    )
-
-    assert snap.config_hash == digest  # the FULL value, never truncated on the artifact
-    assert snap.code_sha == "9f8e7d6c5b4a3210"
-    assert snap.policy_label == f"policy {short_hash(digest)}"
-    assert f"Policy {short_hash(digest)}." in snap.banner
-    assert digest not in snap.banner  # the LINE is short; the raw value rides beside it
-
-
-def test_the_policy_label_is_shortened_SERVER_side_only_once():
-    """The hash is sliced in exactly one place in the codebase (`domain.config.short_hash`). The panel
-    renders `policy_label` verbatim and computes nothing, so the collapsed hint line and the banner can
-    never disagree about how long a policy prefix is."""
-    from domain.config import short_hash
-
-    full = "0123456789abcdef0123456789abcdef"
-    snap = build_snapshot(
-        {_TID: []},
-        [],
-        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
-        window_start=date(2025, 7, 9),
-        window_end=date(2026, 7, 9),
-        pin=_PIN,
-        generated_at=_PIN,
-        matured_asof=date(2026, 7, 12),
-        record_began=None,
-        config_hash=full,
-    )
-
-    assert snap.policy_label == f"policy {short_hash(full)}"
-    assert len(short_hash(full)) == 8
-
-
-def test_an_artifact_with_NO_identity_says_nothing_rather_than_guessing():
-    """An artifact generated before F2 carries no fingerprint, and the honest rendering of that is
-    SILENCE — not "policy unknown", which would read as a computed answer. The defaulted fields also mean
-    such an artifact still validates: `available:false` must mean "no artifact", never "a schema moved".
-    """
-    from scoreboard.schema import ReplaySnapshot
-
     snap = _build([], {_TID: []}, record_began=None)
-    assert snap.config_hash is None and snap.code_sha is None and snap.policy_label is None
-    assert "Policy" not in snap.banner
 
-    old = snap.model_dump(mode="json")
-    for key in ("config_hash", "code_sha", "policy_label"):
-        del old[key]
+    assert "Rosters are point-in-time." in snap.banner
+    assert "Baskets are not versioned" not in snap.banner
+    assert "NOT the record" in snap.banner  # the recompute caveat still always rides
+    assert snap.roster_fallback_theses == 0 and snap.roster_source_note is None
+
+
+def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket():
+    """The honest residual: a window predating the snapshot table replays on the live roster. That is the
+    right behavior (#9 â€” never blank a basket for want of history) but it must be SAID, per run and
+    quantitatively, in the F11 voice: a recompute, never the recorded call."""
+    note = "2 of 5 replayed theses recomputed on TODAY's basket for 300 session(s) — none existed"
+    snap = _build([], {_TID: []}, record_began=None)
+    with_fallback = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2025, 7, 9),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        roster_fallback_theses=2,
+        roster_source_note=note,
+    )
+
+    # this note starts with a DIGIT, so sentence-casing is a no-op and it rides verbatim — the "all N…"
+    # shape, which does get cased, is pinned by test_the_roster_clause_is_SENTENCE_cased_* below
+    assert note in with_fallback.banner
+    assert "Rosters are point-in-time." not in with_fallback.banner  # the clean claim is NOT made
+    assert with_fallback.roster_fallback_theses == 2
+    assert with_fallback.roster_source_note == note
+    assert snap.banner != with_fallback.banner  # the sentence is per-RUN, not boilerplate
+
+
+def test_an_artifact_written_BEFORE_F4_still_validates():
+    """The panel reads whatever `latest.json` is on disk, and the operator's newest one predates this
+    change. The two fields are DEFAULTED so an old artifact parses to "nothing to report" â€” the honest
+    value for a run that could not have known â€” instead of failing validation and blanking the panel
+    (`available:false` is supposed to mean "no artifact", never "a schema moved")."""
+    from scoreboard.schema import ReplaySnapshot  # local, matching this file's own convention
+
+    old = _build([], {_TID: []}, record_began=None).model_dump(mode="json")
+    del old["roster_fallback_theses"]
+    del old["roster_source_note"]
+
     reparsed = ReplaySnapshot.model_validate(old)
-    assert reparsed.config_hash is None and reparsed.policy_label is None
+
+    assert reparsed.roster_fallback_theses == 0
+    assert reparsed.roster_source_note is None
+
+
+def test_the_roster_clause_is_SENTENCE_cased_without_flattening_TODAY():
+    """The banner puts the roster note after a full stop, and the note is composed lowercase (it also
+    rides a run-report line mid-sentence) — so "…NOT the record. all 10 replayed theses…" read as a broken
+    sentence on the staged dev artifact. Sentence-cased on the FIRST CHARACTER ONLY: `str.capitalize()`
+    would lowercase the rest and turn "TODAY's basket" into "today's basket", destroying the emphasis that
+    is the entire point of the word."""
+    note = "all 10 replayed theses recomputed on TODAY's basket for 120 session(s)"
+    snap = build_snapshot(
+        {_TID: []},
+        [],
+        thesis_meta={_TID: ThesisMeta(tenant_id=None, name="T", ticker="DEVCO", basket_size=1)},
+        window_start=date(2026, 6, 15),
+        window_end=date(2026, 7, 9),
+        pin=_PIN,
+        generated_at=_PIN,
+        matured_asof=date(2026, 7, 12),
+        record_began=None,
+        roster_fallback_theses=10,
+        roster_source_note=note,
+    )
+
+    assert "NOT the record. All 10 replayed theses" in snap.banner
+    assert "TODAY's basket" in snap.banner  # not flattened to "today's"
+    assert snap.roster_source_note == note  # the artifact keeps the verbatim, uncased note

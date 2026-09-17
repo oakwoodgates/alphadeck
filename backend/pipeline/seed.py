@@ -114,7 +114,7 @@ def _ingest_form4_once(
             security_id,
             (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
             accession,
-        )
+        ).appended  # the seed's committed fixtures carry no impossible dates; a rejection would PRINT
     return count
 
 

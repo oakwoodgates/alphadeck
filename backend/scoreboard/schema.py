@@ -183,6 +183,13 @@ class ReplaySnapshot(BaseModel):
     known_at_pin: str
     record_began: date | None = None
     window_overlaps_record: bool = False  # end pushed past the record: loud, never silent
+    # F4 — the ROSTER provenance of this run: how many theses replayed on TODAY's basket because no
+    # `basket_snapshot` reached that far back, and the backend-authored sentence saying so. Defaulted, so
+    # an artifact written before F4 still validates (and reads as "nothing to report", which is the honest
+    # value for a run that could not have known). `roster_fallback_theses == 0` with a None note is the
+    # clean case: every thesis replayed on a real point-in-time roster.
+    roster_fallback_theses: int = 0
+    roster_source_note: str | None = None
     # F2 — WHICH POLICY AND WHICH CODE this panel reflects. The snapshot CLI used to call replay_all with
     # no `cfg` at all, so it silently took DEFAULT_CONFIG and the artifact recorded neither the dials nor
     # the code that produced it: the panel could not say what it was showing. `config_hash` is the same

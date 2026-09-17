@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timezone
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
+from pydantic import BaseModel
 
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
@@ -19,7 +22,8 @@ from pipeline.seed import (
 from replay.export import export_snapshot
 from replay.harness import replay_thesis
 from replay.pit import connect_mirror
-from replay.run import add_switch_args, lab_config, run
+from replay.run import add_switch_args, arrow_schema, lab_config, run
+from replay.schema import Episode, Outcome
 from repositories import thesis_repo
 
 _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
@@ -179,3 +183,89 @@ def test_metrics_carry_n_and_insufficient_flags(db, tmp_path):
         assert mr.n >= 0 and isinstance(mr.insufficient_n, bool) and mr.claim
     cal = next(mr for mr in m.metrics if mr.name == "grade_confidence_calibration")
     assert cal.insufficient_n  # the seed cannot establish calibration — must say so
+
+
+# --- F3: the artifact is ALWAYS written, with a DECLARED schema ---------------------------------------
+#
+# Kept CHEAP on purpose: the stale-file test plants a sentinel artifact by hand rather than paying for a
+# populated run to create one (the behavior under test is "does a zero-episode run overwrite what is
+# there", and a hand-written file exercises it exactly), and the schema test seeds UNH only — the same
+# trick `test_run_is_reproducible` uses to keep a two-run test affordable.
+
+_NO_SESSIONS = (date(2019, 1, 1), date(2019, 1, 2))  # a window with no bars at all -> zero episodes
+
+
+def test_a_zero_episode_run_leaves_an_EMPTY_episodes_file_not_the_previous_run_s(db, tmp_path):
+    """THE BUG. ``_write_parquet`` used to SKIP an empty table, so a re-run that produced zero episodes
+    left the PREVIOUS run's episodes.parquet / outcomes.parquet sitting beside a FRESH metrics.json — the
+    artifact directory reported the last run's arms as if they were this one's, and nothing said so.
+
+    The prior artifact is planted directly (a one-row table in each file), which is what a stale file IS;
+    then a window with no trading sessions runs into the SAME directory. Both files must be present and
+    EMPTY — never missing, never stale."""
+    seed_unh(db)
+    db.commit()
+    out = tmp_path / "r"
+    out.mkdir()
+    for name, model in (("episodes.parquet", Episode), ("outcomes.parquet", Outcome)):
+        stale = pa.table({f.name: [None] for f in arrow_schema(model)}, schema=arrow_schema(model))
+        pq.write_table(stale, out / name)
+        assert pq.read_table(out / name).num_rows == 1  # the fixture is really stale
+
+    run(db, start=_NO_SESSIONS[0], end=_NO_SESSIONS[1], pin=_PIN, out_dir=out)
+
+    for name in ("episodes.parquet", "outcomes.parquet"):
+        assert (out / name).exists(), f"{name} must be WRITTEN, not skipped"
+        assert pq.read_table(out / name).num_rows == 0, f"{name} must be EMPTY, not the prior run's"
+
+
+@pytest.mark.slow  # one populated + one empty run; UNH-only keeps it near test_run_is_reproducible
+@pytest.mark.timeout(300)  # overrides the 120 s ini guard, like its siblings above
+def test_the_empty_and_populated_files_share_the_DECLARED_schema_and_round_trip(db, tmp_path):
+    """Two properties, one pair of runs.
+
+    (1) A DuckDB query over the empty file must see the same columns and types as over a populated one —
+    which is why the declared schema is applied to the POPULATED path too. Inference is value-dependent
+    (an all-None float column infers `null`), so two runs of the same code could otherwise disagree.
+
+    (2) The declared types must be what ``model_dump(mode="json")`` really produces. The trap is ``date``:
+    mode="json" renders ISO TEXT, so a ``date32()`` declaration would disagree with every populated file.
+    ``Outcome.path`` is the one non-scalar and is checked as a real list of floats."""
+    seed_unh(db)
+    db.commit()
+    populated, empty = tmp_path / "full", tmp_path / "none"
+
+    metrics = run(db, start=_START, end=_END, pin=_PIN, out_dir=populated)
+    assert metrics.n_episodes > 0  # the populated side really is populated
+    run(db, start=_NO_SESSIONS[0], end=_NO_SESSIONS[1], pin=_PIN, out_dir=empty)
+
+    for name, model in (("episodes.parquet", Episode), ("outcomes.parquet", Outcome)):
+        got = pq.read_table(populated / name).schema
+        assert got == pq.read_table(empty / name).schema
+        assert got == arrow_schema(model)  # ...and both are the DECLARED one, not an inferred one
+
+    one = pq.read_table(populated / "outcomes.parquet").to_pylist()[0]
+    assert isinstance(one["thesis_id"], str) and isinstance(one["security_id"], str)
+    assert isinstance(one["arm_date"], str) and one["arm_date"][4] == "-"  # ISO text, not a date
+    assert isinstance(one["path"], list) and all(isinstance(v, float) for v in one["path"])
+    assert isinstance(one["truncated"], bool)
+
+
+def test_an_unmapped_annotation_RAISES_rather_than_defaulting_to_string():
+    """A silent string fallback would let a new field of an unexpected type change the artifact's shape
+    without anyone deciding to — the drift the declared schema exists to stop. A new field must be
+    classified deliberately, and the failure lands HERE rather than in a downstream query. Pure: no DB.
+    """
+
+    class _Exotic(BaseModel):
+        payload: dict[str, int]
+
+    with pytest.raises(TypeError, match="no Arrow type declared"):
+        arrow_schema(_Exotic)
+
+
+def test_every_declared_field_is_covered_for_both_models():
+    """Both real models schema-ize today, in declaration order — so the raise above can never fire on the
+    real artifacts, and adding a field to either model without a type mapping fails here at once."""
+    for model in (Episode, Outcome):
+        assert [f.name for f in arrow_schema(model)] == list(model.model_fields)

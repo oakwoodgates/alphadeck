@@ -296,9 +296,15 @@ has depth while the forward record accrues — without polluting it. Structure o
   collapsed header's "not the record" line carries `· policy ‹hash8›`, so a closed panel still says what it
   reflects; the full hash rides the hover. The short form is composed SERVER-side, so the hash is shortened
   in exactly one place in the codebase and the two surfaces cannot disagree.
-- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts; baskets are not
-  versioned (`REPLAY.md`'s known limitation — the platform-wide gap `INVARIANTS.md` §Known gaps names, shared
-  with `pipeline.backfill` and the Board/Cockpit scrub-back) — the caveat rides the banner permanently. Separate
+- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts — that caveat rides the banner
+  permanently. The ROSTER caveat no longer does, because it is no longer true: since F4 the harness resolves
+  each thesis's basket point-in-time at every session (`basket_snapshot`, capped at the session's market day),
+  so the banner now carries a **per-run** sentence instead — either "Rosters are point-in-time." or a named
+  count of the theses that recomputed on today's basket because no snapshot reached that far back
+  (`roster_fallback_theses` / `roster_source_note` on the artifact; `REPLAY.md` §KNOWN LIMITATION for the two
+  residuals, `INVARIANTS.md` §Known gaps for the platform-wide statement it shares with `pipeline.backfill`
+  and the Board/Cockpit scrub-back). The banner therefore reads policy-then-roster: the dials are the
+  stronger claim about what the numbers mean, the roster qualifies whose numbers they are. Separate
   endpoint, separate section, metrics never pooled with the live summary.
 - **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
   the window's first replayed day; `matured` against the data edge; metrics over matured ∧

@@ -96,20 +96,35 @@ cluster → the Aug-2025 volume-backed breakout → aged out by 2026). The deliv
 the worked example; metrics flagged `insufficient_n` (calibration, name-selection at N≈1) are scaffold for
 Step 2, which runs against real history at scale.
 
-## ⚠️ KNOWN LIMITATION — thesis definitions are NOT replayed bitemporally
+## ⚠️ KNOWN LIMITATION — the ROSTER is replayed point-in-time; the rest of the definition is not
 
-Thesis definitions and `security_master` are read from the **current** operational SoR, not replayed: a replay
-at T uses **today's** basket membership, only the **facts** are as-of T. This is harmless while baskets are
-static (the seed), **but it is a real lookahead vector the moment a thesis's membership changes over the
-window** — a member added after T would still be replayed at T. **Bitemporal thesis definitions must be
-addressed before the backtest can be trusted on evolving theses.** Out of scope for Step 1 (flagged loudly so
-Step 2 and anyone after know the boundary); the harness output carries the same warning.
+**The roster half is CLOSED (F4).** At every session T the harness re-resolves each thesis's basket through
+`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **market-day cap** the serve
+path uses for a scrub-back (`domain/market_time.py`, `INVARIANTS.md` #4), never the run's bare pin. The
+per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
+roster once at that pin would return **today's** basket for the `scoreboard.replay_snapshot` path (which pins
+`now`) and the lookahead would have survived the fix. A member added after T is now invisible at T.
 
-This is not replay's alone. The same gap sits under every past-`asof` recompute — the Board/Cockpit/Workbench
-scrub-back (`INVARIANTS.md` #4) and `pipeline.backfill`'s reconstruction of a missed night (`FEED_LOOP.md`) —
-and it is why a reconstructed row is reported, never scored (`SCOREBOARD.md`). The one canonical statement, and
-the one surface immune to it (the Scoreboard's record path), live in `INVARIANTS.md` §Known gaps; this section
-records only replay's own exposure.
+**Two honest residuals stay, and both are labeled rather than assumed away:**
+
+1. **Snapshot history begins 2026-09-15** (migration 0043). A window reaching further back has no qualifying
+   snapshot, so the **live roster stands in** — the right call (#9: never replay a thesis with an empty
+   basket for want of its history) and never a silent one. `replay_all` returns a `ReplayResult` carrying a
+   per-thesis `RosterSource(source, fallback_days, total_days)`; `replay.run` prints the fallback line and the
+   Scoreboard panel's banner names it. That is the backtest's "counterfactual universe" label, not a bug.
+2. **The rest of the thesis definition and `security_master` are still read from the CURRENT SoR** —
+   narrative, catalysts, kill criteria, and every identity mapping. Only the roster is versioned.
+
+**The fact axis is still capped at the run's single pin**, so the roster can be *older* knowledge than the
+facts. That asymmetry is deliberate and conservative — it can never invent a member the thesis did not have —
+and it is temporary: the backtest's public-clock mode moves the fact axis onto the same per-T clock, at which
+point the two are lockstep. F4 lays that rail without changing the fact axis today.
+
+The *roster* gap was never replay's alone — it sits under every past-`asof` recompute (the
+Board/Cockpit/Workbench scrub-back, `INVARIANTS.md` #4) and under `pipeline.backfill`'s reconstruction of a
+missed night (`FEED_LOOP.md`), which is why a reconstructed row is reported, never scored (`SCOREBOARD.md`).
+The canonical statement, and the one surface immune to it (the Scoreboard's record path), live in
+`INVARIANTS.md` §Known gaps; this section records only replay's own exposure.
 
 ## Run it
 
@@ -118,6 +133,15 @@ records only replay's own exposure.
 python -m replay.run --start 2025-04-01 --end 2026-06-30 --pin 2027-01-01 --out ..\.replay-out
 # writes: <out>/{fact_*.parquet (mirror), outcomes.parquet, episodes.parquet, metrics.json}; prints the metrics
 ```
+
+**Every artifact is written on every run, including an empty one.** A run that produces zero episodes writes
+an EMPTY `episodes.parquet` / `outcomes.parquet` carrying the full schema — it used to skip the write, which
+left the *previous* run's files beside a fresh `metrics.json` and silently reported last run's arms as this
+run's. The schema is DECLARED from the `Episode` / `Outcome` models (`replay/run.arrow_schema`) rather than
+inferred, and is applied to the populated path too, so the empty and populated files always agree column for
+column; an unmapped field type raises rather than defaulting, so adding a model field is a deliberate change
+to the artifact's shape. Re-running into the same `--out` is safe and unchanged: the mirror, both tables and
+`metrics.json` are all rewritten.
 
 > **Windows note:** the lab used to pay a ~5x tax from DuckDB's failed `import pandas` probe (per bound parameter, per query;
 > CPython never caches a failed import, so each probe re-walked `sys.path` — a stat storm). `replay/pit.py` now short-circuits it when pandas is absent.

@@ -679,3 +679,47 @@ def test_basket_prefetch_read_is_tenant_isolated(db):
     assert (
         prod_pit.security_cik(prod_sec) == "0001773751" and prod_pit.security_cik(demo_sec) is None
     )
+
+
+def test_backfill_accepted_basket_only_worklist_is_tenant_isolated(db):
+    """P2 — ``pipeline.backfill_accepted --basket-only`` narrows its worklist through ``basket_member``,
+    which is a NEW read surface and therefore has to join on the (tenant, security) PAIR.
+
+    The poison row here is the realistic one, not a contrived one: the SAME ``security_id`` placed in a
+    basket under ONE tenant while carrying NULL-``accepted`` insider rows under BOTH. A bare
+    ``security_id IN (SELECT security_id FROM basket_member ...)`` — what this shipped with — would pull the
+    other tenant's rows into the worklist off the strength of this tenant's membership, because
+    ``security_master.id`` carries no tenant and nothing at the database layer would stop it (isolation is
+    discipline + this test, never RLS). Grows the poison-row proof to the backfill worklist."""
+    from pipeline.backfill_accepted import _target_scopes
+
+    provision_tenant(db, "prod-basket-scope", tenant_id=PROD_TENANT_ID)
+    shared = uuid.uuid4()  # ONE security id, a row under each tenant (the master is per-tenant)
+    xml = (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
+    with db.cursor() as cur:
+        for tenant in (DEFAULT_TENANT_ID, PROD_TENANT_ID):
+            cur.execute(
+                "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                (shared, tenant, "HIMS", "0001773751", date(2026, 1, 1)),
+            )
+    # NULL-accepted insider rows under BOTH tenants — both are candidates but only one is in a basket
+    ingest_form4(db, shared, xml, "DEMO-ACC", tenant_id=DEFAULT_TENANT_ID)
+    ingest_form4(db, shared, xml, "PROD-ACC", tenant_id=PROD_TENANT_ID)
+    tid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, %s, %s)",
+            (tid, DEFAULT_TENANT_ID, "demo-only", "n"),
+        )
+        cur.execute(
+            "INSERT INTO basket_member (tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (DEFAULT_TENANT_ID, tid, 0, "HIMS", "core", shared),
+        )
+    db.commit()
+
+    scopes = _target_scopes(db, basket_only=True)
+
+    assert (DEFAULT_TENANT_ID, shared) in scopes  # the tenant that actually holds the basket
+    assert (PROD_TENANT_ID, shared) not in scopes  # ...and NEVER the other one's rows

@@ -69,6 +69,8 @@ def build_snapshot(
     record_began: date | None,
     realized: _Realized | None = None,
     single_name_security: dict[UUID, UUID] | None = None,
+    roster_fallback_theses: int = 0,
+    roster_source_note: str | None = None,
     config_hash: str | None = None,
     code_sha: str | None = None,
 ) -> ReplaySnapshot:
@@ -126,16 +128,41 @@ def build_snapshot(
         single_name_security=single_name_security,
     )
     overlaps = record_began is not None and window_end >= record_began
-    # F2 — WHICH DIALS this panel reflects, said quietly on the line that already says "not the record".
-    # The snapshot CLI used to take DEFAULT_CONFIG implicitly, so "today's code + dials" was a claim the
-    # artifact could not back. Shortened HERE, server-side, through `domain.config.short_hash` — the one
-    # slicing point in the codebase — so the frontend renders the sentence and computes nothing.
+    # THE BANNER SAYS WHAT THIS PANEL IS, in two clauses that answer two different questions.
+    #
+    # F2 — WHICH DIALS it reflects. The snapshot CLI used to take DEFAULT_CONFIG implicitly, so "today's
+    # code + dials" was a claim the artifact could not back. Shortened HERE, server-side, through
+    # `domain.config.short_hash` — the one slicing point in the codebase — so the frontend renders the
+    # sentence and computes nothing.
+    #
+    # F4 — WHICH ROSTER it ran on, and this clause REPLACED the blanket "Baskets are not versioned
+    # (REPLAY.md known limitation)". They ARE versioned now (`basket_snapshot`, read per session), so the
+    # permanent caveat had become false; what remains true is per-run and quantitative — which theses fell
+    # back to today's basket, and for how many sessions. Silence means every thesis replayed on a real
+    # point-in-time roster, which the blanket sentence could never say. `roster_source_note` is
+    # backend-authored (one authority, the `ingest_note` precedent) and speaks in the F11 voice: a
+    # recompute, never the recorded call.
+    #
+    # ORDER IS POLICY THEN ROSTER: the dials are the stronger claim about what the numbers mean, and the
+    # roster qualifies whose numbers they are.
+    #
+    # BOTH clauses are sentence-cased, because both follow a full stop. The roster note is composed
+    # lowercase (it also rides a run-report line mid-sentence) and is cased on its FIRST CHARACTER ONLY —
+    # NOT `str.capitalize()`, which lowercases the rest and would turn "TODAY's basket" into "today's
+    # basket", destroying the emphasis that is the whole point of the word.
     policy_label = f"policy {short_hash(config_hash)}" if config_hash else None
     policy = f" {policy_label.capitalize()}." if policy_label else ""
+    roster_clause = (
+        f" {roster_source_note[0].upper()}{roster_source_note[1:]}."
+        if roster_source_note
+        else " Rosters are point-in-time."
+    )
     banner = (
         f"REPLAYED — today's code + dials over historical facts (window {window_start} → "
-        f"{window_end}, pinned {pin.date()}); NOT the record.{policy} Baskets are not versioned "
-        f"(REPLAY.md known limitation). {len(eligible)} episodes eligible for metrics "
+        f"{window_end}, pinned {pin.date()}); NOT the record."
+        + policy
+        + roster_clause
+        + f" {len(eligible)} episodes eligible for metrics "
         f"(matured + non-censored; gate n<{MIN_N})."
         + (
             " WARNING: the window overlaps the forward record — arms may appear in both sections."
@@ -151,6 +178,8 @@ def build_snapshot(
         known_at_pin=pin.isoformat(),
         record_began=record_began,
         window_overlaps_record=overlaps,
+        roster_fallback_theses=roster_fallback_theses,
+        roster_source_note=roster_source_note,
         config_hash=config_hash,
         code_sha=code_sha,
         policy_label=policy_label,
@@ -231,7 +260,10 @@ def main() -> None:
                 # hashing DEFAULT_CONFIG separately) is what keeps the stamp honest: if this run ever
                 # sweeps a non-default cfg, the fingerprint follows it instead of describing a policy
                 # that did not produce these episodes — the same rule `pipeline.daily` holds.
-                timeline = replay_all(conn, con, start=start, end=end, known_at=pin, cfg=cfg)
+                # F4 — and `replay_all` now returns a ReplayResult, so the roster provenance comes back
+                # in the same object as the timelines and cannot be dropped on the floor.
+                result = replay_all(conn, con, start=start, end=end, known_at=pin, cfg=cfg)
+                timeline = result.timelines
                 episodes = [ep for snaps in timeline.values() for ep in derive_episodes(snaps)]
                 realized = RealizedPrices(con)
                 scored = list(zip(episodes, score_episodes(episodes, realized), strict=True))
@@ -247,6 +279,12 @@ def main() -> None:
                     record_began=record_began,
                     realized=realized,
                     single_name_security=single_name,
+                    # F4 — the roster provenance rides from the harness onto the artifact, so the panel
+                    # can say which theses recomputed on today's basket rather than asserting a blanket
+                    # caveat that is no longer true.
+                    roster_fallback_theses=result.fallback_theses,
+                    roster_source_note=result.note(),
+                    # F2 — ...and which dials produced them, hashed from the SAME cfg the run used.
                     config_hash=config_hash(cfg),
                     code_sha=get_settings().image_sha,
                 )
