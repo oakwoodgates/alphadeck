@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime, timezone
 from typing import Any
 
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
+from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 
 # EDGAR joins multiple filer-category attributes with a literal "<br>" (e.g. "Accelerated filer<br>Emerging
@@ -181,24 +183,130 @@ def delisting_date(submissions: dict[str, Any]) -> date | None:
         return None
 
 
-def acceptance_times(submissions: dict[str, Any]) -> dict[str, str]:
-    """Map every accession in a submissions JSON to its raw SEC ``acceptanceDateTime`` string.
+def _acceptance_map(arrays: dict[str, Any]) -> dict[str, str]:
+    """``{accession: raw acceptanceDateTime}`` from one block of EDGAR's parallel submission arrays.
 
-    The ``backfill_accepted`` source: ``filings.recent`` carries ``acceptanceDateTime`` as a parallel
-    array beside ``accessionNumber``, so ONE walk maps accession -> acceptance for the whole tape (the
-    ownership *document* the forms cache holds does NOT carry it — the enumeration is the only source).
-    A row whose acceptance entry is absent/blank simply doesn't appear (the caller leaves it NULL, #9).
-    Same accepted depth as ``form4_filings``: ``recent`` covers >= 1 year / 1,000 filings; older
-    accessions roll into paginated ``filings.files[]`` (a deferred ``--deep`` walk), unresolved -> NULL.
+    ONE implementation for both shapes the API serves: ``filings.recent`` nests the arrays under two keys,
+    while an OLDER page (``filings.files[].name``) carries the very same array names at its TOP level. An
+    entry with a blank/absent acceptance simply doesn't appear (the caller leaves the row NULL — #9).
     """
-    recent = submissions.get("filings", {}).get("recent", {})
-    accns = recent.get("accessionNumber", [])
-    accepts = recent.get("acceptanceDateTime", [])
+    accns = arrays.get("accessionNumber", [])
+    accepts = arrays.get("acceptanceDateTime", [])
     return {
         accns[i]: accepts[i]
         for i in range(min(len(accns), len(accepts)))
         if accns[i] and accepts[i]
     }
+
+
+def acceptance_times(submissions: dict[str, Any]) -> dict[str, str]:
+    """Map every accession in a submissions JSON's ``recent`` window to its raw ``acceptanceDateTime``.
+
+    The ``backfill_accepted`` source: ``filings.recent`` carries ``acceptanceDateTime`` as a parallel
+    array beside ``accessionNumber``, so ONE walk maps accession -> acceptance for the whole tape (the
+    ownership *document* the forms cache holds does NOT carry it — the enumeration is the only source).
+    Depth is ``recent``'s: >= 1 year / 1,000 filings. Older accessions roll into paginated
+    ``filings.files[]`` — ``acceptance_times_deep`` walks those.
+    """
+    return _acceptance_map(submissions.get("filings", {}).get("recent", {}))
+
+
+# EDGAR names an older submissions page ``CIK<10 digits>-submissions-<3 digits>.json``. The name comes out
+# of a fetched document and is then used as BOTH a URL suffix and a cache-file path, so it is validated
+# against that exact shape before either — a name carrying ``../`` would otherwise write outside the cache
+# dir. A name that fails is skipped and COUNTED (never silently), which is also the honest signal if EDGAR
+# ever changes the convention.
+_PAGE_NAME = re.compile(r"^CIK\d{10}-submissions-\d{3}\.json$")
+
+
+def submissions_page_names(submissions: dict[str, Any]) -> list[str]:
+    """The older-page filenames listed in ``filings.files[]`` (newest page first), validated.
+
+    ``filings.files`` is EDGAR's pagination index: each entry is ``{name, filingCount, filingFrom,
+    filingTo}`` and the named document holds the next 1,000-2,000 older filings. A company inside the
+    ``recent`` window lists none, so this returns ``[]`` and a deep walk costs nothing extra for it.
+    """
+    files = submissions.get("filings", {}).get("files") or []
+    out: list[str] = []
+    for f in files:
+        name = str((f or {}).get("name") or "").strip()
+        if name and _PAGE_NAME.match(name):
+            out.append(name)
+    return out
+
+
+def submissions_page_url(name: str) -> str:
+    return f"{get_settings().sec_data_base}/submissions/{name}"
+
+
+def fetch_submissions_page(client: EdgarClient, name: str) -> dict[str, Any]:
+    """One older submissions page, through the SAME polite/cached client as every other EDGAR read.
+
+    The cache key sits beside the company's own document (``submissions/<name>``), so the key-classed
+    freshness policy treats it as mutable like the rest of that prefix — correct and safe-by-default: an
+    older page is effectively closed, so a refresh costs only bandwidth, and nothing here threads a
+    per-call freshness flag (``docs/DATA_SOURCES.md`` §cache-freshness).
+    """
+    if not _PAGE_NAME.match(
+        name
+    ):  # belt-and-suspenders: never build a path from an unvalidated name
+        raise ValueError(f"not an EDGAR submissions page name: {name!r}")
+    return client.get_json(submissions_page_url(name), f"submissions/{name}")
+
+
+def acceptance_times_deep(
+    client: EdgarClient, submissions: dict[str, Any]
+) -> tuple[dict[str, str], int, int]:
+    """``acceptance_times`` PLUS every paginated older page — the full accession -> acceptance map.
+
+    Returns ``(map, pages_read, pages_failed)``. The ``recent`` window is bounded per CIK by FILING COUNT,
+    so the heaviest-filing names lose acceptance coverage first; this is the walk that reaches the rest.
+
+    Cost is one extra fetch per older page (cache-first, rate-limited, declared User-Agent — EDGAR
+    etiquette is a correctness requirement, not a courtesy). A page that cannot be read is COUNTED and the
+    walk continues: its accessions stay unresolved and therefore NULL and visible (#9), never dropped and
+    never guessed. ``recent`` wins a key collision, since it is the freshest statement of the same value.
+    """
+    merged: dict[str, str] = {}
+    pages_read = 0
+    pages_failed = 0
+    for name in submissions_page_names(submissions):
+        try:
+            page = fetch_submissions_page(client, name)
+        except Exception as e:
+            if not _tolerable_page_error(e):
+                raise  # systemic (no User-Agent, a DB/config fault) — never absorbed into a page tally
+            pages_failed += 1
+            continue
+        pages_read += 1
+        merged.update(_acceptance_map(page))
+    merged.update(
+        acceptance_times(submissions)
+    )  # the recent window is authoritative on any overlap
+    return merged, pages_read, pages_failed
+
+
+def _tolerable_page_error(e: Exception) -> bool:
+    """Is ``e`` ONE older page's fetch/parse failure rather than a systemic one? An uncached page under
+    ``--no-live`` (``CacheMiss``), a truncated/garbled document (``json.JSONDecodeError``), or a fetch that
+    still fails after the polite retries (``httpx.HTTPError``). A missing User-Agent or any other systemic
+    fault is NOT one page's fault and must still abort.
+
+    NARROWED to ``json.JSONDecodeError`` rather than the bare ``ValueError`` its sibling
+    ``pipeline.ingest_thesis._tolerable_filing_error`` tolerates — and the two SHOULD differ. That one
+    parses XML documents where a malformed value inside an otherwise-readable filing genuinely raises a
+    plain ``ValueError``; this path's only parse is ``client.get_json``, so the sole legitimate
+    ``ValueError`` here is a JSON decode failure. The other ``ValueError`` reachable on this path is
+    ``fetch_submissions_page``'s belt-and-suspenders page-name guard, which ``submissions_page_names`` has
+    already made unreachable — and if it ever DID fire it would mean a programming fault, which must abort
+    loudly rather than be absorbed into a per-page tally (the skip-counter lesson)."""
+    if isinstance(e, (CacheMiss, json.JSONDecodeError)):
+        return True
+    try:
+        import httpx  # lazy, mirroring the clients — the package imports without it
+    except ImportError:  # pragma: no cover — with httpx absent, no httpx error can have been raised
+        return False
+    return isinstance(e, httpx.HTTPError)
 
 
 def parse_acceptance(raw: str | None) -> datetime | None:

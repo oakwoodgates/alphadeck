@@ -9,9 +9,28 @@ a parallel array beside ``accessionNumber``); we just discarded it. This CLI rep
 SOURCE = the per-CIK submissions JSON, NOT the forms cache (the ownership *document* carries no acceptance
 datetime — the enumeration is the only source). Cost = O(distinct CIKs with a NULL-accepted row): one
 submissions read per security, cache-first (``--live`` refills a stale/absent cache under the 12h TTL). An
-accession NOT in the ``recent`` window (>= 1yr / 1,000 filings) stays NULL — older accessions roll into
-paginated ``filings.files[]``, a deferred ``--deep`` walk (out of scope here); the display/metrics fall
-back to ``recorded_at``/"ingested" for them (recall-safe #9).
+accession NOT in the ``recent`` window (>= 1yr / 1,000 filings) stays NULL unless ``--deep`` is given; the
+display/metrics fall back to ``recorded_at``/"ingested" for the residue (recall-safe #9).
+
+THE ``--deep`` WALK (P2): ``recent`` is bounded per CIK by FILING COUNT, so the heaviest-filing names lose
+acceptance coverage FIRST — and heavy filing volume means many insiders transacting, which is exactly what
+the cluster detector keys on. ``--deep`` follows ``filings.files[]`` (EDGAR's pagination index), so those
+older accessions resolve too. Anything still unresolvable after the walk stays NULL and VISIBLE as such,
+counted in ``accessions_unresolved`` — never silently dropped (#9).
+
+MEASURED SCOPE, on the LATEST-VERSION grain — which is the grain that matters and is much smaller than a
+raw row count suggests. Coverage counted over ALL rows reads 314,798/595,376 = 52.9%, but that denominator
+includes SUPERSEDED versions: an earlier backfill's correction leaves v1 NULL beside a v2 that carries the
+value, and the as-of read (and therefore the Scoreboard ledger and the B2 lag metric) only ever sees v2. On
+the latest-version grain the dev copy of prod already reads **314,246/316,374 = 99.3%**, with 2,128 keys
+across 117 securities (96 of them basket members) still NULL. That is what ``--deep`` is for, and MEASURED
+against live EDGAR 2026-09-15 it closes the basket share of it completely: 96 securities targeted, 117 older
+pages read, 0 unreadable, 638 accessions resolved, 1,589 rows corrected, **0 residual NULL** — coverage
+99.3% -> 99.83%, the remainder being the 21 non-basket securities. ``--deep --basket-only --live`` is the
+intended one-shot.
+
+This is an INTERACTIVE one-shot, so the client's default 12h TTL is the right dial and nothing threads a
+freshness flag (``docs/DATA_SOURCES.md`` §cache-freshness — freshness is key-classed, never per-call).
 
 MECHANISM — append-only re-version, the table's own correction discipline (the ``backfill_aff10b5_1``
 precedent). ``fact_insider_txn`` carries a live ``no_update`` trigger, so the repair appends a NEW VERSION of
@@ -43,6 +62,8 @@ RULES:
     python -m pipeline.backfill_accepted --live                # dry-run, refilling stale submissions caches
     python -m pipeline.backfill_accepted --execute --live      # write the corrections
     python -m pipeline.backfill_accepted --verify --live       # independent cross-check
+    python -m pipeline.backfill_accepted --deep --basket-only --live            # the P2 dry-run
+    python -m pipeline.backfill_accepted --deep --basket-only --live --execute  # ...and the write
 """
 
 from __future__ import annotations
@@ -60,7 +81,12 @@ from db.bitemporal import append_fact
 from db.session import database_url
 from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.submissions import acceptance_times, fetch_submissions, parse_acceptance
+from ingest.edgar.submissions import (
+    acceptance_times,
+    acceptance_times_deep,
+    fetch_submissions,
+    parse_acceptance,
+)
 
 # The latest-version view of the table — the SAME grain the shared as-of read dedups on
 # (db.bitemporal._FACT_IDENTITY['fact_insider_txn'] within its (tenant, security) scope), so "latest is
@@ -95,12 +121,29 @@ class BackfillResult:
         0  # distinct accessions found in submissions with a parseable acceptance
     )
     accessions_unresolved: int = (
-        0  # distinct accessions NOT in the recent window (deferred --deep) -> NULL
+        # distinct accessions the enumeration could not resolve -> left NULL and VISIBLE (#9). With
+        # --deep that means the accession is in neither `filings.recent` NOR any paginated older page
+        # (or its page was unreadable); a shallow run adds "older than the recent window" to that list.
+        0
     )
     rows_corrected: int = 0  # rows NULL -> accepted set
     rows_residual_null: int = (
         0  # rows left NULL (no CIK / no submissions / accession out of window)
     )
+    # --- the --deep walk (P2) ---------------------------------------------------------------------
+    deep: bool = False  # whether filings.files[] was paginated at all
+    pages_read: int = 0  # older submissions pages successfully read
+    pages_failed: int = (
+        0  # older pages unreadable (uncached / fetch failed) -> their rows stay NULL
+    )
+    # --- coverage, the operator-facing number this slice moves -------------------------------------
+    # Latest-version rows carrying a non-NULL `accepted`, over the whole table, measured before and after
+    # the run. The Scoreboard ledger's "disclosed" date and the B2 disclosure-lag metric read that column
+    # (`scoreboard/provenance.py`: COALESCE(accepted, recorded_at)), so this IS the shipped surface.
+    coverage_keys_before: int = 0
+    coverage_nonnull_before: int = 0
+    coverage_keys_after: int = 0
+    coverage_nonnull_after: int = 0
 
 
 @dataclass
@@ -145,11 +188,48 @@ def _cik_for(conn: psycopg.Connection, tenant_id: UUID, security_id: UUID) -> st
     return (row["cik"] if row else None) or None
 
 
-def _target_scopes(conn: psycopg.Connection) -> list[tuple[UUID, UUID]]:
-    """Distinct (tenant, security) with at least one latest-version-NULL ``accepted`` row — the worklist,
-    scoped per security because the source (submissions JSON) is per-CIK."""
+def _coverage(conn: psycopg.Connection) -> tuple[int, int]:
+    """``(latest-version keys, of those carrying a non-NULL accepted)`` across the whole table — the
+    operator-facing coverage number, measured on the SAME latest-version grain the as-of read dedups on
+    (so it is what the Scoreboard ledger and the B2 lag metric actually see)."""
     q = (
-        "SELECT DISTINCT tenant_id, security_id FROM (" + _LATEST.format(where="") + ") latest "
+        "SELECT count(*) AS keys, count(accepted) AS nonnull FROM ("
+        + _LATEST.format(where="")
+        + ") latest"
+    )
+    with conn.cursor() as cur:
+        cur.execute(q)
+        r = cur.fetchone()
+        return r["keys"], r["nonnull"]
+
+
+def _target_scopes(
+    conn: psycopg.Connection, *, basket_only: bool = False
+) -> list[tuple[UUID, UUID]]:
+    """Distinct (tenant, security) with at least one latest-version-NULL ``accepted`` row — the worklist,
+    scoped per security because the source (submissions JSON) is per-CIK.
+
+    ``basket_only`` narrows it to securities placed in some thesis's basket (archived theses included — an
+    archived thesis's history is still read by the Scoreboard). MEASURED: 117 securities have a
+    latest-version NULL ``accepted`` and 96 are basket members, so this is the cost thread applied to the
+    deep walk — the expensive pagination is spent on the names the operator's surfaces actually show.
+    NARROWING ONLY: an excluded security's rows are untouched and stay NULL and visible, never dropped (#9).
+
+    THE MEMBERSHIP TEST IS THE (tenant, security) PAIR, not the security alone (invariant #5). A bare
+    ``security_id IN (...)`` would let a basket member in tenant A pull that security's tenant-B rows into
+    the worklist — ``security_master.id`` carries no tenant, so nothing at the database layer would stop
+    it, and the isolation test is the only backstop there is. Today the fork/dev tenants hold the same
+    security ids as prod, so this is a live path to a cross-tenant read, not a theoretical one. Proven by
+    ``tests/db/test_tenant_isolation.py``.
+    """
+    where = ""
+    if basket_only:
+        where = (
+            "WHERE (tenant_id, security_id) IN "
+            "(SELECT tenant_id, security_id FROM basket_member WHERE security_id IS NOT NULL)"
+        )
+    q = (
+        "SELECT DISTINCT tenant_id, security_id FROM (" + _LATEST.format(where=where) + ") latest "
         "WHERE accepted IS NULL ORDER BY tenant_id, security_id"
     )
     with conn.cursor() as cur:
@@ -193,12 +273,23 @@ def _require_security_scoped_natural_key(conn: psycopg.Connection) -> None:
         )
 
 
-def _resolved_acceptances(client: EdgarClient, cik: str) -> dict[str, datetime] | None:
+def _resolved_acceptances(
+    client: EdgarClient, cik: str, *, deep: bool = False
+) -> tuple[dict[str, datetime], int, int] | None:
     """The security's ``{accession: accepted datetime}`` from its submissions JSON, or ``None`` if the
     submissions is uncached / unfetchable (the scope is then left NULL — #9). Only parseable acceptance
-    values survive (an unparseable one is dropped -> the accession reads unresolved)."""
+    values survive (an unparseable one is dropped -> the accession reads unresolved).
+
+    ``deep`` also paginates ``filings.files[]`` (``acceptance_times_deep``), reaching accessions older than
+    the ``recent`` window. Returns ``(map, pages_read, pages_failed)``; the page counts are 0 without
+    ``deep`` and for a company whose whole tape fits in ``recent``.
+    """
     try:
         subs = fetch_submissions(client, cik)
+        if deep:
+            raw_map, pages_read, pages_failed = acceptance_times_deep(client, subs)
+        else:
+            raw_map, pages_read, pages_failed = acceptance_times(subs), 0, 0
     except CacheMiss:
         return None
     except (
@@ -207,11 +298,10 @@ def _resolved_acceptances(client: EdgarClient, cik: str) -> dict[str, datetime] 
         if _is_http_error(e):
             return None
         raise
-    return {
-        acc: dt
-        for acc, raw in acceptance_times(subs).items()
-        if (dt := parse_acceptance(raw)) is not None
+    resolved = {
+        acc: dt for acc, raw in raw_map.items() if (dt := parse_acceptance(raw)) is not None
     }
+    return resolved, pages_read, pages_failed
 
 
 def _is_http_error(e: Exception) -> bool:
@@ -229,19 +319,27 @@ def run_backfill(
     client: EdgarClient,
     execute: bool,
     limit: int | None = None,
+    deep: bool = False,
+    basket_only: bool = False,
     log=print,
 ) -> BackfillResult:
     """The repair pass (see the module docstring for the rules). ``execute=False`` performs the full read +
-    resolve and reports what WOULD change, appending nothing."""
+    resolve and reports what WOULD change, appending nothing. ``deep`` paginates ``filings.files[]`` so
+    accessions older than the ``recent`` window resolve too; ``basket_only`` narrows the worklist to
+    securities that are placed in a basket (the cost thread — see ``_target_scopes``)."""
     if execute:  # write-path precondition (0037); a dry-run reads fine on any schema
         _require_security_scoped_natural_key(conn)
-    res = BackfillResult(executed=execute)
+    res = BackfillResult(executed=execute, deep=deep)
     res.table_rows_before = _count(conn)
-    scopes = _target_scopes(conn)
+    res.coverage_keys_before, res.coverage_nonnull_before = _coverage(conn)
+    scopes = _target_scopes(conn, basket_only=basket_only)
     if limit is not None:
         scopes = scopes[:limit]
     res.scopes_targeted = len(scopes)
-    log(f"targets: {len(scopes)} securities with a latest-version NULL accepted")
+    scope_note = " (basket members only)" if basket_only else ""
+    log(f"targets: {len(scopes)} securities with a latest-version NULL accepted{scope_note}")
+    if deep:
+        log("mode   : DEEP — paginating filings.files[] beyond the recent window")
 
     resolved_accessions: set[str] = set()
     unresolved_accessions: set[str] = set()
@@ -254,15 +352,25 @@ def run_backfill(
             res.scopes_no_cik += 1
             res.rows_residual_null += len(rows)
             continue
-        amap = _resolved_acceptances(client, cik)
-        if amap is None:
+        resolution = _resolved_acceptances(client, cik, deep=deep)
+        if resolution is None:
             res.scopes_no_submissions += 1
             res.rows_residual_null += len(rows)
             log(f"  warn: security {security_id} (CIK {cik}) submissions unavailable — left NULL")
             continue
+        amap, pages_read, pages_failed = resolution
+        res.pages_read += pages_read
+        res.pages_failed += pages_failed
+        if pages_failed:  # loud: an unread page is coverage this run could not reach (#9)
+            log(
+                f"  warn: security {security_id} (CIK {cik}) {pages_failed} older submissions "
+                "page(s) unreadable — their accessions stay NULL"
+            )
         for row in rows:
             dt = amap.get(row["accession"])
-            if dt is None:  # accession out of the recent window (deferred --deep) — stays NULL (#9)
+            # unresolved by THIS run's enumeration: out of `filings.recent` and (on --deep) absent from
+            # every older page too, or its page was unreadable. Stays NULL and VISIBLE — never guessed (#9).
+            if dt is None:
                 unresolved_accessions.add(row["accession"])
                 res.rows_residual_null += 1
                 continue
@@ -280,6 +388,7 @@ def run_backfill(
     res.accessions_resolved = len(resolved_accessions)
     res.accessions_unresolved = len(unresolved_accessions - resolved_accessions)
     res.table_rows_after = _count(conn)
+    res.coverage_keys_after, res.coverage_nonnull_after = _coverage(conn)
     return res
 
 
@@ -287,11 +396,16 @@ def run_verify(
     conn: psycopg.Connection,
     *,
     client: EdgarClient,
+    deep: bool = False,
     log=print,
 ) -> VerifyResult:
     """The independent cross-check: for EVERY latest-version key, re-resolve the acceptance from the
     security's submissions and compare the stored value against it. Reads only — writes nothing. A stored
-    non-NULL value that disagrees with the enumeration is a MISMATCH."""
+    non-NULL value that disagrees with the enumeration is a MISMATCH.
+
+    ``deep`` must MATCH the backfill run being verified. Verifying a ``--deep`` write WITHOUT it would
+    re-classify every deep-resolved key as ``<unresolved>`` and report a wall of false mismatches; the CLI
+    threads the same flag to both paths so they cannot diverge by accident."""
     res = VerifyResult()
     # every distinct scope (not just NULL ones) — verify covers already-captured rows too
     q = "SELECT DISTINCT tenant_id, security_id FROM fact_insider_txn ORDER BY tenant_id, security_id"
@@ -303,10 +417,11 @@ def run_verify(
         rows = _scope_latest_rows(conn, tenant_id, security_id, null_only=False)
         res.keys_total += len(rows)
         cik = _cik_for(conn, tenant_id, security_id)
-        amap = _resolved_acceptances(client, cik) if cik else None
-        if amap is None:
+        resolution = _resolved_acceptances(client, cik, deep=deep) if cik else None
+        if resolution is None:
             res.keys_no_submissions += len(rows)
             continue
+        amap = resolution[0]
         for r in rows:
             resolved = amap.get(r["accession"])
             stored = r["accepted"]
@@ -334,9 +449,14 @@ def run_verify(
     return res
 
 
+def _pct(nonnull: int, keys: int) -> str:
+    return f"{nonnull}/{keys} ({100.0 * nonnull / keys:.1f}%)" if keys else "0/0 (n/a)"
+
+
 def _print_backfill(res: BackfillResult) -> None:
     mode = "EXECUTE" if res.executed else "DRY-RUN (nothing written)"
-    print(f"\n=== backfill accepted — {mode} ===")
+    depth = "DEEP (filings.files[] paginated)" if res.deep else "recent window only"
+    print(f"\n=== backfill accepted — {mode} · {depth} ===")
     print(f"  table rows before : {res.table_rows_before}")
     print(f"  table rows after  : {res.table_rows_after}")
     print(f"  rows appended     : {res.table_rows_after - res.table_rows_before}")
@@ -345,12 +465,26 @@ def _print_backfill(res: BackfillResult) -> None:
     print(
         f"  securities no submissions  : {res.scopes_no_submissions} (uncached/unfetchable, stay NULL)"
     )
+    if res.deep:
+        print(f"  older pages read           : {res.pages_read}")
+        print(f"  older pages unreadable     : {res.pages_failed} (their accessions stay NULL)")
     print(f"  accessions resolved        : {res.accessions_resolved}")
-    print(
-        f"  accessions unresolved      : {res.accessions_unresolved} (out of recent window — deferred --deep)"
+    residual_note = (
+        "still unresolved after the deep walk — NULL and visible, never dropped (#9)"
+        if res.deep
+        else "out of the recent window — rerun with --deep"
     )
+    print(f"  accessions unresolved      : {res.accessions_unresolved} ({residual_note})")
     print(f"  rows NULL -> accepted      : {res.rows_corrected}")
     print(f"  rows residual NULL         : {res.rows_residual_null}")
+    # COVERAGE — the shipped-surface number this slice moves (the Scoreboard ledger's "disclosed" date and
+    # the B2 disclosure-lag metric read `accepted`). On a dry-run before == after by construction.
+    print(
+        f"  coverage before            : {_pct(res.coverage_nonnull_before, res.coverage_keys_before)}"
+    )
+    print(
+        f"  coverage after             : {_pct(res.coverage_nonnull_after, res.coverage_keys_after)}"
+    )
 
 
 def _print_verify(res: VerifyResult) -> None:
@@ -394,11 +528,26 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--limit", type=int, default=None, help="cap the securities processed (spot runs)"
     )
+    p.add_argument(
+        "--deep",
+        action="store_true",
+        help="also paginate filings.files[] — the accessions older than EDGAR's recent window "
+        "(>= 1yr / 1,000 filings). Costs one extra cached fetch per older page; use with --live",
+    )
+    p.add_argument(
+        "--basket-only",
+        action="store_true",
+        help="restrict the worklist to securities placed in some thesis's basket (the deep walk's "
+        "intended scope: 96 of the 117 securities with a latest-version NULL accepted are basket members)",
+    )
     args = p.parse_args(argv)
 
     url = args.database_url or database_url()
     print(f"target DB : {_redact(url)}")
     print(f"mode      : {'LIVE (refill stale caches)' if args.live else 'cache-only'}")
+    print(
+        f"depth     : {'DEEP (filings.files[] paginated)' if args.deep else 'recent window only'}"
+    )
     client = EdgarClient(allow_live=args.live)
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
@@ -406,14 +555,22 @@ def main(argv: list[str] | None = None) -> None:
             cur.execute("SELECT current_database() AS db")
             print(f"connected : current_database() = {cur.fetchone()['db']}")
         if args.verify:
-            vres = run_verify(conn, client=client)
+            # the SAME depth as the backfill it verifies — see run_verify's docstring
+            vres = run_verify(conn, client=client, deep=args.deep)
             _print_verify(vres)
             if vres.mismatches:
                 raise SystemExit(
                     1
                 )  # the STOP signal — a stored value the enumeration disagrees with
         else:
-            bres = run_backfill(conn, client=client, execute=args.execute, limit=args.limit)
+            bres = run_backfill(
+                conn,
+                client=client,
+                execute=args.execute,
+                limit=args.limit,
+                deep=args.deep,
+                basket_only=args.basket_only,
+            )
             _print_backfill(bres)
     finally:
         conn.close()
