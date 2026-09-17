@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 from pydantic import BaseModel, Field
@@ -78,6 +78,10 @@ class SweepReport(BaseModel):
     window_start: date
     window_end: date
     subwindows: int = 2
+    # WHICH AXIS the one shared mirror carries. On the curve it is not decoration: a record-clock sweep and
+    # a public-clock sweep of the same dial are two different experiments and must never be read as one
+    # series, and the run ids below are the only other place that could be checked.
+    clock: Literal["record", "public"] = "record"
     mirror_hash: str = ""
     baseline_config_short: str = ""
     points: list[SweepPoint] = Field(default_factory=list)
@@ -188,14 +192,26 @@ def run_sweep(
     regime: str | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
-    tenant_id: str | None = None,
+    clock: Literal["record", "public"] = "record",
     root: str | Path | None = None,
 ) -> SweepReport:
-    """Export the mirror ONCE, replay every variant over it, and report the curve."""
+    """Export the mirror ONCE, replay every variant over it, and report the curve.
+
+    The CLOCK is exported into that one mirror and every point INHERITS it — the points are run with no
+    clock argument at all, so "one tape, one axis, N dial settings" is structural rather than something
+    each call site has to repeat correctly. It is also why the mirror directory is named for the clock:
+    a record-clock and a public-clock sweep of the same window at the same pin would otherwise re-export
+    over each other's Parquet, and the earlier sweep's points would end up citing a mirror hash that no
+    longer describes the tape they actually swept."""
     root_path = Path(root or store.DEFAULT_ROOT)
-    mirror = root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{start}-{end}"
+    mirror = root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{start}-{end}-{clock}"
     mirror.mkdir(parents=True, exist_ok=True)
-    export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID)
+    # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep took
+    # a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and dropped is worse
+    # than none, because a caller reads it as honored. It is removed rather than wired: nothing can pass one
+    # (there is no `--tenant` on this CLI or on `backtest.run`) and the whole backtest package is
+    # single-tenant by construction. Multi-tenant sweeps are a real change, not a parameter.
+    export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
 
     points: list[SweepPoint] = []
     baseline: _Scored | None = None
@@ -267,6 +283,7 @@ def run_sweep(
         window_start=start,
         window_end=end,
         subwindows=len(subs),
+        clock=clock,  # the axis that one tape carries; every point inherited it
         mirror_hash=mirror_hash(mirror),  # the ONE frozen tape every point swept
         baseline_config_short=baseline_short,
         points=points,
@@ -340,6 +357,16 @@ def build_parser() -> argparse.ArgumentParser:
             "own benchmark window."
         ),
     )
+    p.add_argument(
+        "--clock",
+        choices=("record", "public"),
+        default="record",
+        help=(
+            "which clock the ONE shared mirror is exported on; every point of the sweep inherits it "
+            "(see backtest.run --clock). A record sweep and a public sweep are different experiments "
+            "and are never one curve."
+        ),
+    )
     p.add_argument("--regime", default=None)
     p.add_argument("--out-root", default=None)
     return p
@@ -387,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             regime=args.regime,
             workers=args.workers,
             null_draws=args.null_draws,
+            clock=args.clock,
             root=args.out_root,
         )
     finally:
@@ -395,7 +423,10 @@ def main(argv: list[str] | None = None) -> int:
     root_path = Path(args.out_root or store.DEFAULT_ROOT)
     path = root_path / SWEEP_NAME
     path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"swept {report.dial_names} -> {len(report.points)} run(s); curve at {path}")
+    print(
+        f"swept {report.dial_names} -> {len(report.points)} run(s) on the {report.clock} clock; "
+        f"curve at {path}"
+    )
     for p in report.points:
         mark = "=" if p.is_baseline else ("~" if p.sign_agreement else " ")
         print(

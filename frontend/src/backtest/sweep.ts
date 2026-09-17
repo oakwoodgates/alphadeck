@@ -28,6 +28,9 @@ export type SweepPointView = {
 export type SweepView = {
   dialNames: string[];
   metricName: string;
+  /** Which fact axis the one shared mirror carried — every point inherited it (CW). A record sweep and a
+   *  public sweep are two experiments and must never be read as one series, so the curve says which. */
+  clock: string;
   windowStart: string | null;
   windowEnd: string | null;
   subwindows: number;
@@ -73,6 +76,9 @@ export function readSweep(raw: unknown): SweepView | null {
   return {
     dialNames: Array.isArray(s.dial_names) ? s.dial_names.map((d) => String(d)) : [],
     metricName: str(s.metric_name, "metric"),
+    // a curve written before the axis was recorded is a record-clock curve — that is all this exporter
+    // could produce at the time, so the fallback states a fact rather than an unknown
+    clock: str(s.clock, "record"),
     windowStart: typeof s.window_start === "string" ? s.window_start : null,
     windowEnd: typeof s.window_end === "string" ? s.window_end : null,
     subwindows: num(s.subwindows) ?? 0,

@@ -34,7 +34,8 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
         <span className="chev">▾</span>
         <span className="lbl">Dial sweep — the curve</span>
         <em className="hint">
-          · {v.dialNames.join(", ") || "no dial named"} · {v.points.length} points · latest sweep only
+          · {v.dialNames.join(", ") || "no dial named"} · {v.points.length} points · {v.clock} clock ·
+          latest sweep only
         </em>
       </button>
 

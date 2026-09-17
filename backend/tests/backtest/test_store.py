@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from backtest import manifest as mf
 from backtest import store
 
 # The run store. Two properties carry the whole design: a run directory is created fresh and NEVER reused,
@@ -37,10 +38,28 @@ def test_a_run_directory_is_created_fresh(tmp_path):
 
 def test_a_run_directory_is_never_reused(tmp_path):
     """Immutability, enforced rather than trusted: the second create RAISES instead of overwriting an
-    artifact somebody may already have cited."""
+    artifact somebody may already have cited. Still a ``FileExistsError`` — ``RunDirExists`` subclasses it,
+    so anything that already caught the builtin is unaffected."""
     store.create_run_dir("run-1", tmp_path)
     with pytest.raises(FileExistsError):
         store.create_run_dir("run-1", tmp_path)
+
+
+def test_a_collision_SAYS_WHAT_COLLIDED(tmp_path):
+    """A bare ``FileExistsError`` naming a temp path says something collided but not what, and the answer
+    — every component of the run id agreed, inside one second — is not guessable from the path. It cost a
+    real debugging detour, so the message now names the id, the location, the composition and the fix.
+    """
+    store.create_run_dir("20260918T041207Z-public-h5-abcd1234", tmp_path)
+    with pytest.raises(store.RunDirExists) as exc:
+        store.create_run_dir("20260918T041207Z-public-h5-abcd1234", tmp_path)
+    msg = str(exc.value)
+    assert "20260918T041207Z-public-h5-abcd1234" in msg  # WHICH run
+    assert str(tmp_path) in msg  # WHERE
+    for part in mf.RUN_ID_PARTS:  # WHAT had to agree — read from the one definition, never retyped
+        assert part in msg
+    assert "refuses rather than overwriting" in msg  # WHY it did not just proceed
+    assert "wait a second" in msg  # and what to DO
 
 
 def test_an_absent_registry_reads_as_empty_not_an_error(tmp_path):

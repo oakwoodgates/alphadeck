@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -344,3 +345,66 @@ def export_snapshot(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
     return manifest
+
+
+@dataclass(frozen=True)
+class MirrorManifest:
+    """What a materialized mirror SAYS ABOUT ITSELF — read back, not re-derived.
+
+    **The clock is a property of the MIRROR, and a run inherits it.** It is chosen once, when the Parquet
+    is written, and after that no caller can change it: the exported ``recorded_at`` already carries that
+    axis. So everything downstream READS this rather than accepting a flag of its own, because a flag that
+    can disagree with the bytes will eventually disagree with the bytes — and a run mislabeled `public`
+    over a record-clock tape is a result nobody can catch by looking at it.
+
+    ``clock`` defaults to ``"record"`` when the manifest predates the field, which is honest: a mirror
+    written before the public clock existed WAS the system clock.
+    """
+
+    clock: Literal["record", "public"] = "record"
+    tables: dict[str, dict[str, Any]] = field(default_factory=dict)
+    excluded_tables: list[str] = field(default_factory=list)
+    blind_detectors: list[str] = field(default_factory=list)
+
+
+def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
+    """The mirror's own manifest, or ``None`` when there is none or it cannot be read.
+
+    Reads TWO shapes from the same filename, and it has to, because they share one. ``MANIFEST_NAME`` is
+    ``manifest.json`` for both this exporter and ``backtest.manifest``, and a run that exports its OWN
+    mirror writes both into the one directory — the run manifest last. So a finished run directory holds a
+    RUN manifest where a mirror manifest used to be, and re-opening it as a mirror (which
+    ``replay.pit.connect_mirror`` legitimately does) has to find the exclusion list anyway. A run manifest
+    is recognized by its ``run_id`` and carries the same facts under ``mirror``, which is exactly why
+    ``BacktestManifest`` records them.
+
+    ``None`` means "no manifest", which callers read as "assume nothing was excluded" — so a file missing
+    for any OTHER reason still fails loudly downstream rather than yielding a mirror that silently answers
+    nothing for that table.
+    """
+    path = Path(mirror_dir) / MANIFEST_NAME
+    if not path.is_file():
+        return None
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(blob, dict):
+        return None
+    inner = blob.get("mirror") if "run_id" in blob else blob
+    if not isinstance(inner, dict):
+        inner = {}
+    clock = blob.get("clock", "record")
+    return MirrorManifest(
+        clock="public" if clock == "public" else "record",
+        tables=inner.get("tables") or {},
+        excluded_tables=list(inner.get("excluded_tables") or []),
+        blind_detectors=list(inner.get("blind_detectors") or []),
+    )
+
+
+def mirror_clock(mirror_dir: str | Path) -> Literal["record", "public"]:
+    """Which axis this mirror's ``recorded_at`` carries. A mirror with no manifest is the system clock —
+    the only thing this exporter wrote before the public mode existed."""
+    m = read_mirror_manifest(mirror_dir)
+    return m.clock if m else "record"

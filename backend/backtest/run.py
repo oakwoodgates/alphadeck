@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -41,7 +42,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.market_time import market_today
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
-from replay.export import export_snapshot
+from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
 from replay.metrics import compute_metrics
 from replay.pit import connect_mirror
 from replay.run import arrow_schema
@@ -50,6 +51,14 @@ from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
 from scoreboard.replay_snapshot import ThesisMeta
 from securities import master
+
+
+class MirrorClockMismatch(ValueError):
+    """A supplied mirror was handed a ``clock`` it does not carry.
+
+    Raised BEFORE the run directory exists, so a refused run leaves nothing behind. The alternative —
+    honoring the argument — would label a run `public` over a record-clock tape, and no reader could
+    catch that by looking at the numbers."""
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,28 @@ def _member_ids(thesis: Thesis) -> list[UUID | None]:
     return [m.security_id for m in thesis.basket]
 
 
+def _table_counts(tables: dict[str, Any]) -> dict[str, mf.TableCounts]:
+    """The mirror manifest's per-table accounting, in the run manifest's vocabulary.
+
+    The two export modes write different shapes and both are honest. The PUBLIC path already reports the
+    four numbers (rows in, rows out, rows the clock could not date, identities lost). The RECORD path
+    reports one — ``rows`` — because it is a straight copy: every row, every version, ``recorded_at``
+    untouched, nothing dropped and nothing collapsed. So ``rows_in == rows_out == rows`` there is an
+    identity of that path, not an assumption about it, and stating it keeps the run manifest equally
+    informative in both modes rather than silent on the common one.
+
+    A table whose entry carries neither shape is skipped rather than guessed at."""
+    out: dict[str, mf.TableCounts] = {}
+    for table, c in (tables or {}).items():
+        if not isinstance(c, dict):
+            continue
+        if "rows_in" in c:
+            out[table] = mf.TableCounts.model_validate(c)
+        elif isinstance(c.get("rows"), int):
+            out[table] = mf.TableCounts(rows_in=c["rows"], rows_out=c["rows"])
+    return out
+
+
 def execute(
     conn: psycopg.Connection,
     *,
@@ -82,6 +113,7 @@ def execute(
     cfg: CallConfig = DEFAULT_CONFIG,
     overlay_path: str | None = None,
     mirror_dir: str | Path | None = None,
+    clock: Literal["record", "public"] | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
     null_seed: str | None = None,
@@ -95,17 +127,45 @@ def execute(
     """Run one backtest end to end and leave an immutable, registered artifact behind.
 
     Read-only over Postgres; writes only into this run's own directory. No row of any kind reaches
-    ``calls`` — a simulated call is never the record."""
+    ``calls`` — a simulated call is never the record.
+
+    **THE CLOCK IS A PROPERTY OF THE MIRROR, AND THIS RUN INHERITS IT.** ``clock`` is therefore only an
+    instruction for the export this run performs itself; with a SUPPLIED ``mirror_dir`` the axis is already
+    baked into the Parquet, so passing a disagreeing one raises ``MirrorClockMismatch`` before any work is
+    done and passing the agreeing one is a no-op. ``None`` means "whatever the mirror is" and is what a
+    sweep's points pass — which is what makes "every point of a sweep swept one tape on one clock" true by
+    construction rather than by every caller remembering to repeat itself.
+
+    ``known_at_mode`` is DERIVED from that clock, never accepted as a flag of its own. On the public clock
+    ``recorded_at`` means "when this became public", so the honest transaction cap is the end of each
+    session (``lockstep``) — asking "what was disclosed by the end of day T?". On the record clock the
+    run-wide determinism pin stays (``pin``). Two flags could disagree; one derivation cannot.
+    """
     now = now or datetime.now(timezone.utc)
     # derived ONCE and shared by the ledger's banner and the manifest — two places naming "which dials
     # moved" from two derivations is two places for them to disagree
     diff = overlay_diff(cfg)
-    # ONE name for the axis this run's facts enter on, read by both the ledger's banner and the
-    # manifest. It is still a constant: `replay.export.export_snapshot` grew a `clock="public"` mode in
-    # B2, but nothing passes it through this runner yet, so a run on this path is always the system
-    # clock. Naming it here rather than hardcoding the string twice makes the gap one line wide.
-    clock = "record"
-    run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now)
+    # Resolved BEFORE the run directory exists: a refused run must leave nothing behind, not an orphan
+    # directory that a later `mkdir(exist_ok=False)` would then collide with.
+    if mirror_dir is not None:
+        supplied = mirror_clock(mirror_dir)
+        if clock is not None and clock != supplied:
+            raise MirrorClockMismatch(
+                f"--clock {clock!r} was passed with a mirror exported on the {supplied!r} clock "
+                f"({Path(mirror_dir)}). The clock belongs to the mirror: re-export it, or drop the flag "
+                f"and inherit."
+            )
+        run_clock: Literal["record", "public"] = supplied
+    else:
+        run_clock = clock or "record"
+    # DERIVED, never a flag. See the docstring. `run_clock`, never the `clock` PARAMETER, is what every
+    # consumer below reads — the parameter is nullable ("inherit") and passing it on would put a None into
+    # the ledger's banner and the manifest.
+    known_at_mode: Literal["pin", "lockstep"] = "lockstep" if run_clock == "public" else "pin"
+    # the CLOCK is part of the id: the same grid under the same hypothesis on both axes is two
+    # measurements run back to back, and without it they collide inside the timestamp's one-second
+    # resolution (see backtest/manifest.py::make_run_id)
+    run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now, clock=run_clock)
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
     timings: dict[str, float] = {}
@@ -117,8 +177,11 @@ def execute(
     mirror = Path(mirror_dir) if mirror_dir else out
     t0 = time.perf_counter()
     if mirror_dir is None:
-        export_snapshot(conn, out, tenant_id=tenant_id)
+        export_snapshot(conn, out, tenant_id=tenant_id, clock=run_clock)
     timings["export_s"] = round(time.perf_counter() - t0, 2)
+    # Read back rather than kept from the export's return value, so the SUPPLIED-mirror and
+    # SELF-EXPORTED paths derive the manifest's mirror facts from exactly one place: the bytes on disk.
+    mirror_manifest = read_mirror_manifest(mirror)
 
     t0 = time.perf_counter()
     con = connect_mirror(mirror)
@@ -144,6 +207,7 @@ def execute(
             cfg=cfg,
             tenant_id=tenant_id,
             workers=workers,
+            known_at_mode=known_at_mode,
         )
         timings["replay_s"] = round(time.perf_counter() - t0, 2)
 
@@ -260,7 +324,12 @@ def execute(
             # an episode whose exit_by has elapsed in market time is judged — the same rule, and the
             # same market-time definition, the Scoreboard's own snapshot uses.
             matured_asof=market_today(),
-            clock=clock,
+            # `run_clock`, NOT the `clock` parameter. B6 wrote this line when `clock` was a local constant
+            # and CW turned it into a nullable ARGUMENT meaning "inherit the mirror's"; git merged both
+            # cleanly because the two edits never touched the same line. A sweep point passes no clock, so
+            # the ledger's banner would have read `None` — the same shape as the B5b/B7 `out`/`mirror`
+            # merge, found the same way (auditing every use of the renamed name, not by a conflict marker).
+            clock=run_clock,
             config_hash=config_hash(cfg),
             code_sha=mf.resolve_code_sha(),
             dials_moved=sorted(diff),
@@ -297,13 +366,11 @@ def execute(
             code_sha=mf.resolve_code_sha(),
             window_start=start,
             window_end=end,
-            # Both honest-clock axes were BUILT in B2 and neither is reachable from this runner yet:
-            # `export_snapshot(clock="public")` and the harness's `known_at_mode="lockstep"` exist and are
-            # tested, but nothing here passes either. Stated as a known gap in docs/BACKTEST.md rather
-            # than quietly wired: the clock belongs to the MIRROR, and a shared-mirror sweep skips the
-            # export entirely, so a `--clock` flag would be a no-op on every point but the first.
-            clock=clock,
-            known_at_mode="pin",
+            # Both read off the MIRROR, never off an argument — see execute()'s docstring. A manifest
+            # that names an axis the Parquet does not carry is the one error nobody could catch by
+            # reading the numbers.
+            clock=run_clock,
+            known_at_mode=known_at_mode,
             pin=pin.isoformat(),
             config_hash=config_hash(cfg),
             config_short=short_hash(config_hash(cfg)) or "",
@@ -318,7 +385,16 @@ def execute(
             # `mirror`, not `out`: under a shared mirror (B7) the facts do not live in the run directory,
             # and hashing an empty directory would make every point of a sweep claim the same vacuous
             # hash -- destroying the one property that makes a config delta attributable.
-            mirror=mf.MirrorInfo(hash=mf.mirror_hash(mirror)),
+            # ...and the mirror's OWN accounting rides with the hash: WHICH tables were excluded, which
+            # detectors that blinded, and B2's per-table counts (rows in/out, rows the public clock could
+            # not date, identities lost). A run that saw a hole in the tape must say how big it was —
+            # naming the hash alone would leave the reader to go and find the mirror to find out.
+            mirror=mf.MirrorInfo(
+                hash=mf.mirror_hash(mirror),
+                tables=_table_counts(mirror_manifest.tables if mirror_manifest else {}),
+                excluded_tables=list(mirror_manifest.excluded_tables) if mirror_manifest else [],
+                blind_detectors=list(mirror_manifest.blind_detectors) if mirror_manifest else [],
+            ),
             null_draws=null_draws,
             null_seed=seed,
             hypothesis=hypothesis,
@@ -375,11 +451,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--clock",
-        choices=("record",),
+        choices=("record", "public"),
         default="record",
         help=(
-            "which clock facts enter on. 'record' = recorded_at, what this system held. "
-            "'public' (when anyone could have known) arrives with B2."
+            "which clock the facts enter on -- a property of the MIRROR this run exports. 'record' = "
+            "recorded_at, what this system held (the Scoreboard's axis). 'public' = when anyone could "
+            "have known (the disclosure instant); it also derives known_at_mode=lockstep, capping the "
+            "facts at the end of each session rather than at the run-wide pin, and it EXCLUDES any fact "
+            "table with no declared public clock (the manifest names them and the detectors they blind)."
         ),
     )
     p.add_argument(
@@ -457,6 +536,7 @@ def main(argv: list[str] | None = None) -> int:
             pin=pin,
             cfg=cfg,
             overlay_path=args.config,
+            clock=args.clock,
             workers=args.workers,
             null_draws=args.null_draws,
             null_seed=args.null_seed,

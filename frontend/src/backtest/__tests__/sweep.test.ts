@@ -21,6 +21,7 @@ const point = (over: Record<string, unknown> = {}) => ({
 });
 
 const sweep = (over: Record<string, unknown> = {}) => ({
+  clock: "public",
   dial_names: ["insider_core_alpha_liveness_days"],
   metric_name: "arm_timing_forward_return_median",
   window_start: "2025-09-01",
@@ -53,6 +54,17 @@ describe("readSweep", () => {
     const v = readSweep(sweep());
     expect(v?.points.map((p) => p.inPlateau)).toEqual([true, true, false]);
     expect(v?.plateauWidth).toBe(2);
+  });
+
+  it("carries the fact axis the one shared mirror was exported on", () => {
+    // A record sweep and a public sweep are two experiments; reading them as one series is the mistake
+    // this field exists to prevent, so it has to survive onto the curve and not just onto each run.
+    expect(readSweep(sweep())?.clock).toBe("public");
+  });
+
+  it("reads a curve written before the axis was recorded as the record clock", () => {
+    // Not "unknown": the record clock is all the exporter could produce at the time.
+    expect(readSweep(sweep({ clock: undefined }))?.clock).toBe("record");
   });
 
   it("tolerates a sweep written by an older engine", () => {

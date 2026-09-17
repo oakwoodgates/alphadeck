@@ -182,9 +182,18 @@ def test_the_cli_reports_a_bad_overlay_without_running(tmp_path, capsys):
     assert "not_a_dial" in capsys.readouterr().err
 
 
-def test_the_cli_only_offers_the_record_clock_until_B2():
-    """``public`` arrives with B2. Offering it now would let a run claim a clock it does not implement."""
+def test_the_cli_offers_both_clocks_and_defaults_to_the_record_one(capsys):
+    """CW opened ``public`` — B2 built the export mode and this runner now reaches it. The DEFAULT stays
+    ``record``: the public clock excludes every fact table with no declared disclosure column, so it is a
+    deliberate choice a run makes, never one it drifts into. Anything else is still refused, because a run
+    that accepted an unknown clock would claim an axis nothing implements.
+
+    The wiring itself — what the flag does to the mirror, to ``known_at_mode`` and to a SUPPLIED mirror
+    that disagrees — lives in ``tests/backtest/test_clock_wiring.py``."""
     parser = build_parser()
-    assert parser.parse_args(["--start", "2025-01-01", "--end", "2025-02-01"]).clock == "record"
+    base = ["--start", "2025-01-01", "--end", "2025-02-01"]
+    assert parser.parse_args(base).clock == "record"
+    assert parser.parse_args([*base, "--clock", "public"]).clock == "public"
     with pytest.raises(SystemExit):
-        parser.parse_args(["--start", "2025-01-01", "--end", "2025-02-01", "--clock", "public"])
+        parser.parse_args([*base, "--clock", "wall"])
+    assert "invalid choice" in capsys.readouterr().err

@@ -60,8 +60,12 @@ data/backtest/
     *.parquet                    the frozen fact mirror (absent when a sweep SHARES one)
 ```
 
+A run id is `<utc timestamp>-<clock>-<hypothesis slug>-<config short hash>` — sortable first (a directory
+listing is a timeline), then legible (which axis, which experiment), then precise (which dials).
+
 Two rules are the whole design. **A run directory is created fresh and never reused** (`mkdir(exist_ok=False)`),
-so a run id in a PR description means exactly one set of numbers, forever. **The registry is rewritten
+so a run id in a PR description means exactly one set of numbers, forever. A collision raises `RunDirExists`
+naming the id, the path, every component that had to agree for it to happen, and what to change. **The registry is rewritten
 atomically**, because a listing truncated mid-write reads as "runs vanished" — the worst failure for an
 artifact whose job is to count trials.
 
@@ -249,6 +253,14 @@ attributable to the dial rather than to the tape moving underneath it), and repo
   cannot survive cutting the window in half has not found anything.
 - Never an argmax, never a sort by outcome, never a "best". The points render in dial order.
 
+**A record sweep and a public sweep are two curves, never one.** They are different experiments: the clock
+is exported into the one shared mirror, every point inherits it, and `SweepReport.clock` records it. The
+mirror directory is named for the clock too, so the same window at the same pin on both axes exports two
+tapes side by side rather than one over the other — otherwise the earlier sweep's points would go on citing
+a mirror hash that no longer described the tape they swept. The run id carries the clock for the same
+reason: on a short window a point finishes inside the timestamp's one-second resolution, so without it the
+second pass collides with the first.
+
 **Known asymmetry (follow-up).** Runs are immutable and addressable; **sweeps are not**. `backtest.sweep`
 writes ONE `sweep.json` at the store root, so a second sweep overwrites the first. Each point cites its own
 `run_id`, so the underlying evidence survives — it is the curve that does not. Making sweeps addressable
@@ -282,19 +294,18 @@ low end asserts "episodes exist" will fail for a correct reason.
 
 ## Known gaps
 
-- **Neither honest-clock axis is exposed by `backtest.run`.** Both were BUILT and are tested, and neither is
-  reachable from the run CLI:
-  - `replay/export.py::export_snapshot(clock="public")` exists, `BacktestManifest.clock` accepts `"public"`,
-    but `execute()` never passes it and the CLI's `--clock` accepts only `record`.
-  - `replay/harness.py` and `backtest/parallel.py` both accept `known_at_mode="lockstep"` (cap the facts at
-    the end of each session T rather than at one global pin), but `execute()` leaves it at `"pin"` and there
-    is no flag.
-
-  Every run on this path is therefore system-clock + global-pin, and the manifest says so honestly. This is
-  the first thing B8's pre-registered pass hits. It is NOT a one-line pass-through: under a SHARED mirror
-  (a sweep) `execute()` skips the export entirely, so a `--clock` argument would silently do nothing for
-  every point but the first — the clock belongs to the MIRROR, not to the run, and the sweep's shared-mirror
-  path needs a decision before the flag is added.
+- **Both honest-clock axes are wired (CW).** `backtest.run --clock {record,public}` exports its own mirror
+  in that mode; `backtest.sweep --clock` exports the ONE shared mirror and every point inherits; a run given
+  a mirror inherits its clock and refuses loudly (`MirrorClockMismatch`, before the run directory exists) if
+  handed one that disagrees. `known_at_mode` is DERIVED from the clock (`lockstep` on public, `pin` on
+  record), never a second flag that could disagree with it. The run manifest records the axis and the
+  mirror's own counts and exclusions.
+- **The mirror manifest and the run manifest share a filename** — both are `manifest.json`, and a run that
+  exports its own mirror writes them into one directory, run-manifest last. `replay.export
+  .read_mirror_manifest` reads both shapes (a run manifest is recognized by its `run_id` and carries the
+  same exclusion list under `mirror`), so `connect_mirror` on a FINISHED public-clock run still knows what
+  was left out instead of silently seeing nothing excluded and then failing on a missing file. Accepted as
+  handled rather than renamed: the two names are load-bearing in B2's tests and in the store's own layout.
 - **Sweeps are latest-only** (above).
 - **The event-layer cache is unbuilt** (above) — deliberately, and the benchmark order is recorded so the
   decision can be revisited with numbers rather than re-argued.

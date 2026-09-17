@@ -108,16 +108,41 @@ def test_run_id_is_sortable_then_legible_then_precise():
     assert stamp == "20260918T041207Z"
     assert rid.endswith(short_hash(config_hash(cfg)))
     assert "h5-the-exit-by" in rid
+    # ...and the fact axis sits between the two (CW) — see RUN_ID_PARTS, which the collision error reads
+    assert rid.startswith("20260918T041207Z-record-")
+    assert list(mf.RUN_ID_PARTS) == [
+        "utc timestamp (to the second)",
+        "clock",
+        "hypothesis slug",
+        "config short hash",
+    ]
 
 
-def test_run_id_changes_with_the_clock_so_a_re_run_is_a_NEW_trial():
+def test_run_id_changes_with_the_WALL_CLOCK_so_a_re_run_is_a_NEW_trial():
     """Two runs of identical inputs are two TRIALS. If the id collapsed them the registry would
-    under-count exactly the thing it exists to count."""
+    under-count exactly the thing it exists to count.
+
+    Named for the WALL clock deliberately: since CW "clock" also means the fact axis (record vs public),
+    and that is a different component of the id — the one tested below."""
     now = datetime(2026, 9, 18, 4, 12, 7, tzinfo=timezone.utc)
     later = datetime(2026, 9, 18, 4, 12, 8, tzinfo=timezone.utc)
     assert mf.make_run_id(DEFAULT_CONFIG, hypothesis=None, now=now) != mf.make_run_id(
         DEFAULT_CONFIG, hypothesis=None, now=later
     )
+
+
+def test_the_same_experiment_on_the_two_FACT_CLOCKS_gets_two_ids_in_the_same_second():
+    """CW. A record pass and a public pass of one grid under one hypothesis are two measurements, run back
+    to back — and on a short window a point finishes inside the timestamp's one-second resolution. Without
+    the clock in the id they collide and the second run dies on `create_run_dir`. This is the cheap half of
+    that fix; `tests/backtest/test_clock_wiring.py` drives the same thing through two real sweeps.
+    """
+    now = datetime(2026, 9, 18, 4, 12, 7, tzinfo=timezone.utc)
+    rec = mf.make_run_id(DEFAULT_CONFIG, hypothesis="H5", now=now, clock="record")
+    pub = mf.make_run_id(DEFAULT_CONFIG, hypothesis="H5", now=now, clock="public")
+    assert rec != pub
+    # ...and the axis is legible in a directory listing, which is where a reader comparing the two looks
+    assert "-record-" in rec and "-public-" in pub
 
 
 @pytest.mark.parametrize(
