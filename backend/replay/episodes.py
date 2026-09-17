@@ -4,6 +4,7 @@ from datetime import date
 from uuid import UUID
 
 from domain.enums import State
+from replay.key1 import co_arm_bucket, key1_source, key1_sources
 from replay.schema import CallSnapshot, Episode, MemberRow
 
 # Derive arm EPISODES from a per-thesis call timeline. Pure (no prices, no pit) — the scoring unit that
@@ -40,10 +41,24 @@ def _close_reason(dearm: CallSnapshot | None, exit_by: date | None, arm_until: d
     return "dearmed_other"
 
 
+def _newly_armed(armed_sets, i) -> set:
+    """The members whose arm STARTS at session ``i`` — armed now and not armed in the previous session.
+
+    At the first replayed session everything armed counts as new: the sweep cannot see behind its own
+    window, which is the same censoring `ScoredEpisode.censored_start` already marks. Counting them as
+    sticky instead would report a burst of zero co-arms on the one day the window guarantees no
+    information."""
+    if i == 0:
+        return set(armed_sets[0])
+    return set(armed_sets[i]) - set(armed_sets[i - 1])
+
+
 def _episode(snaps, sid, start_i, last_i, dearm_i, armed_sets) -> Episode:
     open_snap = snaps[start_i]
     m = armed_sets[start_i][sid]  # the member's row captured AT the arm
     dearm = snaps[dearm_i] if dearm_i is not None else None
+    new_at_arm = _newly_armed(armed_sets, start_i)
+    triggers = list(m.triggers)
     return Episode(
         thesis_id=open_snap.thesis_id,
         security_id=sid,
@@ -60,6 +75,12 @@ def _episode(snaps, sid, start_i, last_i, dearm_i, armed_sets) -> Episode:
         theme_armed=m.theme_armed,
         exit_by=m.exit_by,
         arm_until=m.arm_until,
+        co_arm_count=max(len(new_at_arm) - 1, 0),  # OTHERS that armed with it
+        armed_count_that_night=len(armed_sets[start_i]),
+        co_arm_bucket=co_arm_bucket(len(new_at_arm)),
+        key1_source=key1_source(triggers),
+        key1_sources=key1_sources(triggers),
+        confirmation_grade=m.confirmation_grade,
     )
 
 
