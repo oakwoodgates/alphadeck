@@ -258,3 +258,38 @@ def test_anthropic_base_url_is_none_by_default_and_stored_when_given():
         LLMClient(base_url="").base_url == ""
     )  # is-None honored; still falsy => SDK default at call time
     assert LLMClient(base_url="https://proxy.example/v1").base_url == "https://proxy.example/v1"
+
+
+# --- image_sha: the build-time code stamp (F1, migration 0044) -----------------------------------------
+
+
+def test_image_sha_defaults_to_None_when_the_env_is_absent():
+    """No build arg, no stamp. The `calls.code_sha` column's rule is "NULL when unknown, never
+    fabricated", and that starts here."""
+    assert Settings(_env_file=None).image_sha is None
+
+
+def test_a_BLANK_image_sha_is_UNKNOWN_not_an_empty_string(monkeypatch):
+    """LOAD-BEARING, not tidiness. The Dockerfile's `ENV ALPHADECK_IMAGE_SHA=$GIT_SHA` ALWAYS sets the
+    variable — to "" when the rebuild forgot `--build-arg GIT_SHA=...`. Without the normalizer that empty
+    string would be stamped on every call row as though it were a sha, which is a fabricated value by
+    omission: the record would claim to know the code and be wrong, which is worse than NULL.
+    """
+    for blank in ("", "   ", "\t"):
+        monkeypatch.setenv("ALPHADECK_IMAGE_SHA", blank)
+        get_settings.cache_clear()
+        assert Settings().image_sha is None, f"{blank!r} must read as unknown"
+    get_settings.cache_clear()
+
+
+def test_a_real_sha_passes_through_verbatim(monkeypatch):
+    """No truncation, no normalization: the FULL sha is what lands on the row, so provenance can always
+    show its work (#6). Shortening for display happens once, in `domain.config.short_hash`."""
+    sha = "abc0b8c1d2e3f405162738495a6b7c8d9e0f1a2b"
+    monkeypatch.setenv("ALPHADECK_IMAGE_SHA", sha)
+    get_settings.cache_clear()
+    try:
+        assert Settings().image_sha == sha
+        assert get_settings().image_sha == sha  # and it reaches the cached singleton
+    finally:
+        get_settings.cache_clear()

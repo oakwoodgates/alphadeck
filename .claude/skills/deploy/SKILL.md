@@ -29,11 +29,17 @@ on any failed precondition; do NOT guess.
    ```
    git checkout main && git pull --ff-only origin main
    ```
-2. Rebuild only the changed service(s) — `--no-deps` spares postgres + cron:
+2. Rebuild only the changed service(s) — `--no-deps` spares postgres + cron. Prefix any
+   backend/cron rebuild with `GIT_SHA=$(git rev-parse HEAD)`:
    ```
-   docker compose up -d --build --no-deps frontend            # FE change
-   docker compose up -d --build --no-deps frontend backend    # + backend half
+   docker compose up -d --build --no-deps frontend                                   # FE change
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps frontend backend
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps cron         # cron-path change
    ```
+   `GIT_SHA` is stamped into the image and recorded as `calls.code_sha` on every call-of-record row
+   (F1 / migration 0044), so the record names the code that produced a call. OPTIONAL: unset means
+   UNKNOWN and the column gets `NULL` — never a wrong value — so a forgotten prefix costs legibility
+   and nothing else. **Never pass a sha you did not just read from the checkout you are building.**
    (A backend rebuild re-runs the idempotent migrate + seed — ~20-40s, brief API blip.)
    **After a backend rebuild, restart the frontend too** — a recreated backend gets a NEW
    Docker-network IP, and the frontend nginx cached the old one, so every `/api` call 502s

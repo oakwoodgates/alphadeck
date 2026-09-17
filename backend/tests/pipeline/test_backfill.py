@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import State
 from domain.market_time import market_today
 from ingest.edgar.form4 import ingest_form4
@@ -114,6 +115,17 @@ def _ingest_stamp(db, thesis_id):
         return [(r["ingest_fresh"], r["ingest_errors"]) for r in cur.fetchall()]
 
 
+def _run_identity(db, thesis_id):
+    """(config_hash, code_sha, run_kind) per row, oldest first — the 0044 stamps, read from the RAW table
+    because they live off the card and never come back through a CallCard read."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT config_hash, code_sha, run_kind FROM calls WHERE thesis_id = %s ORDER BY seq",
+            (thesis_id,),
+        )
+        return [(r["config_hash"], r["code_sha"], r["run_kind"]) for r in cur.fetchall()]
+
+
 def _reconstructed_flags(db, thesis_id):
     """The 0042 marker per row, in insertion order — read from the TABLE."""
     with db.cursor() as cur:
@@ -157,6 +169,10 @@ def test_the_pin_EXCLUDES_knowledge_recorded_after_it(db, security_id):
     assert _ingest_stamp(db, tid) == [(None, None)]
     # the explicit marker (0042): the ONE thing the Scoreboard's record path filters on
     assert _reconstructed_flags(db, tid) == [True]
+    # ...and its 0044 PROVENANCE twin. The two are different questions about the same row — `reconstructed`
+    # is the Scoreboard's scoring FILTER, `run_kind` is the run's identity — so both are written explicitly
+    # rather than one being derived from the other, and the policy fingerprint rides beside them.
+    assert _run_identity(db, tid) == [(config_hash(DEFAULT_CONFIG), None, "backfill")]
 
 
 # --- 2. idempotent, count the table ---------------------------------------------------------------------
@@ -176,6 +192,10 @@ def test_rerun_with_the_same_pin_appends_ZERO_rows_count_the_table(db, security_
     assert _count(db, tid) == 2
     assert calls_repo.latest_for_thesis(db, tid)[0].state is State.ARMED
     assert _reconstructed_flags(db, tid) == [True, True]  # every backfill row carries the marker
+    assert [r[2] for r in _run_identity(db, tid)] == [
+        "backfill",
+        "backfill",
+    ]  # ...and the 0044 kind
     # ...and the HONEST read (the Scoreboard's) sees neither: a reconstruction is reported, never scored
     assert calls_repo.latest_for_thesis(db, tid, include_reconstructed=False) == []
 

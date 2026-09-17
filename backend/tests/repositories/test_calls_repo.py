@@ -215,3 +215,183 @@ def test_recorded_asof_stamps_is_bounded_by_since(db):
 def test_recorded_asof_stamps_is_EMPTY_on_a_fresh_log(db):
     """The quiet fresh-install shape — the caller reads "no nights recorded", never a crash."""
     assert calls_repo.recorded_asof_stamps(db, since=date(2026, 9, 1)) == {}
+
+
+# --- run identity: config_hash / code_sha / run_kind (F1, migration 0044) ------------------------------
+
+
+def _row_identity(db, thesis_id) -> list[tuple]:
+    """Every row's (seq, config_hash, code_sha, run_kind, ingest_fresh) — the RAW table, oldest first.
+    The reads under test dedup, so a test that only looked through them could not see the table grow.
+    """
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT seq, config_hash, code_sha, run_kind, ingest_fresh FROM calls "
+            "WHERE thesis_id = %s ORDER BY seq",
+            (thesis_id,),
+        )
+        return [
+            (r["seq"], r["config_hash"], r["code_sha"], r["run_kind"], r["ingest_fresh"])
+            for r in cur.fetchall()
+        ]
+
+
+def _stamps(db, thesis_id) -> list[tuple]:
+    """The same rows without ``seq`` — ``calls.seq`` is a TABLE-WIDE sequence, so its absolute value
+    depends on every other test that ran first; only its ordering is ever meaningful."""
+    return [r[1:] for r in _row_identity(db, thesis_id)]
+
+
+def _count_calls(db) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM calls")
+        return cur.fetchone()["n"]
+
+
+def test_a_changed_config_hash_with_an_identical_card_appends_NOTHING(db):
+    """THE F1 guarantee, and the reason the three columns live off the card: a dial edit (or a deploy, or a
+    Sunday manual run) must not re-record a thesis whose call did not change.
+
+    COUNT THE TABLE, not the read: the as-of read dedups by construction, so a spurious duplicate would sit
+    behind a perfectly correct-looking `latest_for_thesis` while the log silently grew (the idempotency
+    convention that the M2 ingest and the daily cron both live by)."""
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+
+    assert calls_repo.record_if_changed(db, card, config_hash="aaaa", run_kind="cron") is True
+    db.commit()
+    before = _count_calls(db)
+
+    # same card, DIFFERENT policy + a different run kind + a code sha that was unknown before
+    assert (
+        calls_repo.record_if_changed(
+            db, card, config_hash="bbbb", code_sha="deadbee", run_kind="manual"
+        )
+        is False
+    )
+    db.commit()
+
+    assert _count_calls(db) == before  # the table did NOT grow
+    # `seq` is a table-wide sequence, so only its ORDER is meaningful — compare the stamps themselves
+    assert _stamps(db, thesis.id) == [("aaaa", None, "cron", None)]  # the first stamp survives
+
+
+def test_a_changed_card_with_the_SAME_hash_appends_exactly_one(db):
+    """The mirror: an unchanged config must never suppress a genuinely changed card."""
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+    calls_repo.record_if_changed(db, card, config_hash="aaaa", run_kind="cron")
+    db.commit()
+    before = _count_calls(db)
+
+    changed = card.model_copy(update={"verdict": Verdict.NOT_YET})
+    assert calls_repo.record_if_changed(db, changed, config_hash="aaaa", run_kind="cron") is True
+    db.commit()
+
+    assert _count_calls(db) == before + 1
+
+
+def test_canonical_is_BLIND_to_the_identity_columns(db):
+    """The structural reason the test above holds, asserted directly so it cannot rot: the compare reads
+    the CARD, and the identity never enters it. If someone later "helpfully" moves config_hash onto the
+    CallCard, this fails before the churn reaches a prod night."""
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+    calls_repo.append(db, card, config_hash="aaaa", code_sha="1111111", run_kind="cron")
+    calls_repo.append(db, card, config_hash="bbbb", code_sha="2222222", run_kind="manual")
+    db.commit()
+
+    logged = calls_repo.list_for_thesis(db, thesis.id)
+    assert len(logged) == 2
+    assert calls_repo._canonical(logged[0]) == calls_repo._canonical(logged[1])
+
+
+def test_append_without_the_stamps_leaves_all_three_NULL(db):
+    """A legacy/manual append stamps nothing, and NULL is the honest value — never a coerced default."""
+    thesis = _persist_minimal_thesis(db)
+    calls_repo.append(db, assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG))
+    db.commit()
+    assert _stamps(db, thesis.id) == [(None, None, None, None)]
+
+
+def test_run_kind_is_constrained_by_the_DATABASE(db):
+    """The value set is pinned by a CHECK, not by convention — a typo'd kind cannot reach the record."""
+    thesis = _persist_minimal_thesis(db)
+    card = assemble_call(thesis, [], date(2026, 6, 1), DEFAULT_CONFIG)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        calls_repo.append(db, card, run_kind="weekend")
+    db.rollback()
+
+
+def test_run_identity_and_ingest_health_pick_the_SAME_winning_row(db):
+    """The two peer reads must agree on WHICH row they describe, or an episode gets captioned with one
+    run's fingerprint and another run's ingest health. Asserted on the chosen SEQ, not merely on plausible
+    values: both reads must resolve to the row the raw table says is latest for that as-of."""
+    thesis = _persist_minimal_thesis(db)
+    asof = date(2026, 6, 1)
+    base = assemble_call(thesis, [], asof, DEFAULT_CONFIG)
+    calls_repo.append(
+        db,
+        base.model_copy(update={"verdict": Verdict.NOT_YET}),
+        ingest_fresh=False,
+        ingest_errors=3,
+        config_hash="old-policy",
+        run_kind="manual",
+    )
+    calls_repo.append(
+        db,
+        base.model_copy(update={"verdict": Verdict.WATCHING}),
+        ingest_fresh=True,
+        ingest_errors=0,
+        config_hash="new-policy",
+        code_sha="abc1234",
+        run_kind="cron",
+    )
+    db.commit()
+
+    rows = _row_identity(db, thesis.id)
+    assert len(rows) == 2
+    winner = max(rows)  # ordered by seq — the latest append is the call of record for this as-of
+    winner_seq, winner_hash, winner_sha, winner_kind, winner_fresh = winner
+
+    identity = calls_repo.run_identity_for_thesis(db, thesis.id)
+    health = calls_repo.ingest_health_for_thesis(db, thesis.id)
+
+    assert identity[asof] == (winner_hash, winner_sha, winner_kind)
+    assert health[asof][0] == winner_fresh
+    # and the winner really is the later row, not "the one that happened to sort first"
+    assert winner_seq == max(r[0] for r in rows)
+    assert (winner_hash, winner_kind) == ("new-policy", "cron")
+
+
+def test_run_identity_honors_include_reconstructed_like_its_peer(db):
+    """A reconstructed row must be dropped BEFORE the per-as-of dedup here exactly as it is for the ingest
+    stamps — otherwise the Scoreboard would score a nightly row while captioning it with a backfill's.
+    """
+    thesis = _persist_minimal_thesis(db)
+    asof = date(2026, 6, 1)
+    base = assemble_call(thesis, [], asof, DEFAULT_CONFIG)
+    calls_repo.append(
+        db, base, ingest_fresh=True, config_hash="nightly", run_kind="cron"
+    )  # the honest row
+    calls_repo.append(
+        db,
+        base.model_copy(update={"verdict": Verdict.NOT_YET}),
+        reconstructed=True,
+        config_hash="reconstruction",
+        run_kind="backfill",
+    )  # a LATER reconstruction of the same night
+    db.commit()
+
+    assert calls_repo.run_identity_for_thesis(db, thesis.id)[asof].run_kind == "backfill"
+    assert (
+        calls_repo.run_identity_for_thesis(db, thesis.id, include_reconstructed=False)[
+            asof
+        ].run_kind
+        == "cron"
+    )
+    # the peer read agrees on the same row under the same flag
+    assert (
+        calls_repo.ingest_health_for_thesis(db, thesis.id, include_reconstructed=False)[asof][0]
+        is True
+    )

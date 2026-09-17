@@ -6901,6 +6901,50 @@
             ],
             "title": "Ingest Note"
           },
+          "arm_config_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Config Hash"
+          },
+          "arm_code_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Code Sha"
+          },
+          "arm_run_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Run Kind"
+          },
+          "run_identity_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Identity Note"
+          },
           "verdict": {
             "anyOf": [
               {

@@ -48,6 +48,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import State
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_today, market_tz
@@ -106,6 +107,7 @@ def run_daily(
     force_refresh: bool = True,
     user_agent: str | None = None,
     notifier: Notifier | None = None,
+    run_kind: str = "manual",
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -113,8 +115,22 @@ def run_daily(
     ``force_refresh`` defaults to **True**: the daily path is recurring, so it re-pulls fresh bars (bypassing
     a stale cache hit) — otherwise the cron would re-ingest the same frozen cache every day and never see a
     new bar. It threads to the price source (``eod_loader.fetch_eod``).
+
+    ``run_kind`` (0044) is stamped on every row this pass records: ``"cron"`` when the sidecar fired it
+    (``scripts/daily_cron.sh`` passes ``--run-kind cron``), ``"manual"`` otherwise — a hand-typed CLI run or
+    the Admin "Run daily now" button, both of which are operator-kicked. The DEFAULT is ``"manual"`` on
+    purpose: the sidecar and an operator invoke the SAME entry point, so only an explicit flag can tell them
+    apart, and defaulting the other way would let any hand run masquerade as the nightly record. MEASURED,
+    and the reason this exists: the record's two largest arm bursts were weekend manual runs on deploy days.
     """
     asof = asof or market_today()
+    # ONE explicit cfg for the whole pass, used for BOTH the assemble and its fingerprint. Holding it in a
+    # local (rather than letting `call_for_thesis` default it and hashing DEFAULT_CONFIG separately) is what
+    # makes the stamp HONEST: if this pass ever runs a non-default cfg, the hash follows it automatically
+    # instead of describing a policy that did not produce these cards.
+    cfg = DEFAULT_CONFIG
+    cfg_hash = config_hash(cfg)
+    code_sha = get_settings().image_sha
     notifier = notifier or get_notifier()
     # The canonical-primary health guard: a master with multi-row CIKs but ZERO is_primary flags resolves
     # every multi-sibling CIK to an ARBITRARY row (warrant / preferred / OTC foreign ordinary) — and nothing
@@ -219,7 +235,7 @@ def run_daily(
             continue
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
-            card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
+            card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, cfg=cfg, record=False)
             # (4) TRANSITION DETECTION (the notify seam): compare state/verdict against the
             # call-of-record AT OR BEFORE this as-of — the material-change line (trigger churn /
             # provenance noise version the log via record_if_changed without being transitions; a
@@ -306,6 +322,11 @@ def run_daily(
                 thesis.tenant_id,
                 ingest_fresh=(ingest_errors == 0),
                 ingest_errors=ingest_errors,
+                # 0044 — the RUN IDENTITY, stamped beside the ingest health and outside `_canonical`'s
+                # compare, so a deploy or a dial edit alone never re-records an unchanged card.
+                config_hash=cfg_hash,
+                code_sha=code_sha,
+                run_kind=run_kind,
             )
             conn.commit()
         except Exception as e:  # noqa: BLE001 — one thesis's call never aborts the cron
@@ -431,6 +452,7 @@ def run_daily_pass(
     allow_live: bool = True,
     notifier: Notifier | None = None,
     catch_up: bool = False,
+    run_kind: str = "manual",
 ) -> DailyPassOutcome:
     """The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the run-of-record
     artifact (R3, fail-open) → emit the health page (R4). Extracted from ``main`` UNCHANGED so the admin
@@ -445,7 +467,12 @@ def run_daily_pass(
 
     G4 — the benchmark refresh leg's outcome is now CARRIED, not just printed: its counts go into the
     run-of-record artifact and into ``assess_health``, so a night that ran ``benchmark_rs`` on a stale
-    SPY/IWM tape pages like an errored thesis instead of scrolling past on stdout."""
+    SPY/IWM tape pages like an errored thesis instead of scrolling past on stdout.
+
+    ``run_kind`` (0044) passes straight to ``run_daily`` and is stamped on every recorded row. It DEFAULTS to
+    ``"manual"``, which is exactly right for this function's two non-CLI callers: the Admin "Run daily now"
+    button is an operator-kicked run and should say so. Only ``main`` (via ``--run-kind``) and therefore only
+    the sidecar can stamp ``"cron"``."""
     asof = asof or market_today()
     notifier = notifier or get_notifier()
     started_at = datetime.now(timezone.utc)
@@ -504,7 +531,9 @@ def run_daily_pass(
             print(f"WARNING: fundamentals refresh leg failed: {e}")
     conn = connect()
     try:
-        results = run_daily(conn, asof=asof, allow_live=allow_live, notifier=notifier)
+        results = run_daily(
+            conn, asof=asof, allow_live=allow_live, notifier=notifier, run_kind=run_kind
+        )
     finally:
         conn.close()
     finished_at = datetime.now(timezone.utc)
@@ -776,6 +805,17 @@ def main(argv: list[str] | None = None) -> None:
         "the night's close). A catch-up runs inside the EDGAR cache TTL, so its ~0-fetch freeze page is "
         "skipped (withheld / errored still page).",
     )
+    p.add_argument(
+        "--run-kind",
+        choices=("cron", "manual"),
+        default="manual",
+        help="F1/0044: what KIND of run this is, stamped on every call-of-record row it appends. The cron "
+        "sidecar (scripts/daily_cron.sh) passes `cron`; everything else — a hand-typed run, a docker exec, "
+        "the Admin button — is `manual`, the default. An explicit flag, never an env var: the sidecar and "
+        "an operator invoke this exact same command, so nothing ambient can tell them apart, and a hand run "
+        "must never masquerade as the nightly record. (`backfill` is stamped by pipeline.backfill, not "
+        "reachable from here.)",
+    )
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else market_today()
     allow_live = not args.no_live
@@ -798,7 +838,9 @@ def main(argv: list[str] | None = None) -> None:
             )
             return
 
-    outcome = run_daily_pass(asof=asof, allow_live=allow_live, catch_up=args.catch_up)
+    outcome = run_daily_pass(
+        asof=asof, allow_live=allow_live, catch_up=args.catch_up, run_kind=args.run_kind
+    )
     _report(outcome.results)  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis

@@ -1571,6 +1571,10 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    this is "trust the arm's inputs less", never a call verdict. */
 .sc-ingest { margin-top: 4px; font-size: 10.5px; color: var(--warm); }
 
+/* F1: the run-identity line — which policy + code recorded this arm. Deliberately QUIETER than the ingest
+   line above (dim, not warm): it flags nothing, it captions. Same size so the two read as one block. */
+.sc-runid { margin-top: 4px; font-size: 10.5px; color: var(--txt-3); font-family: var(--mono); }
+
 /* Slice A: the numbered-chip event overlay — a positioned DOM layer over the canvas (lightweight-charts'
    built-in markers have no hover). Chips read CSS vars, so they stay theme-aware (the canvas lines can't). */
 /* z-index ABOVE the lightweight-charts canvas (z:1) so the chips paint on top and a real mouse can reach

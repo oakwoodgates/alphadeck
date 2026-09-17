@@ -45,17 +45,24 @@ def record_day(
     ingest_fresh: bool | None = None,
     ingest_errors: int | None = None,
     reconstructed: bool = False,
+    config_hash: str | None = None,
+    code_sha: str | None = None,
+    run_kind: str | None = None,
 ) -> None:
     """Assemble + append one call-of-record row, optionally stamped with the run's R2b ingest
     health (migration 0023) — the default (None, None) is the legacy/manual-append shape — and/or
     marked ``reconstructed`` (migration 0042: the row a backfill writes, which the record path
-    reports but never scores)."""
+    reports but never scores) — and/or carrying the 0044 RUN IDENTITY (which policy / code / kind of
+    run wrote it; all-None is the legacy shape here too)."""
     calls_repo.append(
         db,
         assemble_call(thesis, events, asof, DEFAULT_CONFIG),
         ingest_fresh=ingest_fresh,
         ingest_errors=ingest_errors,
         reconstructed=reconstructed,
+        config_hash=config_hash,
+        code_sha=code_sha,
+        run_kind=run_kind,
     )
     db.commit()
 

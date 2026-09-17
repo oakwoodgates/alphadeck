@@ -258,6 +258,34 @@ describe("EpisodeScorecard — honest loudness on thin data", () => {
     expect(container.querySelector(".sc-ingest")).toBeInTheDocument();
   });
 
+  // F1: the run-identity line. Unlike the ingest line above it is NOT exception-only — it is provenance
+  // on a drill-down — but it is absent entirely on a row recorded before the stamp existed.
+  it("renders no run-identity line for a row recorded before the stamp existed", () => {
+    const { container } = renderCard(<EpisodeScorecard ep={MATURED} />);
+    expect(container.querySelector(".sc-runid")).toBeNull();
+  });
+
+  it("renders the server-composed run-identity line, with the FULL values one hover away", () => {
+    const { container } = renderCard(
+      <EpisodeScorecard
+        ep={ep({
+          arm_config_hash: "a1b2c3d4e5f60718",
+          arm_code_sha: "9f8e7d6c5b4a3210",
+          arm_run_kind: "manual",
+          run_identity_note: "policy a1b2c3d4 · manual · code 9f8e7d6c",
+        })}
+      />,
+    );
+    const line = container.querySelector(".sc-runid");
+    expect(line).toBeInTheDocument();
+    // the visible copy is the SERVER's verbatim — the frontend composes nothing and slices no hash
+    expect(line).toHaveTextContent("policy a1b2c3d4 · manual · code 9f8e7d6c");
+    // ...and the hover carries the untruncated values, so provenance can always show its work (#6)
+    expect(line?.getAttribute("title")).toContain("config_hash: a1b2c3d4e5f60718");
+    expect(line?.getAttribute("title")).toContain("code_sha: 9f8e7d6c5b4a3210");
+    expect(line?.getAttribute("title")).toContain("run_kind: manual");
+  });
+
   it("still armed reads 'still armed', not a dangling arrow", () => {
     renderCard(<EpisodeScorecard ep={ep({ dearm_date: null })} />);
     expect(screen.getByText(/Jul 10 → still armed/)).toBeInTheDocument();

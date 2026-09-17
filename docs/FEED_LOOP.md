@@ -199,6 +199,22 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   `ingest_fresh=(ingest_errors==0)` + `ingest_errors` (provenance-only — never read by scoring; see migration
   `0023`). This closed the "1.64 s cron that recorded 6 calls off 0 ingested facts" hole (a total failure used
   to fall through and record).
+- **The run identity (F1, migration `0044`) — which POLICY and which CODE produced the row.** Every recorded
+  row carries `config_hash` (sha256 of the `CallConfig` the assembler ran with — `domain.config.config_hash`,
+  the helper the backtest reuses verbatim), `code_sha` (the git SHA baked into the image: `ARG GIT_SHA` →
+  `ENV ALPHADECK_IMAGE_SHA` → `Settings.image_sha`; **`NULL` when unknown, never fabricated**) and `run_kind`
+  (`cron` | `manual` | `backfill`). *Why:* the record used to confound "the facts changed" with "the policy or
+  the data arrived" — MEASURED, the two largest arm bursts in the honest record were weekend **manual** runs
+  on deploy days, and nothing on the row said so, so no dial change could be evaluated against the record.
+  **The three ride the write exactly like `ingest_fresh` / `reconstructed`: off the card and OUT of
+  `_canonical`'s compare** — so a dial edit or a deploy alone never re-records an unchanged call (the churn
+  gate), and an unchanged config never suppresses a changed one. `run_kind` is an explicit
+  `pipeline.daily --run-kind` flag (default `manual`; `scripts/daily_cron.sh` passes `cron` at all four of its
+  invocations), never an ambient env var — the sidecar and an operator type the same command, so only the
+  flag can tell the nightly record from a hand run. Legacy rows stay `NULL`: we do not know what produced
+  them, which is the finding. The Scoreboard drawer reads it as a quiet provenance caption
+  (`calls_repo.run_identity_for_thesis`, the same winning-row rule as `ingest_health_for_thesis`); nothing in
+  scoring branches on it.
 - **The run-of-record log (R3, #197).** Every run writes one JSON to `data/cron_runs/*.json`
   (`pipeline/cron_run_log.py`, write-only, fail-open) — timing, `asof`, `mode`, per-thesis
   `withheld_reason`/`edgar_fetches`/counts. `edgar_fetches` is the **freeze detector**: it counts network

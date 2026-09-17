@@ -694,9 +694,25 @@ def test_same_asof_the_honest_row_wins_over_a_later_reconstruction_stamp_include
     thesis = _thesis(db, security_id)
     conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=60, conf_liveness=60)
     _record_day(db, thesis, [conv], date(2026, 5, 29))
-    _record_day(db, thesis, [conv, conf], date(2026, 6, 1), ingest_fresh=False, ingest_errors=1)
     _record_day(
-        db, thesis, [conv], date(2026, 6, 1), reconstructed=True
+        db,
+        thesis,
+        [conv, conf],
+        date(2026, 6, 1),
+        ingest_fresh=False,
+        ingest_errors=1,
+        config_hash="a1b2c3d4e5f60718",
+        code_sha="9f8e7d6c5b4a3210",
+        run_kind="cron",
+    )
+    _record_day(
+        db,
+        thesis,
+        [conv],
+        date(2026, 6, 1),
+        reconstructed=True,
+        config_hash="ffffffff00000000",
+        run_kind="backfill",
     )  # a later re-run: "warming"
     _record_day(db, thesis, [conv, conf], date(2026, 6, 2))
 
@@ -706,6 +722,16 @@ def test_same_asof_the_honest_row_wins_over_a_later_reconstruction_stamp_include
     assert ep.episode.arm_date == date(2026, 6, 1)
     assert ep.arm_ingest_fresh is False  # the nightly row's stamp, not the reconstruction's None
     assert ep.ingest_flagged is True
+    # 0044 — the RUN IDENTITY comes off the SAME winning row as the ingest stamp above. This is the
+    # failure that would otherwise be invisible: captioning a scored nightly card with a backfill's
+    # fingerprint reads as "a reconstruction produced this arm", which is the opposite of true.
+    assert (ep.arm_config_hash, ep.arm_code_sha, ep.arm_run_kind) == (
+        "a1b2c3d4e5f60718",
+        "9f8e7d6c5b4a3210",
+        "cron",
+    )
+    # the composed caption: shortened ONCE, server-side (domain.config.short_hash), full values above
+    assert ep.run_identity_note == "policy a1b2c3d4 · cron · code 9f8e7d6c"
     # latest-wins without the filter would take the reconstruction's "warming" and arm a day late
     assert _unfiltered_episodes(db, thesis.id)[0].arm_date == date(2026, 6, 2)
 

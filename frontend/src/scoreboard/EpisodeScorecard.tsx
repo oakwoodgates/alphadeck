@@ -12,6 +12,7 @@ import {
   fmtReturn,
   ingestProvenanceLine,
   returnLabel,
+  runIdentityTitle,
 } from "./rows";
 import {
   edgeLens,
@@ -161,6 +162,18 @@ export function EpisodeScorecard({
           healthy episode carries nothing at all (#7: loudness marks the exception). The INGEST badge
           above says THAT it's flagged; this says WHY (the server's composed note + the measured lag). */}
       {ingestLine && <div className="sc-ingest">{ingestLine}</div>}
+
+      {/* The run-identity line (F1) — which policy and which code wrote this arm's recorded row. Unlike
+          the ingest line above it is NOT gated on a flag: it is provenance on a drill-down, where a
+          constant line is the point. It renders nothing at all on a legacy row (recorded before the stamp
+          existed) or a replayed episode (a recompute has no recorded run) — the server sends null, and an
+          absent line is the honest reading of "we do not know", never a row of em-dashes. The copy is
+          composed server-side (the `ingest_note` precedent), so nothing here slices a hash. */}
+      {ep.run_identity_note && (
+        <div className="sc-runid" title={runIdentityTitle(ep)}>
+          {ep.run_identity_note}
+        </div>
+      )}
 
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">
