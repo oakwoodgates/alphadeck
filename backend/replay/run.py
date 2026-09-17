@@ -169,9 +169,12 @@ def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUI
 #
 # The two models' field sets are reproduced here so that ADDING a field is a visible, deliberate edit
 # rather than something that silently changes the artifact's shape:
-#   Episode (15): thesis_id, security_id, is_headline, arm_date, last_armed_date, dearm_date,
+#   Episode (21): thesis_id, security_id, is_headline, arm_date, last_armed_date, dearm_date,
 #                 close_reason, warm_date, verdict, entry_grade, conviction_grade, confidence,
-#                 theme_armed, exit_by, arm_until
+#                 theme_armed, exit_by, arm_until,
+#                 + BREADTH (B3): co_arm_count, armed_count_that_night, co_arm_bucket, key1_source,
+#                   key1_sources (list[str] — the second non-scalar in the artifact, after Outcome.path),
+#                   confirmation_grade
 #   Outcome (31): the Episode entry attributes + entry_close, exit_close, exit_date, forward_return,
 #                 arm_until_return, warm_return, the excursion pair (peak/trough/intraday_high/
 #                 intraday_low × return+date), path (list[float] — the ONE non-scalar), dearm_index,

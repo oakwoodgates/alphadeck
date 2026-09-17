@@ -117,6 +117,29 @@ class Episode(BaseModel):
         None  # the hold horizon at arm — the honest yardstick for the realized return
     )
     arm_until: date | None = None
+    # --- BREADTH (B3), captured at the ARM. 82% of arm episodes on the record arrived alongside a
+    # co-member the same thesis-night, so without these fields the 18% that armed alone are
+    # indistinguishable from the burst that armed with twelve others — and every pooled metric would
+    # silently treat a 13-name broadcast as thirteen independent observations.
+    #
+    # TWO counts, because they answer different questions. `co_arm_count` is how many OTHER members NEWLY
+    # armed in the same thesis-session (arm STARTS — the decision that was made that night).
+    # `armed_count_that_night` is how many were armed in total, new and sticky alike (the loudness the
+    # operator actually saw). A thesis can add one name to twelve already-armed ones, or arm all thirteen
+    # at once; those are different events and one number cannot tell them apart.
+    co_arm_count: int = 0
+    armed_count_that_night: int = 0
+    co_arm_bucket: str = (
+        "alone"  # alone | 2-3 | 4-7 | 8+ — keyed on the GROUP size (replay/key1.py)
+    )
+    # WHICH Key-1 turned the lock: insider | activist | ratified_catalyst | corporate_catalyst |
+    # revenue_accel | theme. `key1_source` is the strongest claim present (the single-valued slice);
+    # `key1_sources` is all of them, because 70 armed member-nights on the record carry two.
+    key1_source: str | None = None
+    key1_sources: list[str] = []
+    # The CONFIRMATION grade at the arm (volume-backed core vs momentum-only flip). Already captured on
+    # `MemberRow`; copied here, never recomputed, so the episode carries the pair the slices need.
+    confirmation_grade: Grade | None = None
 
 
 class Outcome(BaseModel):
