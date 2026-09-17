@@ -196,8 +196,24 @@ catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`
 DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). The `calls` table is an
 **accountability record**, never the read path (the API recomputes live).
 
+**And the record now names the policy it ran under (F1, migration `0044`).** Purity makes the card a function
+of `(thesis, events, asof, cfg)` — but until now the row recorded only the card, so `cfg` (and the code) were
+invisible and the record could not distinguish "the facts changed" from "a dial changed." Every recorded row
+carries `config_hash` (the sha256 fingerprint of that `CallConfig`), `code_sha` (the image's git SHA — `NULL`
+when unknown, **never fabricated**) and `run_kind` (`cron` | `manual` | `backfill`). They ride **beside** the
+card and **outside** `calls_repo._canonical`'s substance compare — the `reconstructed` precedent — so the
+immutable log stays immutable, a dial edit alone never re-records an unchanged call, and legacy rows stay
+`NULL` rather than carrying a guess. The fingerprint's canonicalization is deliberately *not* a
+`model_dump` one-liner: `CallConfig` holds `frozenset` dials whose iteration order depends on
+`PYTHONHASHSEED`, so the naive recipe produces a different digest in every process (MEASURED) and would have
+stamped a fresh "policy" on every cron night.
+
 - *Enforced by:* the assembler takes `cfg` + `asof` as parameters; determinism golden tests; the read path
-  recomputes via `pipeline/call_for_thesis`.
+  recomputes via `pipeline/call_for_thesis`; `tests/domain/test_config_hash.py` (the fingerprint is stable
+  **across processes**, moves on a dial change, and raises rather than falling back to a repr);
+  `tests/repositories/test_calls_repo.py` (a changed hash on an identical card appends nothing —
+  **counting the table**; `_canonical` is blind to all three columns);
+  `tests/db/test_migration_0044_run_identity.py` (legacy rows NULL, the `no_update` trigger still armed).
 - *Also honored by (M2 — Option B intact):* the daily cron (`pipeline.daily`) appends the day's call-of-record
   via `calls_repo.record_if_changed` — idempotent (the `calls` log is immutable [`no_update`] + non-unique, so
   a conditional append, not an UPSERT) — but it builds **no read-serving signal/score cache**; the serve path

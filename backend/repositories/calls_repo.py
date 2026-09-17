@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 import psycopg
@@ -21,6 +21,9 @@ def append(
     ingest_fresh: bool | None = None,
     ingest_errors: int | None = None,
     reconstructed: bool = False,
+    config_hash: str | None = None,
+    code_sha: str | None = None,
+    run_kind: str | None = None,
 ) -> UUID:
     """Append an assembled CallCard to the write-only accountability log, under ``tenant_id`` (the call of
     record lands in the thesis's tenant). NOT the read path — the API recomputes the card live from facts.
@@ -40,15 +43,25 @@ def append(
     every manual append leave the default ``False``. Its ONE reader is the Scoreboard's record path, which
     EXCLUDES such rows (``latest_for_thesis(include_reconstructed=False)``) — a reconstructed row never
     defines an episode boundary.
+
+    ``config_hash`` / ``code_sha`` / ``run_kind`` (migration 0044) are the RUN IDENTITY: which policy, which
+    code, and which kind of run produced this row. Provenance too, off the card for the same reason, and the
+    third stamp on the same keyword path — so the record can finally tell "the facts changed" from "the
+    policy or the code changed" (MEASURED: the two largest arm bursts in the record were weekend MANUAL runs
+    on deploy days). ``config_hash`` is ``domain.config.config_hash(cfg)`` for the cfg the assembler actually
+    ran with; ``code_sha`` is ``Settings.image_sha`` — ``None`` when unknown, NEVER fabricated; ``run_kind``
+    is ``cron`` | ``manual`` | ``backfill`` (a DB CHECK pins the set). All three ``None`` = a legacy/manual
+    append that did not stamp.
     """
     row = call_to_row(card, tenant_id)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO calls
                    (tenant_id, thesis_id, asof, state, verdict, card, ingest_fresh, ingest_errors,
-                    reconstructed)
+                    reconstructed, config_hash, code_sha, run_kind)
                VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s,
-                       %(ingest_fresh)s, %(ingest_errors)s, %(reconstructed)s)
+                       %(ingest_fresh)s, %(ingest_errors)s, %(reconstructed)s,
+                       %(config_hash)s, %(code_sha)s, %(run_kind)s)
                RETURNING id""",
             {
                 **row,
@@ -56,6 +69,9 @@ def append(
                 "ingest_fresh": ingest_fresh,
                 "ingest_errors": ingest_errors,
                 "reconstructed": reconstructed,
+                "config_hash": config_hash,
+                "code_sha": code_sha,
+                "run_kind": run_kind,
             },
         )
         return cur.fetchone()["id"]
@@ -93,6 +109,9 @@ def record_if_changed(
     ingest_fresh: bool | None = None,
     ingest_errors: int | None = None,
     reconstructed: bool = False,
+    config_hash: str | None = None,
+    code_sha: str | None = None,
+    run_kind: str | None = None,
 ) -> bool:
     """Append the call-of-record for ``(thesis, card.asof)`` ONLY if none exists for that as-of yet, or the
     latest logged one differs in substance (a canonical, order-independent compare). Returns ``True`` iff it
@@ -113,6 +132,13 @@ def record_if_changed(
     ``True``; the compare still runs against the latest row for the as-of WHATEVER its marker, so a
     backfill re-run with the same pin appends zero rows, and a nightly row already on the night keeps a
     faithful reconstruction from appending a duplicate.
+
+    ``config_hash`` / ``code_sha`` / ``run_kind`` (0044) ride the WRITE the same way, and that is the whole
+    guarantee: they are NOT in ``_canonical``, so a dial change (or a deploy, or a Sunday manual run) on an
+    otherwise-identical card appends NOTHING — the first dial edit does not re-record every thesis — and an
+    unchanged config never suppresses a genuinely changed card. The stamp therefore belongs to the run that
+    FIRST recorded this card version, exactly like ``ingest_fresh``; a later run producing the identical card
+    leaves the earlier row's identity in place because there is no new row to stamp.
     """
     prior = next((c for c in latest_for_thesis(conn, card.thesis_id) if c.asof == card.asof), None)
     if prior is not None and _canonical(prior) == _canonical(card):
@@ -124,6 +150,9 @@ def record_if_changed(
         ingest_fresh=ingest_fresh,
         ingest_errors=ingest_errors,
         reconstructed=reconstructed,
+        config_hash=config_hash,
+        code_sha=code_sha,
+        run_kind=run_kind,
     )
     return True
 
@@ -261,3 +290,44 @@ def ingest_health_for_thesis(
             (thesis_id,),
         )
         return {r["asof"]: (r["ingest_fresh"], r["ingest_errors"]) for r in cur.fetchall()}
+
+
+class RunIdentity(NamedTuple):
+    """Which policy, which code, and which kind of run wrote one call-of-record row (migration 0044).
+    All three ``None`` = a legacy row that predates the stamp — never coerced to a judgment."""
+
+    config_hash: str | None
+    code_sha: str | None
+    run_kind: str | None
+
+
+def run_identity_for_thesis(
+    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
+) -> dict[date, RunIdentity]:
+    """The RUN IDENTITY of the WINNING row per as-of: asof -> ``(config_hash, code_sha, run_kind)``
+    (migration 0044) — the policy + code + run-kind fingerprint of the run that recorded that card version.
+
+    **MUST stay on the same winning-row rule as ``ingest_health_for_thesis``** — the identical
+    ``DISTINCT ON (asof) ... WHERE thesis_id = %s [AND NOT reconstructed] ORDER BY asof DESC, seq DESC`` —
+    and its ``include_reconstructed`` mirrors that read exactly. The Scoreboard passes the SAME value to
+    ``latest_for_thesis``, ``ingest_health_for_thesis`` and this one, so all three describe ONE row; a
+    divergence here would caption a scored card with a different run's fingerprint, which is worse than no
+    caption at all. A test asserts the two reads pick the same ``seq``, not merely plausible values.
+
+    A separate narrow peer read for the same reason ``ingest_health_for_thesis`` is one: the stamps live
+    deliberately OFF the card (a field IN it would fake a change in ``_canonical``), so they cannot ride
+    ``latest_for_thesis``'s ``CallCard``. Its only consumer is the Scoreboard's provenance layer; no scoring
+    or as-of read branches on it. Read-only.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (asof) asof, config_hash, code_sha, run_kind FROM calls "
+            "WHERE thesis_id = %s"
+            + _reconstructed_clause(include_reconstructed)
+            + " ORDER BY asof DESC, seq DESC",
+            (thesis_id,),
+        )
+        return {
+            r["asof"]: RunIdentity(r["config_hash"], r["code_sha"], r["run_kind"])
+            for r in cur.fetchall()
+        }

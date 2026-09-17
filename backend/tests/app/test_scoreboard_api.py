@@ -590,3 +590,45 @@ def test_a_night_with_an_honest_row_beside_a_reconstruction_is_scored_NOT_listed
     assert (
         s["n_episodes"] == 1 and s["n_open"] == 1
     )  # A's honest run; B's reconstructions score nothing
+
+
+# --- F1 / migration 0044: the run identity on the wire -------------------------------------------------
+
+
+def test_run_identity_rides_the_wire_with_the_composed_note(client, db, security_id):
+    """The record can finally say WHICH POLICY and WHICH CODE produced an arm. The raw values ride so the
+    drawer's hover can show the full hash (#6 — provenance always shows its work); the composed note is
+    the only thing rendered, authored here so the hash is shortened in exactly one place."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(
+        db,
+        thesis,
+        [conv, conf],
+        date(2026, 6, 1),
+        config_hash="a1b2c3d4e5f60718",
+        code_sha="9f8e7d6c5b4a3210",
+        run_kind="manual",
+    )
+
+    ep = _one_episode(client)
+    assert ep["arm_config_hash"] == "a1b2c3d4e5f60718"  # FULL value, never truncated on the wire
+    assert ep["arm_code_sha"] == "9f8e7d6c5b4a3210"
+    assert ep["arm_run_kind"] == "manual"
+    assert ep["run_identity_note"] == "policy a1b2c3d4 · manual · code 9f8e7d6c"
+    # and it is PURE PROVENANCE: it flags nothing and excludes nothing from the aggregates
+    assert ep["ingest_flagged"] is False
+
+
+def test_a_legacy_row_carries_NULLS_and_NO_note_on_the_wire(client, db, security_id):
+    """Every row recorded before 0044 — which is the entire existing record — must serve cleanly as
+    all-null rather than as a default, and the drawer then renders no identity line at all."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
+    record_day(db, thesis, [conv, conf], date(2026, 6, 1))  # the legacy/manual append shape
+
+    ep = _one_episode(client)
+    assert ep["arm_config_hash"] is None
+    assert ep["arm_code_sha"] is None
+    assert ep["arm_run_kind"] is None
+    assert ep["run_identity_note"] is None

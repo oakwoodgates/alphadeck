@@ -17,8 +17,10 @@ import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef
+from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import Grade, Kind, State, Verdict
 from domain.feed_kinds import StaleFeedLabel
+from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S
 from ingest.edgar.form4 import ingest_form4
 from notify import ArmedName
@@ -1038,7 +1040,7 @@ def test_run_daily_tape_monitor_is_OFF_at_stale_days_zero(db, monkeypatch):
     monkeypatch.setattr(
         daily,
         "get_settings",
-        lambda: SimpleNamespace(tape_stale_days=0, fund_shares_stale_days=7),
+        lambda: SimpleNamespace(tape_stale_days=0, fund_shares_stale_days=7, image_sha=None),
     )
     _thesis(db, "T")
 
@@ -1506,7 +1508,7 @@ def test_run_daily_fund_monitor_is_OFF_at_its_OWN_zero(db, monkeypatch):
     monkeypatch.setattr(
         daily,
         "get_settings",
-        lambda: SimpleNamespace(tape_stale_days=5, fund_shares_stale_days=0),
+        lambda: SimpleNamespace(tape_stale_days=5, fund_shares_stale_days=0, image_sha=None),
     )
     _thesis(db, "T")
 
@@ -1539,6 +1541,126 @@ def test_report_lists_each_FEED_KIND_in_its_own_block(capsys):
     assert "DEADFUND: last sample 2026-04-02" in out
     price_block, fund_block = out.split("STALE FUND-SHARES TAPES")
     assert "price symbol" in price_block and "price symbol" not in fund_block
+
+
+# --- run identity on the recorded row (F1, migration 0044) ---------------------------------------------
+
+
+def _identity_rows(db, thesis_id) -> list[tuple]:
+    """(config_hash, code_sha, run_kind) per row, oldest first — read from the RAW table, because the
+    stamps live off the card and so never come back through `list_for_thesis`."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT config_hash, code_sha, run_kind FROM calls WHERE thesis_id = %s ORDER BY seq",
+            (thesis_id,),
+        )
+        return [(r["config_hash"], r["code_sha"], r["run_kind"]) for r in cur.fetchall()]
+
+
+def test_run_daily_stamps_manual_by_DEFAULT(db, monkeypatch):
+    """The default is `manual`, and that is the safe direction: the sidecar and an operator invoke the
+    SAME command, so anything that forgets to say otherwise must NOT claim to be the nightly record. This
+    also covers the Admin "Run daily now" button, which calls run_daily_pass without a kind."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "identity-default")
+
+    daily.run_daily(db, asof=_ASOF)
+
+    assert [r[2] for r in _identity_rows(db, tid)] == ["manual"]
+
+
+def test_run_daily_stamps_cron_when_the_sidecar_says_so(db, monkeypatch):
+    """`scripts/daily_cron.sh` passes `--run-kind cron` at every invocation; this is the wiring that
+    carries it onto the row."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "identity-cron")
+
+    daily.run_daily(db, asof=_ASOF, run_kind="cron")
+
+    assert [r[2] for r in _identity_rows(db, tid)] == ["cron"]
+
+
+def test_the_stamped_hash_is_the_hash_OF_THE_CFG_THAT_RAN(db, monkeypatch):
+    """The anti-drift assertion behind the explicit `cfg` local in run_daily: the fingerprint must be
+    computed from the same CallConfig the assembler used, not from a separately-hashed DEFAULT_CONFIG that
+    merely happens to match today. Proven by moving a dial and watching the stamp follow it."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "identity-cfg")
+    moved = DEFAULT_CONFIG.model_copy(update={"warming_min_entry_triggers": 3})
+    monkeypatch.setattr(daily, "DEFAULT_CONFIG", moved)
+
+    daily.run_daily(db, asof=_ASOF)
+
+    assert [r[0] for r in _identity_rows(db, tid)] == [config_hash(moved)]
+    assert config_hash(moved) != config_hash(DEFAULT_CONFIG)  # the fixture is meaningful
+
+
+def test_the_code_sha_is_NULL_when_the_image_did_not_declare_one(db, monkeypatch):
+    """ "Never fabricated": an image built without GIT_SHA stamps NULL, not "" and not a guess."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "identity-nosha")
+    monkeypatch.delenv("ALPHADECK_IMAGE_SHA", raising=False)
+    get_settings.cache_clear()
+    try:
+        daily.run_daily(db, asof=_ASOF)
+    finally:
+        get_settings.cache_clear()
+
+    assert [r[1] for r in _identity_rows(db, tid)] == [None]
+
+
+def test_a_re_run_under_a_DIFFERENT_identity_appends_NOTHING(db, monkeypatch):
+    """The churn gate, end to end through the cron rather than at the repo: a deploy (new code sha) or a
+    dial edit does not re-record a thesis whose call is unchanged. COUNT THE TABLE — the read dedups, so a
+    spurious append would hide behind a correct-looking call of record."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "identity-churn")
+    daily.run_daily(db, asof=_ASOF, run_kind="cron")
+    before = len(_identity_rows(db, tid))
+
+    monkeypatch.setattr(
+        daily, "DEFAULT_CONFIG", DEFAULT_CONFIG.model_copy(update={"warming_min_entry_triggers": 3})
+    )
+    monkeypatch.setenv("ALPHADECK_IMAGE_SHA", "feedface" * 5)
+    get_settings.cache_clear()
+    try:
+        daily.run_daily(db, asof=_ASOF, run_kind="manual")
+    finally:
+        get_settings.cache_clear()
+
+    assert len(_identity_rows(db, tid)) == before  # the table did NOT grow
+    assert _identity_rows(db, tid)[0][2] == "cron"  # and the first run's identity is untouched
+
+
+def test_the_cli_threads_run_kind(db, monkeypatch):
+    """`main` is where the flag becomes a stamp; the choices are constrained by argparse so a typo cannot
+    reach the DB either."""
+    seen = {}
+
+    def _fake_pass(**kwargs):
+        seen.update(kwargs)
+        return daily.DailyPassOutcome(
+            results=[],
+            asof=_ASOF,
+            allow_live=False,
+            started_at=None,
+            finished_at=None,
+            log_path=None,
+        )
+
+    monkeypatch.setattr(daily, "run_daily_pass", _fake_pass)
+    monkeypatch.setattr(daily, "_report", lambda *a, **k: None)
+    monkeypatch.setattr(daily, "_failed_to_record", lambda *a, **k: False)
+
+    daily.main(["--no-live", "--asof", _ASOF.isoformat(), "--run-kind", "cron"])
+    assert seen["run_kind"] == "cron"
+
+    seen.clear()
+    daily.main(["--no-live", "--asof", _ASOF.isoformat()])
+    assert seen["run_kind"] == "manual"  # the default
+
+    with pytest.raises(SystemExit):
+        daily.main(["--run-kind", "weekend"])
 
 
 # --- P1: the rejected-transaction count surfaces in the cron summary, only when nonzero ---------------

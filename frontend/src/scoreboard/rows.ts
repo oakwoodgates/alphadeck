@@ -207,6 +207,23 @@ export function ingestProvenanceLine(e: ScoreboardEpisodeOut): string | null {
   return `ingest provenance: ${parts.join(" · ")}`;
 }
 
+/** The hover behind the drawer's run-identity line (F1): the FULL policy hash and code sha, because the
+ *  visible line shows only the short prefixes and provenance must always be able to show its work (#6).
+ *
+ *  The visible LINE itself is composed by the server (`run_identity_note`) — this only expands what is
+ *  already on the wire. Nothing here shortens a hash: that happens in exactly one place in the codebase
+ *  (`domain.config.short_hash`), so the frontend can never disagree with the backend about how many
+ *  characters a policy fingerprint is. */
+export function runIdentityTitle(e: ScoreboardEpisodeOut): string {
+  const parts = [
+    "which run recorded this arm — provenance only, it changes no score",
+    e.arm_config_hash ? `config_hash: ${e.arm_config_hash}` : null,
+    e.arm_code_sha ? `code_sha: ${e.arm_code_sha}` : null,
+    e.arm_run_kind ? `run_kind: ${e.arm_run_kind}` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.join("\n");
+}
+
 /** The operator cell's one-line story (the wire slot, or the honest capture gap). */
 export function operatorLine(e: ScoreboardEpisodeOut): {
   kind: "took" | "passed" | "none";

@@ -100,6 +100,16 @@ class ScoredEpisode(BaseModel):
     thaw_lag_days: int | None = None  # max ingest lag of the arm's cited form4 facts (B2)
     ingest_flagged: bool = False  # the rollup: badge + excluded from aggregate metrics
     ingest_note: str | None = None  # the composed human "why" — None when clean
+    # Run identity (F1 / migration 0044) — WHICH POLICY AND WHICH CODE wrote the arm-date row, read from
+    # the same winning row as the ingest stamps above. Pure caption: it flags nothing, excludes nothing
+    # from the metrics, and a legacy row (all None) renders no line at all. Defaulted like the Slice-C
+    # fields below, so an artifact written before this change still parses. The replay path leaves them
+    # None — a replay is a recompute, not a recorded run, and must never claim a run identity it has not
+    # got (F2 stamps the SNAPSHOT's own identity instead, at the artifact level).
+    arm_config_hash: str | None = None
+    arm_code_sha: str | None = None
+    arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
+    run_identity_note: str | None = None  # backend-authored copy; the FE renders, never composes
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
     # Slice C — the run's own record detail, each field composed from the recorded cards (#6) and
     # DEFAULTED on the replay path (CallSnapshot deliberately drops risk_signals/missing — do not

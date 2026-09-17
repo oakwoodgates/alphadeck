@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from pydantic import Field, model_validator
+import hashlib
+import json
+from enum import Enum
+
+from pydantic import BaseModel, Field, model_validator
 
 from domain.base import DomainModel
 from domain.enums import CatalystType, Grade, Kind, Role
@@ -652,6 +656,98 @@ class CallConfig(DomainModel):
 
 
 DEFAULT_CONFIG = CallConfig()
+
+
+# --- the policy fingerprint (F1) ---------------------------------------------------------------------
+# The record used to confound "the facts changed" with "the policy changed": a `calls` row carried no
+# fingerprint of the dials the assembler ran with, so a dial change could not be evaluated against it. These
+# two pure helpers are that fingerprint. They live HERE, beside the dials they hash, so the thing being
+# fingerprinted and the fingerprint can never drift into separate files.
+#
+# SCOPE is deliberately `CallConfig` ALONE — the 83 call-engine dials. `ExtractorConfig` (below) is the
+# Workbench extractor's config and never reaches the assembler, so folding it in would make the hash move for
+# reasons that changed no call.
+#
+# THE CANONICALIZATION IS PART OF THE CONTRACT, not an implementation detail: the backtest's run manifest
+# reproduces it to prove a lab run and a recorded night ran the same policy, so it is spelled out and pinned
+# by a test rather than left to whatever `model_dump` happens to do.
+#
+# THE TRAP, and why this is a hand-written walk instead of the obvious one-liner. The obvious recipe —
+# `json.dumps(cfg.model_dump(mode="json"), sort_keys=True)` — is NOT DETERMINISTIC ACROSS PROCESSES.
+# `CallConfig` carries three `frozenset` dials (`conviction_kinds`, `confirmation_kinds`,
+# `insider_senior_role_keywords`); `model_dump` renders a frozenset as a list in SET-ITERATION order, which
+# depends on PYTHONHASHSEED and therefore differs in every new interpreter. MEASURED 2026-09-16: three
+# consecutive `python -c` runs on an unchanged DEFAULT_CONFIG produced three different digests. Shipped, that
+# would have stamped a fresh "policy" on every cron night — the column would have read as a nightly policy
+# change and been worse than no column at all, and a single-process determinism test would never have caught
+# it.
+#
+# So: a SET is sorted (its order carries no meaning and must not reach the digest), and a LIST/TUPLE keeps
+# its order (the pip ladders `purity_pip_pct` / `runway_pip_months` / `dilution_pip_pct` are ORDERED
+# thresholds — "sort every list" would make an ascending and a descending ladder hash identically, which is
+# the same class of bug pointed the other way). Dict keys are sorted; nested models recurse by field name;
+# enums render as their wire value. An unhandled type RAISES rather than falling back to `str()`, whose
+# default object repr embeds a memory address and would quietly reintroduce the very bug this walk exists to
+# kill — a new dial of an exotic type fails the suite here, in the repo, not on a prod night
+# (`signals/horizons.py`'s "a reader with no declaration fails a TEST" discipline).
+
+_HASH_PREFIX_LEN = 8  # the display prefix: long enough to disambiguate by eye, short enough to read
+
+_CANONICAL_SCALARS = (str, bool, int, float)
+
+
+def _canonical_config(value: object) -> object:
+    """``value`` in a form whose JSON serialization is stable across processes. See the block comment."""
+    if value is None or isinstance(value, _CANONICAL_SCALARS):
+        return value
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, BaseModel):
+        return {n: _canonical_config(getattr(value, n)) for n in sorted(type(value).model_fields)}
+    if isinstance(value, (set, frozenset)):
+        # sorted by the canonical element's own JSON text, so a set of enums, strings or numbers all order
+        # deterministically and a mixed set can never raise a TypeError on a cron night
+        return sorted(
+            (_canonical_config(v) for v in value),
+            key=lambda e: json.dumps(e, sort_keys=True),
+        )
+    if isinstance(value, (list, tuple)):
+        return [_canonical_config(v) for v in value]  # ORDER PRESERVED — a ladder is ordered
+    if isinstance(value, dict):
+        return {str(k): _canonical_config(value[k]) for k in sorted(value, key=str)}
+    raise TypeError(
+        f"config_hash: no canonical form for {type(value).__name__} — add one deliberately rather than "
+        "letting it fall back to a repr (an object repr embeds a memory address and would make the "
+        "fingerprint differ every process)"
+    )
+
+
+def config_hash(cfg: CallConfig) -> str:
+    """The sha256 fingerprint of ``cfg`` — 64 lowercase hex chars. Pure: no clock, no DB, no I/O.
+
+    Stamped on every ``calls`` row beside the card (never inside it — a card field would fake a change in
+    ``repositories.calls_repo._canonical`` and re-record every thesis the first time a dial moved).
+
+    The recipe, which the backtest's manifest reproduces: ``_canonical_config(cfg)`` (sets sorted, list order
+    kept, dict keys sorted, enums as wire values), then ``json.dumps(..., sort_keys=True,
+    separators=(",", ":"))``, UTF-8, sha256, lowercase hex. The block comment above says why the walk is
+    hand-written rather than a ``model_dump`` one-liner — the short version is that the one-liner produces a
+    DIFFERENT hash in every process.
+    """
+    blob = json.dumps(_canonical_config(cfg), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def short_hash(full: str | None) -> str | None:
+    """The 8-char DISPLAY prefix of an already-computed config hash, or ``None`` for ``None``.
+
+    Takes the HASH, not a ``CallConfig``, so it works identically on a freshly computed fingerprint and on
+    one read back from the ``calls`` row — and so the slice exists in exactly ONE place. Every surface that
+    shows a shortened policy hash (the Scoreboard drawer's identity line; the replay panel's banner) composes
+    it through here; nothing slices a hash inline, and the frontend never slices at all (the full hash still
+    rides the wire — #6, show the work).
+    """
+    return None if full is None else full[:_HASH_PREFIX_LEN]
 
 
 class ExtractorConfig(DomainModel):

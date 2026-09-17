@@ -1012,6 +1012,15 @@ class ScoreboardEpisodeOut(BaseModel):
     thaw_lag_days: int | None = None  # max ingest lag of the arm's cited form4 facts
     ingest_flagged: bool = False  # the rollup: the INGEST badge + metric exclusion
     ingest_note: str | None = None  # the composed human "why" — None when clean
+    # run identity (F1 / migration 0044) — which POLICY and which CODE wrote the arm-date row. Pure
+    # provenance: no flag, no badge, no metric exclusion. All None on a legacy row (the stamp predates it)
+    # and on a replayed episode (a recompute has no recorded run). The raw fields ride beside the composed
+    # note so the full hash is always available (#6 — show the work); the note is the only thing rendered,
+    # and it is authored HERE-side so the hash is shortened in exactly one place in the codebase.
+    arm_config_hash: str | None = None
+    arm_code_sha: str | None = None
+    arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
+    run_identity_note: str | None = None
     verdict: Verdict | None = None
     entry_grade: Grade | None = None
     conviction_grade: Grade | None = None
@@ -1080,6 +1089,10 @@ def _scoreboard_episode_out(
         thaw_lag_days=e.thaw_lag_days,
         ingest_flagged=e.ingest_flagged,
         ingest_note=e.ingest_note,
+        arm_config_hash=e.arm_config_hash,
+        arm_code_sha=e.arm_code_sha,
+        arm_run_kind=e.arm_run_kind,
+        run_identity_note=e.run_identity_note,
         verdict=ep.verdict,
         entry_grade=ep.entry_grade,
         conviction_grade=ep.conviction_grade,

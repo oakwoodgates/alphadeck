@@ -48,12 +48,24 @@ read it before reaching for it.
    ```
 3. **Rebuild only the changed service(s)** — `--no-deps` keeps postgres + cron untouched
    (but a daily-pipeline change must rebuild cron too — the **cron caveat** below); plain
-   `docker compose` auto-loads `.env` and resolves to project `alphadeck`:
+   `docker compose` auto-loads `.env` and resolves to project `alphadeck`.
+   **Prefix every backend/cron rebuild with `GIT_SHA=$(git rev-parse HEAD)`** — see the
+   `GIT_SHA` note below for what it is and what happens if you forget:
    ```
-   docker compose up -d --build --no-deps frontend           # FE change
-   docker compose up -d --build --no-deps frontend backend   # + backend half
-   docker compose up -d --build --no-deps cron               # + a daily-cron-path change
+   docker compose up -d --build --no-deps frontend           # FE change (no GIT_SHA needed)
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps frontend backend
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps cron
+   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps backend cron   # both halves
    ```
+
+   **`GIT_SHA` — stamp the code onto the record (F1, migration `0044`).** The backend and cron
+   services take a `GIT_SHA` build arg, which the Dockerfile turns into `ENV ALPHADECK_IMAGE_SHA`
+   and `pipeline.daily` stamps as `calls.code_sha` on every row it records — so the record can say
+   which code produced a call, not just which facts. It is **optional by design**: unset simply
+   means UNKNOWN and the column gets `NULL`, never a wrong or empty value, so a forgotten prefix
+   costs legibility on that night's rows and nothing else. Do not invent one after the fact. Run it
+   from the checkout you are deploying (step 2 has already put you on the merged `main`). It matters
+   most on **cron**, whose image writes the rows that ARE the record.
    A backend rebuild re-runs the idempotent migrate + seed (~20-40s, brief API blip —
    safe, it is what every restart does). "Idempotent" now covers the FACT tables too: until
    PR-1c every boot re-appended the demo fixtures as a fresh bitemporal version (~1,900 rows a
@@ -142,6 +154,11 @@ backend, a bind mount) built from code that exists nowhere in git.
   Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — rebuild only the named service; leaves postgres + the cron sidecar
   running untouched.
+- **A forgotten `GIT_SHA` is safe, a wrong one is not.** Omitting it stamps `NULL` (honest: the
+  image did not declare its commit). Never pass a sha you did not just read out of the checkout
+  being built — `calls.code_sha` is a provenance claim, and a wrong claim is worse than none.
+  Verify after a rebuild with
+  `docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA`.
 - **The cron sidecar is separately imaged.** It builds from the same context as the
   backend (`build: ./backend`) but is its own image (`alphadeck-cron`) / container
   (`alphadeck-cron-1`), so a backend rebuild does NOT refresh it. A change on the nightly

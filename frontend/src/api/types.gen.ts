@@ -3507,6 +3507,14 @@ export interface components {
             ingest_flagged: boolean;
             /** Ingest Note */
             ingest_note?: string | null;
+            /** Arm Config Hash */
+            arm_config_hash?: string | null;
+            /** Arm Code Sha */
+            arm_code_sha?: string | null;
+            /** Arm Run Kind */
+            arm_run_kind?: string | null;
+            /** Run Identity Note */
+            run_identity_note?: string | null;
             verdict?: components["schemas"]["Verdict"] | null;
             entry_grade?: components["schemas"]["Grade"] | null;
             conviction_grade?: components["schemas"]["Grade"] | null;

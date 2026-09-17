@@ -7,6 +7,8 @@ from uuid import UUID
 import psycopg
 
 from domain.call import TriggerRef
+from domain.config import short_hash
+from repositories.calls_repo import RunIdentity
 
 # The Scoreboard's record-PROVENANCE derivation (2d) — the honesty layer over the accruing record:
 # did an episode's ARM rest on trustworthy ingest? Three mechanisms, one rollup:
@@ -32,7 +34,8 @@ from domain.call import TriggerRef
 # these flags are composed AFTER ``score_episode``, from reads the scoring path never sees. This
 # module imports nothing from ``calls/``; nothing in ``calls/``/``pipeline/``/the write path imports
 # it. A clean, a flagged, and a legacy-NULL episode all SCORE identically — the flags only
-# segment/annotate (ledger-visible always; excluded from the aggregate metrics only).
+# segment/annotate (ledger-visible always; excluded from the aggregate metrics only). The RUN-IDENTITY
+# caption at the bottom of this module rides the same rule and is weaker still: it flags nothing at all.
 
 # Max acceptable calendar days between an insider fact's event date and its PUBLIC DISCLOSURE (the SEC
 # acceptance date, ``accepted``). A compliant Form 4 is accepted <= 2 business days after the transaction
@@ -136,3 +139,33 @@ def derive_episode_provenance(
         ingest_flagged=fresh is False or freeze_era or thawed_late,
         ingest_note=" · ".join(notes) if notes else None,
     )
+
+
+# --- the RUN IDENTITY line (F1 / migration 0044) ------------------------------------------------------
+# A SEPARATE composer, deliberately not folded into EpisodeProvenance: that dataclass is the INGEST-honesty
+# rollup (is this arm trustworthy?), and run identity answers a different question (which policy and which
+# code produced this row?). It feeds no flag, no badge and no metric exclusion — it is pure caption.
+#
+# BACKEND-AUTHORED COPY, ONE AUTHORITY (the ``ingest_note`` / ``dearm_detail`` precedent): the frontend
+# renders this string and composes nothing, so the hash is shortened in exactly ONE place in the codebase
+# (``domain.config.short_hash``). The RAW config_hash / code_sha / run_kind still ride the wire beside it —
+# the caption is a convenience, never a replacement for showing the work (#6).
+
+
+def run_identity_note(identity: RunIdentity | None) -> str | None:
+    """The drawer's one-line "which run wrote this" caption, or ``None`` when the row predates the stamp.
+
+    Rendered whenever ANY part is known — a legacy all-NULL row gets nothing at all rather than a row of
+    em-dashes. Unlike ``ingest_note`` this is not gated on a flag: it is provenance on a drill-down surface,
+    where a constant line is the point, not noise (#7 governs badges and alerts, not a provenance block).
+    """
+    if identity is None:
+        return None
+    parts: list[str] = []
+    if identity.config_hash:
+        parts.append(f"policy {short_hash(identity.config_hash)}")
+    if identity.run_kind:
+        parts.append(identity.run_kind)
+    if identity.code_sha:
+        parts.append(f"code {short_hash(identity.code_sha)}")
+    return " · ".join(parts) if parts else None
