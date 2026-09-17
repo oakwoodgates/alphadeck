@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from uuid import UUID
 
 from db.session import DEFAULT_TENANT_ID
@@ -22,10 +23,53 @@ def _f(x: Any) -> float | None:
     return float(x) if x is not None else None
 
 
+class _Bar(NamedTuple):
+    """One deduped bar off the mirror, as the tape memo holds it."""
+
+    d: date
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float
+    volume: float | None
+
+
 class RealizedPrices:
-    """Realized EOD closes from the same frozen Parquet mirror, read FORWARD (no asof/known_at bound) —
+    """Realized EOD bars from the same frozen Parquet mirror, read FORWARD (no asof/known_at bound) —
     the latest version per ``(security_id, d)`` (a price correction's final value; harmless on the seed,
-    which has none). Used only by the scorer, never the replay loop."""
+    which has none). Used only by the scorer and the null models, never the replay loop.
+
+    **THE TAPE MEMO (M1).** Each security's whole tape is read ONCE and every read below is a slice of it.
+    This is B5a's finding applied to the scoring side, and the arithmetic is the reason. A null draw costs
+    one priced window for the name plus ONE PER BASKET MEMBER for its benchmark, and the timing null
+    varies the entry date on every draw — so ``_BasketBenchmark``'s ``(thesis, entry, exit)`` memo, which
+    exists and looks like it should help, MISSES ON EVERY DRAW. Per episode that is ``2·K·M + 4K + 2M``
+    queries (K draws, basket size M): at K=5 on a 196-name basket, about 2,374 queries FOR ONE EPISODE.
+    The cost is query COUNT, not query complexity — MEASURED on a two-week run, the nulls took 658 s at
+    K=5 against seconds of scoring. Memoized, a whole pass costs ONE query per security touched.
+
+    **WHY SLICING A CACHED TAPE IS EXACTLY THE UNCACHED READ.** The dedup is
+    ``QUALIFY ROW_NUMBER() OVER (PARTITION BY security_id, d ...)`` — partitioned BY DATE, so which
+    version of a bar wins does not depend on which other dates are in the result set. Dedup-then-slice and
+    slice-then-dedup therefore return identical rows, and a date filter commutes with the whole query. A
+    byte-identity test pins that against the un-memoized reader rather than leaving it as an argument.
+
+    **THE CACHE IS KEYED ON THE SECURITY ALONE, AND MUST STAY THAT WAY.** It is tempting to add an as-of
+    or ``known_at`` key by analogy with the PIT's memo (``db.bitemporal``, ``replay.pit``), where such a
+    key is mandatory. Here it would be WRONG and would quietly break the scorer: this reader is
+    deliberately forward-unbounded and time-capless — that is the whole distinction between it and
+    ``ReplayPointInTimeData``, and it is what lets the scorer read past the as-of while no path exists by
+    which forward data can reach an as-of call. There is no time key to get wrong because there is no time
+    bound. ``tenant_id`` is fixed at construction, so a cache entry cannot cross a tenant either.
+
+    **MEMORY.** One ``_Bar`` per row: about 104 B for the tuple, 32 B for the date, 24 B per NON-NULL
+    float (``None`` is a singleton and costs nothing, and this tape is largely close-only). Roughly
+    150-260 B per bar, so a pass touching 740 securities with about 1,250 bars each holds
+    **140-240 MB** (PROPOSED — that is the arithmetic, not a measurement; the year run peaked around 2 GB
+    for comparison). It is PER PROCESS, which is one reason a pool over the nulls is the second lever and
+    not the first. Only securities actually touched are cached, and the reader is built once per batch
+    run, never per request.
+    """
 
     def __init__(
         self, con: duckdb.DuckDBPyConnection, *, tenant_id: UUID = DEFAULT_TENANT_ID
@@ -33,73 +77,82 @@ class RealizedPrices:
         self.con = con
         self.tenant_id = tenant_id
         self._market_edge: date | None = None  # lazily resolved once; see market_tape_edge
+        self._tapes: dict[UUID, list[_Bar]] = {}
+        self._dates: dict[UUID, list[date]] = {}  # the parallel key list bisect searches
 
-    def _closes(self, security_id: UUID, where: str, params: list) -> list[tuple[date, float]]:
-        rows = self.con.execute(
-            f"SELECT d, close FROM fact_price_eod "
-            f"WHERE tenant_id = ? AND security_id = ? {where} "
-            f"QUALIFY ROW_NUMBER() OVER (PARTITION BY security_id, d ORDER BY recorded_at DESC, id DESC) = 1 "
-            f"ORDER BY d",
-            [str(self.tenant_id), str(security_id), *params],
-        ).fetchall()
-        return [(r[0], float(r[1])) for r in rows if r[1] is not None]
+    def _tape(self, security_id: UUID) -> list[_Bar]:
+        """This security's whole deduped tape, read ONCE. Null-CLOSE rows are skipped (a bar with no
+        close cannot price anything); the other OHLCV columns stay nullable per-column — a close-only
+        free-EOD bar surfaces ``None``, never an invented number. No asof/known_at bound, copying THIS
+        side's shape rather than the Postgres twin's double cap (the two readers are duck-typed peers,
+        not a harmonized pair — see ``scoreboard/prices.py``)."""
+        tape = self._tapes.get(security_id)
+        if tape is None:
+            rows = self.con.execute(
+                "SELECT d, open, high, low, close, volume FROM fact_price_eod "
+                "WHERE tenant_id = ? AND security_id = ? "
+                "QUALIFY ROW_NUMBER() OVER "
+                "(PARTITION BY security_id, d ORDER BY recorded_at DESC, id DESC) = 1 "
+                "ORDER BY d",
+                [str(self.tenant_id), str(security_id)],
+            ).fetchall()
+            tape = [
+                _Bar(r[0], _f(r[1]), _f(r[2]), _f(r[3]), float(r[4]), _f(r[5]))
+                for r in rows
+                if r[4] is not None
+            ]
+            self._tapes[security_id] = tape
+            self._dates[security_id] = [b.d for b in tape]
+        return tape
+
+    def _window(self, security_id: UUID, lo: date | None, hi: date | None) -> list[_Bar]:
+        """The bars in ``[lo, hi]``, either end open — a bisect over the cached tape."""
+        tape = self._tape(security_id)
+        dates = self._dates[security_id]
+        i = bisect_left(dates, lo) if lo is not None else 0
+        j = bisect_right(dates, hi) if hi is not None else len(tape)
+        return tape[i:j]
 
     def first_close_on_or_after(self, security_id: UUID, d: date) -> tuple[date, float] | None:
-        rows = self._closes(security_id, "AND d >= ?", [d])
-        return rows[0] if rows else None
+        rows = self._window(security_id, d, None)
+        return (rows[0].d, rows[0].close) if rows else None
 
     def last_close_through(self, security_id: UUID, through: date) -> tuple[date, float] | None:
-        rows = self._closes(security_id, "AND d <= ?", [through])
-        return rows[-1] if rows else None
+        rows = self._window(security_id, None, through)
+        return (rows[-1].d, rows[-1].close) if rows else None
 
     def closes_between(self, security_id: UUID, start: date, end: date) -> list[tuple[date, float]]:
-        return self._closes(security_id, "AND d >= ? AND d <= ?", [start, end])
-
-    def _bars(self, security_id: UUID, where: str, params: list) -> list[dict]:
-        # The OHLCV twin of ``_closes`` — the SAME dedup (latest version per ``(security_id, d)``) and the
-        # SAME deliberate absence of any asof/known_at bound: the scoring reader is forward-unbounded by
-        # design and this method copies THIS side's shape, never the Postgres twin's double cap (the two
-        # readers are duck-typed peers, not a harmonised pair — see scoreboard/prices.py::_bars).
-        # Null-CLOSE rows are skipped (parity with ``_closes``); the other OHLCV columns stay nullable
-        # per-column — a close-only free-EOD bar surfaces ``None``, never an invented number.
-        rows = self.con.execute(
-            f"SELECT d, open, high, low, close, volume FROM fact_price_eod "
-            f"WHERE tenant_id = ? AND security_id = ? {where} "
-            f"QUALIFY ROW_NUMBER() OVER (PARTITION BY security_id, d ORDER BY recorded_at DESC, id DESC) = 1 "
-            f"ORDER BY d",
-            [str(self.tenant_id), str(security_id), *params],
-        ).fetchall()
-        return [
-            {
-                "d": r[0],
-                "open": _f(r[1]),
-                "high": _f(r[2]),
-                "low": _f(r[3]),
-                "close": float(r[4]),
-                "volume": _f(r[5]),
-            }
-            for r in rows
-            if r[4] is not None
-        ]
+        return [(b.d, b.close) for b in self._window(security_id, start, end)]
 
     def bars_between(self, security_id: UUID, start: date, end: date) -> list[dict]:
         """Full OHLCV bars over ``[start, end]`` — the mirroring twin of
         ``scoreboard.prices.PgRealizedPrices.bars_between``, and the ONE read behind the scorer's close
         pair (peak/trough), wick pair (intraday high/low) and sparkline path."""
-        return self._bars(security_id, "AND d >= ? AND d <= ?", [start, end])
+        return [
+            {
+                "d": b.d,
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+            }
+            for b in self._window(security_id, start, end)
+        ]
 
     def tape_edge(self, security_id: UUID, on_or_after: date) -> date | None:
         """The date of this name's LAST available bar at or after ``on_or_after`` — where its price
         tape ends, as this reader can see it. ``None`` when the tape holds no such bar.
 
-        Built on ``_closes``, so it inherits THIS reader's shape unchanged: forward-unbounded, no
-        asof/known_at cap, because the scoring reader is deliberately so. The Postgres twin's version
-        keeps that side's double cap for the same reason. Deriving both from each side's existing
-        ``_closes`` is what keeps them from being harmonized by accident — an ``ORDER BY d DESC LIMIT 1``
-        hand-written here is precisely where a cap gets forgotten, and a forgotten cap would let a bar
-        past the as-of prove that a horizon was covered (invariant #1)."""
-        rows = self._closes(security_id, "AND d >= ?", [on_or_after])
-        return rows[-1][0] if rows else None
+        Built on ``_window`` (this side's memoized reader since M1), so it inherits THIS reader's shape
+        unchanged: forward-unbounded, no asof/known_at cap, because the scoring reader is deliberately so.
+        The Postgres twin's version is built on ITS ``_closes`` and keeps that side's double cap for the
+        same reason. Deriving each from its own side's existing reader is what keeps the two from being
+        harmonized by accident — an ``ORDER BY d DESC LIMIT 1`` hand-written here is precisely where a cap
+        gets forgotten, and a forgotten cap would let a bar past the as-of prove that a horizon was
+        covered (invariant #1)."""
+        rows = self._window(security_id, on_or_after, None)
+        return rows[-1].d if rows else None
 
     def market_tape_edge(self, security_id: UUID) -> date | None:
         """The latest bar date anywhere in this tenant's mirror — the ``truncated`` rule's second leg
