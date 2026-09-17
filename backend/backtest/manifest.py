@@ -155,6 +155,10 @@ class BacktestManifest(BaseModel):
     theses: list[ThesisEntry] = Field(default_factory=list)
     mirror: MirrorInfo
 
+    # HOW the run was executed. Not a dial -- it must not change a result, and a test pins that -- but
+    # recorded so a timing in this manifest can be read against the shape that produced it.
+    workers: int = 1
+
     hypothesis: str | None = None
     decision_rule: str | None = None
     regime: str | None = None
