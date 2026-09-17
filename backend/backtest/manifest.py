@@ -155,6 +155,9 @@ class BacktestManifest(BaseModel):
     theses: list[ThesisEntry] = Field(default_factory=list)
     mirror: MirrorInfo
 
+    # HOW the run was executed (B5b). Not a dial -- it must not change a result, and a test pins that --
+    # but recorded so a timing in this manifest can be read against the shape that produced it.
+    workers: int = 1
     # THE NULLS' OWN IDENTITY (B4). A null model is EVIDENCE, so it has to be re-derivable from the
     # manifest alone: K draws per episode from this seed, with each episode drawing from a sub-seed of
     # (seed, thesis, security, arm_date) so that adding an episode never reshuffles the others.

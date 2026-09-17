@@ -33,13 +33,13 @@ from backtest import manifest as mf
 from backtest import store
 from backtest.config_overlay import OverlayError, load_overlay, overlay_diff
 from backtest.nulls import DEFAULT_DRAWS, draw_nulls
+from backtest.parallel import default_workers, replay_all_parallel
 from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
-from replay.harness import replay_all
 from replay.metrics import compute_metrics
 from replay.pit import connect_mirror
 from replay.run import arrow_schema
@@ -77,6 +77,7 @@ def execute(
     pin: datetime,
     cfg: CallConfig = DEFAULT_CONFIG,
     overlay_path: str | None = None,
+    workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
     null_seed: str | None = None,
     hypothesis: str | None = None,
@@ -106,8 +107,18 @@ def execute(
         theses = {t.id: t for t in thesis_repo.list_all(conn)}
 
         t0 = time.perf_counter()
-        result = replay_all(
-            conn, con, start=start, end=end, known_at=pin, cfg=cfg, tenant_id=tenant_id
+        # B5b — the theses are independent, so the sweep fans out by thesis over the SAME frozen
+        # mirror. `workers=1` takes the serial harness untouched; N>1 is byte-identical by test, and the
+        # wall clock is bounded by the LARGEST thesis rather than by N (see backtest/parallel.py).
+        result = replay_all_parallel(
+            conn,
+            out,
+            start=start,
+            end=end,
+            known_at=pin,
+            cfg=cfg,
+            tenant_id=tenant_id,
+            workers=workers,
         )
         timings["replay_s"] = round(time.perf_counter() - t0, 2)
 
@@ -205,6 +216,7 @@ def execute(
             config=json.loads(blob),
             overlay_diff=overlay_diff(cfg),
             overlay_path=overlay_path,
+            workers=workers,
             theses=entries,
             mirror=mf.MirrorInfo(hash=mf.mirror_hash(out)),
             null_draws=null_draws,
@@ -286,6 +298,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="what result would change your mind, written BEFORE the run",
     )
     p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            f"replay N theses in parallel over the one frozen mirror (default 1 = the serial harness; "
+            f"this machine would default to {default_workers()}). Byte-identical to 1 by test; the wall "
+            f"clock is bounded by the LARGEST thesis, not by N."
+        ),
+    )
+    p.add_argument(
         "--null-draws",
         type=int,
         default=DEFAULT_DRAWS,
@@ -335,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             pin=pin,
             cfg=cfg,
             overlay_path=args.config,
+            workers=args.workers,
             null_draws=args.null_draws,
             null_seed=args.null_seed,
             hypothesis=args.hypothesis,
