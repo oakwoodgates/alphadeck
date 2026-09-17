@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
 import psycopg
 
 from db.bitemporal import as_of, as_of_many, as_of_thesis
+from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
 from domain.signal import SignalEvent
@@ -72,7 +73,11 @@ class PointInTimeData:
     ) -> None:
         self.conn = conn
         self.asof = asof
-        self.known_at = known_at or datetime.now(timezone.utc)
+        # THE TRANSACTION-AXIS BOUND, from the clock that STAMPS ``recorded_at`` (``db.clock.db_now``),
+        # never the app host's. The gate below is ``recorded_at <= known_at`` against a database-stamped
+        # column, so a host clock lagging the database made a just-ingested fact invisible to a live
+        # call. Pinned ONCE here, so every accessor of this view answers against one bound.
+        self.known_at = known_at or db_now(conn)
         self.tenant_id = tenant_id
         # the resolved basket (prefetch scope); empty == no basket == per-security reads, memoized
         self._basket: frozenset[UUID] = frozenset(basket or ())
