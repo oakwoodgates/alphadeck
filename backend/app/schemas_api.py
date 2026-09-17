@@ -1497,6 +1497,13 @@ class ScoreboardReplayResponse(BaseModel):
     # surface can read the number without parsing prose.
     roster_fallback_theses: int = 0
     roster_source_note: str | None = None
+    # F2 — the replayed run's own identity: the CallConfig fingerprint and the image SHA behind this
+    # panel. The short form is already folded into `banner` (composed server-side, so the hash is
+    # shortened in exactly one place — `domain.config.short_hash`); these carry the FULL values so
+    # provenance can always show its work (#6). Defaulted: an artifact written before F2 still serves.
+    config_hash: str | None = None
+    code_sha: str | None = None
+    policy_label: str | None = None  # server-composed display form; the FE renders, never slices
     banner: str | None = None
     min_n: int = 0
     n_theses: int = 0

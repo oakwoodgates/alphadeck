@@ -3736,6 +3736,12 @@ export interface components {
             roster_fallback_theses: number;
             /** Roster Source Note */
             roster_source_note?: string | null;
+            /** Config Hash */
+            config_hash?: string | null;
+            /** Code Sha */
+            code_sha?: string | null;
+            /** Policy Label */
+            policy_label?: string | null;
             /** Banner */
             banner?: string | null;
             /**

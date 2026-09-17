@@ -288,6 +288,14 @@ has depth while the forward record accrues — without polluting it. Structure o
   seam (`window_end`) and a censored record episode on the same name are the same real arm, split
   at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
   (`window_overlaps_record` + a banner warning), never silent.
+- **...and it NAMES the dials (F2).** The snapshot CLI used to call `replay_all` with no `cfg`, so it
+  silently took `DEFAULT_CONFIG` and the artifact recorded neither the dials nor the code — the panel
+  claimed "today's code + dials" with nothing to back it. It now passes one explicit `cfg` and stamps that
+  run's `config_hash` (the SAME fingerprint the `calls` rows carry, so a replayed episode and a recorded
+  night are comparable on policy) plus the image `code_sha`. The banner says `Policy ‹hash8›.` and the
+  collapsed header's "not the record" line carries `· policy ‹hash8›`, so a closed panel still says what it
+  reflects; the full hash rides the hover. The short form is composed SERVER-side, so the hash is shortened
+  in exactly one place in the codebase and the two surfaces cannot disagree.
 - **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts — that caveat rides the banner
   permanently. The ROSTER caveat no longer does, because it is no longer true: since F4 the harness resolves
   each thesis's basket point-in-time at every session (`basket_snapshot`, capped at the session's market day),
@@ -295,8 +303,9 @@ has depth while the forward record accrues — without polluting it. Structure o
   count of the theses that recomputed on today's basket because no snapshot reached that far back
   (`roster_fallback_theses` / `roster_source_note` on the artifact; `REPLAY.md` §KNOWN LIMITATION for the two
   residuals, `INVARIANTS.md` §Known gaps for the platform-wide statement it shares with `pipeline.backfill`
-  and the Board/Cockpit scrub-back). Separate endpoint, separate section, metrics never pooled with the live
-  summary.
+  and the Board/Cockpit scrub-back). The banner therefore reads policy-then-roster: the dials are the
+  stronger claim about what the numbers mean, the roster qualifies whose numbers they are. Separate
+  endpoint, separate section, metrics never pooled with the live summary.
 - **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
   the window's first replayed day; `matured` against the data edge; metrics over matured ∧
   non-censored only; the WHY rides each episode from the arm-date snapshot (`MemberRow.triggers`,

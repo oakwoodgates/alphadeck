@@ -51,7 +51,11 @@ both no-lookahead tests green **is** the integrity bar.
 A run pins `known_at = PIN` (the `recorded_at` ceiling) — and the pin only gates transaction time when it sits
 in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`)
 pins `now`, so that panel is honest by LABELING (a recompute, never the record), not by gating to the past — the
-same knowledge-horizon caveat the serve path closed with `serve_known_at` (`INVARIANTS.md` #4). The Parquet export is a **one-shot, truncate-and-
+same knowledge-horizon caveat the serve path closed with `serve_known_at` (`INVARIANTS.md` #4). **That CLI also
+passes an explicit `cfg` and stamps its fingerprint (F2):** it used to omit `cfg` entirely and silently take
+`DEFAULT_CONFIG`, so the artifact could not name the dials behind the panel. It now carries `config_hash` (the
+same `domain.config.config_hash` the `calls` rows carry, so lab and record are comparable on policy) and the
+image `code_sha`; the banner and the collapsed header both show the 8-char prefix. The Parquet export is a **one-shot, truncate-and-
 rewrite** snapshot of the SoR (all columns, all rows for the tenant — rebuildable, **never authoritative**; the
 PIN is a read-time filter, so the mirror reproduces the SoR's `as_of` for any `known_at`). Same
 `(snapshot, PIN, window, cfg)` → **value-identical** timeline + scores (the honest, achievable form of

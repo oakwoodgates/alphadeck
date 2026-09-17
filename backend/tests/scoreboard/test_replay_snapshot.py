@@ -9,7 +9,7 @@ from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from scoreboard.artifact import read_snapshot, write_snapshot
 from scoreboard.replay_snapshot import ThesisMeta, build_snapshot
 
-# The replay-panel flattener — PURE (no DB, no duckdb, no clock): the honesty flags mirror the
+# The replay-panel flattener â€” PURE (no DB, no duckdb, no clock): the honesty flags mirror the
 # forward record (censored_start on the window's first day; matured against the data edge;
 # metrics over matured + non-censored only), the WHY comes from the arm-date snapshot's MemberRow
 # triggers, and pushing the window over the record is LOUD in the artifact, never silent.
@@ -120,7 +120,7 @@ def test_flags_censoring_maturity_status_and_triggers():
 
 
 def test_metrics_judge_only_matured_non_censored():
-    """A censored matured episode and an immature open one both stay OUT of the metric inputs —
+    """A censored matured episode and an immature open one both stay OUT of the metric inputs â€”
     the same eligibility rule as the live summary (the strips must be comparable)."""
     timeline = {
         _TID: [
@@ -140,7 +140,7 @@ def test_metrics_judge_only_matured_non_censored():
 
     assert snap.n_eligible == 1
     arm_timing = next(m for m in snap.metrics if m.name == "arm_timing_forward_return")
-    assert arm_timing.n == 1  # only the eligible one — the +50% censored outcome never leaks in
+    assert arm_timing.n == 1  # only the eligible one â€” the +50% censored outcome never leaks in
     assert arm_timing.summary["median"] == 0.07
 
 
@@ -156,7 +156,7 @@ def test_window_overlap_is_loud_never_silent():
 
 
 def test_old_artifact_missing_slice_c_fields_parses_to_defaults():
-    """An artifact written BEFORE Slice C lacks the new episode fields entirely — it must still
+    """An artifact written BEFORE Slice C lacks the new episode fields entirely â€” it must still
     validate (defaults flow; the endpoint never 500s on an old artifact). Additive-only, proved."""
     from scoreboard.schema import ReplaySnapshot
 
@@ -192,7 +192,7 @@ def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):
 def test_the_banner_says_ROSTERS_ARE_POINT_IN_TIME_when_nothing_fell_back():
     """The blanket "Baskets are not versioned (REPLAY.md known limitation)" sentence is RETIRED: rosters
     ARE versioned now (`basket_snapshot`, read per session), so a permanent caveat saying otherwise had
-    become false. The clean case now says so positively — something the blanket sentence could never do.
+    become false. The clean case now says so positively â€” something the blanket sentence could never do.
     """
     snap = _build([], {_TID: []}, record_began=None)
 
@@ -204,7 +204,7 @@ def test_the_banner_says_ROSTERS_ARE_POINT_IN_TIME_when_nothing_fell_back():
 
 def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket():
     """The honest residual: a window predating the snapshot table replays on the live roster. That is the
-    right behavior (#9 — never blank a basket for want of history) but it must be SAID, per run and
+    right behavior (#9 â€” never blank a basket for want of history) but it must be SAID, per run and
     quantitatively, in the F11 voice: a recompute, never the recorded call."""
     note = "2 of 5 replayed theses recomputed on TODAY's basket for 300 session(s) — none existed"
     snap = _build([], {_TID: []}, record_began=None)
@@ -233,8 +233,8 @@ def test_the_banner_NAMES_the_fallback_when_a_thesis_recomputed_on_todays_basket
 
 def test_an_artifact_written_BEFORE_F4_still_validates():
     """The panel reads whatever `latest.json` is on disk, and the operator's newest one predates this
-    change. The two fields are DEFAULTED so an old artifact parses to "nothing to report" — the honest
-    value for a run that could not have known — instead of failing validation and blanking the panel
+    change. The two fields are DEFAULTED so an old artifact parses to "nothing to report" â€” the honest
+    value for a run that could not have known â€” instead of failing validation and blanking the panel
     (`available:false` is supposed to mean "no artifact", never "a schema moved")."""
     from scoreboard.schema import ReplaySnapshot  # local, matching this file's own convention
 
