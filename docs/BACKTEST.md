@@ -223,12 +223,32 @@ rather than a new one.
 
 **The follow-ups, in the order the measurements put them:**
 
-1. **Benchmark the memo first.** The basket prefetch is the whole win — 2,935 queries/session → 8. It is
-   done (B5a).
-2. **The event-layer cache second, and it is now SECOND-ORDER.** At 8.3 ms per member-session the detector
-   pass is cheap enough that a full re-run is minutes. The cache earns its keep on the NULLS and on
-   multi-variant sweeps, not on the base run — and the nulls are the current bottleneck: **269 s vs 18 s of
-   replay** on the measured run. Benchmark the memo against the nulls before building the cache.
+1. **The PIT's basket prefetch first.** 2,935 queries/session → 8, MEASURED 25.5×. Done (B5a).
+2. **The `RealizedPrices` TAPE MEMO second** — done (M1). This was recorded here as "the benchmark memo",
+   and that name was wrong against the code: `_BasketBenchmark` *already* memoizes on
+   `(thesis, entry, exit)`, and it can never hit under the timing null, because that null draws a
+   **different random entry date on every draw** — so every call is a fresh key and a fresh miss. The cost
+   was one level down, in `RealizedPrices`, which had no cache at all and issued **two DuckDB queries per
+   priced window**. A null draw prices the name once and then its whole basket for the benchmark, so the
+   per-episode count is `2·K·M + 4K + 2M` (K draws, basket size M) — about **2,374 queries for one
+   episode** at K=5 on a 196-name basket, which is why the nulls took **658 s at K=5 on a two-week run**
+   against seconds of scoring. Caching each security's tape once and slicing it by bisect makes a whole
+   pass cost **one query per security touched**. MEASURED on the M1 fixture: **662 → 8 tape reads, 83×
+   fewer** at 6 episodes, K=5, basket 8 — and the ratio grows with M, so that is a floor. Byte-identical
+   artifacts by test, against the pre-memo reader kept verbatim as the oracle.
+3. **The event-layer cache third, and it is still SECOND-ORDER.** At 8.3 ms per member-session the detector
+   pass is cheap enough that a full re-run is minutes. The cache earns its keep on multi-variant sweeps
+   rather than on the base run. Re-measure after M1 before building it — the term it would attack was
+   never the dominant one.
+
+**The null phase is SERIAL, and `--workers` does not touch it.** MEASURED on the year run: the worker pool
+covers the replay phase only (`backtest/parallel.py`), and `draw_nulls` then runs on the main process with
+no pool. So the wall clock of one run is `export + replay/workers + nulls(serial)`, and before M1 the last
+term dominated. Parallelizing the nulls is possible — the seed is already derived per episode from
+`(seed, thesis, security, arm_date)` precisely so that adding an episode cannot reshuffle another's draws —
+but it should partition **by thesis**, not by episode, or each worker re-pays `_BasketBenchmark`'s
+per-member cost. It is the second lever and bounded by cores (MEASURED ~2.8 usable on this box); the memo
+was worth more than an order of magnitude more.
 
 **An honesty note on a discarded number.** The first prefetch leg reported *35×* and a snapshot mismatch. The
 cause was the probe, not the design: `replay/export.py` writes `uuid` columns as VARCHAR, so the prefetch
@@ -307,8 +327,13 @@ low end asserts "episodes exist" will fail for a correct reason.
   was left out instead of silently seeing nothing excluded and then failing on a missing file. Accepted as
   handled rather than renamed: the two names are load-bearing in B2's tests and in the store's own layout.
 - **Sweeps are latest-only** (above).
-- **The event-layer cache is unbuilt** (above) — deliberately, and the benchmark order is recorded so the
-  decision can be revisited with numbers rather than re-argued.
+- **The event-layer cache is unbuilt** (above) — deliberately, and the measurement order is recorded so the
+  decision can be revisited with numbers rather than re-argued. The nulls pool is likewise unbuilt, and
+  deliberately second: see the note under the cost follow-ups.
+- **A 1-year, 12-thesis, public-clock run at 6 workers / K=5 did not finish in 3h40m** (MEASURED, before
+  M1 — a lower bound, not a timing; the run was killed, not crashed). The unit of work is therefore a
+  sub-window, and the cost model to size any pass from is
+  `export + replay/workers + nulls(serial)` — see the follow-ups above.
 - **Baskets are only partially point-in-time.** `basket_snapshot` history begins 2026-09-15; earlier windows
   replay on today's basket. The manifest reports this per thesis and QUANTITATIVELY (fallback days out of
   total days), because a thesis that fell back for 2 sessions of 300 is a different artifact from one that
