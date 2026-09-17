@@ -122,6 +122,40 @@
    meters (purity 3-4, runway all 4, dilution all "—", catalysts 0-2) — honest, but it doesn't show the
    meters *discriminating*. Add a varied name (a lower-purity *adjacent*, a tight-runway one, or a
    convert-heavy one) so the demo actually demonstrates the scoring's value. Demo data, not a code change.
+8. **The computed revenue re-acceleration detector is the single largest source of arms `[FILED 2026-09-16;
+   the backtest's H1 is the instrument]`.** `signals/revenue_acceleration.py` (computed from XBRL, graded
+   CORE by rule R6) carries **465** of 969 armed member-nights, against **403** carrying an insider buy —
+   overlapping counts, with 70 carrying both. Of the arms carrying revenue re-acceleration **and no insider
+   buy (395)**, **213 (54%) were momentum-only flip entries**. The ratified `fact_catalyst` it is often
+   mistaken for holds 6 rows and is the sole trigger on 16 arms.
+
+   *(MEASURED on the honest record — non-reconstructed rows, counted per armed member-night, on the dev copy
+   of prod at the 2026-09-14 record edge. **The counts move nightly — re-measure before quoting them.** Prod
+   was already a night ahead at 989 rows when this was written. Every figure above names the set it counts:
+   an earlier draft of this item reported "320 insider-only / 403 catalyst-only / 221 (55%) momentum-only"
+   with no snapshot and no definition of "only", and those did not reproduce — 403 is the ANY-insider count,
+   not a catalyst-only one, and the exclusive slices differ by whether an activist stake is also excluded
+   (insider-and-not-catalyst 333, or 320 once activist is excluded too). A count without its basis is not a
+   measurement.)*
+
+   On a 160-name basket a fundamentals screen is broad by nature (this one covered roughly 13–27% of each
+   large basket on the earlier pass), and breadth is what turns "conviction + confirmation" into a
+   basket-wide arm. The candidate changes — demote it to `flip`; reclassify it as a confirmation kind rather
+   than a Key-1 conviction; require a volume-backed core confirmation when Key 1 is *computed* rather than
+   *ratified* — are the backtest's H1. **Nothing changes live.** The record cannot
+   evaluate a dial change (it carries no policy fingerprint — that is exactly what the `calls.config_hash` /
+   `run_kind` columns exist to fix), and retuning first would be the assume-don't-test move this agenda
+   exists to avoid. *(`backend/signals/revenue_acceleration.py`; rules R6/R7 in `docs/CALL_LOGIC.md`.)*
+9. **The recorded `TriggerRef` carries no `type`, so a computed catalyst and a ratified one are
+   distinguishable only by a label prefix `[FILED 2026-09-16; behind the re-record churn gate]`.**
+   `TriggerRef` (`domain/call.py`) is `{label, kind, grade, event_date, security_id, sources}`. The computed
+   revenue detector deliberately reuses `kind=catalyst` with `type=earnings` (R7 — "no new Kind, so no
+   OpenAPI change"), but `type` never reaches the card, so on the record a fundamentals screen and a ratified
+   DOE award look alike. Carrying `type` on `TriggerRef` would fix it and **changes the card**, which
+   re-records every thesis holding a catalyst trigger through `record_if_changed`'s substance compare — the
+   same churn gate the 2026-09-15 expression reword shipped behind. Filed, not built: ship it only on the
+   back of a clean nightly pass. *(`backend/domain/call.py`; the gate is
+   `backend/repositories/calls_repo._canonical`.)*
 
 ## C. Deferred builds (the sequenced plan is `docs/ROADMAP.md`)
 
