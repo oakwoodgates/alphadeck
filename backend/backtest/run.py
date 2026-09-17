@@ -75,6 +75,7 @@ def execute(
     pin: datetime,
     cfg: CallConfig = DEFAULT_CONFIG,
     overlay_path: str | None = None,
+    mirror_dir: str | Path | None = None,
     hypothesis: str | None = None,
     decision_rule: str | None = None,
     regime: str | None = None,
@@ -91,12 +92,19 @@ def execute(
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
     timings: dict[str, float] = {}
+    # ONE FROZEN MIRROR, optionally SHARED (B7). A sweep exports once and points every variant at the same
+    # Parquet files, which is what makes a metric delta attributable to the dial rather than to the tape
+    # moving underneath it -- `replay/compare.py` has held that discipline since the first sweep. The run
+    # directory then holds its outputs but no copy of the facts, and `mirror.hash` in the manifest is what
+    # ties them together: two runs quoting one mirror hash provably swept the same facts.
+    mirror = Path(mirror_dir) if mirror_dir else out
     t0 = time.perf_counter()
-    export_snapshot(conn, out, tenant_id=tenant_id)
+    if mirror_dir is None:
+        export_snapshot(conn, out, tenant_id=tenant_id)
     timings["export_s"] = round(time.perf_counter() - t0, 2)
 
     t0 = time.perf_counter()
-    con = connect_mirror(out)
+    con = connect_mirror(mirror)
     timings["connect_mirror_s"] = round(time.perf_counter() - t0, 2)
     try:
         theses = {t.id: t for t in thesis_repo.list_all(conn)}
@@ -176,7 +184,7 @@ def execute(
             overlay_diff=overlay_diff(cfg),
             overlay_path=overlay_path,
             theses=entries,
-            mirror=mf.MirrorInfo(hash=mf.mirror_hash(out)),
+            mirror=mf.MirrorInfo(hash=mf.mirror_hash(mirror)),
             hypothesis=hypothesis,
             decision_rule=decision_rule,
             regime=regime,
