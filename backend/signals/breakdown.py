@@ -242,8 +242,15 @@ def detect_flip(
 
     MASTER SWITCH (``breakdown_dearm_enabled``) — **DEFAULT ON since 2026-08-15** (the same gate as
     ``detect_core`` — see it); explicitly OFF it no-ops and the live app emits no flip-breakdown. The
-    pure ``flip_score`` is UNGATED."""
-    if not cfg.breakdown_dearm_enabled:
+    pure ``flip_score`` is UNGATED.
+
+    SCOPE (``breakdown_dearm_scope``, DORMANT — default ``"all"``, byte-identical): ``"core_only"`` keeps
+    the structural 200d de-arm and no-ops THIS one, so H3 can measure the fast flip de-arm's contribution
+    on its own. The gate sits HERE, beside the master switch, for the master switch's own reason: a
+    suppressed breakdown never enters the event stream, so it leaves no counter-case and no confidence
+    haircut either. Suppressing it in the assembler instead would de-arm nothing while still darkening the
+    card — a third behavior nobody asked to measure."""
+    if not cfg.breakdown_dearm_enabled or cfg.breakdown_dearm_scope == "core_only":
         return None
     bars = pit.price_history(security_id, lookback_days=cfg.breakout_lookback_days)
     return flip_score(bars, security_id, asof, cfg)

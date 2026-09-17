@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -53,6 +54,28 @@ class CallConfig(DomainModel):
     Start conservative. These are starting defaults to calibrate against real calls
     (CALL_LOGIC §2/§3/§7), not claims of precision. The block-vs-penalize behavior of the
     risk-veto is fixed; only its severity threshold is calibrated.
+
+    **DORMANT backtest hypothesis dials.** Four fields here exist so the backtest can ASK a question that
+    would otherwise need a code edit, and every one of them DEFAULTS TO TODAY'S BEHAVIOR — byte-identical
+    goldens, no live change whatsoever until an overlay moves one:
+
+    - ``revenue_accel_grade``                              (H1 leg 1) — the computed screen's grade
+    - ``revenue_accel_key``                                (H1 leg 2) — Key 1 or Key 2
+    - ``computed_conviction_requires_core_confirmation``   (H1 leg 3) — a screen needs volume backing
+    - ``breakdown_dearm_scope``                            (H3)       — both de-arms, or core only
+
+    They follow the ``insider_10b5_1_buy_weight`` precedent: land the dial with today's value, measure on
+    the lab, and flip only on a pre-registered pass plus operator sign-off. Promotion is never part of the
+    work that adds the dial.
+
+    **What adding them does on prod, stated precisely.** ``config_hash`` covers every declared field, so
+    the fingerprint CHANGES at the deploy even though no call changes — for one release the column reads
+    as a policy change when the policy did not move. It does NOT cause a re-record storm: F1 deliberately
+    stamps the hash on the ``calls`` row BESIDE the card and never inside it, and ``record_if_changed``
+    compares only the card (``repositories/calls_repo._canonical``), so an unchanged call still appends
+    nothing. Rows written before the deploy keep the old hash; the next genuine append carries the new one.
+    Any change to this model's SHAPE has that property — it is the cost of the fingerprint being complete,
+    which is what makes it trustworthy the rest of the time.
     """
 
     # --- state transitions (§2) ---
@@ -192,6 +215,48 @@ class CallConfig(DomainModel):
     # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
     # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.
     revenue_accel_alpha_liveness_days: int = 180
+    # **DORMANT — backtest hypothesis dial (H1 leg 1); the default IS today.** The call-strength class the
+    # revenue re-acceleration detector emits. R6 fixed it at CORE inline; this lifts that choice onto the
+    # config so H1 can ask whether a COMPUTED fundamentals screen should supply a CORE Key 1 at all.
+    # Motivating measurement (backtest doc §4.2, dev copy at the 2026-09-14 record edge): revenue
+    # re-acceleration is the single largest source of arms — 465 of 969 armed member-nights, ahead of the
+    # insider buy's 403 — because a fundamentals screen is broad by nature (13-27% of each big basket).
+    # The score follows the grade through the SAME pair `catalyst_conviction` uses (0.9 / 0.5), which is
+    # the calibration this detector's own comment already says it mirrors — not a new number.
+    # NOT a horizon change: demoting to flip leaves `revenue_accel_alpha_liveness_days` alone (R8 decouples
+    # liveness from grade here), so H1 leg 1 and H5's horizon sweep stay separable levers.
+    # DETECTOR dial (read in signals/revenue_acceleration.py).
+    revenue_accel_grade: Grade = Grade.CORE
+    # **DORMANT — backtest hypothesis dial (H1 leg 2); the default IS today.** Which KEY a revenue
+    # re-acceleration event turns: `conviction` (Key 1, today) or `confirmation` (Key 2).
+    #
+    # Why a targeted dial rather than moving `Kind.CATALYST` between `conviction_kinds` and
+    # `confirmation_kinds`: THREE detectors emit that kind — `catalyst_conviction` (operator-ratified),
+    # `corporate_catalyst` (8-K item codes) and `revenue_acceleration` (this computed screen) — so moving
+    # the kind would move all three and the hypothesis could not be isolated. The event is identified by
+    # `SignalEvent.detector`, a marker it already carries and which never reaches the wire (`TriggerRef`
+    # has no detector field), so this needs no schema, enum or card change.
+    #
+    # SCOPE, stated because it is a real boundary: the reclassification applies to the CALL COMPOSITION
+    # (`calls/assembler.py`). It deliberately does NOT rewrite M5b's theme-broadcast own-conviction check
+    # (`signals/theme_conviction.py` rule 4), which asks a different question — "does this member have a
+    # conviction of its own?" — and is a separate hypothesis. The broadcast is in any case inert on the
+    # operator's baskets (one ratified theme fact exists, on a 4-name seed).
+    # ASSEMBLER dial (read in calls/assembler.py).
+    revenue_accel_key: Literal["conviction", "confirmation"] = "conviction"
+    # **DORMANT — backtest hypothesis dial (H1 leg 3); the default IS today.** When True, a member whose
+    # ONLY live conviction is a COMPUTED screen arms solely against a volume-backed CORE confirmation; a
+    # momentum-only (flip) breakout is no longer enough for it. A member that also carries a named-actor
+    # or operator-ratified conviction (an insider cluster, a 13D, a ratified catalyst) is UNTOUCHED.
+    #
+    # "Computed" is defined by PROVENANCE SOURCE, in one registry with a test that refuses to leave a new
+    # conviction-emitting detector unclassified — `signals/conviction_source.py`. Source, not label prefix:
+    # the ratified catalyst's label is free operator text with no prefix to match on, and a label is copy
+    # that gets edited (a CallCard expression reword shipped this quarter).
+    # Motivating measurement: of the 395 arms carrying revenue re-acceleration without an insider buy,
+    # 213 (54%) were momentum-only flip entries.
+    # ASSEMBLER dial (read in calls/assembler.py).
+    computed_conviction_requires_core_confirmation: bool = False
 
     # --- DOE/USASpending automated feed grade rule (#10 feed) — [PROPOSED], confirm at review ---
     # A binding DOE CONTRACT obligating at least this much = a `core` catalyst (contracted revenue is real
@@ -345,6 +410,20 @@ class CallConfig(DomainModel):
     # the one deeper re-verdict is a thesis armed ONLY on given-back flip breakouts (starter -> not_yet). Set
     # False to disable; replay.run's --breakdown-dearm / ALPHADECK_BREAKDOWN_DEARM still force it on for the backtest.
     breakdown_dearm_enabled: bool = True
+    # **DORMANT — backtest hypothesis dial (H3); the default IS today.** WHICH de-arm runs, once the master
+    # switch above is on: `all` (both, today) or `core_only` (the structural 200d break de-arms a core hold;
+    # the fast 8-day flip de-arm no-ops). OFF entirely remains `breakdown_dearm_enabled = False` — this dial
+    # never means off, so the two switches read as "whether" and "which" rather than overlapping.
+    #
+    # The scope gate lives in `detect_flip`, beside the master switch and for the same reason: a suppressed
+    # flip breakdown never ENTERS the event stream, so it also leaves no counter-case and no confidence
+    # haircut. Gating it in the assembler instead would de-arm nothing while still darkening the card, which
+    # is a third behavior nobody asked to measure.
+    # Motivating measurement (backtest doc §4.4): on 2026-08-18 breakdown risk fired on 58 of AI Memory's 90
+    # names in one night, the day after the de-arm defaulted ON, leaving 9 names armed with both keys live.
+    # H3 asks whether that pruning helps or harms.
+    # DETECTOR dial (read in signals/breakdown.py).
+    breakdown_dearm_scope: Literal["all", "core_only"] = "all"
 
     # --- insider_sell (RISK — Band 03 S1): clustered discretionary open-market selling ---
     # The risk-side mirror of insider_conviction: Form 4 code-S sales, screened (10b5-1 planned out,

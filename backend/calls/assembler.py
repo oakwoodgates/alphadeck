@@ -13,9 +13,69 @@ from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
 from signals.common import entry_signal_is_live
+from signals.conviction_source import is_computed_conviction
+from signals.revenue_acceleration import DETECTOR_NAME as REVENUE_ACCEL_DETECTOR
 
 # The LLM (M4b) supplies counter-case prose via this hook; it never sets state/verdict/grade/triggers.
 CounterCaseFn = Callable[[Thesis, list[SignalEvent], list[str], list[str]], str]
+
+
+# --- which KEY does an event turn? (the two-key partition, §2) -------------------------------------
+# Kind membership is the rule, with ONE targeted exception the backtest can flip (`revenue_accel_key`,
+# DORMANT — default `conviction`, byte-identical). The exception is keyed on `SignalEvent.detector`
+# rather than on the kind, because THREE detectors emit `Kind.CATALYST` — the operator-ratified catalyst,
+# the 8-K item code, and this computed screen — so moving the KIND between the two sets would move all
+# three and H1's hypothesis could not be isolated. `detector` is a marker the event already carries and
+# which never reaches the wire (`TriggerRef` has no detector field), so no schema, enum or card changes.
+#
+# Every kind-membership read in this module goes through these two, so the partition has ONE definition
+# and a future exception cannot be added to four of the ten sites.
+
+
+def _is_conviction(e: SignalEvent, cfg: CallConfig) -> bool:
+    """Does this event turn Key 1 (conviction)?"""
+    if e.detector == REVENUE_ACCEL_DETECTOR:
+        return cfg.revenue_accel_key == "conviction"
+    return e.kind in cfg.conviction_kinds
+
+
+def _is_confirmation(e: SignalEvent, cfg: CallConfig) -> bool:
+    """Does this event turn Key 2 (confirmation)?"""
+    if e.detector == REVENUE_ACCEL_DETECTOR:
+        return cfg.revenue_accel_key == "confirmation"
+    return e.kind in cfg.confirmation_kinds
+
+
+def _conviction_events(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig):
+    return [e for e in live_entry if e.security_id == sec and _is_conviction(e, cfg)]
+
+
+def _confirmation_events(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig):
+    return [e for e in live_entry if e.security_id == sec and _is_confirmation(e, cfg)]
+
+
+def _key1_requirement_met(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig) -> bool:
+    """H1 leg 3 (``computed_conviction_requires_core_confirmation``, DORMANT — default False, so this
+    returns True before reading anything and the call path is byte-identical).
+
+    When ON: a member whose ONLY live conviction is a COMPUTED screen (a rule fired over reported numbers
+    — see ``signals/conviction_source.py``) arms solely against a volume-backed CORE confirmation. A
+    member that also carries a named-actor or operator-ratified conviction is untouched, which is the
+    point: the hypothesis is about what a SCREEN is worth as a sole Key 1, not about raising the bar
+    everywhere.
+
+    Reads the CONFIRMATION grade, not the member's entry grade, because the requirement is specifically
+    "volume-backed" — ``volume_breakout`` grades CORE on volume backing and FLIP on momentum alone, and
+    it is the momentum-only half (213 of the 395 insider-less revenue-accel arms) the hypothesis suspects.
+    """
+    if not cfg.computed_conviction_requires_core_confirmation:
+        return True
+    conv = _conviction_events(sec, live_entry, cfg)
+    if not conv or any(not is_computed_conviction(e) for e in conv):
+        return (
+            True  # no conviction at all, or a non-computed one present -> the ordinary rule stands
+        )
+    return any(e.grade is Grade.CORE for e in _confirmation_events(sec, live_entry, cfg))
 
 
 def assemble_call(
@@ -49,8 +109,8 @@ def assemble_call(
     # Two keys + CO-LOCATION (§2): a conviction trigger only warms; arming needs a confirmation on
     # the SAME security. Group/sector ("group breakout") confirmation across a basket is a separate,
     # explicitly-labeled mode (M5) — not folded into this single-name arm.
-    conv_secs = {e.security_id for e in live_entry if e.kind in cfg.conviction_kinds}
-    conf_secs = {e.security_id for e in live_entry if e.kind in cfg.confirmation_kinds}
+    conv_secs = {e.security_id for e in live_entry if _is_conviction(e, cfg)}
+    conf_secs = {e.security_id for e in live_entry if _is_confirmation(e, cfg)}
     armed_secs = conv_secs & conf_secs
     conviction_on = bool(conv_secs)
     confirmation_on = bool(conf_secs)
@@ -60,7 +120,11 @@ def assemble_call(
     blocked_secs = {r.security_id for r in block_risks if r.score >= cfg.risk_block_severity}
     # The ACTIONABLE armed members = co-located AND not risk-blocked (conviction alone can arm when the
     # config doesn't require confirmation). Ranked for the menu + the headline; the headline is the top.
-    arming_pool = armed_secs if cfg.arming_requires_confirmation else (armed_secs or conv_secs)
+    pool = armed_secs if cfg.arming_requires_confirmation else (armed_secs or conv_secs)
+    # H1 leg 3, DORMANT (default False -> the comprehension is the identity). Applied to the POOL rather
+    # than to `armed_secs` so it also covers the conviction-alone branch above: a computed screen with no
+    # volume-backed confirmation must not arm under EITHER arming mode, or the two dials would interact.
+    arming_pool = {s for s in pool if _key1_requirement_met(s, live_entry, cfg)}
     # Grade-aware structural de-arm (R12), POST-DATING the arm: drop a member whose ENTRY grade a severe
     # breakdown targets AND whose break fired strictly AFTER the arm formed (a give-back after the entry,
     # never a break already true at the arming bar — the UNH bounce-inside-a-downtrend case). A core
@@ -84,12 +148,12 @@ def assemble_call(
     conviction_events = [
         e
         for e in live_entry
-        if e.kind in cfg.conviction_kinds and (scope is None or e.security_id == scope)
+        if _is_conviction(e, cfg) and (scope is None or e.security_id == scope)
     ]
     confirmation_events = [
         e
         for e in live_entry
-        if e.kind in cfg.confirmation_kinds and (scope is None or e.security_id == scope)
+        if _is_confirmation(e, cfg) and (scope is None or e.security_id == scope)
     ]
     conviction_grade = call_grade(conviction_events)
     confirmation_grade = call_grade(confirmation_events)
@@ -294,20 +358,23 @@ def _live(e: SignalEvent, asof: date) -> bool:
     return entry_signal_is_live(e.asof, e.alpha_liveness_days, asof)
 
 
-def _member_events(sec: UUID, live_entry: list[SignalEvent], kinds) -> list[SignalEvent]:
-    return [e for e in live_entry if e.kind in kinds and e.security_id == sec]
+# (`_member_events(sec, live_entry, kinds)` lived here. Every caller now goes through
+# `_conviction_events` / `_confirmation_events` at the top of this module, so that the two-key partition
+# has ONE definition and the `revenue_accel_key` exception cannot be applied to some sites and not others.
+# Left as a note rather than kept as an unused helper: a kind-membership shortcut sitting in scope is an
+# invitation to bypass the classifiers.)
 
 
 def _confirmation_grade(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig) -> Grade | None:
-    return call_grade(_member_events(sec, live_entry, cfg.confirmation_kinds))
+    return call_grade(_confirmation_events(sec, live_entry, cfg))
 
 
 def _entry_grade(sec: UUID, live_entry: list[SignalEvent], cfg: CallConfig) -> Grade | None:
     """The member's ENTRY grade — the weaker of its co-located conviction / confirmation keys (§4). The
     grade a structural breakdown must MATCH (``dearm_grade ==``) to de-arm the member (R12)."""
     return weaker_grade(
-        call_grade(_member_events(sec, live_entry, cfg.conviction_kinds)),
-        call_grade(_member_events(sec, live_entry, cfg.confirmation_kinds)),
+        call_grade(_conviction_events(sec, live_entry, cfg)),
+        call_grade(_confirmation_events(sec, live_entry, cfg)),
     )
 
 
@@ -350,8 +417,8 @@ def rank_members(
     """
 
     def key(sec: UUID) -> tuple[bool, int, bool, int, float, int]:
-        conv = _member_events(sec, live_entry, cfg.conviction_kinds)
-        conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
+        conv = _conviction_events(sec, live_entry, cfg)
+        conf = _confirmation_events(sec, live_entry, cfg)
         exit_by = _clock(conv)
         # liveness runway in days; no liveness window (None) = effectively unbounded (date.max) -> "fresh"
         runway_days = ((exit_by or date.max) - asof).days
@@ -359,7 +426,10 @@ def rank_members(
         conviction_score = max((e.score for e in conv), default=0)
         # own-above-theme (M5b): a name with its OWN conviction outranks a theme-armed one within the
         # same band + grade. Keyed on the conviction SOURCE (a property), not the kind (the through-line).
-        is_own = bool(_member_events(sec, live_entry, cfg.own_conviction_kinds))
+        # Read off `conv` (the member's CLASSIFIED convictions) rather than re-scanning `live_entry`, so an
+        # event reclassified out of Key 1 cannot still count as "its own conviction" here. Identical under
+        # the default, since `own_conviction_kinds` is a subset of `conviction_kinds`.
+        is_own = any(e.kind in cfg.own_conviction_kinds for e in conv)
         return (
             is_fresh,
             grade_rank(weaker_grade(call_grade(conv), call_grade(conf))),
@@ -382,8 +452,8 @@ def _member_call(
     """One basket member's own call (M5 Part A). An ARMED member (co-located + not risk-blocked) gets a
     verdict + confidence; a confirmation-only "watch" member gets its breakout grade + clock but no verdict.
     Reuses the same scoped helpers as the thesis-level call — no new arming logic."""
-    conv = _member_events(sec, live_entry, cfg.conviction_kinds)
-    conf = _member_events(sec, live_entry, cfg.confirmation_kinds)
+    conv = _conviction_events(sec, live_entry, cfg)
+    conf = _confirmation_events(sec, live_entry, cfg)
     conviction_grade = call_grade(conv)
     confirmation_grade = call_grade(conf)
     # theme-armed (M5b): this member's conviction is the theme FALLBACK, not its own — a display flag
@@ -400,7 +470,12 @@ def _member_call(
         or _is_dearming(r, live_entry, cfg)
         for r in member_risk
     )
-    armed = bool(conv) and bool(conf) and not blocked
+    # H1 leg 3, DORMANT (default False -> `_key1_requirement_met` returns True before reading anything).
+    # Applied here as well as at the thesis level so the per-member menu and the thesis headline can never
+    # disagree about whether a name armed.
+    armed = (
+        bool(conv) and bool(conf) and not blocked and _key1_requirement_met(sec, live_entry, cfg)
+    )
 
     exit_by = _clock(conv)
     entry_grade: Grade | None = None
