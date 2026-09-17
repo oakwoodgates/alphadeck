@@ -155,6 +155,12 @@ class BacktestManifest(BaseModel):
     theses: list[ThesisEntry] = Field(default_factory=list)
     mirror: MirrorInfo
 
+    # THE NULLS' OWN IDENTITY (B4). A null model is EVIDENCE, so it has to be re-derivable from the
+    # manifest alone: K draws per episode from this seed, with each episode drawing from a sub-seed of
+    # (seed, thesis, security, arm_date) so that adding an episode never reshuffles the others.
+    null_draws: int = 0
+    null_seed: str = ""
+
     hypothesis: str | None = None
     decision_rule: str | None = None
     regime: str | None = None

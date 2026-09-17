@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
@@ -115,6 +116,51 @@ class RealizedPrices:
             ).fetchone()
             self._market_edge = rows[0] if rows else None
         return self._market_edge
+
+
+@dataclass(frozen=True)
+class WindowScore:
+    """One priced window: where it entered, where it left, and what it returned.
+
+    The ONE place a forward return is computed, so a null draw and a real arm episode cannot drift apart.
+    That matters more than it looks: a null model whose arithmetic differs from the thing it is a null FOR
+    measures the difference between two scorers, not between a decision and chance."""
+
+    entry_date: date
+    entry_close: float
+    exit_date: date
+    exit_close: float
+    forward_return: float
+    bars: list[dict]
+
+
+def score_window(
+    realized: "RealizedPrices", security_id: UUID, entry_date: date, exit_date: date
+) -> WindowScore | None:
+    """Price ``[entry_date, exit_date]`` for one name, or ``None`` when the tape cannot support it.
+
+    The exit is the last bar INSIDE the window, never the last bar anywhere <= ``exit_date`` -- a read
+    unbounded below once paired a LATER entry with an EARLIER exit and measured a real move backwards
+    (see ``score_episode``). An empty window has no exit to report, and ``None`` is the honest answer
+    rather than a signed number.
+    """
+    entry = realized.first_close_on_or_after(security_id, entry_date)
+    if entry is None:
+        return None
+    _, entry_close = entry
+    if entry_close == 0:
+        return None
+    bars = realized.bars_between(security_id, entry_date, exit_date)
+    if not bars:
+        return None
+    return WindowScore(
+        entry_date=entry[0],
+        entry_close=entry_close,
+        exit_date=bars[-1]["d"],
+        exit_close=bars[-1]["close"],
+        forward_return=bars[-1]["close"] / entry_close - 1,
+        bars=bars,
+    )
 
 
 def _extreme(

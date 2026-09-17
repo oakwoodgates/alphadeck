@@ -135,9 +135,13 @@ def run_dir(run_id: str, root: str | Path | None = None) -> Path | None:
     return path if path.is_dir() else None
 
 
-def write_metrics(run_dir_path: str | Path, payload: Any) -> Path:
-    """Write ``metrics.json`` into the run directory (a Pydantic model or a plain mapping)."""
-    path = Path(run_dir_path) / "metrics.json"
+def write_metrics(run_dir_path: str | Path, payload: Any, name: str = "metrics.json") -> Path:
+    """Write one JSON artifact into the run directory (a Pydantic model or a plain mapping).
+
+    ``name`` because a run now writes two: ``metrics.json`` (the engine's seven claim-tied metrics) and
+    ``pooled.json`` (the algorithm-level view with its nulls). Same writer so both get the same encoding
+    and line-ending discipline rather than one of them drifting."""
+    path = Path(run_dir_path) / name
     text = (
         payload.model_dump_json(indent=2)
         if isinstance(payload, BaseModel)
