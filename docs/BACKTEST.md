@@ -241,9 +241,12 @@ rather than a new one.
    rather than on the base run. Re-measure after M1 before building it — the term it would attack was
    never the dominant one.
 
-**The null phase is SERIAL, and `--workers` does not touch it.** MEASURED on the year run: the worker pool
-covers the replay phase only (`backtest/parallel.py`), and `draw_nulls` then runs on the main process with
-no pool. So the wall clock of one run is `export + replay/workers + nulls(serial)`, and before M1 the last
+**The null phase is SERIAL, and `--workers` does not touch it.** MEASURED on the live six-week run's
+process tree — the mirror export finished at 22:49:12Z and what remained was ONE python process with no
+pool children, the `ProcessPoolExecutor` in `backtest/parallel.py` having already come and gone — and
+confirmed by reading `backtest/run.py` (the `draw_nulls` call is on the main process, with no pool and no
+workers argument). The year run is INFERRED to have behaved the same way, from the same code rather than
+from its own process tree. So the wall clock of one run is `export + replay/workers + nulls(serial)`, and before M1 the last
 term dominated. Parallelizing the nulls is possible — the seed is already derived per episode from
 `(seed, thesis, security, arm_date)` precisely so that adding an episode cannot reshuffle another's draws —
 but it should partition **by thesis**, not by episode, or each worker re-pays `_BasketBenchmark`'s

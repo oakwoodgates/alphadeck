@@ -144,12 +144,13 @@ class RealizedPrices:
         """The date of this name's LAST available bar at or after ``on_or_after`` — where its price
         tape ends, as this reader can see it. ``None`` when the tape holds no such bar.
 
-        Built on ``_closes``, so it inherits THIS reader's shape unchanged: forward-unbounded, no
-        asof/known_at cap, because the scoring reader is deliberately so. The Postgres twin's version
-        keeps that side's double cap for the same reason. Deriving both from each side's existing
-        ``_closes`` is what keeps them from being harmonized by accident — an ``ORDER BY d DESC LIMIT 1``
-        hand-written here is precisely where a cap gets forgotten, and a forgotten cap would let a bar
-        past the as-of prove that a horizon was covered (invariant #1)."""
+        Built on ``_window`` (this side's memoized reader since M1), so it inherits THIS reader's shape
+        unchanged: forward-unbounded, no asof/known_at cap, because the scoring reader is deliberately so.
+        The Postgres twin's version is built on ITS ``_closes`` and keeps that side's double cap for the
+        same reason. Deriving each from its own side's existing reader is what keeps the two from being
+        harmonized by accident — an ``ORDER BY d DESC LIMIT 1`` hand-written here is precisely where a cap
+        gets forgotten, and a forgotten cap would let a bar past the as-of prove that a horizon was
+        covered (invariant #1)."""
         rows = self._window(security_id, on_or_after, None)
         return rows[-1].d if rows else None
 

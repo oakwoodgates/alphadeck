@@ -128,7 +128,9 @@ def _security(db, ticker: str, *, seq: int) -> uuid.UUID:
         cur.execute(
             "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
             "VALUES (%s, %s, %s, %s, %s)",
-            (sid, DEFAULT_TENANT_ID, ticker, f"{abs(hash(ticker)) % 10**10:010d}", "2025-01-01"),
+            # the CIK comes from `seq`, NOT from hash(ticker): `hash` of a str is randomized per process
+            # (PYTHONHASHSEED), which would make a fixture that calls itself deterministic not be
+            (sid, DEFAULT_TENANT_ID, ticker, f"{seq:010d}", "2025-01-01"),
         )
     return sid
 
@@ -157,13 +159,49 @@ def _tape(db, sid: uuid.UUID, *, bars: int, base: float) -> None:
         )
 
 
+#: The bar that is CORRECTED in the fixture — same ``(security_id, d)``, a later ``recorded_at``, a
+#: different close and different wicks. It is what makes the dedup a TEST rather than an argument: the
+#: memo reads a security's whole tape in one query and slices it, so if dedup-then-slice ever stopped
+#: agreeing with slice-then-dedup, this is the row that would catch it.
+_CORRECTED_OFFSET = 30
+_CORRECTED_CLOSE = 999.5
+
+
+def _correct_bar(db, sid: uuid.UUID, d: date, *, close: float) -> None:
+    """Re-version one bar: the SAME ``(security_id, d)`` natural key, a LATER ``recorded_at``, different
+    close and different wicks. The reader must return this one and never the original."""
+    append_fact(
+        db,
+        "fact_price_eod",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "d": d,
+            "open": close - 1.0,
+            "high": close + 5.0,
+            "low": close - 5.0,
+            "close": close,
+            "volume": 4242,
+            "valid_from": d,
+            # LATER than the original's recorded_at, which is what makes it win the QUALIFY
+            "recorded_at": datetime(2026, 8, 1, tzinfo=timezone.utc),
+        },
+    )
+
+
 @pytest.fixture
 def basket(db, tmp_path):
     """A roster of 8 priced names over 120 bars, exported to a mirror. Small enough to be fast, wide
-    enough that the per-member benchmark cost (the term the memo kills) is actually visible."""
+    enough that the per-member benchmark cost (the term the memo kills) is actually visible.
+
+    ONE BAR IS RE-VERSIONED (see ``_CORRECTED_OFFSET``): ``DEV0`` carries a later-recorded correction on
+    day 30. Without it the whole "the QUALIFY dedup partitions by date, so filtering commutes with it"
+    argument would be asserted only in prose — every row would be its own latest version and a broken
+    memo would pass."""
     sids = [_security(db, f"DEV{i}", seq=i) for i in range(8)]
     for i, sid in enumerate(sids):
         _tape(db, sid, bars=120, base=100.0 + i)
+    _correct_bar(db, sids[0], _T0 + timedelta(days=_CORRECTED_OFFSET), close=_CORRECTED_CLOSE)
     db.commit()
     export_snapshot(db, tmp_path)
     con = connect_mirror(tmp_path)
@@ -256,16 +294,34 @@ def test_every_reader_method_answers_identically_including_the_edges(basket):
     hi, lo = _T0, _T0 + timedelta(days=30)
     assert memo.closes_between(sid, lo, hi) == pre.closes_between(sid, lo, hi) == []
 
+    # THE RE-VERSIONED BAR: agreeing with the oracle is not enough, because both could be wrong the same
+    # way. The corrected close is asserted directly — latest version wins, through the memo's one-query
+    # read and its slice, on the close AND on the wicks (`bars_between` reads different columns).
+    corrected = _T0 + timedelta(days=_CORRECTED_OFFSET)
+    assert memo.closes_between(sid, corrected, corrected) == [(corrected, _CORRECTED_CLOSE)]
+    bar = memo.bars_between(sid, corrected, corrected)[0]
+    assert bar["close"] == _CORRECTED_CLOSE
+    assert bar["high"] == _CORRECTED_CLOSE + 5.0 and bar["volume"] == 4242
+    assert memo.first_close_on_or_after(sid, corrected) == (corrected, _CORRECTED_CLOSE)
+    assert memo.last_close_through(sid, corrected) == (corrected, _CORRECTED_CLOSE)
 
-def test_a_security_with_no_tape_reads_empty_on_both(basket, db):
-    """A name the mirror never priced. The memo must cache the EMPTY answer rather than re-query it."""
+
+def test_a_security_with_no_tape_caches_the_EMPTY_answer(basket, db):
+    """A name the mirror never priced. The empty answer has to be cached like any other, or a basket
+    holding unpriced members would re-query them on every benchmark window — the exact cost this slice
+    removes, quietly surviving for the names most likely to appear in a wide basket."""
     sids, con = basket
     unpriced = _security(db, "NOTAPE", seq=99)
     db.commit()
-    memo, pre = RealizedPrices(con), _PreMemoRealizedPrices(con)
+    counting = _CountingConnection(con)
+    memo, pre = RealizedPrices(counting), _PreMemoRealizedPrices(con)
     assert memo.first_close_on_or_after(unpriced, _T0) is pre.first_close_on_or_after(unpriced, _T0)
     assert memo.closes_between(unpriced, _T0, _T0 + timedelta(days=30)) == []
     assert memo.tape_edge(unpriced, _T0) is None
+    for _ in range(20):
+        memo.first_close_on_or_after(unpriced, _T0)
+        memo.bars_between(unpriced, _T0, _T0 + timedelta(days=30))
+    assert counting.tape_reads == 1, counting.sql
 
 
 # --- (b) the query count ----------------------------------------------------------------------------
