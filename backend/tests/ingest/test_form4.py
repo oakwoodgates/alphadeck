@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -551,18 +551,59 @@ def test_the_live_path_leaves_recorded_at_at_now_even_when_a_row_is_REJECTED(db,
     """THE LIVE-PATH REGRESSION (invariant #1). The ingest must never backdate ``recorded_at`` — a fact
     ingested today has to be invisible to an as-of read pinned earlier — and a rejection must not disturb
     that for the rows that DO store. Asserted on the real filing, where one row is rejected mid-loop.
+
+    ONE CLOCK, NOT TWO. Both bounds come from the clock that STAMPS the column — Postgres — never from
+    ``datetime.now()`` on the host. The first draft of this test bracketed the ingest with the host clock
+    and failed 27 times in 100 consecutive runs on a dev box. The cause was MEASURED, not guessed, and it
+    is arithmetic rather than scheduling jitter — instrumenting 100 replays of this exact fixture shape:
+
+      * ``recorded_at`` equals Postgres ``now()`` to the microsecond in every one of the 100 replays — the
+        column default is ``now()`` (migration 0001) — and ``now()`` is the TRANSACTION-START instant, not
+        the statement instant. So the stamp lands at the EARLIEST moment of the ingest, a median 0.4-1.5 ms
+        after a host ``before`` captured immediately before it.
+      * the host and the container's Postgres are two different clocks, offset by a measured median
+        -124 microseconds (Postgres behind the host).
+
+    A sub-millisecond margin cannot survive a sub-millisecond offset, so the lower bound went legitimately
+    negative (to -0.76 ms) in 10 of those 100 replays — the ingest path was never at fault. The upper bound
+    never bit: the commit puts ~5 ms between the stamp and ``after``. The shape below then ran 100/100
+    clean where the host-clock shape ran 73/100.
+    ``tests/ingest/test_price_reversion.py::test_replay_before_the_reversion_still_sees_the_old_basis``
+    already pins its own bitemporal instant this way for the same reason; this mirrors it. Note the
+    ``commit()`` after reading the lower bound: it is load-bearing, because the ingest's transaction —
+    whose ``now()`` stamps ``recorded_at`` — must BEGIN strictly after the instant we read.
+
+    The bracket is not weakened by the move. It still pins ``recorded_at`` inside a few-millisecond window
+    around the ingest, so backdating by a microsecond still fails it. The second assertion then names the
+    failure mode a real backdating bug would actually produce — a stamp sitting on the FILING's own dates
+    instead of today's — which no clock can explain away.
     """
-    before = datetime.now(timezone.utc)
+    with db.cursor() as cur:
+        cur.execute("SELECT clock_timestamp() AS t")
+        before = cur.fetchone()["t"]
+    db.commit()  # so the ingest's transaction — whose now() stamps recorded_at — begins strictly later
+
     ingest_form4(db, security_id, _LSCC_REAL, "0001437749-24-004874")
     db.commit()
-    after = datetime.now(timezone.utc)
+
     with db.cursor() as cur:
-        cur.execute("SELECT recorded_at FROM fact_insider_txn")
-        stamps = [r["recorded_at"] for r in cur.fetchall()]
-    assert len(stamps) == 3
+        cur.execute("SELECT clock_timestamp() AS t, current_date AS today")
+        row = cur.fetchone()
+        after, today = row["t"], row["today"]
+        cur.execute("SELECT recorded_at, valid_from FROM fact_insider_txn")
+        rows = cur.fetchall()
+
+    assert len(rows) == 3
     assert all(
-        before <= s <= after for s in stamps
+        before <= r["recorded_at"] <= after for r in rows
     ), "recorded_at must be the DB's now(), never backdated"
+    # the shape a backdating bug leaves behind: the stamp follows the FILING instead of the ingest.
+    # These rows are dated 2024-02-17/18, so "today, and strictly later than the event" is the whole
+    # no-lookahead claim — an as-of read pinned before today cannot see them.
+    assert all(r["recorded_at"].date() >= today for r in rows), "recorded_at must be TODAY's ingest"
+    assert all(
+        r["recorded_at"].date() > r["valid_from"] for r in rows
+    ), "recorded_at must never collapse onto the transaction's own date"
 
 
 def test_a_clean_filing_rejects_nothing_and_prints_nothing(db, security_id, capsys):
