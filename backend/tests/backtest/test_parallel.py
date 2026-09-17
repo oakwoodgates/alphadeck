@@ -91,7 +91,8 @@ def test_one_worker_takes_the_serial_path_untouched(db, tmp_path):
 
 def test_the_default_worker_count_is_bounded(monkeypatch):
     """Capped at 6 -- the same bound the test suite settled on. Past that the shared Postgres roster reads
-    become the contended resource rather than the CPU, so more workers buy contention, not throughput."""
+    become the contended resource rather than the CPU, so more workers buy contention, not throughput.
+    """
     monkeypatch.setattr("backtest.parallel.os.cpu_count", lambda: 64)
     assert default_workers() == 6
     monkeypatch.setattr("backtest.parallel.os.cpu_count", lambda: 2)
