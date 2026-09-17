@@ -1490,6 +1490,13 @@ class ScoreboardReplayResponse(BaseModel):
     known_at_pin: str | None = None
     record_began: date | None = None
     window_overlaps_record: bool = False
+    # F4 — the ROSTER provenance of the replayed run: how many theses recomputed on TODAY's basket for want
+    # of a `basket_snapshot` reaching that far back, plus the backend-authored sentence. Defaulted, so an
+    # artifact written before F4 still serves (as "nothing to report" — the honest value for a run that
+    # could not have known). The note is already folded into `banner`; these carry it structured so a later
+    # surface can read the number without parsing prose.
+    roster_fallback_theses: int = 0
+    roster_source_note: str | None = None
     banner: str | None = None
     min_n: int = 0
     n_theses: int = 0

@@ -67,6 +67,8 @@ def build_snapshot(
     record_began: date | None,
     realized: _Realized | None = None,
     single_name_security: dict[UUID, UUID] | None = None,
+    roster_fallback_theses: int = 0,
+    roster_source_note: str | None = None,
 ) -> ReplaySnapshot:
     """Flatten a replay run into the artifact — pure (no DB, no duckdb, no clock).
 
@@ -122,10 +124,27 @@ def build_snapshot(
         single_name_security=single_name_security,
     )
     overlaps = record_began is not None and window_end >= record_began
+    # F4 — the roster sentence is now RUN-SPECIFIC, replacing the blanket "Baskets are not versioned".
+    # They ARE versioned now (`basket_snapshot`, read per session), so the permanent caveat had become
+    # false; what remains true is per-run and quantitative — which theses fell back to today's basket, and
+    # for how many sessions. Silence means every thesis replayed on a real point-in-time roster, which the
+    # blanket sentence could never say. `roster_source_note` is backend-authored (one authority, the
+    # `ingest_note` precedent) and speaks in the F11 voice: a recompute, never the recorded call.
+    # The note is composed lowercase (it also rides a run-report line mid-sentence), so it is
+    # sentence-cased HERE — it follows a full stop in the banner, and "…NOT the record. all 10 replayed
+    # theses…" reads as a broken sentence. First character only, NOT `str.capitalize()`, which lowercases
+    # the rest and would turn "TODAY's basket" into "today's basket" — destroying the emphasis that is the
+    # whole point of the word.
+    roster_clause = (
+        f" {roster_source_note[0].upper()}{roster_source_note[1:]}."
+        if roster_source_note
+        else " Rosters are point-in-time."
+    )
     banner = (
         f"REPLAYED — today's code + dials over historical facts (window {window_start} → "
-        f"{window_end}, pinned {pin.date()}); NOT the record. Baskets are not versioned "
-        f"(REPLAY.md known limitation). {len(eligible)} episodes eligible for metrics "
+        f"{window_end}, pinned {pin.date()}); NOT the record."
+        + roster_clause
+        + f" {len(eligible)} episodes eligible for metrics "
         f"(matured + non-censored; gate n<{MIN_N})."
         + (
             " WARNING: the window overlaps the forward record — arms may appear in both sections."
@@ -141,6 +160,8 @@ def build_snapshot(
         known_at_pin=pin.isoformat(),
         record_began=record_began,
         window_overlaps_record=overlaps,
+        roster_fallback_theses=roster_fallback_theses,
+        roster_source_note=roster_source_note,
         banner=banner,
         min_n=MIN_N,
         n_theses=len(theses),
@@ -211,7 +232,8 @@ def main() -> None:
             export_snapshot(conn, tmp)
             con = connect_mirror(tmp)
             try:
-                timeline = replay_all(conn, con, start=start, end=end, known_at=pin)
+                result = replay_all(conn, con, start=start, end=end, known_at=pin)
+                timeline = result.timelines
                 episodes = [ep for snaps in timeline.values() for ep in derive_episodes(snaps)]
                 realized = RealizedPrices(con)
                 scored = list(zip(episodes, score_episodes(episodes, realized), strict=True))
@@ -227,6 +249,11 @@ def main() -> None:
                     record_began=record_began,
                     realized=realized,
                     single_name_security=single_name,
+                    # F4 — the roster provenance rides from the harness onto the artifact, so the panel
+                    # can say which theses recomputed on today's basket rather than asserting a blanket
+                    # caveat that is no longer true.
+                    roster_fallback_theses=result.fallback_theses,
+                    roster_source_note=result.note(),
                 )
             finally:
                 con.close()

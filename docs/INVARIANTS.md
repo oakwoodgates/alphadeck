@@ -446,14 +446,28 @@ naively ingesting the 4/A both *double-count*), so it is **measure-first, MARK-d
 Measured prevalence (2026-07-17): 1,126 Form 4/A · 1.8% of Form 4s · 162 of 250 names (amended *buys* a smaller
 subset). Relates to #1 (no model-sourced firings — this is a deterministic-path gap) and #4 (no lookahead).
 
-**Known gap — basket composition is not point-in-time (one platform-wide limitation, three surfaces).**
+**Known gap — basket composition is point-in-time from 2026-09-15 FORWARD, and unknowable before it.**
 `basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past
-night is unknowable. Every recompute at a past `asof` therefore runs TODAY's roster over then-knowable facts:
-the Board/Cockpit/Workbench scrub-back (#4 above — PIT-honest on data, a labeled counterfactual on
-membership), the replay harness (`REPLAY.md` §Known limitation — the harness output carries the warning), and
-`pipeline.backfill`'s reconstruction of a missed night (`FEED_LOOP.md` — which is why a reconstructed row is
-reported, never scored). The ONE surface immune is the Scoreboard's record path: it scores recorded cards,
-never a recompute, and excludes reconstructed rows. Closing it is a bitemporal (or snapshotted) basket — the
-precondition for a reconstructed row ever counting and for a past-asof recompute to stop being a
-counterfactual. Until then, no surface may present a past-asof recompute as "what the platform said"; that
-is the Scoreboard's record.
+night could not be known at all. `basket_snapshot` (migration 0043) versions the roster — one jsonb row per
+promote — and `thesis_repo.get_asof(known_at)` reads the latest snapshot with `taken_at <= known_at` (no
+lookahead, #1). **All four recompute surfaces are now wired to it**: the single assembly funnel
+`pipeline.call_for_thesis` (serve / `pipeline.run` / the nightly record / `pipeline.backfill`) via F12, and
+the replay harness via F4 — which resolves the roster PER SESSION at
+`min(pin, known_at_for_asof(T))`, the same market-day cap #4 uses, because the harness pins one `known_at`
+for the whole sweep and resolving once at that pin would hand the `now`-pinned Scoreboard panel today's
+basket.
+
+**What remains a counterfactual, and is LABELED rather than assumed away:** snapshot history begins
+2026-09-15, so any recompute reaching further back still runs TODAY's roster. That fallback is correct (#9 —
+never replay a thesis with an empty basket for want of its history) and is now said out loud:
+`replay_all` returns a `ReplayResult` carrying a per-thesis `RosterSource(source, fallback_days,
+total_days)`, `replay.run` prints it, and the Scoreboard's replay banner names it per run instead of
+asserting the old blanket "baskets are not versioned" (which is no longer true). The Board/Cockpit/Workbench
+scrub-back and `pipeline.backfill` keep their own labels (#4 above; `FEED_LOOP.md` — which is why a
+reconstructed row is reported, never scored). The ONE surface immune throughout is the Scoreboard's record
+path: it scores recorded cards, never a recompute, and excludes reconstructed rows.
+
+**Still true, and unchanged by F4:** the rest of the thesis definition (narrative, catalysts, kill criteria)
+and `security_master` are read from the CURRENT SoR on every recompute — only the roster is versioned. And a
+reconstructed row still never counts: a pre-2026-09-15 night has no roster to reconstruct against. No surface
+may present a past-asof recompute as "what the platform said"; that is the Scoreboard's record.

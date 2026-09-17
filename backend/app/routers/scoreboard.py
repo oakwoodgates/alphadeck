@@ -212,6 +212,8 @@ def get_scoreboard_replay(
         known_at_pin=snap.known_at_pin,
         record_began=snap.record_began,
         window_overlaps_record=snap.window_overlaps_record,
+        roster_fallback_theses=snap.roster_fallback_theses,
+        roster_source_note=snap.roster_source_note,
         banner=snap.banner,
         min_n=snap.min_n,
         n_theses=snap.n_theses,

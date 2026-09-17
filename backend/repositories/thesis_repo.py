@@ -76,6 +76,32 @@ def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | Non
     return thesis
 
 
+def snapshot_exists_asof(
+    conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None
+) -> bool:
+    """Did this thesis have a roster snapshot AT ``known_at``? — the LABEL half of ``get_asof`` (F4).
+
+    ``get_asof`` returns a Thesis either way: with a qualifying snapshot it reconstructs the roster as it
+    was known then, without one it FALLS BACK to the live ``basket_member`` roster. That fallback is honest
+    but invisible from the outside — the caller gets an ordinary Thesis and cannot tell which of the two it
+    holds. The replay harness has to be able to SAY which, because a window that predates the snapshot
+    table is a labeled counterfactual on membership, not a replay of the roster.
+
+    A narrow sibling read rather than a changed ``get_asof`` signature: that function sits on the single
+    live assembly funnel (serve / cron / backfill / pipeline.run), and widening its return type to carry a
+    label no live caller wants would put a replay-only concern on the live path. THE PREDICATE IS THE SAME
+    ONE, stated once more here and nowhere else: ``taken_at <= COALESCE(known_at, now())``, no lookahead
+    (#1) — a snapshot taken after ``known_at`` is never read, by this or by ``get_asof``. Read-only; the
+    caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM basket_snapshot "
+            "WHERE thesis_id = %s AND taken_at <= COALESCE(%s, now()) LIMIT 1",
+            (thesis_id, known_at),
+        )
+        return cur.fetchone() is not None
+
+
 def basket_size_asof(
     conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None, *, live_fallback: int
 ) -> int:
