@@ -54,7 +54,7 @@ from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
-from replay.export import export_snapshot, read_mirror_manifest
+from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
 
@@ -75,7 +75,19 @@ WindowStatus = Literal["moved_up", "moved_down", "unchanged", "unmeasurable"]
 #: the rule changed: `strict_sign_agreement` is the rule for every pass registered from 2026-09-18
 #: on, and `sign_agreement` is what the first pre-registered pass was read under. Re-reading an old
 #: curve under its own rule must stay possible, and the report says which one its band used.
-PlateauRule = Literal["strict_sign_agreement", "sign_agreement"]
+#: A THIRD rule, and the one a SLICED pass needs (A2b). Strict-over-all is unsatisfiable by construction
+#: on any small family: two of phase 1's nine windows hold no catalyst-keyed episode at all, so no point on
+#: a catalyst-sliced curve can ever agree across ALL windows and the band is empty before any data arrives.
+#: A criterion that cannot be met is not a criterion. This one asks the question of the windows that could
+#: answer it -- every MEASURABLE window strictly the same non-zero direction, at least two of them -- and
+#: reports `n_unmeasurable` beside it so the reader always knows how much of the pass was silent.
+#:
+#: The distinction it keeps is the one that matters: an UNCHANGED window (episodes existed, the dial did not
+#: move them) still withholds agreement, because the dial had its chance. An UNMEASURABLE window (nothing in
+#: play) is excluded and counted, because there was nothing to ask.
+PlateauRule = Literal["strict_sign_agreement", "strict_measurable_agreement", "sign_agreement"]
+#: Unchanged until the operator rules on the variant above. A pass may pre-register a different rule in its
+#: own text, which is legitimate BEFORE launch and never after.
 DEFAULT_PLATEAU_RULE: PlateauRule = "strict_sign_agreement"
 
 
@@ -109,6 +121,13 @@ class SweepPoint(BaseModel):
     #: pre-registered rule with one window unchanged, and the two inert dials agree across their whole
     #: ladder on nine unchanged windows each.
     strict_sign_agreement: bool = False
+    #: PROPOSED RULE, the sliced-pass variant (A2b): every MEASURABLE window strictly the same non-zero
+    #: direction, with at least two measurable. An unchanged window still withholds it; an unmeasurable
+    #: one is excluded and counted in `n_unmeasurable`. Never read without that count.
+    strict_measurable_agreement: bool = False
+    #: how many windows held nothing this point could be measured on. Rides beside the two strict fields
+    #: because "agrees across the 7 windows that had episodes" and "agrees across 9" are different claims.
+    n_unmeasurable: int = 0
     #: what each window actually did, in window order — see `WindowStatus`
     window_status: list[WindowStatus] = Field(default_factory=list)
     is_baseline: bool = False
@@ -157,6 +176,10 @@ class SweepReport(BaseModel):
     concurrency: int = 1
     #: the pass id every one of these runs carries on its own manifest and registry row
     pass_id: str = ""
+    #: True when this pass SWEPT an existing frozen mirror instead of exporting its own. The hash says
+    #: WHICH tape; this says whether the pass froze it — and a pass that inherited a tape is comparable
+    #: to the pass that made it, artifact for artifact, rather than only through its pin.
+    mirror_reused: bool = False
     #: WHICH agreement field `plateau` was keyed on. On the artifact because a band is meaningless
     #: without it, and because two curves read under two rules must not look alike.
     plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE
@@ -452,13 +475,14 @@ def run_sweep(
     regime: str | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
-    clock: Literal["record", "public"] = "record",
+    clock: Literal["record", "public"] | None = None,
     concurrency: int = 1,
     root: str | Path | None = None,
     now: datetime | None = None,
     resume: str | None = None,
     metric_slice: tuple[str, str] | None = None,
     plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
+    mirror_dir: str | Path | None = None,
 ) -> SweepReport:
     """ONE curve from a cartesian ``grid`` — the single-curve front door onto ``run_pass``."""
     return run_pass(
@@ -481,7 +505,27 @@ def run_sweep(
         now=now,
         resume=resume,
         plateau_rule=plateau_rule,
+        mirror_dir=mirror_dir,
     )[0]
+
+
+class MirrorReuseError(ValueError):
+    """A pass was pointed at a tape it cannot honestly sweep.
+
+    Three refusals in one family, and each prevents a result that would LOOK fine: a directory that is not
+    a frozen mirror (the pass would export into it and call the export a reuse), a supplied mirror whose
+    clock disagrees with `--clock` (two fact axes under one curve), and a fresh pass about to overwrite an
+    existing mirror (`MirrorExists`)."""
+
+
+class MirrorExists(MirrorReuseError):
+    """A fresh pass would have overwritten a mirror another pass's artifacts cite.
+
+    The mirror path is derived from `(pin, window, clock)`, so two passes registered on the same
+    experiment resolve to the SAME directory — and the second silently re-exported over the first.
+    Nothing about the second pass would look wrong; the damage lands on the FIRST, whose run manifests
+    then cite a hash the directory no longer has, making its numbers un-rederivable and its runs
+    unrebenchable. Caught the day before phase 1b would have done exactly this to phase 1."""
 
 
 class ResumeMismatch(ValueError):
@@ -597,12 +641,13 @@ def run_pass(
     regime: str | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
-    clock: Literal["record", "public"] = "record",
+    clock: Literal["record", "public"] | None = None,
     concurrency: int = 1,
     root: str | Path | None = None,
     now: datetime | None = None,
     resume: str | None = None,
     plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
+    mirror_dir: str | Path | None = None,
 ) -> list[SweepReport]:
     """Export ONE mirror, run every distinct (config x WINDOW) over it once, and report a curve per ladder.
 
@@ -647,9 +692,26 @@ def run_pass(
     pass_start, pass_end = windows[0][0], windows[-1][1]
     root_path = Path(root or store.DEFAULT_ROOT)
     now = now or datetime.now(timezone.utc)
+    supplied = Path(mirror_dir) if mirror_dir is not None else None
+
+    # THE CLOCK BELONGS TO THE MIRROR (CW), so `clock=None` means "inherit it" and an EXPLICIT clock that
+    # disagrees is refused rather than quietly honored on one side. `None` rather than a "record" default
+    # because the two are otherwise indistinguishable here — the S1 bug, where `--clock public` was
+    # silently dropped because the parser had already turned it into the same value a default would.
+    if supplied is not None:
+        have = mirror_clock(supplied)
+        if clock is not None and clock != have:
+            raise MirrorReuseError(
+                f"--clock {clock} disagrees with the mirror at {supplied}, which carries the {have} "
+                f"clock. The clock is a property of the TAPE: re-export it under the clock you want, or "
+                f"drop --clock and inherit this one. A record sweep and a public sweep are two "
+                f"experiments and are never one curve."
+            )
+        clock = have
+    clock = clock or "record"
     pass_id = resume or mf.make_pass_id(hypothesis=hypothesis, now=now, clock=clock)
 
-    mirror = (
+    mirror = supplied or (
         root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{pass_start}-{pass_end}-{clock}"
     )
     # EVERY resume guard runs BEFORE the mirror is touched and before a single job launches: the failures
@@ -658,7 +720,27 @@ def run_pass(
     reuse_hash: str | None = None
     if resume:
         _check_resume_shape(state, pass_id=pass_id, windows=windows, clock=clock)
+    if supplied is not None:
+        # SWEEP AN EXISTING TAPE — one frozen mirror, many passes. Phase 1b runs on phase 1's exact bytes
+        # rather than on a second snapshot of a database that may have moved since, which also makes the
+        # two passes comparable at the ARTIFACT level rather than only at the pin.
+        if read_mirror_manifest(supplied) is None:
+            raise MirrorReuseError(
+                f"--mirror-dir {supplied} holds no mirror manifest, so it is not a frozen mirror. "
+                f"Exporting into it would make a fresh snapshot wearing the name of a reused one."
+            )
+        # `_resume_mirror` over an empty `state.done` is exactly the hash read; under a resume it ALSO
+        # verifies that every completed run cites this tape. One code path, so reuse and resume cannot
+        # drift on what "the pass's mirror" means.
+        reuse_hash = _resume_mirror(state, pass_id=pass_id, mirror=supplied, root=root_path)
+    elif resume:
         reuse_hash = _resume_mirror(state, pass_id=pass_id, mirror=mirror, root=root_path)
+    elif read_mirror_manifest(mirror) is not None:
+        raise MirrorExists(
+            f"a mirror already exists at {mirror} and a fresh pass would overwrite it, leaving every run "
+            f"that cites its hash unable to be re-derived from its own tape. Pass --mirror-dir "
+            f'"{mirror}" to sweep it, or a different --pin / --start / --end to export a new one.'
+        )
     mirror.mkdir(parents=True, exist_ok=True)
     if reuse_hash is None:
         # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep
@@ -805,6 +887,15 @@ def run_pass(
                 all(st == "moved_up" for st in p.window_status)
                 or all(st == "moved_down" for st in p.window_status)
             )
+            # ...and the same test over the windows that COULD answer. `unchanged` stays in the
+            # population (the dial had its chance and declined it); `unmeasurable` leaves it and is
+            # counted. Two is the same floor as the other rules: one window cannot agree with anything.
+            measurable = [st for st in p.window_status if st != "unmeasurable"]
+            p.n_unmeasurable = len(p.window_status) - len(measurable)
+            p.strict_measurable_agreement = len(measurable) >= 2 and (
+                all(st == "moved_up" for st in measurable)
+                or all(st == "moved_down" for st in measurable)
+            )
             known = [d for d in deltas if d is not None]
             # EVERY window must agree, and a window with no data does not get to abstain into a yes: a
             # point measurable on only some of the pass has not demonstrated stability. Two is the floor --
@@ -832,6 +923,7 @@ def run_pass(
                 # the ONE frozen tape every point swept -- on a resume this is the EXISTING mirror's
                 # hash, already checked against every completed run's manifest, never a re-export's
                 mirror_hash=reuse_hash or mirror_hash(mirror),
+                mirror_reused=mirror_dir is not None,
                 baseline_config_short=(baseline_point.config_short if baseline_point else ""),
                 baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
                 points=points,
@@ -849,12 +941,20 @@ def run_pass(
                     "decision rule, which still keys on the pooled delta and its cross-window sign "
                     "agreement. THE BAND IS KEYED ON "
                     + plateau_rule
-                    + (
-                        " -- every window moved the same way, none unchanged and none unmeasurable"
-                        if plateau_rule == "strict_sign_agreement"
-                        else " -- the pre-2026-09-18 rule, under which a window that could not have "
-                        "disagreed counts as agreement"
-                    )
+                    + {
+                        "strict_sign_agreement": (
+                            " -- every window moved the same way, none unchanged and none unmeasurable"
+                        ),
+                        "strict_measurable_agreement": (
+                            " -- every MEASURABLE window moved the same way (an unchanged window still "
+                            "withholds agreement; a window with nothing in play is excluded and counted "
+                            "as n_unmeasurable, which must be read beside the band)"
+                        ),
+                        "sign_agreement": (
+                            " -- the pre-2026-09-18 rule, under which a window that could not have "
+                            "disagreed counts as agreement"
+                        ),
+                    }[plateau_rule]
                     + "; both agreement fields are reported on every point and neither is ever "
                     "rewritten. Promotion of any dial remains a separate operator decision, on the back "
                     "of run ids."
@@ -1122,23 +1222,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--clock",
         choices=("record", "public"),
-        default="record",
+        default=None,
         help=(
             "which clock the ONE shared mirror is exported on; every point of the sweep inherits it "
             "(see backtest.run --clock). A record sweep and a public sweep are different experiments "
-            "and are never one curve."
+            "and are never one curve. Default: record — or, with --mirror-dir, THAT MIRROR'S clock, "
+            "because the clock is a property of the tape; passing one that disagrees is refused."
+        ),
+    )
+    p.add_argument(
+        "--mirror-dir",
+        default=None,
+        help=(
+            "sweep an EXISTING frozen mirror instead of exporting one. One tape, many passes: a later "
+            "pass then runs on the earlier one's exact bytes and the two are comparable artifact for "
+            "artifact, not merely through a shared pin. The clock is inherited, the hash is recorded on "
+            "every run and on every curve, and the export is skipped. Without it, a pass that would "
+            "overwrite an existing mirror is REFUSED rather than allowed to strand the runs that cite it."
         ),
     )
     p.add_argument(
         "--plateau-rule",
-        choices=("strict_sign_agreement", "sign_agreement"),
+        choices=("strict_sign_agreement", "strict_measurable_agreement", "sign_agreement"),
         default=DEFAULT_PLATEAU_RULE,
         help=(
             "which cross-window agreement the plateau BAND is keyed on (default "
             "strict_sign_agreement: every window moved the same way, none unchanged and none "
-            "unmeasurable). `sign_agreement` is the pre-2026-09-18 rule, kept so a finished pass can be "
-            "re-read under the rule it was registered on -- BOTH fields are reported on every point "
-            "either way, and the report records which one its band used."
+            "unmeasurable). `strict_measurable_agreement` is the same test over the windows that COULD "
+            "answer -- the rule a SLICED pass needs, because strict-over-all is unsatisfiable by "
+            "construction on a small family. `sign_agreement` is the pre-2026-09-18 rule, kept so a "
+            "finished pass can be re-read under the rule it was registered on. ALL THREE fields are "
+            "reported on every point whichever is chosen, none is ever rewritten, and the report records "
+            "which one its band used."
         ),
     )
     p.add_argument("--regime", default=None)
@@ -1202,6 +1317,7 @@ def main(argv: list[str] | None = None) -> int:
             root=args.out_root,
             resume=args.resume,
             plateau_rule=args.plateau_rule,
+            mirror_dir=args.mirror_dir,
         )
     finally:
         conn.close()
@@ -1239,7 +1355,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"        windows {' '.join(STATUS_MARK[st] for st in p.window_status)}"
                     f"  agreement: pre-registered={p.sign_agreement} "
-                    f"strict={p.strict_sign_agreement}"
+                    f"strict={p.strict_sign_agreement} "
+                    f"strict-measurable={p.strict_measurable_agreement}"
+                    + (f" ({p.n_unmeasurable} unmeasurable)" if p.n_unmeasurable else "")
                 )
         print(
             f"    plateau (indices, a BAND not a pick, keyed on {report.plateau_rule}): "

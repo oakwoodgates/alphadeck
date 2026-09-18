@@ -410,6 +410,26 @@ append their own row, and each write — silently losing one. The registry's who
 registry row, so the grouping survives without `sweep.json` — which is latest-only. The sweep runner also
 copies each curve to `sweeps/<pass_id>-<dials>.json` on the way out.
 
+**ONE TAPE, MANY PASSES — `--mirror-dir`, and the overwrite that is now refused (A2b).** A pass's mirror
+path is DERIVED from `(pin, window, clock)`, so two passes registered on the same experiment resolve to
+the same directory — and the second used to silently re-export over the first. Nothing about the second
+pass looks wrong; the damage lands on the FIRST, whose run manifests then cite a hash the directory no
+longer has, leaving its numbers un-rederivable and its runs unrebenchable. Caught the day before phase 1b
+would have done exactly that to phase 1's 225 runs.
+
+Both halves now hold:
+
+- **A fresh pass REFUSES to overwrite an existing mirror** (`MirrorExists`), before anything is written,
+  and the message names both ways out — reuse the tape, or pick a different pin/window.
+- **`--mirror-dir <dir>` sweeps an existing frozen mirror**: the export is skipped, the CLOCK is inherited
+  from the tape (an explicit `--clock` that disagrees is refused — CW's rule, a record sweep and a public
+  sweep are never one curve), the hash is recorded on every run and every curve, and the report carries
+  `mirror_reused: true`. A directory with no mirror manifest is refused rather than exported into.
+
+Reuse is also the better experiment. Phase 1b runs on phase 1's exact bytes, so the two passes are
+comparable **artifact for artifact** rather than merely through a shared pin — and a second export of a
+database that has moved since would have been a different tape wearing the same name.
+
 ### One pass, many ladders (S2)
 
 A phase is six dials, and running it as six separate sweeps re-ran the production baseline six times:
@@ -522,6 +542,51 @@ window, a validated vocabulary) beside `window_deltas`, and two agreement fields
 **The band keys on the strict rule for every pass registered from 2026-09-18 on** (`--plateau-rule`, default
 `strict_sign_agreement`; `sign_agreement` re-reads an older pass under its own rule). The report records
 which rule its band used and the curve view names it in words, because a band is meaningless without it.
+
+#### A third field, and when it is the right criterion (A2b)
+
+**Strict-over-all is unsatisfiable BY CONSTRUCTION on a small family.** Two of phase 1's nine windows hold
+no catalyst-keyed episode, so no point on a catalyst-sliced curve can agree across ALL windows: the band
+is empty before any data arrives, and a pre-registered criterion that cannot be met is not a criterion.
+
+`strict_measurable_agreement` asks the same question of the windows that could answer it — every
+MEASURABLE window strictly the same non-zero direction, with a floor of at least two — and reports
+`n_unmeasurable` beside it. The distinction it keeps is the load-bearing one:
+
+- an **unchanged** window still WITHHOLDS agreement (episodes existed; the dial had its chance and did not
+  move them),
+- an **unmeasurable** window is EXCLUDED and COUNTED (nothing was in play; there was nothing to ask).
+
+All three fields ride every point, whichever rule the band uses, and none is ever rewritten. **The default
+stays `strict_sign_agreement`** until the operator rules on the variant; a pass may pre-register a
+different rule in its own text, which is legitimate BEFORE launch and never after. The surface names the
+rule on the band and, when the count is non-zero, says how many windows the band could not see — because
+"agrees across the seven windows that had episodes" and "agrees across nine" are different claims.
+
+#### Writing up a SLICED pass
+
+A sliced write-up carries six things a pooled one does not, all of them there to stop a sliced figure
+being read as a pooled one:
+
+1. **A slice header above everything** — `SLICE: key1_source=… · n = 46 of 2,615 (1.8%)` — and the
+   sentence that every n, level, delta and paired figure below is the SLICE's.
+2. **The ceiling, stated before the result**: the most the pooled median could move if every episode in
+   the family went to infinity. It is why the pass is sliced, and saying it first stops the slice reading
+   as a post-hoc rescue of a flat pooled curve.
+3. **A per-window n beside the per-window deltas**, plus the window-status row. On a pooled pass n is
+   roughly constant and can be a footnote; on a slice it varies by an order of magnitude and is the
+   difference between a finding and a coincidence.
+4. **The unmeasurable windows NAMED, with the date they were pre-registered** — not "two windows show no
+   change" but "windows 5 and 8 held no catalyst-keyed episode, registered before launch".
+5. **All three agreement fields and which one the band used**, with the `n_unmeasurable` count.
+6. **A composition line from the paired block** — `n_shared / n_changed / median change when changed` —
+   because the phase-1 lesson was that a paired median of +0.00% with 561 of 1,931 episodes moved by
+   +8.35% reads as "nothing happened" if `n_changed` is not printed beside it. On a horizon dial, watch
+   the slice's own n falling across the ladder: that is composition, not timing.
+
+One phrase is BANNED from a horizon-dial write-up: "same episodes, re-timed". Pairing fixes the entry, not
+the horizon — MEASURED, 33.5% of shared episodes carry a different `exit_by` — so it is the same entries
+measured over the horizon each setting gives them.
 
 ### `--resume <pass_id>` — the recovery path
 

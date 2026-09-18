@@ -7,6 +7,7 @@ import {
   plateauLine,
   readSweep,
   statusLine,
+  unmeasurableLine,
 } from "../sweep";
 
 // The sweep's reader and its copy. One rule dominates: a sweep shows a CURVE, never a winner — so the
@@ -225,5 +226,94 @@ describe("the window status and the slice (A1)", () => {
     const v = readSweep(sweep({ metric_slice: "key1_source=ratified_catalyst" }))!;
     expect(v.metricSlice).toBe("key1_source=ratified_catalyst");
     expect(readSweep(sweep())!.metricSlice).toBe("");
+  });
+});
+
+// A2b — THE THIRD RULE, for a curve read on one family.
+//
+// Strict-over-all is unsatisfiable by construction when a family leaves windows empty, so a sliced pass
+// keyed on it has an empty band before any data arrives. Strict-over-MEASURABLE asks the windows that
+// could answer, and the count of the ones that could not rides the band's own sentence — "agrees across
+// the seven windows that had episodes" and "agrees across nine" are different claims.
+
+describe("strict over the measurable windows (A2b)", () => {
+  const sliced = (over: Record<string, unknown> = {}) =>
+    sweep({
+      plateau_rule: "strict_measurable_agreement",
+      metric_slice: "key1_source=ratified_catalyst",
+      windows: [
+        ["2025-09-01", "2025-10-12"],
+        ["2025-10-13", "2025-11-23"],
+        ["2025-11-24", "2026-01-04"],
+      ],
+      points: [
+        point({
+          sign_agreement: false,
+          strict_sign_agreement: false,
+          strict_measurable_agreement: true,
+          n_unmeasurable: 1,
+          window_status: ["moved_up", "moved_up", "unmeasurable"],
+        }),
+        point({
+          sign_agreement: false,
+          strict_sign_agreement: false,
+          strict_measurable_agreement: true,
+          n_unmeasurable: 1,
+          window_status: ["moved_up", "moved_up", "unmeasurable"],
+        }),
+      ],
+      plateau: [0, 1],
+      ...over,
+    });
+
+  it("counts agreement by the third rule when the band is keyed on it", () => {
+    const v = readSweep(sliced())!;
+    expect(v.points.every((p) => agreesUnderBandRule(v, p))).toBe(true);
+    expect(plateauLine(v)).toContain("2 of them");
+    // ...and the same points under strict-over-all agree with nothing
+    const strict = readSweep(sliced({ plateau_rule: "strict_sign_agreement" }))!;
+    expect(strict.points.some((p) => agreesUnderBandRule(strict, p))).toBe(false);
+  });
+
+  it("names the rule in words a reader can check the band against", () => {
+    expect(plateauLine(readSweep(sliced())!)).toContain("windows that could answer");
+  });
+
+  it("says on the BAND what the band could not see", () => {
+    const line = unmeasurableLine(readSweep(sliced())!);
+    expect(line).toContain("1 of 3 windows");
+    expect(line).toContain("excluded from the agreement rather than counted as agreeing");
+    expect(plateauLine(readSweep(sliced())!)).toContain("1 of 3 windows");
+  });
+
+  it("reports a RANGE when the band's points saw different amounts of nothing", () => {
+    const v = readSweep(
+      sliced({
+        points: [
+          point({ strict_measurable_agreement: true, n_unmeasurable: 1 }),
+          point({ strict_measurable_agreement: true, n_unmeasurable: 2 }),
+        ],
+      }),
+    )!;
+    expect(unmeasurableLine(v)).toContain("1–2 of 3 windows");
+  });
+
+  it("says nothing at all when every window was measurable — loudness marks the exception", () => {
+    const v = readSweep(
+      sliced({
+        points: [
+          point({ strict_measurable_agreement: true, n_unmeasurable: 0 }),
+          point({ strict_measurable_agreement: true, n_unmeasurable: 0 }),
+        ],
+      }),
+    )!;
+    expect(unmeasurableLine(v)).toBe("");
+  });
+
+  it("reads a curve with no third field as not agreeing under it, never as agreeing", () => {
+    // an older curve carries neither the field nor the count; the honest default is "no"
+    const v = readSweep(sweep({ plateau_rule: "strict_measurable_agreement" }))!;
+    expect(v.points.every((p) => p.strictMeasurableAgreement)).toBe(false);
+    expect(v.points.every((p) => p.nUnmeasurable === 0)).toBe(true);
   });
 });
