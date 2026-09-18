@@ -266,3 +266,79 @@ def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tm
     ids = {r.run_id for r in store.list_runs(tmp_path)}
     assert len({i for i in ids if "-record-" in i}) == 1
     assert len({i for i in ids if "-public-" in i}) == 1
+
+
+# --- the CLI contract: --clock must REACH execute ---------------------------------------------------------
+
+
+def test_the_cli_refuses_a_clock_that_disagrees_with_a_supplied_mirror(tmp_path, capsys):
+    """THE BUG THIS REPLACES. `main()` used to drop `--clock` whenever `--mirror-dir` was given, because
+    the parser's own default ("record") is indistinguishable from the operator TYPING "record" -- so
+    `--mirror-dir <public mirror> --clock record` ran happily on the public clock while the help text
+    promised a disagreeing clock was refused. The default now lives in `execute` and nowhere else, which
+    is what lets the flag arrive and be checked.
+
+    The mirror is a bare manifest with no Parquet: the refusal has to come BEFORE any work, so reaching
+    the export or the DuckDB open would itself be the failure."""
+    from backtest.run import main
+
+    mirror = _mirror_manifest(tmp_path / "m", {"clock": "public", "tables": {}})
+    with pytest.raises(MirrorClockMismatch) as exc:
+        main(
+            [
+                "--start",
+                str(_START),
+                "--end",
+                str(_END),
+                "--pin",
+                _PIN.isoformat(),
+                "--mirror-dir",
+                str(mirror),
+                "--clock",
+                "record",
+                "--out-root",
+                str(tmp_path / "store"),
+            ]
+        )
+    assert "public" in str(exc.value) and "record" in str(exc.value)
+    assert store.list_runs(tmp_path / "store") == []
+
+
+def test_the_cli_default_is_absent_so_a_mirror_can_be_inherited_from():
+    """A parser default of "record" cannot be told apart from the operator typing it, and that is exactly
+    what made the flag un-refusable. `execute` resolves None as "inherit the mirror's clock, else record",
+    so the DEFAULT lives in one place and the CLI's job is only to pass what it was given."""
+    from backtest.run import build_parser
+
+    base = ["--start", "2025-01-01", "--end", "2025-02-01"]
+    assert build_parser().parse_args(base).clock is None
+    assert build_parser().parse_args([*base, "--clock", "public"]).clock == "public"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_the_cli_with_no_mirror_and_no_flag_still_runs_on_the_record_clock(db, tmp_path):
+    """The default path, unchanged: no mirror and no flag is a record-clock run with a pinned known_at."""
+    pytest.importorskip("duckdb")
+    from backtest.run import main
+    from pipeline.seed import seed_unh
+
+    seed_unh(db)
+    db.commit()
+    assert (
+        main(
+            [
+                "--start",
+                str(_START),
+                "--end",
+                str(_END),
+                "--pin",
+                _PIN.isoformat(),
+                "--out-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    rows = store.list_runs(tmp_path)
+    assert len(rows) == 1 and rows[0].clock == "record" and rows[0].known_at_mode == "pin"

@@ -459,13 +459,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--clock",
         choices=("record", "public"),
-        default="record",
+        # DEFAULT None, not "record". The default lives in `execute` and nowhere else, which is what makes
+        # --mirror-dir inherit: a parser default of "record" is indistinguishable from the operator
+        # TYPING "record", so it had to be dropped when a mirror was supplied -- and dropping it meant a
+        # --clock that disagreed with the mirror was silently ignored instead of refused, exactly against
+        # what this help text promises.
+        default=None,
         help=(
             "which clock the facts enter on -- a property of the MIRROR this run exports. 'record' = "
             "recorded_at, what this system held (the Scoreboard's axis). 'public' = when anyone could "
             "have known (the disclosure instant); it also derives known_at_mode=lockstep, capping the "
             "facts at the end of each session rather than at the run-wide pin, and it EXCLUDES any fact "
-            "table with no declared public clock (the manifest names them and the detectors they blind)."
+            "table with no declared public clock (the manifest names them and the detectors they blind). "
+            "Default: record -- or, with --mirror-dir, the mirror's own clock, which a disagreeing "
+            "--clock is refused against rather than silently overriding."
         ),
     )
     p.add_argument(
@@ -563,7 +570,10 @@ def main(argv: list[str] | None = None) -> int:
             pin=pin,
             cfg=cfg,
             overlay_path=args.config,
-            clock=args.clock if args.mirror_dir is None else None,
+            # UNCONDITIONAL. `execute` resolves None as "inherit the mirror's clock, else record", and
+            # refuses a clock that disagrees with a supplied mirror -- which is only reachable if the flag
+            # actually gets there.
+            clock=args.clock,
             mirror_dir=args.mirror_dir,
             pass_id=args.pass_id,
             workers=args.workers,

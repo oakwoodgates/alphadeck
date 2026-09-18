@@ -332,10 +332,71 @@ def test_the_baseline_runs_ONCE_PER_WINDOW_and_says_it_is_shared(fake_runs, db):
     assert all(p.is_baseline for p in shared)
 
 
-def test_a_missing_run_directory_contributes_nothing_rather_than_raising(tmp_path):
-    """A pass whose job died should report the points it could measure and let the episode counts show
-    the hole, rather than losing the whole curve."""
-    from backtest.sweep import _read_scored
+def test_a_missing_run_is_a_CORRUPTED_STORE_and_stops_the_pass(tmp_path):
+    """Tolerating it would be the worse failure. Every launched run is registered under the index lock
+    before the curve is assembled, so a run id with no directory behind it means the store lost an
+    artifact -- and pooling the point over FEWER windows would make its metric, its episode count and its
+    per-window deltas all quietly smaller with nothing on the curve to say so. A pass that stops is
+    recoverable; a curve that under-reports by an unknown amount is not."""
+    from backtest.sweep import MissingRunArtifacts, _pooled
 
-    assert _read_scored([None, tmp_path / "nope"]).n_episodes == 0
-    assert _read_scored([]).values == []
+    with pytest.raises(MissingRunArtifacts) as exc:
+        _pooled(["ghost-run"], tmp_path)
+    assert "ghost-run" in str(exc.value)  # WHICH run
+    assert str(tmp_path) in str(exc.value)  # ...and where it should have been
+    # a registered directory with no outcomes is the same failure, not a quieter one
+    store.create_run_dir("half-written", tmp_path)
+    with pytest.raises(MissingRunArtifacts):
+        _pooled(["half-written"], tmp_path)
+
+
+def test_the_baseline_reports_the_point_it_ACTUALLY_used(fake_runs, db):
+    """When the grid brackets today's value without containing it, the first point stands in -- and the
+    curve must say so. Every delta is then relative to a CHOSEN setting rather than to today's behavior,
+    which is a different claim and must not be read as "better than production"."""
+    _write, _, monkeypatch, sweep_mod, root = fake_runs
+    w1 = (date(2026, 1, 1), date(2026, 2, 11))
+    for i in range(2):
+        _write(f"run-{i}", [("2026-01-10", 0.01 * i)])
+    monkeypatch.setattr(sweep_mod, "_launch", lambda jobs, concurrency: ["run-0", "run-1"])
+    monkeypatch.setattr(sweep_mod, "export_snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(sweep_mod.mf, "mirror_hash", lambda p: "c" * 64)
+
+    default = DEFAULT_CONFIG.insider_core_alpha_liveness_days
+    report = sweep_mod.run_sweep(
+        db,
+        # neither value is the production default: the ladder brackets it
+        grid={"insider_core_alpha_liveness_days": [default - 30, default + 30]},
+        windows=[w1],
+        pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+    )
+    assert report.baseline_is_default is False
+    assert not any(p.is_baseline for p in report.points)
+    # ...and the reported hash is the STAND-IN's, never DEFAULT_CONFIG's
+    assert report.baseline_config_short == report.points[0].config_short
+    assert report.baseline_config_short != (mf.short_hash(mf.config_hash(DEFAULT_CONFIG)) or "")
+
+
+def test_a_grid_containing_the_default_reports_a_default_baseline(fake_runs, db):
+    _write, _, monkeypatch, sweep_mod, root = fake_runs
+    w1 = (date(2026, 1, 1), date(2026, 2, 11))
+    for i in range(2):
+        _write(f"run-{i}", [("2026-01-10", 0.01 * i)])
+    monkeypatch.setattr(sweep_mod, "_launch", lambda jobs, concurrency: ["run-0", "run-1"])
+    monkeypatch.setattr(sweep_mod, "export_snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(sweep_mod.mf, "mirror_hash", lambda p: "c" * 64)
+    default = DEFAULT_CONFIG.insider_core_alpha_liveness_days
+    report = sweep_mod.run_sweep(
+        db,
+        grid={"insider_core_alpha_liveness_days": [default, 90]},
+        windows=[w1],
+        pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+    )
+    assert report.baseline_is_default is True
+    assert report.baseline_config_short == (mf.short_hash(mf.config_hash(DEFAULT_CONFIG)) or "")

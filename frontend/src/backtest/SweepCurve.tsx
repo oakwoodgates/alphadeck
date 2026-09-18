@@ -46,7 +46,11 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
           <div className="bt-plateau">{plateauLine(v)}</div>
           <p className="bt-quiet">
             Window {v.windowStart ?? "—"} → {v.windowEnd ?? "—"} · baseline policy{" "}
-            {v.baselineConfigShort || "—"} · one frozen mirror (
+            {v.baselineConfigShort || "—"}
+            {!v.baselineIsDefault &&
+              " (NOT the production dials — this grid does not contain them, so every delta below is" +
+                " relative to a chosen setting, not to today's behavior)"}{" "}
+            · one frozen mirror (
             <span title={v.mirrorHash}>{v.mirrorHash.slice(0, 8) || "—"}</span>), so a difference
             between points is attributable to the dial rather than to the tape moving underneath it.
             Points are in dial order, never in outcome order.

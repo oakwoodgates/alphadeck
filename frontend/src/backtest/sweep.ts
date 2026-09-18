@@ -41,6 +41,10 @@ export type SweepView = {
   /** How many window jobs ran at once. A saturated box measures contention as well as dials, so two
    *  passes are only comparable on wall time if this matches. */
   concurrency: number;
+  /** False when the grid did not contain the production default and the first point stood in as the
+   *  baseline. Every delta is then relative to a CHOSEN setting rather than to today's behavior, which is
+   *  a different claim — so it is rendered only when false (honest loudness: mark the exception). */
+  baselineIsDefault: boolean;
   /** The id every run of this curve carries on its own manifest — the grouping that survives even though
    *  `sweep.json` is latest-only. */
   passId: string;
@@ -111,6 +115,8 @@ export function readSweep(raw: unknown): SweepView | null {
           .map((w) => ({ start: String(w[0]), end: String(w[1]) }))
       : [],
     concurrency: num(s.concurrency) ?? 1,
+    // a curve written before the field is one whose baseline WAS the default; that is what it meant then
+    baselineIsDefault: s.baseline_is_default !== false,
     passId: str(s.pass_id),
     // a curve written before the axis was recorded is a record-clock curve — that is all this exporter
     // could produce at the time, so the fallback states a fact rather than an unknown

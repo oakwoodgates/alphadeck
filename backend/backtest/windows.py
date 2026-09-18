@@ -1,20 +1,26 @@
 """WINDOWS — the unit of work for a pass, and how many of them run at once.
 
-A year-long run is not a unit of work on this box. MEASURED: a 1-year, 12-thesis, public-clock run at 6
-workers and K=5 did not produce a registry row in 3h40m (it was killed, not crashed — a lower bound, not a
-timing). The cost model is ``export + replay/workers + nulls(serial)``, and the last term is the one that
-grew: ``--workers`` covers the replay phase only, so the null draws run on the main process start to
-finish.
+A pass tiles its span into disjoint, gapless windows and runs every point once per window. Three things
+make that the right unit, and none of them is speed:
 
-That is what makes the SUB-WINDOW the unit. Splitting a year into N disjoint windows and launching them as
-N SEPARATE PROCESSES is what parallelizes the nulls — each job owns its own serial null phase — and it
-costs nothing in fidelity, because the mirror is the whole tape regardless of window (``export_snapshot``
-takes no date bound), so every window of every point can share ONE frozen export.
+* **Cross-window agreement.** A point's metric is pooled across its windows and its delta is recomputed on
+  each, so "does this dial help" is asked of separate measurements rather than of slices of one run. A
+  dial that helps in one six-week window and hurts in the next is visibly unstable, and that is the
+  question the whole sweep exists to answer.
+* **Blast radius.** A job that dies costs about 90 seconds, not an hour. MEASURED, and the reason the unit
+  changed at all: a 1-year, 12-thesis, public-clock run at 6 workers and K=5 did not produce a registry
+  row in 3h40m before it was killed.
+* **Bounded memory.** Each job holds one window's episodes and its own price-tape cache.
 
-It also changes what a curve point IS, for the better: a point becomes the POOLED read across its windows,
-and the per-window deltas become cross-WINDOW sign agreement. A dial that helps in one six-week window and
-hurts in the next has found nothing, and that was already the question ``_sub_bounds`` was asking of one
-long run — now it is asked of runs that are genuinely separate measurements.
+**Concurrency is NOT one of the three.** The split was designed when the null phase was serial and 96% of
+a run, and separate processes were the only way to parallelize it; after the tape memo (M1) the nulls are
+~7 s and the replay dominates, and the replay already fans out over its own workers. Running two window
+jobs at once still helps a little — one job's wall clock is its LARGEST thesis, so its workers idle near
+the end and a second job fills that tail — but the box is ~2.8 usable cores either way, so expect a
+fraction, not a factor. The history of that reversal, with the numbers, is in `docs/BACKTEST.md`.
+
+One thing the split costs nothing in: the mirror is the whole tape regardless of window
+(``export_snapshot`` takes no date bound), so ONE export serves every window of every point.
 """
 
 from __future__ import annotations

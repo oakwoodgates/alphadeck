@@ -182,17 +182,22 @@ def test_the_cli_reports_a_bad_overlay_without_running(tmp_path, capsys):
     assert "not_a_dial" in capsys.readouterr().err
 
 
-def test_the_cli_offers_both_clocks_and_defaults_to_the_record_one(capsys):
-    """CW opened ``public`` — B2 built the export mode and this runner now reaches it. The DEFAULT stays
-    ``record``: the public clock excludes every fact table with no declared disclosure column, so it is a
-    deliberate choice a run makes, never one it drifts into. Anything else is still refused, because a run
-    that accepted an unknown clock would claim an axis nothing implements.
+def test_the_cli_offers_both_clocks_and_leaves_the_default_to_execute(capsys):
+    """CW opened ``public`` — B2 built the export mode and this runner now reaches it. The effective
+    default is still ``record``: the public clock excludes every fact table with no declared disclosure
+    column, so it is a deliberate choice a run makes, never one it drifts into. Anything else is refused,
+    because a run that accepted an unknown clock would claim an axis nothing implements.
+
+    The PARSER's default is ``None``, though, and that is load-bearing rather than cosmetic (S1): a parser
+    default of "record" cannot be told apart from the operator typing it, so the flag had to be dropped
+    when ``--mirror-dir`` was supplied — and dropping it meant a clock that DISAGREED with the mirror was
+    silently ignored instead of refused. The default lives in ``execute`` and nowhere else.
 
     The wiring itself — what the flag does to the mirror, to ``known_at_mode`` and to a SUPPLIED mirror
     that disagrees — lives in ``tests/backtest/test_clock_wiring.py``."""
     parser = build_parser()
     base = ["--start", "2025-01-01", "--end", "2025-02-01"]
-    assert parser.parse_args(base).clock == "record"
+    assert parser.parse_args(base).clock is None
     assert parser.parse_args([*base, "--clock", "public"]).clock == "public"
     with pytest.raises(SystemExit):
         parser.parse_args([*base, "--clock", "wall"])

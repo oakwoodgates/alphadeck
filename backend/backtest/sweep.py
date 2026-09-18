@@ -104,7 +104,12 @@ class SweepReport(BaseModel):
     # series, and the run ids below are the only other place that could be checked.
     clock: Literal["record", "public"] = "record"
     mirror_hash: str = ""
+    #: the short hash of the baseline every delta is measured against -- the point ACTUALLY used
     baseline_config_short: str = ""
+    #: False when the grid did not contain the production default and the first point stood in. Every
+    #: delta on this curve is then relative to a chosen setting rather than to today's behavior, which is
+    #: a different claim and must not be read as "better than production".
+    baseline_is_default: bool = True
     points: list[SweepPoint] = Field(default_factory=list)
     # the widest contiguous run of points whose sign agrees with the best-behaving one, as INDICES into
     # `points`. A band, not a pick: if it is one point wide, the sweep found nothing worth adopting.
@@ -118,25 +123,48 @@ class _Scored:
     values: list[tuple[date, float]]  # (arm_date, forward_return)
 
 
-def _read_scored(run_dirs: Path | Sequence[Path | None]) -> _Scored:
+class MissingRunArtifacts(FileNotFoundError):
+    """A run this curve cites has no readable outcomes on disk."""
+
+
+def _pooled(run_ids: Sequence[str], root: Path) -> _Scored:
+    """The pooled outcomes for ONE point — its window runs, read and concatenated.
+
+    **A missing run is a corrupted store, and it RAISES.** Every launched run is registered under the
+    index lock before this reads anything, so a run id on the curve with no directory behind it means the
+    store lost something. Tolerating it would be the worse failure: the point would silently pool over
+    FEWER windows, and its metric, its n_episodes and its per-window deltas would all just be quietly
+    smaller with nothing on the curve to say so. A pass that stops is recoverable; a curve that under-reports
+    by an unknown amount is not."""
+    dirs: list[Path] = []
+    for rid in run_ids:
+        d = store.run_dir(rid, root)
+        if d is None or not (d / "outcomes.parquet").is_file():
+            raise MissingRunArtifacts(
+                f"run {rid!r} is cited by this curve but has no readable outcomes at "
+                f"{store.runs_root(root) / rid}. Every launched run is registered before the curve is "
+                f"assembled, so this means the store lost an artifact -- the pass stops rather than "
+                f"pooling the point over fewer windows without saying so."
+            )
+        dirs.append(d)
+    return _read_scored(dirs)
+
+
+def _read_scored(run_dirs: Path | Sequence[Path]) -> _Scored:
     """Read outcomes back off the runs' own Parquet and POOL them — the artifacts are the source of truth,
     so a point on the curve is derived from the same bytes a reviewer can open.
 
     Takes N directories because a point is N window runs (S1). Pooling is a concatenation and nothing more:
     the windows are disjoint, so no episode can appear twice, and each run's rows carry their own arm dates
     — which is what lets the same pooled set be re-filtered per window for the deltas without re-reading.
-    A missing directory contributes nothing rather than raising: a pass whose job died should report the
-    point it could measure and let the episode counts show the hole."""
+    """
     import pyarrow.parquet as pq
 
-    dirs = [run_dirs] if isinstance(run_dirs, Path) else [d for d in run_dirs if d is not None]
+    dirs = [run_dirs] if isinstance(run_dirs, Path) else list(run_dirs)
     n_episodes = 0
     vals: list[tuple[date, float]] = []
     for d in dirs:
-        path = d / "outcomes.parquet"
-        if not path.is_file():
-            continue
-        table = pq.read_table(path).to_pylist()
+        table = pq.read_table(d / "outcomes.parquet").to_pylist()
         n_episodes += len(table)
         vals += [
             (date.fromisoformat(r["arm_date"]), r["forward_return"])
@@ -217,11 +245,11 @@ def run_sweep(
 ) -> SweepReport:
     """Export the mirror ONCE, run every (variant x WINDOW) over it, and report the curve.
 
-    **THE UNIT OF WORK IS A WINDOW, and a curve point is the POOLED read across its windows.** A year-long
-    run is not a unit of work on this box (see ``backtest/windows.py`` for the measurement), and the
-    reason is structural rather than incidental: ``--workers`` parallelizes the REPLAY phase only, so the
-    null draws run serially on one process from start to finish. Separate window PROCESSES are what
-    parallelize the nulls, each owning its own null phase.
+    **THE UNIT OF WORK IS A WINDOW, and a curve point is the POOLED read across its windows.** The reason
+    is the ANALYSIS, not throughput: the windows are separate measurements, so a point's delta being
+    recomputed on each asks whether a dial helps consistently rather than on average. A year-long run is
+    also not a unit of work on this box — MEASURED, one did not produce a registry row in 3h40m before it
+    was killed — and a window job that dies costs ~90 s rather than an hour. See ``backtest/windows.py``.
 
     It costs nothing in fidelity. ``export_snapshot`` takes no date bound, so the mirror is the whole tape
     whatever window reads it — ONE export serves every window of every point, which is also what keeps a
@@ -298,9 +326,11 @@ def run_sweep(
     for dials, cfg in cfgs:
         h = config_hash(cfg)
         ids = [run_ids[(h, w)] for w in range(len(windows))]
-        scored = scored_by_hash.setdefault(
-            h, _read_scored([store.run_dir(r, root_path) for r in ids])
-        )
+        # `if not in` rather than `setdefault`: the latter evaluates its default EAGERLY, so every point
+        # sharing a config would re-read all N Parquet files only to discard them.
+        if h not in scored_by_hash:
+            scored_by_hash[h] = _pooled(ids, root_path)
+        scored = scored_by_hash[h]
         points.append(
             SweepPoint(
                 dials=dials,
@@ -314,6 +344,9 @@ def run_sweep(
             )
         )
 
+    # THE BASELINE ACTUALLY USED. When the grid contains the production default it is that point; when it
+    # does not -- a ladder that brackets today's value without including it -- the first point stands in,
+    # and the report says so rather than reporting DEFAULT_CONFIG's hash for a baseline that is not it.
     baseline_point = next((p for p in points if p.is_baseline), points[0] if points else None)
     baseline = (
         scored_by_hash[config_hash(apply_overlay(baseline_point.dials))] if baseline_point else None
@@ -352,7 +385,8 @@ def run_sweep(
         pass_id=pass_id,
         clock=clock,  # the axis that one tape carries; every point inherited it
         mirror_hash=mirror_hash(mirror),  # the ONE frozen tape every point swept
-        baseline_config_short=short_hash(config_hash(DEFAULT_CONFIG)) or "",
+        baseline_config_short=(baseline_point.config_short if baseline_point else ""),
+        baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
         points=points,
         plateau=_plateau(points),
         banner=(
@@ -490,10 +524,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WINDOW_DAYS,
         help=(
             f"tile [--start, --end] into disjoint windows of at most this many days (default "
-            f"{DEFAULT_WINDOW_DAYS}). THE WINDOW IS THE UNIT OF WORK: each point is run once per window as "
-            "its own process, which is what parallelizes the null draws (--workers covers the replay "
-            "phase only). A point's metric is pooled across its windows and its deltas are recomputed on "
-            "each, so sign agreement is agreement across genuinely separate measurements."
+            f"{DEFAULT_WINDOW_DAYS}). THE WINDOW IS THE UNIT OF WORK: each point is run once per window, "
+            "its metric is pooled across them and its delta is recomputed on each -- so sign agreement is "
+            "agreement across genuinely separate measurements rather than across slices of one run. A "
+            "window job that dies also costs ~90 s rather than an hour."
         ),
     )
     p.add_argument(
