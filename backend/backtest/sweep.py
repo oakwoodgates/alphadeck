@@ -51,7 +51,7 @@ from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
-from replay.export import export_snapshot
+from replay.export import export_snapshot, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
 
@@ -99,6 +99,14 @@ class SweepReport(BaseModel):
     concurrency: int = 1
     #: the pass id every one of these runs carries on its own manifest and registry row
     pass_id: str = ""
+    #: This curve's own pre-registration. It lives on the CURVE and not only on the runs because a pass
+    #: shares runs between ladders — the production baseline most of all — and a shared run cannot carry
+    #: six different hypotheses. The runs carry the PASS's text; each curve carries its own.
+    hypothesis: str = ""
+    decision_rule: str = ""
+    #: every curve in this pass, by dial — so a reader holding one curve knows the others exist and that
+    #: they were measured against the same baseline over the same tape
+    pass_curves: list[str] = Field(default_factory=list)
     # WHICH AXIS the one shared mirror carries. On the curve it is not decoration: a record-clock sweep and
     # a public-clock sweep of the same dial are two different experiments and must never be read as one
     # series, and the run ids below are the only other place that could be checked.
@@ -227,6 +235,24 @@ def variants(grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
     return [dict(zip(names, combo)) for combo in itertools.product(*(grid[n] for n in names))]
 
 
+@dataclass(frozen=True)
+class Ladder:
+    """ONE CURVE in a pass: a dial swept across its values, with its own pre-registration.
+
+    Distinct from a ``grid``, which is a cartesian variant SET producing a single curve (H3's on/off/scope
+    comparison). A pass is N ladders — six dials, six curves — sharing one mirror, one pass id and one
+    baseline."""
+
+    dial_names: list[str]
+    variants: list[dict[str, Any]]
+    hypothesis: str
+    decision_rule: str
+
+    @property
+    def key(self) -> str:
+        return "-".join(self.dial_names) or "grid"
+
+
 def run_sweep(
     conn: psycopg.Connection,
     *,
@@ -242,8 +268,147 @@ def run_sweep(
     concurrency: int = 1,
     root: str | Path | None = None,
     now: datetime | None = None,
+    resume: str | None = None,
 ) -> SweepReport:
-    """Export the mirror ONCE, run every (variant x WINDOW) over it, and report the curve.
+    """ONE curve from a cartesian ``grid`` — the single-curve front door onto ``run_pass``."""
+    return run_pass(
+        conn,
+        ladders=[Ladder(sorted(grid), variants(grid), hypothesis, decision_rule)],
+        windows=windows,
+        pin=pin,
+        hypothesis=hypothesis,
+        decision_rule=decision_rule,
+        regime=regime,
+        workers=workers,
+        null_draws=null_draws,
+        clock=clock,
+        concurrency=concurrency,
+        root=root,
+        now=now,
+        resume=resume,
+    )[0]
+
+
+class ResumeMismatch(ValueError):
+    """A ``--resume`` was asked to continue a pass it does not describe.
+
+    Every one of these refuses BEFORE any job launches, because the failure they prevent is silent: a
+    resumed pass would carry one ``pass_id`` over two different measurements, and the curve would pool
+    them without anything on it saying so."""
+
+
+@dataclass(frozen=True)
+class _ResumeState:
+    """What a pass has already done, as the registry and the artifacts record it."""
+
+    #: ``(config_hash, window start, window end) -> run_id`` for the runs that FINISHED
+    done: dict[tuple[str, str, str], str]
+    #: every registry row under this pass id, finished or not — the evidence of what the pass ran under
+    rows: list[store.RunSummary]
+
+
+def _resume_state(pass_id: str, root: Path) -> _ResumeState:
+    """What this pass has already measured.
+
+    Read from the REGISTRY rather than by walking directories, because the registry is the thing that says
+    a run finished: ``execute`` registers under the index lock as its last act. A row whose outcomes are
+    not readable does not count as DONE — a job killed mid-write leaves a directory and can leave a row,
+    and reusing it would pool a point over a truncated run — but it still counts as EVIDENCE of what the
+    pass was running, which is what the consistency guards read."""
+    rows = [r for r in store.list_runs(root) if r.pass_id == pass_id]
+    done: dict[tuple[str, str, str], str] = {}
+    for r in rows:
+        d = store.run_dir(r.run_id, root)
+        if d is None or not (d / "outcomes.parquet").is_file():
+            continue
+        done[(r.config_hash, r.window_start, r.window_end)] = r.run_id
+    return _ResumeState(done=done, rows=rows)
+
+
+def _check_resume_shape(
+    state: _ResumeState,
+    *,
+    pass_id: str,
+    windows: Sequence[tuple[date, date]],
+    clock: str,
+) -> None:
+    """Refuse a resume whose WINDOWS or CLOCK are not the ones the pass ran under.
+
+    Nothing about the pass id says what it measured. Without this, a ``--resume`` with a different
+    ``--start``/``--end``/``--window-days`` finds no matching pairs, runs EVERYTHING under the old id with
+    the new windows, and the two halves share a pass id while measuring different spans — and a different
+    ``--clock`` is worse, because the completed half and the re-run half would sit on different fact axes
+    inside one curve."""
+    wanted = {(lo.isoformat(), hi.isoformat()) for lo, hi in windows}
+    stray = sorted({(r.window_start, r.window_end) for r in state.rows} - wanted)
+    if stray:
+        raise ResumeMismatch(
+            f"pass {pass_id!r} already holds runs over window(s) {stray}, which are not among the "
+            f"windows requested ({sorted(wanted)}). Resuming would put two different spans under one "
+            f"pass id. Re-run with the pass's own --start/--end/--window-days, or start a new pass."
+        )
+    clocks = {r.clock for r in state.rows}
+    if clocks and clocks != {clock}:
+        raise ResumeMismatch(
+            f"pass {pass_id!r} ran on clock(s) {sorted(clocks)} and this resume asks for {clock!r}. "
+            f"The completed half and the re-run half would sit on different fact axes inside one curve."
+        )
+
+
+def _resume_mirror(state: _ResumeState, *, pass_id: str, mirror: Path, root: Path) -> str | None:
+    """The mirror a resumed pass must sweep — or ``None`` when it has to be exported fresh.
+
+    **A resume must NOT re-export.** A second export is a second snapshot of a database a human may well
+    have touched in between — and resume is precisely the moment that is likely — so the re-run jobs would
+    sweep a different tape from the completed ones while the curve reported a single ``mirror_hash``. That
+    is the exact failure the shared mirror exists to prevent.
+
+    Three cases, and each refuses rather than guesses:
+
+    * the mirror is THERE — reuse it, and refuse if any completed run cites a different hash;
+    * the mirror is GONE but the pass has completed runs — refuse, because there is nothing left to re-run
+      them against and a fresh export would not be their tape;
+    * the mirror is gone and nothing completed — export. That is a fresh pass wearing an old id, and the
+      caller is told so.
+    """
+    if read_mirror_manifest(mirror) is None:
+        if state.done:
+            raise ResumeMismatch(
+                f"pass {pass_id!r} has {len(state.done)} completed run(s) but its mirror is gone from "
+                f"{mirror}. A fresh export would not be the tape they swept, so the curve could not be "
+                f"assembled honestly. Re-run the pass from scratch under a new id."
+            )
+        return None  # nothing measured yet: a fresh pass wearing an old id
+    here = mirror_hash(mirror)
+    for key, run_id in sorted(state.done.items()):
+        m = mf.read_manifest(store.run_dir(run_id, root) or Path())
+        if m is not None and m.mirror.hash != here:
+            raise ResumeMismatch(
+                f"completed run {run_id!r} of pass {pass_id!r} cites mirror {m.mirror.hash[:12]}… but "
+                f"the mirror at {mirror} now hashes to {here[:12]}…. The tape changed under the pass; "
+                f"resuming would pool two different snapshots into one curve. Start a new pass."
+            )
+    return here
+
+
+def run_pass(
+    conn: psycopg.Connection,
+    *,
+    ladders: Sequence[Ladder],
+    windows: Sequence[tuple[date, date]],
+    pin: datetime,
+    hypothesis: str,
+    decision_rule: str,
+    regime: str | None = None,
+    workers: int = 1,
+    null_draws: int = DEFAULT_DRAWS,
+    clock: Literal["record", "public"] = "record",
+    concurrency: int = 1,
+    root: str | Path | None = None,
+    now: datetime | None = None,
+    resume: str | None = None,
+) -> list[SweepReport]:
+    """Export ONE mirror, run every distinct (config x WINDOW) over it once, and report a curve per ladder.
 
     **THE UNIT OF WORK IS A WINDOW, and a curve point is the POOLED read across its windows.** The reason
     is the ANALYSIS, not throughput: the windows are separate measurements, so a point's delta being
@@ -252,153 +417,199 @@ def run_sweep(
     was killed — and a window job that dies costs ~90 s rather than an hour. See ``backtest/windows.py``.
 
     It costs nothing in fidelity. ``export_snapshot`` takes no date bound, so the mirror is the whole tape
-    whatever window reads it — ONE export serves every window of every point, which is also what keeps a
-    delta attributable to the dial rather than to a second snapshot of a moving database. Every job
-    inherits that mirror's clock (CW), so "one tape, one axis, N dial settings, M windows" holds by
-    construction rather than by every call site repeating itself.
+    whatever window reads it — ONE export serves every window of every point of every LADDER, which is
+    also what keeps a delta attributable to the dial rather than to a second snapshot of a moving
+    database. Every job inherits that mirror's clock (CW).
 
-    **The per-window deltas replaced the sub-window split of one long run,** and they ask a stronger
-    question: the windows are separate measurements rather than slices of one, so a dial that helps in one
-    six-week window and hurts in the next is visibly unstable.
+    **THE BASELINE IS RUN ONCE FOR THE WHOLE PASS.** Variants are deduplicated by ``config_hash`` ACROSS
+    ladders, so the production default — which every ladder contains — is measured once per window and
+    shared by all six curves. MEASURED cost of not doing this: six separate sweeps re-ran their own
+    baseline, 45 redundant runs and five redundant exports, about 1.1 h of a 6.5 h pass. Points that share
+    runs are marked ``runs_shared``, so a shared point is never read as an independent confirmation.
 
-    **The baseline is run ONCE PER WINDOW and shared.** Variants are deduplicated by ``config_hash``
-    before anything launches, so every ladder containing the production default cites the same baseline
-    runs instead of re-measuring them — on a six-dial phase that is 5 x W runs saved. Points that share
-    runs are marked ``runs_shared`` so a shared point is never read as an independent confirmation.
+    **PRE-REGISTRATION.** The runs carry the PASS's hypothesis and decision rule, and they have to: the
+    baseline run belongs to six curves at once and cannot carry six different texts. Each CURVE carries
+    its own on the report, which is the artifact a reader quotes a dial's result from.
+
+    **``resume``** takes a pass id and skips any ``(config, window)`` whose run is already registered under
+    it with readable outcomes, re-running only the rest and assembling the curve from the union. The seed
+    is preserved by construction, because the seed IS the pass id — so a resumed pass draws the same nulls
+    as the one it continues. A dead pass's completed runs still count as trials in the registry; resume
+    does not mint new ones, which is precisely why it is the cheaper recovery.
+
+    **A resume does NOT re-export, and it refuses rather than guesses.** The windows and the clock must be
+    the ones the pass ran under; the existing mirror is reused and every completed run's manifest must
+    cite it. Each of those is a silent failure if unchecked — one pass id over two spans, two fact axes
+    inside one curve, or two snapshots of a database a human touched between the halves — and resume is
+    exactly when that last one is likely. See ``_check_resume_shape`` and ``_resume_mirror``.
     """
     if not windows:
-        raise ValueError("a sweep needs at least one window")
+        raise ValueError("a pass needs at least one window")
+    if not ladders:
+        raise ValueError("a pass needs at least one ladder")
     windows = [(lo, hi) for lo, hi in windows]
     pass_start, pass_end = windows[0][0], windows[-1][1]
     root_path = Path(root or store.DEFAULT_ROOT)
     now = now or datetime.now(timezone.utc)
-    pass_id = mf.make_pass_id(hypothesis=hypothesis, now=now, clock=clock)
+    pass_id = resume or mf.make_pass_id(hypothesis=hypothesis, now=now, clock=clock)
 
     mirror = (
         root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{pass_start}-{pass_end}-{clock}"
     )
+    # EVERY resume guard runs BEFORE the mirror is touched and before a single job launches: the failures
+    # they prevent are silent ones, where a curve pools two different measurements under one pass id.
+    state = _resume_state(pass_id, root_path) if resume else _ResumeState({}, [])
+    reuse_hash: str | None = None
+    if resume:
+        _check_resume_shape(state, pass_id=pass_id, windows=windows, clock=clock)
+        reuse_hash = _resume_mirror(state, pass_id=pass_id, mirror=mirror, root=root_path)
     mirror.mkdir(parents=True, exist_ok=True)
-    # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep took
-    # a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and dropped is worse
-    # than none, because a caller reads it as honored. It is removed rather than wired: nothing can pass one
-    # (there is no `--tenant` on this CLI or on `backtest.run`) and the whole backtest package is
-    # single-tenant by construction. Multi-tenant sweeps are a real change, not a parameter.
-    export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
+    if reuse_hash is None:
+        # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep
+        # took a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and
+        # dropped is worse than none, because a caller reads it as honored. It is removed rather than
+        # wired: nothing can pass one (there is no `--tenant` on this CLI or on `backtest.run`) and the
+        # whole backtest package is single-tenant by construction. Multi-tenant sweeps are a real change,
+        # not a parameter.
+        export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
 
-    # ONE config per distinct config_hash. Two dial settings that resolve to the same config are ONE
-    # measurement, and the production default is usually reachable from every ladder -- so this is where
-    # the shared baseline comes from, as a consequence of the dedup rather than as a special case.
-    all_dials = variants(grid)
-    cfgs = [(dials, apply_overlay(dials)) for dials in all_dials]
+    # every variant of every ladder, resolved to a config -- then ONE job per distinct config_hash
+    per_ladder = [[(d, apply_overlay(d)) for d in lad.variants] for lad in ladders]
+    flat = [pair for group in per_ladder for pair in group]
     by_hash: dict[str, CallConfig] = {}
-    for _, cfg in cfgs:
+    for _, cfg in flat:
         by_hash.setdefault(config_hash(cfg), cfg)
-    shared_hashes = {h for h in by_hash if sum(1 for _, c in cfgs if config_hash(c) == h) > 1}
+    shared_hashes = {h for h in by_hash if sum(1 for _, c in flat if config_hash(c) == h) > 1}
 
-    jobs = [
-        _Job(
-            mirror=str(mirror),
-            start=lo.isoformat(),
-            end=hi.isoformat(),
-            pin=pin.isoformat(),
-            cfg_json=cfg.model_dump_json(),
-            workers=workers,
-            null_draws=null_draws,
-            # ONE seed for the whole pass, so the same episode draws the SAME counterfactuals in every
-            # point it appears in. The seed otherwise defaults to the run_id, which differs per run by
-            # construction -- and then two points' null distributions would differ by the seed as well as
-            # by the dial, which is noise in exactly the comparison the curve exists to make.
-            null_seed=pass_id,
-            hypothesis=hypothesis,
-            decision_rule=decision_rule,
-            regime=regime,
-            pass_id=pass_id,
-            root=str(root_path),
-        )
-        for h, cfg in by_hash.items()
-        for lo, hi in windows
-    ]
-    keys = [(h, w) for h in by_hash for w in range(len(windows))]
-    run_ids = dict(zip(keys, _launch(jobs, concurrency), strict=True))
+    already = state.done
+    run_ids: dict[tuple[str, int], str] = {}
+    jobs: list[_Job] = []
+    keys: list[tuple[str, int]] = []
+    for h, cfg in by_hash.items():
+        for w, (lo, hi) in enumerate(windows):
+            done = already.get((h, lo.isoformat(), hi.isoformat()))
+            if done is not None:
+                run_ids[(h, w)] = done
+                continue
+            keys.append((h, w))
+            jobs.append(
+                _Job(
+                    mirror=str(mirror),
+                    start=lo.isoformat(),
+                    end=hi.isoformat(),
+                    pin=pin.isoformat(),
+                    cfg_json=cfg.model_dump_json(),
+                    workers=workers,
+                    null_draws=null_draws,
+                    # ONE seed for the whole pass, so the same episode draws the SAME counterfactuals in
+                    # every point it appears in. The seed otherwise defaults to the run_id, which differs
+                    # per run by construction -- and then two points' null distributions would differ by
+                    # the seed as well as by the dial, which is noise in exactly the comparison the curve
+                    # exists to make. It is also what makes a RESUMED pass draw identically.
+                    null_seed=pass_id,
+                    hypothesis=hypothesis,
+                    decision_rule=decision_rule,
+                    regime=regime,
+                    pass_id=pass_id,
+                    root=str(root_path),
+                )
+            )
+    run_ids.update(zip(keys, _launch(jobs, concurrency), strict=True))
 
-    points: list[SweepPoint] = []
     scored_by_hash: dict[str, _Scored] = {}
-    for dials, cfg in cfgs:
-        h = config_hash(cfg)
-        ids = [run_ids[(h, w)] for w in range(len(windows))]
-        # `if not in` rather than `setdefault`: the latter evaluates its default EAGERLY, so every point
-        # sharing a config would re-read all N Parquet files only to discard them.
-        if h not in scored_by_hash:
-            scored_by_hash[h] = _pooled(ids, root_path)
-        scored = scored_by_hash[h]
-        points.append(
-            SweepPoint(
-                dials=dials,
-                run_ids=ids,
-                config_short=short_hash(h) or "",
-                n_episodes=scored.n_episodes,
-                n_scored=len(scored.values),
-                metric=_median_in(scored, pass_start, pass_end),
-                is_baseline=h == config_hash(DEFAULT_CONFIG),
-                runs_shared=h in shared_hashes,
+    reports: list[SweepReport] = []
+    curve_keys = [lad.key for lad in ladders]
+    for lad, cfgs in zip(ladders, per_ladder, strict=True):
+        points: list[SweepPoint] = []
+        for dials, cfg in cfgs:
+            h = config_hash(cfg)
+            ids = [run_ids[(h, w)] for w in range(len(windows))]
+            # `if not in` rather than `setdefault`: the latter evaluates its default EAGERLY, so every
+            # point sharing a config would re-read all N Parquet files only to discard them.
+            if h not in scored_by_hash:
+                scored_by_hash[h] = _pooled(ids, root_path)
+            scored = scored_by_hash[h]
+            points.append(
+                SweepPoint(
+                    dials=dials,
+                    run_ids=ids,
+                    config_short=short_hash(h) or "",
+                    n_episodes=scored.n_episodes,
+                    n_scored=len(scored.values),
+                    metric=_median_in(scored, pass_start, pass_end),
+                    is_baseline=h == config_hash(DEFAULT_CONFIG),
+                    runs_shared=h in shared_hashes,
+                )
+            )
+
+        # THE BASELINE ACTUALLY USED. When the ladder contains the production default it is that point;
+        # when it does not -- a ladder that brackets today's value without including it -- the first point
+        # stands in, and the report says so rather than reporting DEFAULT_CONFIG's hash for a baseline
+        # that is not it.
+        baseline_point = next((p for p in points if p.is_baseline), points[0] if points else None)
+        baseline = (
+            scored_by_hash[config_hash(apply_overlay(baseline_point.dials))]
+            if baseline_point
+            else None
+        )
+        for p in points:
+            scored = scored_by_hash[config_hash(apply_overlay(p.dials))]
+            base_overall = _median_in(baseline, pass_start, pass_end) if baseline else None
+            p.delta_vs_baseline = (
+                None
+                if p.metric is None or base_overall is None
+                else round(p.metric - base_overall, 6)
+            )
+            deltas: list[float | None] = []
+            for lo, hi in windows:
+                here, there = _median_in(scored, lo, hi), (
+                    _median_in(baseline, lo, hi) if baseline else None
+                )
+                deltas.append(None if here is None or there is None else round(here - there, 6))
+            p.window_deltas = deltas
+            known = [d for d in deltas if d is not None]
+            # EVERY window must agree, and a window with no data does not get to abstain into a yes: a
+            # point measurable on only some of the pass has not demonstrated stability. Two is the floor --
+            # one window cannot agree with anything, so a single-window pass reports no agreement at all,
+            # which is the honest answer rather than a vacuous True.
+            p.sign_agreement = (
+                len(known) == len(deltas)
+                and len(known) >= 2
+                and (all(d >= 0 for d in known) or all(d <= 0 for d in known))
+            )
+
+        reports.append(
+            SweepReport(
+                dial_names=list(lad.dial_names),
+                window_start=pass_start,
+                window_end=pass_end,
+                windows=windows,
+                concurrency=concurrency,
+                pass_id=pass_id,
+                hypothesis=lad.hypothesis,
+                decision_rule=lad.decision_rule,
+                pass_curves=curve_keys,
+                clock=clock,  # the axis that one tape carries; every point inherited it
+                # the ONE frozen tape every point swept -- on a resume this is the EXISTING mirror's
+                # hash, already checked against every completed run's manifest, never a re-export's
+                mirror_hash=reuse_hash or mirror_hash(mirror),
+                baseline_config_short=(baseline_point.config_short if baseline_point else ""),
+                baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
+                points=points,
+                plateau=_plateau(points),
+                banner=(
+                    "A CURVE, NOT A WINNER. One regime, with episodes that are not independent, cannot "
+                    "support picking the best-scoring point -- that is fitting the tape. Read the PLATEAU "
+                    "(a contiguous band where the choice barely matters) and the per-point sign agreement "
+                    "ACROSS WINDOWS: each point is pooled over disjoint windows that were run as separate "
+                    "measurements, and a point that wins pooled but disagrees across them has found "
+                    "nothing. Points marked as sharing runs are one measurement cited twice, not two -- "
+                    "the baseline is shared by every curve in this pass. Promotion of any dial remains a "
+                    "separate operator decision, on the back of run ids."
+                ),
             )
         )
-
-    # THE BASELINE ACTUALLY USED. When the grid contains the production default it is that point; when it
-    # does not -- a ladder that brackets today's value without including it -- the first point stands in,
-    # and the report says so rather than reporting DEFAULT_CONFIG's hash for a baseline that is not it.
-    baseline_point = next((p for p in points if p.is_baseline), points[0] if points else None)
-    baseline = (
-        scored_by_hash[config_hash(apply_overlay(baseline_point.dials))] if baseline_point else None
-    )
-
-    for p in points:
-        scored = scored_by_hash[config_hash(apply_overlay(p.dials))]
-        base_overall = _median_in(baseline, pass_start, pass_end) if baseline else None
-        p.delta_vs_baseline = (
-            None if p.metric is None or base_overall is None else round(p.metric - base_overall, 6)
-        )
-        deltas: list[float | None] = []
-        for lo, hi in windows:
-            here, there = _median_in(scored, lo, hi), (
-                _median_in(baseline, lo, hi) if baseline else None
-            )
-            deltas.append(None if here is None or there is None else round(here - there, 6))
-        p.window_deltas = deltas
-        known = [d for d in deltas if d is not None]
-        # EVERY window must agree, and a window with no data does not get to abstain into a yes: a point
-        # measurable on only some of the pass has not demonstrated stability. Two is the floor -- one
-        # window cannot agree with anything, so a single-window pass reports no agreement at all, which is
-        # the honest answer rather than a vacuous True.
-        p.sign_agreement = (
-            len(known) == len(deltas)
-            and len(known) >= 2
-            and (all(d >= 0 for d in known) or all(d <= 0 for d in known))
-        )
-
-    return SweepReport(
-        dial_names=sorted(grid),
-        window_start=pass_start,
-        window_end=pass_end,
-        windows=windows,
-        concurrency=concurrency,
-        pass_id=pass_id,
-        clock=clock,  # the axis that one tape carries; every point inherited it
-        mirror_hash=mirror_hash(mirror),  # the ONE frozen tape every point swept
-        baseline_config_short=(baseline_point.config_short if baseline_point else ""),
-        baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
-        points=points,
-        plateau=_plateau(points),
-        banner=(
-            "A CURVE, NOT A WINNER. One regime, with episodes that are not independent, cannot support "
-            "picking the best-scoring point -- that is fitting the tape. Read the PLATEAU (a contiguous "
-            "band where the choice barely matters) and the per-point sign agreement ACROSS WINDOWS: each "
-            "point is pooled over disjoint windows that were run as separate measurements, and a point "
-            "that wins pooled but disagrees across them has found nothing. Points marked as sharing runs "
-            "are one measurement cited twice, not two. Promotion of any dial remains a separate operator "
-            "decision, on the back of run ids."
-        ),
-    )
+    return reports
 
 
 class _Job(NamedTuple):
@@ -486,6 +697,17 @@ def _launch(jobs: list[_Job], concurrency: int) -> list[str]:
         return list(pool.map(_run_window, jobs))
 
 
+def split_spec(spec: str, flag: str) -> tuple[str, str]:
+    """``dial=rest`` -> ``(dial, rest)``. One parser for ``--grid``, ``--ladder`` and the per-ladder
+    pre-registration overrides, so they cannot drift on what counts as a well-formed spec."""
+    if "=" not in spec:
+        raise OverlayError(f"{flag} expects dial=... (got {spec!r})")
+    name, raw = spec.split("=", 1)
+    if not name.strip():
+        raise OverlayError(f"{flag} expects a dial name before the '=' (got {spec!r})")
+    return name.strip(), raw
+
+
 def parse_values(raw: str) -> list[Any]:
     """``--values 30,60,90`` -> typed values. JSON per item, so ints, floats, booleans and quoted strings
     all round-trip; a bare word falls back to a string."""
@@ -516,7 +738,53 @@ def build_parser() -> argparse.ArgumentParser:
         "--grid",
         action="append",
         default=[],
-        help="dial=v1,v2 -- repeatable, for a multi-dial variant set (H1/H3)",
+        help=(
+            "dial=v1,v2 -- repeatable, for a CARTESIAN variant set producing ONE curve (H3's "
+            "on/off/scope comparison). Not the same thing as --ladder."
+        ),
+    )
+    p.add_argument(
+        "--ladder",
+        action="append",
+        default=[],
+        help=(
+            "dial=v1,v2,... -- repeatable, ONE CURVE PER LADDER in a single pass. Every ladder shares one "
+            "mirror export, one pass id and ONE BASELINE: the production default appears in every ladder "
+            "and is deduplicated by config_hash ACROSS them, so it is measured once per window rather "
+            "than once per dial. MEASURED cost of not doing that: six separate sweeps re-ran their own "
+            "baseline -- 45 redundant runs and five redundant exports, about 1.1 h of a 6.5 h pass."
+        ),
+    )
+    p.add_argument(
+        "--ladder-hypothesis",
+        action="append",
+        default=[],
+        metavar="DIAL=TEXT",
+        help=(
+            "override the pass's --hypothesis for ONE ladder's curve. The RUNS always carry the pass's "
+            "text and must: the baseline run belongs to every curve at once and cannot carry six "
+            "different hypotheses. This rides the curve file, which is what a dial's result is quoted "
+            "from."
+        ),
+    )
+    p.add_argument(
+        "--ladder-decision-rule",
+        action="append",
+        default=[],
+        metavar="DIAL=TEXT",
+        help="override the pass's --decision-rule for ONE ladder's curve (see --ladder-hypothesis)",
+    )
+    p.add_argument(
+        "--resume",
+        default=None,
+        metavar="PASS_ID",
+        help=(
+            "continue an interrupted pass: skip every (config, window) already registered under this "
+            "pass id WITH readable outcomes, re-run the rest, and assemble the curves from the union. "
+            "The nulls draw identically because the seed IS the pass id. NOTE: the dead pass's completed "
+            "runs already count as trials in the registry and resume does not mint new ones -- which is "
+            "exactly why it is the cheaper recovery."
+        ),
     )
     p.add_argument(
         "--window-days",
@@ -581,26 +849,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    grid: dict[str, list[Any]] = {}
-    if args.dial:
-        if not args.values:
-            print("ERROR: --dial requires --values", file=sys.stderr)
-            return 2
-        grid[args.dial] = parse_values(args.values)
-    for spec in args.grid:
-        if "=" not in spec:
-            print(f"ERROR: --grid expects dial=v1,v2 (got {spec!r})", file=sys.stderr)
-            return 2
-        name, raw = spec.split("=", 1)
-        grid[name.strip()] = parse_values(raw)
-    if not grid:
-        print("ERROR: nothing to sweep -- pass --dial/--values or --grid", file=sys.stderr)
+    if args.ladder and (args.dial or args.grid):
+        print(
+            "ERROR: --ladder is a set of CURVES (one per dial) and --dial/--grid is ONE curve; "
+            "pass one or the other, not both",
+            file=sys.stderr,
+        )
         return 2
-    try:  # fail on an unknown dial BEFORE paying for a mirror export
-        for name, values in grid.items():
-            apply_overlay({name: values[0]})
+    try:
+        ladders = _ladders_from_args(args)
     except OverlayError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if not ladders:
+        print(
+            "ERROR: nothing to sweep -- pass --ladder, or --dial/--values, or --grid",
+            file=sys.stderr,
+        )
         return 2
 
     pin = datetime.fromisoformat(args.pin) if args.pin else datetime.now(timezone.utc)
@@ -609,9 +874,9 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = connect()
     try:
-        report = run_sweep(
+        reports = run_pass(
             conn,
-            grid=grid,
+            ladders=ladders,
             pin=pin,
             hypothesis=args.hypothesis,
             decision_rule=args.decision_rule,
@@ -626,35 +891,99 @@ def main(argv: list[str] | None = None) -> int:
             null_draws=args.null_draws,
             clock=args.clock,
             root=args.out_root,
+            resume=args.resume,
         )
     finally:
         conn.close()
 
     root_path = Path(args.out_root or store.DEFAULT_ROOT)
+    kept = [write_curve(r, root_path) for r in reports]
+    # `sweep.json` keeps its shape and holds the LAST curve of the pass -- latest-only, unchanged, so the
+    # /backtest sweep view renders exactly as before. Every curve of the pass is named in each report's
+    # `pass_curves`, and each is kept under `sweeps/<pass_id>-<dial>.json` where nothing overwrites it.
     path = root_path / SWEEP_NAME
-    blob = report.model_dump_json(indent=2) + "\n"
-    path.write_text(blob, encoding="utf-8", newline="\n")
-    # ...AND a copy that the next sweep cannot overwrite. `sweep.json` is latest-only -- a known gap, and
-    # one this slice leans on much harder now that a pass is dozens of runs: without this, the only record
-    # of which runs formed which curve would be a file the next sweep replaces. (The runs themselves also
-    # carry `pass_id`, so the grouping survives even if both copies are lost.)
-    keep = root_path / "sweeps" / f"{report.pass_id}-{'-'.join(report.dial_names) or 'grid'}.json"
-    keep.parent.mkdir(parents=True, exist_ok=True)
-    keep.write_text(blob, encoding="utf-8", newline="\n")
+    path.write_text(reports[-1].model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
     print(
-        f"swept {report.dial_names} -> {len(report.points)} point(s) over {len(report.windows)} "
-        f"window(s) on the {report.clock} clock at concurrency {report.concurrency}; "
-        f"pass {report.pass_id}; curve at {path} (kept at {keep})"
+        f"pass {reports[-1].pass_id}: {len(reports)} curve(s) over {len(reports[-1].windows)} "
+        f"window(s) on the {reports[-1].clock} clock at concurrency {reports[-1].concurrency}"
+        + (f" (resumed {args.resume})" if args.resume else "")
     )
-    for p in report.points:
-        mark = "=" if p.is_baseline else ("~" if p.sign_agreement else " ")
-        shared = " (shared runs)" if p.runs_shared else ""
-        print(
-            f"  {mark} {p.dials} n={p.n_scored:4d} metric={p.metric} "
-            f"delta={p.delta_vs_baseline} windows={p.window_deltas}{shared}"
-        )
-    print(f"  plateau (indices, a BAND not a pick): {report.plateau}")
+    for report, keep in zip(reports, kept, strict=True):
+        print(f"  {report.dial_names} -> {len(report.points)} point(s); kept at {keep}")
+        for p in report.points:
+            mark = "=" if p.is_baseline else ("~" if p.sign_agreement else " ")
+            shared = " (shared runs)" if p.runs_shared else ""
+            print(
+                f"    {mark} {p.dials} n={p.n_scored:4d} metric={p.metric} "
+                f"delta={p.delta_vs_baseline} windows={p.window_deltas}{shared}"
+            )
+        print(f"    plateau (indices, a BAND not a pick): {report.plateau}")
+    print(f"  latest curve also at {path}")
     return 0
+
+
+def write_curve(report: SweepReport, root: Path) -> Path:
+    """Keep one curve where the next pass cannot overwrite it.
+
+    `sweep.json` is latest-only -- a known gap, and one a multi-curve pass leans on much harder: without
+    this the only record of which runs formed which curve would be a file the next sweep replaces. (The
+    runs themselves also carry `pass_id`, so the grouping survives even if every curve file is lost.)
+    """
+    keep = root / "sweeps" / f"{report.pass_id}-{'-'.join(report.dial_names) or 'grid'}.json"
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    keep.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    return keep
+
+
+def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
+    """The pass's curves, from either front door.
+
+    ``--ladder`` is N curves, one per dial. ``--dial``/``--grid`` is ONE curve over a cartesian variant
+    set, which is what H3 needs (its three arms live on two dials). Unknown dials fail HERE, before the
+    mirror export, because a typo should not cost a minute of Parquet."""
+    overrides = {
+        "hypothesis": dict(
+            split_spec(spec, "--ladder-hypothesis") for spec in args.ladder_hypothesis
+        ),
+        "decision_rule": dict(
+            split_spec(spec, "--ladder-decision-rule") for spec in args.ladder_decision_rule
+        ),
+    }
+    ladders: list[Ladder] = []
+    if args.ladder:
+        for spec in args.ladder:
+            name, raw = split_spec(spec, "--ladder")
+            values = parse_values(raw)
+            apply_overlay({name: values[0]})  # unknown dial -> OverlayError, before any work
+            ladders.append(
+                Ladder(
+                    dial_names=[name],
+                    variants=[{name: v} for v in values],
+                    hypothesis=overrides["hypothesis"].get(name, args.hypothesis),
+                    decision_rule=overrides["decision_rule"].get(name, args.decision_rule),
+                )
+            )
+        unknown = set(overrides["hypothesis"]) | set(overrides["decision_rule"])
+        unknown -= {lad.dial_names[0] for lad in ladders}
+        if unknown:
+            raise OverlayError(
+                f"per-ladder pre-registration given for dial(s) with no --ladder: {sorted(unknown)}"
+            )
+        return ladders
+
+    grid: dict[str, list[Any]] = {}
+    if args.dial:
+        if not args.values:
+            raise OverlayError("--dial requires --values")
+        grid[args.dial] = parse_values(args.values)
+    for spec in args.grid:
+        name, raw = split_spec(spec, "--grid")
+        grid[name] = parse_values(raw)
+    if not grid:
+        return []
+    for name, values in grid.items():
+        apply_overlay({name: values[0]})
+    return [Ladder(sorted(grid), variants(grid), args.hypothesis, args.decision_rule)]
 
 
 def cfg_for(dials: dict[str, Any]) -> CallConfig:

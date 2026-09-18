@@ -218,7 +218,12 @@ def test_the_cli_rejects_a_malformed_grid(capsys):
         ]
     )
     assert code == 2
-    assert "dial=v1,v2" in capsys.readouterr().err
+    # the spec parser is now SHARED by --grid, --ladder and the per-ladder pre-registration overrides
+    # (S2), so the message generalized to `dial=...`: it cannot promise a values-shaped right-hand side
+    # for a flag whose right-hand side is prose. What a reader needs is still there -- which flag, and
+    # that it wants a dial name before the '='.
+    err = capsys.readouterr().err
+    assert "--grid" in err and "dial=" in err and "no_equals_sign" in err
 
 
 def test_the_cli_refuses_an_empty_sweep(capsys):
