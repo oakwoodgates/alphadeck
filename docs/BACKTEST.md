@@ -305,9 +305,12 @@ attributable to the dial rather than to the tape moving underneath it), and repo
 
 - the **plateau** — the widest contiguous band of settings that behave alike, as indices into the points. A
   band one point wide is the sweep finding NOTHING, and the surface says exactly that rather than
-  highlighting a high point.
-- **sub-period sign agreement** — the same delta recomputed on each disjoint sub-window. A pooled number that
-  cannot survive cutting the window in half has not found anything.
+  highlighting a high point. **Which agreement the band is keyed on is a parameter and rides the report**
+  (`plateau_rule`); since 2026-09-18 the default is the STRICT rule below.
+- **cross-window sign agreement** — the same delta recomputed on each disjoint window. A pooled number that
+  cannot survive being recomputed on each window separately has not found anything. TWO fields are reported
+  on every point, `sign_agreement` (pre-registered) and `strict_sign_agreement` (the rule from 2026-09-18),
+  and neither is ever rewritten.
 - Never an argmax, never a sort by outcome, never a "best". The points render in dial order.
 
 ### The window is the unit of work (S1)
@@ -386,8 +389,79 @@ of exactly **+0.00%** — and moved **561 of 1931** shared episodes by a median 
 is zero because the untouched 70% majority decides it; reporting it alone would say "the dial does nothing
 to shared episodes", which is the opposite of what happened. **Always read `n_changed` beside it.**
 
+**The caveat the paired table carries: pairing fixes the ENTRY, not the HORIZON.** The key is
+`(thesis_id, security_id, arm_date)`, so a shared episode is the same name entered on the same day — but a
+liveness dial also sets `exit_by`, so the two sides can measure that same entry over DIFFERENT forward
+windows. MEASURED on phase 1, `revenue_accel` 60 d against the 180 d baseline: of 1,932 shared episodes,
+**647 (33.5%) carry a different `exit_by`** — one arm on 2025-09-04 is measured to 2026-01-31 at 180 d and
+to 2025-10-03 at 60 d, and its return moves -43.7% -> +9.2% on that alone. So "same episodes, re-timed" is
+loose: read it as *the same entries, measured over the horizon each setting gives them*. That is the
+question a horizon dial is being asked, but it is not a pure re-timing and a write-up must not call it one.
+
 The paired block is a reported **diagnostic**. The decision rule still keys on the pooled delta and its
 cross-window sign agreement, and the curve's banner says so.
+
+### Reading a curve on ONE algorithm family (A1)
+
+**A dial that touches a small family cannot move a median over the whole pool, and that is arithmetic
+rather than a finding.** MEASURED on phase 1 (2,615 episodes, 2,614 scoreable, pooled median -4.209%), the
+order statistic gives each family a hard ceiling — the most the pooled median could move if every episode in
+that family went to +infinity:
+
+| `key1_source` | episodes | ceiling on the pooled median |
+|---|---|---|
+| `theme` | 2 | **0.073 pp** |
+| `ratified_catalyst` | 46 | **0.995 pp** |
+| `activist` | 457 | 9.686 pp |
+| `insider` | 864 | 18.921 pp |
+| `revenue_accel` | 1,246 | 29.453 pp |
+
+A flat catalyst curve over the pool is therefore not evidence about the catalyst dial; it is evidence about
+the pool. `--metric-slice ATTR=VALUE` (one curve) and `--ladder-metric-slice DIAL=ATTR=VALUE` (per curve in
+a pass) read a curve on one family, and then **every figure on that curve is the slice's** — `n_episodes`,
+`n_scored`, the metric, the deltas and the paired block. The curve file carries `metric_slice` and the
+surface says so loudly, because read against the pool every one of those numbers would be wrong.
+
+Three rules keep it honest:
+
+- **A sliced curve is a NEW pre-registered hypothesis, never a re-read of an old one.** The slice is named on
+  the report and the pass's `--hypothesis` has to say so. Re-reading a finished pass on a slice is a
+  post-hoc DIAGNOSTIC and is labeled as one.
+- **Only ALGORITHM dimensions may be sliced** — `pooled.SLICE_KEYS` (`key1_source`, `confirmation_grade`,
+  `co_arm_bucket`, `close_reason`), the same set the pooled report uses. `episodes.parquet` carries
+  `thesis_id`, so without the check a sweep could report a dial's effect on ONE thesis: a per-thesis ranking
+  wearing a dial's clothes, and an invariant #4 violation. The guard lives on the `Ladder`, so a library
+  caller cannot skip it by not using the CLI.
+- **A slice that cannot be computed RAISES** rather than returning an empty family: a mistyped field
+  (`key1_sources` is a real one), a run with no `episodes.parquet`, outcomes written without identity. The
+  quiet version of each of those is a flat curve that reads as "this dial does nothing".
+
+`--metric-slice` with `--ladder` is refused: the family a dial can touch is the dial's own, and one slice
+over six curves would measure five dials on episodes they cannot reach.
+
+### Agreement — what a window DID, and what it could not have done (A1)
+
+The pre-registered rule was `all(d >= 0) or all(d <= 0)`, so a window whose delta is exactly 0.0 satisfies
+BOTH tests and counted as agreeing. That collapses two opposite things:
+
+- **`unchanged`** — the dial was able to move this window and did not.
+- **`unmeasurable`** — the window held no episode the dial could touch, so it was INCAPABLE of disagreeing.
+
+MEASURED, and not hypothetical: on phase 1's `ratified_catalyst` slice the nine windows hold
+`2 3 7 6 0 18 6 0 4` catalyst-keyed episodes — **two of nine hold none at all**, and the baseline point
+"agrees" across all nine windows purely because every delta is 0.0 by construction.
+
+So every point now carries `window_status` (`moved_up | moved_down | unchanged | unmeasurable`, one per
+window, a validated vocabulary) beside `window_deltas`, and two agreement fields:
+
+- `sign_agreement` — **the pre-registered field, semantics untouched.** A pass already run keeps reading the
+  way it was read, and nothing is ever rewritten to claim it was registered under a rule it was not.
+- `strict_sign_agreement` — **the rule from 2026-09-18**: every window strictly the same non-zero direction,
+  none unchanged and none unmeasurable.
+
+**The band keys on the strict rule for every pass registered from 2026-09-18 on** (`--plateau-rule`, default
+`strict_sign_agreement`; `sign_agreement` re-reads an older pass under its own rule). The report records
+which rule its band used and the curve view names it in words, because a band is meaningless without it.
 
 ### `--resume <pass_id>` — the recovery path
 

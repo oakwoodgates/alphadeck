@@ -49,6 +49,7 @@ from backtest.manifest import mirror_hash
 from backtest.nulls import DEFAULT_DRAWS
 from backtest.pair import Key as PairKey
 from backtest.pair import _split as pair_split
+from backtest.pooled import SLICE_KEYS
 from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
@@ -56,6 +57,26 @@ from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from replay.export import export_snapshot, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
+
+#: the compact console rendering of `WindowStatus` -- ASCII, for a cp1252 console
+STATUS_MARK = {"moved_up": "up", "moved_down": "dn", "unchanged": "==", "unmeasurable": "??"}
+
+#: What one window did to a point, named rather than inferred from a signed number.
+#:
+#: ``unchanged`` and ``unmeasurable`` are the two the pre-registered agreement rule cannot tell apart, and
+#: the difference matters: ``unchanged`` means the dial was ABLE to move this window and did not,
+#: ``unmeasurable`` means the window held no episode the dial could touch, so it was INCAPABLE of
+#: disagreeing. MEASURED on phase 1: on a `key1_source=ratified_catalyst` slice, two of the nine windows
+#: hold no catalyst-keyed episode at all, so a sweep could report "agrees in 9 of 9" with two windows that
+#: could not have disagreed.
+WindowStatus = Literal["moved_up", "moved_down", "unchanged", "unmeasurable"]
+
+#: Which agreement field the plateau band is keyed on. A PARAMETER rather than a constant because
+#: the rule changed: `strict_sign_agreement` is the rule for every pass registered from 2026-09-18
+#: on, and `sign_agreement` is what the first pre-registered pass was read under. Re-reading an old
+#: curve under its own rule must stay possible, and the report says which one its band used.
+PlateauRule = Literal["strict_sign_agreement", "sign_agreement"]
+DEFAULT_PLATEAU_RULE: PlateauRule = "strict_sign_agreement"
 
 
 class SweepPoint(BaseModel):
@@ -77,7 +98,19 @@ class SweepPoint(BaseModel):
     window_deltas: list[float | None] = Field(default_factory=list)
     # True only when EVERY window moved the same way. A pooled number that cannot survive being recomputed
     # on each window separately has not found anything.
+    #
+    # THE PRE-REGISTERED FIELD, and its semantics are deliberately UNTOUCHED: `all(d >= 0) or all(d <= 0)`,
+    # so a window whose delta is exactly 0.0 satisfies both tests and counts as agreeing. Passes already
+    # run keep reading the way they were read. `strict_sign_agreement` below is the proposed alternative
+    # and is reported beside it; the plateau still keys on THIS field until the operator rules.
     sign_agreement: bool = False
+    #: PROPOSED RULE, reported as a diagnostic: every window strictly the same NON-ZERO direction, and no
+    #: window unmeasurable. MEASURED consequence on phase 1 — `activist_13d` at 365 d agrees under the
+    #: pre-registered rule with one window unchanged, and the two inert dials agree across their whole
+    #: ladder on nine unchanged windows each.
+    strict_sign_agreement: bool = False
+    #: what each window actually did, in window order — see `WindowStatus`
+    window_status: list[WindowStatus] = Field(default_factory=list)
     is_baseline: bool = False
     # True when this point's runs are SHARED with another point — two dial settings that resolve to the
     # same config are one measurement, and the baseline is usually shared by every ladder that contains
@@ -124,6 +157,13 @@ class SweepReport(BaseModel):
     concurrency: int = 1
     #: the pass id every one of these runs carries on its own manifest and registry row
     pass_id: str = ""
+    #: WHICH agreement field `plateau` was keyed on. On the artifact because a band is meaningless
+    #: without it, and because two curves read under two rules must not look alike.
+    plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE
+    #: ``"key1_source=ratified_catalyst"`` when this curve was read on one algorithm slice, else empty.
+    #: Every figure on a sliced curve — the metric, the deltas, the paired block — is over that slice, and
+    #: the point's ``n_episodes``/``n_scored`` are the slice's, so no figure is ever read against the pool.
+    metric_slice: str = ""
     #: This curve's own pre-registration. It lives on the CURVE and not only on the runs because a pass
     #: shares runs between ladders — the production baseline most of all — and a shared run cannot carry
     #: six different hypotheses. The runs carry the PASS's text; each curve carries its own.
@@ -164,7 +204,23 @@ class MissingRunArtifacts(FileNotFoundError):
     """A run this curve cites has no readable outcomes on disk."""
 
 
-def _pooled(run_ids: Sequence[str], root: Path) -> _Scored:
+class MetricSliceError(ValueError):
+    """A curve was asked to be read on something that is not an ALGORITHM dimension.
+
+    This is invariant #4 enforced structurally rather than by convention. `episodes.parquet` carries
+    `thesis_id`, so an unchecked slice field would let a sweep report "this dial is worth +4 pp" on ONE
+    thesis -- a per-thesis ranking wearing a dial's clothes, which is exactly what `backtest.pooled`
+    refuses to build. The allowed set is `pooled.SLICE_KEYS`, the same one the pooled report slices on,
+    so there is one definition of what an algorithm dimension IS.
+
+    A typo is the quieter failure and is refused by the same check: `key1_sources` (plural, a real field)
+    would match no episode and hand back a curve of unmeasurable windows that reads like a null result.
+    """
+
+
+def _pooled(
+    run_ids: Sequence[str], root: Path, *, slice_on: tuple[str, str] | None = None
+) -> _Scored:
     """The pooled outcomes for ONE point — its window runs, read and concatenated.
 
     **A missing run is a corrupted store, and it RAISES.** Every launched run is registered under the
@@ -184,10 +240,38 @@ def _pooled(run_ids: Sequence[str], root: Path) -> _Scored:
                 f"pooling the point over fewer windows without saying so."
             )
         dirs.append(d)
-    return _read_scored(dirs)
+    return _read_scored(dirs, slice_on=slice_on)
 
 
-def _read_scored(run_dirs: Path | Sequence[Path]) -> _Scored:
+def _episode_slice(run_dir: Path, attr: str, value: str) -> set[PairKey]:
+    """The keys of the episodes in this run whose ``attr`` equals ``value``.
+
+    Read from ``episodes.parquet`` because that is where the algorithm attributes live (B3's breadth
+    fields): the outcomes carry the returns, the episodes carry what the arm WAS. A run written before an
+    attribute existed simply matches nothing for it, which reads as an unmeasurable slice rather than as a
+    silent whole-pool answer."""
+    import pyarrow.parquet as pq
+
+    src = run_dir / "episodes.parquet"
+    if not src.is_file():
+        # LOUD, because the quiet version of this is a curve of empty windows that reads as "the dial
+        # changes nothing in this family" when what actually happened is that the family was never read.
+        raise MetricSliceError(
+            f"run {run_dir.name} has no episodes.parquet, so it cannot be sliced on {attr}={value}; "
+            f"an unsliced curve reads only outcomes.parquet and is unaffected"
+        )
+    out: set[PairKey] = set()
+    for e in pq.read_table(src).to_pylist():
+        if not e.get("arm_date"):
+            continue
+        if str(e.get(attr)) == value:
+            out.add((str(e["thesis_id"]), str(e["security_id"]), str(e["arm_date"])))
+    return out
+
+
+def _read_scored(
+    run_dirs: Path | Sequence[Path], *, slice_on: tuple[str, str] | None = None
+) -> _Scored:
     """Read outcomes back off the runs' own Parquet and POOL them — the artifacts are the source of truth,
     so a point on the curve is derived from the same bytes a reviewer can open.
 
@@ -203,6 +287,24 @@ def _read_scored(run_dirs: Path | Sequence[Path]) -> _Scored:
     keyed: dict[PairKey, float] = {}
     for d in dirs:
         table = pq.read_table(d / "outcomes.parquet").to_pylist()
+        # The extra read is paid ONLY when a slice is asked for, so an unsliced curve costs what it always
+        # did. Filtering here rather than after pooling keeps `n_episodes` the SLICE's count, which is the
+        # number every sliced figure has to be read against.
+        wanted = _episode_slice(d, *slice_on) if slice_on else None
+        if wanted is not None:
+            # The join is on identity, so outcomes written without it can only ever match nothing. Refused
+            # rather than returned as an empty family, for the same reason as above.
+            if table and (table[0].get("thesis_id") is None or table[0].get("security_id") is None):
+                raise MetricSliceError(
+                    f"run {d.name} writes outcomes without thesis_id/security_id, so its episodes "
+                    f"cannot be joined to its returns; a sliced curve over it would be empty, not zero"
+                )
+            table = [
+                r
+                for r in table
+                if (str(r.get("thesis_id")), str(r.get("security_id")), str(r.get("arm_date")))
+                in wanted
+            ]
         n_episodes += len(table)
         for r in table:
             if r.get("forward_return") is None or not r.get("arm_date"):
@@ -224,9 +326,37 @@ def _median_in(scored: _Scored, lo: date, hi: date) -> float | None:
     return round(median(vals), 6) if vals else None
 
 
-def _plateau(points: list[SweepPoint]) -> list[int]:
+def _window_status(
+    scored: _Scored, baseline: _Scored | None, lo: date, hi: date, delta: float | None
+) -> WindowStatus:
+    """What one window did to one point.
+
+    UNMEASURABLE beats every other answer: if either side has no episode in the window there was nothing to
+    compare, and calling that 0.0 would let a window that COULD NOT disagree count as agreement. That is not
+    hypothetical -- on a `key1_source=ratified_catalyst` slice of phase 1, two of the nine windows hold no
+    catalyst-keyed episode at all."""
+    here = any(lo <= d <= hi for d, _ in scored.values)
+    there = any(lo <= d <= hi for d, _ in (baseline.values if baseline else []))
+    if not here or not there or delta is None:
+        return "unmeasurable"
+    if delta > 0:
+        return "moved_up"
+    if delta < 0:
+        return "moved_down"
+    return "unchanged"
+
+
+def _plateau(points: list[SweepPoint], *, rule: PlateauRule = DEFAULT_PLATEAU_RULE) -> list[int]:
     """The widest CONTIGUOUS run of points that both agree across WINDOWS and move the same way as the
     strongest agreeing point. A band rather than a pick; a one-wide band means nothing was found.
+
+    WHICH AGREEMENT is a parameter, and the default changed on 2026-09-18: the band keys on
+    `strict_sign_agreement` -- every window moved the same way, none unchanged and none unmeasurable.
+    The old `all(d >= 0) or all(d <= 0)` rule let a window that could not have disagreed count as
+    agreement, which on a sliced curve is most of the question (two of nine windows on a phase-1 catalyst
+    slice hold no catalyst episode at all). The pre-registered field stays on every point and a finished
+    pass can still be re-read under it -- `rule="sign_agreement"` -- but nothing is ever rewritten to
+    claim it was registered under a rule it was not.
 
     THE BASELINE COUNTS AS AGREEING, and that is deliberate: its delta is 0 by construction, so a band
     spanning it says "these settings are indistinguishable from today", which is a real and useful answer.
@@ -240,7 +370,7 @@ def _plateau(points: list[SweepPoint]) -> list[int]:
     per-point `window_deltas` are reported beside it so a reader can see the disagreement rather than
     inherit a silent choice about which to believe."""
     agreeing = [
-        i for i, p in enumerate(points) if p.sign_agreement and p.delta_vs_baseline is not None
+        i for i, p in enumerate(points) if getattr(p, rule) and p.delta_vs_baseline is not None
     ]
     if not agreeing:
         return []
@@ -250,7 +380,7 @@ def _plateau(points: list[SweepPoint]) -> list[int]:
     current: list[int] = []
     for i, p in enumerate(points):
         ok = (
-            p.sign_agreement
+            getattr(p, rule)
             and p.delta_vs_baseline is not None
             and ((p.delta_vs_baseline >= 0) == sign)
         )
@@ -284,10 +414,31 @@ class Ladder:
     variants: list[dict[str, Any]]
     hypothesis: str
     decision_rule: str
+    #: read this curve on ONE algorithm slice, e.g. ``("key1_source", "ratified_catalyst")``. A dial that
+    #: touches a small family cannot move a median over the whole pool: MEASURED on phase 1, the 46
+    #: catalyst-keyed episodes of 2614 can shift the pooled median by at most 0.995 pp however far they
+    #: move, and 2 theme-keyed episodes by at most 0.073 pp. Slicing asks the question the dial can answer.
+    #: A SLICED CURVE IS A NEW PRE-REGISTERED HYPOTHESIS, never a re-read of an old one — the slice is
+    #: named on the report and the pass's hypothesis text has to say so.
+    metric_slice: tuple[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        # On the LADDER rather than in the CLI so both front doors are guarded by construction: a library
+        # caller building a Ladder directly cannot reach the slice without passing this.
+        if self.metric_slice is not None and self.metric_slice[0] not in SLICE_KEYS:
+            raise MetricSliceError(
+                f"{self.metric_slice[0]!r} is not an algorithm dimension; a curve may only be sliced on "
+                f"{list(SLICE_KEYS)} (see backtest.pooled -- slicing by thesis is the leaderboard trap)"
+            )
 
     @property
     def key(self) -> str:
         return "-".join(self.dial_names) or "grid"
+
+    @property
+    def slice_label(self) -> str:
+        """``key1_source=ratified_catalyst``, or empty. What the report and the kept filename carry."""
+        return "=".join(self.metric_slice) if self.metric_slice else ""
 
 
 def run_sweep(
@@ -306,11 +457,17 @@ def run_sweep(
     root: str | Path | None = None,
     now: datetime | None = None,
     resume: str | None = None,
+    metric_slice: tuple[str, str] | None = None,
+    plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
 ) -> SweepReport:
     """ONE curve from a cartesian ``grid`` — the single-curve front door onto ``run_pass``."""
     return run_pass(
         conn,
-        ladders=[Ladder(sorted(grid), variants(grid), hypothesis, decision_rule)],
+        ladders=[
+            Ladder(
+                sorted(grid), variants(grid), hypothesis, decision_rule, metric_slice=metric_slice
+            )
+        ],
         windows=windows,
         pin=pin,
         hypothesis=hypothesis,
@@ -323,6 +480,7 @@ def run_sweep(
         root=root,
         now=now,
         resume=resume,
+        plateau_rule=plateau_rule,
     )[0]
 
 
@@ -444,6 +602,7 @@ def run_pass(
     root: str | Path | None = None,
     now: datetime | None = None,
     resume: str | None = None,
+    plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
 ) -> list[SweepReport]:
     """Export ONE mirror, run every distinct (config x WINDOW) over it once, and report a curve per ladder.
 
@@ -553,7 +712,7 @@ def run_pass(
             )
     run_ids.update(zip(keys, _launch(jobs, concurrency), strict=True))
 
-    scored_by_hash: dict[str, _Scored] = {}
+    scored_by_hash: dict[tuple[str, tuple[str, str] | None], _Scored] = {}
     reports: list[SweepReport] = []
     curve_keys = [lad.key for lad in ladders]
     for lad, cfgs in zip(ladders, per_ladder, strict=True):
@@ -563,9 +722,12 @@ def run_pass(
             ids = [run_ids[(h, w)] for w in range(len(windows))]
             # `if not in` rather than `setdefault`: the latter evaluates its default EAGERLY, so every
             # point sharing a config would re-read all N Parquet files only to discard them.
-            if h not in scored_by_hash:
-                scored_by_hash[h] = _pooled(ids, root_path)
-            scored = scored_by_hash[h]
+            # keyed by (config, slice): one pass may read two ladders on two different slices, and the
+            # same config then has two legitimately different scored sets
+            ck = (h, lad.metric_slice)
+            if ck not in scored_by_hash:
+                scored_by_hash[ck] = _pooled(ids, root_path, slice_on=lad.metric_slice)
+            scored = scored_by_hash[ck]
             points.append(
                 SweepPoint(
                     dials=dials,
@@ -585,12 +747,12 @@ def run_pass(
         # that is not it.
         baseline_point = next((p for p in points if p.is_baseline), points[0] if points else None)
         baseline = (
-            scored_by_hash[config_hash(apply_overlay(baseline_point.dials))]
+            scored_by_hash[(config_hash(apply_overlay(baseline_point.dials)), lad.metric_slice)]
             if baseline_point
             else None
         )
         for p in points:
-            scored = scored_by_hash[config_hash(apply_overlay(p.dials))]
+            scored = scored_by_hash[(config_hash(apply_overlay(p.dials)), lad.metric_slice)]
             base_overall = _median_in(baseline, pass_start, pass_end) if baseline else None
             p.delta_vs_baseline = (
                 None
@@ -631,6 +793,18 @@ def run_pass(
                     ).paired_delta
                     for lo, hi in windows
                 ]
+            # WHAT EACH WINDOW DID, named. `unchanged` (the dial could move this window and did not) and
+            # `unmeasurable` (the window held nothing the dial could touch) are the two the pre-registered
+            # rule cannot tell apart, and on a sliced curve that difference decides whether an "agreement"
+            # means anything at all.
+            p.window_status = [
+                _window_status(scored, baseline, lo, hi, d)
+                for (lo, hi), d in zip(windows, deltas, strict=True)
+            ]
+            p.strict_sign_agreement = len(p.window_status) >= 2 and (
+                all(st == "moved_up" for st in p.window_status)
+                or all(st == "moved_down" for st in p.window_status)
+            )
             known = [d for d in deltas if d is not None]
             # EVERY window must agree, and a window with no data does not get to abstain into a yes: a
             # point measurable on only some of the pass has not demonstrated stability. Two is the floor --
@@ -650,6 +824,7 @@ def run_pass(
                 windows=windows,
                 concurrency=concurrency,
                 pass_id=pass_id,
+                metric_slice=lad.slice_label,
                 hypothesis=lad.hypothesis,
                 decision_rule=lad.decision_rule,
                 pass_curves=curve_keys,
@@ -660,7 +835,8 @@ def run_pass(
                 baseline_config_short=(baseline_point.config_short if baseline_point else ""),
                 baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
                 points=points,
-                plateau=_plateau(points),
+                plateau=_plateau(points, rule=plateau_rule),
+                plateau_rule=plateau_rule,
                 banner=(
                     "A CURVE, NOT A WINNER. One regime, with episodes that are not independent, cannot "
                     "support picking the best-scoring point -- that is fitting the tape. Read the PLATEAU "
@@ -671,7 +847,16 @@ def run_pass(
                     "the baseline is shared by every curve in this pass. The PAIRED fields beside each "
                     "point (same episodes, re-timed) are a reported DIAGNOSTIC and are not part of the "
                     "decision rule, which still keys on the pooled delta and its cross-window sign "
-                    "agreement. Promotion of any dial remains a separate operator decision, on the back "
+                    "agreement. THE BAND IS KEYED ON "
+                    + plateau_rule
+                    + (
+                        " -- every window moved the same way, none unchanged and none unmeasurable"
+                        if plateau_rule == "strict_sign_agreement"
+                        else " -- the pre-2026-09-18 rule, under which a window that could not have "
+                        "disagreed counts as agreement"
+                    )
+                    + "; both agreement fields are reported on every point and neither is ever "
+                    "rewritten. Promotion of any dial remains a separate operator decision, on the back "
                     "of run ids."
                 ),
             )
@@ -775,6 +960,17 @@ def split_spec(spec: str, flag: str) -> tuple[str, str]:
     return name.strip(), raw
 
 
+def parse_slice(raw: str | None, flag: str) -> tuple[str, str] | None:
+    """``attr=value`` -> the slice, or ``None``. Validated for SHAPE here and for MEANING on the `Ladder`
+    (``pooled.SLICE_KEYS``), so a library caller cannot skip the check by not using the CLI."""
+    if raw is None:
+        return None
+    attr, value = split_spec(raw, flag)
+    if not value.strip():
+        raise MetricSliceError(f"{flag} expects attr=value with a value (got {raw!r})")
+    return (attr, value.strip())
+
+
 def parse_values(raw: str) -> list[Any]:
     """``--values 30,60,90`` -> typed values. JSON per item, so ints, floats, booleans and quoted strings
     all round-trip; a bare word falls back to a string."""
@@ -832,6 +1028,30 @@ def build_parser() -> argparse.ArgumentParser:
             "text and must: the baseline run belongs to every curve at once and cannot carry six "
             "different hypotheses. This rides the curve file, which is what a dial's result is quoted "
             "from."
+        ),
+    )
+    p.add_argument(
+        "--metric-slice",
+        default=None,
+        metavar="ATTR=VALUE",
+        help=(
+            "read THIS curve on one algorithm slice, e.g. key1_source=ratified_catalyst. For "
+            "--dial/--grid; use --ladder-metric-slice with --ladder. A dial that touches a small family "
+            "cannot move a median over the whole pool -- MEASURED on phase 1, the 46 catalyst-keyed "
+            "episodes of 2614 can shift the pooled median by at most 0.995 pp however far they move. "
+            "A SLICED CURVE IS A NEW PRE-REGISTERED HYPOTHESIS: say so in --hypothesis."
+        ),
+    )
+    p.add_argument(
+        "--ladder-metric-slice",
+        action="append",
+        default=[],
+        metavar="DIAL=ATTR=VALUE",
+        help=(
+            "slice ONE ladder's curve (see --metric-slice), e.g. "
+            "ratified_catalyst_horizon_days=key1_source=ratified_catalyst. Per-ladder and never "
+            "pass-wide, because the family a dial can touch is the dial's own: slicing six curves on one "
+            "family would measure five dials on episodes they cannot reach."
         ),
     )
     p.add_argument(
@@ -909,6 +1129,18 @@ def build_parser() -> argparse.ArgumentParser:
             "and are never one curve."
         ),
     )
+    p.add_argument(
+        "--plateau-rule",
+        choices=("strict_sign_agreement", "sign_agreement"),
+        default=DEFAULT_PLATEAU_RULE,
+        help=(
+            "which cross-window agreement the plateau BAND is keyed on (default "
+            "strict_sign_agreement: every window moved the same way, none unchanged and none "
+            "unmeasurable). `sign_agreement` is the pre-2026-09-18 rule, kept so a finished pass can be "
+            "re-read under the rule it was registered on -- BOTH fields are reported on every point "
+            "either way, and the report records which one its band used."
+        ),
+    )
     p.add_argument("--regime", default=None)
     p.add_argument("--out-root", default=None)
     return p
@@ -923,9 +1155,19 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.ladder and args.metric_slice:
+        # Refused rather than applied pass-wide: the family a dial can touch is the dial's own, so one
+        # slice over six curves would measure five of them on episodes they cannot reach and report the
+        # resulting flat line as a finding.
+        print(
+            "ERROR: --metric-slice is for ONE curve (--dial/--grid); with --ladder use "
+            "--ladder-metric-slice DIAL=ATTR=VALUE, once per curve that needs it",
+            file=sys.stderr,
+        )
+        return 2
     try:
         ladders = _ladders_from_args(args)
-    except OverlayError as exc:
+    except (OverlayError, MetricSliceError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if not ladders:
@@ -959,6 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
             clock=args.clock,
             root=args.out_root,
             resume=args.resume,
+            plateau_rule=args.plateau_rule,
         )
     finally:
         conn.close()
@@ -976,7 +1219,12 @@ def main(argv: list[str] | None = None) -> int:
         + (f" (resumed {args.resume})" if args.resume else "")
     )
     for report, keep in zip(reports, kept, strict=True):
-        print(f"  {report.dial_names} -> {len(report.points)} point(s); kept at {keep}")
+        sliced = (
+            f" ON SLICE {report.metric_slice} (every n below is the slice's);"
+            if report.metric_slice
+            else ""
+        )
+        print(f"  {report.dial_names} -> {len(report.points)} point(s);{sliced} kept at {keep}")
         for p in report.points:
             mark = "=" if p.is_baseline else ("~" if p.sign_agreement else " ")
             shared = " (shared runs)" if p.runs_shared else ""
@@ -984,7 +1232,19 @@ def main(argv: list[str] | None = None) -> int:
                 f"    {mark} {p.dials} n={p.n_scored:4d} metric={p.metric} "
                 f"delta={p.delta_vs_baseline} windows={p.window_deltas}{shared}"
             )
-        print(f"    plateau (indices, a BAND not a pick): {report.plateau}")
+            # ASCII only -- this goes to a cp1252 console. The status line prints even when the two
+            # agreement fields agree, because the thing worth seeing is WHICH windows an agreement rests
+            # on: a curve that "agrees" on two unmeasurable windows reads identically without it.
+            if p.window_status:
+                print(
+                    f"        windows {' '.join(STATUS_MARK[st] for st in p.window_status)}"
+                    f"  agreement: pre-registered={p.sign_agreement} "
+                    f"strict={p.strict_sign_agreement}"
+                )
+        print(
+            f"    plateau (indices, a BAND not a pick, keyed on {report.plateau_rule}): "
+            f"{report.plateau}"
+        )
     print(f"  latest curve also at {path}")
     return 0
 
@@ -996,7 +1256,15 @@ def write_curve(report: SweepReport, root: Path) -> Path:
     this the only record of which runs formed which curve would be a file the next sweep replaces. (The
     runs themselves also carry `pass_id`, so the grouping survives even if every curve file is lost.)
     """
-    keep = root / "sweeps" / f"{report.pass_id}-{'-'.join(report.dial_names) or 'grid'}.json"
+    # The slice is part of the NAME because a pass can legitimately carry the same dial twice -- once
+    # pooled and once sliced -- and those are two different measurements that must not overwrite each
+    # other. Sanitized rather than trusted: the label reaches the filesystem.
+    tail = "".join(c if c.isalnum() or c in "._-" else "_" for c in report.metric_slice)
+    keep = (
+        root
+        / "sweeps"
+        / f"{report.pass_id}-{'-'.join(report.dial_names) or 'grid'}{'-' + tail if tail else ''}.json"
+    )
     keep.parent.mkdir(parents=True, exist_ok=True)
     keep.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
     return keep
@@ -1016,6 +1284,12 @@ def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
             split_spec(spec, "--ladder-decision-rule") for spec in args.ladder_decision_rule
         ),
     }
+    slices = {
+        dial: parse_slice(rest, "--ladder-metric-slice")
+        for dial, rest in (
+            split_spec(spec, "--ladder-metric-slice") for spec in args.ladder_metric_slice
+        )
+    }
     ladders: list[Ladder] = []
     if args.ladder:
         for spec in args.ladder:
@@ -1028,9 +1302,10 @@ def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
                     variants=[{name: v} for v in values],
                     hypothesis=overrides["hypothesis"].get(name, args.hypothesis),
                     decision_rule=overrides["decision_rule"].get(name, args.decision_rule),
+                    metric_slice=slices.get(name),
                 )
             )
-        unknown = set(overrides["hypothesis"]) | set(overrides["decision_rule"])
+        unknown = set(overrides["hypothesis"]) | set(overrides["decision_rule"]) | set(slices)
         unknown -= {lad.dial_names[0] for lad in ladders}
         if unknown:
             raise OverlayError(
@@ -1050,7 +1325,15 @@ def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
         return []
     for name, values in grid.items():
         apply_overlay({name: values[0]})
-    return [Ladder(sorted(grid), variants(grid), args.hypothesis, args.decision_rule)]
+    return [
+        Ladder(
+            sorted(grid),
+            variants(grid),
+            args.hypothesis,
+            args.decision_rule,
+            metric_slice=parse_slice(args.metric_slice, "--metric-slice"),
+        )
+    ]
 
 
 def cfg_for(dials: dict[str, Any]) -> CallConfig:
