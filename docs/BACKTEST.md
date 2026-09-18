@@ -381,6 +381,21 @@ leave a row and a directory, and reusing it would pool a point over a truncated 
 continues the same pass rather than minting a new one, and a test pins that the assembled curve equals the
 one an uninterrupted pass produces.
 
+**A resume does NOT re-export, and refuses rather than guesses.** A second export is a second snapshot of a
+database a human may well have touched in between — and a resume is exactly when that is likely — so the
+re-run jobs would sweep a different tape from the completed ones while the curve reported a single
+`mirror_hash`. Three rules, each checked BEFORE any job launches, because by the time a job has run the
+damage is on disk:
+
+- the existing mirror is REUSED, and any completed run whose manifest cites a different mirror hash
+  refuses the pass (the tape changed underneath it);
+- a mirror that has vanished refuses when anything completed — there is nothing left to re-run the
+  survivors against — but is simply exported when nothing has, which is a fresh pass wearing an old id;
+- the requested WINDOWS must contain every window the pass already ran, and the requested CLOCK must be
+  the one it ran on. Nothing about a pass id says what it measured: without these, a resume with different
+  windows finds no matching pairs and runs everything under the old id, and a resume on a different clock
+  would put two fact axes inside one curve.
+
 **The trials caveat.** A dead pass's completed runs already count as trials in the registry — `dial_trials`
 includes them, and nothing retracts a measurement that was really made. Resume does not mint new ones,
 which is exactly why it is the cheaper recovery; re-running from scratch would double-count that dial.

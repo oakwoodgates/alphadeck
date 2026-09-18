@@ -51,7 +51,7 @@ from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
-from replay.export import export_snapshot
+from replay.export import export_snapshot, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
 
@@ -289,22 +289,106 @@ def run_sweep(
     )[0]
 
 
-def _resume_index(pass_id: str, root: Path) -> dict[tuple[str, str, str], str]:
-    """The ``(config_hash, window start, window end) -> run_id`` pairs this pass has ALREADY measured.
+class ResumeMismatch(ValueError):
+    """A ``--resume`` was asked to continue a pass it does not describe.
+
+    Every one of these refuses BEFORE any job launches, because the failure they prevent is silent: a
+    resumed pass would carry one ``pass_id`` over two different measurements, and the curve would pool
+    them without anything on it saying so."""
+
+
+@dataclass(frozen=True)
+class _ResumeState:
+    """What a pass has already done, as the registry and the artifacts record it."""
+
+    #: ``(config_hash, window start, window end) -> run_id`` for the runs that FINISHED
+    done: dict[tuple[str, str, str], str]
+    #: every registry row under this pass id, finished or not — the evidence of what the pass ran under
+    rows: list[store.RunSummary]
+
+
+def _resume_state(pass_id: str, root: Path) -> _ResumeState:
+    """What this pass has already measured.
 
     Read from the REGISTRY rather than by walking directories, because the registry is the thing that says
     a run finished: ``execute`` registers under the index lock as its last act. A row whose outcomes are
-    not readable does not count — a job killed mid-write leaves a directory and can leave a row, and
-    reusing it would pool a point over a truncated run."""
-    found: dict[tuple[str, str, str], str] = {}
-    for r in store.list_runs(root):
-        if r.pass_id != pass_id:
-            continue
+    not readable does not count as DONE — a job killed mid-write leaves a directory and can leave a row,
+    and reusing it would pool a point over a truncated run — but it still counts as EVIDENCE of what the
+    pass was running, which is what the consistency guards read."""
+    rows = [r for r in store.list_runs(root) if r.pass_id == pass_id]
+    done: dict[tuple[str, str, str], str] = {}
+    for r in rows:
         d = store.run_dir(r.run_id, root)
         if d is None or not (d / "outcomes.parquet").is_file():
             continue
-        found[(r.config_hash, r.window_start, r.window_end)] = r.run_id
-    return found
+        done[(r.config_hash, r.window_start, r.window_end)] = r.run_id
+    return _ResumeState(done=done, rows=rows)
+
+
+def _check_resume_shape(
+    state: _ResumeState,
+    *,
+    pass_id: str,
+    windows: Sequence[tuple[date, date]],
+    clock: str,
+) -> None:
+    """Refuse a resume whose WINDOWS or CLOCK are not the ones the pass ran under.
+
+    Nothing about the pass id says what it measured. Without this, a ``--resume`` with a different
+    ``--start``/``--end``/``--window-days`` finds no matching pairs, runs EVERYTHING under the old id with
+    the new windows, and the two halves share a pass id while measuring different spans — and a different
+    ``--clock`` is worse, because the completed half and the re-run half would sit on different fact axes
+    inside one curve."""
+    wanted = {(lo.isoformat(), hi.isoformat()) for lo, hi in windows}
+    stray = sorted({(r.window_start, r.window_end) for r in state.rows} - wanted)
+    if stray:
+        raise ResumeMismatch(
+            f"pass {pass_id!r} already holds runs over window(s) {stray}, which are not among the "
+            f"windows requested ({sorted(wanted)}). Resuming would put two different spans under one "
+            f"pass id. Re-run with the pass's own --start/--end/--window-days, or start a new pass."
+        )
+    clocks = {r.clock for r in state.rows}
+    if clocks and clocks != {clock}:
+        raise ResumeMismatch(
+            f"pass {pass_id!r} ran on clock(s) {sorted(clocks)} and this resume asks for {clock!r}. "
+            f"The completed half and the re-run half would sit on different fact axes inside one curve."
+        )
+
+
+def _resume_mirror(state: _ResumeState, *, pass_id: str, mirror: Path, root: Path) -> str | None:
+    """The mirror a resumed pass must sweep — or ``None`` when it has to be exported fresh.
+
+    **A resume must NOT re-export.** A second export is a second snapshot of a database a human may well
+    have touched in between — and resume is precisely the moment that is likely — so the re-run jobs would
+    sweep a different tape from the completed ones while the curve reported a single ``mirror_hash``. That
+    is the exact failure the shared mirror exists to prevent.
+
+    Three cases, and each refuses rather than guesses:
+
+    * the mirror is THERE — reuse it, and refuse if any completed run cites a different hash;
+    * the mirror is GONE but the pass has completed runs — refuse, because there is nothing left to re-run
+      them against and a fresh export would not be their tape;
+    * the mirror is gone and nothing completed — export. That is a fresh pass wearing an old id, and the
+      caller is told so.
+    """
+    if read_mirror_manifest(mirror) is None:
+        if state.done:
+            raise ResumeMismatch(
+                f"pass {pass_id!r} has {len(state.done)} completed run(s) but its mirror is gone from "
+                f"{mirror}. A fresh export would not be the tape they swept, so the curve could not be "
+                f"assembled honestly. Re-run the pass from scratch under a new id."
+            )
+        return None  # nothing measured yet: a fresh pass wearing an old id
+    here = mirror_hash(mirror)
+    for key, run_id in sorted(state.done.items()):
+        m = mf.read_manifest(store.run_dir(run_id, root) or Path())
+        if m is not None and m.mirror.hash != here:
+            raise ResumeMismatch(
+                f"completed run {run_id!r} of pass {pass_id!r} cites mirror {m.mirror.hash[:12]}… but "
+                f"the mirror at {mirror} now hashes to {here[:12]}…. The tape changed under the pass; "
+                f"resuming would pool two different snapshots into one curve. Start a new pass."
+            )
+    return here
 
 
 def run_pass(
@@ -352,6 +436,12 @@ def run_pass(
     is preserved by construction, because the seed IS the pass id — so a resumed pass draws the same nulls
     as the one it continues. A dead pass's completed runs still count as trials in the registry; resume
     does not mint new ones, which is precisely why it is the cheaper recovery.
+
+    **A resume does NOT re-export, and it refuses rather than guesses.** The windows and the clock must be
+    the ones the pass ran under; the existing mirror is reused and every completed run's manifest must
+    cite it. Each of those is a silent failure if unchecked — one pass id over two spans, two fact axes
+    inside one curve, or two snapshots of a database a human touched between the halves — and resume is
+    exactly when that last one is likely. See ``_check_resume_shape`` and ``_resume_mirror``.
     """
     if not windows:
         raise ValueError("a pass needs at least one window")
@@ -366,13 +456,22 @@ def run_pass(
     mirror = (
         root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{pass_start}-{pass_end}-{clock}"
     )
+    # EVERY resume guard runs BEFORE the mirror is touched and before a single job launches: the failures
+    # they prevent are silent ones, where a curve pools two different measurements under one pass id.
+    state = _resume_state(pass_id, root_path) if resume else _ResumeState({}, [])
+    reuse_hash: str | None = None
+    if resume:
+        _check_resume_shape(state, pass_id=pass_id, windows=windows, clock=clock)
+        reuse_hash = _resume_mirror(state, pass_id=pass_id, mirror=mirror, root=root_path)
     mirror.mkdir(parents=True, exist_ok=True)
-    # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep took
-    # a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and dropped is worse
-    # than none, because a caller reads it as honored. It is removed rather than wired: nothing can pass one
-    # (there is no `--tenant` on this CLI or on `backtest.run`) and the whole backtest package is
-    # single-tenant by construction. Multi-tenant sweeps are a real change, not a parameter.
-    export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
+    if reuse_hash is None:
+        # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep
+        # took a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and
+        # dropped is worse than none, because a caller reads it as honored. It is removed rather than
+        # wired: nothing can pass one (there is no `--tenant` on this CLI or on `backtest.run`) and the
+        # whole backtest package is single-tenant by construction. Multi-tenant sweeps are a real change,
+        # not a parameter.
+        export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
 
     # every variant of every ladder, resolved to a config -- then ONE job per distinct config_hash
     per_ladder = [[(d, apply_overlay(d)) for d in lad.variants] for lad in ladders]
@@ -382,7 +481,7 @@ def run_pass(
         by_hash.setdefault(config_hash(cfg), cfg)
     shared_hashes = {h for h in by_hash if sum(1 for _, c in flat if config_hash(c) == h) > 1}
 
-    already = _resume_index(pass_id, root_path) if resume else {}
+    already = state.done
     run_ids: dict[tuple[str, int], str] = {}
     jobs: list[_Job] = []
     keys: list[tuple[str, int]] = []
@@ -491,7 +590,9 @@ def run_pass(
                 decision_rule=lad.decision_rule,
                 pass_curves=curve_keys,
                 clock=clock,  # the axis that one tape carries; every point inherited it
-                mirror_hash=mirror_hash(mirror),  # the ONE frozen tape every point swept
+                # the ONE frozen tape every point swept -- on a resume this is the EXISTING mirror's
+                # hash, already checked against every completed run's manifest, never a re-export's
+                mirror_hash=reuse_hash or mirror_hash(mirror),
                 baseline_config_short=(baseline_point.config_short if baseline_point else ""),
                 baseline_is_default=bool(baseline_point and baseline_point.is_baseline),
                 points=points,

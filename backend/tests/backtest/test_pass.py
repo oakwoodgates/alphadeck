@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from backtest import manifest as mf
 from backtest import store
 from backtest.sweep import Ladder, build_parser, main
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
+from replay.export import MANIFEST_NAME
 
 # S2 — THE ONE-PASS MULTI-LADDER MODE, and --resume.
 #
@@ -28,6 +30,7 @@ _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 _NOW = datetime(2026, 9, 18, 3, 15, 0, tzinfo=timezone.utc)
 _DEFAULT = DEFAULT_CONFIG.insider_core_alpha_liveness_days
 _DEFAULT_2 = DEFAULT_CONFIG.activist_13d_liveness_days
+_MIRROR_HASH = "c" * 64
 
 
 @pytest.fixture
@@ -44,6 +47,7 @@ def pass_fixture(tmp_path, monkeypatch):
     import backtest.sweep as sweep_mod
 
     launched: list = []
+    exports: list[str] = []
 
     def write_run(root, run_id: str, rows: list[tuple[str, float]]) -> None:
         d = store.runs_root(root) / run_id
@@ -71,6 +75,25 @@ def pass_fixture(tmp_path, monkeypatch):
             # a deterministic, config-dependent "result" so the curves are not all identical
             bump = 0.01 * (int(h[:4], 16) % 7)
             write_run(root, rid, [(job.start, 0.05 + bump), (job.end, 0.03 + bump)])
+            # ...and a run MANIFEST citing the mirror, because `--resume` checks every completed run's
+            # cited hash against the mirror on disk. Without it the check would pass vacuously.
+            mf.write_manifest(
+                store.runs_root(root) / rid,
+                mf.BacktestManifest(
+                    run_id=rid,
+                    pass_id=job.pass_id,
+                    created_at="2026-09-18T03:15:00+00:00",
+                    window_start=date.fromisoformat(job.start),
+                    window_end=date.fromisoformat(job.end),
+                    clock="public",
+                    known_at_mode="lockstep",
+                    pin=job.pin,
+                    config_hash=h,
+                    config_short=short_hash(h) or "",
+                    config_canonical_json="{}",
+                    mirror=mf.MirrorInfo(hash=_MIRROR_HASH),
+                ),
+            )
             store.register_run(
                 store.RunSummary(
                     run_id=rid,
@@ -88,12 +111,26 @@ def pass_fixture(tmp_path, monkeypatch):
             ids.append(rid)
         return ids
 
+    def fake_export(conn, mirror, *, tenant_id=None, clock="record"):
+        """Writes a MIRROR MANIFEST, because that file is not decoration: `--resume` reads it to decide
+        whether a tape already exists, and a stub that skipped it would make every resume look like a
+        pass whose mirror had vanished."""
+        exports.append(str(mirror))
+        Path(mirror).mkdir(parents=True, exist_ok=True)
+        (Path(mirror) / MANIFEST_NAME).write_text(
+            json.dumps(
+                {"clock": clock, "tables": {}, "excluded_tables": [], "blind_detectors": []}
+            ),
+            encoding="utf-8",
+        )
+        return {}
+
     monkeypatch.setattr(sweep_mod, "_launch", fake_launch)
-    monkeypatch.setattr(sweep_mod, "export_snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(sweep_mod, "export_snapshot", fake_export)
     # `sweep_mod.mirror_hash`, NOT `sweep_mod.mf.mirror_hash`: `run_pass` imported the name directly,
     # so patching it on the manifest module would change an attribute nothing on this path reads.
-    monkeypatch.setattr(sweep_mod, "mirror_hash", lambda p: "c" * 64)
-    return sweep_mod, tmp_path, launched, write_run
+    monkeypatch.setattr(sweep_mod, "mirror_hash", lambda p: _MIRROR_HASH)
+    return sweep_mod, tmp_path, launched, write_run, exports
 
 
 def _ladder(dial: str, values: list, h: str = "H5", d: str = "plateau, not argmax") -> Ladder:
@@ -108,7 +145,7 @@ def test_the_baseline_is_run_ONCE_FOR_THE_PASS_and_shared_by_every_curve(pass_fi
     default: the default is one config, so it is launched once per window and both curves cite the same
     baseline runs. Both baseline points are marked `runs_shared`, because one measurement cited twice is
     not two."""
-    sweep_mod, root, launched, _ = pass_fixture
+    sweep_mod, root, launched, _, exports = pass_fixture
     reports = sweep_mod.run_pass(
         db,
         ladders=[
@@ -117,6 +154,7 @@ def test_the_baseline_is_run_ONCE_FOR_THE_PASS_and_shared_by_every_curve(pass_fi
         ],
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -136,7 +174,7 @@ def test_the_baseline_is_run_ONCE_FOR_THE_PASS_and_shared_by_every_curve(pass_fi
 def test_every_curve_names_its_siblings(pass_fixture, db):
     """A reader holding one curve has to be able to tell it was measured beside others, against the same
     baseline over the same tape."""
-    sweep_mod, root, _, _ = pass_fixture
+    sweep_mod, root, _, _, exports = pass_fixture
     reports = sweep_mod.run_pass(
         db,
         ladders=[
@@ -145,6 +183,7 @@ def test_every_curve_names_its_siblings(pass_fixture, db):
         ],
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -162,7 +201,7 @@ def test_each_curve_carries_its_OWN_pre_registration(pass_fixture, db):
     """The runs carry the PASS's text and must: the baseline run belongs to every curve at once and cannot
     carry two different hypotheses. Each curve carries its own, which is the artifact a dial's result is
     quoted from."""
-    sweep_mod, root, launched, _ = pass_fixture
+    sweep_mod, root, launched, _, exports = pass_fixture
     reports = sweep_mod.run_pass(
         db,
         ladders=[
@@ -171,6 +210,7 @@ def test_each_curve_carries_its_OWN_pre_registration(pass_fixture, db):
         ],
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="the pass hypothesis",
         decision_rule="the pass rule",
         root=root,
@@ -205,7 +245,7 @@ def test_a_two_ladder_pass_matches_two_separate_sweeps(pass_fixture, db):
     """The claim that makes the saving safe to take: running two ladders in one pass changes what it
     COSTS, never what it says. Compared modulo run ids and the pass id, which differ by construction.
     """
-    sweep_mod, root, _, _ = pass_fixture
+    sweep_mod, root, _, _, exports = pass_fixture
     lads = [
         _ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90], h="H5 core", d="rule A"),
         _ladder("activist_13d_liveness_days", [_DEFAULT_2, 90], h="H5 activist", d="rule B"),
@@ -213,6 +253,7 @@ def test_a_two_ladder_pass_matches_two_separate_sweeps(pass_fixture, db):
     common = dict(
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="the pass hypothesis",
         decision_rule="the pass rule",
         now=_NOW,
@@ -239,11 +280,12 @@ def test_a_two_ladder_pass_matches_two_separate_sweeps(pass_fixture, db):
 
 def test_resume_relaunches_ONLY_the_pairs_that_are_missing(pass_fixture, db):
     """What turns "note the dead pass id and re-run 45 jobs" into "re-run the ones that died"."""
-    sweep_mod, root, launched, _ = pass_fixture
+    sweep_mod, root, launched, _, exports = pass_fixture
     lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90])]
     common = dict(
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -268,11 +310,12 @@ def test_resume_relaunches_ONLY_the_pairs_that_are_missing(pass_fixture, db):
 def test_a_registered_run_with_no_outcomes_does_not_count_as_done(pass_fixture, db):
     """A job killed mid-write can leave a directory and a row. Reusing it would pool a point over a
     truncated run, so readable outcomes -- not registration alone -- is what "done" means."""
-    sweep_mod, root, launched, write_run = pass_fixture
+    sweep_mod, root, launched, write_run, exports = pass_fixture
     lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT])]
     common = dict(
         windows=[_W1],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -290,11 +333,12 @@ def test_a_resumed_curve_is_the_curve_an_uninterrupted_pass_would_have_produced(
     """The seed is the pass id, so a resumed pass draws the same nulls as the one it continues — and the
     re-run pair is scored from the same inputs. The assembled curve must therefore be the same one.
     """
-    sweep_mod, root, launched, _ = pass_fixture
+    sweep_mod, root, launched, _, exports = pass_fixture
     lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90])]
     common = dict(
         windows=[_W1, _W2],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         now=_NOW,
@@ -313,12 +357,13 @@ def test_a_resumed_curve_is_the_curve_an_uninterrupted_pass_would_have_produced(
 def test_resuming_a_pass_id_nothing_ran_under_is_just_a_fresh_pass(pass_fixture, db):
     """Not an error: the id names a pass with no completed pairs, so every pair is missing and every one
     runs. That is what a resume of a pass that died on its first job looks like."""
-    sweep_mod, root, launched, _ = pass_fixture
+    sweep_mod, root, launched, _, exports = pass_fixture
     sweep_mod.run_pass(
         db,
         ladders=[_ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90])],
         windows=[_W1],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -432,12 +477,13 @@ def test_an_unknown_ladder_dial_fails_before_the_mirror_export(capsys):
 def test_run_sweep_is_still_the_single_curve_front_door(pass_fixture, db):
     """The grid path is unchanged and still returns ONE report — H3's three arms live on two dials and
     need the cartesian set, not a ladder per dial."""
-    sweep_mod, root, _, _ = pass_fixture
+    sweep_mod, root, _, _, exports = pass_fixture
     report = sweep_mod.run_sweep(
         db,
         grid={"insider_core_alpha_liveness_days": [_DEFAULT, 90]},
         windows=[_W1],
         pin=_PIN,
+        clock="public",
         hypothesis="H5",
         decision_rule="plateau, not argmax",
         root=root,
@@ -446,3 +492,134 @@ def test_run_sweep_is_still_the_single_curve_front_door(pass_fixture, db):
     assert isinstance(report, sweep_mod.SweepReport)
     assert report.pass_curves == ["insider_core_alpha_liveness_days"]
     assert len(report.points) == 2
+
+
+# --- resume and the tape it must sweep ---------------------------------------------------------------------
+
+
+def test_a_resume_does_NOT_re_export_the_mirror(pass_fixture, db):
+    """THE INTEGRITY GAP. A second export is a second snapshot of a database a human may well have touched
+    in between — and a resume is precisely when that is likely — so the re-run jobs would sweep a different
+    tape from the completed ones while the curve reported a single `mirror_hash`. That is the exact failure
+    the shared mirror exists to prevent."""
+    sweep_mod, root, launched, _, exports = pass_fixture
+    lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90])]
+    common = dict(
+        windows=[_W1, _W2],
+        pin=_PIN,
+        clock="public",
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+        now=_NOW,
+    )
+    first = sweep_mod.run_pass(db, ladders=lads, **common)[0]
+    assert len(exports) == 1
+    (store.run_dir(first.points[-1].run_ids[-1], root) / "outcomes.parquet").unlink()
+
+    again = sweep_mod.run_pass(db, ladders=lads, resume=first.pass_id, **common)[0]
+    assert len(exports) == 1, "a resume re-exported the mirror"
+    # ...and the curve cites the tape the completed runs swept, not a fresh one
+    assert again.mirror_hash == first.mirror_hash == _MIRROR_HASH
+
+
+def test_a_completed_run_citing_ANOTHER_mirror_refuses_before_any_job(pass_fixture, db):
+    """The tape changed under the pass. Resuming would pool two different snapshots into one curve, so it
+    refuses — and refuses BEFORE launching anything, because by the time a job has run the damage is on
+    disk."""
+    sweep_mod, root, launched, _, _ = pass_fixture
+    lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT, 90])]
+    common = dict(
+        windows=[_W1],
+        pin=_PIN,
+        clock="public",
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+        now=_NOW,
+    )
+    first = sweep_mod.run_pass(db, ladders=lads, **common)[0]
+    victim = first.points[0].run_ids[0]
+    d = store.run_dir(victim, root)
+    m = mf.read_manifest(d)
+    mf.write_manifest(d, m.model_copy(update={"mirror": mf.MirrorInfo(hash="d" * 64)}))
+    launched.clear()
+
+    with pytest.raises(sweep_mod.ResumeMismatch) as exc:
+        sweep_mod.run_pass(db, ladders=lads, resume=first.pass_id, **common)
+    assert victim in str(exc.value) and "cccccccccccc" in str(exc.value)
+    assert launched == []
+
+
+def test_a_resume_whose_mirror_is_gone_refuses_when_anything_completed(pass_fixture, db):
+    """There is nothing left to re-run the survivors against, and a fresh export would not be their tape.
+    With NOTHING completed it is simply a fresh pass wearing an old id, and that is allowed."""
+    sweep_mod, root, launched, _, exports = pass_fixture
+    lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT])]
+    common = dict(
+        windows=[_W1],
+        pin=_PIN,
+        clock="public",
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+        now=_NOW,
+    )
+    first = sweep_mod.run_pass(db, ladders=lads, **common)[0]
+    mirror = next(iter(exports))
+    (Path(mirror) / MANIFEST_NAME).unlink()
+    with pytest.raises(sweep_mod.ResumeMismatch) as exc:
+        sweep_mod.run_pass(db, ladders=lads, resume=first.pass_id, **common)
+    assert "mirror is gone" in str(exc.value)
+
+    # ...but a pass id nothing ever completed under may export fresh
+    launched.clear()
+    sweep_mod.run_pass(db, ladders=lads, resume="20260918T031500Z-public-never-ran", **common)
+    assert len(launched) == 1
+
+
+# --- resume and the shape of the pass ----------------------------------------------------------------------
+
+
+def test_a_resume_with_different_windows_is_refused(pass_fixture, db):
+    """Nothing about a pass id says what it measured. Without this, a resume with different windows finds
+    no matching pairs, runs EVERYTHING under the old id, and the two halves share a pass id while
+    measuring different spans."""
+    sweep_mod, root, launched, _, _ = pass_fixture
+    lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT])]
+    common = dict(
+        pin=_PIN,
+        clock="public",
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+        now=_NOW,
+    )
+    first = sweep_mod.run_pass(db, ladders=lads, windows=[_W1, _W2], **common)[0]
+    launched.clear()
+    other = (date(2026, 4, 1), date(2026, 5, 12))
+    with pytest.raises(sweep_mod.ResumeMismatch) as exc:
+        sweep_mod.run_pass(db, ladders=lads, windows=[other], resume=first.pass_id, **common)
+    assert "2026-01-01" in str(exc.value)  # names the window it already holds
+    assert launched == []
+
+
+def test_a_resume_on_a_different_clock_is_refused(pass_fixture, db):
+    """Worse than the window case: the completed half and the re-run half would sit on different fact
+    axes inside one curve."""
+    sweep_mod, root, launched, _, _ = pass_fixture
+    lads = [_ladder("insider_core_alpha_liveness_days", [_DEFAULT])]
+    common = dict(
+        windows=[_W1],
+        pin=_PIN,
+        hypothesis="H5",
+        decision_rule="plateau, not argmax",
+        root=root,
+        now=_NOW,
+    )
+    first = sweep_mod.run_pass(db, ladders=lads, clock="public", **common)[0]
+    launched.clear()
+    with pytest.raises(sweep_mod.ResumeMismatch) as exc:
+        sweep_mod.run_pass(db, ladders=lads, clock="record", resume=first.pass_id, **common)
+    assert "public" in str(exc.value) and "record" in str(exc.value)
+    assert launched == []
