@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas_api import BacktestSweepRefOut
 from backtest import artifact, store
 from backtest.manifest import LABELS
 
@@ -184,7 +185,16 @@ def test_a_run_id_cannot_walk_out_of_the_store(client, store_root):
 
 
 def test_the_sweep_is_unavailable_until_one_has_run(client, store_root):
-    assert client.get("/backtest/sweep").json() == {"available": False, "sweep": None, "labels": []}
+    assert client.get("/backtest/sweep").json() == {
+        "available": False,
+        "sweep": None,
+        # D — the selection is ECHOED, so a client can tell "the curve you asked for" from "the latest
+        # one" without re-deriving it from the payload. Unselected, all three are null.
+        "pass_id": None,
+        "dial": None,
+        "metric_slice": None,
+        "labels": [],
+    }
 
 
 # --- the registry -----------------------------------------------------------------------------------
@@ -311,6 +321,179 @@ def test_the_served_sweep_names_no_winner(client, store_root):
     blob = json.dumps(client.get("/backtest/sweep").json()).lower()
     for forbidden in ("winner", "optimal", "argmax"):
         assert forbidden not in blob
+
+
+# --- D: a pass's curves are addressable ----------------------------------------------------------------
+#
+# `sweep.json` holds the LAST curve a pass wrote. The moment a pass wrote six (S2), five of them were
+# unreachable from the surface the instant the sixth landed — the runs survived, the curves did not.
+# Each curve is also kept at `sweeps/<pass_id>-<dials>[-<slice>].json`, and these routes serve them.
+
+
+def _write_curve(root: Path, name: str, **over) -> dict:
+    """One kept curve on disk, through the same fields the writer emits."""
+    curve = {
+        "pass_id": "20260918T000000Z-public-h5",
+        "dial_names": ["insider_core_alpha_liveness_days"],
+        "metric_slice": "",
+        "hypothesis": "H5",
+        "decision_rule": "a plateau, never an argmax",
+        "clock": "public",
+        "window_start": "2025-09-01",
+        "window_end": "2026-09-14",
+        "windows": [["2025-09-01", "2025-10-12"], ["2025-10-13", "2025-11-23"]],
+        "points": [{"dials": {"insider_core_alpha_liveness_days": 90}, "run_ids": ["run-a"]}],
+        "plateau": [0],
+        "plateau_rule": "strict_sign_agreement",
+        "mirror_hash": "a" * 64,
+        "mirror_reused": False,
+        "pass_curves": ["insider_core_alpha_liveness_days"],
+        "banner": "a curve, not a winner",
+    }
+    curve.update(over)
+    # A pass writes RUNS and then curves, so a store holding a curve always holds a registry too: the
+    # route's availability gate is `store_exists()`, one definition shared with /backtest/runs.
+    store.runs_root(root).mkdir(parents=True, exist_ok=True)
+    d = root / "sweeps"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.json").write_text(json.dumps(curve), encoding="utf-8")
+    return curve
+
+
+def test_the_curve_listing_is_unavailable_when_there_is_no_store(client, store_root):
+    assert client.get("/backtest/sweeps").json()["available"] is False
+
+
+def test_every_curve_of_a_pass_is_listed_not_only_the_last_one(client, store_root):
+    """The gap this closes, in one test: a six-dial pass wrote six curves and the surface could reach
+    one."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    for dial in ("insider_core_alpha_liveness_days", "activist_13d_liveness_days"):
+        _write_curve(store_root, f"p1-{dial}", dial_names=[dial])
+    body = client.get("/backtest/sweeps").json()
+    assert body["available"] is True
+    assert {c["dial"] for c in body["sweeps"]} == {
+        "insider_core_alpha_liveness_days",
+        "activist_13d_liveness_days",
+    }
+    assert body["labels"] == list(LABELS)
+
+
+def test_the_listing_carries_HEADERS_and_never_the_points(client, store_root):
+    """A listing that parsed every point of every curve would make the page's cost grow with the
+    store's whole history — and a switcher does not need them."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "p1-a")
+    ref = client.get("/backtest/sweeps").json()["sweeps"][0]
+    assert "points" not in ref
+    assert ref["n_points"] == 1 and ref["plateau_width"] == 1  # the counts, not the contents
+    assert ref["clock"] == "public" and ref["mirror_hash"] == "a" * 64
+
+
+def test_newest_pass_first(client, store_root):
+    """A pass id begins with its own UTC timestamp, so this is chronological without a second field to
+    trust."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "old", pass_id="20260101T000000Z-public-h1")
+    _write_curve(store_root, "new", pass_id="20260918T000000Z-public-h5")
+    ids = [c["pass_id"] for c in client.get("/backtest/sweeps").json()["sweeps"]]
+    assert ids == ["20260918T000000Z-public-h5", "20260101T000000Z-public-h1"]
+
+
+def test_one_dial_read_POOLED_and_SLICED_are_two_curves_not_one(client, store_root):
+    """A pass may legitimately carry the same dial twice. They are two measurements and must never
+    resolve to each other — the reason the selection takes three parts rather than two."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "p1-pooled", metric_slice="")
+    _write_curve(store_root, "p1-sliced", metric_slice="key1_source=ratified_catalyst")
+    listed = client.get("/backtest/sweeps").json()["sweeps"]
+    assert sorted(c["metric_slice"] for c in listed) == ["", "key1_source=ratified_catalyst"]
+
+    sliced = client.get(
+        "/backtest/sweep",
+        params={
+            "pass_id": "20260918T000000Z-public-h5",
+            "dial": "insider_core_alpha_liveness_days",
+            "metric_slice": "key1_source=ratified_catalyst",
+        },
+    ).json()
+    assert sliced["available"] is True
+    assert sliced["sweep"]["metric_slice"] == "key1_source=ratified_catalyst"
+
+    pooled = client.get(
+        "/backtest/sweep",
+        params={
+            "pass_id": "20260918T000000Z-public-h5",
+            "dial": "insider_core_alpha_liveness_days",
+            "metric_slice": "",
+        },
+    ).json()
+    assert pooled["sweep"]["metric_slice"] == ""
+
+
+def test_an_unselected_sweep_is_still_the_LATEST_ONLY_file(client, store_root):
+    """A link made before the curves were addressable resolves to exactly what it always did."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    (store_root / "sweep.json").write_text(
+        json.dumps({"pass_id": "the-latest", "points": [], "plateau": []}), encoding="utf-8"
+    )
+    _write_curve(store_root, "p1-a")
+    body = client.get("/backtest/sweep").json()
+    assert body["sweep"]["pass_id"] == "the-latest"
+    assert body["pass_id"] is None  # nothing was selected, and the echo says so
+
+
+def test_a_selection_that_matches_nothing_is_UNAVAILABLE_not_a_404(client, store_root):
+    """The same shape a stale run link gets: one code path on the front end, and a dead bookmark reads
+    as "not here" rather than as an error."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "p1-a")
+    r = client.get("/backtest/sweep", params={"pass_id": "no-such-pass", "dial": "whatever"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is False and body["sweep"] is None
+    assert body["pass_id"] == "no-such-pass" and body["dial"] == "whatever"
+
+
+def test_a_corrupt_curve_is_SKIPPED_rather_than_failing_the_listing(client, store_root):
+    """A half-written curve is a pass that did not finish; it must not take the switcher down with it."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "good")
+    (store_root / "sweeps" / "broken.json").write_text("{not json", encoding="utf-8")
+    listed = client.get("/backtest/sweeps").json()["sweeps"]
+    assert len(listed) == 1 and listed[0]["dial"] == "insider_core_alpha_liveness_days"
+
+
+def test_a_curve_written_before_the_band_had_a_RULE_reads_as_the_pre_registered_one(
+    client, store_root
+):
+    """A fact, not an unknown: the band of a curve written before the rule was a parameter WAS keyed on
+    `sign_agreement`, and saying so is what stops it being read as the strict one."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    curve = {"pass_id": "p", "dial_names": ["d"], "points": [], "plateau": []}
+    store.runs_root(store_root).mkdir(parents=True, exist_ok=True)
+    (store_root / "sweeps").mkdir(parents=True, exist_ok=True)
+    (store_root / "sweeps" / "old.json").write_text(json.dumps(curve), encoding="utf-8")
+    assert client.get("/backtest/sweeps").json()["sweeps"][0]["plateau_rule"] == "sign_agreement"
+
+
+def test_the_listing_names_no_winner(client, store_root):
+    """The scan is over the fields this route DERIVES, not over the operator's own pre-registration
+    text: a decision rule that says "a plateau, never an argmax" is the discipline being described, not
+    a violation of it. (The same distinction the served sweep's banner needed.)"""
+    store_root.mkdir(parents=True, exist_ok=True)
+    _write_curve(store_root, "p1-a")
+    listed = client.get("/backtest/sweeps").json()["sweeps"]
+    derived = [
+        {k: v for k, v in c.items() if k not in ("hypothesis", "decision_rule")} for c in listed
+    ]
+    blob = json.dumps(derived).lower()
+    assert blob  # non-vacuous: there is something to scan
+    for forbidden in ("winner", "optimal", "argmax", "best", "rank"):
+        assert forbidden not in blob
+    # ...and the schema itself has nowhere to put one
+    for field in BacktestSweepRefOut.model_fields:
+        assert not any(w in field for w in ("winner", "best", "optimal", "argmax", "rank")), field
 
 
 # --- the route writes nothing -------------------------------------------------------------------------

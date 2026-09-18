@@ -22,14 +22,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.schemas_api import (
     BacktestLedgerOut,
     BacktestRunResponse,
     BacktestRunsResponse,
     BacktestRunSummaryOut,
+    BacktestSweepRefOut,
     BacktestSweepResponse,
+    BacktestSweepsResponse,
     ScoreboardMetricOut,
     ScoreboardReplayThesisOut,
     _scoreboard_episode_out,
@@ -120,15 +122,58 @@ def read_run(run_id: str) -> BacktestRunResponse:
     )
 
 
-@router.get("/sweep", response_model=BacktestSweepResponse)
-def read_sweep() -> BacktestSweepResponse:
-    """The latest sweep curve, or `available: false` when none has been run.
+@router.get("/sweeps", response_model=BacktestSweepsResponse)
+def list_sweeps() -> BacktestSweepsResponse:
+    """Every KEPT curve as a header, newest pass first — what a curve switcher is built from.
 
-    SINGULAR and latest-only because `backtest.sweep` writes one `sweep.json` per store. Each point on
-    the curve cites its own run_id, so the underlying runs stay addressable through `/backtest/runs/{id}`
-    even though the curve itself is overwritten by the next sweep.
+    A pass writes one curve per dial and `sweep.json` holds only the last of them, so before this the
+    other five were unreachable from the surface the moment the sixth was written. Headers only: the
+    points stay behind `/backtest/sweep`, because a listing that parsed every point of every curve would
+    make the page's cost grow with the store's history.
     """
-    sweep = artifact.read_sweep()
+    if not artifact.store_exists():
+        return BacktestSweepsResponse(available=False)
+    return BacktestSweepsResponse(
+        available=True,
+        sweeps=[BacktestSweepRefOut(**r) for r in artifact.list_sweeps()],
+        labels=list(LABELS),
+    )
+
+
+@router.get("/sweep", response_model=BacktestSweepResponse)
+def read_sweep(
+    pass_id: str | None = Query(default=None, description="the pass whose curve to serve"),
+    dial: str | None = Query(default=None, description="the curve's dial key within that pass"),
+    metric_slice: str | None = Query(
+        default=None,
+        description=(
+            "the algorithm slice the curve was READ on, e.g. key1_source=ratified_catalyst. Empty "
+            "string selects the pooled reading specifically; omitted matches either."
+        ),
+    ),
+) -> BacktestSweepResponse:
+    """One sweep curve: the LATEST by default, or a named one from the pass's kept copies.
+
+    Unselected, this is `sweep.json` at the store root — latest-only, unchanged, so a link made before
+    the curves became addressable still resolves to what it always did. Selected, it is the kept copy
+    under `sweeps/`, and the selection takes THREE parts because one pass may carry the same dial twice —
+    read pooled and read on one family — and those are two different measurements.
+
+    A selection that matches nothing returns `available: false` rather than a 404, the same way an unknown
+    run does: one code path on the front end, and a stale link reads as "not here" rather than as an
+    error. Each point cites its own run_id either way, so the runs behind any curve stay addressable
+    through `/backtest/runs/{id}`.
+    """
+    sweep = artifact.read_sweep(pass_id=pass_id, dial=dial, metric_slice=metric_slice)
     if sweep is None:
-        return BacktestSweepResponse(available=False)
-    return BacktestSweepResponse(available=True, sweep=sweep, labels=list(LABELS))
+        return BacktestSweepResponse(
+            available=False, pass_id=pass_id, dial=dial, metric_slice=metric_slice
+        )
+    return BacktestSweepResponse(
+        available=True,
+        sweep=sweep,
+        pass_id=pass_id,
+        dial=dial,
+        metric_slice=metric_slice,
+        labels=list(LABELS),
+    )

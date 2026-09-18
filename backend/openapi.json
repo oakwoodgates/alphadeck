@@ -2359,14 +2359,92 @@
         }
       }
     },
+    "/backtest/sweeps": {
+      "get": {
+        "tags": [
+          "backtest"
+        ],
+        "summary": "List Sweeps",
+        "description": "Every KEPT curve as a header, newest pass first \u2014 what a curve switcher is built from.\n\nA pass writes one curve per dial and `sweep.json` holds only the last of them, so before this the\nother five were unreachable from the surface the moment the sixth was written. Headers only: the\npoints stay behind `/backtest/sweep`, because a listing that parsed every point of every curve would\nmake the page's cost grow with the store's history.",
+        "operationId": "list_sweeps_backtest_sweeps_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestSweepsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/sweep": {
       "get": {
         "tags": [
           "backtest"
         ],
         "summary": "Read Sweep",
-        "description": "The latest sweep curve, or `available: false` when none has been run.\n\nSINGULAR and latest-only because `backtest.sweep` writes one `sweep.json` per store. Each point on\nthe curve cites its own run_id, so the underlying runs stay addressable through `/backtest/runs/{id}`\neven though the curve itself is overwritten by the next sweep.",
+        "description": "One sweep curve: the LATEST by default, or a named one from the pass's kept copies.\n\nUnselected, this is `sweep.json` at the store root \u2014 latest-only, unchanged, so a link made before\nthe curves became addressable still resolves to what it always did. Selected, it is the kept copy\nunder `sweeps/`, and the selection takes THREE parts because one pass may carry the same dial twice \u2014\nread pooled and read on one family \u2014 and those are two different measurements.\n\nA selection that matches nothing returns `available: false` rather than a 404, the same way an unknown\nrun does: one code path on the front end, and a stale link reads as \"not here\" rather than as an\nerror. Each point cites its own run_id either way, so the runs behind any curve stay addressable\nthrough `/backtest/runs/{id}`.",
         "operationId": "read_sweep_backtest_sweep_get",
+        "parameters": [
+          {
+            "name": "pass_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the pass whose curve to serve",
+              "title": "Pass Id"
+            },
+            "description": "the pass whose curve to serve"
+          },
+          {
+            "name": "dial",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the curve's dial key within that pass",
+              "title": "Dial"
+            },
+            "description": "the curve's dial key within that pass"
+          },
+          {
+            "name": "metric_slice",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the algorithm slice the curve was READ on, e.g. key1_source=ratified_catalyst. Empty string selects the pooled reading specifically; omitted matches either.",
+              "title": "Metric Slice"
+            },
+            "description": "the algorithm slice the curve was READ on, e.g. key1_source=ratified_catalyst. Empty string selects the pooled reading specifically; omitted matches either."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2374,6 +2452,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BacktestSweepResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3423,6 +3511,99 @@
         ],
         "title": "BacktestRunsResponse"
       },
+      "BacktestSweepRefOut": {
+        "properties": {
+          "pass_id": {
+            "type": "string",
+            "title": "Pass Id"
+          },
+          "dial": {
+            "type": "string",
+            "title": "Dial"
+          },
+          "dial_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dial Names"
+          },
+          "metric_slice": {
+            "type": "string",
+            "title": "Metric Slice",
+            "default": ""
+          },
+          "hypothesis": {
+            "type": "string",
+            "title": "Hypothesis",
+            "default": ""
+          },
+          "decision_rule": {
+            "type": "string",
+            "title": "Decision Rule",
+            "default": ""
+          },
+          "clock": {
+            "type": "string",
+            "title": "Clock",
+            "default": "record"
+          },
+          "window_start": {
+            "type": "string",
+            "title": "Window Start",
+            "default": ""
+          },
+          "window_end": {
+            "type": "string",
+            "title": "Window End",
+            "default": ""
+          },
+          "n_windows": {
+            "type": "integer",
+            "title": "N Windows",
+            "default": 0
+          },
+          "n_points": {
+            "type": "integer",
+            "title": "N Points",
+            "default": 0
+          },
+          "plateau_width": {
+            "type": "integer",
+            "title": "Plateau Width",
+            "default": 0
+          },
+          "plateau_rule": {
+            "type": "string",
+            "title": "Plateau Rule",
+            "default": "sign_agreement"
+          },
+          "mirror_hash": {
+            "type": "string",
+            "title": "Mirror Hash",
+            "default": ""
+          },
+          "mirror_reused": {
+            "type": "boolean",
+            "title": "Mirror Reused",
+            "default": false
+          },
+          "pass_curves": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pass Curves"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pass_id",
+          "dial"
+        ],
+        "title": "BacktestSweepRefOut",
+        "description": "ONE CURVE'S HEADER \u2014 what a reader picks by, never its points.\n\nA store accumulates curves and a switcher that listed them would otherwise parse every point of every\none. These are the fields a choice is made on (which pass, which dial, which slice, which window,\nwhat was pre-registered) plus the two that decide whether two curves may be read together AT ALL: the\nclock they were swept on and the mirror they were swept over."
+      },
       "BacktestSweepResponse": {
         "properties": {
           "available": {
@@ -3441,6 +3622,39 @@
             ],
             "title": "Sweep"
           },
+          "pass_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Id"
+          },
+          "dial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dial"
+          },
+          "metric_slice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Slice"
+          },
           "labels": {
             "items": {
               "type": "string"
@@ -3454,7 +3668,35 @@
           "available"
         ],
         "title": "BacktestSweepResponse",
-        "description": "The sweep curve. LATEST-ONLY \u2014 `backtest.sweep` writes one `sweep.json` per store, so a second\nsweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the\ncurve does not; making sweeps addressable is the noted follow-up."
+        "description": "One sweep curve.\n\n`sweep.json` at the store root is LATEST-ONLY and is what comes back when nothing is selected \u2014 a\nbookmark from before the curves were addressable still resolves. With a selection it is the KEPT copy\nunder `sweeps/`, which is what makes a pass's other curves reachable: a six-dial pass wrote six, and\nfive of them were unreachable the instant the sixth landed.\n\nThe curve itself rides as an opaque object on purpose. It is the sweep report's own model, published\nby the writer and read by the surface; re-declaring ~20 fields here would create a second place for\nthe artifact's shape to drift from itself, and the surface already degrades field by field (a curve\nwritten before a field simply does not carry it)."
+      },
+      "BacktestSweepsResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "sweeps": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestSweepRefOut"
+            },
+            "type": "array",
+            "title": "Sweeps"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "BacktestSweepsResponse",
+        "description": "Every kept curve, newest pass first. `available: false` when this stack has no store."
       },
       "BackupCreateIn": {
         "properties": {

@@ -238,10 +238,32 @@ This is enforced structurally, not by convention:
 
 ## `/backtest` — the surface
 
-Three read-only routes, artifact-served: `GET /backtest/runs` (the registry + `dial_trials`),
-`GET /backtest/runs/{run_id}` (manifest, pooled, episodes, ledger, labels), `GET /backtest/sweep` (the latest
-curve). **`available: false` is a legitimate 200**, never a 500 and never a 404 page: a missing store, a
-missing run, a half-written directory and an unreadable file all collapse to it.
+Four read-only routes, artifact-served: `GET /backtest/runs` (the registry + `dial_trials`),
+`GET /backtest/runs/{run_id}` (manifest, pooled, episodes, ledger, labels), `GET /backtest/sweeps` (every
+KEPT curve as a header) and `GET /backtest/sweep` (one curve — the latest, or a named one).
+**`available: false` is a legitimate 200**, never a 500 and never a 404 page: a missing store, a missing
+run, a half-written directory, an unreadable file and a selection that matches nothing all collapse to it.
+
+**The latest-only gap is closed (D).** `sweep.json` still holds the last curve a pass wrote and an
+unselected `GET /backtest/sweep` still serves exactly it, so a link made before this resolves to what it
+always did. But a pass writes ONE CURVE PER DIAL, so five of six were unreachable from the page the
+instant the sixth landed — the runs survived (each point cites its own run_id), the curves did not.
+`GET /backtest/sweeps` lists the kept copies as HEADERS (never their points, so the page's cost does not
+grow with the store's history), and `GET /backtest/sweep?pass_id=&dial=&metric_slice=` serves one.
+
+The selection takes THREE parts because one pass may carry the same dial twice — read pooled and read on
+one algorithm family — and those are two different measurements that must never resolve to each other.
+A header carries what a reader picks BY (pass, dial, slice, window, pre-registration) plus the two facts
+that decide whether two curves may be read together at all: the CLOCK they were swept on and the MIRROR
+they were swept over.
+
+**The registry and the switcher group by PASS, and grouping is never filtering.** A windowed pass writes
+dozens of runs — 225 for the first real one — so a flat list stopped being readable the moment one landed,
+with the smoke runs scattered through it. The newest REAL pass opens; every other group collapses with its
+count still on screen and expands in one click. Smoke and calibration passes are recognized by their own
+pre-registration text, which is a DISPLAY heuristic and is allowed to be one precisely because a miss
+renders the pass in the main list rather than hiding it. Nothing is ever dropped: the registry's job is
+counting trials, and an experiment you cannot see is one you cannot count against yourself.
 
 **Dev/sig-only BY DATA AVAILABILITY, with no build flag.** On prod the store directory does not exist, so the
 page renders one quiet line. There is no environment variable anyone can get wrong. The nav tab always
@@ -448,9 +470,10 @@ own on its report, overridable per ladder with `--ladder-hypothesis dial=…` / 
 dial=…`, and the curve file is the artifact a dial's result is quoted from. A per-ladder override naming a
 dial with no `--ladder` is refused — a typo must not silently substitute the pass's text.
 
-Each curve is kept at `sweeps/<pass_id>-<dial>.json`; `sweep.json` keeps its shape and holds the last
-curve of the pass, so the `/backtest` sweep view renders unchanged. Every report lists the pass's other
-curves in `pass_curves`.
+Each curve is kept at `sweeps/<pass_id>-<dial>[-<slice>].json`; `sweep.json` keeps its shape and holds
+the last curve of the pass, so an unselected sweep view renders unchanged. Every report lists the pass's
+other curves in `pass_curves`, and since D the surface reaches every kept curve through
+`GET /backtest/sweeps` rather than only the last one.
 
 ### Separating timing from composition — `backtest.pair`
 

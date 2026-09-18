@@ -27,11 +27,17 @@ const sweep: { data: unknown; isLoading: boolean; error: unknown } = {
   isLoading: false,
   error: null,
 };
+const sweeps: { data: unknown; isLoading: boolean; error: unknown } = {
+  data: null,
+  isLoading: false,
+  error: null,
+};
 
 vi.mock("../../api/hooks", () => ({
   useBacktestRuns: () => runs,
   useBacktestRun: () => run,
   useBacktestSweep: () => sweep,
+  useBacktestSweeps: () => sweeps,
   // the scorecard's live reads — never reached here (no asof), stubbed so the import resolves
   useEpisodePriceWindow: () => ({ data: undefined }),
   useDisplaySignals: () => ({ data: undefined }),
@@ -198,10 +204,17 @@ const RUNS = {
   dial_trials: { insider_core_alpha_liveness_days: 4 },
 };
 
-function renderPage(over: { runs?: unknown; run?: unknown; sweep?: unknown } = {}) {
+function renderPage(
+  over: { runs?: unknown; run?: unknown; sweep?: unknown; sweeps?: unknown } = {},
+) {
   Object.assign(runs, { data: "runs" in over ? over.runs : RUNS, isLoading: false, error: null });
   Object.assign(run, { data: "run" in over ? over.run : RUN, isLoading: false, error: null });
   Object.assign(sweep, { data: "sweep" in over ? over.sweep : null, isLoading: false, error: null });
+  Object.assign(sweeps, {
+    data: "sweeps" in over ? over.sweeps : null,
+    isLoading: false,
+    error: null,
+  });
   const onSelect = vi.fn();
   const onSelectRun = vi.fn();
   const utils = render(
@@ -214,6 +227,7 @@ beforeEach(() => {
   Object.assign(runs, { data: null, isLoading: false, error: null });
   Object.assign(run, { data: null, isLoading: false, error: null });
   Object.assign(sweep, { data: null, isLoading: false, error: null });
+  Object.assign(sweeps, { data: null, isLoading: false, error: null });
 });
 
 describe("Backtest — absence", () => {
@@ -390,5 +404,127 @@ describe("Backtest — the sweep", () => {
     const rows = [...region.querySelectorAll("tbody tr")].map((r) => r.textContent ?? "");
     expect(rows[0]).toContain("d=90");
     expect(rows[1]).toContain("d=180");
+  });
+});
+
+// D — A PASS'S CURVES, AND A REGISTRY THAT STAYS READABLE AFTER ONE.
+//
+// A windowed pass writes dozens of runs and one curve per dial. `sweep.json` holds only the last curve,
+// so five of six were unreachable the instant the sixth landed; and a flat registry of 225 rows with the
+// smoke runs scattered through it is not a control anyone can use. Grouping is NEVER filtering: every row
+// is on screen, the groups only decide what is expanded.
+
+const CURVE_REF = {
+  pass_id: "20260918T032952Z-public-h5-phase-1",
+  dial: "insider_core_alpha_liveness_days",
+  dial_names: ["insider_core_alpha_liveness_days"],
+  metric_slice: "",
+  hypothesis: "H5: the conviction-side horizons are the timing lever",
+  decision_rule: "a plateau, never a point",
+  clock: "public",
+  window_start: "2025-09-01",
+  window_end: "2026-09-14",
+  n_windows: 9,
+  n_points: 5,
+  plateau_width: 2,
+  plateau_rule: "strict_sign_agreement",
+  mirror_hash: "a".repeat(64),
+  mirror_reused: false,
+  pass_curves: ["insider_core_alpha_liveness_days"],
+};
+
+describe("Backtest — the curve switcher (D)", () => {
+  it("lists a pass's curves and says which rule each band was keyed on", () => {
+    renderPage({
+      sweeps: {
+        available: true,
+        sweeps: [CURVE_REF, { ...CURVE_REF, dial: "activist_13d_liveness_days", plateau_width: 1 }],
+        labels: [],
+      },
+    });
+    const text = screen.getByRole("group", { name: /Sweep curves/ }).textContent ?? "";
+    expect(text).toContain("insider_core_alpha_liveness_days");
+    expect(text).toContain("activist_13d_liveness_days");
+    expect(text).toContain("keyed on strict_sign_agreement");
+    expect(text).toContain("band 2 wide");
+    expect(text).toContain("no band (nothing found)");
+  });
+
+  it("marks a SLICED curve so it can never be mistaken for the pooled one", () => {
+    renderPage({
+      sweeps: {
+        available: true,
+        sweeps: [{ ...CURVE_REF, metric_slice: "key1_source=ratified_catalyst" }],
+        labels: [],
+      },
+    });
+    expect(screen.getByRole("group", { name: /Sweep curves/ }).textContent).toContain(
+      "key1_source=ratified_catalyst",
+    );
+  });
+
+  it("renders no switcher at all when the store holds no kept curve", () => {
+    renderPage({ sweeps: { available: true, sweeps: [], labels: [] } });
+    expect(screen.queryByRole("group", { name: /Sweep curves/ })).not.toBeInTheDocument();
+  });
+
+  it("collapses a CALIBRATION pass and opens the real one", () => {
+    renderPage({
+      sweeps: {
+        available: true,
+        sweeps: [
+          { ...CURVE_REF, pass_id: "20260918T032128Z-public-smoke-a", hypothesis: "smoke A" },
+          CURVE_REF,
+        ],
+        labels: [],
+      },
+    });
+    const region = screen.getByRole("group", { name: /Sweep curves/ });
+    const heads = [...region.querySelectorAll("button[aria-expanded]")];
+    const smoke = heads.find((h) => h.textContent?.includes("smoke-a"));
+    const real = heads.find((h) => h.textContent?.includes("phase-1"));
+    expect(smoke?.getAttribute("aria-expanded")).toBe("false");
+    expect(real?.getAttribute("aria-expanded")).toBe("true");
+    expect(smoke?.textContent).toContain("1 curve");
+    expect(smoke?.textContent).toContain("calibration / smoke");
+  });
+});
+
+describe("Backtest — the run picker groups by pass (D)", () => {
+  const runOf = (over: Record<string, unknown>) => ({ ...RUNS.runs[0], ...over });
+  const twoPasses = {
+    available: true,
+    runs: [
+      runOf({ run_id: "r-real", pass_id: "20260918T032952Z-public-h5-phase-1" }),
+      runOf({
+        run_id: "r-smoke",
+        pass_id: "20260918T032128Z-public-smoke-a",
+        hypothesis: "smoke",
+      }),
+    ],
+    dial_trials: {},
+  };
+
+  it("opens the newest REAL pass and collapses the smokes, counting both", () => {
+    renderPage({ runs: twoPasses });
+    const region = screen.getByRole("group", { name: "Runs" });
+    const heads = [...region.querySelectorAll("button[aria-expanded]")];
+    const real = heads.find((h) => h.textContent?.includes("phase-1"));
+    const smoke = heads.find((h) => h.textContent?.includes("smoke-a"));
+    expect(real?.getAttribute("aria-expanded")).toBe("true");
+    expect(smoke?.getAttribute("aria-expanded")).toBe("false");
+    expect(smoke?.textContent).toContain("1 run");
+    expect(screen.queryByText("r-smoke")).not.toBeInTheDocument();
+    expect(screen.getByText("r-real")).toBeInTheDocument();
+  });
+
+  it("expands a collapsed pass in one click, and nothing was ever dropped", () => {
+    renderPage({ runs: twoPasses });
+    const region = screen.getByRole("group", { name: "Runs" });
+    const smoke = [...region.querySelectorAll("button[aria-expanded]")].find((h) =>
+      h.textContent?.includes("smoke-a"),
+    );
+    fireEvent.click(smoke as Element);
+    expect(screen.getByText("r-smoke")).toBeInTheDocument();
   });
 });

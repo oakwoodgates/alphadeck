@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
-import { useBacktestRun, useBacktestRuns, useBacktestSweep } from "../api/hooks";
+import { useBacktestRun, useBacktestRuns, useBacktestSweep, useBacktestSweeps } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { BacktestLabels } from "./BacktestLabels";
 import { ManifestCard } from "./ManifestCard";
@@ -8,6 +8,7 @@ import { PooledPanel } from "./PooledPanel";
 import { RunLedger } from "./RunLedger";
 import { RunPicker } from "./RunPicker";
 import { SweepCurve } from "./SweepCurve";
+import { type CurveSelection, SweepPicker } from "./SweepPicker";
 
 // THE BACKTEST — a research surface, and nothing on it is ever the record.
 //
@@ -36,7 +37,12 @@ type Props = {
 
 export function Backtest({ header, runId, onSelectRun, onSelect }: Props) {
   const runsQ = useBacktestRuns();
-  const sweepQ = useBacktestSweep();
+  // The curve is picked in local state rather than in the URL: the run is the shareable unit here (a
+  // curve's points each cite their run), and adding a second query parameter would make two controls
+  // fight over one link. Unselected, the sweep is the latest-only file — exactly as before.
+  const [curve, setCurve] = useState<CurveSelection | null>(null);
+  const sweepsQ = useBacktestSweeps();
+  const sweepQ = useBacktestSweep(curve);
   const runs = runsQ.data?.runs ?? [];
   // No explicit pick → the newest run, which is the registry's own first row. A default rather than an
   // empty state: the operator who just finished a run should land on it.
@@ -121,7 +127,20 @@ export function Backtest({ header, runId, onSelectRun, onSelect }: Props) {
           <p className="bt-quiet">This run carries no episode ledger — it predates the drill-down.</p>
         )}
 
+        {(sweepsQ.data?.sweeps ?? []).length > 0 && (
+          <SweepPicker
+            sweeps={sweepsQ.data?.sweeps ?? []}
+            selected={curve}
+            onSelect={setCurve}
+          />
+        )}
         {sweepQ.data?.available && <SweepCurve sweep={sweepQ.data.sweep} />}
+        {curve != null && sweepQ.data?.available === false && (
+          <p className="bt-quiet">
+            That curve is not on this stack — it may have been written somewhere else, or the pass may
+            have been pruned. The runs behind it, if they are here, are in the picker above.
+          </p>
+        )}
       </main>
     </div>
   );

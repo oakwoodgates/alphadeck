@@ -1942,10 +1942,63 @@ class BacktestRunResponse(BaseModel):
 
 
 class BacktestSweepResponse(BaseModel):
-    """The sweep curve. LATEST-ONLY — `backtest.sweep` writes one `sweep.json` per store, so a second
-    sweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the
-    curve does not; making sweeps addressable is the noted follow-up."""
+    """One sweep curve.
+
+    `sweep.json` at the store root is LATEST-ONLY and is what comes back when nothing is selected — a
+    bookmark from before the curves were addressable still resolves. With a selection it is the KEPT copy
+    under `sweeps/`, which is what makes a pass's other curves reachable: a six-dial pass wrote six, and
+    five of them were unreachable the instant the sixth landed.
+
+    The curve itself rides as an opaque object on purpose. It is the sweep report's own model, published
+    by the writer and read by the surface; re-declaring ~20 fields here would create a second place for
+    the artifact's shape to drift from itself, and the surface already degrades field by field (a curve
+    written before a field simply does not carry it)."""
 
     available: bool
     sweep: dict[str, Any] | None = None
+    #: what was asked for, echoed — so a client can tell "this is the curve you selected" from "this is
+    #: the latest one" without re-deriving it from the payload
+    pass_id: str | None = None
+    dial: str | None = None
+    metric_slice: str | None = None
+    labels: list[str] = Field(default_factory=list)
+
+
+class BacktestSweepRefOut(BaseModel):
+    """ONE CURVE'S HEADER — what a reader picks by, never its points.
+
+    A store accumulates curves and a switcher that listed them would otherwise parse every point of every
+    one. These are the fields a choice is made on (which pass, which dial, which slice, which window,
+    what was pre-registered) plus the two that decide whether two curves may be read together AT ALL: the
+    clock they were swept on and the mirror they were swept over."""
+
+    pass_id: str
+    #: the dial key this curve is addressed by — `"-".join(dial_names)`, or `grid` for a cartesian set
+    dial: str
+    dial_names: list[str] = Field(default_factory=list)
+    #: `key1_source=ratified_catalyst` when the curve was read on one algorithm family, else empty. One
+    #: pass may carry the same dial pooled AND sliced; they are two measurements and never resolve to
+    #: each other.
+    metric_slice: str = ""
+    hypothesis: str = ""
+    decision_rule: str = ""
+    clock: str = "record"
+    window_start: str = ""
+    window_end: str = ""
+    n_windows: int = 0
+    n_points: int = 0
+    plateau_width: int = 0
+    #: which cross-window agreement the band was keyed on — meaningless without it
+    plateau_rule: str = "sign_agreement"
+    mirror_hash: str = ""
+    #: True when the pass swept an EXISTING frozen mirror rather than exporting its own
+    mirror_reused: bool = False
+    pass_curves: list[str] = Field(default_factory=list)
+
+
+class BacktestSweepsResponse(BaseModel):
+    """Every kept curve, newest pass first. `available: false` when this stack has no store."""
+
+    available: bool
+    sweeps: list[BacktestSweepRefOut] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)

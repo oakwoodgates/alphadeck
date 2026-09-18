@@ -33,6 +33,7 @@ from backtest.manifest import BacktestManifest, read_manifest
 _log = logging.getLogger("alphadeck.backtest")
 
 SWEEP_NAME = "sweep.json"
+SWEEPS_DIRNAME = "sweeps"
 
 
 def _read_json(path: Path) -> Any | None:
@@ -117,13 +118,97 @@ def read_ledger(run_path: Path) -> BacktestLedger | None:
         return None
 
 
-def read_sweep(root: str | Path | None = None) -> dict[str, Any] | None:
-    """The sweep curve, or ``None`` when none has been run.
+def _curve_key(blob: dict[str, Any]) -> str:
+    """The dial key a curve is addressed by — the same ``"-".join(dial_names) or "grid"`` the writer
+    uses for its filename, derived from the CONTENTS so the two cannot drift."""
+    dials = [str(d) for d in blob.get("dial_names") or []]
+    return "-".join(dials) or "grid"
 
-    LATEST-ONLY, and that is a known asymmetry rather than a design: `backtest.sweep` writes ONE
-    `sweep.json` at the store root, so a second sweep overwrites the first. Runs are immutable and
-    addressable; sweeps are not yet. The curve's points each cite their own run_id, so the underlying
-    evidence survives — it is the curve that does not. Making sweeps addressable (`sweeps/<id>.json`) is
-    the obvious follow-up and is noted in docs/BACKTEST.md.
+
+def list_sweeps(root: str | Path | None = None) -> list[dict[str, Any]]:
+    """Every KEPT curve as a HEADER — never its points. Newest pass first.
+
+    `sweep.json` is latest-only, which was a real gap the moment a pass began writing six curves at once:
+    five of them were unreachable from the surface the instant the sixth was written. Each curve is also
+    kept at `sweeps/<pass_id>-<dials>[-<slice>].json`, and this lists those.
+
+    HEADERS ONLY, deliberately. A store accumulates curves and a page that listed them would otherwise
+    parse every point of every one to render a switcher. What comes back is what a reader picks BY — the
+    pass, the dial, the slice, the window, the pre-registration — plus the two facts that decide whether
+    two curves may be read together at all: the clock and the mirror hash.
+
+    Unreadable files are SKIPPED rather than failing the listing, the same rule the rest of this module
+    follows: a half-written curve is a pass that did not finish.
     """
-    return _read_json(Path(root or store.DEFAULT_ROOT) / SWEEP_NAME)
+    out: list[dict[str, Any]] = []
+    d = Path(root or store.DEFAULT_ROOT) / SWEEPS_DIRNAME
+    if not d.is_dir():
+        return out
+    for path in sorted(d.glob("*.json")):
+        blob = _read_json(path)
+        if not isinstance(blob, dict):
+            continue
+        points = blob.get("points") or []
+        out.append(
+            {
+                "pass_id": str(blob.get("pass_id") or ""),
+                "dial": _curve_key(blob),
+                "dial_names": [str(x) for x in blob.get("dial_names") or []],
+                "metric_slice": str(blob.get("metric_slice") or ""),
+                "hypothesis": str(blob.get("hypothesis") or ""),
+                "decision_rule": str(blob.get("decision_rule") or ""),
+                "clock": str(blob.get("clock") or "record"),
+                "window_start": str(blob.get("window_start") or ""),
+                "window_end": str(blob.get("window_end") or ""),
+                "n_windows": len(blob.get("windows") or []),
+                "n_points": len(points),
+                "plateau_width": len(blob.get("plateau") or []),
+                # A curve written before the rule was a parameter had its band keyed on the
+                # pre-registered field; the fallback states that fact rather than an unknown.
+                "plateau_rule": str(blob.get("plateau_rule") or "sign_agreement"),
+                "mirror_hash": str(blob.get("mirror_hash") or ""),
+                "mirror_reused": bool(blob.get("mirror_reused")),
+                "pass_curves": [str(x) for x in blob.get("pass_curves") or []],
+            }
+        )
+    # Newest pass first: a pass id begins with its own UTC timestamp, so this is chronological without
+    # a second field to trust. Within a pass, the dial order the writer used.
+    out.sort(key=lambda r: (r["pass_id"], r["dial"], r["metric_slice"]), reverse=True)
+    return out
+
+
+def read_sweep(
+    root: str | Path | None = None,
+    *,
+    pass_id: str | None = None,
+    dial: str | None = None,
+    metric_slice: str | None = None,
+) -> dict[str, Any] | None:
+    """One sweep curve, or ``None`` when there is none to serve.
+
+    With no selector this is the LATEST-ONLY `sweep.json` at the store root, unchanged — a bookmark from
+    before D still resolves, and the page renders exactly as it did.
+
+    With a selector it is the KEPT copy under `sweeps/`, which is what makes a pass's other five curves
+    reachable at all. The three parts address it exactly: the pass, the dial, and the SLICE — because one
+    pass may legitimately carry the same dial twice, read pooled and read on one algorithm family, and
+    those are two different measurements that must never resolve to each other. A `metric_slice` of `None`
+    means "either"; `""` means the pooled reading specifically.
+    """
+    if pass_id is None and dial is None and metric_slice is None:
+        return _read_json(Path(root or store.DEFAULT_ROOT) / SWEEP_NAME)
+    d = Path(root or store.DEFAULT_ROOT) / SWEEPS_DIRNAME
+    if not d.is_dir():
+        return None
+    for path in sorted(d.glob("*.json")):
+        blob = _read_json(path)
+        if not isinstance(blob, dict):
+            continue
+        if pass_id is not None and str(blob.get("pass_id") or "") != pass_id:
+            continue
+        if dial is not None and _curve_key(blob) != dial:
+            continue
+        if metric_slice is not None and str(blob.get("metric_slice") or "") != metric_slice:
+            continue
+        return blob
+    return None
