@@ -187,6 +187,27 @@ class CallConfig(DomainModel):
     # conviction freshness — fine for now: arming still needs a co-located FRESH breakout, and the
     # decay-with-age refinement (CALL_LOGIC §7 roadmap) tempers it later.
     catalyst_default_horizon_days: int = 365  # fallback when no agreement term is published
+    # A CAP on a PUBLISHED term — `None` means no cap, which is today's behavior exactly (prod
+    # byte-identical, every golden holds). DORMANT, on the `insider_10b5_1_buy_weight` precedent: land
+    # the dial at today's value, measure it on the lab, flip only on a pre-registered pass plus the
+    # operator's sign-off.
+    #
+    # WHY THIS DIAL AND NOT THE DEFAULT ABOVE. Phase 1 (2026-09-18) swept `catalyst_default_horizon_days`
+    # across 90/180/365/540/730 over a year of tape and every point was BYTE-IDENTICAL — pooled and, in
+    # the post-hoc re-read, on its own `key1_source=ratified_catalyst` slice too (46 episodes, the same
+    # -38.465% median at all five settings). The reason is structural rather than statistical: that dial
+    # is a FALLBACK, read only when a fact publishes no `horizon_end`, and every catalyst fact on the
+    # tape publishes one. The dial that can actually move a catalyst's liveness is therefore a cap on the
+    # published term — which is also the real policy question: a DOE OTA whose period of performance runs
+    # to 2029 buys a 1,238-day signal-validity window off one event, and whether an edge survives that
+    # long is exactly what a timing platform should be able to ask.
+    #
+    # THE ASYMMETRY IS DELIBERATE: the cap binds only the PUBLISHED branch, so with a cap of 90 a
+    # five-year agreement is live for 90 days while a term-less catalyst is still live for the 365-day
+    # default. Those are two different statements — "we do not believe the edge outlives 90 days" and
+    # "we do not know this agreement's term" — and they have a dial each. Capping both with one number
+    # would conflate them and make a sweep of either uninterpretable.
+    catalyst_max_horizon_days: int | None = None  # None = no cap (today)
 
     # --- theme_conviction (Key 1 FALLBACK for theme theses, M5b) — STARTING calibration ---
     # An operator-ratified, thesis-level theme conviction expires on its operator-set horizon (the

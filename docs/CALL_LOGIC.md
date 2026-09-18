@@ -205,6 +205,14 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   is still `flip`; obligation magnitude may affect the trigger score and therefore setup strength within the
   grade, never position size). Full rule + precedent (LEU core, OKLO flip) in
   `docs/CATALYST_CONVICTION.md`.
+  **What SETS that liveness, in one line:** the fact's own published `horizon_end` when it has one
+  (`horizon_end − valid_from`, floored at a day), else `catalyst_default_horizon_days` (365) — and since
+  A2 the published branch passes through an optional ceiling, `catalyst_max_horizon_days`, **`None` by
+  default and therefore inert today**. The ceiling exists because the term is a fact about the
+  *agreement* while the edge horizon is a policy question about *this platform*, and one DOE OTA can put
+  1,238 days between them (OKLO, event 2026-02-09, term to 2029-07-01). It caps the published term ONLY;
+  the no-term fallback keeps its own dial, because "we do not believe the edge outlives N days" and "we
+  do not know this agreement's term" are different claims.
 - **`theme_conviction` `[built — M5b]` — grade-DECOUPLED liveness, capped at flip.** An operator-ratified,
   **thesis-level** conviction (the basket-level analog of an insider buy / a name's catalyst), broadcast onto
   each eligible member as a Key-1 **fallback**. Always **`flip`** (capped at starter — belief never mints a
