@@ -11,7 +11,9 @@
 // which the copy says out loud rather than dressing up as a result.
 
 export type SweepPointView = {
-  runId: string;
+  /** Every run behind this point — ONE PER WINDOW (S1). A point is the pooled read across its windows,
+   *  so it cites N runs, not one, and each of them stays addressable. */
+  runIds: string[];
   configShort: string;
   /** The dial values at this point, as "dial=value" pairs in the backend's own order. */
   dials: { name: string; value: string }[];
@@ -19,15 +21,29 @@ export type SweepPointView = {
   nScored: number;
   metric: number | null;
   delta: number | null;
-  subwindowDeltas: (number | null)[];
+  /** The delta recomputed on each WINDOW, in the report's window order. */
+  windowDeltas: (number | null)[];
   signAgreement: boolean;
   isBaseline: boolean;
+  /** Two dial settings that resolve to the same config are ONE measurement — usually the baseline, which
+   *  every ladder containing the production default shares. Shown so a shared point is never read as an
+   *  independent confirmation. */
+  runsShared: boolean;
   inPlateau: boolean;
 };
 
 export type SweepView = {
   dialNames: string[];
   metricName: string;
+  /** The disjoint windows every point was run over, in order — a point's `windowDeltas` line up with
+   *  these index for index. Empty on a curve written before the split. */
+  windows: { start: string; end: string }[];
+  /** How many window jobs ran at once. A saturated box measures contention as well as dials, so two
+   *  passes are only comparable on wall time if this matches. */
+  concurrency: number;
+  /** The id every run of this curve carries on its own manifest — the grouping that survives even though
+   *  `sweep.json` is latest-only. */
+  passId: string;
   /** Which fact axis the one shared mirror carried — every point inherited it (CW). A record sweep and a
    *  public sweep are two experiments and must never be read as one series, so the curve says which. */
   clock: string;
@@ -59,23 +75,43 @@ export function readSweep(raw: unknown): SweepView | null {
   const points: SweepPointView[] = rawPoints.map((p, i) => {
     const o = (p ?? {}) as Record<string, unknown>;
     const dials = (o.dials ?? {}) as Record<string, unknown>;
+    // `window_deltas` (S1) with a fallback to the pre-split `subwindow_deltas`, and `run_ids` with a
+    // fallback to the single `run_id`: an older curve still renders rather than reading as empty.
+    const deltas = Array.isArray(o.window_deltas)
+      ? o.window_deltas
+      : Array.isArray(o.subwindow_deltas)
+        ? o.subwindow_deltas
+        : [];
+    const ids = Array.isArray(o.run_ids)
+      ? o.run_ids.filter((r): r is string => typeof r === "string")
+      : typeof o.run_id === "string"
+        ? [o.run_id]
+        : [];
     return {
-      runId: str(o.run_id),
+      runIds: ids,
       configShort: str(o.config_short),
       dials: Object.entries(dials).map(([name, value]) => ({ name, value: String(value) })),
       nEpisodes: num(o.n_episodes) ?? 0,
       nScored: num(o.n_scored) ?? 0,
       metric: num(o.metric),
       delta: num(o.delta_vs_baseline),
-      subwindowDeltas: Array.isArray(o.subwindow_deltas) ? o.subwindow_deltas.map(num) : [],
+      windowDeltas: deltas.map(num),
       signAgreement: o.sign_agreement === true,
       isBaseline: o.is_baseline === true,
+      runsShared: o.runs_shared === true,
       inPlateau: plateau.has(i),
     };
   });
   return {
     dialNames: Array.isArray(s.dial_names) ? s.dial_names.map((d) => String(d)) : [],
     metricName: str(s.metric_name, "metric"),
+    windows: Array.isArray(s.windows)
+      ? s.windows
+          .filter((w): w is unknown[] => Array.isArray(w) && w.length >= 2)
+          .map((w) => ({ start: String(w[0]), end: String(w[1]) }))
+      : [],
+    concurrency: num(s.concurrency) ?? 1,
+    passId: str(s.pass_id),
     // a curve written before the axis was recorded is a record-clock curve — that is all this exporter
     // could produce at the time, so the fallback states a fact rather than an unknown
     clock: str(s.clock, "record"),
@@ -119,9 +155,11 @@ export function plateauLine(v: SweepView): string {
     );
   }
   const agreeing = v.points.filter((p) => p.inPlateau && p.signAgreement).length;
+  const n = v.windows.length || v.subwindows;
   return (
     `A plateau ${v.plateauWidth} points wide. ` +
-    `${agreeing} of them also hold their sign across all ${v.subwindows} sub-windows — ` +
-    "a pooled number that cannot survive cutting the window has not found anything."
+    `${agreeing} of them also hold their sign across all ${n} window${n === 1 ? "" : "s"} — ` +
+    "a pooled number that cannot survive being recomputed on each window separately has not found " +
+    "anything."
   );
 }

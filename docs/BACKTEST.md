@@ -143,7 +143,12 @@ reproduces its own draws and two runs never share them; both ride the manifest. 
 exist the whole population is used — reporting three peers of a four-name basket is honest where resampling
 to K would manufacture confidence.
 
-**The short-window trap, surfaced rather than left silent.** `timing_candidate_sessions` rides the firing
+**The short-window trap, surfaced rather than left silent — and six-week windows sit ON the boundary.**
+A 42-day window holds roughly 30 trading sessions, which is exactly where the caveat's threshold is. Any
+write-up of a windowed pass must carry the sentence whether or not the caveat fired: **a `vs_timing` close
+to `actual` on a ~30-session window means there was no comparison, NOT that there is no edge.** The
+threshold is deliberately left where it is rather than tuned so that it always fires — moving a threshold
+to make a caveat appear is fitting the instrument to the answer. `timing_candidate_sessions` rides the firing
 diagnostics: on a four-session run there is roughly one alternative entry date per episode, every draw prices
 a near-empty forward window, and `vs_timing` comes back on top of the actual — which READS like "the
 algorithm ties with chance" and MEANS "there was no chance to compare against". Under 30 sessions the surface
@@ -241,6 +246,35 @@ rather than a new one.
    rather than on the base run. Re-measure after M1 before building it — the term it would attack was
    never the dominant one.
 
+### MEASURED end to end, on real data — one six-week point, before and after the memo
+
+12 theses, public clock / lockstep, 6 workers, K=5, window 2026-08-03 → 2026-09-14, **386 episodes**, on
+the dev copy. The two runs were given the SAME `--null-seed` so their draws are identical and the
+comparison is about the reader alone:
+
+| | pre-memo `20260917T224817Z-public-default-f6bfc4cd` | post-memo `20260917T234923Z-public-default-f6bfc4cd` |
+|---|---|---|
+| **wall** | **59 m 59 s** | **2 m 26 s** |
+| `nulls_s` | **3,456.34** (96% of the run) | **7.36** — a **470×** collapse |
+| `score_s` | 9.55 | 1.74 |
+| `replay_s` (6 workers) | 74.1 | 76.03 |
+| `export_s` | 55.59 | 57.33 |
+
+**The identity check, on 386 real episodes rather than a fixture.** `pooled.json`, `episodes.json` and
+`metrics.json` are byte-identical. `episodes.parquet` and `outcomes.parquet` are identical ROW FOR ROW in
+order with equal schemas; their file bytes differ only in the Parquet writer's `created_by` string,
+because the two runs were launched from venvs carrying different pyarrow builds. `ledger.json` differs
+only at `generated_at` and `code_sha`, and the manifest at `run_id`, `created_at`, `code_sha`, `timings`
+and the mirror hash (a fresh export, same writer-string reason). **Nothing the memo touches differs.**
+
+That writer string is also a rule for any pass: **run every window and every point of one pass from ONE
+venv**, or artifacts that are identical row for row will differ byte for byte and the mirror hash with
+them, for no reason anybody can see later. It is stated in the launcher's docstring.
+
+**The dominant term moved.** After the memo a six-week run is replay (76 s at 6 workers) plus a one-time
+export (57 s, paid ONCE per pass under a shared mirror); the nulls are noise. That inverts the reason the
+window split existed — see below.
+
 **The null phase is SERIAL, and `--workers` does not touch it.** MEASURED on the live six-week run's
 process tree — the mirror export finished at 22:49:12Z and what remained was ONE python process with no
 pool children, the `ProcessPoolExecutor` in `backtest/parallel.py` having already come and gone — and
@@ -275,6 +309,43 @@ attributable to the dial rather than to the tape moving underneath it), and repo
 - **sub-period sign agreement** — the same delta recomputed on each disjoint sub-window. A pooled number that
   cannot survive cutting the window in half has not found anything.
 - Never an argmax, never a sort by outcome, never a "best". The points render in dial order.
+
+### The window is the unit of work (S1)
+
+A pass no longer runs one long window. `[start, end]` is tiled into **disjoint, gapless six-week windows**
+(`backtest/windows.py`), every point is run once per window, and the point's metric is the POOLED read
+across them. `backtest.sweep` exports ONE mirror for the whole pass and every job inherits it — the mirror
+is the whole tape regardless of window (`export_snapshot` takes no date bound), so one export serves every
+window of every point, which is also what keeps a delta attributable to the dial rather than to a second
+snapshot of a moving database.
+
+**The per-window deltas replaced the sub-window split of one run, and they ask a stronger question.** The
+windows are separate measurements, not slices of one, so a dial that helps in one six-week window and
+hurts in the next is visibly unstable. One window reports NO agreement rather than a vacuous yes: a single
+window has nothing to agree with.
+
+**The baseline is run once per window and shared.** Variants are deduplicated by `config_hash` before
+anything launches, so every ladder containing the production default cites the same baseline runs instead
+of re-measuring them. Points that share runs are marked `runs_shared` on the curve — one measurement cited
+twice is not two.
+
+**Why the split, honestly.** It was designed when the null phase was serial and 96% of a run, and separate
+window PROCESSES were the only way to parallelize it. After the tape memo that reason is gone. What
+remains, and is why it stays: cross-window agreement between genuinely separate measurements (the
+scientific point all along), a blast radius of ~90 s rather than an hour when a job dies, and bounded
+memory per job. **Concurrency now buys a fraction, not a factor** — one job's wall clock is its LARGEST
+thesis so its workers idle near the end and a second job fills that tail, but the box is ~2.8 usable cores
+either way. The default is 2, never 6.
+
+**Two things the split forced, and both were latent bugs.** The run id gained the WINDOW START, because a
+point's window runs launch concurrently and otherwise differ only by a second-resolution timestamp. And
+`store.register_run`'s read-modify-write is now under a cross-process lock: `_write_index` was already
+atomic, so no reader ever saw a truncated file, but two concurrent runs could each read the index, each
+append their own row, and each write — silently losing one. The registry's whole job is counting trials.
+
+**A pass id groups a curve.** Every run of one sweep carries the same `pass_id` on its manifest and its
+registry row, so the grouping survives without `sweep.json` — which is latest-only. The sweep runner also
+copies each curve to `sweeps/<pass_id>-<dials>.json` on the way out.
 
 **A record sweep and a public sweep are two curves, never one.** They are different experiments: the clock
 is exported into the one shared mirror, every point inherits it, and `SweepReport.clock` records it. The
@@ -334,9 +405,13 @@ low end asserts "episodes exist" will fail for a correct reason.
   decision can be revisited with numbers rather than re-argued. The nulls pool is likewise unbuilt, and
   deliberately second: see the note under the cost follow-ups.
 - **A 1-year, 12-thesis, public-clock run at 6 workers / K=5 did not finish in 3h40m** (MEASURED, before
-  M1 — a lower bound, not a timing; the run was killed, not crashed). The unit of work is therefore a
-  sub-window, and the cost model to size any pass from is
-  `export + replay/workers + nulls(serial)` — see the follow-ups above.
+  M1 — a lower bound, not a timing; the run was killed, not crashed). The six-week point that replaced it
+  measured **60 minutes** pre-memo and **2 m 26 s** post-memo, so the cost model
+  (`export + replay/workers + nulls`) is confirmed and the nulls are no longer its dominant term.
+- **`K` is pinned at 5 across the first pass for comparability**, which was the right call when the nulls
+  cost an hour a run. At 7 s they cost nothing, and K=20 would make the timing null far less coarse over a
+  window of ~30 sessions. Raising it is a pre-registration change and breaks comparability with runs
+  already made, so it is an operator decision, not a build one.
 - **Baskets are only partially point-in-time.** `basket_snapshot` history begins 2026-09-15; earlier windows
   replay on today's basket. The manifest reports this per thesis and QUANTITATIVELY (fallback days out of
   total days), because a thesis that fell back for 2 sessions of 300 is a different artifact from one that

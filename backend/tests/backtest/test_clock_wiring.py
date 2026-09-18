@@ -204,12 +204,10 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
     report = run_sweep(
         db,
         grid={"insider_core_alpha_liveness_days": [90, 180]},
-        start=_START,
-        end=_END,
+        windows=[(_START, _END)],
         pin=_PIN,
         hypothesis="CW smoke",
         decision_rule="plateau, not argmax",
-        subwindows=2,
         clock="public",
         root=tmp_path,
     )
@@ -217,7 +215,7 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
     assert len(report.points) == 2
     seen = set()
     for p in report.points:
-        d = store.run_dir(p.run_id, tmp_path)
+        d = store.run_dir(p.run_ids[0], tmp_path)
         assert d is not None
         m = read_manifest(d)
         assert m is not None
@@ -251,12 +249,10 @@ def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tm
 
     seed = dict(
         grid={"insider_core_alpha_liveness_days": [180]},
-        start=_START,
-        end=_END,
+        windows=[(_START, _END)],
         pin=_PIN,
         hypothesis="CW smoke",
         decision_rule="plateau, not argmax",
-        subwindows=2,
         root=tmp_path,
     )
     rec = run_sweep(db, clock="record", **seed)

@@ -1762,6 +1762,8 @@ export interface components {
             schema_version: number;
             /** Run Id */
             run_id: string;
+            /** Pass Id */
+            pass_id?: string | null;
             /** Created At */
             created_at: string;
             /** Code Sha */
@@ -1886,6 +1888,8 @@ export interface components {
         BacktestRunSummaryOut: {
             /** Run Id */
             run_id: string;
+            /** Pass Id */
+            pass_id?: string | null;
             /** Created At */
             created_at: string;
             /** Hypothesis */

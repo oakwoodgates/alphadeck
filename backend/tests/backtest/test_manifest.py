@@ -113,6 +113,7 @@ def test_run_id_is_sortable_then_legible_then_precise():
     assert list(mf.RUN_ID_PARTS) == [
         "utc timestamp (to the second)",
         "clock",
+        "window start",  # S1 — one point is N window runs, launched in the same second
         "hypothesis slug",
         "config short hash",
     ]

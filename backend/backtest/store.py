@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -39,12 +42,15 @@ from backtest import manifest as mf
 DEFAULT_ROOT = Path(__file__).resolve().parents[2] / "data" / "backtest"
 RUNS_DIRNAME = "runs"
 INDEX_NAME = "index.json"
+INDEX_LOCK_NAME = "index.json.lock"
 
 
 class RunSummary(BaseModel):
     """One registry row — enough to pick a run without opening it."""
 
     run_id: str
+    # the curve this run is a point of (S1) — see `manifest.make_pass_id`; None for a standalone run
+    pass_id: str | None = None
     created_at: str
     hypothesis: str | None = None
     decision_rule: str | None = None
@@ -127,17 +133,58 @@ def _write_index(index: RunIndex, root: str | Path | None = None) -> Path:
     return path
 
 
+@contextmanager
+def _index_lock(root: str | Path | None = None, *, timeout_s: float = 30.0) -> Iterator[None]:
+    """Serialize the registry's READ-MODIFY-WRITE across processes.
+
+    ``_write_index`` is already atomic, so no reader ever sees a truncated file. That is not enough once
+    runs are launched CONCURRENTLY (S1): two processes each read the index, each append their own row, and
+    each write — and the second write silently drops the first's row. The registry's whole job is to count
+    trials, so losing one is the worst failure it has, and it would be invisible (every run directory and
+    manifest is still on disk; only the listing is short).
+
+    An exclusive-create lock file, because it is the one primitive that behaves the same on Windows and
+    POSIX without a dependency. A lock older than ``timeout_s`` is treated as ABANDONED and broken: a run
+    that died holding it must not wedge every future run, and the worst case of breaking it is the
+    lost-row race we already have without any lock at all."""
+    path = Path(root or DEFAULT_ROOT) / INDEX_LOCK_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_s
+    fd: int | None = None
+    while fd is None:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() > deadline:
+                # abandoned, not contended: break it and take the lock on the next turn
+                try:
+                    age = time.time() - path.stat().st_mtime
+                    if age > timeout_s:
+                        path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                deadline = time.monotonic() + timeout_s
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        path.unlink(missing_ok=True)
+
+
 def register_run(summary: RunSummary, root: str | Path | None = None) -> Path:
     """Add (or replace) this run's row and rewrite the registry, newest first.
 
     Replace-by-run_id rather than append-only so a re-registration is idempotent — re-registering the same
     run must not duplicate a trial, which would inflate exactly the count the registry exists to keep
-    honest."""
-    index = read_index(root)
-    rows = [r for r in index.runs if r.run_id != summary.run_id]
-    rows.append(summary)
-    rows.sort(key=lambda r: (r.created_at, r.run_id), reverse=True)
-    return _write_index(RunIndex(runs=rows), root)
+    honest. The whole read-modify-write is under ``_index_lock`` so that CONCURRENT runs (a windowed pass
+    launches several at once) cannot drop each other's rows."""
+    with _index_lock(root):
+        index = read_index(root)
+        rows = [r for r in index.runs if r.run_id != summary.run_id]
+        rows.append(summary)
+        rows.sort(key=lambda r: (r.created_at, r.run_id), reverse=True)
+        return _write_index(RunIndex(runs=rows), root)
 
 
 def list_runs(root: str | Path | None = None) -> list[RunSummary]:

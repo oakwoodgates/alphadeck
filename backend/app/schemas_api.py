@@ -1864,6 +1864,10 @@ class BacktestRunSummaryOut(BaseModel):
     """One registry row — enough to pick a run without opening it."""
 
     run_id: str
+    # The curve this run is a point of (S1). Once a point is N window runs, the registry holds dozens of
+    # rows per sweep and this is the only thing in it that says which belong together — `sweep.json` is
+    # latest-only, so the grouping has to live on the rows themselves.
+    pass_id: str | None = None
     created_at: str
     hypothesis: str | None = None
     decision_rule: str | None = None

@@ -38,6 +38,10 @@ export function RunPicker({ runs, selected, onSelect }: Props) {
               {(r.dials_moved ?? []).length === 0
                 ? "production dials"
                 : `dials: ${(r.dials_moved ?? []).join(", ")}`}
+              {/* A windowed pass writes dozens of runs (S1), so the registry is no longer a short list of
+                  standalone experiments — without the pass id a reader cannot tell which rows belong to
+                  one curve, and `sweep.json` cannot answer it because it is latest-only. */}
+              {r.pass_id ? ` · pass ${r.pass_id}` : ""}
             </span>
           </button>
         );

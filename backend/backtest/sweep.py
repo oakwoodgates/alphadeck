@@ -31,20 +31,24 @@ import argparse
 import itertools
 import json
 import sys
+from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import median
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 import psycopg
 from pydantic import BaseModel, Field
 
+from backtest import manifest as mf
 from backtest import store
 from backtest.config_overlay import OverlayError, apply_overlay
 from backtest.manifest import mirror_hash
 from backtest.nulls import DEFAULT_DRAWS
 from backtest.run import execute
+from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from replay.export import export_snapshot
@@ -56,18 +60,27 @@ class SweepPoint(BaseModel):
     """One dial setting, its run, and how it behaved — never a rank."""
 
     dials: dict[str, Any] = Field(default_factory=dict)
-    run_id: str
+    # ONE PER WINDOW (S1). A point is no longer one run: the unit of work is a sub-window, so a point is
+    # the POOLED read across its window runs and every one of them is addressable.
+    run_ids: list[str] = Field(default_factory=list)
     config_short: str
     n_episodes: int = 0
     n_scored: int = 0
-    metric: float | None = None  # the pooled median forward return at this point
+    metric: float | None = (
+        None  # the pooled median forward return at this point, across all windows
+    )
     delta_vs_baseline: float | None = None
-    # the same delta recomputed on each disjoint sub-window, in order
-    subwindow_deltas: list[float | None] = Field(default_factory=list)
-    # True only when EVERY sub-window moved the same way. A pooled number that cannot survive cutting the
-    # window in half has not found anything.
+    # the same delta recomputed on each WINDOW, in order — these replaced the old sub-window split of one
+    # long run, and they are a stronger question: the windows are separate measurements, not slices of one
+    window_deltas: list[float | None] = Field(default_factory=list)
+    # True only when EVERY window moved the same way. A pooled number that cannot survive being recomputed
+    # on each window separately has not found anything.
     sign_agreement: bool = False
     is_baseline: bool = False
+    # True when this point's runs are SHARED with another point — two dial settings that resolve to the
+    # same config are one measurement, and the baseline is usually shared by every ladder that contains
+    # the production default. Stated so a shared point is not read as an independent confirmation.
+    runs_shared: bool = False
 
 
 class SweepReport(BaseModel):
@@ -75,9 +88,17 @@ class SweepReport(BaseModel):
 
     dial_names: list[str] = Field(default_factory=list)
     metric_name: str = "arm_timing_forward_return_median"
+    # the PASS span: the first window's start and the last window's end
     window_start: date
     window_end: date
-    subwindows: int = 2
+    # the disjoint windows every point was run over, in order (S1). A point's `window_deltas` line up with
+    # these index for index.
+    windows: list[tuple[date, date]] = Field(default_factory=list)
+    # how many window jobs ran at once — recorded because a saturated box measures contention as well as
+    # dials, and a reader comparing two passes should be able to see if they ran under different load
+    concurrency: int = 1
+    #: the pass id every one of these runs carries on its own manifest and registry row
+    pass_id: str = ""
     # WHICH AXIS the one shared mirror carries. On the curve it is not decoration: a record-clock sweep and
     # a public-clock sweep of the same dial are two different experiments and must never be read as one
     # series, and the run ids below are the only other place that could be checked.
@@ -97,33 +118,32 @@ class _Scored:
     values: list[tuple[date, float]]  # (arm_date, forward_return)
 
 
-def _read_scored(run_dir: Path) -> _Scored:
-    """Read one run's outcomes back off its own Parquet — the artifact is the source of truth, so a point
-    on the curve is derived from the same bytes a reviewer can open."""
+def _read_scored(run_dirs: Path | Sequence[Path | None]) -> _Scored:
+    """Read outcomes back off the runs' own Parquet and POOL them — the artifacts are the source of truth,
+    so a point on the curve is derived from the same bytes a reviewer can open.
+
+    Takes N directories because a point is N window runs (S1). Pooling is a concatenation and nothing more:
+    the windows are disjoint, so no episode can appear twice, and each run's rows carry their own arm dates
+    — which is what lets the same pooled set be re-filtered per window for the deltas without re-reading.
+    A missing directory contributes nothing rather than raising: a pass whose job died should report the
+    point it could measure and let the episode counts show the hole."""
     import pyarrow.parquet as pq
 
-    table = pq.read_table(run_dir / "outcomes.parquet").to_pylist()
-    vals = [
-        (date.fromisoformat(r["arm_date"]), r["forward_return"])
-        for r in table
-        if r.get("forward_return") is not None and r.get("arm_date")
-    ]
-    return _Scored(n_episodes=len(table), values=vals)
-
-
-def _sub_bounds(start: date, end: date, n: int) -> list[tuple[date, date]]:
-    """``n`` DISJOINT, contiguous sub-windows covering [start, end]."""
-    total = (end - start).days + 1
-    if n <= 1 or total < n:
-        return [(start, end)]
-    step = total // n
-    out = []
-    cursor = start
-    for i in range(n):
-        last = end if i == n - 1 else cursor + timedelta(days=step - 1)
-        out.append((cursor, last))
-        cursor = last + timedelta(days=1)
-    return out
+    dirs = [run_dirs] if isinstance(run_dirs, Path) else [d for d in run_dirs if d is not None]
+    n_episodes = 0
+    vals: list[tuple[date, float]] = []
+    for d in dirs:
+        path = d / "outcomes.parquet"
+        if not path.is_file():
+            continue
+        table = pq.read_table(path).to_pylist()
+        n_episodes += len(table)
+        vals += [
+            (date.fromisoformat(r["arm_date"]), r["forward_return"])
+            for r in table
+            if r.get("forward_return") is not None and r.get("arm_date")
+        ]
+    return _Scored(n_episodes=n_episodes, values=vals)
 
 
 def _median_in(scored: _Scored, lo: date, hi: date) -> float | None:
@@ -132,19 +152,19 @@ def _median_in(scored: _Scored, lo: date, hi: date) -> float | None:
 
 
 def _plateau(points: list[SweepPoint]) -> list[int]:
-    """The widest CONTIGUOUS run of points that both agree across sub-windows and move the same way as the
+    """The widest CONTIGUOUS run of points that both agree across WINDOWS and move the same way as the
     strongest agreeing point. A band rather than a pick; a one-wide band means nothing was found.
 
     THE BASELINE COUNTS AS AGREEING, and that is deliberate: its delta is 0 by construction, so a band
     spanning it says "these settings are indistinguishable from today", which is a real and useful answer.
 
-    A POINT CAN AGREE ACROSS SUB-WINDOWS AND STILL FALL OUTSIDE THE BAND, and the first real sweep hit
-    exactly that: at 365 days both sub-windows moved +0.15% and +0.11% while the POOLED delta was -0.03%.
+    A POINT CAN AGREE ACROSS WINDOWS AND STILL FALL OUTSIDE THE BAND, and the first real sweep hit
+    exactly that: at 365 days both halves moved +0.15% and +0.11% while the POOLED delta was -0.03%.
     That is not a bug in either number -- widening a liveness dial admits more episodes (n went 369 -> 391
     -> 442 across the three points), so the pooled median is taken over a different MIX than each half is.
     It is a Simpson's-paradox shape, and it is precisely the thing a single pooled figure would have
     hidden. The band keys on the pooled sign because that is the quantity a promotion would cite; the
-    per-point `subwindow_deltas` are reported beside it so a reader can see the disagreement rather than
+    per-point `window_deltas` are reported beside it so a reader can see the disagreement rather than
     inherit a silent choice about which to believe."""
     agreeing = [
         i for i, p in enumerate(points) if p.sign_agreement and p.delta_vs_baseline is not None
@@ -183,28 +203,52 @@ def run_sweep(
     conn: psycopg.Connection,
     *,
     grid: dict[str, list[Any]],
-    start: date,
-    end: date,
+    windows: Sequence[tuple[date, date]],
     pin: datetime,
     hypothesis: str,
     decision_rule: str,
-    subwindows: int = 2,
     regime: str | None = None,
     workers: int = 1,
     null_draws: int = DEFAULT_DRAWS,
     clock: Literal["record", "public"] = "record",
+    concurrency: int = 1,
     root: str | Path | None = None,
+    now: datetime | None = None,
 ) -> SweepReport:
-    """Export the mirror ONCE, replay every variant over it, and report the curve.
+    """Export the mirror ONCE, run every (variant x WINDOW) over it, and report the curve.
 
-    The CLOCK is exported into that one mirror and every point INHERITS it — the points are run with no
-    clock argument at all, so "one tape, one axis, N dial settings" is structural rather than something
-    each call site has to repeat correctly. It is also why the mirror directory is named for the clock:
-    a record-clock and a public-clock sweep of the same window at the same pin would otherwise re-export
-    over each other's Parquet, and the earlier sweep's points would end up citing a mirror hash that no
-    longer describes the tape they actually swept."""
+    **THE UNIT OF WORK IS A WINDOW, and a curve point is the POOLED read across its windows.** A year-long
+    run is not a unit of work on this box (see ``backtest/windows.py`` for the measurement), and the
+    reason is structural rather than incidental: ``--workers`` parallelizes the REPLAY phase only, so the
+    null draws run serially on one process from start to finish. Separate window PROCESSES are what
+    parallelize the nulls, each owning its own null phase.
+
+    It costs nothing in fidelity. ``export_snapshot`` takes no date bound, so the mirror is the whole tape
+    whatever window reads it — ONE export serves every window of every point, which is also what keeps a
+    delta attributable to the dial rather than to a second snapshot of a moving database. Every job
+    inherits that mirror's clock (CW), so "one tape, one axis, N dial settings, M windows" holds by
+    construction rather than by every call site repeating itself.
+
+    **The per-window deltas replaced the sub-window split of one long run,** and they ask a stronger
+    question: the windows are separate measurements rather than slices of one, so a dial that helps in one
+    six-week window and hurts in the next is visibly unstable.
+
+    **The baseline is run ONCE PER WINDOW and shared.** Variants are deduplicated by ``config_hash``
+    before anything launches, so every ladder containing the production default cites the same baseline
+    runs instead of re-measuring them — on a six-dial phase that is 5 x W runs saved. Points that share
+    runs are marked ``runs_shared`` so a shared point is never read as an independent confirmation.
+    """
+    if not windows:
+        raise ValueError("a sweep needs at least one window")
+    windows = [(lo, hi) for lo, hi in windows]
+    pass_start, pass_end = windows[0][0], windows[-1][1]
     root_path = Path(root or store.DEFAULT_ROOT)
-    mirror = root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{start}-{end}-{clock}"
+    now = now or datetime.now(timezone.utc)
+    pass_id = mf.make_pass_id(hypothesis=hypothesis, now=now, clock=clock)
+
+    mirror = (
+        root_path / "mirrors" / f"{pin.strftime('%Y%m%dT%H%M%SZ')}-{pass_start}-{pass_end}-{clock}"
+    )
     mirror.mkdir(parents=True, exist_ok=True)
     # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep took
     # a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and dropped is worse
@@ -213,65 +257,86 @@ def run_sweep(
     # single-tenant by construction. Multi-tenant sweeps are a real change, not a parameter.
     export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
 
-    points: list[SweepPoint] = []
-    baseline: _Scored | None = None
-    baseline_short = short_hash(config_hash(DEFAULT_CONFIG)) or ""
-    subs = _sub_bounds(start, end, subwindows)
+    # ONE config per distinct config_hash. Two dial settings that resolve to the same config are ONE
+    # measurement, and the production default is usually reachable from every ladder -- so this is where
+    # the shared baseline comes from, as a consequence of the dedup rather than as a special case.
+    all_dials = variants(grid)
+    cfgs = [(dials, apply_overlay(dials)) for dials in all_dials]
+    by_hash: dict[str, CallConfig] = {}
+    for _, cfg in cfgs:
+        by_hash.setdefault(config_hash(cfg), cfg)
+    shared_hashes = {h for h in by_hash if sum(1 for _, c in cfgs if config_hash(c) == h) > 1}
 
-    for dials in variants(grid):
-        cfg = apply_overlay(dials)
-        outcome = execute(
-            conn,
-            start=start,
-            end=end,
-            pin=pin,
-            cfg=cfg,
-            mirror_dir=mirror,
-            workers=workers,  # B5b, now on main -- a pass-through per point
-            null_draws=null_draws,  # B4, likewise; a sweep pays this PER POINT
+    jobs = [
+        _Job(
+            mirror=str(mirror),
+            start=lo.isoformat(),
+            end=hi.isoformat(),
+            pin=pin.isoformat(),
+            cfg_json=cfg.model_dump_json(),
+            workers=workers,
+            null_draws=null_draws,
+            # ONE seed for the whole pass, so the same episode draws the SAME counterfactuals in every
+            # point it appears in. The seed otherwise defaults to the run_id, which differs per run by
+            # construction -- and then two points' null distributions would differ by the seed as well as
+            # by the dial, which is noise in exactly the comparison the curve exists to make.
+            null_seed=pass_id,
             hypothesis=hypothesis,
             decision_rule=decision_rule,
             regime=regime,
-            root=root_path,
+            pass_id=pass_id,
+            root=str(root_path),
         )
-        scored = _read_scored(outcome.path)
-        is_baseline = all(
-            getattr(DEFAULT_CONFIG, k) == v or str(getattr(DEFAULT_CONFIG, k)) == str(v)
-            for k, v in dials.items()
+        for h, cfg in by_hash.items()
+        for lo, hi in windows
+    ]
+    keys = [(h, w) for h in by_hash for w in range(len(windows))]
+    run_ids = dict(zip(keys, _launch(jobs, concurrency), strict=True))
+
+    points: list[SweepPoint] = []
+    scored_by_hash: dict[str, _Scored] = {}
+    for dials, cfg in cfgs:
+        h = config_hash(cfg)
+        ids = [run_ids[(h, w)] for w in range(len(windows))]
+        scored = scored_by_hash.setdefault(
+            h, _read_scored([store.run_dir(r, root_path) for r in ids])
         )
-        if is_baseline or baseline is None:
-            baseline = scored
         points.append(
             SweepPoint(
                 dials=dials,
-                run_id=outcome.run_id,
-                config_short=outcome.manifest.config_short,
+                run_ids=ids,
+                config_short=short_hash(h) or "",
                 n_episodes=scored.n_episodes,
                 n_scored=len(scored.values),
-                metric=_median_in(scored, start, end),
-                is_baseline=is_baseline,
+                metric=_median_in(scored, pass_start, pass_end),
+                is_baseline=h == config_hash(DEFAULT_CONFIG),
+                runs_shared=h in shared_hashes,
             )
         )
 
-    # second pass: the deltas need the baseline, which is only known once every point has run
-    for p, dials in zip(points, variants(grid), strict=True):
-        assert p.dials == dials
-        run_dir = store.run_dir(p.run_id, root_path)
-        scored = _read_scored(run_dir) if run_dir else _Scored(0, [])
-        base_overall = _median_in(baseline, start, end) if baseline else None
+    baseline_point = next((p for p in points if p.is_baseline), points[0] if points else None)
+    baseline = (
+        scored_by_hash[config_hash(apply_overlay(baseline_point.dials))] if baseline_point else None
+    )
+
+    for p in points:
+        scored = scored_by_hash[config_hash(apply_overlay(p.dials))]
+        base_overall = _median_in(baseline, pass_start, pass_end) if baseline else None
         p.delta_vs_baseline = (
             None if p.metric is None or base_overall is None else round(p.metric - base_overall, 6)
         )
         deltas: list[float | None] = []
-        for lo, hi in subs:
+        for lo, hi in windows:
             here, there = _median_in(scored, lo, hi), (
                 _median_in(baseline, lo, hi) if baseline else None
             )
             deltas.append(None if here is None or there is None else round(here - there, 6))
-        p.subwindow_deltas = deltas
+        p.window_deltas = deltas
         known = [d for d in deltas if d is not None]
-        # EVERY sub-window must agree, and a sub-window with no data does not get to abstain into a yes:
-        # a point that could only be measured on half the window has not demonstrated stability.
+        # EVERY window must agree, and a window with no data does not get to abstain into a yes: a point
+        # measurable on only some of the pass has not demonstrated stability. Two is the floor -- one
+        # window cannot agree with anything, so a single-window pass reports no agreement at all, which is
+        # the honest answer rather than a vacuous True.
         p.sign_agreement = (
             len(known) == len(deltas)
             and len(known) >= 2
@@ -280,22 +345,111 @@ def run_sweep(
 
     return SweepReport(
         dial_names=sorted(grid),
-        window_start=start,
-        window_end=end,
-        subwindows=len(subs),
+        window_start=pass_start,
+        window_end=pass_end,
+        windows=windows,
+        concurrency=concurrency,
+        pass_id=pass_id,
         clock=clock,  # the axis that one tape carries; every point inherited it
         mirror_hash=mirror_hash(mirror),  # the ONE frozen tape every point swept
-        baseline_config_short=baseline_short,
+        baseline_config_short=short_hash(config_hash(DEFAULT_CONFIG)) or "",
         points=points,
         plateau=_plateau(points),
         banner=(
-            "A CURVE, NOT A WINNER. One year of one regime, with episodes that are not independent, "
-            "cannot support picking the best-scoring point -- that is fitting the tape. Read the PLATEAU "
-            "(a contiguous band where the choice barely matters) and the per-point sign agreement across "
-            "disjoint sub-windows. A point that wins pooled but disagrees across sub-windows has found "
-            "nothing. Promotion of any dial remains a separate operator decision, on the back of run ids."
+            "A CURVE, NOT A WINNER. One regime, with episodes that are not independent, cannot support "
+            "picking the best-scoring point -- that is fitting the tape. Read the PLATEAU (a contiguous "
+            "band where the choice barely matters) and the per-point sign agreement ACROSS WINDOWS: each "
+            "point is pooled over disjoint windows that were run as separate measurements, and a point "
+            "that wins pooled but disagrees across them has found nothing. Points marked as sharing runs "
+            "are one measurement cited twice, not two. Promotion of any dial remains a separate operator "
+            "decision, on the back of run ids."
         ),
     )
+
+
+class _Job(NamedTuple):
+    """One window job's whole payload, as primitives.
+
+    Primitives because `spawn` is the start method on Windows: a worker re-imports the module and
+    inherits nothing from the parent's memory, which is also why the mirror travels as a PATH rather than
+    as an open connection and the config as JSON rather than as a model."""
+
+    mirror: str
+    start: str
+    end: str
+    pin: str
+    cfg_json: str
+    workers: int
+    null_draws: int
+    null_seed: str
+    hypothesis: str
+    decision_rule: str
+    regime: str | None
+    pass_id: str
+    root: str
+
+
+def _run_window(job: _Job) -> str:
+    """Run ONE window job in a fresh process and return its run id.
+
+    The job opens its own database connection: `execute` needs one for the roster reads and a connection
+    cannot cross a process boundary. The database is otherwise untouched by a pass after the export, so
+    concurrent jobs contend on CPU alone."""
+    # `connect` and `execute` come from this module's own top-level imports: a spawned worker re-imports
+    # `backtest.sweep` anyway, so a local re-import would buy nothing and shadow the names.
+    conn = connect()
+    try:
+        outcome = execute(
+            conn,
+            start=date.fromisoformat(job.start),
+            end=date.fromisoformat(job.end),
+            pin=datetime.fromisoformat(job.pin),
+            cfg=CallConfig.model_validate_json(job.cfg_json),
+            mirror_dir=job.mirror,  # inherits the mirror's clock (CW); a disagreeing one is refused
+            workers=job.workers,
+            null_draws=job.null_draws,
+            null_seed=job.null_seed,
+            hypothesis=job.hypothesis,
+            decision_rule=job.decision_rule,
+            regime=job.regime,
+            pass_id=job.pass_id,
+            root=job.root,
+        )
+        return outcome.run_id
+    finally:
+        conn.close()
+
+
+def _launch(jobs: list[_Job], concurrency: int) -> list[str]:
+    """Run the window jobs, at most ``concurrency`` at a time, and return their run ids IN ORDER.
+
+    ``concurrency <= 1`` runs them in this process, in order — the proven path, not a one-worker special
+    case of a new one (the same rule `replay_all_parallel` holds). Above that, a process pool: separate
+    processes are the point, because each job's null phase is serial within itself.
+
+    Order is preserved because the caller zips these back onto ``(config, window)`` keys. A job that
+    raises is allowed to take the pass down rather than being swallowed: a curve missing a point it
+    believes it measured is worse than a pass that stopped.
+
+    **ONE VENV FOR A WHOLE PASS.** Every window job must run from the same interpreter, because the
+    Parquet writer stamps its own build into the file (`created_by`), so two venvs with different pyarrow
+    versions produce artifacts that differ byte for byte while being identical row for row — and the
+    mirror hash, which is a hash of those bytes, differs with them. MEASURED while verifying M1: two runs
+    of the same window on the same data differed in exactly that string and nothing else. The jobs inherit
+    this process's interpreter, so a pass launched from one place is safe by construction; it is running
+    PART of a pass from a second checkout that breaks it.
+
+    **CONCURRENCY IS NO LONGER THE POINT IT WAS.** The split was designed when the null phase was serial
+    and 96% of a run; after the tape memo the nulls are ~7 s and the REPLAY dominates, and the replay
+    already fans out over its own workers. Two concurrent jobs still help — one job's wall clock is its
+    LARGEST thesis, so its workers idle near the end and a second job fills that tail — but the box is
+    ~2.8 usable cores either way, so expect a fraction, not a factor. The split's durable value is the
+    analysis (cross-window agreement between separate measurements) and blast radius (a job that dies
+    costs ~90 s, not an hour), not throughput."""
+    if concurrency <= 1:
+        return [_run_window(job) for job in jobs]
+    with ProcessPoolExecutor(max_workers=concurrency) as pool:
+        return list(pool.map(_run_window, jobs))
 
 
 def parse_values(raw: str) -> list[Any]:
@@ -331,7 +485,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="dial=v1,v2 -- repeatable, for a multi-dial variant set (H1/H3)",
     )
     p.add_argument(
-        "--subwindows", type=int, default=2, help="disjoint sub-windows for sign agreement"
+        "--window-days",
+        type=int,
+        default=DEFAULT_WINDOW_DAYS,
+        help=(
+            f"tile [--start, --end] into disjoint windows of at most this many days (default "
+            f"{DEFAULT_WINDOW_DAYS}). THE WINDOW IS THE UNIT OF WORK: each point is run once per window as "
+            "its own process, which is what parallelizes the null draws (--workers covers the replay "
+            "phase only). A point's metric is pooled across its windows and its deltas are recomputed on "
+            "each, so sign agreement is agreement across genuinely separate measurements."
+        ),
+    )
+    p.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        help=(
+            "how many window jobs run at once (default: this box's measured ceiling, 2). Each job is a "
+            "whole backtest.run whose replay phase may itself fan out, and MEASURED usable parallelism "
+            "here is ~2.8 cores -- a pass that saturates its box measures contention as well as dials."
+        ),
     )
     p.add_argument("--hypothesis", required=True, help="pre-registration: what this sweep tests")
     p.add_argument("--decision-rule", required=True, help="what result would change your mind")
@@ -405,12 +578,15 @@ def main(argv: list[str] | None = None) -> int:
         report = run_sweep(
             conn,
             grid=grid,
-            start=date.fromisoformat(args.start),
-            end=date.fromisoformat(args.end),
             pin=pin,
             hypothesis=args.hypothesis,
             decision_rule=args.decision_rule,
-            subwindows=args.subwindows,
+            windows=tile(
+                date.fromisoformat(args.start), date.fromisoformat(args.end), args.window_days
+            ),
+            concurrency=(
+                args.concurrency if args.concurrency is not None else default_concurrency()
+            ),
             regime=args.regime,
             workers=args.workers,
             null_draws=args.null_draws,
@@ -422,16 +598,26 @@ def main(argv: list[str] | None = None) -> int:
 
     root_path = Path(args.out_root or store.DEFAULT_ROOT)
     path = root_path / SWEEP_NAME
-    path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    blob = report.model_dump_json(indent=2) + "\n"
+    path.write_text(blob, encoding="utf-8", newline="\n")
+    # ...AND a copy that the next sweep cannot overwrite. `sweep.json` is latest-only -- a known gap, and
+    # one this slice leans on much harder now that a pass is dozens of runs: without this, the only record
+    # of which runs formed which curve would be a file the next sweep replaces. (The runs themselves also
+    # carry `pass_id`, so the grouping survives even if both copies are lost.)
+    keep = root_path / "sweeps" / f"{report.pass_id}-{'-'.join(report.dial_names) or 'grid'}.json"
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    keep.write_text(blob, encoding="utf-8", newline="\n")
     print(
-        f"swept {report.dial_names} -> {len(report.points)} run(s) on the {report.clock} clock; "
-        f"curve at {path}"
+        f"swept {report.dial_names} -> {len(report.points)} point(s) over {len(report.windows)} "
+        f"window(s) on the {report.clock} clock at concurrency {report.concurrency}; "
+        f"pass {report.pass_id}; curve at {path} (kept at {keep})"
     )
     for p in report.points:
         mark = "=" if p.is_baseline else ("~" if p.sign_agreement else " ")
+        shared = " (shared runs)" if p.runs_shared else ""
         print(
             f"  {mark} {p.dials} n={p.n_scored:4d} metric={p.metric} "
-            f"delta={p.delta_vs_baseline} subwindows={p.subwindow_deltas}"
+            f"delta={p.delta_vs_baseline} windows={p.window_deltas}{shared}"
         )
     print(f"  plateau (indices, a BAND not a pick): {report.plateau}")
     return 0

@@ -8,15 +8,16 @@ import { fmtDelta, fmtMetric, plateauLine, readSweep } from "../sweep";
 
 const point = (over: Record<string, unknown> = {}) => ({
   dials: { insider_core_alpha_liveness_days: 180 },
-  run_id: "r1",
+  run_ids: ["r1-w1", "r1-w2"],
   config_short: "abcd1234",
   n_episodes: 12,
   n_scored: 9,
   metric: 0.04,
   delta_vs_baseline: 0.01,
-  subwindow_deltas: [0.01, 0.02],
+  window_deltas: [0.01, 0.02],
   sign_agreement: true,
   is_baseline: false,
+  runs_shared: false,
   ...over,
 });
 
@@ -26,7 +27,12 @@ const sweep = (over: Record<string, unknown> = {}) => ({
   metric_name: "arm_timing_forward_return_median",
   window_start: "2025-09-01",
   window_end: "2026-09-14",
-  subwindows: 2,
+  windows: [
+    ["2025-09-01", "2025-10-12"],
+    ["2025-10-13", "2025-11-23"],
+  ],
+  concurrency: 2,
+  pass_id: "20260918T031500Z-public-h5",
   mirror_hash: "c".repeat(64),
   baseline_config_short: "abcd1234",
   points: [point({ run_id: "r1" }), point({ run_id: "r2" }), point({ run_id: "r3" })],
@@ -40,14 +46,14 @@ describe("readSweep", () => {
     const v = readSweep(
       sweep({
         points: [
-          point({ run_id: "low", metric: -0.2 }),
-          point({ run_id: "high", metric: 0.9 }),
-          point({ run_id: "mid", metric: 0.1 }),
+          point({ run_ids: ["low"], metric: -0.2 }),
+          point({ run_ids: ["high"], metric: 0.9 }),
+          point({ run_ids: ["mid"], metric: 0.1 }),
         ],
         plateau: [],
       }),
     );
-    expect(v?.points.map((p) => p.runId)).toEqual(["low", "high", "mid"]);
+    expect(v?.points.map((p) => p.runIds[0])).toEqual(["low", "high", "mid"]);
   });
 
   it("marks membership of the PLATEAU and nothing else", () => {
@@ -74,6 +80,39 @@ describe("readSweep", () => {
     expect(v?.points[0].metric).toBeNull();
     expect(v?.points[0].dials).toEqual([]);
     expect(v?.plateauWidth).toBe(0);
+  });
+
+  it("renders a PRE-SPLIT curve rather than reading it as empty", () => {
+    // A curve written before S1 carries `run_id` and `subwindow_deltas`. Falling back to them is what
+    // keeps an older artifact readable — the sweep payload is untyped on the wire precisely so an old
+    // one still renders instead of failing validation.
+    const v = readSweep({
+      points: [{ run_id: "old-1", subwindow_deltas: [0.01, -0.02] }],
+      plateau: [],
+    });
+    expect(v?.points[0].runIds).toEqual(["old-1"]);
+    expect(v?.points[0].windowDeltas).toEqual([0.01, -0.02]);
+    expect(v?.windows).toEqual([]);
+  });
+
+  it("carries the windows, the concurrency and the pass id", () => {
+    // The windows are what the per-point deltas line up against, index for index; the concurrency is
+    // recorded because a saturated box measures contention as well as dials.
+    const v = readSweep(sweep())!;
+    expect(v.windows).toEqual([
+      { start: "2025-09-01", end: "2025-10-12" },
+      { start: "2025-10-13", end: "2025-11-23" },
+    ]);
+    expect(v.points[0].windowDeltas).toHaveLength(v.windows.length);
+    expect(v.concurrency).toBe(2);
+    expect(v.passId).toBe("20260918T031500Z-public-h5");
+  });
+
+  it("marks a point whose runs are SHARED with another", () => {
+    // Two dial settings that resolve to one config are one measurement cited twice. Unmarked, a shared
+    // baseline would read as an independent confirmation sitting next to itself.
+    const v = readSweep(sweep({ points: [point({ runs_shared: true }), point()] }))!;
+    expect(v.points.map((p) => p.runsShared)).toEqual([true, false]);
   });
 
   it("is null for a payload that is not a sweep at all", () => {
@@ -103,11 +142,11 @@ describe("plateauLine", () => {
     expect(plateauLine(v)).toContain("noise until it has");
   });
 
-  it("names a real band by its WIDTH and its sub-window agreement, never by a best point", () => {
+  it("names a real band by its WIDTH and its cross-WINDOW agreement, never by a best point", () => {
     const v = readSweep(sweep())!;
     const line = plateauLine(v);
     expect(line).toContain("2 points wide");
-    expect(line).toContain("sub-windows");
+    expect(line).toContain("windows");
     expect(line.toLowerCase()).not.toContain("best");
     expect(line.toLowerCase()).not.toContain("optimal");
   });

@@ -128,6 +128,10 @@ class BacktestManifest(BaseModel):
 
     schema_version: int = SCHEMA_VERSION
     run_id: str
+    # The PASS this run belongs to — one id shared by every run of one curve (S1). ``None`` for a run
+    # launched on its own, which is an honest answer rather than a missing one: a lone run IS its own
+    # evidence, while a point of a curve is only readable beside its siblings.
+    pass_id: str | None = None
     created_at: str
     code_sha: str | None = None
 
@@ -217,6 +221,7 @@ def slugify(text: str | None, *, fallback: str = "default", limit: int = 24) -> 
 RUN_ID_PARTS: tuple[str, ...] = (
     "utc timestamp (to the second)",
     "clock",
+    "window start",
     "hypothesis slug",
     "config short hash",
 )
@@ -228,20 +233,45 @@ def make_run_id(
     hypothesis: str | None,
     now: datetime | None = None,
     clock: str = "record",
+    window_start: date | None = None,
 ) -> str:
-    """``<utc timestamp>-<clock>-<hypothesis slug>-<config short hash>`` — see ``RUN_ID_PARTS``.
+    """``<utc timestamp>-<clock>-<window start>-<hypothesis slug>-<config short hash>`` — see
+    ``RUN_ID_PARTS``.
 
-    Sortable first (so a directory listing is a timeline), then legible (which axis, which experiment),
-    then precise (which dials). The timestamp is what guarantees a re-run is a NEW run rather than a silent
-    overwrite — two runs of identical inputs are two trials, and counting trials is the point.
+    Sortable first (so a directory listing is a timeline), then legible (which axis, which window, which
+    experiment), then precise (which dials). The timestamp is what guarantees a re-run is a NEW run rather
+    than a silent overwrite — two runs of identical inputs are two trials, and counting trials is the
+    point.
 
     The CLOCK is a component because it is a component of the EXPERIMENT (CW): the same grid under the same
     hypothesis on the record clock and on the public clock is two different measurements, and they are
     routinely run back to back. Without it those two collide inside one second — the timestamp's resolution
-    — and the second one dies on ``create_run_dir``. It also puts the axis in a directory listing, which is
-    where a reader comparing a record pass to a public one actually looks."""
+    — and the second one dies on ``create_run_dir``.
+
+    The WINDOW START is a component for exactly the same reason, one slice later (S1): once the unit of
+    work is a sub-window, ONE curve point is N runs that differ ONLY by window, and a tiling pass launches
+    them concurrently — so they land in the same second by construction. It is the START alone, not the
+    whole span: a pass tiles DISJOINT windows, so starts are unique within it; the manifest carries both
+    ends authoritatively; and the residual case (same start, different length, same second, same dials)
+    still raises a legible ``RunDirExists`` naming every component. Omitted (``None``) it is absent from
+    the id entirely, so a run launched without a window concept reads exactly as it did before."""
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{slugify(clock)}-{slugify(hypothesis)}-{short_hash(config_hash(cfg))}"
+    window = f"w{window_start.strftime('%Y%m%d')}-" if window_start is not None else ""
+    return f"{stamp}-{slugify(clock)}-{window}{slugify(hypothesis)}-{short_hash(config_hash(cfg))}"
+
+
+def make_pass_id(
+    *, hypothesis: str | None, now: datetime | None = None, clock: str = "record"
+) -> str:
+    """The id every run of ONE curve shares — ``<utc timestamp>-<clock>-<hypothesis slug>``.
+
+    Deliberately carries NO config hash: a pass spans configs, that being what a curve is. It exists
+    because once a point is N window runs, the only record of "these 75 runs are one curve" was
+    ``sweep.json`` — which is latest-only and overwritten by the next sweep (a known gap this slice leans
+    on much harder). With the pass id on every manifest and every registry row, the grouping survives in
+    the artifacts themselves, and the registry can answer it without the curve file."""
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return f"{stamp}-{slugify(clock)}-{slugify(hypothesis)}"
 
 
 def write_manifest(run_dir: str | Path, manifest: BacktestManifest) -> Path:
