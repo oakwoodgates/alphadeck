@@ -290,11 +290,20 @@ describe("Backtest — the pooled panel", () => {
     renderPage();
     const region = screen.getByRole("region", { name: /Pooled analysis/ });
     const text = region.textContent ?? "";
-    for (const label of ["actual", "excess over basket", "vs timing null", "vs name null"]) {
+    for (const label of ["actual", "vs equal-weight basket", "vs timing null", "vs name null"]) {
       expect(text).toContain(label);
     }
     expect(text).toContain("+4.1%"); // actual
     expect(text).toContain("+0.9%"); // vs timing
+  });
+
+  it("renders a PRE-B report exactly as it always did — no permanent em dash column", () => {
+    // This fixture carries no basket median, which is what every run before B looks like. A column
+    // that is always "—" is noise, so the pair appears only where there is a pair.
+    renderPage();
+    const text = screen.getByRole("region", { name: /Pooled analysis/ }).textContent ?? "";
+    expect(text).not.toContain("vs the typical name");
+    expect(text).not.toContain("TWO EXCESS FIGURES");
   });
 
   it("names NO thesis anywhere in the pooled block — by construction, not by convention", () => {

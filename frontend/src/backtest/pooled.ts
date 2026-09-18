@@ -38,28 +38,55 @@ export function fmtN(s: PooledStat | null | undefined): string {
  *  three things that make it interpretable. The labels carry the meaning, so they live here (one
  *  place) rather than being spelled out at each render site. */
 export type MetricColumn = {
-  id: "actual" | "excess" | "vs_timing" | "vs_name";
+  id: "actual" | "excess" | "excess_median" | "vs_timing" | "vs_name";
   label: string;
   title: string;
   stat: PooledStat;
 };
 
-export function metricColumns(m: PooledMetric): MetricColumn[] {
+/** Does this report carry the basket's MEDIAN move (B)? A run from before it does not, and a column
+ *  that is permanently "—" is noise — so an older report renders exactly as it always did. */
+export function hasBasketMedian(m: PooledMetric): boolean {
+  return (m.excess_vs_basket_median?.n ?? 0) > 0;
+}
+
+/** The excess columns, in the order the REPORT says to read them.
+ *
+ *  Two figures over one priced population. The MEAN is what an equal-weight basket position earned; the
+ *  MEDIAN is what the typical member did. A thematic basket is right-skewed by construction, so one
+ *  moonshot lifts the mean and leaves the median where it was — which means "beat the basket" can mean
+ *  "missed the name that carried it". Which one leads is the backend's call (`headline_excess`), not
+ *  this file's: a stored report has to say how it was meant to be read. */
+export function excessColumns(m: PooledMetric, headline: string): MetricColumn[] {
+  const mean: MetricColumn = {
+    id: "excess",
+    label: "vs equal-weight basket",
+    title:
+      "what an equal-weight basket position earned: the same window measured against the thesis basket's equal-weight MEAN move. A real portfolio answer — and one that a single runaway name in the basket can dominate.",
+    stat: m.excess,
+  };
+  const med = m.excess_vs_basket_median;
+  if (!med || med.n === 0) return [mean];
+  const median: MetricColumn = {
+    id: "excess_median",
+    label: "vs the typical name",
+    title:
+      "the same window measured against the basket's MEDIAN move — what the typical member did, over exactly the same priced names as the mean beside it. The two part company when the basket is skewed, which is when the difference matters.",
+    stat: med,
+  };
+  return headline === "mean" ? [mean, median] : [median, mean];
+}
+
+export function metricColumns(m: PooledMetric, headline = "mean"): MetricColumn[] {
   return [
     {
       id: "actual",
       label: "actual",
       title:
-        "the realized median return over the hold window. On a universe assembled with hindsight this figure alone is not evidence — read it against the three beside it.",
+        "the realized median return over the hold window. On a universe assembled with hindsight this figure alone is not evidence — read it against the others beside it.",
       stat: m.actual,
     },
-    {
-      id: "excess",
-      label: "excess over basket",
-      title:
-        "the same window measured against the thesis basket's own equal-weight move — the theme's drift stripped out, so what is left is the name-and-timing choice.",
-      stat: m.excess,
-    },
+    ...excessColumns(m, headline),
     {
       id: "vs_timing",
       label: "vs timing null",

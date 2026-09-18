@@ -114,6 +114,12 @@ class ThesisEntry(BaseModel):
     name: str
     basket_size: int
     roster_hash: str
+    #: THE ROSTER ITSELF, in the order it was hashed -- the member security ids, `None` for a basket row
+    #: with no resolved security. The hash says WHETHER a roster changed; this says WHAT it was, which is
+    #: what a later recompute needs: the benchmark a finished run was measured against can be rebuilt (or
+    #: refused) months later without asking a live database what the basket is TODAY. Empty on a manifest
+    #: written before B -- that is "not recorded", not "empty basket", and `basket_size` beside it says so.
+    member_ids: list[str | None] = Field(default_factory=list)
     roster_source: str  # "snapshot" | "live_fallback" | "no_sessions"
     fallback_days: int
     total_days: int

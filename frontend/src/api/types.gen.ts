@@ -3249,6 +3249,7 @@ export interface components {
             claim: string;
             actual: components["schemas"]["Stat"];
             excess: components["schemas"]["Stat"];
+            excess_vs_basket_median?: components["schemas"]["Stat"];
             vs_timing: components["schemas"]["Stat"];
             vs_name: components["schemas"]["Stat"];
             /**
@@ -3384,6 +3385,12 @@ export interface components {
              * @default 5
              */
             min_n: number;
+            /**
+             * Headline Excess
+             * @default median
+             * @enum {string}
+             */
+            headline_excess: "median" | "mean";
             /**
              * Banner
              * @default
@@ -4583,6 +4590,7 @@ export interface components {
             n: number;
             actual?: components["schemas"]["Stat"];
             excess?: components["schemas"]["Stat"];
+            excess_vs_basket_median?: components["schemas"]["Stat"];
             vs_timing?: components["schemas"]["Stat"];
             vs_name?: components["schemas"]["Stat"];
             /**
@@ -4877,6 +4885,8 @@ export interface components {
             basket_size: number;
             /** Roster Hash */
             roster_hash: string;
+            /** Member Ids */
+            member_ids?: (string | null)[];
             /** Roster Source */
             roster_source: string;
             /** Fallback Days */

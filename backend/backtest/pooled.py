@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from statistics import median
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,18 @@ from replay.metrics import MIN_N
 from replay.schema import Episode
 
 SLICE_KEYS: tuple[str, ...] = ("key1_source", "confirmation_grade", "co_arm_bucket", "close_reason")
+
+#: WHICH excess-over-basket is the headline — ONE place, and the report carries the answer so the surface
+#: reads it rather than deciding for itself.
+#:
+#: The median, since B: the mean is what an equal-weight basket POSITION earned, and one moonshot in a
+#: twenty-name basket moves it by a twentieth of its own move while leaving the typical member where it
+#: was. "The algorithm beat the basket" off the mean can therefore mean "the algorithm missed the one name
+#: that carried the theme". The median asks what the algorithm beat the TYPICAL name by, which is the same
+#: question the name-selection null asks and is the one a timing platform has to answer. Both are always
+#: reported; only the order and the emphasis change.
+HeadlineExcess = Literal["median", "mean"]
+HEADLINE_EXCESS: HeadlineExcess = "median"
 
 
 class Stat(BaseModel):
@@ -69,7 +81,13 @@ class MetricWithNulls(BaseModel):
     name: str
     claim: str
     actual: Stat
+    #: against the basket's equal-weight MEAN move — what an equal-weight basket position earned.
+    #: UNCHANGED by B: same population, same arithmetic, same number.
     excess: Stat
+    #: against the basket's MEDIAN move — what the TYPICAL member did. The headline since B; see
+    #: `HEADLINE_EXCESS`. Empty on a report written before B, which is honest: those reports had no
+    #: median to quote.
+    excess_vs_basket_median: Stat = Field(default_factory=Stat)
     vs_timing: Stat
     vs_name: Stat
     insufficient_n: bool = True
@@ -83,6 +101,7 @@ class Slice(BaseModel):
     n: int = 0
     actual: Stat = Field(default_factory=Stat)
     excess: Stat = Field(default_factory=Stat)
+    excess_vs_basket_median: Stat = Field(default_factory=Stat)
     vs_timing: Stat = Field(default_factory=Stat)
     vs_name: Stat = Field(default_factory=Stat)
     insufficient_n: bool = True
@@ -119,6 +138,10 @@ class PooledReport(BaseModel):
     null_draws: int = 0
     null_seed: str = ""
     min_n: int = MIN_N
+    #: which excess-over-basket this report is to be READ on. On the artifact rather than in the surface's
+    #: head, so a stored report says how it was meant to be read; a report written before B carries no
+    #: field and the surface falls back to "mean", which is what those reports were read under.
+    headline_excess: HeadlineExcess = HEADLINE_EXCESS
     banner: str = ""
     metrics: list[MetricWithNulls] = Field(default_factory=list)
     slices: list[Slice] = Field(default_factory=list)
@@ -159,6 +182,7 @@ def build_report(
 
     actual = [n.forward_return for _, n in scoreable]
     excess = [n.excess_return for _, n in scoreable]
+    excess_median = [n.excess_return_vs_median for _, n in scoreable]
     timing = [d.forward_return for _, n in scoreable for d in n.timing]
     name = [d.forward_return for _, n in scoreable for d in n.name]
 
@@ -171,12 +195,17 @@ def build_report(
             ),
             actual=Stat.of(actual),
             excess=Stat.of(excess),
+            excess_vs_basket_median=Stat.of(excess_median),
             vs_timing=Stat.of(timing),
             vs_name=Stat.of(name),
             insufficient_n=len(actual) < MIN_N,
             note=(
-                "read the three together: `actual` alone is a statement about a universe assembled with "
-                "hindsight, and only the gaps are about the algorithm."
+                "read the four together: `actual` alone is a statement about a universe assembled with "
+                "hindsight, and only the gaps are about the algorithm. The two excess figures are one "
+                "population two ways -- against the basket's MEDIAN move (the typical member, the "
+                "headline) and against its equal-weight MEAN (what an equal-weight basket position "
+                "earned); they part company exactly when the basket is skewed, which is when the "
+                "difference matters."
             ),
         )
     ]
@@ -190,6 +219,7 @@ def build_report(
             n=len(group),
             actual=Stat.of([g.forward_return for g in group]),
             excess=Stat.of([g.excess_return for g in group]),
+            excess_vs_basket_median=Stat.of([g.excess_return_vs_median for g in group]),
             vs_timing=Stat.of([d.forward_return for g in group for d in g.timing]),
             vs_name=Stat.of([d.forward_return for g in group for d in g.name]),
             insufficient_n=len(group) < MIN_N,

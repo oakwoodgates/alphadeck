@@ -34,6 +34,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from random import Random
+from statistics import median
 from uuid import UUID
 
 from replay.schema import Episode
@@ -66,7 +67,10 @@ class NullDraw:
     entry_date: date
     horizon_days: int
     forward_return: float | None
+    #: against the basket's equal-weight MEAN move — what an equal-weight basket position earned
     excess_return: float | None
+    #: against the basket's MEDIAN move — what the TYPICAL member earned (B)
+    excess_return_vs_median: float | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,7 @@ class EpisodeNulls:
     horizon_days: int
     forward_return: float | None
     excess_return: float | None
+    excess_return_vs_median: float | None
     timing: list[NullDraw]
     name: list[NullDraw]
 
@@ -100,21 +105,50 @@ def horizon_days(ep: Episode) -> int | None:
     return days if days > 0 else None
 
 
+@dataclass(frozen=True)
+class BasketMove:
+    """What a thesis's basket did over one window, on the SAME priced population, two ways.
+
+    TWO STATISTICS, ONE POPULATION — the members that actually priced. They answer different questions and
+    a skewed basket separates them hard:
+
+    - ``mean`` — **what an equal-weight basket position earned.** A real portfolio answer, and the figure
+      every existing `excess_return` is measured against; it is kept exactly as it was.
+    - ``median`` — **what the TYPICAL member did.** One moonshot in a twenty-name basket lifts the mean by
+      a twentieth of its move and leaves the median where it was, so "the algorithm beat the basket" read
+      off the mean can mean "the algorithm missed the one name that carried it" — and read off the median
+      it means "the algorithm beat the typical name", which is the question the name-selection null asks.
+
+    Neither is the truth on its own, which is why both ride every draw. The headline is
+    `pooled.HEADLINE_EXCESS` — one place.
+    """
+
+    mean: float | None
+    median: float | None
+    #: how many members PRICED — the denominator both statistics were taken over
+    n: int
+
+
+_NO_MOVE = BasketMove(mean=None, median=None, n=0)
+
+
 class _BasketBenchmark:
-    """The basket's equal-weight close-to-close return over a window — the denominator that strips out
-    "everything went up".
+    """The basket's close-to-close move over a window — the denominator that strips out "everything went
+    up" — as a mean AND a median over the same priced members.
 
     Memoized on ``(thesis, entry, exit)``: the nulls ask for it K times per episode with identical
-    arguments, and it costs one priced window per basket member. Read from the SAME mirror as every other
-    return here, so the benchmark and the thing it benchmarks can never come from different tapes.
+    arguments, and it costs one priced window per basket member. **The median is free**: both statistics
+    are taken over the one list of returns this already prices, so B adds no priced window to a run. Read
+    from the SAME mirror as every other return here, so the benchmark and the thing it benchmarks can
+    never come from different tapes.
     """
 
     def __init__(self, realized: RealizedPrices, roster_at: RosterAt) -> None:
         self._realized = realized
         self._roster_at = roster_at
-        self._cache: dict[tuple[UUID, date, date], float | None] = {}
+        self._cache: dict[tuple[UUID, date, date], BasketMove] = {}
 
-    def __call__(self, thesis_id: UUID, entry: date, exit_: date) -> float | None:
+    def __call__(self, thesis_id: UUID, entry: date, exit_: date) -> BasketMove:
         key = (thesis_id, entry, exit_)
         if key not in self._cache:
             members = list(self._roster_at(thesis_id, entry))
@@ -125,8 +159,13 @@ class _BasketBenchmark:
             ]
             # EQUAL-weight, and the denominator is the names that actually PRICED, not the roster size:
             # dividing by names with no tape would drag the benchmark toward zero and flatter every
-            # excess return against it.
-            self._cache[key] = (sum(rets) / len(rets)) if rets else None
+            # excess return against it. The median is taken over the SAME list, so the two figures never
+            # describe different populations.
+            self._cache[key] = (
+                BasketMove(mean=sum(rets) / len(rets), median=median(rets), n=len(rets))
+                if rets
+                else _NO_MOVE
+            )
         return self._cache[key]
 
 
@@ -178,7 +217,10 @@ def draw_nulls(
                     horizon_days=h,
                     forward_return=w.forward_return if w else None,
                     excess_return=_excess(
-                        w.forward_return if w else None, bench(ep.thesis_id, entry, exit_)
+                        w.forward_return if w else None, bench(ep.thesis_id, entry, exit_).mean
+                    ),
+                    excess_return_vs_median=_excess(
+                        w.forward_return if w else None, bench(ep.thesis_id, entry, exit_).median
                     ),
                 )
             )
@@ -200,7 +242,11 @@ def draw_nulls(
                     forward_return=w.forward_return if w else None,
                     excess_return=_excess(
                         w.forward_return if w else None,
-                        bench(ep.thesis_id, ep.arm_date, ep.exit_by),
+                        bench(ep.thesis_id, ep.arm_date, ep.exit_by).mean,
+                    ),
+                    excess_return_vs_median=_excess(
+                        w.forward_return if w else None,
+                        bench(ep.thesis_id, ep.arm_date, ep.exit_by).median,
                     ),
                 )
             )
@@ -212,7 +258,10 @@ def draw_nulls(
                 arm_date=ep.arm_date,
                 horizon_days=h,
                 forward_return=real_ret,
-                excess_return=_excess(real_ret, bench(ep.thesis_id, ep.arm_date, real_exit)),
+                excess_return=_excess(real_ret, bench(ep.thesis_id, ep.arm_date, real_exit).mean),
+                excess_return_vs_median=_excess(
+                    real_ret, bench(ep.thesis_id, ep.arm_date, real_exit).median
+                ),
                 timing=timing,
                 name=name,
             )

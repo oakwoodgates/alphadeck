@@ -351,12 +351,16 @@ def execute(
             thesis = theses.get(tid)
             if thesis is None:  # archived between list_all and now — skip rather than invent a name
                 continue
+            # ONE list, hashed and recorded -- so the fingerprint and the roster it fingerprints can
+            # never describe different baskets.
+            member_ids = _member_ids(thesis)
             entries.append(
                 mf.ThesisEntry(
                     thesis_id=tid,
                     name=thesis.name,
                     basket_size=len(thesis.basket),
-                    roster_hash=mf.roster_hash(_member_ids(thesis)),
+                    roster_hash=mf.roster_hash(member_ids),
+                    member_ids=[str(m) if m is not None else None for m in member_ids],
                     roster_source=source.source,
                     fallback_days=source.fallback_days,
                     total_days=source.total_days,
