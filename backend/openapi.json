@@ -6220,6 +6220,9 @@
           "excess": {
             "$ref": "#/components/schemas/Stat"
           },
+          "excess_vs_basket_median": {
+            "$ref": "#/components/schemas/Stat"
+          },
           "vs_timing": {
             "$ref": "#/components/schemas/Stat"
           },
@@ -6491,6 +6494,15 @@
             "type": "integer",
             "title": "Min N",
             "default": 5
+          },
+          "headline_excess": {
+            "type": "string",
+            "enum": [
+              "median",
+              "mean"
+            ],
+            "title": "Headline Excess",
+            "default": "median"
           },
           "banner": {
             "type": "string",
@@ -9157,6 +9169,9 @@
           "excess": {
             "$ref": "#/components/schemas/Stat"
           },
+          "excess_vs_basket_median": {
+            "$ref": "#/components/schemas/Stat"
+          },
           "vs_timing": {
             "$ref": "#/components/schemas/Stat"
           },
@@ -9662,6 +9677,20 @@
           "roster_hash": {
             "type": "string",
             "title": "Roster Hash"
+          },
+          "member_ids": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Member Ids"
           },
           "roster_source": {
             "type": "string",

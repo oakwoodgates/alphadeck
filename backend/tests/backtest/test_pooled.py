@@ -40,7 +40,11 @@ def _ep(tid, sid, **over) -> Episode:
     return Episode(**base)
 
 
-def _nulls(ep, *, real=0.10, timing=(0.01, 0.02), name=(0.03,), excess=0.04) -> EpisodeNulls:
+def _nulls(
+    ep, *, real=0.10, timing=(0.01, 0.02), name=(0.03,), excess=0.04, excess_median=None
+) -> EpisodeNulls:
+    # `excess_median` defaults to the mean-based figure so every existing assertion keeps its
+    # meaning; a test that cares about the two parting company passes its own (B).
     def draw(kind, r):
         return NullDraw(
             kind=kind,
@@ -61,6 +65,7 @@ def _nulls(ep, *, real=0.10, timing=(0.01, 0.02), name=(0.03,), excess=0.04) -> 
         horizon_days=20,
         forward_return=real,
         excess_return=excess,
+        excess_return_vs_median=(excess if excess_median is None else excess_median),
         timing=[draw("timing", r) for r in timing],
         name=[draw("name", r) for r in name],
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,7 @@ pytest.importorskip("pyarrow")
 from backtest import artifact, store  # noqa: E402
 from backtest import manifest as mf  # noqa: E402
 from backtest.config_overlay import apply_overlay  # noqa: E402
+from backtest.rebench import TOLERANCE, rebench  # noqa: E402
 from backtest.run import build_parser, execute, main  # noqa: E402
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash  # noqa: E402
 from pipeline.seed import seed_unh  # noqa: E402
@@ -82,6 +84,46 @@ def test_the_manifest_names_the_theses_and_whose_roster_they_replayed_on(db, tmp
     assert entry.roster_hash and len(entry.roster_hash) == 64
     assert entry.basket_size >= 1
     assert m.n_theses == len(m.theses)
+    # B — the ROSTER ITSELF, not only its fingerprint, so a finished run's benchmark can be rebuilt
+    # later without asking a live database what the basket is today. The two are written from ONE list
+    # and this is what pins that: the recorded ids must re-hash to the recorded hash.
+    assert entry.member_ids and len(entry.member_ids) == entry.basket_size
+    assert (
+        mf.roster_hash([uuid.UUID(x) if x else None for x in entry.member_ids]) == entry.roster_hash
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_a_finished_run_can_be_REBENCHED_from_its_own_bytes(db, tmp_path):
+    """B — the retroactive recompute, end to end on a REAL run.
+
+    The claim being tested is not "the median is computed" (a unit test covers the arithmetic) but that a
+    recompute off the frozen mirror REPRODUCES the run it claims to describe. If `forward_return`,
+    `exit_date` and the mean-based excess do not come back identical, the new median-based figure beside
+    them is worth nothing — which is exactly how the population rule was caught while this was built (the
+    run's own null pass skips episodes with no horizon; a recompute that kept them moved a window's
+    median by 0.22 pp).
+
+    No database is consulted: the manifest now carries `member_ids`, so the roster reads as `recorded`.
+    """
+    seed_unh(db)
+    db.commit()
+    outcome = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
+    run_dir = store.run_dir(outcome.manifest.run_id, tmp_path)
+    assert run_dir is not None
+
+    # a standalone run exports its mirror INTO its own directory
+    result = rebench([run_dir], run_dir, None)
+    assert result.refused == {}, result.refused
+    assert result.n_scored > 0, "a vacuous rebench proves nothing"
+    assert result.n_return_mismatch == 0 and result.n_exit_mismatch == 0
+
+    stored = json.loads((run_dir / "pooled.json").read_text("utf-8"))["metrics"][0]["excess"]
+    if stored["median"] is not None:
+        assert result.excess_vs_basket_mean.median == pytest.approx(stored["median"], abs=TOLERANCE)
+    # and the new figure is really there beside it
+    assert result.excess_vs_basket_median.n == result.excess_vs_basket_mean.n
 
 
 @pytest.mark.slow

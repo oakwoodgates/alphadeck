@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  excessColumns,
   fmtN,
   fmtPct,
   fmtStat,
+  hasBasketMedian,
   metricColumns,
   mixRows,
   sortedSlices,
@@ -149,5 +151,59 @@ describe("timingNullCaveat", () => {
 
   it("is silent when there were no episodes at all — nothing to caveat", () => {
     expect(timingNullCaveat(0, 0)).toBeNull();
+  });
+});
+
+// B — TWO EXCESS FIGURES, ONE PRICED POPULATION.
+//
+// The mean is what an equal-weight basket position earned; the median is what the typical member did. A
+// thematic basket is right-skewed by construction, so the two part company exactly when it matters — and
+// WHICH ONE LEADS is the report's own field, never this file's opinion.
+
+describe("the two excess figures (B)", () => {
+  const metric = (over: Record<string, unknown> = {}) => ({
+    name: "arm_timing_forward_return",
+    claim: "c",
+    actual: { n: 10, median: 0.05 },
+    excess: { n: 10, median: -0.05 },
+    vs_timing: { n: 50, median: 0.0 },
+    vs_name: { n: 50, median: 0.0 },
+    insufficient_n: false,
+    note: "",
+    ...over,
+  });
+
+  it("shows only the mean when the report carries no median — an older run reads as it always did", () => {
+    const m = metric() as never;
+    expect(hasBasketMedian(m)).toBe(false);
+    expect(excessColumns(m, "mean").map((c) => c.id)).toEqual(["excess"]);
+    // ...and asking for the median headline cannot conjure a column out of nothing
+    expect(excessColumns(m, "median").map((c) => c.id)).toEqual(["excess"]);
+  });
+
+  it("treats an EMPTY median stat as no median, not as a zero", () => {
+    const m = metric({ excess_vs_basket_median: { n: 0, median: null } }) as never;
+    expect(hasBasketMedian(m)).toBe(false);
+    expect(excessColumns(m, "median").map((c) => c.id)).toEqual(["excess"]);
+  });
+
+  it("leads with the figure the REPORT names, and always shows the other beside it", () => {
+    const m = metric({ excess_vs_basket_median: { n: 10, median: 0.004 } }) as never;
+    expect(excessColumns(m, "median").map((c) => c.id)).toEqual(["excess_median", "excess"]);
+    expect(excessColumns(m, "mean").map((c) => c.id)).toEqual(["excess", "excess_median"]);
+  });
+
+  it("labels the mean as the equal-weight POSITION and the median as the TYPICAL name", () => {
+    const m = metric({ excess_vs_basket_median: { n: 10, median: 0.004 } }) as never;
+    const cols = excessColumns(m, "median");
+    expect(cols[0].label).toBe("vs the typical name");
+    expect(cols[1].label).toBe("vs equal-weight basket");
+    expect(cols[1].title).toContain("what an equal-weight basket position earned");
+  });
+
+  it("puts the actual FIRST and never invents a fifth statistic", () => {
+    const m = metric({ excess_vs_basket_median: { n: 10, median: 0.004 } }) as never;
+    const ids = metricColumns(m, "median").map((c) => c.id);
+    expect(ids).toEqual(["actual", "excess_median", "excess", "vs_timing", "vs_name"]);
   });
 });

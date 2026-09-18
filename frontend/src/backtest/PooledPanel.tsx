@@ -3,6 +3,7 @@ import {
   fmtN,
   fmtPct,
   fmtStat,
+  hasBasketMedian,
   metricColumns,
   mixRows,
   SLICE_COLUMNS,
@@ -31,6 +32,10 @@ export function PooledPanel({ pooled }: { pooled: PooledReport }) {
   const slices = sortedSlices(pooled.slices ?? []);
   const gate = pooled.min_n ?? 0;
   const caveat = timingNullCaveat(d?.timing_candidate_sessions ?? 0, pooled.n_episodes ?? 0);
+  // A report written before B carries no basket median, and the older column set is what it was read
+  // under — so the pair of excess columns appears only where there is a pair to show.
+  const headline = pooled.headline_excess ?? "mean";
+  const showMedian = (pooled.metrics ?? []).some(hasBasketMedian);
 
   return (
     <section className="bt-pooled" aria-label="Pooled analysis">
@@ -53,7 +58,7 @@ export function PooledPanel({ pooled }: { pooled: PooledReport }) {
             </div>
             <div className="bt-mclaim">{m.claim}</div>
             <div className="bt-mcols">
-              {metricColumns(m).map((c) => (
+              {metricColumns(m, headline).map((c) => (
                 <div key={c.id} className="bt-mcol" title={c.title}>
                   <div className="bt-mcol-l">{c.label}</div>
                   <div className={`bt-mcol-v ${statTone(c.stat)}`}>{fmtStat(c.stat)}</div>
@@ -65,6 +70,20 @@ export function PooledPanel({ pooled }: { pooled: PooledReport }) {
           </div>
         ))}
       </div>
+
+      {showMedian && (
+        <p className="bt-quiet">
+          TWO EXCESS FIGURES, ONE POPULATION. The basket's move over the same window, taken as an
+          equal-weight MEAN (what an equal-weight basket position earned) and as a MEDIAN (what the
+          typical member did) over exactly the same priced names. They agree when the basket is
+          symmetric and part company when it is skewed — one runaway name lifts the mean by a fraction
+          of its own move and leaves the median where it was, so a figure read only against the mean
+          can say "lost to the basket" where the algorithm beat every name but one.
+          {headline === "median"
+            ? " This report leads with the median."
+            : " This report leads with the mean."}
+        </p>
+      )}
 
       {caveat && <div className="bt-caveat">{caveat}</div>}
 
@@ -89,7 +108,14 @@ export function PooledPanel({ pooled }: { pooled: PooledReport }) {
                 ))}
                 <th title="scored episodes in this slice">n</th>
                 <th>Actual</th>
-                <th>Excess</th>
+                <th title="against the basket's equal-weight MEAN move — what an equal-weight basket position earned">
+                  Excess
+                </th>
+                {showMedian && (
+                  <th title="against the basket's MEDIAN move — what the typical member did, over the same priced names">
+                    Excess (typical)
+                  </th>
+                )}
                 <th>vs timing</th>
                 <th>vs name</th>
               </tr>
@@ -106,6 +132,11 @@ export function PooledPanel({ pooled }: { pooled: PooledReport }) {
                   <td className="bt-n">{s.n}</td>
                   <td className={`bt-v ${statTone(s.actual)}`}>{fmtStat(s.actual)}</td>
                   <td className={`bt-v ${statTone(s.excess)}`}>{fmtStat(s.excess)}</td>
+                  {showMedian && (
+                    <td className={`bt-v ${statTone(s.excess_vs_basket_median)}`}>
+                      {fmtStat(s.excess_vs_basket_median)}
+                    </td>
+                  )}
                   <td className={`bt-v ${statTone(s.vs_timing)}`}>{fmtStat(s.vs_timing)}</td>
                   <td className={`bt-v ${statTone(s.vs_name)}`}>{fmtStat(s.vs_name)}</td>
                 </tr>

@@ -50,7 +50,7 @@ data/backtest/
   index.json                     the registry: one summary row per run, newest first
   sweep.json                     the latest sweep curve (see the asymmetry below)
   runs/<run_id>/
-    manifest.json                what this run IS — code, dials, clock, pin, rosters, exclusions
+    manifest.json                what this run IS — code, dials, clock, pin, the ROSTERS THEMSELVES, exclusions
     episodes.parquet             the arm episodes           } analysis
     outcomes.parquet             those episodes scored      }
     metrics.json                 the engine's claim-tied metric set, over ALL outcomes
@@ -131,8 +131,10 @@ the honest system clock. After that, no tie is left for `id DESC` to break.
 The baskets were authored in 2026 over names that had already moved. Forward returns on that universe are
 biased upward by selection and **no clock fixes that**. So every pooled metric reports three things beside it:
 
-- **Excess over basket** — the same window measured against the thesis basket's equal-weight close-to-close
-  move, from the same mirror. The theme's own drift, removed.
+- **Excess over basket, TWO WAYS over one priced population** — the same window measured against the
+  thesis basket's own close-to-close move, from the same mirror, as an equal-weight **mean** (`excess` —
+  what an equal-weight basket position earned) and as a **median** (`excess_vs_basket_median` — what the
+  TYPICAL member did). The theme's own drift, removed; the question is which drift. See below.
 - **The timing null** — the SAME name entered on a randomly drawn session from the run's own session list.
   Isolates timing.
 - **The name-selection null** — a randomly drawn OTHER member of the same roster on the same day. Isolates
@@ -153,6 +155,64 @@ diagnostics: on a four-session run there is roughly one alternative entry date p
 a near-empty forward window, and `vs_timing` comes back on top of the actual — which READS like "the
 algorithm ties with chance" and MEANS "there was no chance to compare against". Under 30 sessions the surface
 says so in words.
+
+### Two excess figures, and why the median is the headline (B)
+
+A thematic basket is right-skewed BY CONSTRUCTION: the operator assembles names around a narrative and a
+minority carry it. One moonshot in a twenty-name basket lifts the equal-weight MEAN by a twentieth of its
+own move and leaves the TYPICAL member exactly where it was. So the same run can read two ways, and the
+difference is not a rounding:
+
+- against the **mean** — *what an equal-weight basket position earned*. A real portfolio answer, and the
+  one every pre-B run carries. It can also say "the algorithm lost to the basket" when what happened is
+  "the algorithm beat every name except the one that ran".
+- against the **median** — *what the typical member did*. The same question the name-selection null asks,
+  and the one a timing platform has to answer to. **The headline since B** (`pooled.HEADLINE_EXCESS`, one
+  constant; the report carries `headline_excess` so a stored artifact says how it was meant to be read,
+  and the surface reads that field rather than deciding for itself).
+
+**MEASURED on the finished phase-1 pass** (the production baseline point, 9 windows, 2,605 scored
+episodes, recomputed 2026-09-18T17:17Z): excess vs the basket **median = -0.470%**, excess vs the
+equal-weight **mean = -5.128%**. The same episodes, the same tape, a 4.66 pp gap — the armed windows were
+level with the typical basket name and well behind an equal-weight position in it. Neither figure is the
+truth on its own, which is why both ride every draw and both render.
+
+Both statistics are taken over the SAME priced members (a name with no tape is in neither, and `n` is the
+denominator both used), so a difference between them is always skew and never a change of arithmetic — the
+symmetric-basket test pins exactly that. **The median costs nothing**: both come off the one list of
+returns the benchmark already prices, so B added no priced window to any run.
+
+### Rebenching a finished run — `backtest.rebench`
+
+A run from before B carries only the mean, and re-running a four-hour pass for a statistic that costs
+nothing new would be absurd. `python -m backtest.rebench --pass-id <id>` recomputes both figures from the
+run's own artifacts and its own frozen mirror. **It is a recompute, not a re-run**: nothing re-opens a
+point-in-time view, re-decides anything, or writes into a run directory.
+
+Three things are therefore CHECKED rather than assumed, and any run that fails one is reported and
+excluded rather than folded in:
+
+1. **The mirror is the run's own**, by content hash — the path a mirror sits at says nothing about what is
+   in it.
+2. **The roster is still the one the run replayed on.** Every phase-1-era run reads `live_fallback`
+   (`basket_snapshot` history begins 2026-09-15), so its benchmark was taken over the live basket as it
+   stood at run time; if a basket has been edited since, that benchmark cannot be rebuilt and the tool
+   refuses. A run whose roster genuinely MOVED during its window (real snapshot days) is refused too —
+   rebuilding that is the harness's job, not a recompute's.
+3. **The recompute reproduces the stored numbers.** `forward_return`, `exit_date` and the mean-based
+   excess are re-derived and compared to the artifacts. The new figure is only worth what the old one
+   reproduces.
+
+That third check earned itself immediately: the first recompute disagreed with 4 of 9 stored windows by up
+to 0.5 pp, because `draw_nulls` skips an episode with no horizon and the recompute did not — 3 episodes in
+a 324-episode window. With the run's own population rule the mean-based figure reproduces on all nine
+windows and on all 2,605 episodes exactly (`forward_return` mismatches: 0, `exit_date` mismatches: 0).
+
+**And the durable fix**: `ThesisEntry.member_ids` now records the ROSTER ITSELF on every manifest, in the
+order `roster_hash` hashes it. The hash says WHETHER a roster changed; the ids say WHAT it was, so a run
+written from B on can be rebenched months later from its own bytes with no database at all (`--no-db`). An
+older manifest carries an empty list — that is "not recorded", not "empty basket", and `basket_size` beside
+it says which.
 
 **Episodes are not independent.** MEASURED on the record: 82 % of arm episodes arrived alongside a co-member
 the same thesis-session. The co-arm slice is what makes that visible rather than assumed, and the effective n
