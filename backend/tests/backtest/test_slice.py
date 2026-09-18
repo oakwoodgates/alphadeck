@@ -32,6 +32,7 @@ from backtest.sweep import STATUS_MARK, Ladder, MetricSliceError, WindowStatus, 
 # Two windows, disjoint, in the shape `tile` produces.
 _W1 = (date(2026, 1, 1), date(2026, 2, 11))
 _W2 = (date(2026, 2, 12), date(2026, 3, 25))
+_W3 = (date(2026, 3, 26), date(2026, 5, 6))
 _DIAL = "insider_core_alpha_liveness_days"
 _PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
@@ -290,6 +291,107 @@ def test_the_status_lines_up_one_for_one_with_the_deltas(sliceable_runs, db):
     point = next(p for p in rep.points if p.dials[_DIAL] == 90)
     assert point.window_status == ["moved_down", "moved_down"]
     assert point.strict_sign_agreement is True
+
+
+# --- A2b: strict over the windows that COULD answer -----------------------------------------------------
+#
+# Strict-over-all is unsatisfiable BY CONSTRUCTION on a small family: two of phase 1's nine windows hold no
+# catalyst-keyed episode, so no point on a catalyst-sliced curve can agree across ALL windows and the band
+# is empty before any data arrives. A criterion that cannot be met is not a criterion. The third field asks
+# the question of the windows that could answer it, and reports how many could not.
+
+
+def test_an_unmeasurable_window_is_EXCLUDED_from_strict_measurable_and_COUNTED(sliceable_runs, db):
+    """The phase-1b case exactly: the catalyst moves where there are catalyst episodes and there is
+    nothing to ask where there are none."""
+    _write, monkeypatch, sweep_mod, root = sliceable_runs
+    _write("base-w1", [("2026-01-06", "c1", 0.00, "ratified_catalyst")])
+    _write("var-w1", [("2026-01-06", "c1", 0.20, "ratified_catalyst")])
+    _write("base-w2", [("2026-02-20", "i1", 0.00, "insider")])  # no catalyst in this window
+    _write("var-w2", [("2026-02-20", "i1", 0.90, "insider")])
+    monkeypatch.setattr(
+        sweep_mod, "_launch", lambda jobs, concurrency: ["base-w1", "base-w2", "var-w1", "var-w2"]
+    )
+    rep = _sweep(
+        sweep_mod,
+        db,
+        root,
+        windows=(_W1, _W2),
+        metric_slice=("key1_source", "ratified_catalyst"),
+    )
+    point = next(p for p in rep.points if p.dials[_DIAL] == 90)
+    assert point.window_status == ["moved_up", "unmeasurable"]
+    assert point.n_unmeasurable == 1
+    assert point.strict_sign_agreement is False  # strict-over-all: unreachable here
+    # ...and strict-over-measurable is ALSO false, because one measurable window is the floor, not a
+    # majority: a single window cannot agree with anything.
+    assert point.strict_measurable_agreement is False
+
+
+def test_strict_measurable_holds_on_the_windows_that_had_episodes(sliceable_runs, db):
+    """Two measurable windows both moving up, one window with nothing in play: the rule says yes and the
+    count says how much of the pass was silent. Reading one without the other is the trap."""
+    _write, monkeypatch, sweep_mod, root = sliceable_runs
+    _write("base-w1", [("2026-01-06", "c1", 0.00, "ratified_catalyst")])
+    _write("var-w1", [("2026-01-06", "c1", 0.20, "ratified_catalyst")])
+    _write("base-w2", [("2026-02-20", "c2", 0.00, "ratified_catalyst")])
+    _write("var-w2", [("2026-02-20", "c2", 0.30, "ratified_catalyst")])
+    _write("base-w3", [("2026-04-01", "i1", 0.00, "insider")])  # nothing catalyst-keyed here
+    _write("var-w3", [("2026-04-01", "i1", 0.90, "insider")])
+    order = ["base-w1", "base-w2", "base-w3", "var-w1", "var-w2", "var-w3"]
+    monkeypatch.setattr(sweep_mod, "_launch", lambda jobs, concurrency: order)
+    rep = _sweep(
+        sweep_mod,
+        db,
+        root,
+        windows=(_W1, _W2, _W3),
+        metric_slice=("key1_source", "ratified_catalyst"),
+    )
+    point = next(p for p in rep.points if p.dials[_DIAL] == 90)
+    assert point.window_status == ["moved_up", "moved_up", "unmeasurable"]
+    assert point.n_unmeasurable == 1
+    assert point.strict_measurable_agreement is True
+    assert point.strict_sign_agreement is False  # unreachable, and that is the whole point
+    assert point.sign_agreement is False  # the pre-registered rule needs every window measurable
+
+
+def test_an_UNCHANGED_window_still_withholds_strict_measurable(sliceable_runs, db):
+    """THE distinction the rule is built on. `unmeasurable` means there was nothing to ask;
+    `unchanged` means the dial was asked and did not answer, and that is a real disagreement with a
+    point that claims to move things."""
+    _write, monkeypatch, sweep_mod, root = sliceable_runs
+    _write("base-w1", [("2026-01-06", "a", 0.10, "insider")])
+    _write("var-w1", [("2026-01-06", "a", 0.10, "insider")])  # measurable, and identical
+    _write("base-w2", [("2026-02-20", "b", 0.10, "insider")])
+    _write("var-w2", [("2026-02-20", "b", 0.30, "insider")])
+    monkeypatch.setattr(
+        sweep_mod, "_launch", lambda jobs, concurrency: ["base-w1", "base-w2", "var-w1", "var-w2"]
+    )
+    rep = _sweep(sweep_mod, db, root, windows=(_W1, _W2))
+    point = next(p for p in rep.points if p.dials[_DIAL] == 90)
+    assert point.window_status == ["unchanged", "moved_up"]
+    assert point.n_unmeasurable == 0
+    assert point.strict_measurable_agreement is False
+    assert point.sign_agreement is True  # the pre-registered rule still says yes, untouched
+
+
+def test_all_three_agreement_fields_ride_every_point(sliceable_runs, db):
+    """None replaces another and none is ever rewritten: a pass registered under one rule can be read
+    under any of them, and the report says which one its band used."""
+    _write, monkeypatch, sweep_mod, root = sliceable_runs
+    _write("base-w1", [("2026-01-06", "a", 0.00, "insider")])
+    _write("var-w1", [("2026-01-06", "a", 0.05, "insider")])
+    _write("base-w2", [("2026-02-20", "b", 0.00, "insider")])
+    _write("var-w2", [("2026-02-20", "b", 0.07, "insider")])
+    monkeypatch.setattr(
+        sweep_mod, "_launch", lambda jobs, concurrency: ["base-w1", "base-w2", "var-w1", "var-w2"]
+    )
+    rep = _sweep(sweep_mod, db, root, windows=(_W1, _W2))
+    for p in rep.points:
+        for field in ("sign_agreement", "strict_sign_agreement", "strict_measurable_agreement"):
+            assert isinstance(getattr(p, field), bool), field
+        assert isinstance(p.n_unmeasurable, int)
+    assert rep.plateau_rule == "strict_sign_agreement"  # the DEFAULT is unchanged by A2b
 
 
 # --- the vocabulary is load-bearing -------------------------------------------------------------------------

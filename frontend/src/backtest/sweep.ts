@@ -28,6 +28,12 @@ export type SweepPointView = {
    *  2026-09-18. Reported BESIDE `signAgreement`, which is never rewritten, so a pass registered under
    *  the older rule can still be read the way it was registered. */
   strictSignAgreement: boolean;
+  /** Every MEASURABLE window strictly the same non-zero direction, at least two of them (A2b). The rule
+   *  a SLICED curve needs: strict-over-all is unsatisfiable by construction when a family leaves windows
+   *  empty. Never read without `nUnmeasurable`. */
+  strictMeasurableAgreement: boolean;
+  /** How many windows held nothing this point could be measured on. */
+  nUnmeasurable: number;
   /** `moved_up | moved_down | unchanged | unmeasurable` per window, in window order. An unmeasurable
    *  window held no episode this dial could touch — it is not a zero. */
   windowStatus: string[];
@@ -118,6 +124,8 @@ export function readSweep(raw: unknown): SweepView | null {
       windowDeltas: deltas.map(num),
       signAgreement: o.sign_agreement === true,
       strictSignAgreement: o.strict_sign_agreement === true,
+      strictMeasurableAgreement: o.strict_measurable_agreement === true,
+      nUnmeasurable: num(o.n_unmeasurable) ?? 0,
       windowStatus: Array.isArray(o.window_status) ? o.window_status.map((w) => String(w)) : [],
       isBaseline: o.is_baseline === true,
       runsShared: o.runs_shared === true,
@@ -182,11 +190,13 @@ export function plateauLine(v: SweepView): string {
   }
   const agreeing = v.points.filter((p) => p.inPlateau && agreesUnderBandRule(v, p)).length;
   const n = v.windows.length || v.subwindows;
+  const missing = unmeasurableLine(v);
   return (
     `A plateau ${v.plateauWidth} points wide. ` +
     `${agreeing} of them also hold their sign across all ${n} window${n === 1 ? "" : "s"} — ` +
     "a pooled number that cannot survive being recomputed on each window separately has not found " +
-    `anything. (${ruleLine(v)})`
+    `anything. (${ruleLine(v)})` +
+    (missing ? ` ${missing}` : "")
   );
 }
 
@@ -195,16 +205,50 @@ export function plateauLine(v: SweepView): string {
  *  Read off the curve rather than fixed, because the rule changed and BOTH fields ride every point: a
  *  band keyed on the strict rule must not be described with the other rule's counts. */
 export function agreesUnderBandRule(v: SweepView, p: SweepPointView): boolean {
-  return v.plateauRule === "strict_sign_agreement" ? p.strictSignAgreement : p.signAgreement;
+  if (v.plateauRule === "strict_sign_agreement") return p.strictSignAgreement;
+  if (v.plateauRule === "strict_measurable_agreement") return p.strictMeasurableAgreement;
+  return p.signAgreement;
 }
 
 /** The band's rule, in the words a reader needs rather than the field name. */
 export function ruleLine(v: SweepView): string {
-  return v.plateauRule === "strict_sign_agreement"
-    ? "band keyed on STRICT agreement: every window moved the same way, none unchanged and none " +
-        "unmeasurable"
-    : "band keyed on the pre-2026-09-18 rule, under which a window that did not move — or held no " +
-        "episode to move — still counts as agreeing";
+  if (v.plateauRule === "strict_sign_agreement") {
+    return (
+      "band keyed on STRICT agreement: every window moved the same way, none unchanged and none " +
+      "unmeasurable"
+    );
+  }
+  if (v.plateauRule === "strict_measurable_agreement") {
+    return (
+      "band keyed on STRICT agreement over the windows that could answer: every measurable window " +
+      "moved the same way, at least two of them — a window that did not move still withholds " +
+      "agreement, a window with nothing in play is excluded and counted"
+    );
+  }
+  return (
+    "band keyed on the pre-2026-09-18 rule, under which a window that did not move — or held no " +
+    "episode to move — still counts as agreeing"
+  );
+}
+
+/** What the band could NOT see, in the band's own words. Empty when every window was measurable.
+ *
+ *  It rides the band's sentence rather than a column because it qualifies the BAND: "agrees across the
+ *  seven windows that had episodes" and "agrees across nine" are different claims, and only one of them
+ *  is what a sliced curve can support. */
+export function unmeasurableLine(v: SweepView): string {
+  const band = v.points.filter((p) => p.inPlateau);
+  if (!band.length) return "";
+  const counts = band.map((p) => p.nUnmeasurable);
+  const lo = Math.min(...counts);
+  const hi = Math.max(...counts);
+  if (hi === 0) return "";
+  const n = v.windows.length || v.subwindows;
+  const many = lo === hi ? `${hi}` : `${lo}–${hi}`;
+  return (
+    `${many} of ${n} window${n === 1 ? "" : "s"} held nothing these settings could be measured on, ` +
+    "and were excluded from the agreement rather than counted as agreeing."
+  );
 }
 
 /** What each window did to a point, in words. The unmeasurable one is what this exists to say out

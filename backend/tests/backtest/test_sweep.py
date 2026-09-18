@@ -51,6 +51,16 @@ def _pt(dials, delta, subs, **over) -> SweepPoint:
             and len(subs) >= 2
             and (all(d > 0 for d in subs) or all(d < 0 for d in subs))
         ),
+        # A2b: and the third, over the windows that could answer. A `None` delta here stands for an
+        # unmeasurable window, which is what it means on a real point.
+        strict_measurable_agreement=(
+            len([d for d in subs if d is not None]) >= 2
+            and (
+                all(d > 0 for d in subs if d is not None)
+                or all(d < 0 for d in subs if d is not None)
+            )
+        ),
+        n_unmeasurable=len([d for d in subs if d is None]),
     )
     base.update(over)
     return SweepPoint(**base)
@@ -108,6 +118,29 @@ def test_the_band_is_keyed_on_STRICT_agreement_and_an_UNCHANGED_window_breaks_it
     assert _plateau(points) == [2, 3]  # the band breaks at the unchanged window
     # ...and the pass that was REGISTERED under the old rule can still be re-read under it, unrewritten
     assert _plateau(points, rule="sign_agreement") == [0, 1, 2, 3]
+
+
+def test_a_band_can_be_keyed_on_STRICT_MEASURABLE_where_strict_over_all_finds_nothing():
+    """A2b, and the reason it exists. Every point below is unmeasurable in its third window, so
+    strict-over-all is False for all of them and the band is empty BEFORE any data is considered. Over
+    the windows that could answer, the same points form a real band."""
+    points = [
+        _pt({"d": 1}, 0.01, [0.01, 0.01, None]),
+        _pt({"d": 2}, 0.03, [0.06, 0.04, None]),
+        _pt({"d": 3}, 0.04, [0.03, 0.05, None]),
+    ]
+    assert all(p.strict_sign_agreement is False for p in points)
+    assert _plateau(points, rule="strict_sign_agreement") == []
+    assert _plateau(points, rule="strict_measurable_agreement") == [0, 1, 2]
+    assert all(p.n_unmeasurable == 1 for p in points)
+
+
+def test_strict_measurable_still_needs_TWO_windows_that_could_answer():
+    """The floor is the same as the other rules': one window cannot agree with anything, and a point
+    measurable on a single window has not demonstrated stability — it has been measured once."""
+    lonely = _pt({"d": 1}, 0.02, [0.02, None, None])
+    assert lonely.strict_measurable_agreement is False
+    assert _plateau([lonely], rule="strict_measurable_agreement") == []
 
 
 def test_the_rule_the_band_used_rides_the_report():

@@ -129,8 +129,10 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                     </td>
                     <td
                       title={
-                        `strict: ${p.strictSignAgreement ? "yes" : "no"} · pre-registered: ` +
-                        `${p.signAgreement ? "yes" : "no"}` +
+                        `strict: ${p.strictSignAgreement ? "yes" : "no"} · strict over measurable: ` +
+                        `${p.strictMeasurableAgreement ? "yes" : "no"}` +
+                        (p.nUnmeasurable ? ` (${p.nUnmeasurable} unmeasurable)` : "") +
+                        ` · pre-registered: ${p.signAgreement ? "yes" : "no"}` +
                         (statusLine(p) ? ` · windows: ${statusLine(p)}` : "")
                       }
                     >
