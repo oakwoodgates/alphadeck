@@ -167,19 +167,34 @@ def test_a_record_run_is_unchanged_and_the_flag_is_a_no_op(db, tmp_path):
     """`clock=record` must be today's run, byte for byte. The default and the explicit flag are run
     against each other rather than against a stored expectation: an outcome snapshot would only pin
     whatever this fixture happens to produce, while equality pins that the argument changed nothing.
+
+    DISTINCT ``now=``, and an explicit shared ``null_seed``. Two ``execute()`` calls with identical inputs
+    collide on ``create_run_dir`` once a seed-sized run is sub-second, which is what M1 made it: this test
+    passed on a slow Windows box and FAILED on CI for exactly that reason. Pinning ``now`` also makes the
+    two run ids deterministic -- and since the null seed defaults to the run id, it has to be pinned too,
+    or the two runs would draw different nulls and the pooled comparison would be measuring the seed.
     """
     pytest.importorskip("duckdb")
     from pipeline.seed import seed_unh
 
     seed_unh(db)
     db.commit()
-    default = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
-    explicit = execute(db, start=_START, end=_END, pin=_PIN, clock="record", root=tmp_path)
+    kw = dict(start=_START, end=_END, pin=_PIN, root=tmp_path, null_seed="cw-record-no-op")
+    default = execute(db, now=datetime(2026, 9, 18, 4, 0, 0, tzinfo=timezone.utc), **kw)
+    explicit = execute(
+        db, clock="record", now=datetime(2026, 9, 18, 4, 0, 1, tzinfo=timezone.utc), **kw
+    )
     assert default.manifest.clock == explicit.manifest.clock == "record"
     assert default.manifest.known_at_mode == explicit.manifest.known_at_mode == "pin"
-    assert (default.path / "episodes.parquet").read_bytes() == (
-        explicit.path / "episodes.parquet"
-    ).read_bytes()
+    for name in ("episodes.parquet", "outcomes.parquet", "pooled.json"):
+        assert (default.path / name).read_bytes() == (explicit.path / name).read_bytes(), name
+    # ...and the MANIFEST too, minus the three fields that differ BY CONSTRUCTION once `now` is distinct:
+    # the id is composed from `now`, `created_at` IS `now`, and `timings` are wall clocks. Excluded by
+    # name rather than comparing a handful of fields, so the assertion stays honest as the manifest grows.
+    moving = {"run_id", "created_at", "timings"}
+    a = {k: v for k, v in default.manifest.model_dump(mode="json").items() if k not in moving}
+    b = {k: v for k, v in explicit.manifest.model_dump(mode="json").items() if k not in moving}
+    assert a == b
     assert default.manifest.mirror.hash == explicit.manifest.mirror.hash
     # the record export is a straight copy, so its per-table accounting is the identity -- stated, so a
     # record run's manifest is as informative about the tape's size as a public run's

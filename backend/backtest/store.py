@@ -100,7 +100,9 @@ def create_run_dir(run_id: str, root: str | Path | None = None) -> Path:
             f"run {run_id!r} already exists at {path}. A run id is composed of: {parts} — so this "
             f"collided only because EVERY one of those agreed with an existing run, inside the same "
             f"second. A run is immutable and may already have been cited, so this refuses rather than "
-            f"overwriting it: change the hypothesis, move a dial, or wait a second."
+            f"overwriting it: change the hypothesis, move a dial, or wait a second. IN A TEST, pass "
+            f"distinct `now=` values to `execute` — two runs of identical inputs inside one second "
+            f"became reachable once the tape memo made a seed-sized run sub-second."
         ) from exc
     return path
 

@@ -254,7 +254,14 @@ def make_run_id(
     whole span: a pass tiles DISJOINT windows, so starts are unique within it; the manifest carries both
     ends authoritatively; and the residual case (same start, different length, same second, same dials)
     still raises a legible ``RunDirExists`` naming every component. Omitted (``None``) it is absent from
-    the id entirely, so a run launched without a window concept reads exactly as it did before."""
+    the id entirely, so a run launched without a window concept reads exactly as it did before.
+
+    **TESTS: two ``execute()`` calls with identical inputs inside ONE second is reachable, and became so
+    after M1** — a seed-sized run now finishes in well under a second, so a test that runs the same thing
+    twice on one root collides on ``create_run_dir``. It is not flaky, it is timing-dependent, which is
+    worse: it passed on a slow Windows box and failed on CI. Pass distinct ``now=`` values (this function
+    composes the id from that parameter), or a distinct ``hypothesis`` where the test's point IS the
+    timestamp."""
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     window = f"w{window_start.strftime('%Y%m%d')}-" if window_start is not None else ""
     return f"{stamp}-{slugify(clock)}-{window}{slugify(hypothesis)}-{short_hash(config_hash(cfg))}"

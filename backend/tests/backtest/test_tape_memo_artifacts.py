@@ -50,8 +50,10 @@ def test_the_memo_leaves_the_run_artifacts_byte_identical(db, tmp_path, monkeypa
     mirror = tmp_path / "mirror"
     export_snapshot(db, mirror)
 
-    memo = run_mod.execute(
-        db,
+    # DISTINCT `now=`: the run id is composed from it, and two `execute()` calls with identical inputs
+    # inside one second collide on `create_run_dir`. That became reachable the moment M1 made a
+    # seed-sized run sub-second -- this test is one of the two that can hit it.
+    kw = dict(
         start=_START,
         end=_END,
         pin=_PIN,
@@ -60,18 +62,10 @@ def test_the_memo_leaves_the_run_artifacts_byte_identical(db, tmp_path, monkeypa
         null_seed=_SEED,
         root=tmp_path / "store",
     )
+    memo = run_mod.execute(db, now=datetime(2026, 9, 18, 4, 0, 0, tzinfo=timezone.utc), **kw)
     # ...and again through the reader as it was before M1
     monkeypatch.setattr(run_mod, "RealizedPrices", _PreMemoRealizedPrices)
-    pre = run_mod.execute(
-        db,
-        start=_START,
-        end=_END,
-        pin=_PIN,
-        mirror_dir=mirror,
-        null_draws=5,
-        null_seed=_SEED,
-        root=tmp_path / "store",
-    )
+    pre = run_mod.execute(db, now=datetime(2026, 9, 18, 4, 0, 1, tzinfo=timezone.utc), **kw)
 
     for name in ("episodes.parquet", "outcomes.parquet", "pooled.json"):
         assert (memo.path / name).read_bytes() == (pre.path / name).read_bytes(), name

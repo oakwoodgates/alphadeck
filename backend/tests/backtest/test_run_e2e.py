@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -107,6 +108,52 @@ def test_a_run_is_registered_and_names_the_dials_it_moved(db, tmp_path):
     assert row.decision_rule == "plateau, not argmax"
     assert row.config_hash == config_hash(cfg)
     assert outcome.manifest.overlay_diff["insider_core_alpha_liveness_days"]["run"] == 90
+
+
+def test_no_test_runs_two_executes_on_one_root_without_pinning_now():
+    """THE CLASS, guarded structurally so it cannot come back.
+
+    Two ``execute()`` calls with identical inputs inside one second collide on ``create_run_dir`` — and
+    that became reachable the moment M1 made a seed-sized run sub-second. The failure is worse than flaky:
+    it is timing-dependent, so it passed on a slow Windows box and failed on CI. The fix is per-call
+    ``now=`` (the run id is composed from it), and this walks the suite's own AST to keep it that way
+    rather than trusting the next author to remember.
+
+    Scanned rather than asserted on one file, because the trap is not local to any of them: it appears
+    wherever a test wants to compare two runs, which is exactly what a parity or no-op test does."""
+    import ast
+
+    offenders: list[str] = []
+    for f in sorted(Path(__file__).resolve().parents[1].rglob("test_*.py")):
+        for fn in [
+            n
+            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))
+            if isinstance(n, ast.FunctionDef)
+        ]:
+            calls = []
+            for c in ast.walk(fn):
+                if not isinstance(c, ast.Call):
+                    continue
+                fun = c.func
+                name = (
+                    fun.id
+                    if isinstance(fun, ast.Name)
+                    else (fun.attr if isinstance(fun, ast.Attribute) else "")
+                )
+                # a DB cursor's .execute(sql) is a different thing entirely
+                if name != "execute" or (
+                    isinstance(fun, ast.Attribute)
+                    and isinstance(fun.value, ast.Name)
+                    and fun.value.id in {"cur", "con", "conn", "db", "self"}
+                ):
+                    continue
+                calls.append(c)
+            if len(calls) > 1 and not all(any(k.arg == "now" for k in c.keywords) for c in calls):
+                offenders.append(f"{f.name}::{fn.name}")
+    assert not offenders, (
+        "these tests call execute() more than once without pinning `now=` on every call, so they "
+        f"collide on the run id whenever both finish inside one second: {offenders}"
+    )
 
 
 @pytest.mark.slow
