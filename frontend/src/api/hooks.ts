@@ -1296,11 +1296,33 @@ export function useBacktestRun(runId: string | null) {
   });
 }
 
-export function useBacktestSweep() {
+export type BacktestSweepRefOut = components["schemas"]["BacktestSweepRefOut"];
+
+/** Every KEPT curve as a header — what the curve switcher is built from. `sweep.json` is latest-only,
+ *  so before this a six-dial pass's other five curves were unreachable from the page. */
+export function useBacktestSweeps() {
   return useQuery({
-    queryKey: ["backtest-sweep"] as const,
+    queryKey: ["backtest-sweeps"] as const,
     queryFn: async () => {
-      const { data, error } = await api.GET("/backtest/sweep");
+      const { data, error } = await api.GET("/backtest/sweeps");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** One curve: the latest when nothing is selected (unchanged, so an old link still resolves), or the
+ *  named one from a pass's kept copies. The selection takes THREE parts because one pass may carry the
+ *  same dial read pooled AND read on one family, and those are two measurements. */
+export function useBacktestSweep(
+  sel: { pass_id: string; dial: string; metric_slice: string } | null = null,
+) {
+  return useQuery({
+    queryKey: ["backtest-sweep", sel?.pass_id ?? null, sel?.dial ?? null, sel?.metric_slice ?? null],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/backtest/sweep", {
+        params: { query: sel ?? {} },
+      });
       if (error) throw error;
       return data;
     },

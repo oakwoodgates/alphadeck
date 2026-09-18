@@ -88,8 +88,9 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                   <th title="the same delta recomputed on each disjoint window, in the order above">
                     Windows
                   </th>
-                  <th title="every window moved the same way — a delta that reverses when the window is cut has found nothing. Under the strict rule a window that did not move, or that held no episode to move, withholds agreement rather than granting it.">
+                  <th title="every window moved the same way — a delta that reverses when the window is cut has found nothing. Under the strict rule a window that did not move, or that held no episode to move, withholds agreement rather than granting it. The column answers under the rule THIS band was keyed on; the cell's tooltip carries all three.">
                     Holds its sign
+                    <em className="hint"> · {v.plateauRule.replaceAll("_", " ")}</em>
                   </th>
                   <th title="the contiguous band of settings that behave alike; a band one point wide is not a band">
                     Plateau
@@ -136,7 +137,15 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                         (statusLine(p) ? ` · windows: ${statusLine(p)}` : "")
                       }
                     >
-                      {p.isBaseline ? "—" : agreesUnderBandRule(v, p) ? "yes" : "no"}
+                      {p.isBaseline ? (
+                        <span title="the reference point — its deltas are zero against itself by construction, so it has nothing to agree or disagree with">
+                          —
+                        </span>
+                      ) : agreesUnderBandRule(v, p) ? (
+                        "yes"
+                      ) : (
+                        "no"
+                      )}
                     </td>
                     <td>{p.inPlateau ? "in band" : "—"}</td>
                   </tr>

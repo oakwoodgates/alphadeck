@@ -1285,6 +1285,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backtest/sweeps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sweeps
+         * @description Every KEPT curve as a header, newest pass first — what a curve switcher is built from.
+         *
+         *     A pass writes one curve per dial and `sweep.json` holds only the last of them, so before this the
+         *     other five were unreachable from the surface the moment the sixth was written. Headers only: the
+         *     points stay behind `/backtest/sweep`, because a listing that parsed every point of every curve would
+         *     make the page's cost grow with the store's history.
+         */
+        get: operations["list_sweeps_backtest_sweeps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/sweep": {
         parameters: {
             query?: never;
@@ -1294,11 +1319,17 @@ export interface paths {
         };
         /**
          * Read Sweep
-         * @description The latest sweep curve, or `available: false` when none has been run.
+         * @description One sweep curve: the LATEST by default, or a named one from the pass's kept copies.
          *
-         *     SINGULAR and latest-only because `backtest.sweep` writes one `sweep.json` per store. Each point on
-         *     the curve cites its own run_id, so the underlying runs stay addressable through `/backtest/runs/{id}`
-         *     even though the curve itself is overwritten by the next sweep.
+         *     Unselected, this is `sweep.json` at the store root — latest-only, unchanged, so a link made before
+         *     the curves became addressable still resolves to what it always did. Selected, it is the kept copy
+         *     under `sweeps/`, and the selection takes THREE parts because one pass may carry the same dial twice —
+         *     read pooled and read on one family — and those are two different measurements.
+         *
+         *     A selection that matches nothing returns `available: false` rather than a 404, the same way an unknown
+         *     run does: one code path on the front end, and a stale link reads as "not here" rather than as an
+         *     error. Each point cites its own run_id either way, so the runs behind any curve stay addressable
+         *     through `/backtest/runs/{id}`.
          */
         get: operations["read_sweep_backtest_sweep_get"];
         put?: never;
@@ -1933,10 +1964,97 @@ export interface components {
             };
         };
         /**
+         * BacktestSweepRefOut
+         * @description ONE CURVE'S HEADER — what a reader picks by, never its points.
+         *
+         *     A store accumulates curves and a switcher that listed them would otherwise parse every point of every
+         *     one. These are the fields a choice is made on (which pass, which dial, which slice, which window,
+         *     what was pre-registered) plus the two that decide whether two curves may be read together AT ALL: the
+         *     clock they were swept on and the mirror they were swept over.
+         */
+        BacktestSweepRefOut: {
+            /** Pass Id */
+            pass_id: string;
+            /** Dial */
+            dial: string;
+            /** Dial Names */
+            dial_names?: string[];
+            /**
+             * Metric Slice
+             * @default
+             */
+            metric_slice: string;
+            /**
+             * Hypothesis
+             * @default
+             */
+            hypothesis: string;
+            /**
+             * Decision Rule
+             * @default
+             */
+            decision_rule: string;
+            /**
+             * Clock
+             * @default record
+             */
+            clock: string;
+            /**
+             * Window Start
+             * @default
+             */
+            window_start: string;
+            /**
+             * Window End
+             * @default
+             */
+            window_end: string;
+            /**
+             * N Windows
+             * @default 0
+             */
+            n_windows: number;
+            /**
+             * N Points
+             * @default 0
+             */
+            n_points: number;
+            /**
+             * Plateau Width
+             * @default 0
+             */
+            plateau_width: number;
+            /**
+             * Plateau Rule
+             * @default sign_agreement
+             */
+            plateau_rule: string;
+            /**
+             * Mirror Hash
+             * @default
+             */
+            mirror_hash: string;
+            /**
+             * Mirror Reused
+             * @default false
+             */
+            mirror_reused: boolean;
+            /** Pass Curves */
+            pass_curves?: string[];
+        };
+        /**
          * BacktestSweepResponse
-         * @description The sweep curve. LATEST-ONLY — `backtest.sweep` writes one `sweep.json` per store, so a second
-         *     sweep overwrites the first. Each point cites its own run_id, so the evidence survives even though the
-         *     curve does not; making sweeps addressable is the noted follow-up.
+         * @description One sweep curve.
+         *
+         *     `sweep.json` at the store root is LATEST-ONLY and is what comes back when nothing is selected — a
+         *     bookmark from before the curves were addressable still resolves. With a selection it is the KEPT copy
+         *     under `sweeps/`, which is what makes a pass's other curves reachable: a six-dial pass wrote six, and
+         *     five of them were unreachable the instant the sixth landed.
+         *
+         *     The curve itself rides as an opaque object on purpose. It is the sweep report's own model, published
+         *     by the writer and read by the surface; re-declaring ~20 fields here would create a second place for
+         *     the artifact's shape to drift from itself, and the surface already degrades field by field (a curve
+         *     written before a field simply does not carry it).
          */
         BacktestSweepResponse: {
             /** Available */
@@ -1945,6 +2063,24 @@ export interface components {
             sweep?: {
                 [key: string]: unknown;
             } | null;
+            /** Pass Id */
+            pass_id?: string | null;
+            /** Dial */
+            dial?: string | null;
+            /** Metric Slice */
+            metric_slice?: string | null;
+            /** Labels */
+            labels?: string[];
+        };
+        /**
+         * BacktestSweepsResponse
+         * @description Every kept curve, newest pass first. `available: false` when this stack has no store.
+         */
+        BacktestSweepsResponse: {
+            /** Available */
+            available: boolean;
+            /** Sweeps */
+            sweeps?: components["schemas"]["BacktestSweepRefOut"][];
             /** Labels */
             labels?: string[];
         };
@@ -6597,7 +6733,7 @@ export interface operations {
             };
         };
     };
-    read_sweep_backtest_sweep_get: {
+    list_sweeps_backtest_sweeps_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6612,7 +6748,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["BacktestSweepsResponse"];
+                };
+            };
+        };
+    };
+    read_sweep_backtest_sweep_get: {
+        parameters: {
+            query?: {
+                /** @description the pass whose curve to serve */
+                pass_id?: string | null;
+                /** @description the curve's dial key within that pass */
+                dial?: string | null;
+                /** @description the algorithm slice the curve was READ on, e.g. key1_source=ratified_catalyst. Empty string selects the pooled reading specifically; omitted matches either. */
+                metric_slice?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["BacktestSweepResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
