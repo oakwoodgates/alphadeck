@@ -24,6 +24,13 @@ export type SweepPointView = {
   /** The delta recomputed on each WINDOW, in the report's window order. */
   windowDeltas: (number | null)[];
   signAgreement: boolean;
+  /** Every window strictly the same non-zero direction, and none unmeasurable — the rule from
+   *  2026-09-18. Reported BESIDE `signAgreement`, which is never rewritten, so a pass registered under
+   *  the older rule can still be read the way it was registered. */
+  strictSignAgreement: boolean;
+  /** `moved_up | moved_down | unchanged | unmeasurable` per window, in window order. An unmeasurable
+   *  window held no episode this dial could touch — it is not a zero. */
+  windowStatus: string[];
   isBaseline: boolean;
   /** Two dial settings that resolve to the same config are ONE measurement — usually the baseline, which
    *  every ladder containing the production default shares. Shown so a shared point is never read as an
@@ -57,6 +64,15 @@ export type SweepView = {
   baselineConfigShort: string;
   mirrorHash: string;
   banner: string;
+  /** WHICH cross-window agreement the band was keyed on. `strict_sign_agreement` (every window moved
+   *  the same way, none unchanged and none unmeasurable) is the rule for passes registered from
+   *  2026-09-18 on; `sign_agreement` is what the first pre-registered pass was read under, and a curve
+   *  written before the field is one whose band used that rule — the fallback states a fact. */
+  plateauRule: string;
+  /** `key1_source=ratified_catalyst` when this curve was read on ONE algorithm slice, else empty. Said
+   *  loudly on the surface because every n, level and delta on a sliced curve is the SLICE's: read
+   *  against the pool they would all be wrong. */
+  metricSlice: string;
   points: SweepPointView[];
   plateauWidth: number;
 };
@@ -101,6 +117,8 @@ export function readSweep(raw: unknown): SweepView | null {
       delta: num(o.delta_vs_baseline),
       windowDeltas: deltas.map(num),
       signAgreement: o.sign_agreement === true,
+      strictSignAgreement: o.strict_sign_agreement === true,
+      windowStatus: Array.isArray(o.window_status) ? o.window_status.map((w) => String(w)) : [],
       isBaseline: o.is_baseline === true,
       runsShared: o.runs_shared === true,
       inPlateau: plateau.has(i),
@@ -127,6 +145,8 @@ export function readSweep(raw: unknown): SweepView | null {
     baselineConfigShort: str(s.baseline_config_short),
     mirrorHash: str(s.mirror_hash),
     banner: str(s.banner),
+    plateauRule: str(s.plateau_rule, "sign_agreement"),
+    metricSlice: str(s.metric_slice),
     points,
     plateauWidth: plateau.size,
   };
@@ -157,15 +177,44 @@ export function plateauLine(v: SweepView): string {
     return (
       "No plateau: the settings that behaved alike do not form a band wider than a single point. " +
       "That is a sweep finding nothing worth adopting — a lone high point is noise until it has " +
-      "neighbors that agree with it."
+      `neighbors that agree with it. (${ruleLine(v)})`
     );
   }
-  const agreeing = v.points.filter((p) => p.inPlateau && p.signAgreement).length;
+  const agreeing = v.points.filter((p) => p.inPlateau && agreesUnderBandRule(v, p)).length;
   const n = v.windows.length || v.subwindows;
   return (
     `A plateau ${v.plateauWidth} points wide. ` +
     `${agreeing} of them also hold their sign across all ${n} window${n === 1 ? "" : "s"} — ` +
     "a pooled number that cannot survive being recomputed on each window separately has not found " +
-    "anything."
+    `anything. (${ruleLine(v)})`
   );
+}
+
+/** Does this point agree under the rule THIS curve's band was keyed on?
+ *
+ *  Read off the curve rather than fixed, because the rule changed and BOTH fields ride every point: a
+ *  band keyed on the strict rule must not be described with the other rule's counts. */
+export function agreesUnderBandRule(v: SweepView, p: SweepPointView): boolean {
+  return v.plateauRule === "strict_sign_agreement" ? p.strictSignAgreement : p.signAgreement;
+}
+
+/** The band's rule, in the words a reader needs rather than the field name. */
+export function ruleLine(v: SweepView): string {
+  return v.plateauRule === "strict_sign_agreement"
+    ? "band keyed on STRICT agreement: every window moved the same way, none unchanged and none " +
+        "unmeasurable"
+    : "band keyed on the pre-2026-09-18 rule, under which a window that did not move — or held no " +
+        "episode to move — still counts as agreeing";
+}
+
+/** What each window did to a point, in words. The unmeasurable one is what this exists to say out
+ *  loud: it is not a zero, it is a window that held nothing the dial could touch. */
+export function statusLine(p: SweepPointView): string {
+  const words: Record<string, string> = {
+    moved_up: "up",
+    moved_down: "down",
+    unchanged: "no change",
+    unmeasurable: "nothing to measure",
+  };
+  return p.windowStatus.map((st) => words[st] ?? st).join(" · ");
 }

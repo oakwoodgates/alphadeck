@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { fmtDelta, fmtMetric, plateauLine, readSweep } from "../sweep";
+import {
+  agreesUnderBandRule,
+  fmtDelta,
+  fmtMetric,
+  plateauLine,
+  readSweep,
+  statusLine,
+} from "../sweep";
 
 // The sweep's reader and its copy. One rule dominates: a sweep shows a CURVE, never a winner — so the
 // reader preserves the backend's order, marks only the plateau, and the null result ("no plateau") is
@@ -154,5 +161,69 @@ describe("plateauLine", () => {
   it("says so when the sweep has no points at all", () => {
     const v = readSweep(sweep({ points: [], plateau: [] }))!;
     expect(plateauLine(v)).toBe("No points in this sweep.");
+  });
+
+  // A1 — WHICH agreement rule the band is keyed on. The rule changed on 2026-09-18 (strict: every
+  // window moved the same way, none unchanged and none unmeasurable), the older field stays on every
+  // point, and a curve must never be described with the counts of a rule it was not keyed on.
+
+  it("names the rule the band was keyed on, in words", () => {
+    const strict = readSweep(sweep({ plateau_rule: "strict_sign_agreement" }))!;
+    expect(plateauLine(strict)).toContain("STRICT agreement");
+    const old = readSweep(sweep({ plateau_rule: "sign_agreement" }))!;
+    expect(plateauLine(old)).toContain("pre-2026-09-18");
+  });
+
+  it("counts agreement by the BAND's rule, not by whichever field is handy", () => {
+    // Both points agree under the old rule and neither does under the strict one. A band keyed on
+    // strict must not borrow the other rule's count.
+    const raw = sweep({
+      plateau_rule: "strict_sign_agreement",
+      points: [
+        point({ sign_agreement: true, strict_sign_agreement: false }),
+        point({ sign_agreement: true, strict_sign_agreement: false }),
+      ],
+      plateau: [0, 1],
+    });
+    expect(plateauLine(readSweep(raw)!)).toContain("0 of them");
+    const under_old = readSweep({ ...raw, plateau_rule: "sign_agreement" })!;
+    expect(plateauLine(under_old)).toContain("2 of them");
+  });
+
+  it("reads a curve written BEFORE the field as one keyed on the older rule — a fact, not an unknown", () => {
+    const v = readSweep(sweep())!;
+    expect(v.plateauRule).toBe("sign_agreement");
+    expect(agreesUnderBandRule(v, v.points[0])).toBe(true); // it only carries `sign_agreement`
+  });
+});
+
+describe("the window status and the slice (A1)", () => {
+  it("says a window held nothing to measure rather than calling it a zero", () => {
+    const v = readSweep(
+      sweep({
+        points: [
+          point({
+            window_status: ["moved_up", "unmeasurable"],
+            window_deltas: [0.02, null],
+          }),
+        ],
+        plateau: [],
+      }),
+    )!;
+    expect(statusLine(v.points[0])).toBe("up · nothing to measure");
+    expect(fmtDelta(v.points[0].windowDeltas[1])).toBe("—"); // never rendered as 0.0
+  });
+
+  it("distinguishes a window that did not move from one that could not have", () => {
+    const v = readSweep(
+      sweep({ points: [point({ window_status: ["unchanged", "unmeasurable"] })], plateau: [] }),
+    )!;
+    expect(statusLine(v.points[0])).toBe("no change · nothing to measure");
+  });
+
+  it("carries the slice so a sliced curve can never be read against the pool", () => {
+    const v = readSweep(sweep({ metric_slice: "key1_source=ratified_catalyst" }))!;
+    expect(v.metricSlice).toBe("key1_source=ratified_catalyst");
+    expect(readSweep(sweep())!.metricSlice).toBe("");
   });
 });

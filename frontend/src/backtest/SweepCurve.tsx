@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { fmtDelta, fmtMetric, plateauLine, readSweep } from "./sweep";
+import { agreesUnderBandRule, fmtDelta, fmtMetric, plateauLine, readSweep, statusLine } from "./sweep";
 
 // THE SWEEP — a curve, never a winner.
 //
@@ -36,7 +36,7 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
         <em className="hint">
           · {v.dialNames.join(", ") || "no dial named"} · {v.points.length} points ·{" "}
           {v.windows.length || 1} window{(v.windows.length || 1) === 1 ? "" : "s"} · {v.clock} clock ·
-          latest sweep only
+          {v.metricSlice ? ` sliced on ${v.metricSlice} ·` : ""} latest sweep only
         </em>
       </button>
 
@@ -44,6 +44,14 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
         <>
           {v.banner && <div className="sb-banner">{v.banner}</div>}
           <div className="bt-plateau">{plateauLine(v)}</div>
+          {v.metricSlice && (
+            <p className="bt-quiet">
+              READ ON ONE SLICE — {v.metricSlice}. Every episode count, level and delta below is that
+              slice's, not the pool's. A dial that touches a small family cannot move a median over the
+              whole pool, so the slice is the only place its effect can show; read against the pool,
+              every number here would be wrong.
+            </p>
+          )}
           <p className="bt-quiet">
             Window {v.windowStart ?? "—"} → {v.windowEnd ?? "—"} · baseline policy{" "}
             {v.baselineConfigShort || "—"}
@@ -80,7 +88,7 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                   <th title="the same delta recomputed on each disjoint window, in the order above">
                     Windows
                   </th>
-                  <th title="every sub-window moved the same way — a delta that reverses when the window is cut has found nothing">
+                  <th title="every window moved the same way — a delta that reverses when the window is cut has found nothing. Under the strict rule a window that did not move, or that held no episode to move, withholds agreement rather than granting it.">
                     Holds its sign
                   </th>
                   <th title="the contiguous band of settings that behave alike; a band one point wide is not a band">
@@ -119,7 +127,15 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                         ? p.windowDeltas.map((d) => fmtDelta(d)).join(" · ")
                         : "—"}
                     </td>
-                    <td>{p.isBaseline ? "—" : p.signAgreement ? "yes" : "no"}</td>
+                    <td
+                      title={
+                        `strict: ${p.strictSignAgreement ? "yes" : "no"} · pre-registered: ` +
+                        `${p.signAgreement ? "yes" : "no"}` +
+                        (statusLine(p) ? ` · windows: ${statusLine(p)}` : "")
+                      }
+                    >
+                      {p.isBaseline ? "—" : agreesUnderBandRule(v, p) ? "yes" : "no"}
+                    </td>
                     <td>{p.inPlateau ? "in band" : "—"}</td>
                   </tr>
                 ))}

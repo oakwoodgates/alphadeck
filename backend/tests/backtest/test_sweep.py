@@ -44,6 +44,13 @@ def _pt(dials, delta, subs, **over) -> SweepPoint:
             and len(subs) >= 2
             and (all(d >= 0 for d in subs) or all(d <= 0 for d in subs))
         ),
+        # A1: the helper computes BOTH the way `run_pass` does, or the band below would be keyed on a
+        # field this fixture never set -- which would make every plateau test pass for the wrong reason.
+        strict_sign_agreement=(
+            len([d for d in subs if d is not None]) == len(subs)
+            and len(subs) >= 2
+            and (all(d > 0 for d in subs) or all(d < 0 for d in subs))
+        ),
     )
     base.update(over)
     return SweepPoint(**base)
@@ -85,6 +92,27 @@ def test_the_plateau_is_a_BAND_not_a_pick():
 def test_a_sweep_where_nothing_agrees_has_an_EMPTY_plateau():
     points = [_pt({"d": 1}, 0.05, [0.09, -0.01]), _pt({"d": 2}, 0.03, [-0.02, 0.08])]
     assert _plateau(points) == []
+
+
+def test_the_band_is_keyed_on_STRICT_agreement_and_an_UNCHANGED_window_breaks_it():
+    """A1, the operator's ruling of 2026-09-18. A window whose delta is exactly 0.0 satisfies the
+    pre-registered `all(d >= 0)` test, so the old rule counted "the dial had its chance and declined it"
+    as agreement. The band now keys on strict agreement, and the middle point below -- which moves in one
+    window and not in the other -- no longer holds a band together."""
+    points = [
+        _pt({"d": 1}, 0.01, [0.01, 0.01]),
+        _pt({"d": 2}, 0.03, [0.06, 0.0]),  # one real move, one window that did not budge
+        _pt({"d": 3}, 0.04, [0.03, 0.05]),
+        _pt({"d": 4}, 0.02, [0.02, 0.02]),
+    ]
+    assert _plateau(points) == [2, 3]  # the band breaks at the unchanged window
+    # ...and the pass that was REGISTERED under the old rule can still be re-read under it, unrewritten
+    assert _plateau(points, rule="sign_agreement") == [0, 1, 2, 3]
+
+
+def test_the_rule_the_band_used_rides_the_report():
+    """A band is meaningless without it, and two curves read under two rules must not look alike."""
+    assert SweepReport(window_start=_T0, window_end=_T1).plateau_rule == "strict_sign_agreement"
 
 
 # --- sub-period sign agreement ----------------------------------------------------------------------
