@@ -116,6 +116,10 @@ def test_a_representative_detector_dial_lands_in_detector():
         "breakout_volume_mult",
         "revenue_accel_min_yoy",
         "breakdown_dearm_enabled",
+        # A2 — a cap on a published catalyst term. It changes what FIRES (a catalyst can age out under
+        # it), so a cached event stream has to be keyed on it; `tests/signals/test_catalyst_conviction`
+        # proves the behavior, this pins the classification.
+        "catalyst_max_horizon_days",
     ):
         assert dial in p.detector, dial
 

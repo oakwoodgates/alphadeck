@@ -578,7 +578,8 @@ conviction-side liveness horizons:
 | `insider_core_alpha_liveness_days` | 180 | `insider_conviction` |
 | `insider_flip_alpha_liveness_days` | 18 | `insider_conviction` |
 | `revenue_accel_alpha_liveness_days` | 180 | `revenue_acceleration` |
-| `catalyst_default_horizon_days` | (config) | `catalyst_conviction` |
+| `catalyst_default_horizon_days` | 365 | `catalyst_conviction` (the no-term FALLBACK — MEASURED inert on phase 1: every catalyst fact on the tape publishes a term) |
+| `catalyst_max_horizon_days` | `None` | `catalyst_conviction` (A2 — a CAP on the PUBLISHED term; `None` = no cap = today) |
 | `theme_conviction_default_horizon_days` | 365 | `theme_conviction` |
 | `activist_13d_liveness_days` | 180 | `activist_stake` |
 | `corporate_event_items["5.02"].liveness_days` | 90 | `corporate_catalyst` |

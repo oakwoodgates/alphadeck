@@ -21,14 +21,29 @@ _FLIP_SCORE = 0.5
 def liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
     """The catalyst's relevance HORIZON in days — DECOUPLED from grade (unlike insider). When the
     structured record carries an agreement term (``horizon_end``, e.g. a DOE OTA's period of
-    performance), liveness runs to that term; otherwise the configured default. So a provisional (flip)
-    but long-horizon catalyst stays live for its term, while grade still sets entry size.
+    performance), liveness runs to that term, optionally CAPPED; otherwise the configured default. So a
+    provisional (flip) but long-horizon catalyst stays live for its term, while grade still sets entry
+    size.
+
+    **The cap (`cfg.catalyst_max_horizon_days`, A2) applies to the PUBLISHED branch only, and `None` —
+    the default — means no cap, which is byte-identically today.** An agreement's term is a fact about
+    the agreement; how long the EDGE survives is a policy question about this platform, and the two are
+    not the same number. A DOE OTA running to 2029 buys a 1,238-day signal-validity window off one
+    event, and nothing before this dial could ask whether that is too long. It is deliberately NOT
+    applied to `catalyst_default_horizon_days`: that fallback answers "we do not know this agreement's
+    term", the cap answers "we do not believe the edge outlives N days", and each has its own dial so a
+    sweep of either stays interpretable.
 
     Public so the Workbench catalyst-density meter reuses the SAME live-window the back half uses (one
     source of liveness — a name's catalyst is 'live' in the same sense for both)."""
     horizon_end = fact.get("horizon_end")
     if horizon_end is not None:
-        return max((horizon_end - fact["valid_from"]).days, 1)
+        days = max((horizon_end - fact["valid_from"]).days, 1)
+        cap = cfg.catalyst_max_horizon_days
+        # `max(..., 1)` again on the capped value: a zero or negative cap would otherwise produce a
+        # liveness no `entry_signal_is_live` window can contain, which reads as "the catalyst never
+        # fired" rather than as "the cap is nonsense".
+        return max(min(days, cap), 1) if cap is not None else days
     return cfg.catalyst_default_horizon_days
 
 
