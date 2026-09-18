@@ -33,7 +33,7 @@ import json
 import sys
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import median
@@ -47,6 +47,8 @@ from backtest import store
 from backtest.config_overlay import OverlayError, apply_overlay
 from backtest.manifest import mirror_hash
 from backtest.nulls import DEFAULT_DRAWS
+from backtest.pair import Key as PairKey
+from backtest.pair import _split as pair_split
 from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
@@ -81,6 +83,29 @@ class SweepPoint(BaseModel):
     # same config are one measurement, and the baseline is usually shared by every ladder that contains
     # the production default. Stated so a shared point is not read as an independent confirmation.
     runs_shared: bool = False
+
+    # --- PAIRED against the baseline (C). A point's `delta_vs_baseline` answers two questions at once:
+    # moving a liveness dial re-times the episodes the baseline also armed, AND changes which episodes arm
+    # at all. These separate them by pairing on the episode's own identity (thesis, security, arm_date).
+    # A REPORTED DIAGNOSTIC, not part of the decision rule -- the rule still keys on the pooled delta and
+    # its cross-window sign agreement until the operator says otherwise.
+    #: median of the PER-EPISODE differences over the episodes both settings armed
+    paired_delta_vs_baseline: float | None = None
+    #: the same, recomputed per window, in the report's window order
+    paired_window_deltas: list[float | None] = Field(default_factory=list)
+    n_shared: int = 0
+    n_only_point: int = 0
+    n_only_baseline: int = 0
+    #: HOW MANY shared episodes the dial actually moved, and the median change among those. Without them
+    #: `paired_delta_vs_baseline` is a trap: a dial that moves a MINORITY of the shared episodes has a
+    #: paired median of exactly 0.0 because the untouched majority decides it, which reads as "it did
+    #: nothing" when the truth can be "it did a great deal to a third of them". MEASURED on phase 1:
+    #: revenue_accel at 60 d moved 561 of 1931 shared episodes by a median +8.35%, at a paired median of 0.
+    n_changed: int = 0
+    median_change_when_changed: float | None = None
+    #: what the dropped and the added episodes were worth — the composition side of the same delta
+    median_only_baseline: float | None = None
+    median_only_point: float | None = None
 
 
 class SweepReport(BaseModel):
@@ -129,6 +154,10 @@ class SweepReport(BaseModel):
 class _Scored:
     n_episodes: int
     values: list[tuple[date, float]]  # (arm_date, forward_return)
+    #: the same returns KEYED by the episode's own identity, so a point can be paired against the baseline
+    #: without re-reading the Parquet. The key carries the arm date, which is what lets the pairing be
+    #: re-filtered per window from the pooled set.
+    keyed: dict[PairKey, float] = field(default_factory=dict)
 
 
 class MissingRunArtifacts(FileNotFoundError):
@@ -171,15 +200,23 @@ def _read_scored(run_dirs: Path | Sequence[Path]) -> _Scored:
     dirs = [run_dirs] if isinstance(run_dirs, Path) else list(run_dirs)
     n_episodes = 0
     vals: list[tuple[date, float]] = []
+    keyed: dict[PairKey, float] = {}
     for d in dirs:
         table = pq.read_table(d / "outcomes.parquet").to_pylist()
         n_episodes += len(table)
-        vals += [
-            (date.fromisoformat(r["arm_date"]), r["forward_return"])
-            for r in table
-            if r.get("forward_return") is not None and r.get("arm_date")
-        ]
-    return _Scored(n_episodes=n_episodes, values=vals)
+        for r in table:
+            if r.get("forward_return") is None or not r.get("arm_date"):
+                continue
+            vals.append((date.fromisoformat(r["arm_date"]), r["forward_return"]))
+            # The identity columns are what the PAIRING keys on. They are read defensively because the
+            # pooled metric must not depend on them: an artifact written without them (an older engine, a
+            # minimal fixture) still produces a correct curve and simply offers no paired view -- and the
+            # caller checks for an EMPTY keyed set rather than pairing against nothing, which would read
+            # as "every episode is composition" and be worse than reporting no pairing at all.
+            tid, sid = r.get("thesis_id"), r.get("security_id")
+            if tid is not None and sid is not None:
+                keyed[(str(tid), str(sid), str(r["arm_date"]))] = float(r["forward_return"])
+    return _Scored(n_episodes=n_episodes, values=vals, keyed=keyed)
 
 
 def _median_in(scored: _Scored, lo: date, hi: date) -> float | None:
@@ -567,6 +604,33 @@ def run_pass(
                 )
                 deltas.append(None if here is None or there is None else round(here - there, 6))
             p.window_deltas = deltas
+
+            # ...and the PAIRED view of the same comparison, through the one implementation of the
+            # arithmetic (`backtest.pair`), so the CLI and the curve can never drift apart.
+            if baseline is not None and scored is not baseline and scored.keyed and baseline.keyed:
+                whole = pair_split(scored.keyed, baseline.keyed)
+                p.paired_delta_vs_baseline = whole.paired_delta
+                p.n_shared, p.n_only_point = whole.n_shared, whole.n_only_point
+                p.n_only_baseline = whole.n_only_baseline
+                p.n_changed = whole.n_changed
+                p.median_change_when_changed = whole.median_change_when_changed
+                p.median_only_baseline = whole.median_only_baseline
+                p.median_only_point = whole.median_only_point
+                p.paired_window_deltas = [
+                    pair_split(
+                        {
+                            k: v
+                            for k, v in scored.keyed.items()
+                            if lo.isoformat() <= k[2] <= hi.isoformat()
+                        },
+                        {
+                            k: v
+                            for k, v in baseline.keyed.items()
+                            if lo.isoformat() <= k[2] <= hi.isoformat()
+                        },
+                    ).paired_delta
+                    for lo, hi in windows
+                ]
             known = [d for d in deltas if d is not None]
             # EVERY window must agree, and a window with no data does not get to abstain into a yes: a
             # point measurable on only some of the pass has not demonstrated stability. Two is the floor --
@@ -604,8 +668,11 @@ def run_pass(
                     "ACROSS WINDOWS: each point is pooled over disjoint windows that were run as separate "
                     "measurements, and a point that wins pooled but disagrees across them has found "
                     "nothing. Points marked as sharing runs are one measurement cited twice, not two -- "
-                    "the baseline is shared by every curve in this pass. Promotion of any dial remains a "
-                    "separate operator decision, on the back of run ids."
+                    "the baseline is shared by every curve in this pass. The PAIRED fields beside each "
+                    "point (same episodes, re-timed) are a reported DIAGNOSTIC and are not part of the "
+                    "decision rule, which still keys on the pooled delta and its cross-window sign "
+                    "agreement. Promotion of any dial remains a separate operator decision, on the back "
+                    "of run ids."
                 ),
             )
         )

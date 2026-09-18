@@ -369,6 +369,26 @@ Each curve is kept at `sweeps/<pass_id>-<dial>.json`; `sweep.json` keeps its sha
 curve of the pass, so the `/backtest` sweep view renders unchanged. Every report lists the pass's other
 curves in `pass_curves`.
 
+### Separating timing from composition — `backtest.pair`
+
+A point's `delta_vs_baseline` answers two questions at once. Moving a liveness dial re-times the episodes
+the baseline also armed (TIMING) and changes which episodes arm at all (COMPOSITION), and a pooled median
+cannot tell them apart. `python -m backtest.pair --pass-id … --dial … --values 60,90` pairs a point against
+its curve's baseline on the episode's own identity — `(thesis_id, security_id, arm_date)` — and reports,
+per window and pooled: the shared set and how many of it the dial actually MOVED, the median change among
+those, and what the dropped and added episodes were worth. It reads **artifacts only**, so a finished pass
+can be re-interrogated for the cost of reading its own bytes. The same fields ride every curve point
+(`paired_delta_vs_baseline`, `n_shared`, `n_changed`, …) through the same implementation, so the CLI and the
+curve cannot drift.
+
+**The reading trap it exists to prevent, MEASURED on phase 1.** `revenue_accel` at 60 d has a paired median
+of exactly **+0.00%** — and moved **561 of 1931** shared episodes by a median **+8.35%**. The paired median
+is zero because the untouched 70% majority decides it; reporting it alone would say "the dial does nothing
+to shared episodes", which is the opposite of what happened. **Always read `n_changed` beside it.**
+
+The paired block is a reported **diagnostic**. The decision rule still keys on the pooled delta and its
+cross-window sign agreement, and the curve's banner says so.
+
 ### `--resume <pass_id>` — the recovery path
 
 A window job that dies takes the pass down (deliberately: a curve missing a point it believes it measured
@@ -462,6 +482,11 @@ low end asserts "episodes exist" will fail for a correct reason.
   M1 — a lower bound, not a timing; the run was killed, not crashed). The six-week point that replaced it
   measured **60 minutes** pre-memo and **2 m 26 s** post-memo, so the cost model
   (`export + replay/workers + nulls`) is confirmed and the nulls are no longer its dominant term.
+- **Caveats are counted on the MIRROR, not on the source database.** The public clock drops every row it
+  cannot date, so the population a pass actually swept is the exported Parquet and nothing else. The worked
+  example: a count of impossible-date insider facts taken from dev returned 14, but one of them (GS-PA
+  `0001900188-25-000010`) had no `accepted` date on any of its 16 source rows, so the export dropped it as
+  one of the 2,162 null-clock drops and it never reached the mirror. The pass's caveat is 13.
 - **The run picker lists every run.** A phase-1 pass writes ~270 rows into a registry that used to hold a
   handful of standalone experiments. The `pass_id` on every row is what makes them separable; grouping the
   picker by pass is deferred until the operator has seen the need for it.
