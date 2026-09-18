@@ -34,7 +34,8 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
         <span className="chev">▾</span>
         <span className="lbl">Dial sweep — the curve</span>
         <em className="hint">
-          · {v.dialNames.join(", ") || "no dial named"} · {v.points.length} points · {v.clock} clock ·
+          · {v.dialNames.join(", ") || "no dial named"} · {v.points.length} points ·{" "}
+          {v.windows.length || 1} window{(v.windows.length || 1) === 1 ? "" : "s"} · {v.clock} clock ·
           latest sweep only
         </em>
       </button>
@@ -45,11 +46,26 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
           <div className="bt-plateau">{plateauLine(v)}</div>
           <p className="bt-quiet">
             Window {v.windowStart ?? "—"} → {v.windowEnd ?? "—"} · baseline policy{" "}
-            {v.baselineConfigShort || "—"} · one frozen mirror (
+            {v.baselineConfigShort || "—"}
+            {!v.baselineIsDefault &&
+              " (NOT the production dials — this grid does not contain them, so every delta below is" +
+                " relative to a chosen setting, not to today's behavior)"}{" "}
+            · one frozen mirror (
             <span title={v.mirrorHash}>{v.mirrorHash.slice(0, 8) || "—"}</span>), so a difference
             between points is attributable to the dial rather than to the tape moving underneath it.
             Points are in dial order, never in outcome order.
           </p>
+          {v.windows.length > 0 && (
+            <p className="bt-quiet">
+              Each point is one run PER WINDOW, pooled — {v.windows.length} disjoint window
+              {v.windows.length === 1 ? "" : "s"} (
+              {v.windows.map((w) => `${w.start}→${w.end}`).join(" · ")}), {v.concurrency} at a time.
+              Sign agreement below is agreement across those windows, which were run as separate
+              measurements rather than sliced out of one.
+              {v.windows.length === 1 &&
+                " With a single window there is nothing to agree with, so no point can report agreement."}
+            </p>
+          )}
           <div className="sb-scroll">
             <table className="basket bt-sweeptbl">
               <thead>
@@ -61,8 +77,8 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                   <th title="the same metric against the baseline setting, in percentage points">
                     vs baseline
                   </th>
-                  <th title="the same delta recomputed on each disjoint sub-window, in order">
-                    Sub-windows
+                  <th title="the same delta recomputed on each disjoint window, in the order above">
+                    Windows
                   </th>
                   <th title="every sub-window moved the same way — a delta that reverses when the window is cut has found nothing">
                     Holds its sign
@@ -74,12 +90,23 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
               </thead>
               <tbody>
                 {v.points.map((p) => (
-                  <tr key={p.runId} className={p.inPlateau ? "bt-row inband" : "bt-row"}>
-                    <td title={`run ${p.runId} · policy ${p.configShort}`}>
+                  <tr
+                    key={p.runIds.join("-") || p.configShort}
+                    className={p.inPlateau ? "bt-row inband" : "bt-row"}
+                  >
+                    <td title={`runs: ${p.runIds.join(", ") || "—"} · policy ${p.configShort}`}>
                       {p.dials.map((d) => `${d.name}=${d.value}`).join(", ") || "—"}
                       {p.isBaseline && (
                         <span className="sb-badge b-base" title="the production dials">
                           BASELINE
+                        </span>
+                      )}
+                      {p.runsShared && (
+                        <span
+                          className="sb-badge b-base"
+                          title="this setting resolves to the same config as another point — one measurement cited twice, not two"
+                        >
+                          SHARED
                         </span>
                       )}
                     </td>
@@ -88,8 +115,8 @@ export function SweepCurve({ sweep }: { sweep: unknown }) {
                     <td className="bt-v">{fmtMetric(p.metric)}</td>
                     <td className="bt-v">{p.isBaseline ? "—" : fmtDelta(p.delta)}</td>
                     <td className="bt-v">
-                      {p.subwindowDeltas.length
-                        ? p.subwindowDeltas.map((d) => fmtDelta(d)).join(" · ")
+                      {p.windowDeltas.length
+                        ? p.windowDeltas.map((d) => fmtDelta(d)).join(" · ")
                         : "—"}
                     </td>
                     <td>{p.isBaseline ? "—" : p.signAgreement ? "yes" : "no"}</td>

@@ -120,6 +120,7 @@ def execute(
     hypothesis: str | None = None,
     decision_rule: str | None = None,
     regime: str | None = None,
+    pass_id: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     root: str | Path | None = None,
     now: datetime | None = None,
@@ -165,7 +166,11 @@ def execute(
     # the CLOCK is part of the id: the same grid under the same hypothesis on both axes is two
     # measurements run back to back, and without it they collide inside the timestamp's one-second
     # resolution (see backtest/manifest.py::make_run_id)
-    run_id = mf.make_run_id(cfg, hypothesis=hypothesis, now=now, clock=run_clock)
+    # the WINDOW START joins the id (S1): a tiling pass launches one point's window runs concurrently, so
+    # they differ only by window and would otherwise land in the same second with the same everything else
+    run_id = mf.make_run_id(
+        cfg, hypothesis=hypothesis, now=now, clock=run_clock, window_start=start
+    )
     out = store.create_run_dir(run_id, root)  # raises if it somehow already exists
 
     timings: dict[str, float] = {}
@@ -362,6 +367,7 @@ def execute(
         blob = mf.canonical_config_blob(cfg)
         manifest = mf.BacktestManifest(
             run_id=run_id,
+            pass_id=pass_id,
             created_at=now.isoformat(),
             code_sha=mf.resolve_code_sha(),
             window_start=start,
@@ -408,6 +414,7 @@ def execute(
         store.register_run(
             store.RunSummary(
                 run_id=run_id,
+                pass_id=pass_id,
                 created_at=manifest.created_at,
                 hypothesis=hypothesis,
                 decision_rule=decision_rule,
@@ -452,13 +459,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--clock",
         choices=("record", "public"),
-        default="record",
+        # DEFAULT None, not "record". The default lives in `execute` and nowhere else, which is what makes
+        # --mirror-dir inherit: a parser default of "record" is indistinguishable from the operator
+        # TYPING "record", so it had to be dropped when a mirror was supplied -- and dropping it meant a
+        # --clock that disagreed with the mirror was silently ignored instead of refused, exactly against
+        # what this help text promises.
+        default=None,
         help=(
             "which clock the facts enter on -- a property of the MIRROR this run exports. 'record' = "
             "recorded_at, what this system held (the Scoreboard's axis). 'public' = when anyone could "
             "have known (the disclosure instant); it also derives known_at_mode=lockstep, capping the "
             "facts at the end of each session rather than at the run-wide pin, and it EXCLUDES any fact "
-            "table with no declared public clock (the manifest names them and the detectors they blind)."
+            "table with no declared public clock (the manifest names them and the detectors they blind). "
+            "Default: record -- or, with --mirror-dir, the mirror's own clock, which a disagreeing "
+            "--clock is refused against rather than silently overriding."
         ),
     )
     p.add_argument(
@@ -503,6 +517,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--regime", default=None, help="a label for the market regime the window covers")
     p.add_argument(
+        "--mirror-dir",
+        default=None,
+        help=(
+            "replay over an EXISTING frozen mirror instead of exporting one. This is what lets N window "
+            "jobs of one pass share a single tape -- a delta between two runs is attributable to the "
+            "dial only if they swept the same bytes, and a second export is a second snapshot of a "
+            "moving database. The run INHERITS the mirror's clock; passing a --clock that disagrees with "
+            "it is refused before any work is done."
+        ),
+    )
+    p.add_argument(
+        "--pass-id",
+        default=None,
+        help=(
+            "the curve this run is a point of -- one id shared by every run of one sweep, recorded on the "
+            "manifest and in the registry so the grouping survives without sweep.json (which is "
+            "latest-only). Set by the sweep runner; rarely passed by hand."
+        ),
+    )
+    p.add_argument(
         "--out-root", default=None, help="the store root (default: <repo>/data/backtest)"
     )
     return p
@@ -536,7 +570,12 @@ def main(argv: list[str] | None = None) -> int:
             pin=pin,
             cfg=cfg,
             overlay_path=args.config,
+            # UNCONDITIONAL. `execute` resolves None as "inherit the mirror's clock, else record", and
+            # refuses a clock that disagrees with a supplied mirror -- which is only reachable if the flag
+            # actually gets there.
             clock=args.clock,
+            mirror_dir=args.mirror_dir,
+            pass_id=args.pass_id,
             workers=args.workers,
             null_draws=args.null_draws,
             null_seed=args.null_seed,

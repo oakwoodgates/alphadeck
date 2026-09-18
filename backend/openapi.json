@@ -3035,6 +3035,17 @@
             "type": "string",
             "title": "Run Id"
           },
+          "pass_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Id"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -3291,6 +3302,17 @@
           "run_id": {
             "type": "string",
             "title": "Run Id"
+          },
+          "pass_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Id"
           },
           "created_at": {
             "type": "string",

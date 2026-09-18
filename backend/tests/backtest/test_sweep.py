@@ -10,7 +10,6 @@ from backtest.sweep import (
     SweepPoint,
     SweepReport,
     _plateau,
-    _sub_bounds,
     build_parser,
     cfg_for,
     main,
@@ -20,10 +19,14 @@ from backtest.sweep import (
 from domain.config import DEFAULT_CONFIG
 from signals.horizons import call_bounds
 
-# B7 — the SWEEP RUNNER. One year of one regime, with episodes that are not independent, cannot support
-# picking the best-scoring point: that is fitting the tape. So these tests pin the three things that keep
-# a sweep honest -- it reports a CURVE and refuses to name a winner, a point only "agrees" when every
-# disjoint sub-window moves the same way, and the PIT read window widens WITH the dial being swept.
+# B7 — the SWEEP RUNNER. One regime, with episodes that are not independent, cannot support picking the
+# best-scoring point: that is fitting the tape. So these tests pin the three things that keep a sweep
+# honest -- it reports a CURVE and refuses to name a winner, a point only "agrees" when every WINDOW moves
+# the same way, and the PIT read window widens WITH the dial being swept.
+#
+# S1 moved the unit of work to a sub-window, so what used to be "disjoint sub-windows of one run" is now
+# "disjoint windows, each its own run". The tiling itself is tested in `test_windows.py`, which is where
+# `_sub_bounds`'s two tests went when the concept moved.
 
 _T0, _T1 = date(2026, 1, 1), date(2026, 6, 30)
 
@@ -31,11 +34,11 @@ _T0, _T1 = date(2026, 1, 1), date(2026, 6, 30)
 def _pt(dials, delta, subs, **over) -> SweepPoint:
     base = dict(
         dials=dials,
-        run_id="r",
+        run_ids=["r"],
         config_short="abc12345",
         metric=delta,
         delta_vs_baseline=delta,
-        subwindow_deltas=subs,
+        window_deltas=subs,
         sign_agreement=(
             len([d for d in subs if d is not None]) == len(subs)
             and len(subs) >= 2
@@ -85,18 +88,6 @@ def test_a_sweep_where_nothing_agrees_has_an_EMPTY_plateau():
 
 
 # --- sub-period sign agreement ----------------------------------------------------------------------
-
-
-def test_sub_windows_are_disjoint_and_cover_the_whole_window():
-    subs = _sub_bounds(_T0, _T1, 3)
-    assert len(subs) == 3
-    assert subs[0][0] == _T0 and subs[-1][1] == _T1
-    for (_, a_hi), (b_lo, _) in zip(subs, subs[1:], strict=False):  # pairwise, so the tail is short
-        assert (b_lo - a_hi).days == 1  # contiguous, no overlap and no gap
-
-
-def test_a_window_too_short_to_split_degrades_to_one():
-    assert _sub_bounds(_T0, _T0, 4) == [(_T0, _T0)]
 
 
 def test_a_point_that_flips_sign_between_sub_windows_does_not_agree():
@@ -274,12 +265,12 @@ def test_a_sweep_runs_every_point_over_ONE_frozen_mirror(db, tmp_path):
     report = run_sweep(
         db,
         grid={"insider_core_alpha_liveness_days": [90, 180]},
-        start=date(2025, 4, 1),
-        end=date(2026, 6, 1),
+        # two WINDOWS now, each its own run per point (S1) — the same span, split at the same place the
+        # old `subwindows=2` split it, so the numbers this test reads are the numbers it always read
+        windows=[(date(2025, 4, 1), date(2025, 11, 1)), (date(2025, 11, 2), date(2026, 6, 1))],
         pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
         hypothesis="H5 smoke",
         decision_rule="plateau, not argmax",
-        subwindows=2,
         root=tmp_path,
     )
     assert len(report.points) == 2
@@ -288,16 +279,22 @@ def test_a_sweep_runs_every_point_over_ONE_frozen_mirror(db, tmp_path):
     from backtest.manifest import read_manifest
 
     hashes = set()
+    pass_ids = set()
     for p in report.points:
-        d = store.run_dir(p.run_id, tmp_path)
-        assert d is not None
-        m = read_manifest(d)
-        assert m is not None
-        hashes.add(m.mirror.hash)
+        assert len(p.run_ids) == len(report.windows)  # a point is one run PER WINDOW
+        for rid in p.run_ids:
+            d = store.run_dir(rid, tmp_path)
+            assert d is not None
+            m = read_manifest(d)
+            assert m is not None
+            hashes.add(m.mirror.hash)
+            pass_ids.add(m.pass_id)
     assert hashes == {report.mirror_hash}
-    assert len(store.list_runs(tmp_path)) == 2
-    # ...and the curve carries a sub-window delta per sub-window, for every point
-    assert all(len(p.subwindow_deltas) == report.subwindows for p in report.points)
+    # 2 points x 2 windows, and every run carries the pass id that groups them into ONE curve
+    assert len(store.list_runs(tmp_path)) == 4
+    assert pass_ids == {report.pass_id}
+    # ...and the curve carries a delta per WINDOW, for every point
+    assert all(len(p.window_deltas) == len(report.windows) for p in report.points)
 
 
 @pytest.mark.slow
@@ -341,12 +338,10 @@ def test_a_sweep_with_WORKERS_and_a_SHARED_MIRROR_matches_the_serial_sweep(db, t
         return run_sweep(
             db,
             grid={"insider_core_alpha_liveness_days": [180, 365]},
-            start=date(2025, 4, 1),
-            end=date(2026, 6, 1),
+            windows=[(date(2025, 4, 1), date(2026, 6, 1))],
             pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
             hypothesis="regression: workers + a shared mirror",
             decision_rule="smoke only",
-            subwindows=2,
             workers=workers,
             null_draws=1,  # the nulls are not what this test is about; keep it cheap
             root=root,
@@ -358,8 +353,8 @@ def test_a_sweep_with_WORKERS_and_a_SHARED_MIRROR_matches_the_serial_sweep(db, t
     hashes = set()
     for s_pt, p_pt in zip(serial.points, parallel.points, strict=True):
         assert s_pt.dials == p_pt.dials
-        s_dir = store.run_dir(s_pt.run_id, tmp_path / "serial")
-        p_dir = store.run_dir(p_pt.run_id, tmp_path / "parallel")
+        s_dir = store.run_dir(s_pt.run_ids[0], tmp_path / "serial")
+        p_dir = store.run_dir(p_pt.run_ids[0], tmp_path / "parallel")
         assert s_dir is not None and p_dir is not None
         s_bytes = (s_dir / "episodes.parquet").read_bytes()
         p_bytes = (p_dir / "episodes.parquet").read_bytes()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -109,6 +110,52 @@ def test_a_run_is_registered_and_names_the_dials_it_moved(db, tmp_path):
     assert outcome.manifest.overlay_diff["insider_core_alpha_liveness_days"]["run"] == 90
 
 
+def test_no_test_runs_two_executes_on_one_root_without_pinning_now():
+    """THE CLASS, guarded structurally so it cannot come back.
+
+    Two ``execute()`` calls with identical inputs inside one second collide on ``create_run_dir`` — and
+    that became reachable the moment M1 made a seed-sized run sub-second. The failure is worse than flaky:
+    it is timing-dependent, so it passed on a slow Windows box and failed on CI. The fix is per-call
+    ``now=`` (the run id is composed from it), and this walks the suite's own AST to keep it that way
+    rather than trusting the next author to remember.
+
+    Scanned rather than asserted on one file, because the trap is not local to any of them: it appears
+    wherever a test wants to compare two runs, which is exactly what a parity or no-op test does."""
+    import ast
+
+    offenders: list[str] = []
+    for f in sorted(Path(__file__).resolve().parents[1].rglob("test_*.py")):
+        for fn in [
+            n
+            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))
+            if isinstance(n, ast.FunctionDef)
+        ]:
+            calls = []
+            for c in ast.walk(fn):
+                if not isinstance(c, ast.Call):
+                    continue
+                fun = c.func
+                name = (
+                    fun.id
+                    if isinstance(fun, ast.Name)
+                    else (fun.attr if isinstance(fun, ast.Attribute) else "")
+                )
+                # a DB cursor's .execute(sql) is a different thing entirely
+                if name != "execute" or (
+                    isinstance(fun, ast.Attribute)
+                    and isinstance(fun.value, ast.Name)
+                    and fun.value.id in {"cur", "con", "conn", "db", "self"}
+                ):
+                    continue
+                calls.append(c)
+            if len(calls) > 1 and not all(any(k.arg == "now" for k in c.keywords) for c in calls):
+                offenders.append(f"{f.name}::{fn.name}")
+    assert not offenders, (
+        "these tests call execute() more than once without pinning `now=` on every call, so they "
+        f"collide on the run id whenever both finish inside one second: {offenders}"
+    )
+
+
 @pytest.mark.slow
 @pytest.mark.timeout(300)
 def test_two_runs_are_two_addressable_trials_not_an_overwrite(db, tmp_path):
@@ -182,17 +229,22 @@ def test_the_cli_reports_a_bad_overlay_without_running(tmp_path, capsys):
     assert "not_a_dial" in capsys.readouterr().err
 
 
-def test_the_cli_offers_both_clocks_and_defaults_to_the_record_one(capsys):
-    """CW opened ``public`` — B2 built the export mode and this runner now reaches it. The DEFAULT stays
-    ``record``: the public clock excludes every fact table with no declared disclosure column, so it is a
-    deliberate choice a run makes, never one it drifts into. Anything else is still refused, because a run
-    that accepted an unknown clock would claim an axis nothing implements.
+def test_the_cli_offers_both_clocks_and_leaves_the_default_to_execute(capsys):
+    """CW opened ``public`` — B2 built the export mode and this runner now reaches it. The effective
+    default is still ``record``: the public clock excludes every fact table with no declared disclosure
+    column, so it is a deliberate choice a run makes, never one it drifts into. Anything else is refused,
+    because a run that accepted an unknown clock would claim an axis nothing implements.
+
+    The PARSER's default is ``None``, though, and that is load-bearing rather than cosmetic (S1): a parser
+    default of "record" cannot be told apart from the operator typing it, so the flag had to be dropped
+    when ``--mirror-dir`` was supplied — and dropping it meant a clock that DISAGREED with the mirror was
+    silently ignored instead of refused. The default lives in ``execute`` and nowhere else.
 
     The wiring itself — what the flag does to the mirror, to ``known_at_mode`` and to a SUPPLIED mirror
     that disagrees — lives in ``tests/backtest/test_clock_wiring.py``."""
     parser = build_parser()
     base = ["--start", "2025-01-01", "--end", "2025-02-01"]
-    assert parser.parse_args(base).clock == "record"
+    assert parser.parse_args(base).clock is None
     assert parser.parse_args([*base, "--clock", "public"]).clock == "public"
     with pytest.raises(SystemExit):
         parser.parse_args([*base, "--clock", "wall"])

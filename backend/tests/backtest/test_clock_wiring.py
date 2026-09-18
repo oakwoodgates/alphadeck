@@ -167,19 +167,34 @@ def test_a_record_run_is_unchanged_and_the_flag_is_a_no_op(db, tmp_path):
     """`clock=record` must be today's run, byte for byte. The default and the explicit flag are run
     against each other rather than against a stored expectation: an outcome snapshot would only pin
     whatever this fixture happens to produce, while equality pins that the argument changed nothing.
+
+    DISTINCT ``now=``, and an explicit shared ``null_seed``. Two ``execute()`` calls with identical inputs
+    collide on ``create_run_dir`` once a seed-sized run is sub-second, which is what M1 made it: this test
+    passed on a slow Windows box and FAILED on CI for exactly that reason. Pinning ``now`` also makes the
+    two run ids deterministic -- and since the null seed defaults to the run id, it has to be pinned too,
+    or the two runs would draw different nulls and the pooled comparison would be measuring the seed.
     """
     pytest.importorskip("duckdb")
     from pipeline.seed import seed_unh
 
     seed_unh(db)
     db.commit()
-    default = execute(db, start=_START, end=_END, pin=_PIN, root=tmp_path)
-    explicit = execute(db, start=_START, end=_END, pin=_PIN, clock="record", root=tmp_path)
+    kw = dict(start=_START, end=_END, pin=_PIN, root=tmp_path, null_seed="cw-record-no-op")
+    default = execute(db, now=datetime(2026, 9, 18, 4, 0, 0, tzinfo=timezone.utc), **kw)
+    explicit = execute(
+        db, clock="record", now=datetime(2026, 9, 18, 4, 0, 1, tzinfo=timezone.utc), **kw
+    )
     assert default.manifest.clock == explicit.manifest.clock == "record"
     assert default.manifest.known_at_mode == explicit.manifest.known_at_mode == "pin"
-    assert (default.path / "episodes.parquet").read_bytes() == (
-        explicit.path / "episodes.parquet"
-    ).read_bytes()
+    for name in ("episodes.parquet", "outcomes.parquet", "pooled.json"):
+        assert (default.path / name).read_bytes() == (explicit.path / name).read_bytes(), name
+    # ...and the MANIFEST too, minus the three fields that differ BY CONSTRUCTION once `now` is distinct:
+    # the id is composed from `now`, `created_at` IS `now`, and `timings` are wall clocks. Excluded by
+    # name rather than comparing a handful of fields, so the assertion stays honest as the manifest grows.
+    moving = {"run_id", "created_at", "timings"}
+    a = {k: v for k, v in default.manifest.model_dump(mode="json").items() if k not in moving}
+    b = {k: v for k, v in explicit.manifest.model_dump(mode="json").items() if k not in moving}
+    assert a == b
     assert default.manifest.mirror.hash == explicit.manifest.mirror.hash
     # the record export is a straight copy, so its per-table accounting is the identity -- stated, so a
     # record run's manifest is as informative about the tape's size as a public run's
@@ -204,12 +219,10 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
     report = run_sweep(
         db,
         grid={"insider_core_alpha_liveness_days": [90, 180]},
-        start=_START,
-        end=_END,
+        windows=[(_START, _END)],
         pin=_PIN,
         hypothesis="CW smoke",
         decision_rule="plateau, not argmax",
-        subwindows=2,
         clock="public",
         root=tmp_path,
     )
@@ -217,7 +230,7 @@ def test_every_point_of_a_sweep_cites_one_mirror_on_one_clock(db, tmp_path):
     assert len(report.points) == 2
     seen = set()
     for p in report.points:
-        d = store.run_dir(p.run_id, tmp_path)
+        d = store.run_dir(p.run_ids[0], tmp_path)
         assert d is not None
         m = read_manifest(d)
         assert m is not None
@@ -251,12 +264,10 @@ def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tm
 
     seed = dict(
         grid={"insider_core_alpha_liveness_days": [180]},
-        start=_START,
-        end=_END,
+        windows=[(_START, _END)],
         pin=_PIN,
         hypothesis="CW smoke",
         decision_rule="plateau, not argmax",
-        subwindows=2,
         root=tmp_path,
     )
     rec = run_sweep(db, clock="record", **seed)
@@ -270,3 +281,79 @@ def test_two_sweeps_on_different_clocks_do_not_overwrite_each_others_tape(db, tm
     ids = {r.run_id for r in store.list_runs(tmp_path)}
     assert len({i for i in ids if "-record-" in i}) == 1
     assert len({i for i in ids if "-public-" in i}) == 1
+
+
+# --- the CLI contract: --clock must REACH execute ---------------------------------------------------------
+
+
+def test_the_cli_refuses_a_clock_that_disagrees_with_a_supplied_mirror(tmp_path, capsys):
+    """THE BUG THIS REPLACES. `main()` used to drop `--clock` whenever `--mirror-dir` was given, because
+    the parser's own default ("record") is indistinguishable from the operator TYPING "record" -- so
+    `--mirror-dir <public mirror> --clock record` ran happily on the public clock while the help text
+    promised a disagreeing clock was refused. The default now lives in `execute` and nowhere else, which
+    is what lets the flag arrive and be checked.
+
+    The mirror is a bare manifest with no Parquet: the refusal has to come BEFORE any work, so reaching
+    the export or the DuckDB open would itself be the failure."""
+    from backtest.run import main
+
+    mirror = _mirror_manifest(tmp_path / "m", {"clock": "public", "tables": {}})
+    with pytest.raises(MirrorClockMismatch) as exc:
+        main(
+            [
+                "--start",
+                str(_START),
+                "--end",
+                str(_END),
+                "--pin",
+                _PIN.isoformat(),
+                "--mirror-dir",
+                str(mirror),
+                "--clock",
+                "record",
+                "--out-root",
+                str(tmp_path / "store"),
+            ]
+        )
+    assert "public" in str(exc.value) and "record" in str(exc.value)
+    assert store.list_runs(tmp_path / "store") == []
+
+
+def test_the_cli_default_is_absent_so_a_mirror_can_be_inherited_from():
+    """A parser default of "record" cannot be told apart from the operator typing it, and that is exactly
+    what made the flag un-refusable. `execute` resolves None as "inherit the mirror's clock, else record",
+    so the DEFAULT lives in one place and the CLI's job is only to pass what it was given."""
+    from backtest.run import build_parser
+
+    base = ["--start", "2025-01-01", "--end", "2025-02-01"]
+    assert build_parser().parse_args(base).clock is None
+    assert build_parser().parse_args([*base, "--clock", "public"]).clock == "public"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_the_cli_with_no_mirror_and_no_flag_still_runs_on_the_record_clock(db, tmp_path):
+    """The default path, unchanged: no mirror and no flag is a record-clock run with a pinned known_at."""
+    pytest.importorskip("duckdb")
+    from backtest.run import main
+    from pipeline.seed import seed_unh
+
+    seed_unh(db)
+    db.commit()
+    assert (
+        main(
+            [
+                "--start",
+                str(_START),
+                "--end",
+                str(_END),
+                "--pin",
+                _PIN.isoformat(),
+                "--out-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    rows = store.list_runs(tmp_path)
+    assert len(rows) == 1 and rows[0].clock == "record" and rows[0].known_at_mode == "pin"
