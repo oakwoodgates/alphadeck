@@ -347,6 +347,45 @@ append their own row, and each write — silently losing one. The registry's who
 registry row, so the grouping survives without `sweep.json` — which is latest-only. The sweep runner also
 copies each curve to `sweeps/<pass_id>-<dials>.json` on the way out.
 
+### One pass, many ladders (S2)
+
+A phase is six dials, and running it as six separate sweeps re-ran the production baseline six times:
+**MEASURED, 45 redundant runs and five redundant exports — about 1.1 h of a 6.5 h pass.** `backtest.sweep`
+therefore takes a repeatable **`--ladder dial=v1,v2,...`**: one curve per ladder, ONE mirror export, one
+`pass_id`, and variants deduplicated by `config_hash` **across** ladders — so the production default, which
+every ladder contains, is measured once per window and cited by all six curves. Points that share runs
+carry `runs_shared`, because one measurement cited six times is not six.
+
+`--ladder` is distinct from `--grid`, which stays a **cartesian** variant set producing ONE curve — H3's
+three arms live on two dials and need exactly that. Passing both is refused rather than resolved.
+
+**Pre-registration.** The RUNS carry the pass's `--hypothesis` / `--decision-rule`, and they have to: the
+baseline run belongs to every curve at once and cannot carry six different texts. Each CURVE carries its
+own on its report, overridable per ladder with `--ladder-hypothesis dial=…` / `--ladder-decision-rule
+dial=…`, and the curve file is the artifact a dial's result is quoted from. A per-ladder override naming a
+dial with no `--ladder` is refused — a typo must not silently substitute the pass's text.
+
+Each curve is kept at `sweeps/<pass_id>-<dial>.json`; `sweep.json` keeps its shape and holds the last
+curve of the pass, so the `/backtest` sweep view renders unchanged. Every report lists the pass's other
+curves in `pass_curves`.
+
+### `--resume <pass_id>` — the recovery path
+
+A window job that dies takes the pass down (deliberately: a curve missing a point it believes it measured
+is worse than a pass that stopped), and the runs that finished stay registered. `--resume` skips every
+`(config, window)` already registered under that pass id **with readable outcomes**, re-runs the rest, and
+assembles the curves from the union. Registration alone does not count as done — a job killed mid-write can
+leave a row and a directory, and reusing it would pool a point over a truncated run.
+
+**The nulls draw identically on a resume, by construction: the seed IS the pass id.** A resumed pass
+continues the same pass rather than minting a new one, and a test pins that the assembled curve equals the
+one an uninterrupted pass produces.
+
+**The trials caveat.** A dead pass's completed runs already count as trials in the registry — `dial_trials`
+includes them, and nothing retracts a measurement that was really made. Resume does not mint new ones,
+which is exactly why it is the cheaper recovery; re-running from scratch would double-count that dial.
+Record a dead pass id in the write-up so the trial count can be read correctly.
+
 **A record sweep and a public sweep are two curves, never one.** They are different experiments: the clock
 is exported into the one shared mirror, every point inherits it, and `SweepReport.clock` records it. The
 mirror directory is named for the clock too, so the same window at the same pin on both axes exports two
@@ -408,6 +447,9 @@ low end asserts "episodes exist" will fail for a correct reason.
   M1 — a lower bound, not a timing; the run was killed, not crashed). The six-week point that replaced it
   measured **60 minutes** pre-memo and **2 m 26 s** post-memo, so the cost model
   (`export + replay/workers + nulls`) is confirmed and the nulls are no longer its dominant term.
+- **The run picker lists every run.** A phase-1 pass writes ~270 rows into a registry that used to hold a
+  handful of standalone experiments. The `pass_id` on every row is what makes them separable; grouping the
+  picker by pass is deferred until the operator has seen the need for it.
 - **`K` is pinned at 5 across the first pass for comparability**, which was the right call when the nulls
   cost an hour a run. At 7 s they cost nothing, and K=20 would make the timing null far less coarse over a
   window of ~30 sessions. Raising it is a pre-registration change and breaks comparability with runs
