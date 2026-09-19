@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Backtest } from "../Backtest";
@@ -340,8 +340,11 @@ describe("Backtest — the pooled panel", () => {
 describe("Backtest — the manifest", () => {
   it("shows which dials moved, and how many runs have moved each one", () => {
     renderPage();
-    expect(screen.getByText("insider_core_alpha_liveness_days")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument(); // the trial count for that dial
+    // Scoped to the manifest card: the dial name now also appears in the run picker's arm header (C),
+    // so an unscoped query would match both. This test is about the manifest, so it looks there.
+    const card = screen.getByRole("region", { name: /What produced this run/ });
+    expect(within(card).getByText("insider_core_alpha_liveness_days")).toBeInTheDocument();
+    expect(within(card).getByText("4")).toBeInTheDocument(); // the trial count for that dial
   });
 
   it("shows the pre-registration when there is one", () => {

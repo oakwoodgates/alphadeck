@@ -1802,14 +1802,25 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .bt-labels li::before { content: "· "; color: var(--txt-4); }
 
 /* the run picker — what a run IS, never how it came out (a picker that ranked runs would be a
-   leaderboard over experiments, and the reader would pick a winner before reading the nulls) */
+   leaderboard over experiments, and the reader would pick a winner before reading the nulls).
+   A pass opens into ARMS (C): one sub-group per policy config, its window runs beneath it. */
+.bt-passes { display: flex; flex-direction: column; gap: 14px; }
+.bt-arms { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+/* the arm sub-header NAMES the policy — which dials it moved, to what value, and how many runs. The
+   rows below carry only what varies run to run, so the arm says the shared part once. */
+.bt-arm { display: flex; flex-direction: column; gap: 5px; }
+.bt-arm-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-family: var(--mono); }
+.bt-arm-head .lbl { font-size: 10.5px; color: var(--txt-2); }
+.bt-arm-head .cfg { font-size: 9.5px; color: var(--txt-4); }
+.bt-arm-head .ct { font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
 .bt-runs { display: flex; flex-wrap: wrap; gap: 8px; }
 .bt-run { font: inherit; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: 0.14s; }
 .bt-run:hover { border-color: var(--leader); background: var(--panel-2); }
 .bt-run.on { border-color: var(--leader); background: var(--panel-2); }
-.bt-run-id { font-family: var(--mono); font-size: 11px; color: var(--txt-1); }
-.bt-run-meta { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); }
-.bt-run-dials { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+/* the window+episode line is the row's content now; the run_id is a muted footer, KEPT as the
+   shareable/citable key but no longer the loud thing on the card */
+.bt-run-meta { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
+.bt-run-id { font-family: var(--mono); font-size: 9px; color: var(--txt-4); }
 
 /* the manifest card — what produced the numbers; not collapsible, because a result without it is an
    anecdote */
