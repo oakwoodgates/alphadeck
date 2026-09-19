@@ -1862,6 +1862,23 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .bt-caveat { font-size: 11px; color: var(--warm); border: 1px dashed color-mix(in srgb, var(--warm) 45%, transparent); border-radius: 8px; padding: 7px 10px; }
 
 .bt-slices th, .bt-sweeptbl th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+/* Sticky headers — the ledger's proven pattern (`.sb-scroll .sb-ledger thead th`) applied to the two
+   backtest tables that share the same scroll container: the pooled slices and the sweep curve. Scoped to
+   these two ON PURPOSE — a blanket `.sb-scroll thead th` would also reach the Scoreboard's own tables.
+   These are simpler than the ledger (no sticky group rows, no sticky first column), so only the header
+   needs it: an OPAQUE background (the base rule has none, so scrolling rows would bleed through), a
+   z-index above the body cells, and the inset-shadow divider IN PLACE OF the border-bottom (keeping both
+   would draw a 2px seam). The `@media (max-width: 880px)` rule that drops `--sb-scroll-max` turns the
+   inner scroll off on narrow screens, so these headers naturally stand down there with the ledger's. */
+.sb-scroll .bt-slices thead th,
+.sb-scroll .bt-sweeptbl thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--bg);
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
 .bt-slices td, .bt-sweeptbl td { padding: 5px 10px 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 11.5px; color: var(--txt-2); white-space: nowrap; }
 .bt-row.gated { color: var(--txt-4); }
 .bt-row.gated td { color: var(--txt-4); }
