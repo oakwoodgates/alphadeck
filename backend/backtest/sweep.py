@@ -381,8 +381,19 @@ def _plateau(points: list[SweepPoint], *, rule: PlateauRule = DEFAULT_PLATEAU_RU
     pass can still be re-read under it -- `rule="sign_agreement"` -- but nothing is ever rewritten to
     claim it was registered under a rule it was not.
 
-    THE BASELINE COUNTS AS AGREEING, and that is deliberate: its delta is 0 by construction, so a band
-    spanning it says "these settings are indistinguishable from today", which is a real and useful answer.
+    THE BASELINE DOES NOT COUNT AS AGREEING under the strict default, and that is not a
+    workaround but a consequence of the rule: the baseline is measured against itself, so
+    its window deltas are all 0.0 (or None where a window held no episode). Every window is
+    `unchanged` or `unmeasurable`, never `moved_up`/`moved_down`, so `strict_sign_agreement`
+    is False and the baseline never enters `agreeing` below. One consequence is worth stating:
+    a SYMMETRIC two-sided improvement -- points that beat the baseline on BOTH sides of it --
+    does not surface as a single band, because the baseline sits between the two improving arms
+    and breaks the contiguous run, so the wider arm is returned alone (the earlier one on a
+    tie). Nothing is lost but the band's SHAPE: every point still carries its `window_deltas`
+    and all three agreement fields, so the two-sided lift stays readable point by point. Under
+    the old `sign_agreement` rule (see above) the baseline's all-zero deltas DID agree, which
+    is what the previous wording described; that reading survives only under
+    `rule="sign_agreement"`.
 
     A POINT CAN AGREE ACROSS WINDOWS AND STILL FALL OUTSIDE THE BAND, and the first real sweep hit
     exactly that: at 365 days both halves moved +0.15% and +0.11% while the POOLED delta was -0.03%.
@@ -1084,6 +1095,18 @@ def parse_values(raw: str) -> list[Any]:
     return out
 
 
+def sliced_plateau_warning(ladders: Sequence[Ladder], plateau_rule: PlateauRule) -> str | None:
+    """A sliced curve has unmeasurable windows by construction, so any rule but
+    `strict_measurable_agreement` reports an EMPTY band. The one-line warning, or None."""
+    if any(lad.metric_slice for lad in ladders) and plateau_rule != "strict_measurable_agreement":
+        return (
+            "WARNING: a sliced curve has unmeasurable windows by construction, so --plateau-rule "
+            f"{plateau_rule} will report an EMPTY band. Pass --plateau-rule "
+            "strict_measurable_agreement to key the band on the windows that could answer."
+        )
+    return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="backtest.sweep",
@@ -1291,6 +1314,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    if warning := sliced_plateau_warning(ladders, args.plateau_rule):
+        print(warning, file=sys.stderr)
 
     pin = datetime.fromisoformat(args.pin) if args.pin else datetime.now(timezone.utc)
     if pin.tzinfo is None:

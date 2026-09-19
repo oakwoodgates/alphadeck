@@ -172,7 +172,8 @@ def list_sweeps(root: str | Path | None = None) -> list[dict[str, Any]]:
             }
         )
     # Newest pass first: a pass id begins with its own UTC timestamp, so this is chronological without
-    # a second field to trust. Within a pass, the dial order the writer used.
+    # a second field to trust. Within a pass this is reverse-lexicographic by (dial, slice) -- NOT
+    # the writer's ladder order, which is preserved separately in each row's `pass_curves`.
     out.sort(key=lambda r: (r["pass_id"], r["dial"], r["metric_slice"]), reverse=True)
     return out
 
@@ -200,6 +201,10 @@ def read_sweep(
     d = Path(root or store.DEFAULT_ROOT) / SWEEPS_DIRNAME
     if not d.is_dir():
         return None
+    # PARTIAL selection (not all three parts) can match several curves; this returns the FIRST in
+    # ascending filename order -- the OLDEST pass -- whereas list_sweeps is newest-first. The
+    # /backtest route always sends the full, unique (pass_id, dial, metric_slice) triple, so order
+    # only matters to a library/manual caller; kept explicit so the asymmetry isn't read as a bug.
     for path in sorted(d.glob("*.json")):
         blob = _read_json(path)
         if not isinstance(blob, dict):

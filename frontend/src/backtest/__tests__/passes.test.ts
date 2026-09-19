@@ -125,6 +125,11 @@ describe("the calibration heuristic", () => {
         "H5: the conviction-side horizons are the timing lever",
       ),
     ).toBe(false);
+    // A word merely CONTAINING a calibration word (e.g. "recalibrate") is not a smoke — word-boundary
+    // matched, so this real pass is not collapsed.
+    expect(
+      looksLikeCalibration("20260918T034500Z-public-h9", "we recalibrate the exit horizons"),
+    ).toBe(false);
   });
 });
 
