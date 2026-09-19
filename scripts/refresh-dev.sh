@@ -32,7 +32,6 @@ set -euo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 # --- constants ---------------------------------------------------------------------------------------
-PROD_PROJECT="alphadeck"
 DEV_PROJECT="alphadeck_dev"
 DEV_DB="alphadeck_dev"
 PROD_APPDATA_VOL="alphadeck_appdata"       # prod's named appdata volume (project alphadeck)
@@ -104,7 +103,7 @@ cd "$REPO_ROOT" || fail "cannot cd to repo root: $REPO_ROOT"
 # --fresh: a brand-new read-only pg_dump of PROD, then use it.
 if [ "$SOURCE" = "fresh" ]; then
   say "resolving the prod backend container (for a fresh pre-refresh dump)"
-  PROD_BACKEND="$(docker compose -p "$PROD_PROJECT" ps -q backend || true)"
+  PROD_BACKEND="$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps -q backend || true)"
   [ -n "$PROD_BACKEND" ] || fail "prod backend not running — start prod (make prod-up) for --fresh, or use --from-latest"
   say "dumping prod (READ-ONLY): pipeline.backup --label pre-refresh"
   docker exec "$PROD_BACKEND" python -m pipeline.backup --label pre-refresh \

@@ -39,7 +39,7 @@ read it before reaching for it.
 
 1. **Back up prod first** (one-way Slice-4 dump to `./data/backups`, safe):
    ```
-   docker compose exec backend python -m pipeline.backup --label pre-deploy
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m pipeline.backup --label pre-deploy
    ```
 2. **Fast-forward the main checkout** (it can be behind by more than your PR — a prior
    dev-detour leaves local `main` behind origin):
@@ -47,15 +47,17 @@ read it before reaching for it.
    git checkout main && git pull --ff-only origin main
    ```
 3. **Rebuild only the changed service(s)** — `--no-deps` keeps postgres + cron untouched
-   (but a daily-pipeline change must rebuild cron too — the **cron caveat** below); plain
-   `docker compose` auto-loads `.env` and resolves to project `alphadeck`.
+   (but a daily-pipeline change must rebuild cron too — the **cron caveat** below); the
+   explicit prod form `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+   auto-loads `.env`, resolves to project `alphadeck`, and adds the read-only `/backtest`
+   archive bind.
    **Prefix every backend/cron rebuild with `GIT_SHA=$(git rev-parse HEAD)`** — see the
    `GIT_SHA` note below for what it is and what happens if you forget:
    ```
-   docker compose up -d --build --no-deps frontend           # FE change (no GIT_SHA needed)
-   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps frontend backend
-   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps cron
-   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps backend cron   # both halves
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend   # FE change (no GIT_SHA needed)
+   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend backend
+   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps cron
+   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps backend cron   # both halves
    ```
 
    **`GIT_SHA` — stamp the code onto the record (F1, migration `0044`).** The backend and cron
@@ -148,6 +150,40 @@ backend, a bind mount) built from code that exists nowhere in git.
 
 ---
 
+## The `/backtest` archive (prod only)
+
+Prod's `/backtest` page serves a FROZEN, read-only archive — the promoted keeper passes
+copied into `data/backtest_prod` and bound read-only by `docker-compose.prod.yml`
+(`./data/backtest_prod -> /data/backtest:ro`). It is decoupled from dev backtest runs (dev
+writes `./data/backtest`) and is NOT in the DB backups, so it is rebuilt from the source,
+never restored. `PROD` below = `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+(run from the main-checkout root).
+
+- **A bare `docker compose up` (no prod overlay) omits the bind** — `/backtest` then reports
+  `available:false` (an empty page; nothing else is affected). Re-run with the prod form
+  (`PROD up …`, or `make prod-up`) to restore it. No data is lost — only the bind is missing.
+
+**Build / refresh the archive** (main checkout, backend venv, prod up):
+1. Curate + verify:
+   ```
+   PYTHONPATH=backend backend/.venv/Scripts/python scripts/archive_backtest_prod.py
+   ```
+   copies the three keeper passes (324 runs today) + the one shared mirror + the keeper
+   sweeps into `data/backtest_prod`, asserts the copied mirror's content hash with the
+   store's own `mirror_hash`, and writes a filtered `index.json`. Read-only on the source;
+   a keeper-count mismatch or a bad hash fails loudly, so nothing partial is served.
+2. Recreate the backend to pick up the read-only bind (no `--build`): `PROD up -d --no-deps backend`.
+3. ONLY if the `/backtest` PAGE code changed, rebuild the frontend too:
+   `PROD up -d --build --no-deps frontend`.
+4. Verify: `curl http://localhost:8000/backtest/runs` → `available:true`, with the keeper
+   passes present.
+
+**When a future pass earns promotion:** add its `pass_id` to `KEEPER_PASSES` in
+`scripts/archive_backtest_prod.py` AND bump the `!= 324` count guard to the new run total,
+then re-run step 1 + step 2.
+
+---
+
 ## Safety
 
 - **Prod DB is read-only to deploy** — a deploy rebuilds IMAGES, never touches data.
@@ -162,7 +198,7 @@ backend, a bind mount) built from code that exists nowhere in git.
 - **The cron sidecar is separately imaged.** It builds from the same context as the
   backend (`build: ./backend`) but is its own image (`alphadeck-cron`) / container
   (`alphadeck-cron-1`), so a backend rebuild does NOT refresh it. A change on the nightly
-  `pipeline.daily` path must ALSO `docker compose up -d --build --no-deps cron`, verified
+  `pipeline.daily` path must ALSO `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps cron`, verified
   with `docker ps` (fresh CreatedAt) + `docker logs alphadeck-cron-1` (its next scheduled
   run) — else the 22:30 run silently stays on old code.
 - **The sidecar's SHELL ships in that image too.** `backend/Dockerfile` does `COPY . .`, so
@@ -187,7 +223,7 @@ backend, a bind mount) built from code that exists nowhere in git.
   test, because a bad zone fails **asymmetrically**: `market_tz()` raises a loud `RuntimeError` on the
   next Admin status read or daily run (it is called lazily, so boot is unaffected), while the sidecar's
   shell `date` would silently fall back to UTC and fire `RUN_AT` at the wrong hour.
-- Prefer the targeted `--no-deps <service>` over a bare `docker compose up --build`
+- Prefer the targeted `--no-deps <service>` over a full `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`
   (which rebuilds + restarts the whole stack — still safe, just slower).
 - The prod stack is `restart: unless-stopped` — it self-recovers after a daemon/laptop
   reboot; a deploy just swaps in the new image.

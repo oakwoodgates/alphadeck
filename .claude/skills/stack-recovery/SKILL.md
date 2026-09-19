@@ -33,7 +33,7 @@ or an operator action (Docker Desktop). NEVER `docker compose down -v`, never
 4. **Verify the FIX on the /api PROXY** (`:8080/api/health` → 200), not just the SPA or the backend directly — the proxy is what the app actually uses.
 
 ## The deploy gotcha this exists to catch
-A backend rebuild (`docker compose up -d --build --no-deps backend`) **recreates the
+A backend rebuild (`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps backend`) **recreates the
 backend with a new Docker-network IP**. The frontend nginx resolved `backend` at its
 own startup and CACHED that IP → every `/api` call 502s until the frontend restarts.
 So **after any backend rebuild, restart/recreate the frontend too**, and verify

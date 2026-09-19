@@ -166,15 +166,15 @@ Compose on host port 5544.
 
 ```powershell
 # full stack — one command: Postgres + API (migrates + seeds HIMS on start) + the SPA behind nginx
-docker compose up --build                                # app: localhost:8080 · API/docs: localhost:8000/docs
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build   # app: localhost:8080 · API/docs: localhost:8000/docs
 
 # the full-stack `up` above ALSO starts the daily call-of-record cron ("feeds itself", M2d) — ON BY DEFAULT
-docker compose up -d --scale cron=0                      # ...skip the cron sidecar for one run (it's on otherwise)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale cron=0   # ...skip the cron sidecar for one run (it's on otherwise)
 # NB "feeds itself" was literally true only after #196: the EDGAR cache froze insider data ~11 days (cache-first
 # forever) until the key-classed 12h TTL. See docs/FEED_LOOP.md + docs/POSTMORTEM_CRON_FREEZE_2026-07.md.
 
 # --- DEV / PROD SPLIT — two isolated stacks, side by side (full model: docs/DEV_PROD.md) ------------
-# PROD is the plain `docker compose up` above (project alphadeck · cron ON · auto-loads .env).
+# PROD is `docker compose -f docker-compose.yml -f docker-compose.prod.yml up` (project alphadeck · cron ON · auto-loads .env · adds the read-only `/backtest` archive bind).
 # DEV = base + the dev override under its OWN project name -> Compose namespaces containers/network/volumes,
 # so dev physically cannot reach prod's pgdata; distinct ports let both run at once; cron is OFF in dev.
 # Run from the MAIN checkout — WORKTREES NEVER RUN THE STACK (that's the worktree-.env gap this closes;

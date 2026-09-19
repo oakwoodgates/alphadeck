@@ -13,11 +13,14 @@ COMPOSE ?= docker compose
 # The dev invocation: base + dev override, its own project name (namespaces containers/network/volumes),
 # and the dev env file for ${VAR} interpolation (--env-file REPLACES the auto-loaded .env for dev).
 DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev
+# The prod invocation: base + the prod overlay (adds the read-only /backtest archive bind). Unlike DEV, prod
+# KEEPS the base project name (alphadeck) and the auto-loaded .env, so it takes NO -p and NO --env-file.
+PROD := $(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml
 
 .PHONY: prod-up dev-up dev-down refresh-dev venv
 
 prod-up: ## PROD stack up (project alphadeck | 8080/8000/5544 | cron ON). Auto-loads .env. Detached.
-	$(COMPOSE) up -d --build
+	$(PROD) up -d --build
 
 dev-up: ## DEV stack up BESIDE prod (project alphadeck_dev | 8081/8001/5545 | cron OFF). Uses .env.dev.
 	$(DEV) up -d --build

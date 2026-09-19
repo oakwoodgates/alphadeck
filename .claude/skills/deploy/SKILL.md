@@ -21,7 +21,7 @@ on any failed precondition; do NOT guess.
 - **Build context = the MAIN checkout**, never a worktree.
 - **Back up prod first:**
   ```
-  docker compose exec backend python -m pipeline.backup --label pre-deploy
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m pipeline.backup --label pre-deploy
   ```
 
 ## Ship to PROD (merged -> live)
@@ -32,9 +32,9 @@ on any failed precondition; do NOT guess.
 2. Rebuild only the changed service(s) — `--no-deps` spares postgres + cron. Prefix any
    backend/cron rebuild with `GIT_SHA=$(git rev-parse HEAD)`:
    ```
-   docker compose up -d --build --no-deps frontend                                   # FE change
-   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps frontend backend
-   GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --no-deps cron         # cron-path change
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend   # FE change
+   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps frontend backend
+   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --no-deps cron   # cron-path change
    ```
    `GIT_SHA` is stamped into the image and recorded as `calls.code_sha` on every call-of-record row
    (F1 / migration 0044), so the record names the code that produced a call. OPTIONAL: unset means
@@ -74,4 +74,4 @@ commit.
 - **Prod DB is read-only** — deploy rebuilds IMAGES, never data. Never
   `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — never rebuild postgres/cron as a side effect of shipping FE/BE.
-- Prefer the targeted `--no-deps <service>` over a bare `docker compose up --build`.
+- Prefer the targeted `--no-deps <service>` over a full `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`.

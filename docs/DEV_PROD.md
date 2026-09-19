@@ -38,7 +38,7 @@ worktrees — full model: `docs/FORKS.md`. (The Signals Lab predates them and st
    and need no `.env`). Running a stack from a worktree is what produced the UA-less-container "TOTAL
    INGEST FAILURE"; keeping the stack in the main checkout closes that gap by construction.
 2. **Two env files at that root** (both gitignored; copy `.env.example`):
-   - `.env` — prod. Compose auto-loads it for the plain `docker compose up`.
+   - `.env` — prod. Compose auto-loads it for the prod form `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`.
    - `.env.dev` — dev. The dev wrapper passes `--env-file .env.dev` (which **replaces** the auto-loaded
      `.env` for `${VAR}` interpolation). Set the same keys (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`,
      …); it's fine for dev to reuse prod's values.
@@ -52,7 +52,7 @@ is authoritative. Bash (Git Bash) and PowerShell forms are identical except wher
 
 ### Prod up (unchanged)
 ```
-docker compose up -d --build          # or: make prod-up
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   # or: make prod-up
 ```
 Project `alphadeck`, ports 8080/8000/5544, cron ON, auto-loads `.env`.
 
@@ -95,7 +95,7 @@ $devpg = docker compose @dev ps -q postgres
 $dump  = (Get-ChildItem .\data\backups\*.sql | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 
 # (optional --fresh: a read-only prod dump first)
-# docker exec $(docker compose -p alphadeck ps -q backend) python -m pipeline.backup --label pre-refresh
+# docker exec $(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps -q backend) python -m pipeline.backup --label pre-refresh
 
 docker exec $devpg psql -U alphadeck -d postgres -c "DROP DATABASE IF EXISTS alphadeck_dev WITH (FORCE)"
 docker exec $devpg psql -U alphadeck -d postgres -c "CREATE DATABASE alphadeck_dev"

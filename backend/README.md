@@ -87,8 +87,8 @@ backend\.venv\Scripts\python -m pipeline.daily                                # 
 Or let the **cron sidecar** run it on the US-close schedule — it's **on by default** in the full stack:
 
 ```powershell
-docker compose up -d --build                                                  # the cron sidecar starts with the stack
-docker compose up -d --scale cron=0                                           # ...or skip it for one run
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   # the cron sidecar starts with the stack
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale cron=0   # ...or skip it for one run
 ```
 
 `app/openapi_export.py` dumps `openapi.json` — the frontend generates its TS types from it (`npm run gen:api`).
