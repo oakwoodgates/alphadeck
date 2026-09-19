@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  armLabel,
   defaultOpen,
+  groupArms,
   groupLabel,
   groupRuns,
   groupSweeps,
@@ -171,5 +173,101 @@ describe("the group header", () => {
   it("marks a calibration group so a reader knows why it is closed", () => {
     const [g] = groupRuns([run({ pass_id: "20260918T032128Z-public-smoke-a" })]);
     expect(groupLabel(g, "run")).toContain("calibration / smoke");
+  });
+});
+
+// ARMS WITHIN A PASS (C). A pass's runs are a policy-arm × window matrix; grouping by config_hash recovers
+// the arms, and the arm names the policy (its dials and their values) once, so the rows carry only the
+// window. Same discipline as the pass grouping: it splits, it never filters, and it names what a run IS.
+
+describe("arms within a pass", () => {
+  it("splits a pass's runs by config_hash", () => {
+    const arms = groupArms([
+      run({ run_id: "b1", config_hash: "h-base", config_short: "base0000", dials_moved: [], dial_values: {} }),
+      run({ run_id: "v1", config_hash: "h-var", config_short: "var00001", dials_moved: ["d"], dial_values: { d: 90 } }),
+      run({
+        run_id: "v2",
+        config_hash: "h-var",
+        config_short: "var00001",
+        dials_moved: ["d"],
+        dial_values: { d: 90 },
+        window_start: "2024-01-01",
+      }),
+    ]);
+    expect(arms).toHaveLength(2);
+    const variant = arms.find((a) => a.configHash === "h-var")!;
+    expect(variant.runs.map((r) => r.run_id)).toEqual(["v1", "v2"]); // both, newest window first
+  });
+
+  it("puts the baseline arm first, then variants by config_short", () => {
+    const arms = groupArms([
+      run({ config_hash: "h-z", config_short: "zzzzzzzz", dials_moved: ["d"], dial_values: { d: 1 } }),
+      run({ config_hash: "h-base", config_short: "aaaaaaaa", dials_moved: [], dial_values: {} }),
+      run({ config_hash: "h-m", config_short: "mmmmmmmm", dials_moved: ["d"], dial_values: { d: 2 } }),
+    ]);
+    expect(arms.map((a) => a.configShort)).toEqual(["aaaaaaaa", "mmmmmmmm", "zzzzzzzz"]);
+    expect(arms[0].dialsMoved).toEqual([]); // the baseline leads, whatever its config_short sorts to
+  });
+
+  it("sorts an arm's runs newest window first", () => {
+    const arms = groupArms([
+      run({ run_id: "old", window_start: "2024-01-01" }),
+      run({ run_id: "new", window_start: "2025-09-01" }),
+    ]);
+    expect(arms[0].runs.map((r) => r.run_id)).toEqual(["new", "old"]);
+  });
+
+  it("labels the baseline as production dials, never with an outcome", () => {
+    const [arm] = groupArms([run({ dials_moved: [], dial_values: {} })]);
+    expect(armLabel(arm)).toBe("baseline · production dials");
+  });
+
+  it("labels a variant with its dial VALUES, from dial_values", () => {
+    const [arm] = groupArms([
+      run({
+        dials_moved: ["insider_core_alpha_liveness_days"],
+        dial_values: { insider_core_alpha_liveness_days: 90 },
+      }),
+    ]);
+    expect(armLabel(arm)).toBe("insider_core_alpha_liveness_days = 90");
+  });
+
+  it("falls back to the bare dial name when the value is absent (a pre-backfill run)", () => {
+    const [arm] = groupArms([
+      run({ dials_moved: ["insider_core_alpha_liveness_days"], dial_values: {} }),
+    ]);
+    expect(armLabel(arm)).toBe("insider_core_alpha_liveness_days");
+  });
+
+  it("takes an arm's values from whichever run carries them, in a mixed store", () => {
+    // Before the operator runs the backfill, a config can have an old value-less row beside a new one that
+    // carries its value; the arm should still be labeled from the run that has it.
+    const arms = groupArms([
+      run({
+        run_id: "pre",
+        config_hash: "h",
+        config_short: "s",
+        dials_moved: ["d"],
+        dial_values: {},
+        window_start: "2025-01-01",
+      }),
+      run({
+        run_id: "post",
+        config_hash: "h",
+        config_short: "s",
+        dials_moved: ["d"],
+        dial_values: { d: 90 },
+        window_start: "2024-01-01",
+      }),
+    ]);
+    expect(arms).toHaveLength(1);
+    expect(armLabel(arms[0])).toBe("d = 90");
+  });
+
+  it("formats a null value as 'none' and an array by join", () => {
+    const [a] = groupArms([run({ dials_moved: ["x"], dial_values: { x: null } })]);
+    expect(armLabel(a)).toBe("x = none");
+    const [b] = groupArms([run({ dials_moved: ["y"], dial_values: { y: ["core", "flip"] } })]);
+    expect(armLabel(b)).toBe("y = core, flip");
   });
 });

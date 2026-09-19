@@ -1802,14 +1802,37 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .bt-labels li::before { content: "· "; color: var(--txt-4); }
 
 /* the run picker — what a run IS, never how it came out (a picker that ranked runs would be a
-   leaderboard over experiments, and the reader would pick a winner before reading the nulls) */
+   leaderboard over experiments, and the reader would pick a winner before reading the nulls).
+   A pass opens into ARMS (C): one sub-group per policy config, its window runs beneath it. */
+.bt-passes { display: flex; flex-direction: column; gap: 14px; }
+.bt-arms { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+/* the arm sub-header NAMES the policy — which dials it moved, to what value, and how many runs. The
+   rows below carry only what varies run to run, so the arm says the shared part once. */
+.bt-arm { display: flex; flex-direction: column; gap: 5px; }
+.bt-arm-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-family: var(--mono); }
+.bt-arm-head .lbl { font-size: 10.5px; color: var(--txt-2); }
+.bt-arm-head .cfg { font-size: 9.5px; color: var(--txt-4); }
+.bt-arm-head .ct { font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
 .bt-runs { display: flex; flex-wrap: wrap; gap: 8px; }
 .bt-run { font: inherit; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: 0.14s; }
 .bt-run:hover { border-color: var(--leader); background: var(--panel-2); }
 .bt-run.on { border-color: var(--leader); background: var(--panel-2); }
-.bt-run-id { font-family: var(--mono); font-size: 11px; color: var(--txt-1); }
-.bt-run-meta { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); }
-.bt-run-dials { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+/* the window+episode line is the row's content now; the run_id is a muted footer, KEPT as the
+   shareable/citable key but no longer the loud thing on the card */
+.bt-run-meta { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
+.bt-run-id { font-family: var(--mono); font-size: 9px; color: var(--txt-4); }
+/* the curve picker cards — the SAME card idiom as the run cards: a prominent lead (the dial + whether it
+   found a band, the two things you pick on) over a muted meta footer. `.bt-curve*` carried no CSS before
+   this, so the cards rendered browser-default. */
+.bt-curves { display: flex; flex-wrap: wrap; gap: 8px; }
+.bt-curve { font: inherit; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: 0.14s; }
+.bt-curve:hover { border-color: var(--leader); background: var(--panel-2); }
+.bt-curve.on { border-color: var(--leader); background: var(--panel-2); }
+.bt-curve-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.bt-curve-dial { font-family: var(--mono); font-size: 11.5px; color: var(--txt-1); }
+.bt-curve-band { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.bt-curve-meta { font-family: var(--mono); font-size: 9px; color: var(--txt-4); }
+.bt-curve-meta em { font-style: normal; }
 
 /* the manifest card — what produced the numbers; not collapsible, because a result without it is an
    anecdote */
@@ -1851,6 +1874,23 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .bt-caveat { font-size: 11px; color: var(--warm); border: 1px dashed color-mix(in srgb, var(--warm) 45%, transparent); border-radius: 8px; padding: 7px 10px; }
 
 .bt-slices th, .bt-sweeptbl th { text-align: left; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--txt-4); padding: 6px 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+/* Sticky headers — the ledger's proven pattern (`.sb-scroll .sb-ledger thead th`) applied to the two
+   backtest tables that share the same scroll container: the pooled slices and the sweep curve. Scoped to
+   these two ON PURPOSE — a blanket `.sb-scroll thead th` would also reach the Scoreboard's own tables.
+   These are simpler than the ledger (no sticky group rows, no sticky first column), so only the header
+   needs it: an OPAQUE background (the base rule has none, so scrolling rows would bleed through), a
+   z-index above the body cells, and the inset-shadow divider IN PLACE OF the border-bottom (keeping both
+   would draw a 2px seam). The `@media (max-width: 880px)` rule that drops `--sb-scroll-max` turns the
+   inner scroll off on narrow screens, so these headers naturally stand down there with the ledger's. */
+.sb-scroll .bt-slices thead th,
+.sb-scroll .bt-sweeptbl thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--bg);
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
 .bt-slices td, .bt-sweeptbl td { padding: 5px 10px 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 11.5px; color: var(--txt-2); white-space: nowrap; }
 .bt-row.gated { color: var(--txt-4); }
 .bt-row.gated td { color: var(--txt-4); }
@@ -1874,6 +1914,17 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 
 /* the per-thesis ledger + the sweep — folded away, same disclosure chrome as the replay panel */
 .bt-ledger, .bt-sweep { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--line-2); display: flex; flex-direction: column; gap: 10px; }
-.bt-plateau { font-size: 11.5px; color: var(--txt-2); }
+/* the sweep's VERDICT — its one answer (band or no band), loud relative to the section. Tonally NEUTRAL
+   for both states: the surface ranks nothing (#4), so neither a band nor the null is colored good/bad —
+   the words carry the result. */
+.bt-verdict { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.bt-verdict .v-head { font-size: 14px; font-weight: 600; color: var(--txt-1); }
+.bt-verdict .v-qual { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
+/* the "How to read this" fold — the methodology caveats are GUARDRAILS, so they are folded (default
+   shut, one click away) rather than deleted. */
+.bt-method-toggle { font: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; }
+.bt-method-toggle:hover { color: var(--txt-2); }
+.bt-method-toggle .chev { font-size: 11px; letter-spacing: 0; }
+.bt-method-body { display: flex; flex-direction: column; gap: 8px; padding-left: 10px; border-left: 2px solid var(--line); }
 /* the breadth lines in the drawer — this run's own fields, which the record's ledger has no concept of */
 .bt-breadth { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }

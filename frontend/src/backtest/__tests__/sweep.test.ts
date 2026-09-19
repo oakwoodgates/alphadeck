@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   agreesUnderBandRule,
+  bandResult,
   fmtDelta,
   fmtMetric,
   plateauLine,
   readSweep,
   statusLine,
   unmeasurableLine,
+  verdictHeadline,
+  verdictQualifier,
 } from "../sweep";
 
 // The sweep's reader and its copy. One rule dominates: a sweep shows a CURVE, never a winner — so the
@@ -315,5 +318,46 @@ describe("strict over the measurable windows (A2b)", () => {
     const v = readSweep(sweep({ plateau_rule: "strict_measurable_agreement" }))!;
     expect(v.points.every((p) => p.strictMeasurableAgreement)).toBe(false);
     expect(v.points.every((p) => p.nUnmeasurable === 0)).toBe(true);
+  });
+});
+
+// THE VERDICT FORMATTERS (issue #3) — the one-line distillation of the plateau result, for the loud
+// headline and the picker's pick-label. Same rule as everything else here: a faithful distillation of the
+// band the backend computed, never a softening of the null and never a best point.
+
+describe("the verdict formatters", () => {
+  it("bandResult names a band by width, or the null plainly", () => {
+    expect(bandResult(3)).toBe("band 3 wide");
+    expect(bandResult(2)).toBe("band 2 wide");
+    expect(bandResult(1)).toBe("no band");
+    expect(bandResult(0)).toBe("no band");
+  });
+
+  it("verdictHeadline distills the SAME plateau — a band by width, or the honest null unambiguously", () => {
+    expect(verdictHeadline(readSweep(sweep())!)).toBe("Band: 2 settings wide"); // plateau [0, 1]
+    expect(verdictHeadline(readSweep(sweep({ plateau: [1] }))!)).toBe("No band — nothing found");
+    expect(verdictHeadline(readSweep(sweep({ points: [], plateau: [] }))!)).toBe(
+      "No points in this sweep",
+    );
+  });
+
+  it("verdictHeadline never names or ranks a best point", () => {
+    const h = verdictHeadline(readSweep(sweep())!).toLowerCase();
+    for (const forbidden of ["best", "winner", "optimal", "argmax", "top"]) {
+      expect(h).not.toContain(forbidden);
+    }
+  });
+
+  it("verdictQualifier names the rule the band was keyed on and the window count", () => {
+    // the base fixture has 2 windows and no plateau_rule, so it reads under the pre-2026-09-18 rule
+    expect(verdictQualifier(readSweep(sweep())!)).toBe("keyed on sign agreement · 2 windows");
+    expect(verdictQualifier(readSweep(sweep({ plateau_rule: "strict_sign_agreement" }))!)).toBe(
+      "keyed on strict sign agreement · 2 windows",
+    );
+  });
+
+  it("verdictQualifier falls back to subwindows when the curve predates the window split", () => {
+    const v = readSweep(sweep({ windows: undefined, subwindows: 3 }))!;
+    expect(verdictQualifier(v)).toBe("keyed on sign agreement · 3 windows");
   });
 });

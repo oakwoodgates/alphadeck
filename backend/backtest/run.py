@@ -431,6 +431,10 @@ def execute(
                 n_theses=manifest.n_theses,
                 n_episodes=manifest.n_episodes,
                 dials_moved=sorted(manifest.overlay_diff),
+                # ...and the value each moved dial took, so the picker can name this run's arm off the
+                # registry row alone. `overlay_diff` is `{dial: {"default", "run"}}` (config_overlay.py):
+                # the "run" side is what this run threaded, which is what names the arm.
+                dial_values={k: v["run"] for k, v in manifest.overlay_diff.items()},
             ),
             root,
         )

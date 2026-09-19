@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { BacktestSweepRefOut } from "../api/hooks";
 import { defaultOpen, groupLabel, groupSweeps } from "./passes";
+import { bandResult } from "./sweep";
 
 // THE CURVE SWITCHER — every curve a pass wrote, not just the last one.
 //
@@ -75,18 +76,21 @@ export function SweepPicker({ sweeps, selected, onSelect }: Props) {
                       }
                       title={c.decision_rule || "no pre-registered decision rule"}
                     >
-                      <span className="bt-curve-dial">{c.dial}</span>
-                      {c.metric_slice && (
-                        <span className="sb-badge b-base" title="read on ONE algorithm family">
-                          {c.metric_slice}
-                        </span>
-                      )}
+                      {/* Lead with the two things you pick a curve on: which dial, and whether it found a
+                          band. Everything else is demoted to the muted meta line below (same medicine the
+                          run cards got). */}
+                      <span className="bt-curve-head">
+                        <span className="bt-curve-dial">{c.dial}</span>
+                        <span className="bt-curve-band">{bandResult(c.plateau_width)}</span>
+                        {c.metric_slice && (
+                          <span className="sb-badge b-base" title="read on ONE algorithm family">
+                            {c.metric_slice}
+                          </span>
+                        )}
+                      </span>
                       <span className="bt-curve-meta">
                         {c.n_points} point{c.n_points === 1 ? "" : "s"} · {c.n_windows} window
                         {c.n_windows === 1 ? "" : "s"} · {c.clock} clock ·{" "}
-                        {c.plateau_width > 1
-                          ? `band ${c.plateau_width} wide`
-                          : "no band (nothing found)"}{" "}
                         <em title="the cross-window agreement the band was keyed on — a band is meaningless without it">
                           keyed on {c.plateau_rule}
                         </em>

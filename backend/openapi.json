@@ -3468,6 +3468,11 @@
             },
             "type": "array",
             "title": "Dials Moved"
+          },
+          "dial_values": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Dial Values"
           }
         },
         "type": "object",

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Backtest } from "../Backtest";
@@ -340,8 +340,11 @@ describe("Backtest — the pooled panel", () => {
 describe("Backtest — the manifest", () => {
   it("shows which dials moved, and how many runs have moved each one", () => {
     renderPage();
-    expect(screen.getByText("insider_core_alpha_liveness_days")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument(); // the trial count for that dial
+    // Scoped to the manifest card: the dial name now also appears in the run picker's arm header (C),
+    // so an unscoped query would match both. This test is about the manifest, so it looks there.
+    const card = screen.getByRole("region", { name: /What produced this run/ });
+    expect(within(card).getByText("insider_core_alpha_liveness_days")).toBeInTheDocument();
+    expect(within(card).getByText("4")).toBeInTheDocument(); // the trial count for that dial
   });
 
   it("shows the pre-registration when there is one", () => {
@@ -391,7 +394,8 @@ describe("Backtest — the sweep", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Dial sweep/ }));
     const region = screen.getByRole("region", { name: /Dial sweep/ });
-    expect(region.textContent).toContain("A plateau 2 points wide");
+    // The loud VERDICT distills the plateau result — a band by width, never a best point (issue #3).
+    expect(region.textContent).toContain("Band: 2 settings wide");
     // The TABLE is where a ranking would show up — the backend's own banner is allowed to say the
     // word ("a curve, not a winner"), and scanning the whole region would catch that disclaimer
     // rather than the thing it disclaims.
@@ -404,6 +408,39 @@ describe("Backtest — the sweep", () => {
     const rows = [...region.querySelectorAll("tbody tr")].map((r) => r.textContent ?? "");
     expect(rows[0]).toContain("d=90");
     expect(rows[1]).toContain("d=180");
+  });
+
+  it("folds the methodology behind 'How to read this' — default collapsed, nothing deleted", () => {
+    renderPage({
+      sweep: {
+        available: true,
+        labels: LABELS,
+        sweep: {
+          dial_names: ["insider_core_alpha_liveness_days"],
+          window_start: "2025-09-01",
+          window_end: "2026-09-14",
+          subwindows: 2,
+          mirror_hash: "c".repeat(64),
+          baseline_config_short: "bbbbbbbb",
+          points: [
+            { run_id: "r1", dials: { d: 90 }, metric: 0.01, sign_agreement: true },
+            { run_id: "r2", dials: { d: 180 }, metric: 0.09, sign_agreement: true },
+          ],
+          plateau: [0, 1],
+          banner: "a curve, not a winner",
+        },
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Dial sweep/ }));
+    const region = screen.getByRole("region", { name: /Dial sweep/ });
+    // Collapsed by default: the backend banner and the full plateau sentence are one click away.
+    expect(region.textContent).not.toContain("a curve, not a winner");
+    expect(region.textContent).not.toContain("A plateau 2 points wide");
+    // ...and one click reveals them verbatim — the guardrail caveats are folded, never deleted.
+    fireEvent.click(screen.getByRole("button", { name: /How to read this/ }));
+    const after = screen.getByRole("region", { name: /Dial sweep/ }).textContent ?? "";
+    expect(after).toContain("a curve, not a winner"); // the backend banner, rendered verbatim
+    expect(after).toContain("A plateau 2 points wide"); // the full methodology sentence
   });
 });
 
@@ -447,7 +484,7 @@ describe("Backtest — the curve switcher (D)", () => {
     expect(text).toContain("activist_13d_liveness_days");
     expect(text).toContain("keyed on strict_sign_agreement");
     expect(text).toContain("band 2 wide");
-    expect(text).toContain("no band (nothing found)");
+    expect(text).toContain("no band");
   });
 
   it("marks a SLICED curve so it can never be mistaken for the pooled one", () => {
