@@ -1951,6 +1951,10 @@ export interface components {
             n_episodes: number;
             /** Dials Moved */
             dials_moved?: string[];
+            /** Dial Values */
+            dial_values?: {
+                [key: string]: unknown;
+            };
         };
         /** BacktestRunsResponse */
         BacktestRunsResponse: {

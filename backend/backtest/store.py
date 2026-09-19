@@ -65,6 +65,11 @@ class RunSummary(BaseModel):
     # Which dials this run moved off the default — the registry's answer to "count your trials": how many
     # runs have touched THIS dial is a listing away, rather than an archaeology exercise.
     dials_moved: list[str] = Field(default_factory=list)
+    # The VALUE each moved dial took in this run — `overlay_diff[dial]["run"]`, the SIBLING of
+    # `dials_moved`. It lets the registry NAME a run's arm ("liveness = 90") without opening its manifest,
+    # which is where the value otherwise lives alone. An old index row written before this field simply
+    # has none, and the default fills in — nothing that reads `dials_moved` is affected.
+    dial_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunIndex(BaseModel):

@@ -56,6 +56,9 @@ def test_a_run_leaves_a_complete_addressable_artifact(db, tmp_path):
     assert m.config_hash == config_hash(DEFAULT_CONFIG)
     assert mf.verify_config_hash(m) is True
     assert m.overlay_diff == {}  # a bare run is the production dials
+    # ...and the registry row of a baseline run carries neither a moved dial nor a dial value.
+    baseline_row = store.list_runs(tmp_path)[0]
+    assert baseline_row.dials_moved == [] and baseline_row.dial_values == {}
     assert m.timings["export_s"] >= 0 and "replay_s" in m.timings
     assert m.mirror.hash and len(m.mirror.hash) == 64
 
@@ -146,6 +149,9 @@ def test_a_run_is_registered_and_names_the_dials_it_moved(db, tmp_path):
     assert [r.run_id for r in rows] == [outcome.run_id]
     row = rows[0]
     assert row.dials_moved == ["insider_core_alpha_liveness_days"]
+    # B — the SIBLING of `dials_moved`: the registry row also names the VALUE the moved dial took, so the
+    # picker can label this run's arm off the row alone (never opening the manifest).
+    assert row.dial_values == {"insider_core_alpha_liveness_days": 90}
     assert row.hypothesis == "H5: the horizon is the lever"
     assert row.decision_rule == "plateau, not argmax"
     assert row.config_hash == config_hash(cfg)

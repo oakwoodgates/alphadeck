@@ -1880,6 +1880,10 @@ class BacktestRunSummaryOut(BaseModel):
     n_theses: int = 0
     n_episodes: int = 0
     dials_moved: list[str] = Field(default_factory=list)
+    # The VALUE each moved dial took — the SIBLING of `dials_moved`, so the picker can name a run's arm
+    # ("liveness = 90") off the registry row alone. A run written before this field carries none, and the
+    # default fills in.
+    dial_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class BacktestRunsResponse(BaseModel):
