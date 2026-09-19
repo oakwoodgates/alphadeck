@@ -30,7 +30,7 @@ subprocess, no app connection.
    (or `ls data/backups` at the main-checkout root).
 2. Create, labeled with the reason:
    ```
-   docker compose exec backend python -m pipeline.backup --label pre-<why>
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m pipeline.backup --label pre-<why>
    ```
 3. Verify the file landed: `ls data/backups` → `alphadeck-<UTC>-pre-<why>.sql`,
    non-trivial size.

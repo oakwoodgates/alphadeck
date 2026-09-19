@@ -31,8 +31,8 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
 2. **Not healthy → read the run-of-record:** newest JSON in `data/cron_runs/`
    (append-only, one per pass) — per-thesis ingest tallies, appended/unchanged/
    errored counts, and whether the run happened at all.
-3. **No run at all → is the sidecar up?** `docker compose ps cron` +
-   `docker compose logs --tail 50 cron`.
+3. **No run at all → is the sidecar up?** `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps cron` +
+   `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail 50 cron`.
 4. **Runs happen but data looks frozen → suspect cache freshness** (the 2026-07
    failure shape): mutable EDGAR prefixes refresh on a key-classed 12h TTL — check
    a stale-looking name's newest insider fact date against EDGAR's actual filings

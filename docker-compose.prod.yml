@@ -1,0 +1,24 @@
+# Prod stack overlay — layered OVER the unchanged root docker-compose.yml. Symmetric with the dev/sig/fork
+# overlays; unlike them, prod keeps the base project name (alphadeck) and the auto-loaded .env, so it takes
+# NO -p and NO --env-file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build     (or: make prod-up)
+#
+# WHAT IT ADDS: a READ-ONLY bind of the curated, FROZEN backtest archive at ./data/backtest_prod to the
+# container's backtest store root /data/backtest, so prod's /backtest page serves the three keeper passes.
+# The image copies backend/ into /app, so backtest.store.DEFAULT_ROOT = parents[2]/data/backtest =
+# /data/backtest; the route reads with no root override and no env var, so the MOUNT is the only lever.
+#
+# WHY AN OVERLAY, NOT THE BASE: this project's Compose CONCATENATES service `volumes` (see the dev/sig/fork
+# overlays' comments), so a /data/backtest entry in the BASE would collide with dev/sig's own /data/backtest
+# bind = "duplicate mount point". Here base has no /data/backtest target, so this ADDS a fourth backend
+# volume cleanly. Prod is the ONLY tier that loads this file; dev/sig/fork pass their own -f overlays and
+# never see it, so their resolved config is byte-identical to today.
+#
+# FROZEN + DECOUPLED: ./data/backtest_prod is a separate COPY. Future dev backtests write ./data/backtest and
+# never touch this dir; :ro means the container physically cannot write it. Absent dir is fine — Docker
+# creates it empty, /backtest/runs is missing, and the route answers available:false.
+services:
+  backend:
+    volumes:
+      - ./data/backtest_prod:/data/backtest:ro
