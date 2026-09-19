@@ -200,6 +200,28 @@ export function plateauLine(v: SweepView): string {
   );
 }
 
+/** The short band phrase a reader picks a curve on: "band N wide" for a real plateau, "no band" for the
+ *  null. Distilled from the plateau width the backend computed — never a "best" point. */
+export function bandResult(plateauWidth: number): string {
+  return plateauWidth > 1 ? `band ${plateauWidth} wide` : "no band";
+}
+
+/** The LOUD half of the sweep's VERDICT — its band-or-no-band answer, distilled from the SAME plateau the
+ *  table marks. "No band — nothing found" is the honest null and stays unambiguous; a band is named by its
+ *  WIDTH, never by a best point (#4 — the surface ranks nothing). A faithful distillation of `plateauLine`,
+ *  never a softening of it. */
+export function verdictHeadline(v: SweepView): string {
+  if (!v.points.length) return "No points in this sweep";
+  return v.plateauWidth > 1 ? `Band: ${v.plateauWidth} settings wide` : "No band — nothing found";
+}
+
+/** The MUTED half of the verdict — which cross-window rule the band was keyed on, and how many windows it
+ *  had to hold across. A band width without its rule and window count is not a fact about a dial. */
+export function verdictQualifier(v: SweepView): string {
+  const n = v.windows.length || v.subwindows;
+  return `keyed on ${v.plateauRule.replaceAll("_", " ")} · ${n} window${n === 1 ? "" : "s"}`;
+}
+
 /** Does this point agree under the rule THIS curve's band was keyed on?
  *
  *  Read off the curve rather than fixed, because the rule changed and BOTH fields ride every point: a
