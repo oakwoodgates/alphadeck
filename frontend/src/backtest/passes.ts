@@ -28,12 +28,13 @@ export type PassGroup<T> = {
   items: T[];
 };
 
-const CALIBRATION_WORDS = ["smoke", "calibration", "calibrate", "dry run", "dry-run"];
+// Word-boundary matched, so a real pass whose text merely CONTAINS one of these (e.g. "recalibrate")
+// is not mistaken for a smoke. Still a display heuristic — see the module note.
+const CALIBRATION_RE = /\b(smoke|calibration|calibrate|dry[ -]run)\b/;
 
 /** Does this pass look like a smoke or a calibration, by its id and its own text? */
 export function looksLikeCalibration(passId: string, hypothesis: string): boolean {
-  const hay = `${passId} ${hypothesis}`.toLowerCase();
-  return CALIBRATION_WORDS.some((w) => hay.includes(w));
+  return CALIBRATION_RE.test(`${passId} ${hypothesis}`.toLowerCase());
 }
 
 /** A stable label for a run or curve with no pass id at all — a standalone run, which is a legitimate

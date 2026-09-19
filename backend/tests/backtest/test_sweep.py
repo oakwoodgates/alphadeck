@@ -7,6 +7,7 @@ import pytest
 
 from backtest.sweep import (
     SWEEP_NAME,
+    Ladder,
     SweepPoint,
     SweepReport,
     _plateau,
@@ -14,6 +15,7 @@ from backtest.sweep import (
     cfg_for,
     main,
     parse_values,
+    sliced_plateau_warning,
     variants,
 )
 from domain.config import DEFAULT_CONFIG
@@ -146,6 +148,18 @@ def test_strict_measurable_still_needs_TWO_windows_that_could_answer():
 def test_the_rule_the_band_used_rides_the_report():
     """A band is meaningless without it, and two curves read under two rules must not look alike."""
     assert SweepReport(window_start=_T0, window_end=_T1).plateau_rule == "strict_sign_agreement"
+
+
+def test_a_sliced_pass_on_the_default_rule_is_WARNED():
+    """#2: a sliced curve has unmeasurable windows by construction, so any rule but
+    `strict_measurable_agreement` yields an EMPTY band. The CLI warns rather than silently
+    returning one; the warning is advisory -- the pass still runs on the operator's chosen rule."""
+    sliced = Ladder(["d"], [{"d": 90}], "h", "r", metric_slice=("key1_source", "insider"))
+    unsliced = Ladder(["d"], [{"d": 90}], "h", "r")
+    assert sliced_plateau_warning([sliced], "strict_sign_agreement") is not None
+    assert sliced_plateau_warning([sliced], "sign_agreement") is not None
+    assert sliced_plateau_warning([sliced], "strict_measurable_agreement") is None
+    assert sliced_plateau_warning([unsliced], "strict_sign_agreement") is None
 
 
 # --- sub-period sign agreement ----------------------------------------------------------------------

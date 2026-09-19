@@ -132,6 +132,10 @@ def pair_point(curve: dict[str, Any], value: Any, root: Path) -> PairReport:
     points = curve["points"]
     baseline = next((p for p in points if p.get("is_baseline")), points[0])
     dial = curve["dial_names"][0]
+    # SINGLE-DIAL curves only. A point's `dials` has one entry here, so `values()[0]` is that
+    # dial's value. backtest.pair is invoked per-dial (--dial picks one curve) and every
+    # pre-registered pass is a single-dial ladder; a multi-dial GRID curve would mis-match
+    # here -- pair those by hand.
     match = [p for p in points if str(list(p["dials"].values())[0]) == str(value)]
     if not match:
         raise SystemExit(f"no point at {dial}={value} in this curve")
