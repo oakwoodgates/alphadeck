@@ -28,7 +28,7 @@ from signals.insider_conviction import _is_foreign_ordinary
 _FIX = Path(__file__).resolve().parent.parent / "fixtures" / "edgar"
 _TSM_MIXED = (_FIX / "form4_tsm_mixed.xml").read_text(encoding="utf-8")
 _US_SAMPLE = (_FIX / "form4_sample.xml").read_text(encoding="utf-8")
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _master(db, cik, ticker) -> uuid.UUID:

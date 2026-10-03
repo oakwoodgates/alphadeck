@@ -19,7 +19,7 @@ from signals.base import PointInTimeData
 from workbench import scoring
 from workbench.scoring import score_member
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(2026, 6, 2)
 
 

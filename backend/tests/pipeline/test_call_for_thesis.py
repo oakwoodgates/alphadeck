@@ -23,7 +23,7 @@ from signals.horizons import call_bounds
 # The vertical slice, end to end through persistence: seed real HIMS facts + persist the thesis, then
 # compute the CallCard from the stored thesis by re-deriving signals from the facts as-of.
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _WELLS_ACCESSION = "0001773751-26-000086"
 
 

@@ -26,7 +26,7 @@ from replay.run import add_switch_args, arrow_schema, lab_config, run
 from replay.schema import Episode, Outcome
 from repositories import thesis_repo
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START = date(2025, 4, 1)
 _END = date(2026, 6, 30)
 

@@ -30,7 +30,7 @@ from tests.replay.test_tape_memo import _PreMemoRealizedPrices  # noqa: E402
 # 2025-06-30 to be cheap; the seed arms NOTHING there, so all three byte comparisons passed over empty
 # artifacts and only the non-vacuity guard caught it. A real instance where the seed genuinely arms, never
 # a window chosen to make a number appear.
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 _SEED = "m1-artifact-parity"
 

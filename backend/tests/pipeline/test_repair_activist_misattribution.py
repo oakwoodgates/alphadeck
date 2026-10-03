@@ -17,7 +17,7 @@ from db.bitemporal import append_fact, as_of
 from db.session import DEFAULT_TENANT_ID
 from pipeline.repair_activist_misattribution import run_repair
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _master(db, cik, ticker) -> uuid.UUID:

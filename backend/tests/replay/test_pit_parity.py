@@ -28,7 +28,7 @@ from replay.export import export_snapshot
 from replay.pit import ReplayPointInTimeData, connect_mirror
 from signals.base import PointInTimeData
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _canon(v):

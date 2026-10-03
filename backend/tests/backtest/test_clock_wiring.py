@@ -19,7 +19,7 @@ from replay.export import MANIFEST_NAME, mirror_clock, read_mirror_manifest
 # numbers. So the axis is read back off the mirror's own manifest, `known_at_mode` is DERIVED from it, and
 # a supplied mirror handed a disagreeing clock refuses before doing any work.
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2025, 5, 15)
 
 

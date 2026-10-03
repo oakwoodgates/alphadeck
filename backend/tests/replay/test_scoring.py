@@ -17,7 +17,7 @@ from replay.pit import connect_mirror
 from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _import_modules(module) -> set[str]:
