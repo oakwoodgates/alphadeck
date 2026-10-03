@@ -12,7 +12,7 @@ from signals.base import PointInTimeData
 _F = Path(__file__).resolve().parent.parent / "fixtures"  # test-only EDGAR/price samples
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"  # shared HIMS demo samples
 # A far-future known_at: "we know everything recorded so far" — isolates the valid-time axis.
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def test_pit_insider_txns_have_no_lookahead(db, security_id):

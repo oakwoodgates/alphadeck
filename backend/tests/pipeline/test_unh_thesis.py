@@ -7,7 +7,7 @@ from ingest.edgar.form4 import parse_form4
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import _SEED_DATA, _UNH_FORM4S, UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def test_unh_form4_parse_oracle():

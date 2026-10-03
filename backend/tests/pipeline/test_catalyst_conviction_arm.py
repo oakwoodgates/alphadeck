@@ -16,7 +16,7 @@ from pipeline.seed import (
     seed_nuclear_catalyst,
 )
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(
     2026, 6, 2
 )  # the REAL moment the breakouts are fresh AND holding; by 06-03 they give back and breakdown de-arms

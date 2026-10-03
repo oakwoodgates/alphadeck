@@ -41,7 +41,7 @@ from ingest.edgar.submissions import (
 # case, where the subject-attribution skip must KEEP every row. The OUTBOUND (skip) case is exercised
 # separately with the owner set to the FILER's CIK.
 _CIK = "0001816590"  # COMPASS Pathways plc — the subject of the CMPS identity fixtures
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "schedule13"
 _REAL_XML = (_FIXTURES / "cmps_schedule13da_primary_doc.xml").read_text(encoding="utf-8")
 _REAL_HDR = (_FIXTURES / "cmps_sc13d_2021_header.txt").read_text(encoding="utf-8")

@@ -21,7 +21,7 @@ from repositories import thesis_repo
 # pick is subtly wrong on real data: the unit tests next door build their own tape, this one runs the
 # REAL detectors over the seeded UNH arc and compares the assembled calls, not the rows.
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 
 

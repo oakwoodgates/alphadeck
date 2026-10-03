@@ -30,7 +30,7 @@ from replay.harness import ReplayResult, RosterSource, replay_all, replay_thesis
 from replay.pit import connect_mirror
 from repositories import thesis_repo
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 
 
@@ -259,7 +259,7 @@ def test_the_roster_clock_is_the_MARKET_day_cap_never_the_bare_pin():
     serve path's scrub-back uses (INVARIANTS #4), not a second one invented here. Pure: no DB, no replay.
     """
     session = date(2025, 8, 15)
-    far_pin = datetime(2027, 1, 1, tzinfo=timezone.utc)
+    far_pin = datetime(2100, 1, 1, tzinfo=timezone.utc)
     near_pin = datetime(2025, 8, 15, 6, 0, tzinfo=timezone.utc)  # BEFORE that day ends
 
     capped = known_at_for_asof(session, far_pin)

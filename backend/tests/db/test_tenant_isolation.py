@@ -49,7 +49,7 @@ from workbench.scoring import score_member
 PROD_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
 
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _ARM_ASOF = date(
     2026, 6, 1
 )  # the proven HIMS breakout date (co-located with the Wells cluster buy)
