@@ -17,7 +17,7 @@ from ingest.edgar.form8k import existing_8k_events, filing_index_url, ingest_for
 from ingest.edgar.submissions import form8k_filings, parse_item_codes
 
 _CIK = "0001234567"
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _filing(accession, filed="2026-05-01", items=None, form="8-K"):

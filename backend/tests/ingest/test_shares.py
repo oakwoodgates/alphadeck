@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from ingest.shares import ingest_shares_outstanding
 from signals.base import PointInTimeData
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def test_shares_ingest_and_asof_read(db, security_id):

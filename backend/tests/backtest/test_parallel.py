@@ -17,7 +17,7 @@ from replay.export import export_snapshot  # noqa: E402
 # Speed is measured on the dev copy, not asserted here -- a timing assertion on a shared CI box is a flake
 # waiting to happen, and a wrong-but-fast answer is worse than a slow one.
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 
 

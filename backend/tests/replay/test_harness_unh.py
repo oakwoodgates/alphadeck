@@ -11,7 +11,7 @@ from replay.harness import replay_thesis
 from replay.pit import connect_mirror
 from repositories import thesis_repo
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 @pytest.mark.slow  # ~21 s serial with the pandas sentinel (was 104 s before it)

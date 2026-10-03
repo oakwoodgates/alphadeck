@@ -20,7 +20,7 @@ from backtest.run import build_parser, execute, main  # noqa: E402
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash  # noqa: E402
 from pipeline.seed import seed_unh  # noqa: E402
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2025, 4, 1), date(2026, 6, 1)
 
 

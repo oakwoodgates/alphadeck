@@ -48,12 +48,16 @@ from securities.benchmarks import seed_benchmarks
 SECS: list[UUID] = [HIMS_SECURITY_ID, UNH_SECURITY_ID, SMR_ID, OKLO_ID, NNE_ID, LEU_ID]
 THESES: list[UUID] = [HIMS_THESIS_ID, UNH_THESIS_ID, NUCLEAR_THESIS_ID]
 
-# Transaction-time pins. PIN sees every version; MID sits strictly between the two re-versions below
-# (both later than the seed's ``recorded_at = now()`` as long as the suite runs before T1).
-PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
-T1 = datetime(2026, 10, 1, tzinfo=timezone.utc)
-MID = datetime(2026, 10, 15, tzinfo=timezone.utc)
-T2 = datetime(2026, 11, 1, tzinfo=timezone.utc)
+# Transaction-time pins. The invariant: ``seed recorded_at < T1 < MID < T2 < PIN``. The seed functions
+# stamp ``recorded_at`` with the DB default ``now()`` — the REAL clock at test time — so every pin must sit
+# after any instant this suite can run at. That is why they are far-future: the first version pinned T1 at
+# 2026-10-01, and from that day the seed row (not the T1 re-version) was the latest version at MID. PIN
+# sees every version; MID sits strictly between the two re-versions. ``add_mid_versions`` asserts the
+# first inequality rather than trusting the calendar.
+PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
+T1 = datetime(2099, 10, 1, tzinfo=timezone.utc)
+MID = datetime(2099, 10, 15, tzinfo=timezone.utc)
+T2 = datetime(2099, 11, 1, tzinfo=timezone.utc)
 # the re-versioned Form 4's distinguishing marker per version (a display-only column, never a gate)
 ACCEPTED_V1 = datetime(2026, 5, 20, 12, tzinfo=timezone.utc)
 ACCEPTED_V2 = datetime(2026, 5, 21, 12, tzinfo=timezone.utc)
@@ -81,13 +85,17 @@ def add_mid_versions(db) -> tuple[date, Decimal, Decimal]:
     version) at T1 and T2. Returns ``(bar date, close at T1, close at T2)``."""
     with db.cursor() as cur:
         cur.execute(
-            "SELECT d, open, high, low, close, volume FROM fact_price_eod "
+            "SELECT d, open, high, low, close, volume, recorded_at FROM fact_price_eod "
             "WHERE tenant_id = %s AND security_id = %s AND d <= %s "
             "ORDER BY d DESC, recorded_at DESC LIMIT 1",
             (DEFAULT_TENANT_ID, HIMS_SECURITY_ID, _REVERSION_TARGET),
         )
         bar = cur.fetchone()
     assert bar is not None, "the HIMS seed must hold a bar on/before the re-version target"
+    assert bar["recorded_at"] < T1, (
+        f"the seed was recorded at {bar['recorded_at']}, not before T1 ({T1}): the re-versions would not "
+        "be the latest versions, so MID could not sit between them"
+    )
     v1 = {k: bar[k] for k in ("d", "open", "high", "low", "close", "volume")}
     v2_close = bar["close"] + Decimal("0.01")
     v2 = {**v1, "close": v2_close, "high": max(bar["high"], v2_close)}

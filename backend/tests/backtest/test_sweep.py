@@ -348,7 +348,7 @@ def test_a_sweep_runs_every_point_over_ONE_frozen_mirror(db, tmp_path):
         # two WINDOWS now, each its own run per point (S1) — the same span, split at the same place the
         # old `subwindows=2` split it, so the numbers this test reads are the numbers it always read
         windows=[(date(2025, 4, 1), date(2025, 11, 1)), (date(2025, 11, 2), date(2026, 6, 1))],
-        pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        pin=datetime(2100, 1, 1, tzinfo=timezone.utc),
         hypothesis="H5 smoke",
         decision_rule="plateau, not argmax",
         root=tmp_path,
@@ -419,7 +419,7 @@ def test_a_sweep_with_WORKERS_and_a_SHARED_MIRROR_matches_the_serial_sweep(db, t
             db,
             grid={"insider_core_alpha_liveness_days": [180, 365]},
             windows=[(date(2025, 4, 1), date(2026, 6, 1))],
-            pin=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            pin=datetime(2100, 1, 1, tzinfo=timezone.utc),
             hypothesis="regression: workers + a shared mirror",
             decision_rule="smoke only",
             workers=workers,

@@ -337,7 +337,7 @@ from pipeline.seed import (  # noqa: E402
     seed_unh,
 )
 
-_PIN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _START, _END = date(2026, 4, 1), date(2026, 6, 30)
 
 

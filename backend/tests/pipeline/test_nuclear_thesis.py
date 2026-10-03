@@ -6,7 +6,7 @@ from domain.enums import Kind, State, Verdict
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import NUCLEAR_THESIS_ID, seed_nuclear
 
-_KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def test_nuclear_is_an_honest_warming_thesis(db):
