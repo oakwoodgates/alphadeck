@@ -209,7 +209,7 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   **The three ride the write exactly like `ingest_fresh` / `reconstructed`: off the card and OUT of
   `_canonical`'s compare** — so a dial edit or a deploy alone never re-records an unchanged call (the churn
   gate), and an unchanged config never suppresses a changed one. `run_kind` is an explicit
-  `pipeline.daily --run-kind` flag (default `manual`; `scripts/daily_cron.sh` passes `cron` at all four of its
+  `pipeline.daily --run-kind` flag (default `manual`; `scripts/daily_cron.sh` passes `cron` at every one of its
   invocations), never an ambient env var — the sidecar and an operator type the same command, so only the
   flag can tell the nightly record from a hand run. Legacy rows stay `NULL`: we do not know what produced
   them, which is the finding. The Scoreboard drawer reads it as a quiet provenance caption
@@ -382,6 +382,28 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   construction — never older holes; a deploy must never silently backfill history (the operator's tool for a
   hole is `pipeline.backfill`, below; the in-loop late-wake catch-up above is bounded to the sleep that just
   ended for the same reason). *(What this does NOT cover: a sidecar that never boots — see "Known gaps".)*
+  **It waits for the DB first, retries once, and never eats tonight (2026-10-01).** Restart policies ignore
+  `depends_on` — it orders only the INITIAL `up` — so after a Docker daemon restart every container comes
+  back in the same second. MEASURED on prod: Docker Desktop was down 09-29..10-01; when it came back at
+  23:46:19 EDT, postgres / backend / cron / frontend all started within that second, the boot catch-up for
+  10-01 fired at 23:46:20 into `Connection refused` (the run and every refresh leg), logged `FAILED`, and the
+  loop re-anchored to 10-02 22:30. The backend crash-looped 7× on `db.migrate` and self-healed through its
+  restart policy, but the sidecar's script never exits, so nothing tried the night again — only the
+  operator's "Run daily now" saved it. Now: (1) before the catch-up, `wait_for_db` polls a cheap connect
+  to `db.session.database_url()` (the CLI's own `DATABASE_URL` path; `connect_timeout=5` bounds one probe)
+  every 5 s via the sliced `wait_until`, for at most **`DB_WAIT_S`** (env, default **300 s**; compose passes
+  `ALPHADECK_CRON_DB_WAIT_S`), logging one line when it starts waiting and one when the DB is ready or the
+  bound expires — and fires the catch-up **either way** (fail-open; a DB that never comes up costs the wait,
+  never the loop). Quiet when the first probe passes. (2) A boot catch-up that still exits non-zero gets the
+  scheduled run's ONE G2a retry, `RETRY_DELAY_S` later, still `--catch-up`. (3) Because that block can now
+  run for many minutes, every weekday that became expected **while it ran** (a boot at 22:20 whose block
+  ends past 22:30) gets a `--catch-up` pass before the loop anchors — otherwise the loop computes
+  `next` = tomorrow and silently skips tonight (a latent edge before this too: a boot catch-up that ran
+  past `RUN_AT`). Forward from the boot target only, so never an older hole. The scheduled run polls the
+  same way before it fires (a Postgres restarting at `RUN_AT` costs up to `DB_WAIT_S` of delay rather than a
+  failed run plus a 20-minute retry). Exercised under dash in a `--network none` container with a stubbed
+  `python` (the `CRON_EXIT_AFTER_BOOT=1` seam runs just the boot block) and with the real probe against
+  real psycopg — refused, unresolvable, and a black-holed listener the 5 s connect timeout cut off.
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
@@ -561,6 +583,15 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   retry is ONE attempt, and a multi-night host-off outage still reruns only the last expected night on boot
   (never older holes — a deploy must not silently backfill history); `pipeline.backfill` with a pinned
   `known_at` remains the operator's tool for an older hole.
+- **A boot catch-up lost to the cold-start DB race — CLOSED (2026-10-01).** R6 fired exactly once, at
+  boot, and restart policies ignore `depends_on`, so after a daemon restart the sidecar booted in the same
+  second as Postgres, its catch-up hit `Connection refused`, and nothing tried that night again (MEASURED on
+  prod 10-01; the operator's "Run daily now" saved it). Now the boot waits up to `DB_WAIT_S` for a connect,
+  retries a failed catch-up once, and catches up any night the boot block itself crossed (the R6 bullet in
+  the sidecar section). **Still open, by design:** a DB still down after `DB_WAIT_S` + `RETRY_DELAY_S`
+  (~25 min by default) loses the boot's night under the same one-retry rule as the scheduled run (an
+  operator re-run that night, else `pipeline.backfill`, is the tool), and a night the boot block catches up gets no nightly dump — the
+  backup still rides only the in-loop wake, as it always has for boot catch-ups.
 - **A per-name feed that silently ENDED — MONITORED (G5a price tapes · F1 fund shares), the repair still
   manual.** Zero rows appended with no error is what a dead feed and a market holiday both look like, so a
   rename-starved name could sit dark

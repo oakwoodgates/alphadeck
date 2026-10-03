@@ -62,6 +62,23 @@
 #   re-anchored to Thu 22:30; Sep 9 was never attempted. Still exactly ONE night by construction (never older
 #   holes — a deploy must never silently backfill history); the CLI's guard makes it a no-op when the night
 #   genuinely ran, and a pre-open manual pass for that as-of does NOT count as the night (see the CLI).
+# - WAITS FOR THE DB BEFORE THE BOOT CATCH-UP, AND RETRIES IT ONCE (2026-10-01). Restart policies ignore
+#   `depends_on` (it orders only the INITIAL `up`), so after a Docker daemon restart every container comes
+#   back in the same second and this sidecar can boot before Postgres accepts a connection. MEASURED on prod
+#   2026-10-01: Docker Desktop was down 09-29..10-01; when it came back at 23:46:19 EDT, postgres, backend,
+#   cron and frontend all started within that second, the boot catch-up for 10-01 fired at 23:46:20, lost the
+#   race (`Connection refused` on the run and on every refresh leg), logged FAILED, and the loop re-anchored
+#   to 10-02 22:30. The backend crash-looped 7x on `db.migrate` and self-healed through its restart policy,
+#   but this script never exits, so nothing tried the night again — only a hand "Run daily now" saved it.
+#   Now the boot polls a cheap connect (`wait_for_db`, below: `db.session.database_url()`, the CLI's own
+#   DATABASE_URL path) every DB_POLL_S (5 s) through `wait_until` for at most DB_WAIT_S (default 300 s),
+#   then fires the catch-up EITHER WAY (fail-open: a DB that never comes up costs the wait, never the loop);
+#   a boot catch-up that still exits non-zero gets the scheduled run's ONE retry (G2a), RETRY_DELAY_S later.
+#   The scheduled run polls the same way first (quiet when the DB is up: one probe, no log line). And since
+#   the boot block can now run for many minutes, every night that became expected WHILE it ran (a boot at
+#   22:20 whose block ends past 22:30) gets a `--catch-up` pass before the loop anchors — the loop would
+#   otherwise compute `next` = tomorrow and drop tonight. Forward from the boot target only, so still never
+#   an older hole.
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -71,6 +88,9 @@
 # - POSIX sh (the image's /bin/sh is dash) + GNU `date -d`. The schedule math below is pure over its
 #   arguments (no ambient clock) and mirrors pipeline/schedule.py — keep the two in step; to exercise it by
 #   hand, paste the functions into a shell with RUN_AT set and `python` stubbed (`python() { echo "$@"; }`).
+#   To run JUST the boot block (the DB wait, the catch-up, its retry, the crossed-RUN_AT catch-up) and exit
+#   before the loop, set CRON_EXIT_AFTER_BOOT=1 with a stub `python` first on PATH and small DB_WAIT_S /
+#   DB_POLL_S / RETRY_DELAY_S / SLICE_S — a test seam only; compose never sets it.
 set -u
 
 RUN_AT="${RUN_AT:-22:30}"
@@ -84,6 +104,16 @@ SLICE_S="${SLICE_S:-60}"
 # non-numeric / non-positive guard as SLICE_S.
 RETRY_DELAY_S="${RETRY_DELAY_S:-1200}"
 [ "${RETRY_DELAY_S}" -ge 1 ] 2>/dev/null || RETRY_DELAY_S=1200
+# The DB wait (2026-10-01; see the header) — the most the boot catch-up and the scheduled run wait for
+# Postgres to accept a connection before firing anyway. 5 minutes by default: a cold Postgres after an
+# unclean daemon stop replays its WAL before it accepts a connection ("the database system is starting
+# up"), normally seconds; five minutes covers a slow recovery without pushing a night meaningfully late.
+# DB_POLL_S is the gap between probes — a script default like SLICE_S (not in compose), tunable only to
+# exercise the wait by hand. Same non-numeric / non-positive guard as SLICE_S for both.
+DB_WAIT_S="${DB_WAIT_S:-300}"
+[ "${DB_WAIT_S}" -ge 1 ] 2>/dev/null || DB_WAIT_S=300
+DB_POLL_S="${DB_POLL_S:-5}"
+[ "${DB_POLL_S}" -ge 1 ] 2>/dev/null || DB_POLL_S=5
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -129,17 +159,18 @@ catch_up_days() {
   done
 }
 
-# catch_up_between TARGET LAST_EXPECTED -> a `--catch-up` pass for each day catch_up_days lists (the nights
-# the sleep ALSO skipped). Each day is its own log line + its own fail-open invocation; `--catch-up` is a
-# no-op when a live pass for that as-of already ran (the R3 run log is the memory).
+# catch_up_between TARGET LAST_EXPECTED [WHY] -> a `--catch-up` pass for each day catch_up_days lists (the
+# nights the sleep ALSO skipped, or that became expected while the boot block ran). Each day is its own log
+# line + its own fail-open invocation; `--catch-up` is a no-op when a live pass for that as-of already ran
+# (the R3 run log is the memory). WHY labels the log line (default "late wake", the in-loop caller).
 catch_up_between() {
   for _cb in $(catch_up_days "$1" "$2"); do
-    echo "daily-cron: late wake — catching up ${_cb}"
+    echo "daily-cron: ${3:-late wake} — catching up ${_cb}"
     python -m pipeline.daily --run-kind cron --catch-up --asof "${_cb}" || echo "daily-cron: catch-up ${_cb} FAILED (continuing)"
   done
 }
 
-# --- the wait (the one helper that reads the ambient clock) ----------------------------------------------
+# --- the waits (the helpers that read the ambient clock) -------------------------------------------------
 
 # wait_until EPOCH -> returns once the WALL clock (`date +%s`) is >= EPOCH. Sleeps in slices of at most
 # SLICE_S seconds and re-reads the wall clock after each: a suspended host does not advance the monotonic
@@ -152,6 +183,53 @@ wait_until() {
     [ "${_rem}" -le 0 ] && break
     [ "${_rem}" -gt "${SLICE_S}" ] && _rem="${SLICE_S}"
     sleep "${_rem}"
+  done
+}
+
+# db_probe -> exit 0 once Postgres accepts a connection at `db.session.database_url()` — the SAME
+# DATABASE_URL resolution `db.session.connect` gives every CLI pass below — else non-zero with the error
+# collapsed to ONE stderr line (an import failure included, so a broken image cannot spray a traceback per
+# probe). An explicit `connect_timeout=5` bounds one attempt, so a black-holed host cannot hold a probe
+# open (explicit rather than the PGCONNECT_TIMEOUT env var: psycopg honors the kwarg on every 3.x, the env
+# var only on the newer ones, and pyproject floors it at 3.1).
+db_probe() {
+  python -c '
+import sys
+try:
+    import psycopg
+    from db.session import database_url
+    psycopg.connect(database_url(), connect_timeout=5).close()
+except Exception as e:
+    sys.exit(type(e).__name__ + ": " + " ".join(str(e).split()))
+'
+}
+
+# wait_for_db WHAT -> returns once db_probe passes or DB_WAIT_S has elapsed, whichever comes first — and
+# returns either way (fail-open: the caller fires WHAT regardless; its own exit + retry are the backstop).
+# Quiet when the first probe passes (the normal night: one probe, no log line). Otherwise one line when
+# the wait starts and one when it ends, ready or not, with the last error. Polls every DB_POLL_S through
+# wait_until — sliced on the wall clock, the same suspend-safe idiom as the schedule wait, never one long
+# `sleep` — and bounded on the wall clock too, so a probe's own run time counts against DB_WAIT_S (the wait
+# can end at most one probe past the bound: MEASURED 13-14 s at DB_WAIT_S=8 against a black-holed server,
+# each probe cut off at its 5 s connect_timeout).
+wait_for_db() {
+  _dbw_err=$(db_probe 2>&1) && return 0
+  _dbw_start=$(date +%s)
+  _dbw_end=$(( _dbw_start + DB_WAIT_S ))
+  echo "daily-cron: $(date) — DB not ready for the $1 (${_dbw_err}); waiting up to ${DB_WAIT_S}s"
+  while :; do
+    _dbw_now=$(date +%s)
+    if [ "${_dbw_now}" -ge "${_dbw_end}" ]; then
+      echo "daily-cron: DB still not ready after $(( _dbw_now - _dbw_start ))s (${_dbw_err}) — firing the $1 anyway"
+      return 0
+    fi
+    _dbw_next=$(( _dbw_now + DB_POLL_S ))
+    [ "${_dbw_next}" -gt "${_dbw_end}" ] && _dbw_next="${_dbw_end}"
+    wait_until "${_dbw_next}"
+    if _dbw_err=$(db_probe 2>&1); then
+      echo "daily-cron: DB ready after $(( $(date +%s) - _dbw_start ))s — firing the $1"
+      return 0
+    fi
   done
 }
 
@@ -170,12 +248,40 @@ echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CL
 # on purpose: `--catch-up` is the guard — a NO-OP unless a LIVE pass for that as-of that STARTED at/after its
 # RUN_AT is genuinely missing (the CLI reads the run log — R3's memory; a pre-open "Run daily now" for the same
 # as-of does NOT count — it lacks the night's close — so it can no longer mask a missed post-close pass).
-# Idempotent + fail-open: it never blocks the loop. Exactly ONE night by construction — never older holes (a
-# deploy must never silently backfill history; the in-loop catch-up above is bounded to the sleep that just
-# ended for the same reason).
+# Idempotent + fail-open: it can DELAY the loop (the DB wait + one retry, both bounded) but never block it.
+# Exactly ONE night by construction — never older holes (a deploy must never silently backfill history; the
+# in-loop catch-up above is bounded to the sleep that just ended for the same reason). The target is fixed
+# HERE, at boot, before any wait: the nights that become expected during the block are the crossed-RUN_AT
+# catch-up's (below), not a re-read of the target.
 _boot_target=$(last_expected_asof "$(date +%s)")
 echo "daily-cron: booted $(date) — catch-up for the last expected night ${_boot_target} (no-op if its post-${RUN_AT} live pass already ran)"
-python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}" || echo "daily-cron: boot catch-up ${_boot_target} FAILED (continuing to the schedule)"
+# WAIT FOR THE DB FIRST (2026-10-01 — the cold-start race in the header): on a daemon restart this sidecar
+# boots in the same second as Postgres, and the old block fired straight into `Connection refused`.
+wait_for_db "boot catch-up ${_boot_target}"
+if python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}"; then
+  :
+else
+  # The scheduled run's G2a retry, given to the boot too: a boot catch-up that failed used to be the end
+  # of that night (the loop re-anchors to the next RUN_AT and nothing re-tries a past night). ONE retry,
+  # RETRY_DELAY_S later through wait_until; still `--catch-up`, so a no-op if the night recorded meanwhile
+  # (an operator's "Run daily now", or a pass that died after recording).
+  echo "daily-cron: boot catch-up ${_boot_target} FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
+  wait_until "$(( $(date +%s) + RETRY_DELAY_S ))"
+  echo "daily-cron: $(date) — retrying boot catch-up ${_boot_target} (--catch-up)"
+  python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}" \
+    || echo "daily-cron: boot catch-up retry ${_boot_target} FAILED (continuing to the schedule)"
+fi
+# THE NIGHTS THE BOOT BLOCK ITSELF CROSSED. The wait + the catch-up + its retry can run for many minutes,
+# and the loop below anchors on the clock it finds: a block that ends past today's RUN_AT on a weekday gets
+# `next` = tomorrow, and tonight would never fire (a boot at 22:20 whose block ends at 22:35). Catch up
+# every weekday strictly after the boot target up to the last expected as-of NOW — exactly the nights that
+# became expected during the block (empty on almost every boot), never an older one.
+catch_up_between "${_boot_target}" "$(last_expected_asof "$(date +%s)")" "boot block crossed ${RUN_AT}"
+if [ "${CRON_EXIT_AFTER_BOOT:-}" = 1 ]; then
+  # the test seam (header): stop before the infinite loop so the boot block can be exercised on its own
+  echo "daily-cron: CRON_EXIT_AFTER_BOOT=1 — exiting before the schedule loop"
+  exit 0
+fi
 
 while :; do
   now=$(date +%s)
@@ -195,6 +301,9 @@ while :; do
     echo "daily-cron: LATE WAKE — $(date) is ${late_min} min past the scheduled $(date -d "@${next}")"
   fi
   if is_weekday "${target}"; then
+    # the same bounded, fail-open DB wait as the boot (quiet when the DB is up): a Postgres restarting at
+    # RUN_AT costs up to DB_WAIT_S of delay instead of a failed run and a RETRY_DELAY_S retry
+    wait_for_db "scheduled run ${target}"
     echo "daily-cron: $(date) — running pipeline.daily --asof ${target}"
     # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day
     if python -m pipeline.daily --run-kind cron --asof "${target}"; then
